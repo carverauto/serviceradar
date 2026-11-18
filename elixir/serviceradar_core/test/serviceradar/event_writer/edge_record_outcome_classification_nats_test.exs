@@ -134,7 +134,7 @@ defmodule ServiceRadar.EventWriter.EdgeRecordOutcomeClassificationNatsTest do
           end
 
         String.contains?(sql, "INSERT INTO platform.event_ledger") ->
-          [scope, event_id, semantic_sha, record_sha] = params
+          [scope, event_id, semantic_sha, record_sha | _late_admission_audit] = params
           key = {scope, event_id}
           val = %{semantic_envelope_sha256: semantic_sha, record_sha256: record_sha}
 

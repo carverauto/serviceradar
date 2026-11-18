@@ -30,13 +30,22 @@ defmodule ServiceRadar.Edge.LateAdmission do
   `produced_at` is the UUIDv7 time of `event_id`, which the record's signed production window
   already binds. A grant is an `EdgeDeliveryClaimsV1` late-admission transition, signed for the
   `delivery` purpose and short-lived like a renewal grant.
+
+  The gateway forwards the grant with the record it publishes (`Sr-Edge-Late-Admission-Grant`), and
+  EventWriter acts on it only after `verify_delivered/3` (Decision 7): the decision a late record is
+  stored and projected under is the one core signed, not the gateway's word for it.
+  `revoked_interval?/3` is EventWriter's re-check that a revocation since the grant was issued has
+  not ended the record's interval, as `ServiceRadar.Edge.OutputGrants.check_current/5` re-checks a
+  live record's grant.
   """
 
+  alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.ContractRegistry
   alias ServiceRadar.Edge.DeliveryGrants
   alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.LedgerCoverage
   alias ServiceRadar.Edge.PipelineSettings
+  alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordTrust
   alias Serviceradar.Edge.V1.EdgeDeliveryClaimsV1
   alias Serviceradar.Edge.V1.EdgeDeliveryLateAdmissionV1
@@ -45,6 +54,18 @@ defmodule ServiceRadar.Edge.LateAdmission do
 
   @terminal_reasons ["certificate_revoked", "revoked_cause_unknown"]
   @ns_per_ms 1_000_000
+
+  # `PublicationIdentity.delivery_proof_digest/2` has already refused any reason that does not
+  # pair with its publication.
+  @delivered_reasons %{
+    EDGE_LATE_DECISION_REASON_ADMITTED: :admitted,
+    EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION: :fenced_at_production,
+    EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN: :history_unknown,
+    EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED: :compromise_ended,
+    EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW: :beyond_late_window,
+    EDGE_LATE_DECISION_REASON_LEDGER_PRUNED: :ledger_pruned,
+    EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED: :contract_retired
+  }
 
   @type item :: %{
           sequence: pos_integer(),
@@ -86,6 +107,13 @@ defmodule ServiceRadar.Edge.LateAdmission do
           {:grant, :primary, :admitted}
           | {:grant, :audit, audit_reason()}
           | {:refuse, :not_yet | :certificate_revoked_interval}
+
+  @type delivered :: %{
+          produced_at: DateTime.t(),
+          publication: :primary | :audit,
+          reason: :admitted | audit_reason(),
+          issuer_key_id: <<_::128>>
+        }
 
   @type result :: %{
           sequence: pos_integer(),
@@ -245,6 +273,83 @@ defmodule ServiceRadar.Edge.LateAdmission do
       },
       key
     )
+  end
+
+  @doc """
+  Verifies the grant a gateway delivered with a `LATE_ADMISSION` record and returns the decision it
+  carries. `delivery` names what the grant must bind: `:record` (the decoded `EdgeRecordV1`),
+  `:record_sha256` (of the delivered bytes), `:slot` (its `:spool_id` and `:sequence`) and
+  `:proof` (the provenance `delivery_proof`).
+
+  The grant must digest to that proof, be signed by `key` for the `delivery` purpose, and bind
+  this record: its event id, digest, spool, sequence, `produced_at` (the UUIDv7 time of the event
+  id) and authority epoch. Its window is not checked: the gateway published while the grant was
+  current, and JetStream may redeliver the record after it lapses. Any failure is
+  `{:error, {:late_admission_grant, reason}}`.
+  """
+  @spec verify_delivered(EdgeSignedCapabilityV1.t(), map(), IssuerKey.t()) ::
+          {:ok, delivered()} | {:error, {:late_admission_grant, atom()}}
+  def verify_delivered(%EdgeSignedCapabilityV1{} = grant, delivery, %IssuerKey{} = key) do
+    with {:ok, digest} <-
+           PublicationIdentity.delivery_proof_digest(
+             grant,
+             PublicationIdentity.mode_late_admission()
+           ),
+         :ok <- check(digest == delivery.proof, :proof),
+         :ok <-
+           check(grant.issuer_id == key.issuer_id and grant.issuer_key_id == key.key_id, :issuer),
+         :ok <- check(CapabilitySigning.verify(grant, :delivery, key.public_key), :signature),
+         {:delivery, %{transition: {:late_admission, late}} = claims} = grant.claims,
+         :ok <- check(binds_delivery?(claims, late, delivery), :binding) do
+      {:ok,
+       %{
+         produced_at: produced_at(delivery.record.event_id),
+         publication: delivered_publication(late.publication),
+         reason: delivered_reason(late.reason),
+         issuer_key_id: grant.issuer_key_id
+       }}
+    else
+      {:error, {:late_admission_grant, _reason}} = error -> error
+      {:error, reason} -> {:error, {:late_admission_grant, reason}}
+    end
+  end
+
+  defp check(true, _reason), do: :ok
+  defp check(_failed, reason), do: {:error, {:late_admission_grant, reason}}
+
+  defp binds_delivery?(claims, late, %{record: record} = delivery) do
+    <<millis::48, _::80>> = record.event_id
+    epoch = (record.producer_context && record.producer_context.authority_epoch) || 0
+
+    claims.event_id == record.event_id and claims.record_sha256 == delivery.record_sha256 and
+      claims.spool_id == delivery.slot.spool_id and claims.sequence == delivery.slot.sequence and
+      late.produced_at_unix_nano == millis * @ns_per_ms and late.authority_epoch == epoch
+  end
+
+  defp delivered_publication(:EDGE_LATE_PUBLICATION_PRIMARY), do: :primary
+  defp delivered_publication(:EDGE_LATE_PUBLICATION_AUDIT), do: :audit
+
+  defp delivered_reason(reason), do: Map.fetch!(@delivered_reasons, reason)
+
+  @doc """
+  Whether any authority interval of `(assignment_id, authority_epoch)` ended `certificate_revoked`
+  or `revoked_cause_unknown`. Such a record is never applied, whatever grant it carries: a
+  revocation recorded after the grant was issued beats it (Decision 6).
+  """
+  @spec revoked_interval?(module(), <<_::128>>, non_neg_integer()) :: boolean()
+  def revoked_interval?(repo, assignment_id, authority_epoch) do
+    %{rows: [[revoked?]]} =
+      repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM platform.edge_authority_history
+           WHERE assignment_id = $1::uuid AND authority_epoch = $2::bigint
+             AND ended_reason = ANY($3::text[]))
+        """,
+        [assignment_id, authority_epoch, @terminal_reasons]
+      )
+
+    revoked?
   end
 
   defp publication(:primary), do: :EDGE_LATE_PUBLICATION_PRIMARY

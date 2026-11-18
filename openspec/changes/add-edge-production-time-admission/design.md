@@ -429,6 +429,65 @@ primary record. A current-state projector applies a late record only when it is
 newer than the stored state, by `produced_at`. Time-series rows append at their
 own time. Every late record gets an audit row in the ledger: admission `late`,
 `produced_at`, publication, reason, grant issuer key id and receiving gateway.
+"EventWriter and projectors" below says how (owner decisions 2026-11-17).
+
+**EventWriter and projectors (owner decisions 2026-11-17).**
+
+- **The grant travels with the record.** The transport provenance carries only
+  a digest of the late grant, so the gateway sends the signed grant itself in
+  the `Sr-Edge-Late-Admission-Grant` header: base64url (no padding) of the
+  `EdgeSignedCapabilityV1` protobuf, about 300 bytes. It is sent with the
+  `LATE_ADMISSION` mode and with no other. Before EventWriter reads the record,
+  it checks that the grant digests to the provenance proof, is signed by core's
+  issuer key for the `delivery` purpose, and binds this record: event id,
+  record digest, spool, sequence, `produced_at` and authority epoch. The
+  publication the grant decided must match the route: PRIMARY on the primary
+  route, AUDIT on the audit route. The grant's window is not checked, because
+  the gateway published while it was current and JetStream may redeliver
+  later. A missing grant on a `LATE_ADMISSION` delivery, a grant on any other
+  delivery, and a grant that fails any check are refused and dead-lettered.
+  So the decision a late record is stored and projected under is the one core
+  signed, not the gateway's word for it. Rejected: plain gateway headers for
+  the reason and key id (nothing ties them to the proof), and a core table of
+  issued decisions keyed by proof digest (a write on every grant issued or
+  re-issued, with its own retention).
+- **A revocation since the grant beats it.** EventWriter refuses a late PRIMARY
+  record whose `(assignment, epoch)` now has an interval that ended
+  `certificate_revoked` or `revoked_cause_unknown`, as a live record whose
+  grant was revoked is refused by `OutputGrants.check_current`.
+- **Audit columns on `event_ledger`.** `admission` (`live` or `late`) and, for
+  a late row only, `late_produced_at`, `late_publication`, `late_reason`,
+  `late_grant_issuer_key_id` (from the verified grant) and `late_gateway_id`
+  (`Sr-Edge-Gateway-Id`, when the gateway stamps it). A replay leaves the row
+  that first claimed the event id as it is.
+- **Current state is gated per producer.** `platform.edge_projection_watermarks`,
+  keyed by `(contract, network scope, producer_assignment_id)`, holds the newest
+  `produced_at` applied. EventWriter updates it in the ledger transaction for
+  every primary record of a current-state contract, live or late, keeping the
+  greater value. A late PRIMARY record older than the watermark is settled as
+  history (`superseded_by_newer_state`): its ledger and audit row are committed,
+  not its payload, and nothing is projected. A newer one, such as a record of a
+  deleted assignment with nothing produced since, projects. The comparison is
+  per producer, not per entity: per-entity ordering would change every
+  downstream ingestor (sync, DIRE, mapper, Kubernetes, workload identity,
+  inventory).
+- **Mixed contracts split their writes.** The processor passes
+  `apply_current_state?` to the projector. A contract that writes both
+  time-series rows and current state (sweep observations, unleased sweep
+  results, scheduled MTR traces, plugin results, telemetry batches with
+  discovery records) always writes its time-series rows at their own time and
+  skips only its current-state writes when the record is older than the
+  watermark. Current-state-only contracts are the mapper device, interface and
+  topology batches, netprobe discovery, sync pages, workload identity,
+  Kubernetes public endpoints, endpoint inventory and bumblebee scans.
+  Time-series-only contracts are metric batches, the OTLP relay and flow
+  attribution.
+- **Sweep observations.** For a late PRIMARY sweep observation the grant's
+  decision replaces the check that the sweep assignment is active at the
+  record's epoch. The slot, lease and plan must still match, and a missed slot
+  reopens as it does for a live batch.
+- **Recovery control.** A late PRIMARY recovery control is authorized by its
+  grant, like every other contract.
 
 **In-lane records.** A record already in a live lane whose fence is stale or
 missing at the gateway cannot be delivered live, whatever its production
@@ -633,6 +692,15 @@ undelivered entry.
    with its Elixir peer, so phase 1 does not change the shared Go/Elixir
    provenance vectors.
 3. **Phases 3 and 4** follow without changing the wire again.
+
+Task 2.7 lands as three PRs, and the gateway keeps advertising version 0
+until the last one (owner decision 2026-11-17): 2.7a EventWriter, the ledger
+audit columns and the grant header; 2.7b projector late authorization and
+current-state gating, with the mixed-contract split; 2.7c the agent tests the
+advertisement turns on (a foreign-principal record routed to its hold, a hold
+frame without a grant not stalling the agent's own late records, and the
+live-session `LATE_ADMISSION_REQUIRED` version gating), the switch to version
+1, and the 2.8 end-to-end and database tests.
 
 Runtime settings have code defaults. There are no Helm-only knobs and no bypass
 switch. Mixed versions fail closed. An old gateway never sees a late session.

@@ -681,12 +681,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
   # A fresh publish carries no delivery stamp. Anything else is stamped with the gateway-attested
   # mode and the proof over the delivery capability that authorized it, so a late drain reaches the
-  # consumer marked as the renewal or rollover it is rather than as an ordinary publish.
-  defp maybe_put_delivery(publication, %{delivery_mode: mode, delivery_proof: proof}) do
-    if mode == PublicationIdentity.mode_fresh() do
-      publication
-    else
-      Map.merge(publication, %{delivery_mode: mode, delivery_proof: proof})
+  # consumer marked as the renewal or rollover it is rather than as an ordinary publish. A
+  # late-admission publication also carries core's grant itself, which EventWriter verifies.
+  defp maybe_put_delivery(publication, %{delivery_mode: mode, delivery_proof: proof} = decision) do
+    cond do
+      mode == PublicationIdentity.mode_fresh() ->
+        publication
+
+      mode == PublicationIdentity.mode_late_admission() ->
+        Map.merge(publication, %{
+          delivery_mode: mode,
+          delivery_proof: proof,
+          late_admission_grant: decision.late_grant
+        })
+
+      true ->
+        Map.merge(publication, %{delivery_mode: mode, delivery_proof: proof})
     end
   end
 
