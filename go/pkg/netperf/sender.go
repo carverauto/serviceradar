@@ -760,9 +760,7 @@ func mergeCloseSessionResult(
 				merged.DurationSeconds = remote.GetDurationSeconds()
 				merged.DurationNs = remote.GetDurationNs()
 			}
-			if remote.GetBitsPerSecond() > 0 || remote.GetBytesReceived() > 0 {
-				merged.BitsPerSecond = remote.GetBitsPerSecond()
-			}
+			merged.BitsPerSecond = remote.GetBitsPerSecond()
 		}
 		return merged
 	}

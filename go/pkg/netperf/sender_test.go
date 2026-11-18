@@ -541,3 +541,165 @@ func TestBidirectionalSummaryComputesLossPercent(t *testing.T) {
 	require.Equal(t, uint64(15), res.Primary.PacketsLost)
 	require.InDelta(t, 7.5, res.Primary.LossPercent, 1e-6)
 }
+
+type udpBlackholePeerWrapper struct {
+	netperfpb.NetworkPerfPeerServiceServer
+	blackholePort uint32
+}
+
+func (w *udpBlackholePeerWrapper) OpenSession(ctx context.Context, req *netperfpb.OpenSessionRequest) (*netperfpb.OpenSessionResponse, error) {
+	resp, err := w.NetworkPerfPeerServiceServer.OpenSession(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	resp.UdpPort = w.blackholePort
+	return resp, nil
+}
+
+func TestUDP100PercentUploadLossReportsZeroBitsPerSecond(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mergeCloseSessionResult_zeroes_upload_bps", func(t *testing.T) {
+		t.Parallel()
+
+		res := &TestResult{}
+		mergeCloseSessionResult(
+			res,
+			netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+			&PhaseResult{
+				Direction:       netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+				DurationSeconds: 1.0,
+				DurationNs:      1_000_000_000,
+				BytesSent:       120_000,
+				BitsPerSecond:   960_000,
+				PacketsSent:     100,
+			},
+			nil,
+			&netperfpb.CloseSessionResponse{
+				UploadSummary: &netperfpb.TestSummary{
+					DurationSeconds: 0,
+					DurationNs:      0,
+					BytesReceived:   0,
+					BitsPerSecond:   0,
+					PacketsSent:     100,
+					PacketsReceived: 0,
+					PacketsLost:     100,
+					LossPercent:     100.0,
+				},
+			},
+		)
+		require.NotNil(t, res.Upload)
+		require.Equal(t, uint64(100), res.Upload.PacketsSent)
+		require.Equal(t, uint64(0), res.Upload.PacketsReceived)
+		require.Equal(t, uint64(100), res.Upload.PacketsLost)
+		require.InDelta(t, 100.0, res.Upload.LossPercent, 1e-9)
+		require.Equal(t, uint64(0), res.Upload.BytesReceived)
+		require.Equal(t, 0.0, res.Upload.BitsPerSecond)
+		require.Equal(t, 0.0, res.Primary.BitsPerSecond)
+	})
+
+	t.Run("end_to_end_blackholed_udp_upload", func(t *testing.T) {
+		t.Parallel()
+
+		pki := newTestPKI(t)
+		hubSec := pki.agentSecurity(t, "agent-hub-01", 400)
+		spokeSec := pki.agentSecurity(t, "agent-spoke-01", 401)
+
+		seed := bytes.Repeat([]byte{0xaa}, ed25519.SeedSize)
+		priv := ed25519.NewKeyFromSeed(seed)
+		pub := priv.Public().(ed25519.PublicKey)
+		keyID := []byte("0123456789abcdef")
+
+		snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+		resp, err := NewResponder(ResponderConfig{
+			AgentID:               "agent-hub-01",
+			PartitionID:           "default",
+			ListenAddress:         "127.0.0.1",
+			AllowEphemeralPort:    true,
+			UDPEnabled:            true,
+			MaxConcurrentSessions: 4,
+			MaxTotalBandwidthBps:  100_000_000,
+			MinAuthorityEpoch:     1,
+			Security:              hubSec,
+			KeyResolver:           TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }},
+			Logger:                logger.NewTestLogger(),
+		})
+		require.NoError(t, err)
+		require.NoError(t, resp.Start(context.Background()))
+		t.Cleanup(func() { _ = resp.Close() })
+
+		// Bind a real UDP blackhole socket so writes succeed locally without ECONNREFUSED
+		// while zero datagrams ever reach the Responder's UDP socket.
+		blackholeConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = blackholeConn.Close() })
+		go func() {
+			buf := make([]byte, 65536)
+			for {
+				if _, _, readErr := blackholeConn.ReadFromUDP(buf); readErr != nil {
+					return
+				}
+			}
+		}()
+		blackholePort := uint32(blackholeConn.LocalAddr().(*net.UDPAddr).Port)
+
+		creds, owned, err := buildServerTransportCredentials(hubSec, nil, nil, logger.NewTestLogger())
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			if owned != nil {
+				_ = owned.Close()
+			}
+		})
+
+		lis := bufconn.Listen(1 << 20)
+		srv := grpc.NewServer(grpc.Creds(creds))
+		netperfpb.RegisterNetworkPerfPeerServiceServer(srv, &udpBlackholePeerWrapper{
+			NetworkPerfPeerServiceServer: resp,
+			blackholePort:                blackholePort,
+		})
+		go func() { _ = srv.Serve(lis) }()
+		t.Cleanup(srv.Stop)
+
+		sender, err := NewSender(SenderConfig{
+			AgentID:     "agent-spoke-01",
+			PartitionID: "default",
+			Security:    spokeSec,
+			Logger:      logger.NewTestLogger(),
+			DialContext: func(ctx context.Context, _ string) (net.Conn, error) {
+				return lis.DialContext(ctx)
+			},
+		})
+		require.NoError(t, err)
+
+		permit := makeLoopbackPermit(t, priv, keyID)
+		res, err := sender.RunTest(context.Background(), TestRequest{
+			TargetAddress:    "127.0.0.1",
+			TargetPort:       5199,
+			ResponderAgentID: "agent-hub-01",
+			ResponderLabel:   "hub-01",
+			PolicyID:         "policy-loopback-1",
+			ProfileID:        "profile-udp-loss",
+			Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+			Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+			BandwidthBps:     1_000_000,
+			DurationSec:      1,
+			OmitSec:          0,
+			Parallel:         1,
+			PacketLength:     1200,
+			ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_ON_DEMAND,
+			Permit:           permit,
+		})
+		require.NoError(t, err)
+		require.True(t, res.Available)
+		require.NotNil(t, res.Upload)
+		require.Positive(t, res.Upload.PacketsSent)
+		require.Equal(t, uint64(0), res.Upload.PacketsReceived)
+		require.Equal(t, res.Upload.PacketsSent, res.Upload.PacketsLost)
+		require.InDelta(t, 100.0, res.Upload.LossPercent, 1e-9)
+		require.Equal(t, uint64(0), res.Upload.BytesReceived)
+		require.Equal(t, 0.0, res.Upload.BitsPerSecond)
+		require.Equal(t, uint64(0), res.Primary.BytesReceived)
+		require.Equal(t, 0.0, res.Primary.BitsPerSecond)
+		require.InDelta(t, 100.0, res.Primary.LossPercent, 1e-9)
+	})
+}
