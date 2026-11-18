@@ -328,9 +328,11 @@ py_test(
     size = "small",
     srcs = ["rekor_key_consistency_test.py"],
     data = [
-        "//:MODULE.bazel",
         "//docs:sigstore/rekor.pub",
         "//docs:sigstore/rekor-keys",
         "//scripts:install-cosign.sh",
+        "//scripts:install-download-integrity.sh",
+        "@cosign_linux_amd64//file",
+        "@cosign_linux_arm64//file",
     ],
 )

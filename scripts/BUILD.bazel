@@ -18,6 +18,7 @@ exports_files([
     "cosign_common.sh",
     "cosign_receipt.py",
     "install-cosign.sh",
+    "install-download-integrity.sh",
     "reconcile-legacy-signature.py",
     "ci/configure-srql-fixture.sh",
     "ci/prepare-openbao-cosign-env.sh",

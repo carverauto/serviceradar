@@ -58,7 +58,10 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         bazel = bin_dir / "bazel"
-        bazel.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$BAZEL_RECORD"\n')
+        bazel.write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$@" > "$BAZEL_RECORD"\n'
+            'printf "%s\\n" "${SERVICERADAR_COSIGN_COMMON:-}" "${SERVICERADAR_REPO_ROOT:-}" > "$BAZEL_RECORD.env"\n'
+        )
         bazel.chmod(0o755)
         # A non-dry run hands the publisher a checksum signer and requires cosign
         # on PATH; never let the host's cosign (or its absence) decide the result.
@@ -109,8 +112,11 @@ class ReleasePackageWorkflowTest(unittest.TestCase):
             "--macos_pkg", str(self.root / "macos-release/serviceradar-agent_9.8.7_darwin_arm64.pkg"),
             "--macos_provenance", str(self.root / "macos-release/serviceradar-agent_9.8.7_darwin_arm64.provenance.json"),
             "--windows_dir", str(self.root / "windows-release"),
-            "--checksums_signer", str(self.repo.resolve() / "scripts/sign-release-checksums.sh"),
+            "--checksums_signer", str(self.root / "sign-release-checksums.sh"),
             "--draft", "--overwrite_assets=false",
+        ])
+        self.assertEqual(Path(f"{self.record}.env").read_text().splitlines(), [
+            str(self.root / "cosign_common.sh"), str(self.repo.resolve()),
         ])
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.commit)
 

@@ -26,7 +26,8 @@ if [[ ! -s "${payload_file}" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-public_key_file="${SCRIPT_DIR}/../docs/cosign.pub"
+REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+public_key_file="${REPO_ROOT}/docs/cosign.pub"
 if [[ ! -s "${public_key_file}" ]]; then
   echo "error: release public key not found: ${public_key_file}" >&2
   exit 1

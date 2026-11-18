@@ -5,7 +5,11 @@ openspec/changes/restore-signature-tlog-receipts, design.md Decisions 5 and 6.
 
 import base64
 import hashlib
+import os
+import platform
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,11 +27,28 @@ def log_id(pem):
     return hashlib.sha256(base64.b64decode("".join(lines[1:-1]), validate=True)).hexdigest()
 
 
-def version(text, pattern, where):
-    found = set(re.findall(pattern, text))
-    if len(found) != 1:
-        raise AssertionError(f"{where} names {sorted(found) or 'no'} cosign version(s), expected exactly one")
-    return found.pop()
+def pinned_cosign():
+    machine = platform.machine().lower()
+    repository = {"x86_64": "cosign_linux_amd64", "amd64": "cosign_linux_amd64",
+                  "aarch64": "cosign_linux_arm64", "arm64": "cosign_linux_arm64"}[machine]
+    for dirpath, _dirnames, filenames in os.walk(os.environ["TEST_SRCDIR"], followlinks=True):
+        if repository in dirpath and "downloaded" in filenames:
+            return Path(dirpath) / "downloaded"
+    raise FileNotFoundError("declared cosign runfile is unavailable")
+
+
+CURL_STUB = """#!/bin/bash
+url="" out=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+printf '%s\\n' "${url}" >> "${CURL_RECORD}"
+cp "${PINNED_COSIGN}" "${out}"
+"""
 
 
 class RekorKeySetTest(unittest.TestCase):
@@ -46,13 +67,32 @@ class RekorKeySetTest(unittest.TestCase):
 
 
 class CosignVersionTest(unittest.TestCase):
-    def test_signer_and_web_ng_image_use_the_same_patched_release(self):
-        installer = version((REPO / "scripts/install-cosign.sh").read_text(),
-                            r'(?:COSIGN_VERSION:-|!= ")(v\d+\.\d+\.\d+)', "scripts/install-cosign.sh")
-        image = version((REPO / "MODULE.bazel").read_text(),
-                        r'sigstore/cosign/releases/download/(v\d+\.\d+\.\d+)/cosign-linux-', "MODULE.bazel")
-        self.assertEqual(installer, image)
-        self.assertGreaterEqual(tuple(int(part) for part in installer[1:].split(".")), MINIMUM_COSIGN)
+    def test_signer_installer_installs_the_web_ng_image_cosign_at_a_patched_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stub_dir = root / "stub"
+            stub_dir.mkdir()
+            curl = stub_dir / "curl"
+            curl.write_text(CURL_STUB)
+            curl.chmod(0o755)
+            record = root / "curl-urls"
+            env = {key: value for key, value in os.environ.items()
+                   if key not in ("COSIGN_VERSION", "COSIGN_SHA256", "GITHUB_PATH")}
+            env.update(PATH=f"{stub_dir}:{env.get('PATH', '/usr/bin:/bin')}", RUNNER_TEMP=str(root / "runner"),
+                       CURL_RECORD=str(record), PINNED_COSIGN=str(pinned_cosign()))
+            result = subprocess.run(["bash", str(REPO / "scripts/install-cosign.sh")], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            installed = subprocess.run([str(root / "runner/bin/cosign"), "version"],
+                                       capture_output=True, text=True, timeout=30)
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            found = re.search(r"^GitVersion:\s+(v(\d+)\.(\d+)\.(\d+))\s*$",
+                              installed.stdout + installed.stderr, re.MULTILINE)
+            self.assertIsNotNone(found, installed.stdout + installed.stderr)
+            self.assertGreaterEqual(tuple(int(part) for part in found.groups()[1:]), MINIMUM_COSIGN)
+            urls = record.read_text().splitlines()
+            self.assertEqual(len(urls), 1, urls)
+            self.assertIn(f"/releases/download/{found.group(1)}/", urls[0])
 
 
 if __name__ == "__main__":

@@ -610,6 +610,10 @@ jobs:
             cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"
             chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"
           fi
+          cp scripts/sign-release-checksums.sh "${RUNNER_TEMP}/sign-release-checksums.sh"
+          chmod +x "${RUNNER_TEMP}/sign-release-checksums.sh"
+          mkdir -p "${RUNNER_TEMP}/ci"
+          cp scripts/ci/prepare-openbao-cosign-env.sh "${RUNNER_TEMP}/ci/prepare-openbao-cosign-env.sh"
 
           if [[ -x scripts/install-skopeo.sh ]]; then
             cp scripts/install-skopeo.sh "${RUNNER_TEMP}/install-skopeo.sh"
@@ -968,7 +972,9 @@ jobs:
               exit 1
             fi
             export SERVICERADAR_COSIGN_BIN_DIR="${cosign_path%/*}"
-            args+=("--checksums_signer" "${PWD}/scripts/sign-release-checksums.sh")
+            export SERVICERADAR_COSIGN_COMMON="${RUNNER_TEMP}/cosign_common.sh"
+            export SERVICERADAR_REPO_ROOT="${PWD}"
+            args+=("--checksums_signer" "${RUNNER_TEMP}/sign-release-checksums.sh")
           fi
           if [[ "$APPEND_NOTES" == "true" ]]; then
             args+=("--append_notes")
