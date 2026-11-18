@@ -23,7 +23,7 @@ concurrency:
 permissions:
   contents: read
   statuses: read
-  # The Rekor signing monitor's last successful run (an Actions lookup, not a commit status).
+  # The Rekor signing monitor's last successful scan (an Actions lookup, not a commit status).
   actions: read
 
 jobs:

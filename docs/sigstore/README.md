@@ -86,22 +86,28 @@ would then fail.
 reads all of them (46 entries, about 280 KB, one second on 2026-11-18), recomputes the RFC 6962
 root, and checks it against the signed tree head, which must verify under `rekor.pub`. The
 previous run's checkpoint (kept as the `rekor-signing-monitor-state` artifact) must be a prefix
-of the log, and `/api/v1/log/publicKey` must still return `rekor.pub`. Every entry signed by the
-release key and integrated after the first checkpoint is then decided against the signing
-ledgers of the release-key signing workflows that were running when it was integrated:
+of the log, and `/api/v1/log/publicKey` must still return `rekor.pub`. Every entry in the log
+signed by the release key, including those integrated before the first checkpoint, is then
+decided against the signing ledgers of the release-key signing workflows that were running when
+it was integrated:
 
 - pending while such a run is still in progress;
 - explained when its payload hash is in one of their ledgers, or it is listed in
   `rekor-acknowledged-entries.json`;
-- otherwise unexplained: one GitHub issue (`security`, `signing-monitor`) per entry UUID and a
-  post to `CI_FAILURE_DISCORD_WEBHOOK_URL`. The issue is closed when a later run finds the
-  entry explained.
+- otherwise unexplained: one GitHub issue (`security`, `signing-monitor`; the monitor creates
+  the `signing-monitor` label if it is missing) per entry UUID and a post to
+  `CI_FAILURE_DISCORD_WEBHOOK_URL`, retried every run until Discord accepts it. The issue is
+  closed when a later run finds the entry explained.
 
-The blindness canary opens an issue when a ledgered entry from a run that ended more than two
-hours ago is not among the entries seen. A run that cannot vouch for the log (unreachable, a
+The blindness canary opens an issue when a signing ledger records an entry in this log (its
+`logged` line names this log's ID) that was integrated after the first checkpoint's time, kept
+in the checkpoint, from a run that ended more than two hours ago, and that entry is not among
+the entries seen. A run that cannot vouch for the log (unreachable, a
 signature or root mismatch, a rewritten or replaced tree, a changed key, a missing checkpoint)
-fails, opens an issue and posts to Discord. The daily scheduled job watch reports the monitor
-when its last successful run is older than three hours.
+fails, opens an issue and posts to Discord. Only a checkpoint from a successful scheduled or
+dispatched run on `staging` is used. The daily scheduled job watch reports the monitor when its
+last successful scan (such a run that kept its checkpoint; a self-test keeps none) is older than
+three hours.
 
 Every run judges every release-key entry in the log, including those made before the first
 monitor run, and keeps each decision in its checkpoint. The first run is dispatched by hand with `bootstrap: true`,

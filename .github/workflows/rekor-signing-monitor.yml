@@ -4,7 +4,7 @@ name: Rekor Signing Monitor
 # checks the log against its last checkpoint and the pinned docs/sigstore/rekor.pub, and opens a
 # `security`/`signing-monitor` issue for every release-key signature no signing ledger explains.
 # A failure of the monitor itself fails this workflow, opens an issue and posts to Discord; the
-# scheduled job watch reports this workflow when it has not succeeded for three hours.
+# scheduled job watch reports this workflow when it has not scanned on staging for three hours.
 # See build/ci/rekor_signing_monitor.py and openspec/changes/restore-signature-tlog-receipts.
 on:
   schedule:

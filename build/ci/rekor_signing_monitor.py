@@ -53,10 +53,16 @@ LEDGER_ARTIFACT_PREFIX = "signing-ledger-"
 MONITOR_WORKFLOW = "rekor-signing-monitor.yml"
 STATE_ARTIFACT = "rekor-signing-monitor-state"
 SCAN_INTERVAL = timedelta(hours=1)
-# A run's ledger can explain only entries integrated while it ran; look back far enough to find
-# every run that could still be in progress or recently ended.
-RUN_LOOKBACK = timedelta(days=3)
-ISSUE_LABELS = ["security", "signing-monitor"]
+# A run's ledger can explain only entries integrated while it ran. GitHub re-runs a run only
+# within 30 days of its creation and fails a job that waits on an environment for 30 days, so a run
+# active at an entry's integrated time was created at most RUN_MARGIN before it.
+RUN_MARGIN = timedelta(days=60)
+# The blindness canary reads the ledgers of runs that ended this recently.
+CANARY_LOOKBACK = timedelta(days=3)
+BRANCH = "staging"
+SCAN_EVENTS = ("schedule", "workflow_dispatch")
+MONITOR_LABEL = "signing-monitor"
+ISSUE_LABELS = ["security", MONITOR_LABEL]
 WEBHOOK_ENV = "CI_FAILURE_DISCORD_WEBHOOK_URL"
 TIMEOUT_SECONDS = 30
 BATCH = 10
@@ -245,10 +251,12 @@ class GitHub:
         return lines
 
     def latest_state(self):
-        """The checkpoint the newest successful monitor run kept, or None."""
+        """The checkpoint the newest successful scan on staging kept, or None."""
         reply = self.http.request(f"{self.api}/repos/{self.repository}/actions/workflows/{MONITOR_WORKFLOW}/runs"
-                                  "?status=success&per_page=20")
+                                  "?status=success&per_page=100")
         for run in reply.get("workflow_runs", []):
+            if run.get("head_branch") != BRANCH or run.get("event") not in SCAN_EVENTS:
+                continue
             artifacts = self.http.request(f"{self.api}/repos/{self.repository}/actions/runs/{run['id']}/artifacts")
             for artifact in artifacts.get("artifacts", []):
                 if artifact["name"] == STATE_ARTIFACT and not artifact.get("expired"):
@@ -258,10 +266,18 @@ class GitHub:
         return None
 
     def open_issues(self):
-        reply = self.http.request(f"{self.api}/repos/{self.repository}/issues?labels=signing-monitor&state=open&per_page=100")
+        reply = self.http.request(f"{self.api}/repos/{self.repository}/issues?labels={MONITOR_LABEL}&state=open&per_page=100")
         return [issue for issue in reply if "pull_request" not in issue]
 
     def open_issue(self, title, body):
+        try:
+            self.http.request(f"{self.api}/repos/{self.repository}/labels/{MONITOR_LABEL}")
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            self.http.request(f"{self.api}/repos/{self.repository}/labels", "POST",
+                              {"name": MONITOR_LABEL, "color": "b60205",
+                               "description": "Rekor signing monitor alerts"})
         return self.http.request(f"{self.api}/repos/{self.repository}/issues", "POST",
                                  {"title": title, "body": body, "labels": ISSUE_LABELS})
 
@@ -270,10 +286,18 @@ class GitHub:
         self.http.request(f"{self.api}/repos/{self.repository}/issues/{number}", "PATCH", {"state": "closed"})
 
 
-def signing_runs(github, now):
+def active_at(run, when):
+    return run["started"] <= when and (run["ended"] is None or run["ended"] >= when)
+
+
+def integrated(match):
+    return datetime.fromtimestamp(match["integrated_time"], timezone.utc)
+
+
+def signing_runs(github, since):
     runs = []
     for workflow in SIGNING_WORKFLOWS:
-        for run in github.runs(workflow, now - RUN_LOOKBACK):
+        for run in github.runs(workflow, since):
             # created_at, not run_started_at: a re-run attempt restarts the latter, and an earlier
             # attempt's entries must still fall inside the run's window.
             started = parse_time(run["created_at"])
@@ -290,8 +314,7 @@ def decide(matches, runs, ledgers, acknowledged, decided):
         # Only a ledger match is kept for good; an acknowledgement counts while it is listed.
         if decided.get(match["uuid"], {}).get("status") == "explained":
             continue
-        when = datetime.fromtimestamp(match["integrated_time"], timezone.utc)
-        active = [run for run in runs if run["started"] <= when and (run["ended"] is None or run["ended"] >= when)]
+        active = [run for run in runs if active_at(run, integrated(match))]
         if match["uuid"] in acknowledged:
             explained[match["uuid"]] = ("acknowledged", f"acknowledged: {acknowledged[match['uuid']]}")
             continue
@@ -375,12 +398,16 @@ def run(args, environ, now):
         raise MonitorFailure("the previous checkpoint is missing; re-run with bootstrap only after review")
 
     matches = release_key_entries(entries, release_der)
-    runs = signing_runs(github, now)
-    ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs if run["ended"] is not None}
     acknowledged = {item["uuid"]: f"{item['reason']} ({item['run']})"
                     for item in json.loads(Path(args.acknowledged).read_text()).get("entries", [])}
     first_time = state["first_integrated_time"]
     decided = state.setdefault("decisions", {})
+    undecided = [integrated(match) for match in matches
+                 if decided.get(match["uuid"], {}).get("status") != "explained" and match["uuid"] not in acknowledged]
+    runs = signing_runs(github, min([now - CANARY_LOOKBACK] + [when - RUN_MARGIN for when in undecided]))
+    ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs
+               if run["ended"] is not None
+               and (run["ended"] >= now - CANARY_LOOKBACK or any(active_at(run, when) for when in undecided))}
     explained, pending, unexplained = decide(matches, runs, ledgers, acknowledged, decided)
     blind = blind_spots(matches, runs, ledgers, log_id, first_time, now)
 
@@ -391,6 +418,9 @@ def run(args, environ, now):
             if match["uuid"] in issue["title"]:
                 by_uuid[match["uuid"]] = issue
     alerts = []
+    unalerted = [match for match in unexplained if not decided.get(match["uuid"], {}).get("alerted")]
+    for match in unalerted:
+        alerts.append(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})")
     for match in unexplained:
         if match["uuid"] in by_uuid:
             continue
@@ -403,9 +433,6 @@ def run(args, environ, now):
                 "Treat this as possible misuse of the release key until a person explains it. A benign "
                 "entry is acknowledged in docs/sigstore/rekor-acknowledged-entries.json in a reviewed PR.")
         github.open_issue(title, body)
-        alerts.append(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})")
-    for match in unexplained:
-        decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"]}
     for uuid, (source, reason) in explained.items():
         decided[uuid] = {"status": "explained" if source == "ledger" else "acknowledged", "reason": reason}
         if uuid in by_uuid:
@@ -417,14 +444,17 @@ def run(args, environ, now):
             github.open_issue(title, "Ledgered signatures the monitor never saw in the log. The monitor or "
                                      f"the receipt is broken:\n\n{details}")
         alerts.append(f"blindness canary: {len(blind)} ledgered entr{'y' if len(blind) == 1 else 'ies'} not seen")
+    delivered = bool(alerts) and post_discord(http, environ, "Rekor signing monitor:\n" + "\n".join(
+        f"- {line}" for line in alerts))
+    for match in unexplained:
+        decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"],
+                                  "alerted": delivered or match not in unalerted}
 
     state.update({"tree_size": size, "root_hash": root, "checked_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                   "pending": [match["uuid"] for match in pending]})
     Path(args.state_out).write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
     print(f"log size {size}; {len(matches)} release-key entries; {len(pending)} pending; "
           f"{len(unexplained)} unexplained; {len(blind)} blind")
-    if alerts:
-        post_discord(http, environ, "Rekor signing monitor:\n" + "\n".join(f"- {line}" for line in alerts))
     return 0
 
 

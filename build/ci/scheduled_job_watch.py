@@ -11,8 +11,9 @@ and posts one Discord message naming every watched job whose newest status is
   * absent, or a success older than EXPECTED_WITHIN (the job did not run).
 
 The Rekor signing monitor is a GitHub Actions workflow and posts no commit status, so it is not
-in WATCHED_JOBS: a separate Actions run lookup reports it when its last successful run is older
-than MONITOR_EXPECTED_WITHIN (three of its hourly scan intervals).
+in WATCHED_JOBS: a separate Actions run lookup reports it when its last successful scan on staging
+(a run that kept its checkpoint artifact) is older than MONITOR_EXPECTED_WITHIN (three of its
+hourly scan intervals).
 
 It runs from .github/workflows/scheduled-job-watch.yml, after the last nightly.
 
@@ -54,6 +55,8 @@ GITHUB_API = "https://api.github.com"
 MONITOR_WORKFLOW = "rekor-signing-monitor.yml"
 MONITOR_NAME = "Rekor Signing Monitor"
 MONITOR_EXPECTED_WITHIN = timedelta(hours=3)
+MONITOR_SCAN_EVENTS = ("schedule", "workflow_dispatch")
+MONITOR_STATE_ARTIFACT = "rekor-signing-monitor-state"
 # Discord rejects a message longer than 2000 characters.
 MESSAGE_LIMIT = 2000
 TIMEOUT_SECONDS = 30
@@ -100,18 +103,28 @@ def get_json(url, headers):
 
 
 def monitor_problems(api, token, repository, now):
-    """A line when the Rekor signing monitor has not succeeded within MONITOR_EXPECTED_WITHIN."""
-    reply = get_json(
-        f"{api.rstrip('/')}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success&per_page=1",
-        {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-         "User-Agent": "scheduled-job-watch/1"},
-    )
-    runs = reply.get("workflow_runs") or []
-    last = parse_time(runs[0]["updated_at"]) if runs else None
+    """A line when the Rekor signing monitor has not scanned within MONITOR_EXPECTED_WITHIN.
+
+    A scan is a successful schedule or workflow_dispatch run on BRANCH that kept its checkpoint
+    artifact; a self-test dispatch keeps none, so it never counts.
+    """
+    api = api.rstrip("/")
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+               "User-Agent": "scheduled-job-watch/1"}
+    reply = get_json(f"{api}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success&per_page=100",
+                     headers)
+    last = None
+    for run in reply.get("workflow_runs") or []:
+        if run.get("head_branch") != BRANCH or run.get("event") not in MONITOR_SCAN_EVENTS:
+            continue
+        artifacts = get_json(f"{api}/repos/{repository}/actions/runs/{run['id']}/artifacts", headers)
+        if any(artifact["name"] == MONITOR_STATE_ARTIFACT for artifact in artifacts.get("artifacts") or []):
+            last = parse_time(run["updated_at"])
+            break
     if last is not None and now - last <= MONITOR_EXPECTED_WITHIN:
         return []
-    seen = f"last success {last:%Y-%m-%d %H:%M} UTC" if last else "no successful run found"
-    return [f"**{MONITOR_NAME}** has not succeeded in the last {hours(MONITOR_EXPECTED_WITHIN)} hours ({seen})."]
+    seen = f"last scan {last:%Y-%m-%d %H:%M} UTC" if last else "no successful scan found"
+    return [f"**{MONITOR_NAME}** has not scanned in the last {hours(MONITOR_EXPECTED_WITHIN)} hours ({seen})."]
 
 
 def parse_time(text):

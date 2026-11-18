@@ -32,19 +32,27 @@ class Server:
     def __init__(self, *replies, monitor_runs=None):
         received = self.received = []
         queue = list(replies)
-        # GET: the Rekor signing monitor's successful Actions runs, newest first.
-        self.monitor_runs = monitor_runs if monitor_runs is not None else [{"updated_at": iso(1)}]
+        # GET: the Rekor signing monitor's successful Actions runs, newest first, and each run's
+        # artifacts (the fake-only "artifacts" field of the run).
+        self.monitor_runs = monitor_runs if monitor_runs is not None else [monitor_run(1, 1)]
         server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                if "/actions/workflows/rekor-signing-monitor.yml/runs" not in self.path:
+                path = self.path.split("?")[0]
+                if path.endswith("/actions/workflows/rekor-signing-monitor.yml/runs"):
+                    body = {"workflow_runs": server.monitor_runs}
+                elif "/actions/runs/" in path and path.endswith("/artifacts"):
+                    run_id = int(path.split("/")[-2])
+                    run = next(run for run in server.monitor_runs if run["id"] == run_id)
+                    body = {"artifacts": [{"name": name} for name in run["artifacts"]]}
+                else:
                     self.send_response(404)
                     self.end_headers()
                     return
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(json.dumps({"workflow_runs": server.monitor_runs}).encode())
+                self.wfile.write(json.dumps(body).encode())
 
             def do_POST(self):
                 length = int(self.headers["Content-Length"])
@@ -69,6 +77,12 @@ class Server:
 
 def iso(hours_ago):
     return (NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def monitor_run(run_id, hours_ago, branch="staging", event="schedule",
+                artifacts=("rekor-signing-monitor-state",)):
+    return {"id": run_id, "updated_at": iso(hours_ago), "head_branch": branch, "event": event,
+            "artifacts": list(artifacts)}
 
 
 def status(context, state, hours_ago, description=""):
@@ -146,9 +160,21 @@ class ScheduledJobWatchTest(unittest.TestCase):
         self.assertEqual([], webhook.received)
         self.assertEqual("refs/heads/staging", github.received[0]["variables"]["ref"])
 
-    def test_a_rekor_monitor_without_a_recent_success_is_reported(self):
-        for runs, expected in (([{"updated_at": iso(4)}], "last success"), ([], "no successful run found")):
-            with self.subTest(runs=runs):
+    def test_a_rekor_monitor_without_a_recent_scan_is_reported(self):
+        cases = {
+            "old scan": ([monitor_run(1, 4)], "last scan"),
+            "no run": ([], "no successful scan found"),
+            # Newer green runs that are not staging scans: a self-test keeps no checkpoint, and
+            # a dispatch on another branch does not scan for staging.
+            "only a self-test and another branch since": (
+                [monitor_run(3, 1, event="workflow_dispatch", artifacts=()),
+                 monitor_run(2, 1, branch="feature", event="workflow_dispatch"),
+                 monitor_run(1, 4)],
+                "last scan",
+            ),
+        }
+        for name, (runs, expected) in cases.items():
+            with self.subTest(name):
                 github = self.serve(page([("a", healthy())]), monitor_runs=runs)
                 webhook = self.serve((204, None))
 
@@ -156,7 +182,7 @@ class ScheduledJobWatchTest(unittest.TestCase):
 
                 self.assertEqual(0, code)
                 content = webhook.received[0]["content"]
-                self.assertIn("**Rekor Signing Monitor** has not succeeded in the last 3 hours", content)
+                self.assertIn("**Rekor Signing Monitor** has not scanned in the last 3 hours", content)
                 self.assertIn(expected, content)
 
     def test_failed_stalled_and_missing_jobs_are_named_in_one_message(self):
