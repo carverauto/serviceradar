@@ -55,9 +55,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defmodule FakeCosignVerifier do
     @moduledoc false
 
-    def verify(%{ref: ref, digest: digest}) do
+    def verify(%{ref: ref, digest: digest, signature_manifest: %{"layers" => [_ | _]}}) do
       Process.put(:native_addon_cosign_verified, {ref, digest})
-      :ok
+      {:ok, %{"status" => "absent_allowlisted"}}
     end
   end
 
@@ -95,6 +95,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           )
 
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
+
+        # The classic `.sig` the importer reads before handing it to the verifier.
+        Regex.match?(~r"/manifests/sha256-[0-9a-f]{64}\.sig$", url) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "layers" => [%{"annotations" => %{"dev.cosignproject.cosign/signature" => "c3ludGhldGlj"}}]
+               })
+           }}
 
         String.contains?(url, "/manifests/") ->
           Process.put(
@@ -214,6 +225,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert package.source_oci_digest == @oci_digest
     assert package.source_release_tag == "v1.0.0"
     assert package.verification_status == "verified"
+    assert package.source_metadata["transparency_receipt"] == %{"status" => "absent_allowlisted"}
 
     artifact = package.artifacts["linux/amd64"]
     assert is_map(artifact)

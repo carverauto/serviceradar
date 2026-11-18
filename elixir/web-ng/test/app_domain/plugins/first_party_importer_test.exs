@@ -164,6 +164,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
              }}
           end
 
+        String.ends_with?(
+          url,
+          "/v2/serviceradar/wasm-plugin-hello-wasm/manifests/sha256-#{String.duplicate("b", 64)}.sig"
+        ) ->
+          Process.put(:cosign_signature_manifest_fetched, true)
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(FirstPartyImporterTest.signature_manifest())}}
+
         String.ends_with?(url, "/v2/serviceradar/wasm-plugin-hello-wasm/blobs/sha256:bundle-layer") ->
           {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.bundle()}}
 
@@ -187,9 +194,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   defmodule FakeCosignVerifier do
     @moduledoc false
 
-    def verify(%{ref: ref, digest: digest}) do
-      Process.put(:cosign_verified_artifact, {ref, digest})
-      :ok
+    def verify(%{ref: ref, digest: digest, signature_manifest: signature_manifest}) do
+      Process.put(:cosign_verified_artifact, {ref, digest, signature_manifest})
+      {:ok, %{"status" => "verified", "log_id" => "synthetic-log", "log_index" => 42, "integrated_time" => 1_767_225_600}}
     end
   end
 
@@ -616,8 +623,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert import.source_oci_digest == oci_manifest_digest()
     assert import.source_metadata["cosign_verified"] == true
 
+    assert import.source_metadata["transparency_receipt"] == %{
+             "status" => "verified",
+             "log_id" => "synthetic-log",
+             "log_index" => 42,
+             "integrated_time" => 1_767_225_600
+           }
+
     assert Process.get(:cosign_verified_artifact) ==
-             {import.source_oci_ref, oci_manifest_digest()}
+             {import.source_oci_ref, oci_manifest_digest(), signature_manifest()}
   end
 
   test "uses Docker registry credentials to answer OCI bearer challenges" do
@@ -705,6 +719,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   end
 
   def oci_manifest_digest, do: "sha256:" <> String.duplicate("b", 64)
+
+  # The artifact's classic `.sig` manifest, which the importer hands to the verifier.
+  def signature_manifest do
+    %{
+      "schemaVersion" => 2,
+      "layers" => [
+        %{
+          "mediaType" => "application/vnd.dev.cosign.simplesigning.v1+json",
+          "annotations" => %{"dev.cosignproject.cosign/signature" => "c3ludGhldGlj"}
+        }
+      ]
+    }
+  end
 
   def oci_manifest do
     %{

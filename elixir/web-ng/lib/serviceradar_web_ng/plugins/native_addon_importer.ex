@@ -171,7 +171,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
             display_contracts: contracts.valid,
             display_contract_errors: contracts.errors,
             release_tag: release_tag,
-            replace_existing: replace_existing?(attrs)
+            replace_existing: replace_existing?(attrs),
+            transparency_receipt: fetched.transparency_receipt
           ],
           attrs
         )
@@ -361,12 +362,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          :ok <- Client.validate_oci_registry(ref.registry),
          {:ok, manifest, manifest_digest} <- Client.fetch_oci_manifest(repo, ref),
          :ok <- Client.verify_declared_digest(entry_string(entry, "oci_digest"), manifest_digest),
-         :ok <- Client.verify_cosign_signature(entry_string(entry, "oci_ref"), manifest_digest),
+         {:ok, receipt} <- Client.verify_cosign_signature(repo, entry_string(entry, "oci_ref"), manifest_digest),
          layer_digests = manifest_layer_digests(manifest),
          {:ok, bundle} <-
            fetch_layer_blob(repo, ref, entry_string(entry, "bundle_digest"), layer_digests, @max_bundle_bytes),
          {:ok, artifacts} <- fetch_per_arch_artifacts(repo, ref, entry, layer_digests) do
-      {:ok, %{bundle: bundle, artifacts: artifacts, oci_digest: manifest_digest}}
+      {:ok, %{bundle: bundle, artifacts: artifacts, oci_digest: manifest_digest, transparency_receipt: receipt}}
     end
   end
 
