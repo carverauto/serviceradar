@@ -45,8 +45,11 @@ AWX); an SNMP sysName; a name reported by a platform inventory (such as the
 hypervisor or camera inventory). A
 name derived from an address SHALL use the address the device keeps after the
 address rank guard, and only when that address is not link-local; an
-address-fallback write SHALL carry that address in both the name and the
-hostname, so the same source rewriting its own value moves the pair together. A
+address-fallback write SHALL set the name only and SHALL NOT write the
+hostname, because a hostname is identity evidence and a bare address in it
+would let a different device later seen at that address merge into this
+record; the same source rewriting its own fallback name still moves the
+name to the kept address. A
 link-local primary SHALL NOT become the name or hostname: the device keeps a
 stronger recorded name, or none. The hostname SHALL be gated by the same tiers and SHALL be
 accepted or rejected together with the name as one value. Every
@@ -201,7 +204,8 @@ ingestion batch.
 #### Scenario: A hypervisor placeholder without a record name is an address fallback
 - **GIVEN** a hypervisor inventory record with a provider reference and the address 192.0.2.40 but no name
 - **WHEN** the placeholder update that creates its device is ingested
-- **THEN** the device name and hostname SHALL be recorded as the address fallback 192.0.2.40, not the provider reference
+- **THEN** the device name SHALL be recorded as the address fallback 192.0.2.40, not the provider reference
+- **AND** the device hostname SHALL NOT be set to the address
 - **AND** a later SNMP sysName SHALL replace them
 
 #### Scenario: A hypervisor node settles on its platform inventory name

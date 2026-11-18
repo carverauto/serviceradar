@@ -16,8 +16,10 @@
       address rank guard, only when that address is not link-local; a
       link-local primary leaves the name and hostname at a stronger recorded
       value, or unset
-- [ ] 1.5 An address-fallback write carries the kept non-link-local address
-      in both `name` and `hostname`
+- [x] 1.5 An address-fallback write carries the kept non-link-local address
+      in `name` only and never writes `hostname` (a hostname is identity
+      evidence; an address in it lets a different device polled at that
+      address merge into the record)
 
 ## 2. Name precedence
 

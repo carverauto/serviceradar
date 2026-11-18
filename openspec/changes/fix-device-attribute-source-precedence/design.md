@@ -112,10 +112,12 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    name and hostname at a stronger recorded value, or unset. A recorded
    address-fallback name follows the non-link-local address the device
    keeps. An
-   address-fallback write carries the kept address in both `name` and
-   `hostname`, so the same source rewriting its own value moves the pair;
-   the rule that a field a write does not carry stays stored (decision 8)
-   applies to writers that omit a field, not to this derivation.
+   address-fallback write sets `name` only and never writes `hostname`:
+   a hostname is identity evidence (hostname-agreement adoption), so
+   writing a bare address into it lets a different device later polled at
+   that address merge into this record. A stored hostname is left as it is
+   by an address-fallback write; the same source rewriting its own
+   fallback `name` still moves it to the kept address.
 8. The upsert compares strength with the stored row inside the `ON CONFLICT`
    update, the same place the `ip` rank guard lives, so concurrent writers
    cannot race a read-then-write in Elixir. The decision accepts or rejects
