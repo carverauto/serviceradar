@@ -80,13 +80,25 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionController do
     end
   end
 
-  def reconcile_close(conn, params), do: reconcile(conn, params, &relay_session_manager().reconcile_close/2)
+  def reconcile_close(conn, params) do
+    manager = relay_session_manager()
+    reconcile(conn, params, &manager.reconcile_close/2)
+  end
 
-  def reconcile_open(conn, params), do: reconcile(conn, params, &relay_session_manager().reconcile_open/2)
+  def reconcile_open(conn, params) do
+    manager = relay_session_manager()
+    reconcile(conn, params, &manager.reconcile_open/2)
+  end
 
-  def close_observation(conn, params), do: observation(conn, params, &relay_session_manager().close_observation/3)
+  def close_observation(conn, params) do
+    manager = relay_session_manager()
+    observation(conn, params, &manager.close_observation/3)
+  end
 
-  def open_observation(conn, params), do: observation(conn, params, &relay_session_manager().open_observation/3)
+  def open_observation(conn, params) do
+    manager = relay_session_manager()
+    observation(conn, params, &manager.open_observation/3)
+  end
 
   defp reconcile(conn, %{"id" => relay_session_id}, dispatch) do
     with :ok <- require_authenticated(conn),

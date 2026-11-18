@@ -22,6 +22,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   @page_size 500
 
   @doc """
+  Runs a snapshot job. There are two entries, told apart by the job id.
+
   Queue entry: a legacy row executed from the Oban queue (integer job id)
   never publishes and never snoozes. When its scope row exists the scopes
   table already owns the demand, so the row completes immediately; when
@@ -41,12 +43,10 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     end
   end
 
-  @doc """
-  Direct-drive entry: publishes one scope synchronously, or snoozes exactly as
-  the old per-scope Oban job did. Prefer `publish_scope/2` for loop control.
-  Only direct calls (no job id: repair tooling and boundary tests) use this
-  contract; queued rows are adopted and discarded by the clause above.
-  """
+  # Direct-drive entry: publishes one scope synchronously, or snoozes exactly as
+  # the old per-scope Oban job did. Prefer `publish_scope/2` for loop control.
+  # Only direct calls (no job id: repair tooling and boundary tests) use this
+  # contract; queued rows are adopted and discarded by the clause above.
   def perform(%Oban.Job{args: args}) do
     scope = args["device_ord"]
 

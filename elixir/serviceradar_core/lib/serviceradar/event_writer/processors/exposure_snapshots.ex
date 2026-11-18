@@ -77,17 +77,6 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureSnapshots do
     end
   end
 
-  defp admit_start(%{"scope" => nil, "status" => "publishing", "started" => false, "id" => id}) do
-    Enum.reduce_while(0..15, :ok, fn bucket, :ok ->
-      case ExposureDelivery.with_lane(bucket, fn owned -> owned.() end, snapshot: id) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp admit_start(_generation), do: :ok
-
   defp receive_envelope(generation, %{"kind" => "end", "manifest" => manifest}, _hash, position) do
     with {:ok, :ok} <-
            State.change(generation["id"], fn state ->
@@ -141,6 +130,17 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureSnapshots do
         {:error, :exposure_snapshot_page_not_reserved}
     end
   end
+
+  defp admit_start(%{"scope" => nil, "status" => "publishing", "started" => false, "id" => id}) do
+    Enum.reduce_while(0..15, :ok, fn bucket, :ok ->
+      case ExposureDelivery.with_lane(bucket, fn owned -> owned.() end, snapshot: id) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp admit_start(_generation), do: :ok
 
   # A plan is retained input for the owning page, not a second delivery. Late
   # publications after cancellation are removed even after their caller died.

@@ -186,6 +186,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
       merged_availability =
         Map.get(socket.assigns, :merged_availability_loader, fn -> Map.get(MergedAvailability.load([uid]), uid) end)
 
+      converged? =
+        Map.get(socket.assigns, :availability_converged?, &MergedAvailability.converged?/0)
+
       socket
       |> assign(:availability_request_ref, request_ref)
       |> assign(:availability_request_source, source)
@@ -193,7 +196,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
         AvailabilityData.load_availability(srql_module, uid, scope,
           agent_id: agent_id,
           merged_availability: merged_availability,
-          converged?: Map.get(socket.assigns, :availability_converged?, &MergedAvailability.converged?/0)
+          converged?: converged?
         )
       end)
     else

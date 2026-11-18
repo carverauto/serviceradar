@@ -2018,7 +2018,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
-  defp default_token_fetcher(source, opts \\ []) do
+  defp default_token_fetcher(source, opts) do
     with {:ok, credentials} <- resolve_run_credentials(source, opts),
          secret_key when is_binary(secret_key) and secret_key != "" <-
            armis_secret_key(credentials) do

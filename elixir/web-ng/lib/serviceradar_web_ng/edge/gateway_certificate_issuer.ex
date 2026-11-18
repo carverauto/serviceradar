@@ -42,6 +42,8 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
     end
   end
 
+  def revoke_agent_certificate(_, _, _), do: {:error, :invalid_identity}
+
   # The agent's standing edge output grants end with its certificate: revoking them moves
   # their epochs, so every gateway's next trust document fences the records signed before.
   defp revoke_output_grants(agent_id) do
@@ -55,8 +57,6 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
         {:error, :output_grant_revocation_failed}
     end
   end
-
-  def revoke_agent_certificate(_, _, _), do: {:error, :invalid_identity}
 
   defp lookup_gateway_node(gateway_id) do
     case GatewayRegistry.lookup(gateway_id) do
