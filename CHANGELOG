@@ -1,3 +1,33 @@
+# ServiceRadar v1.5.7
+
+This release adds the Wave 1 declarative checks DAG engine and posture-pack
+catalog, semantic camera clip search with CLIP embedding schema and projector,
+SigV4 pre-signed S3 read grants for the media worker, a stateless Rust GPU
+media worker, and the LATE_ADMISSION transport-provenance delivery mode in both
+Go and Elixir (dormant at version 0). It fixes timeseries_metrics compression
+and raises the default CNPG storage to 250Gi, removes the unsupported
+`allow_overcommit` field from the NATS server config (it caused a crash on NATS
+2.14.0 when JetStream overcommit was enabled in the chart), fixes core-elx
+reading the runtime settings the release config ignored, restores parented OTel
+spans across gateway/datasvc/EventWriter hops, fixes SNMP target reuse across
+compiles, and allows TCP syslog through the namespace network policy.
+
+## Upgrade Notes
+
+- **Upgrading from v1.5.3 or earlier: read the v1.5.5, v1.5.4, and v1.5.6
+  upgrade notes below first.** They all still apply and are not repeated here.
+- **CNPG storage default raised to 250Gi.** Installations with less than 250Gi
+  should set `cnpg.storageSize` explicitly to their current size to prevent the
+  chart from requesting an expansion. CNPG refuses to shrink storage, so a value
+  below the live size will fail the upgrade.
+- **timeseries_metrics compression is now configured by this migration.** The
+  migration is idempotent and safe to run against a database where compression
+  was already set up by an earlier migration or `DataRetentionWorker`.
+- **NATS `allow_overcommit` chart fix.** If you previously worked around NATS
+  pod crashes by setting `nats.jetstream.allowOvercommit: true`, that value is
+  now safe and only bypasses the chart's render-time budget check; it no longer
+  writes an unsupported field to the NATS server config.
+
 # ServiceRadar v1.5.6
 
 This release fixes a NATS lockout that a runtime certificate rotation
