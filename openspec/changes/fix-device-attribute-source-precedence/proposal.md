@@ -89,12 +89,14 @@ profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
 was stored. A device whose SNMP agent reports only a generic agent-software
 enterprise (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
-OUI spelling keep matching it; on rows written before rollout, the first
-census pass replaces a stored agent-software vendor with the OUI vendor. That
-first census pass may also change any other vendor or name stored before
-rollout once, to the census value, until the mapper records a stronger one. Release notes must call this out, and such
-rules should select devices by a stable key (uid list, tag, or a prefix match)
-instead of an exact vendor string.
+OUI spelling keep matching it. On rows written before rollout, the first
+census pass replaces a stored agent-software vendor with no recorded strength
+by the OUI vendor, so exact-OUI credential rules match that device again after
+that pass. That first census pass may also change any other vendor or name
+stored before rollout once, to the census value, until the mapper records a
+stronger one. Release notes must call this out, and such rules should select
+devices by a stable key (uid list, tag, or a prefix match) instead of an exact
+vendor string.
 
 ## Impact
 
