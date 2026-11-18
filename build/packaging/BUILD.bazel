@@ -25,8 +25,6 @@ sh_test(
     srcs = ["postinstall_shared_state_ownership_test.sh"],
     args = [
         "$(rootpath //build/packaging/agent:scripts/postinstall.sh)",
-        "$(rootpath //build/packaging/rperf:scripts/postinstall.sh)",
-        "$(rootpath //build/packaging/rperf-checker:scripts/postinstall.sh)",
         "$(rootpath //build/packaging/nats:nats_postinst)",
         "$(rootpath //build/packaging/agent:bin/serviceradar-agent)",
         "$(rootpath :specs/serviceradar-agent.spec)",
@@ -36,7 +34,5 @@ sh_test(
         "//build/packaging/agent:bin/serviceradar-agent",
         "//build/packaging/agent:scripts/postinstall.sh",
         "//build/packaging/nats:nats_postinst",
-        "//build/packaging/rperf:scripts/postinstall.sh",
-        "//build/packaging/rperf-checker:scripts/postinstall.sh",
     ],
 )

@@ -28,9 +28,8 @@ import (
 func isGRPCService(serviceType string) bool {
 	// List of service types that are implemented as gRPC services
 	grpcServices := map[string]bool{
-		"sysmon":        true,
-		"rperf-checker": true,
-		"snmp":          true,
+		"sysmon": true,
+		"snmp":   true,
 	}
 
 	return grpcServices[serviceType]
@@ -280,7 +279,6 @@ func addStandardCheckers(agent AgentConfig, ip string) (updatedAgent AgentConfig
 		{ServiceType: "icmp", ServiceName: "ping", Details: "1.1.1.1"},
 		{ServiceType: "sweep", ServiceName: "network_sweep", Details: ""},
 		{ServiceType: serviceTypeGRPC, ServiceName: "snmp", Details: ip + getDefaultPorts()[typeSNMP]},
-		{ServiceType: serviceTypeGRPC, ServiceName: "rperf-checker", Details: ip + getDefaultPorts()[typeRPerf]},
 		{ServiceType: serviceTypeGRPC, ServiceName: "sysmon", Details: ip + getDefaultPorts()[typeSysMon]},
 	}
 

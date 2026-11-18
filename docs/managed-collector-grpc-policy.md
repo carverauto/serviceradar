@@ -7,7 +7,6 @@ adopt managed peer enforcement:
 | Listener | Policy file field |
 | --- | --- |
 | Trap collector | `grpc_security.cert_policy_file` |
-| RPerf checker | `security.tls.cert_policy_file` |
 | OTEL and log collector | `grpc_tls.cert_policy_file` |
 
 For example, the installed policy path may be

@@ -28,6 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "cargo:rerun-if-changed={}",
         proto_dir.join("edge/v1/record.proto").display()
     );
+    println!(
+        "cargo:rerun-if-changed={}",
+        proto_dir.join("netperf/v1/netperf.proto").display()
+    );
 
     // Compile KV proto for client usage
     let kv_proto_path = if Path::new("proto/kv.proto").exists() {

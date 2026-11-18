@@ -26,7 +26,6 @@
 {{- end -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $logCollectorSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) -}}
-{{- $rperfCheckerSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "rperfChecker")) -}}
 {{- $trapdSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "trapd")) -}}
 {{- /*
   OTel/trace export for the Go services (agent, datasvc).
@@ -399,25 +398,6 @@ data:
   external.json: |
       {
         "enabled": true
-      }
-  
-  rperf-checker.json: |
-      {
-        "name": "rperf-checker",
-        "type": "grpc",
-        "address": "serviceradar-rperf-client.{{ $ns }}.svc.cluster.local:50081",
-        "security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "gateway",
-          "trust_domain": "{{$trustDomain}}",
-          "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        }
       }
   
   trapd-checker.json: |
@@ -906,27 +886,6 @@ data:
           "max_backups": 5,
           "max_age": 30
         }
-      }
-  
-  rperf.json: |
-      {
-        "listen_addr": "0.0.0.0:50081",
-        "name": "rperf-checker",
-        "type": "grpc",
-        "timeout": "30s",
-        "security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "trust_domain": "{{$trustDomain}}",
-          "tls": {
-            "cert_file": "rperf-checker.pem",
-            "key_file": "rperf-checker-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "default_poll_interval": 300,
-        "targets": []
       }
   
     # Data Service Configuration

@@ -15,7 +15,6 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude release-artifacts
 # gazelle:exclude target
 # gazelle:exclude rust
-# gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 # gazelle:exclude go/pkg/agent/testdata
 #

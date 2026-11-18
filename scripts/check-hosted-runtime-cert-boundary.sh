@@ -189,30 +189,20 @@ if not any(
 ):
     fail("hosted render does not project the isolated CNPG issuer Secret")
 
-rperf = hosted_resources.get(("Deployment", "serviceradar-rperf-client"))
-if not rperf:
-    fail("hosted render does not contain the rperf client Deployment")
-
-rperf_runtime_blocks = [
-    (keys, projections)
-    for secret_name, keys, projections in projected_secret_blocks(rperf)
-    if secret_name == RUNTIME
-]
-if len(rperf_runtime_blocks) != 1:
-    fail("rperf client must project exactly one runtime certificate Secret volume")
-
-rperf_keys, rperf_projections = rperf_runtime_blocks[0]
-expected_rperf_projections = {
-    ("root.pem", "root.pem"),
-    ("rperf-checker.pem", "rperf-checker.pem"),
-    ("rperf-checker-key.pem", "rperf-checker-key.pem"),
-    ("rperf-checker.pem", "rperf-client.pem"),
-    ("rperf-checker-key.pem", "rperf-client-key.pem"),
-}
-if set(rperf_projections) != expected_rperf_projections:
-    fail(f"rperf client has an unexpected runtime certificate projection: {rperf_projections}")
-if set(rperf_keys) != {"root.pem", "rperf-checker.pem", "rperf-checker-key.pem"}:
-    fail(f"rperf client projects unexpected runtime Secret keys: {rperf_keys}")
+for label, rendered_resources, rendered_text in [
+    ("default", default_resources, default_text),
+    ("hosted", hosted_resources, hosted_text),
+]:
+    for key in [
+        ("Deployment", "serviceradar-rperf-client"),
+        ("Service", "serviceradar-rperf-client"),
+        ("Service", "serviceradar-rperf"),
+    ]:
+        if key in rendered_resources:
+            fail(f"{label} render must not contain retired resource {key[0]}/{key[1]}")
+    for forbidden_cert in ["rperf-checker.pem", "rperf-client.pem"]:
+        if forbidden_cert in rendered_text:
+            fail(f"{label} render must not reference retired certificate {forbidden_cert}")
 PY
 
 echo "Hosted runtime certificate boundary is enforced"

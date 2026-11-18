@@ -89,7 +89,6 @@ ALL_GATED_OVERRIDES = {
     "gobgp.enabled": True,
     "k8sInventory.enabled": True,
     "logCollector.tcpCollector.enabled": True,
-    "rperfClient.enabled": True,
     "trivySidecar.enabled": True,
     "webrtc.iceCredentials.backend": "static_secret",
     "webrtc.iceCredentials.staticSecret.existingSecretName": "synthetic-turn-shared-secret",
@@ -217,7 +216,6 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/log-collector.yaml",
             "templates/nats-creds-generator.yaml",
             "templates/nats.yaml",
-            "templates/rperf-checker.yaml",
             "templates/secret-generator-job.yaml",
             "templates/serviceradar-config.yaml",
             "templates/tools.yaml",
@@ -227,7 +225,7 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
     @staticmethod
     def enableable_templates() -> list[str]:
-        # All 36 pod-bearing templates + config templates that emit documents under ALL_GATED_OVERRIDES.
+        # All 35 pod-bearing templates + config templates that emit documents under ALL_GATED_OVERRIDES.
         return [
             "templates/agent-gateway.yaml",
             "templates/agent.yaml",
@@ -255,7 +253,6 @@ class PodDnsAndFqdnTest(unittest.TestCase):
             "templates/nats-creds-generator.yaml",
             "templates/nats.yaml",
             "templates/nvr.yaml",
-            "templates/rperf-checker.yaml",
             "templates/secret-generator-job.yaml",
             "templates/serviceradar-config.yaml",
             "templates/starrocks-analytics-config.yaml",
@@ -286,8 +283,8 @@ class PodDnsAndFqdnTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             len(workload_templates),
-            36,
-            f"Expected at least 36 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
+            35,
+            f"Expected at least 35 pod-bearing templates in helm/serviceradar, saw {len(workload_templates)}: {sorted(workload_templates)}",
         )
         self.assertEqual(
             missing,
@@ -378,10 +375,7 @@ class PodDnsAndFqdnTest(unittest.TestCase):
         self.assertEqual(trapd_json["nats_url"], f"tls://serviceradar-nats.{NAMESPACE}.svc.cluster.local:4222")
         self.assertEqual(trapd_json["otel"]["endpoint"], f"serviceradar-log-collector.{NAMESPACE}.svc.cluster.local:4317")
 
-        self.assertEqual(
-            json.loads(data["rperf-checker.json"])["address"],
-            f"serviceradar-rperf-client.{NAMESPACE}.svc.cluster.local:50081",
-        )
+        self.assertNotIn("rperf-checker.json", data)
         self.assertEqual(
             json.loads(data["trapd-checker.json"])["address"],
             f"serviceradar-trapd.{NAMESPACE}.svc.cluster.local:50043",

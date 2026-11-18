@@ -165,7 +165,7 @@ func DetermineAgentTypeFromCapabilities(capabilities []string) (int, string) {
 
 	for _, cap := range capabilities {
 		switch cap {
-		case "icmp", "snmp", "rperf", "sysmon", "mapper":
+		case "icmp", "snmp", "rperf", "netperf", "sysmon", "mapper":
 			hasPerformance = true
 		case "syslog", "netflow":
 			hasLog = true

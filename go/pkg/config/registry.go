@@ -140,14 +140,6 @@ func serviceDescriptorTable() []ServiceDescriptor {
 			Format:      ConfigFormatJSON,
 		},
 		{
-			Name:        "rperf-checker",
-			DisplayName: "RPerf Checker",
-			ServiceType: "rperf-checker",
-			Scope:       ConfigScopeGlobal,
-			KVKey:       "config/rperf-checker.json",
-			Format:      ConfigFormatJSON,
-		},
-		{
 			Name:        "profiler",
 			DisplayName: "Profiler Service",
 			ServiceType: "profiler",
@@ -185,14 +177,6 @@ func serviceDescriptorTable() []ServiceDescriptor {
 			ServiceType:   "trapd",
 			Scope:         ConfigScopeAgent,
 			KVKeyTemplate: "agents/{{agent_id}}/checkers/trapd/trapd.json",
-			Format:        ConfigFormatJSON,
-		},
-		{
-			Name:          "agent-rperf",
-			DisplayName:   "RPerf Checker",
-			ServiceType:   "rperf",
-			Scope:         ConfigScopeAgent,
-			KVKeyTemplate: "agents/{{agent_id}}/checkers/rperf/rperf.json",
 			Format:        ConfigFormatJSON,
 		},
 		{

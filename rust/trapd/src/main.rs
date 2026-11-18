@@ -44,6 +44,12 @@ pub mod serviceradar {
     }
 }
 
+pub mod netperf {
+    pub mod v1 {
+        tonic::include_proto!("netperf.v1");
+    }
+}
+
 pub mod monitoring {
     tonic::include_proto!("monitoring");
 }

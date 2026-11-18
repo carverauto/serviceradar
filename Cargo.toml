@@ -34,8 +34,6 @@ members = [
     "rust/netprobe",
     "rust/workload-identity",
     "rust/powerdns",
-    "rust/rperf-client",
-    "third_party/rust_patches/rperf-0.1.25",
     "rust/flow-collector",
     "rust/srql",
     "integration_tests/srql",

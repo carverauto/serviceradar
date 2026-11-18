@@ -833,8 +833,6 @@ required = {
     "flow-collector",
     "bmp-collector",
     "trapd",
-    "rperf",
-    "rperf-checker",
 }
 if set(names) != required:
     raise SystemExit(f"RELEASE_PACKAGES mismatch: got {sorted(names)}, want {sorted(required)}")

@@ -19,8 +19,7 @@ go_proto_library(
     #   profiler_grpc.pb.go:31:42: undefined: StartProfilingRequest
     #   profiler_grpc.pb.go:31:92: undefined: StartProfilingResponse
     #
-    # Analysis still passes, so this only surfaces at compile time. //proto/rperf carries the
-    # same pair for the same reason.
+    # Analysis still passes, so this only surfaces at compile time.
     compilers = [
         "@io_bazel_rules_go//proto:go_proto",
         "@io_bazel_rules_go//proto:go_grpc_v2",

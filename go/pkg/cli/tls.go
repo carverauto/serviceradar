@@ -48,8 +48,6 @@ const (
 	defaultDirPerms      = 0755
 	defaultLshShift      = 128
 	serviceNats          = "nats"
-	serviceRperf         = "rperf"
-	serviceRperfChecker  = "rperf-checker"
 	serviceSysmonChecker = "sysmon"
 )
 
@@ -57,8 +55,6 @@ const (
 func defaultServices() []string {
 	return []string{
 		serviceNats,
-		serviceRperf,
-		serviceRperfChecker,
 		serviceSysmonChecker,
 	}
 }
@@ -128,7 +124,7 @@ func selectComponents(cfg *CmdConfig) []string {
 
 	return append([]string{
 		"core", "agent", "gateway", "kv", "nats", "web",
-		"sysmon", "snmp", "rperf", "rperf-checker",
+		"sysmon", "snmp",
 	}, defaultServices()...)
 }
 
@@ -157,10 +153,6 @@ func generateComponentCerts(
 	rootKey *ecdsa.PrivateKey,
 	styles *logStyles) error {
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		certPath := filepath.Join(cfg.CertDir, certName+".pem")
 
@@ -184,8 +176,6 @@ func getCertName(component string) string {
 	// certNames maps component names to their corresponding certificate file names.
 	certNames := map[string]string{
 		serviceNats:          "nats-server",
-		serviceRperf:         "rperf",
-		serviceRperfChecker:  "rperf-checker",
 		serviceSysmonChecker: "sysmon",
 	}
 
@@ -462,10 +452,6 @@ func getCertificateCopies(cfg *CmdConfig, components []string) []struct{ src, ds
 	}
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 
 		copies = append(copies,
@@ -486,10 +472,6 @@ func setCertificatePermissions(cfg *CmdConfig, components []string) error {
 	}
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 
 		permSettings[filepath.Join(cfg.CertDir, certName+".pem")] = defaultCertPerms
@@ -532,7 +514,7 @@ func setCertificateOwnership(cfg *CmdConfig, components []string) error {
 
 	// Add component-specific files for serviceradar
 	for _, component := range components {
-		if component == serviceRperf || component == serviceNats {
+		if component == serviceNats {
 			continue
 		}
 
@@ -569,10 +551,6 @@ func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles, compone
 	}
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		certPath := filepath.Join(cfg.CertDir, certName+".pem")
 
@@ -873,10 +851,6 @@ func showPostInstallInfo(cfg *CmdConfig, serviceIPs string, styles *logStyles) {
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render("Certificate locations:"))
 
 	for _, component := range cfg.Components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		fmt.Println("  - " + component + ": " +
 			styles.info.Render(fmt.Sprintf("%s/%s.pem, %s/%s-key.pem", cfg.CertDir, certName, cfg.CertDir, certName)))

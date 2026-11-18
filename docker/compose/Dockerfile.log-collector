@@ -49,7 +49,6 @@ COPY rust/log-collector ./rust/log-collector
 COPY rust/trapd ./rust/trapd
 COPY rust/edge-onboarding ./rust/edge-onboarding
 COPY rust/bmp-collector ./rust/bmp-collector
-COPY rust/rperf-client ./rust/rperf-client
 COPY rust/flow-collector ./rust/flow-collector
 COPY rust/srql ./rust/srql
 COPY proto ./proto
