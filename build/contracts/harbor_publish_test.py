@@ -287,6 +287,10 @@ pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
 
     def test_release_digest_gate_reads_builds_and_post_promotion_verify_reads_protected(self):
         (self.bin / "jq").symlink_to(pinned_jq())
+        # A Dockerfile image is never published by a release, so the release gate ignores it.
+        inventory = self.root / "docker/images/image_inventory.bzl"
+        inventory.write_text(inventory.read_text() + 'DOCKERFILE_IMAGES = [\n'
+                             '  {"repository":"example-runner","dockerfile":"Dockerfile","context":"."},\n]\n')
         lookups = self.root / "lookups"
         self.fake("oras", "assert sys.argv[1:4] == ['manifest', 'fetch', '--descriptor'], sys.argv\n"
                   f"open({str(lookups)!r}, 'a').write(sys.argv[4] + '\\n')\n"
@@ -360,9 +364,7 @@ pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
         lookups.unlink()
         for image, tag, reason in (("example-worker", "v1.2.3", "unknown Dockerfile image: example-worker"),
                                    ("not-declared", "v1.2.3", "unknown Dockerfile image: not-declared"),
-                                   # With no tag the signer wants Bazel's digests, which it has
-                                   # none of for this image; where it stops depends on the host.
-                                   ("example-runner", "", "")):
+                                   ("example-runner", "", "a Dockerfile image is signed by its published tag")):
             with self.subTest(image=image, tag=tag):
                 self.env.update(SERVICERADAR_DOCKERFILE_IMAGE=image, SERVICERADAR_SIGN_REGISTRY_TAG=tag)
                 result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))

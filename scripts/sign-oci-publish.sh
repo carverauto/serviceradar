@@ -42,6 +42,11 @@ REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar-builds}"
 SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"
 
+if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" && -z "${SIGN_REGISTRY_TAG}" ]]; then
+  echo "error: a Dockerfile image is signed by its published tag" >&2
+  exit 1
+fi
+
 if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
   if [[ ! "${SIGN_REGISTRY_TAG}" =~ ^[A-Za-z0-9._-]+$ ]]; then
     echo "error: invalid registry tag for OCI signing: ${SIGN_REGISTRY_TAG}" >&2
@@ -370,11 +375,8 @@ if dockerfile_image:
     names = {entry["repository"] for entry in ast.literal_eval(declared.group(1))} if declared else set()
     if dockerfile_image not in names:
         raise SystemExit(f"unknown Dockerfile image: {dockerfile_image}")
-    if not os.environ.get("SERVICERADAR_SIGN_REGISTRY_TAG"):
-        raise SystemExit("a Dockerfile image is signed by its published tag")
     print(f"{registry_host}/{project}/{dockerfile_image}|")
     raise SystemExit(0)
-text = inventory_path.read_text()
 match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
 if not match:
     raise SystemExit(f"unable to parse {inventory_path}")

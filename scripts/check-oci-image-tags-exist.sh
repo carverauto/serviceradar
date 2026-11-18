@@ -45,14 +45,17 @@ fi
 
 mapfile -t repositories < <(
   python3 - "$INVENTORY" "${OCI_REGISTRY:-registry.carverauto.dev}" "${OCI_PROJECT:-serviceradar}" <<'PY'
+import ast
 import re
 import sys
 from pathlib import Path
 
 path, registry, project = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-text = path.read_text()
-for repo in re.findall(r'"repository"\s*:\s*"([^"]+)"', text):
-    print(f"{registry}/{project}/{repo.rsplit('/', 1)[-1]}")
+match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", path.read_text())
+if not match:
+    raise SystemExit(f"unable to parse image inventory: {path}")
+for entry in ast.literal_eval(match.group(1)):
+    print(f"{registry}/{project}/{entry['repository'].rsplit('/', 1)[-1]}")
 PY
 )
 
