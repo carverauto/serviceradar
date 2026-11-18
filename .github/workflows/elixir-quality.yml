@@ -18,10 +18,10 @@ name: Elixir Quality
 # Mix project. The seven job names stay as required checks, so an untouched
 # project still reports success — it just does not mix deps.compile.
 #
-# Compile --warnings-as-errors, xref, hex/deps audits, Sobelow, Dialyzer, and
-# the committed OpenAPI dump check run daily from //buildbuddy.yaml
-# ("Elixir Quality (daily)") against staging. BazelCI already compiles and
-# tests the Elixir tree on every PR.
+# The hex/deps audits and Sobelow run daily from //buildbuddy.yaml
+# ("Elixir Quality (daily)") against staging. BazelCI compiles the Elixir tree
+# with warnings as errors, tests it, and checks the committed OpenAPI dump on
+# every PR.
 permissions:
   contents: read
   pull-requests: write

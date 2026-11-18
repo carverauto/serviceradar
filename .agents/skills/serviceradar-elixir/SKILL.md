@@ -22,7 +22,7 @@ metadata:
 
 ## Quality commands
 
-- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`. PRs gate `--lint-only` (format + Credo); the rest of the Mix contract runs daily from `//buildbuddy.yaml`.
+- Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`. PRs gate `--lint-only` (format + Credo), and BazelCI compiles every first-party app with warnings as errors (`warnings_as_errors` on `mix_app`). The dependency audits and Sobelow run daily from `//buildbuddy.yaml`.
 - Same format/Credo check, hermetic on RBE and needing no local Hex `deps/`: `bazel test --config=remote //build/elixir_quality:quality_check`; auto-fix with `bazel run --config=remote //build/elixir_quality:format`. See `build/elixir_quality.bzl` for how Mix inputs are supplied.
 
 - **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.

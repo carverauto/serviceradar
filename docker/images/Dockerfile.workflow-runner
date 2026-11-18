@@ -127,6 +127,10 @@ FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca1
 #                  use --strategy=TestRunner=local, which runs already-built test binaries
 #                  here, and compilation and linking stay on RBE under --config=ci, where the
 #                  C toolchain lives in the executor image. It costs ~80 MB.
+# pkg-config,      REQUIRED since v1.0.24.7, for the same job. `ex_dtls` (a dependency of
+# libssl-dev       serviceradar_core_elx and serviceradar_nvr) locates OpenSSL through pkg-config
+#                  and has no precompiled build, so without both it stopped at
+#                  "pkg-config not found". The other media dependencies ship precompiled.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential \
@@ -135,10 +139,12 @@ RUN apt-get update \
       curl \
       file \
       git \
+      libssl-dev \
       make \
       netbase \
       openssl \
       patch \
+      pkg-config \
       python3 \
       tzdata \
       unzip \

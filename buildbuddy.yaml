@@ -2171,17 +2171,22 @@ actions:
       disk: "40GB"
     steps: *integration_benchmark_steps
 
-  # Full Mix analyzer contract (compile --warnings-as-errors, xref, Credo,
-  # hex/deps audit, Sobelow, OpenAPI dump). Not a PR gate: those steps compile
-  # each project's Mix closure and were the bulk of the old 18m+ Elixir Quality
-  # required check. PRs keep mix format + mix credo --strict in
-  # .github/workflows/elixir-quality.yml; BazelCI above already compiles and
-  # tests the Elixir tree.
+  # The Mix checks no pull request runs: hex.audit and deps.audit against the
+  # advisory databases, Sobelow on web-ng, and format + Credo for every
+  # first-party project, including the ones outside the PR lint matrix in
+  # .github/workflows/elixir-quality.yml. Advisories are published on their own
+  # schedule, so this has to run without a commit to trigger it.
   #
-  # --skip-nif: the workflow-runner image has no cargo (Rust links on RBE), and
-  # BazelCI already builds the Rustler NIFs. Mix still type-checks their stub
-  # modules. C NIFs among the Mix dependencies cannot be skipped; they compile
-  # here with the image's C compiler.
+  # --skip-compile: the projects themselves are not compiled here. BazelCI
+  # compiles each one with warnings as errors (`warnings_as_errors` on mix_app)
+  # and runs the committed OpenAPI drift test in //elixir/web-ng:unit_tests, on
+  # every pull request. Compiling them a second time under Mix needed the Rust
+  # NIFs this image cannot build (no cargo; Rust links on RBE), and without
+  # them the Boundary compiler crashed on modules it could not load.
+  #
+  # The Hex dependencies are still compiled, because Mix refuses to run Credo
+  # or the audits against uncompiled ones. Their C code builds with this
+  # image's compiler, pkg-config and OpenSSL headers.
   #
   # Same pool as BazelCI (one replica). 07:00 UTC is chosen so a weekday run
   # usually misses US-hours PR traffic; if both are queued, one waits.
@@ -2247,6 +2252,4 @@ actions:
           mix local.hex --force
           mix local.rebar --force
 
-          ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
-
-          (cd elixir/web-ng && mix serviceradar.openapi.dump --check)
+          ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-compile
