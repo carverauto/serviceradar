@@ -88,7 +88,8 @@ not establish OOM as the cause.
   storage, which is already fetched per node. Separate scopes keep one
   condition's marker from clearing the other condition's keys, so each scope
   id is the target discriminator, the scope name (`guest-runtime` or
-  `node-storage`) and the node. Every scope id and condition key starts with
+  `node-storage`) and the node. Every scope id and condition key in this
+  change, including the guest-availability and OOM keys, starts with
   the target discriminator the plugin already
   uses as its condition-key prefix, because one assignment polls several
   targets through one agent debouncer and two targets can share a node name

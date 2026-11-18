@@ -11,8 +11,10 @@ periodic ok/warning/critical resource-pressure summaries it already emits.
 - **THEN** the plugin SHALL emit a
   `com.carverauto.proxmox.guest_availability_changed` condition event
   referencing the guest's canonical DeviceID and its Proxmox node
-- **AND** the event SHALL carry the guest's canonical DeviceID as its
-  `condition_key`
+- **AND** the event SHALL carry a `condition_key` built from the target
+  discriminator the plugin already uses as its condition-key prefix and the
+  guest's canonical DeviceID, so two targets that stop the same VMID never
+  share a key
 - **AND** this event SHALL be distinct from, not merged into, the periodic
   resource-pressure summary events
 
@@ -239,6 +241,13 @@ synthesizes under the Scoped Condition Recovery requirement and which carries
 the same `condition_key`. Because the opening match requires a non-ok level
 on the rule's own subject, the clearing event never opens or extends an
 alert, and the existing `node_storage` pressure summaries are never matched.
+The `guest-runtime-paused` and `node-storage-capacity` rules SHALL declare
+`cooldown_seconds` 1800: their condition is re-emitted while it holds and the
+agent forwards an unchanged level only on its 15-minute refresh, so a
+cooldown comfortably above that interval keeps a condition that stays active
+one incident instead of resolving and re-opening on each refresh. The
+`guest-availability-changed` and `node-oom-kill` rules keep the default
+cooldown.
 
 #### Scenario: Plugin package is approved
 - **WHEN** an operator approves a Proxmox plugin package whose manifest
@@ -256,6 +265,15 @@ alert, and the existing `node_storage` pressure summaries are never matched.
 - **THEN** the alert SHALL resolve and no new alert SHALL open
 - **AND** a `node_storage` pressure summary for the same datastore SHALL NOT
   open or hold an alert on this rule
+
+#### Scenario: A condition that stays active remains one alert
+- **GIVEN** the `plugin:proxmox:guest-runtime-paused` or
+  `plugin:proxmox:node-storage-capacity` rule is enabled and has an open
+  alert for a guest or datastore
+- **WHEN** the guest stays paused, or the datastore stays critical, across
+  several of the agent's unchanged-level refreshes
+- **THEN** the alert SHALL remain a single open alert and SHALL NOT resolve
+  and re-open on any refresh
 
 #### Scenario: One event opens an alert per condition key
 - **GIVEN** the `plugin:proxmox:guest-runtime-paused` rule is enabled

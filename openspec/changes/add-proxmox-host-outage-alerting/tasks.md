@@ -36,7 +36,8 @@ of the plugin work in sections 2-5.
 - [ ] 3.1 In `go/cmd/wasm-plugins/proxmox/`, emit a
       `com.carverauto.proxmox.guest_availability_changed` condition event on
       a running-to-stopped transition, carrying the guest's canonical
-      DeviceID and Proxmox node, with the DeviceID as its `condition_key`.
+      DeviceID and Proxmox node, with a `condition_key` built from the
+      target discriminator and the DeviceID.
 - [ ] 3.2 Unit test with invented guest observations: running in poll N and
       stopped in N+1 emits exactly one event; remaining stopped emits none.
 - [ ] 3.3 Confirm the event remains separate from the periodic
@@ -127,7 +128,10 @@ of the plugin work in sections 2-5.
       subject with attribute level `warning` or `critical`, and keep their
       recovery as level `ok` on that same subject, the clearing event the
       agent synthesizes from the condition scope, so the clear never matches
-      as an opening event and pressure summaries are not matched.
+      as an opening event and pressure summaries are not matched. Those two
+      rules declare `cooldown_seconds` 1800, above the agent's 15-minute
+      unchanged-level refresh, so a condition that stays active stays one
+      incident; the availability and OOM rules keep the default cooldown.
 - [ ] 5.2 Ship a new plugin package version and verify approval materializes
       all four rules disabled and namespaced `plugin:proxmox:<name>`.
 
