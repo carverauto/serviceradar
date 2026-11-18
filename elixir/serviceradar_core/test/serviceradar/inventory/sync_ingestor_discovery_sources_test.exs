@@ -364,6 +364,51 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert updated_camera.type == "camera"
     end
 
+    test "a camera created without a reported name or vendor yields both to later sources", %{
+      actor: actor
+    } do
+      camera_uid = "sr:camera-unnamed-#{System.unique_integer([:positive])}"
+      ip = "10.0.12.#{unique_octet()}"
+
+      payload = %{
+        "camera_descriptors" => [
+          %{
+            "device_uid" => camera_uid,
+            "vendor" => "linux",
+            "camera" => %{"model" => "Example Cam X1"},
+            "source" => %{"camera_host" => "cam-lobby.example"}
+          }
+        ]
+      }
+
+      InventoryIngestor.ingest(payload, %{},
+        actor: actor,
+        resolve_device_uid: fn _descriptor, _status, _actor -> camera_uid end,
+        source_upsert: fn _attrs, _actor -> {:ok, %{id: Ecto.UUID.generate()}} end,
+        profile_upsert: fn attrs, _actor -> {:ok, attrs} end
+      )
+
+      assert {:ok, created} = Device.get_by_uid(camera_uid, false, actor: actor)
+
+      assert %{name: nil, hostname: "cam-lobby.example", vendor_name: nil, model: nil} =
+               Map.take(created, [:name, :hostname, :vendor_name, :model])
+
+      mapper_update = %{
+        "device_id" => camera_uid,
+        "ip" => ip,
+        "partition" => "default",
+        "hostname" => "lobby-cam-01",
+        "source" => "mapper",
+        "metadata" => %{}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([mapper_update], actor: actor)
+      assert {:ok, updated} = Device.get_by_uid(camera_uid, false, actor: actor)
+
+      assert %{name: "lobby-cam-01", hostname: "lobby-cam-01"} =
+               Map.take(updated, [:name, :hostname])
+    end
+
     test "camera inventory strong identity claims ip from stale ip-only placeholder", %{
       actor: actor
     } do

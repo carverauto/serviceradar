@@ -620,8 +620,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     case get_device_by_uid(device_uid, true, actor) do
       {:ok, nil} ->
         {create_attrs, conflicting_ip_device} = prepare_camera_ip_claim(device_uid, attrs, actor)
-        {_ranked, provenance} = camera_ranked_attrs(attrs)
-        create_attrs = Map.put(create_attrs, :attribute_provenance, provenance)
+        {ranked, provenance} = camera_ranked_attrs(attrs)
+
+        create_attrs =
+          create_attrs
+          |> Map.merge(Map.take(ranked, [:name, :vendor_name, :model]))
+          |> Map.put(:attribute_provenance, provenance)
 
         Device
         |> Ash.Changeset.for_create(:create, create_attrs, actor: actor)
@@ -812,7 +816,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
     provenance =
       %{
-        "name" => if(not blank?(name) or not blank?(attrs.hostname), do: :platform_inventory),
+        "name" => if(not blank?(name), do: :platform_inventory),
         "vendor" => if(not blank?(vendor_name) or not blank?(model), do: :hardware),
         "type" => :platform_inventory,
         "management_device_id" => :platform_inventory
