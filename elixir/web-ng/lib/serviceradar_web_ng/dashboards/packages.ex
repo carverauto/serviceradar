@@ -591,16 +591,26 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
          {:idempotent, %DashboardPackage{} = package},
          _manifest,
          _attrs,
-         _wasm,
+         wasm,
          route_slug,
          enable_route?,
          ash_opts
        ) do
-    # Nothing to write on the package side — blob is already there with matching SHA.
-    # The slug binding may or may not exist; honor the route opt either way.
-    with {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
+    # A prior publish may have written the DB row but failed before storing the
+    # WASM object (e.g. blob store unavailable), leaving wasm_object_key nil.
+    # Repair that before returning so the renderer is actually downloadable.
+    with {:ok, package} <- maybe_repair_missing_blob(package, wasm, ash_opts),
+         {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
       {:ok, %{package: package, instance: instance, result: :idempotent_noop}}
     end
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{wasm_object_key: nil} = package, wasm, ash_opts) do
+    store_wasm_blob(package, wasm, package.content_hash, ash_opts)
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{} = package, _wasm, _ash_opts) do
+    {:ok, package}
   end
 
   defp finalize_publish({:fresh}, _manifest, attrs, wasm, route_slug, enable_route?, ash_opts) do
