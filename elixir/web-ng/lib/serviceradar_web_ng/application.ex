@@ -208,14 +208,25 @@ defmodule ServiceRadarWebNG.Application do
       children ++
         [
           ServiceRadarWebNG.Plugins.FirstPartySyncScheduler,
-          Supervisor.child_spec(
-            {Task, fn -> ServiceRadarWebNG.Plugins.FirstPartySyncWorker.enqueue_if_version_changed() end},
-            id: :first_party_plugin_version_sync
+          version_sync_task(
+            :first_party_plugin_version_sync,
+            ServiceRadarWebNG.Plugins.FirstPartySyncWorker
           )
         ]
     else
       children
     end
+  end
+
+  # A one-shot task that asks a sync worker to run if the release version changed. The
+  # worker is named, not called, here: this module starts children of every context and
+  # belongs to none of them.
+  defp version_sync_task(id, worker) do
+    %{
+      id: id,
+      start: {Task, :start_link, [worker, :enqueue_if_version_changed, []]},
+      restart: :temporary
+    }
   end
 
   defp maybe_add_native_addon_sync_scheduler(children) do
@@ -225,10 +236,7 @@ defmodule ServiceRadarWebNG.Application do
       children ++
         [
           ServiceRadarWebNG.Plugins.NativeAddonSyncScheduler,
-          Supervisor.child_spec(
-            {Task, fn -> ServiceRadarWebNG.Plugins.NativeAddonSyncWorker.enqueue_if_version_changed() end},
-            id: :native_addon_version_sync
-          )
+          version_sync_task(:native_addon_version_sync, ServiceRadarWebNG.Plugins.NativeAddonSyncWorker)
         ]
     else
       children

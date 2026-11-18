@@ -36,6 +36,7 @@ RECORDING_DEPS = [
 
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_recording",
     mix_env = "test",
@@ -44,6 +45,7 @@ mix_app(
 
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_recording",
     mix_env = "prod",

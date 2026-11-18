@@ -23,6 +23,7 @@ CLIENT_DEPS = [
 
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "serviceradar_nvr_client",
     mix_env = "prod",
