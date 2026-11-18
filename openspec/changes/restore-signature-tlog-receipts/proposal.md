@@ -104,7 +104,8 @@ Rekor, so no installation depends on that log being up.
 - **Second line: the OpenBao audit log.** The self-hosted Rekor signs with an OpenBao Transit key
   in the same OpenBao as `cosign-release`, so someone who can use both keys could forge a receipt
   without logging anything. An OpenBao audit device and a watch that reports every
-  `transit/sign/cosign-release` call no signing ledger accounts for close that gap (design.md,
+  `transit/sign/cosign-release` call not explained by a ledger of a release-key signing run active
+  at its time close that gap (design.md,
   Decision 10). This change specifies them; the operator enables the audit device.
 - **Operator precondition.** `bao read transit/keys/cosign-release` must show `exportable=false`
   and `allow_plaintext_backup=false` (design.md, Decision 11). Recorded as an operator check.

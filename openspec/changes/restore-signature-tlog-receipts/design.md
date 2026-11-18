@@ -488,8 +488,9 @@ second line does not depend on the log.
   stops release signing, Rekor and every other OpenBao client. The device's sink needs the same
   capacity monitoring and alerting as a database volume.
 - **Watch.** A scheduled job reads the audit log and reports every `transit/sign/cosign-release`
-  request whose input hash (Transit signs the payload digest) matches no `sign` line in any signing
-  ledger. It reuses the monitor's pending rule: a request is pending while a release-key signing
+  request that is not explained. A request is explained only by a `sign` line holding its input
+  hash (Transit signs the payload digest) in a ledger of a release-key signing run active at the
+  request's time; an older run's ledger does not explain a later call on the same hash. It reuses the monitor's pending rule: a request is pending while a release-key signing
   run active at its time is still in progress; once those runs have ended it is decided (explained
   if a ledger of one of them holds its input hash, otherwise alerted). The watch keeps a position
   in its own state that advances only past decided records, and never re-examines a decided record,

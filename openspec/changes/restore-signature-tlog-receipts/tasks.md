@@ -139,7 +139,8 @@
   public-good configuration; no `ignoreTlog: true`. A person merges and applies it, and it SHALL be
   live on demo before the cutover release is cut.
 - [ ] 5b.2 Specify and, once the operator has enabled the OpenBao audit device, implement the watch
-  that reports `transit/sign/cosign-release` requests no signing ledger accounts for, with the
+  that reports `transit/sign/cosign-release` requests not explained by a `sign` line in a ledger of a release-key signing run active at the
+  request's time, with the
   monitor's pending rule (a request is pending while a release-key signing run active at its time is
   in progress, then decided: explained by that run's ledger or alerted) and a position in its own
   state that advances only past decided records, so a sign call decided while its ledger was
