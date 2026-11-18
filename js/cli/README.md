@@ -271,10 +271,11 @@ RBAC permission.
 Behavior worth knowing about:
 
 - **Idempotent re-publish.** Pushing the same `manifest.id@version` whose
-  renderer SHA256 matches the persisted `content_hash` is a no-op: the CLI
-  prints `✓ Re-published … (already at this content_hash; nothing
-  changed)` and the server returns `result: "idempotent_noop"`. Safe to
-  retry.
+  renderer SHA256 matches the persisted `content_hash` is safe to retry and
+  returns `result: "idempotent_noop"`. A complete prior publish is unchanged.
+  If the prior attempt persisted the package row but failed to store its
+  renderer, the retry stores the missing object and records its key before
+  returning success.
 - **Version overwrite is rejected.** Pushing the same `id@version` with
   different bytes against an enabled or verified package returns 409
   `version_already_published`. Bump `manifest.version`, or run

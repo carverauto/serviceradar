@@ -486,7 +486,8 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   # Version-overwrite enforcement: same (dashboard_id, version) re-push.
   # Returns {:ok, decision} where decision is one of:
   #   {:fresh}                      — no existing row; proceed normally.
-  #   {:idempotent, package}        — existing row, same content_hash. Skip blob write.
+  #   {:idempotent, package}        — existing row, same content_hash. Skip the package
+  #                                   upsert; repair the blob when its key is missing.
   #   {:reset, package, attrs}      — existing row is :disabled with different bytes;
   #                                   allow but force verification_status: "pending".
   # Returns {:error, {:version_already_published, ...}} when an enabled or verified
