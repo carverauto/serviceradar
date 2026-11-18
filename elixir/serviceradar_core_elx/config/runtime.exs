@@ -746,6 +746,100 @@ if config_env() == :prod do
     sync_ingestor_worker_timeout_ms: sync_ingestor_worker_timeout_ms
 end
 
+# Native add-on packages the seeders publish, rendered by Helm from
+# core.netprobeAddon, core.workloadIdentityAddon and core.endpointInventoryAddon
+# (the OTel collector add-on has no chart values yet). Without signed artifacts
+# a seeder stages the manifest version instead of approving it.
+native_addon_package_env = fn prefix ->
+  artifacts =
+    case System.get_env("SERVICERADAR_#{prefix}_ADDON_ARTIFACTS") do
+      json when is_binary(json) and json != "" ->
+        case Jason.decode(json) do
+          {:ok, %{} = map} -> map
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
+
+  Enum.reduce(
+    [version: "VERSION", source_oci_ref: "OCI_REF", source_oci_digest: "OCI_DIGEST"],
+    [artifacts: artifacts],
+    fn {key, suffix}, config ->
+      case System.get_env("SERVICERADAR_#{prefix}_ADDON_#{suffix}") do
+        value when is_binary(value) and value != "" -> Keyword.put(config, key, value)
+        _ -> config
+      end
+    end
+  )
+end
+
+config :serviceradar_core,
+  netprobe_native_addon_package: native_addon_package_env.("NETPROBE"),
+  otel_collector_native_addon_package: native_addon_package_env.("OTEL_COLLECTOR"),
+  workload_identity_native_addon_package: native_addon_package_env.("WORKLOAD_IDENTITY"),
+  endpoint_inventory_native_addon_package: native_addon_package_env.("ENDPOINT_INVENTORY")
+
+# Gates RDP-capable agent release artifacts. Helm renders it on core and web-ng.
+config :serviceradar_core,
+  remote_access_desktop_rdp_enabled:
+    System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "false") in ~w(true 1 yes)
+
+# Settings serviceradar_core/config/runtime.exs applies in prod only, with the
+# same variables, defaults and bounds. Several are rendered by Helm on the core
+# pod; until they were read here, the code defaults applied whatever was set.
+if config_env() == :prod do
+  parse_bool_env = fn env_name, default ->
+    case System.get_env(env_name) do
+      nil -> default
+      value -> String.downcase(value) in ["1", "true", "yes", "on"]
+    end
+  end
+
+  # RetentionWorker treats 0 detail days as "disabled"; unset or non-positive
+  # summary days means "keep forever".
+  ansible_retention_run_summary_days =
+    case parse_int_env.("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", 0) do
+      days when is_integer(days) and days > 0 -> days
+      _ -> nil
+    end
+
+  sweep_srql_page_limit =
+    case parse_int_env.("SWEEP_SRQL_PAGE_LIMIT", nil) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> 500
+    end
+
+  config :serviceradar_core,
+    ansible_retention_run_detail_days: "ANSIBLE_RETENTION_RUN_DETAIL_DAYS" |> parse_int_env.(90) |> max(0),
+    ansible_retention_run_summary_days: ansible_retention_run_summary_days,
+    ansible_retention_interval_seconds: "ANSIBLE_RETENTION_INTERVAL_SECONDS" |> parse_int_env.(86_400) |> max(3_600),
+    awx_controller_health_interval_seconds: "AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS" |> parse_int_env.(30) |> max(5),
+    awx_run_watchdog_interval_seconds: "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    awx_schedule_evaluator_interval_seconds: "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    ansible_catalog_base_dir:
+      System.get_env("ANSIBLE_CATALOG_BASE_DIR") ||
+        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog"),
+    device_enrichment_rules_dir:
+      System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
+  # Prefix-tag flow enrichment. Enable enrichment only after its migrations are
+  # applied everywhere EventWriter inserts.
+  config :serviceradar_core,
+    prefix_tag_enrichment_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", false),
+    prefix_tag_provider_trie_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED", true),
+    threat_intel_engine_match_enabled: parse_bool_env.("SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED", true),
+    geo_tag_derivation_enabled: parse_bool_env.("SERVICERADAR_GEO_TAG_DERIVATION_ENABLED", false),
+    prefix_tags_loader_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED", true)
+
+  config :serviceradar_core,
+    sweep_srql_page_limit: sweep_srql_page_limit,
+    topology_endpoint_identity_promotion_enabled:
+      parse_bool_env.("SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION", false),
+    topology_v2_contract_consumption_enabled: parse_bool_env.("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", true)
+end
+
 # Shared WebRTC ICE credential provider. core-elx mints for its own ExWebRTC
 # peers, so its TURN URLs point at the in-cluster TURN Service.
 config :serviceradar_core,
@@ -806,7 +900,6 @@ if config_env() == :prod do
     System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "true") in ~w(true 1 yes)
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
-
   # Core mints the agent-facing plugin download URLs, so it honours the same
   # AGENT_PLUGIN_STORAGE_PUBLIC_URL override as web-ng and the agent gateway.
   agent_plugin_storage_public_url =
@@ -858,9 +951,9 @@ if config_env() == :prod do
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
-    # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
+  # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
   config :serviceradar_core_elx, :metrics,
     enabled: System.get_env("SERVICERADAR_CORE_METRICS_ENABLED", "true") in ~w(true 1 yes),
     ip: {0, 0, 0, 0},
@@ -1399,8 +1492,8 @@ if config_env() == :prod do
       "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" |> parse_int_env.(2) |> max(1),
     timeseries_metrics_chunk_interval_hours:
       "SERVICERADAR_TIMESERIES_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(4) |> max(1),
-    # DataRetentionWorker floors this at 7 days, clear of the rollups' 5-day refresh window.
     hourly_rollup_retention_days: "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1),
+    # DataRetentionWorker floors this at 7 days, clear of the rollups' 5-day refresh window.
     sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
@@ -1458,7 +1551,6 @@ if config_env() == :prod do
     retention_days: "SECURITY_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
-
   # Milliseconds between ingestion lane metric frames (one timeseries_metrics row per
   # lane metric per core node each frame).
   config :serviceradar_core, ServiceRadar.Ingestion.RuntimeMetrics,
@@ -1549,9 +1641,9 @@ if config_env() == :prod do
       tls: nats_tls_config
   end
 
-  # EventWriter configuration (NATS JetStream → CNPG consumer)
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
+  # EventWriter configuration (NATS JetStream → CNPG consumer)
   host_slice_subscriber_enabled =
     System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
 
@@ -1776,8 +1868,8 @@ if config_env() == :prod do
       # per-stream custom values are not clobbered by release defaults.
       flow_streams: Config.default_flow_streams()
 
-    # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
     if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
+      # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
       config :serviceradar_core, ServiceRadar.EventWriter, flow_consumer_pull_batch_size: String.to_integer(v)
     end
 
