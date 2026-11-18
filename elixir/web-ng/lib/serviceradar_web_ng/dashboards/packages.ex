@@ -606,20 +606,20 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     end
   end
 
-  defp maybe_repair_missing_blob(%DashboardPackage{wasm_object_key: nil} = package, wasm, ash_opts) do
-    store_wasm_blob(package, wasm, package.content_hash, ash_opts)
-  end
-
-  defp maybe_repair_missing_blob(%DashboardPackage{} = package, _wasm, _ash_opts) do
-    {:ok, package}
-  end
-
   defp finalize_publish({:fresh}, _manifest, attrs, wasm, route_slug, enable_route?, ash_opts) do
     do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
   end
 
   defp finalize_publish({:reset, attrs}, _manifest, _orig_attrs, wasm, route_slug, enable_route?, ash_opts) do
     do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{wasm_object_key: nil} = package, wasm, ash_opts) do
+    store_wasm_blob(package, wasm, package.content_hash, ash_opts)
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{} = package, _wasm, _ash_opts) do
+    {:ok, package}
   end
 
   defp do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts) do
