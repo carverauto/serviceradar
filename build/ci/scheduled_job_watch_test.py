@@ -29,17 +29,21 @@ class Server:
     A queued reply is (status, body), or a function of the request that returns one.
     """
 
-    def __init__(self, *replies, monitor_runs=None):
+    def __init__(self, *replies, monitor_runs=()):
         received = self.received = []
         queue = list(replies)
         # GET: the Rekor signing monitor's successful Actions runs, newest first, and each run's
-        # artifacts (the fake-only "artifacts" field of the run).
-        self.monitor_runs = monitor_runs if monitor_runs is not None else [monitor_run(1, 1)]
+        # artifacts (the fake-only "artifacts" field of the run); None answers 500.
+        self.monitor_runs = monitor_runs if monitor_runs != () else [monitor_run(1, 1)]
         server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 path = self.path.split("?")[0]
+                if server.monitor_runs is None:
+                    self.send_response(500)
+                    self.end_headers()
+                    return
                 if path.endswith("/actions/workflows/rekor-signing-monitor.yml/runs"):
                     body = {"workflow_runs": server.monitor_runs}
                 elif "/actions/runs/" in path and path.endswith("/artifacts"):
@@ -136,7 +140,7 @@ def history(*commits):
 
 
 class ScheduledJobWatchTest(unittest.TestCase):
-    def serve(self, *replies, monitor_runs=None):
+    def serve(self, *replies, monitor_runs=()):
         server = Server(*replies, monitor_runs=monitor_runs)
         self.addCleanup(server.close)
         return server
@@ -309,19 +313,32 @@ class ScheduledJobWatchTest(unittest.TestCase):
         # The job log still says what was wrong.
         self.assertIn("**WorldWorkerScale** failure", out)
 
-    def test_unreadable_statuses_fail_the_run(self):
-        webhook = self.serve()
+    def test_unreadable_statuses_fail_the_run_and_are_reported(self):
         replies = (
             ((502, None), "HTTPError"),
             # GitHub answers 200 with the refusal in the body.
             ((200, {"errors": [{"message": "denied"}]}), "denied"),
         )
         for reply, reason in replies:
-            code, _, err = self.run_watch(self.serve(reply), webhook)
+            webhook = self.serve((204, None))
+            code, _, err = self.run_watch(self.serve(reply, monitor_runs=[monitor_run(1, 4)]), webhook)
             self.assertEqual(1, code)
-            self.assertIn("could not read commit statuses", err)
+            self.assertIn("could not read the commit statuses", err)
             self.assertIn(reason, err)
-        self.assertEqual([], webhook.received)
+            content = webhook.received[0]["content"]
+            self.assertIn("Could not read the commit statuses", content)
+            # The monitor lookup still ran and its problem is still reported.
+            self.assertIn("**Rekor Signing Monitor** has not scanned", content)
+
+    def test_an_unreadable_monitor_lookup_keeps_the_job_report(self):
+        failing = healthy(without=("WorldWorkerScale",)) + [status("WorldWorkerScale", "FAILURE", 2)]
+        webhook = self.serve((204, None))
+        code, _, err = self.run_watch(self.serve(page([("a", failing)]), monitor_runs=None), webhook)
+        self.assertEqual(1, code)
+        self.assertIn("could not read the Rekor Signing Monitor runs", err)
+        content = webhook.received[0]["content"]
+        self.assertIn("**WorldWorkerScale** failure", content)
+        self.assertIn("Could not read the Rekor Signing Monitor runs (HTTPError)", content)
 
     def test_self_test_posts_without_reading_statuses(self):
         github = self.serve()

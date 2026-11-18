@@ -361,9 +361,10 @@ class MonitorTest(unittest.TestCase):
             {"uuid": entry["uuid"], "log_index": entry["log_index"], "run": "21", "reason": "release in progress"}]}))
         self.assertEqual(self.run_monitor(), 0)
         self.world.runs["release.yml"].clear()
+        # Ended an hour ago: too recent for the canary, so only the acknowledged entry needs its ledger.
         self.world.add_run("release.yml", 21, NOW - timedelta(hours=4), NOW - timedelta(hours=1),
                            [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
-        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.assertEqual(self.run_monitor(), 0)
         self.world.runs["release.yml"].clear()
         self.world.ledgers.clear()
         self.acknowledged.write_text(json.dumps({"entries": []}))

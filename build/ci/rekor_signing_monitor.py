@@ -405,7 +405,7 @@ def run(args, environ, now):
     first_time = state["first_integrated_time"]
     decided = state.setdefault("decisions", {})
     undecided = [integrated(match) for match in matches
-                 if decided.get(match["uuid"], {}).get("status") != "explained" and match["uuid"] not in acknowledged]
+                 if decided.get(match["uuid"], {}).get("status") != "explained"]
     canary_since = max(datetime.fromtimestamp(first_time, timezone.utc), now - LEDGER_RETENTION)
     runs = signing_runs(github, min([canary_since] + [when - RUN_MARGIN for when in undecided]))
     # An ended run is checked until all it ledgered was seen (again if a re-run ends later).

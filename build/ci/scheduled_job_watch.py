@@ -224,15 +224,19 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB
     if args.self_test:
         content = "Scheduled CI job watch: test message. The webhook works."
     else:
-        try:
-            newest = newest_statuses(
-                graphql_url, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now
-            )
-            monitor = monitor_problems(actions_api, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now)
-        except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
-            print(f"could not read commit statuses or Actions runs: {type(error).__name__}: {error}", file=sys.stderr)
-            return 1
-        found = problems(newest, now) + monitor
+        found, read_failed = [], False
+        for what, read in (
+            ("the commit statuses", lambda: problems(newest_statuses(
+                graphql_url, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now), now)),
+            (f"the {MONITOR_NAME} runs", lambda: monitor_problems(
+                actions_api, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now)),
+        ):
+            try:
+                found += read()
+            except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
+                print(f"could not read {what}: {type(error).__name__}: {error}", file=sys.stderr)
+                found.append(f"Could not read {what} ({type(error).__name__}).")
+                read_failed = True
         if not found:
             print("every scheduled job is healthy")
             return 0
@@ -250,7 +254,7 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB
         reason = getattr(error, "code", None) or type(error).__name__
         print(f"the notification was not delivered ({reason})", file=sys.stderr)
         return 1
-    return 0
+    return 1 if not args.self_test and read_failed else 0
 
 
 if __name__ == "__main__":
