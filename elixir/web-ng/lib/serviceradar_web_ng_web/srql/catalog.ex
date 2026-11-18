@@ -2374,6 +2374,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "metric_name",
         "uid",
+        "device_id",
         "target_device_ip",
         "partition",
         "if_index"
@@ -2385,6 +2386,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       series_fields: [
         "metric_name",
         "uid",
+        "device_id",
         "gateway_id",
         "agent_id",
         "partition",
@@ -2536,6 +2538,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",
     "processes" => "process_metrics",
+    "rperf" => "rperf_metrics",
+    "netperf" => "rperf_metrics",
+    "netperf_metrics" => "rperf_metrics",
     # Sweep diagnostics (issue 4167). Every alias here is one the SRQL parser
     # already accepts (`rust/srql/src/parser/entity.rs`) and `EntityAccess`
     # already gates. Without the mapping, `entity/1` falls through to the

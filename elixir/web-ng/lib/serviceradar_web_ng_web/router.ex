@@ -1395,6 +1395,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
       live("/settings/networks/mtr/new", Settings.MtrProfilesLive.Index, :new_profile)
       live("/settings/networks/mtr/:id/edit", Settings.MtrProfilesLive.Index, :edit_profile)
+      live("/settings/networks/netperf", Settings.NetperfLive.Index, :index)
+      live("/settings/networks/netperf/policies/new", Settings.NetperfLive.Index, :new_policy)
+      live("/settings/networks/netperf/policies/:id/edit", Settings.NetperfLive.Index, :edit_policy)
+      live("/settings/networks/netperf/responders/new", Settings.NetperfLive.Index, :new_responder)
+      live("/settings/networks/netperf/responders/:id/edit", Settings.NetperfLive.Index, :edit_responder)
+      live("/settings/networks/netperf/profiles/new", Settings.NetperfLive.Index, :new_profile)
+      live("/settings/networks/netperf/profiles/:id/edit", Settings.NetperfLive.Index, :edit_profile)
 
       # Flow settings (directionality + enrichment configuration)
       live("/settings/flows", Settings.NetflowLive.Index, :index)

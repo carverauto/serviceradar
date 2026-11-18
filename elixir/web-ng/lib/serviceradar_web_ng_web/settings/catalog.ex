@@ -2038,6 +2038,70 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :netperf,
+      category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
+      title: "Network Performance",
+      description:
+        "Configure Hub & Spoke network performance policies, Hub Responders, profiles, and run on-demand tests.",
+      icon: "hero-bolt",
+      route: "/settings/networks/netperf",
+      live_view: ServiceRadarWebNGWeb.Settings.NetperfLive.Index,
+      permission: "settings.networks.manage",
+      order: 145,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "netperf",
+        "rperf",
+        "throughput",
+        "bandwidth",
+        "jitter",
+        "packet loss",
+        "hub",
+        "spoke",
+        "mesh",
+        "responder",
+        "profile",
+        "policy",
+        "tcp",
+        "udp",
+        "5199",
+        "run test"
+      ],
+      tabs: [
+        %{
+          id: :policies,
+          tab: "policies",
+          title: "Policies",
+          route: "/settings/networks/netperf?tab=policies",
+          keywords: ["policies", "hub and spoke", "hub mesh", "spoke selector"],
+          permission: nil
+        },
+        %{
+          id: :responders,
+          tab: "responders",
+          title: "Hub Responders",
+          route: "/settings/networks/netperf?tab=responders",
+          keywords: ["responders", "hub", "5199", "authority epoch", "admission"],
+          permission: nil
+        },
+        %{
+          id: :profiles,
+          tab: "profiles",
+          title: "Profiles",
+          route: "/settings/networks/netperf?tab=profiles",
+          keywords: ["profiles", "tcp", "udp", "bandwidth", "duration", "parallel"],
+          permission: nil
+        }
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :integrations,
       category: :network_services,
       parent_group: :net_services,

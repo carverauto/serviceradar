@@ -215,6 +215,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/integrations_live_test.exs",
     "test/phoenix/live/settings/mtr_profiles_live_test.exs",
     "test/phoenix/live/settings/netflow_live_test.exs",
+    "test/phoenix/live/settings/netperf_live_test.exs",
     "test/phoenix/live/settings/network_credential_rules_live_test.exs",
     "test/phoenix/live/settings/networks_live_criteria_test.exs",
     "test/phoenix/live/settings/networks_live_test.exs",

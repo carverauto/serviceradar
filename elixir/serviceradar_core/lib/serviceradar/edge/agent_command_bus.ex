@@ -2020,33 +2020,40 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
+  @u64_max 0xFFFF_FFFF_FFFF_FFFF
+
   defp resolve_netperf_authority_epoch(params, responder_agent_id) do
-    case explicit_netperf_authority_epoch(netperf_param(params, :authority_epoch)) do
-      {:ok, epoch} -> {:ok, epoch}
-      :none -> lookup_netperf_responder_epoch(responder_agent_id)
+    with {:ok, explicit} <-
+           parse_explicit_netperf_authority_epoch(netperf_param(params, :authority_epoch)),
+         {:ok, responder_epoch} <- lookup_netperf_responder_epoch(responder_agent_id) do
+      {:ok, explicit || responder_epoch}
     end
   end
 
-  defp explicit_netperf_authority_epoch(nil), do: :none
+  defp parse_explicit_netperf_authority_epoch(nil), do: {:ok, nil}
 
-  defp explicit_netperf_authority_epoch(value) when is_integer(value) do
-    {:ok, value |> max(1) |> min(0xFFFF_FFFF_FFFF_FFFF)}
+  defp parse_explicit_netperf_authority_epoch(value) when is_integer(value) do
+    if value >= 1 and value <= @u64_max do
+      {:ok, value}
+    else
+      {:error, :invalid_authority_epoch}
+    end
   end
 
-  defp explicit_netperf_authority_epoch(value) when is_binary(value) do
+  defp parse_explicit_netperf_authority_epoch(value) when is_binary(value) do
     trimmed = String.trim(value)
 
     if trimmed == "" do
-      :none
+      {:ok, nil}
     else
       case Integer.parse(trimmed) do
-        {parsed, ""} -> {:ok, parsed |> max(1) |> min(0xFFFF_FFFF_FFFF_FFFF)}
-        _ -> :none
+        {parsed, ""} when parsed >= 1 and parsed <= @u64_max -> {:ok, parsed}
+        _ -> {:error, :invalid_authority_epoch}
       end
     end
   end
 
-  defp explicit_netperf_authority_epoch(_value), do: :none
+  defp parse_explicit_netperf_authority_epoch(_value), do: {:error, :invalid_authority_epoch}
 
   defp lookup_netperf_responder_epoch(responder_agent_id) do
     if netperf_repo_ready?() do

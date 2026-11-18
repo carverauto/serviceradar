@@ -776,6 +776,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/settings/auth_users_live_test.exs",
         "test/phoenix/live/settings/authentication_live_test.exs",
         "test/phoenix/live/settings/mtr_profiles_live_test.exs",
+        "test/phoenix/live/settings/netperf_live_test.exs",
         "test/phoenix/live/settings/network_credential_rules_live_test.exs",
         "test/phoenix/live/settings/notifications_extensibility_test.exs",
         "test/phoenix/live/settings/remote_access_host_keys_live_test.exs",

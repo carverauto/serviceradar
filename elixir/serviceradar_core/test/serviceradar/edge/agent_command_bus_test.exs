@@ -1735,6 +1735,68 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert permit.authority_epoch == 3
       assert NetperfPermitSigning.verify(permit, issuer_key.public_key)
 
+      AgentCommandPubSub.broadcast_result(%{
+        command_id: command.command_id,
+        command_type: command.command_type,
+        agent_id: agent_id,
+        partition_id: "default",
+        success: true,
+        message: "netperf ok",
+        payload: %{}
+      })
+
+      _completed = wait_for_status(command.command_id, :completed, actor)
+
+      # Explicit valid authority_epoch override succeeds while responder is enabled.
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch_netperf_run(
+                 agent_id,
+                 %{
+                   responder_agent_id: hub_uid,
+                   target_address: "198.51.100.30",
+                   authority_epoch: "7"
+                 },
+                 actor: operator
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = override_cmd, _context},
+                     1_000
+
+      override_payload = Jason.decode!(override_cmd.payload_json)
+
+      override_permit =
+        override_payload["permit_b64"] |> Base.decode64!() |> NetperfPermitV1.decode()
+
+      assert override_permit.authority_epoch == 7
+      assert NetperfPermitSigning.verify(override_permit, issuer_key.public_key)
+
+      # Invalid, zero/negative, out-of-range, and malformed authority_epoch overrides are rejected.
+      for bad_epoch <- [
+            0,
+            -1,
+            "0",
+            "-2",
+            "abc",
+            "3foo",
+            1.5,
+            true,
+            %{},
+            0xFFFF_FFFF_FFFF_FFFF + 1
+          ] do
+        assert {:error, :invalid_authority_epoch} =
+                 AgentCommandBus.dispatch_netperf_run(
+                   agent_id,
+                   %{
+                     responder_agent_id: hub_uid,
+                     target_address: "198.51.100.30",
+                     authority_epoch: bad_epoch
+                   },
+                   actor: operator
+                 )
+      end
+
+      refute_receive {:send_command, _, _}, 100
+
       {:ok, _disabled} =
         responder
         |> Ash.Changeset.for_update(:disable, %{}, actor: operator)
@@ -1749,6 +1811,20 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  },
                  actor: operator
                )
+
+      # Explicit authority_epoch override MUST NOT bypass disabled NetperfResponder enforcement.
+      for override_epoch <- [5, "5"] do
+        assert {:error, :netperf_responder_disabled} =
+                 AgentCommandBus.dispatch_netperf_run(
+                   agent_id,
+                   %{
+                     responder_agent_id: hub_uid,
+                     target_address: "198.51.100.30",
+                     authority_epoch: override_epoch
+                   },
+                   actor: operator
+                 )
+      end
     end
 
     test "dispatch_netperf_run rejects non-scalar agent_id and responder_agent_id without raising",
