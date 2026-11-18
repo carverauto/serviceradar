@@ -224,7 +224,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
       |> Ash.Query.select(@summary_assignment_fields)
       |> Ash.read!(scope: scope)
 
-    fleet_rows = page_fleet_rows(plugin_ids, packages, assignments, scope)
+    fleet_rows = page_fleet_rows(packages, assignments, scope)
 
     build_summaries(plugins, packages, assignments, target_policies(assignments, scope), fleet_rows)
   end
@@ -232,7 +232,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   # Runtime evidence for the page's assignments. Packages of other plugins that
   # share a display name are included only so legacy name-only evidence stays
   # ambiguous exactly as it is in `rows/1`.
-  defp page_fleet_rows(plugin_ids, packages, assignments, scope) do
+  defp page_fleet_rows(packages, assignments, scope) do
     agent_uids = assignments |> Enum.map(& &1.agent_uid) |> Enum.uniq()
     names = packages |> Enum.map(& &1.name) |> Enum.uniq()
 

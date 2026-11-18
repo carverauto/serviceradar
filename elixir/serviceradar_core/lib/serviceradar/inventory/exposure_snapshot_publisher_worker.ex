@@ -58,11 +58,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotPublisherWorker do
 
   defp adopt_orphans do
     with {:ok, _swept} <- Scopes.sweep_legacy_queue() do
-      Enum.reduce_while(Scopes.expired_publishing(), :ok, fn [id, scope, generation_id], :ok ->
-        case adopt(id, scope, generation_id) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+      Enum.each(Scopes.expired_publishing(), fn [id, scope, generation_id] ->
+        adopt(id, scope, generation_id)
       end)
     end
   end

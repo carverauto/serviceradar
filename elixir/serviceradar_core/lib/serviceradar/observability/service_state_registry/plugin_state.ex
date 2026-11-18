@@ -22,14 +22,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
   @doc false
   @spec acquire_lock(map()) :: :ok | {:error, term()}
   def acquire_lock(identity) when is_map(identity) do
-    case lock_sequence(identity) do
-      {:ok, locks} ->
-        AdvisoryLocks.acquire_ordered!(locks)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, locks} = lock_sequence(identity)
+    AdvisoryLocks.acquire_ordered!(locks)
+    :ok
   rescue
     reason -> {:error, {:plugin_state_lock_acquire_failed, reason}}
   end

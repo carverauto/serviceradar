@@ -212,6 +212,23 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     dispatch_console_frame(frame, expected_control_evidence, state)
   end
 
+  # A sweep lease travels as SweepLeaseChunks, only to agents that advertise they reassemble
+  # them. Core decides what to push (ServiceRadar.SweepJobs.LeaseDelivery).
+  def handle_call({:push_sweep_lease, sweep_group_id, payload}, _from, state) do
+    with :ok <- require_sweep_lease_capability(state),
+         {:ok, chunks} <- ConfigChunks.sweep_lease_chunks(sweep_group_id, payload) do
+      responses =
+        Enum.map(chunks, &%Monitoring.ControlStreamResponse{payload: {:sweep_lease_chunk, &1}})
+
+      case send_stream_replies(state.stream, responses) do
+        {:ok, stream} -> {:reply, :ok, %{state | stream: stream}}
+        {:error, reason} -> {:reply, {:error, reason}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   defp already_pushed_on_stream?(state, %Monitoring.AgentConfigResponse{not_modified: false} = config) do
     version = normalize_config_version(config.config_version)
     version != nil and version == state.last_pushed_config_version
@@ -240,23 +257,6 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     else
       {:error, reason} ->
         {:reply, {:error, reason}, state}
-    end
-  end
-
-  # A sweep lease travels as SweepLeaseChunks, only to agents that advertise they reassemble
-  # them. Core decides what to push (ServiceRadar.SweepJobs.LeaseDelivery).
-  def handle_call({:push_sweep_lease, sweep_group_id, payload}, _from, state) do
-    with :ok <- require_sweep_lease_capability(state),
-         {:ok, chunks} <- ConfigChunks.sweep_lease_chunks(sweep_group_id, payload) do
-      responses =
-        Enum.map(chunks, &%Monitoring.ControlStreamResponse{payload: {:sweep_lease_chunk, &1}})
-
-      case send_stream_replies(state.stream, responses) do
-        {:ok, stream} -> {:reply, :ok, %{state | stream: stream}}
-        {:error, reason} -> {:reply, {:error, reason}, state}
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 

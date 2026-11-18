@@ -376,6 +376,9 @@ defmodule ServiceRadar.ClusterHealth do
     }
   end
 
+  defp pipeline_epochs({:error, reason}),
+    do: %{active: nil, candidate: nil, draining: [], error: inspect(reason)}
+
   defp refused_epochs([]), do: nil
 
   defp refused_epochs(invalid) do
@@ -383,9 +386,6 @@ defmodule ServiceRadar.ClusterHealth do
       "#{state} epoch #{epoch} refused: #{reason}"
     end)
   end
-
-  defp pipeline_epochs({:error, reason}),
-    do: %{active: nil, candidate: nil, draining: [], error: inspect(reason)}
 
   defp epoch_number(by_state, state) do
     case Map.get(by_state, state, []) do

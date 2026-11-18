@@ -11,7 +11,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   @streaming_plugin_output "serviceradar.camera_stream.v1"
   @plugin_result_output "serviceradar.plugin_result.v1"
 
-  @doc false
   @doc "Pure identity and observation time for coalescing already-completed service state."
   def pending_observation(status) do
     identity =
