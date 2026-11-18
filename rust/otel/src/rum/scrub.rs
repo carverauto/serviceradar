@@ -231,7 +231,7 @@ fn extract_part_name(headers: &str) -> Option<String> {
 /// `allowed_query_keys`. Returns scrubbed URL, host, and path.
 pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.bytes().any(|b| b.is_ascii_control()) {
         return None;
     }
     let without_fragment = trimmed.split('#').next().unwrap_or(trimmed);
@@ -239,42 +239,48 @@ pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl
         Some((b, q)) => (b, Some(q)),
         None => (without_fragment, None),
     };
+    if base.starts_with("//") {
+        return None;
+    }
 
-    let (scheme, host, port, path) = if let Some((raw_scheme, rest)) = base.split_once("://") {
-        let scheme = raw_scheme.to_ascii_lowercase();
-        if scheme != "http" && scheme != "https" {
-            return None;
-        }
-        let (authority, raw_path) = match rest.find('/') {
-            Some(idx) => (&rest[..idx], &rest[idx..]),
-            None => (rest, "/"),
+    let is_explicit_relative =
+        base.starts_with('/') || base.starts_with("./") || base.starts_with("../");
+    let (scheme, host, port, path) =
+        if !is_explicit_relative && let Some((raw_scheme, rest)) = base.split_once("://") {
+            let scheme = raw_scheme.to_ascii_lowercase();
+            if scheme != "http" && scheme != "https" {
+                return None;
+            }
+            let (authority, raw_path) = match rest.find('/') {
+                Some(idx) => (&rest[..idx], &rest[idx..]),
+                None => (rest, "/"),
+            };
+            let host_port = authority.rsplit('@').next().unwrap_or(authority).trim();
+            let (parsed_host, parsed_port) = split_scrub_host_port(host_port)?;
+            let host = parsed_host.to_ascii_lowercase();
+            if host.is_empty() {
+                return None;
+            }
+            let default_port = if scheme == "https" { 443 } else { 80 };
+            let port = parsed_port.filter(|&p| p != default_port);
+            let path = normalize_raw_path(raw_path);
+            (
+                Some(scheme),
+                host,
+                port,
+                if path.is_empty() {
+                    "/".to_string()
+                } else {
+                    path
+                },
+            )
+        } else {
+            if has_explicit_scheme_prefix(base) {
+                return None;
+            }
+            let path = normalize_raw_path(base);
+            (None, String::new(), None, path)
         };
-        let host_port = authority.rsplit('@').next().unwrap_or(authority).trim();
-        let (parsed_host, parsed_port) = split_scrub_host_port(host_port)?;
-        let host = parsed_host.to_ascii_lowercase();
-        if host.is_empty() {
-            return None;
-        }
-        let default_port = if scheme == "https" { 443 } else { 80 };
-        let port = parsed_port.filter(|&p| p != default_port);
-        let path = normalize_raw_path(raw_path);
-        (
-            Some(scheme),
-            host,
-            port,
-            if path.is_empty() {
-                "/".to_string()
-            } else {
-                path
-            },
-        )
-    } else {
-        if has_explicit_scheme_prefix(base) {
-            return None;
-        }
-        let path = normalize_raw_path(base);
-        (None, String::new(), None, path)
-    };
 
     let retained_query = if let (Some(q), false) = (raw_query, allowed_query_keys.is_empty()) {
         let kept: Vec<String> = q
@@ -1174,6 +1180,27 @@ mod tests {
         let colon_in_subpath = scrub_url("/items/a:b?token=secret", &[]).unwrap();
         assert_eq!(colon_in_subpath.url, "/items/a:b");
         assert_eq!(colon_in_subpath.path, "/items/a:b");
+    }
+
+    #[test]
+    fn url_scrubbing_rejects_protocol_relative_and_control_chars_and_preserves_scheme_in_relative_path()
+     {
+        assert_eq!(scrub_url("//evil.example/foo?token=s", &[]), None);
+        assert_eq!(scrub_url("///evil.example/foo?token=s", &[]), None);
+        assert_eq!(scrub_url("java\tscript:alert(1)", &[]), None);
+        assert_eq!(scrub_url("/checkout\n?token=s", &[]), None);
+        assert_eq!(scrub_url("ftp://files.example/archive.tgz", &[]), None);
+
+        let proxied = scrub_url("/proxy/https://target.example/a?token=s", &[]).unwrap();
+        assert_eq!(proxied.url, "/proxy/https://target.example/a");
+        assert_eq!(proxied.host, "");
+        assert_eq!(proxied.path, "/proxy/https://target.example/a");
+
+        let dot_proxied = scrub_url("./proxy/https://target.example/a?token=s", &[]).unwrap();
+        assert_eq!(dot_proxied.path, "/./proxy/https://target.example/a");
+
+        let parent_proxied = scrub_url("../proxy/https://target.example/a?token=s", &[]).unwrap();
+        assert_eq!(parent_proxied.path, "/../proxy/https://target.example/a");
     }
 
     #[test]
