@@ -996,6 +996,21 @@ defmodule ServiceRadarWebNGWeb.Router do
     delete("/declarative-checks/:slug", DeclarativeCheckController, :delete)
     get("/declarative-checks/:slug/export", DeclarativeCheckController, :export)
     post("/declarative-checks/:slug/test-run", DeclarativeCheckController, :test_run)
+
+    # Solution Packs Catalog, Signed Release Catalogs, and HTTPS GitOps REST API (`/api/v2/catalog/*`)
+    get("/catalog/packs", SolutionPackController, :index)
+    post("/catalog/packs/import", SolutionPackController, :import_pack)
+    post("/catalog/packs/export", SolutionPackController, :export_custom)
+    get("/catalog/packs/:slug", SolutionPackController, :show)
+    get("/catalog/packs/:slug/export", SolutionPackController, :export)
+    post("/catalog/packs/:slug/install", SolutionPackController, :install)
+    get("/catalog/repositories", SolutionPackController, :list_repositories)
+    post("/catalog/repositories", SolutionPackController, :create_repository)
+    put("/catalog/repositories/:id", SolutionPackController, :update_repository)
+    delete("/catalog/repositories/:id", SolutionPackController, :delete_repository)
+    post("/catalog/repositories/:id/sync", SolutionPackController, :sync_repository)
+    post("/catalog/repositories/:id/gitops/push", SolutionPackController, :gitops_push)
+    post("/catalog/repositories/:id/gitops/pull", SolutionPackController, :gitops_pull)
   end
 
   # Interactive docs UIs — authenticated internal tools.
@@ -1286,6 +1301,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/reports/import", ReportImportLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
+      live("/catalog", CatalogLive.Index, :index)
+      live("/catalog/:slug", CatalogLive.Index, :show)
+      live("/settings/catalog", CatalogLive.Index, :index)
       live("/security", SecurityLive.Index, :index)
       live("/security/threat-intel", Security.ThreatIntelLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)

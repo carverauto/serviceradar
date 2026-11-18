@@ -107,10 +107,59 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2ControllerTest do
           "/declarative-checks/{slug}/export",
           "/declarative-checks/import",
           "/declarative-checks/test-run",
-          "/declarative-checks/{slug}/test-run"
+          "/declarative-checks/{slug}/test-run",
+          "/catalog/packs",
+          "/catalog/packs/{slug}",
+          "/catalog/packs/{slug}/export",
+          "/catalog/packs/{slug}/install",
+          "/catalog/packs/import",
+          "/catalog/packs/export",
+          "/catalog/repositories",
+          "/catalog/repositories/{id}",
+          "/catalog/repositories/{id}/sync",
+          "/catalog/repositories/{id}/gitops/push",
+          "/catalog/repositories/{id}/gitops/pull"
         ] do
       assert Map.has_key?(decoded["paths"], rel_path),
              "expected #{rel_path} in priv/static/openapi.json"
+    end
+  end
+
+  test "show/2 includes all /api/v2/catalog endpoints and schemas" do
+    conn =
+      :get
+      |> conn("/api/v2/open_api")
+      |> OpenApiV2Controller.show(%{})
+
+    assert conn.status == 200
+    doc = Jason.decode!(conn.resp_body)
+    paths = doc["paths"]
+    schemas = get_in(doc, ["components", "schemas"])
+
+    assert Enum.any?(doc["tags"], &(&1["name"] == "solution_packs_catalog"))
+    assert get_in(paths, ["/api/v2/catalog/packs", "get", "operationId"]) == "listSolutionPacks"
+    assert get_in(paths, ["/api/v2/catalog/packs/{slug}", "get", "operationId"]) == "getSolutionPack"
+    assert get_in(paths, ["/api/v2/catalog/packs/{slug}/export", "get", "operationId"]) == "exportSolutionPack"
+    assert get_in(paths, ["/api/v2/catalog/packs/{slug}/install", "post", "operationId"]) == "installSolutionPack"
+    assert get_in(paths, ["/api/v2/catalog/packs/import", "post", "operationId"]) == "importSolutionPack"
+    assert get_in(paths, ["/api/v2/catalog/repositories", "get", "operationId"]) == "listCatalogRepositories"
+    assert get_in(paths, ["/api/v2/catalog/repositories", "post", "operationId"]) == "createCatalogRepository"
+
+    assert get_in(paths, ["/api/v2/catalog/repositories/{id}/gitops/push", "post", "operationId"]) ==
+             "pushSolutionPackToGitOps"
+
+    assert get_in(paths, ["/api/v2/catalog/repositories/{id}/gitops/pull", "post", "operationId"]) ==
+             "pullSolutionPackFromGitOps"
+
+    for schema_name <- [
+          "SolutionPackSummary",
+          "SolutionPackListResponse",
+          "SolutionPackInstallRequest",
+          "CatalogRepository",
+          "CatalogGitOpsPushRequest",
+          "CatalogGitOpsPullRequest"
+        ] do
+      assert is_map(schemas[schema_name]), "expected schema #{schema_name} in components.schemas"
     end
   end
 end
