@@ -549,8 +549,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   # before it could reach quarantine (design Decision 7). Only PRIMARY, which core grants only for
   # an admitted registry epoch, is admitted through the registry exactly as a live one is.
   defp admission(%{late_admission: true} = state, _record, _session, %{publication: publication})
-       when publication in [:security_quarantine, :audit],
-       do: {:ok, lane_route(state)}
+       when publication in [:security_quarantine, :audit], do: {:ok, lane_route(state)}
 
   defp admission(_state, record, session, decision), do: EdgeContractRegistry.admit(record, session, decision.registry)
 
