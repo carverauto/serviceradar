@@ -5,6 +5,13 @@ defmodule ServiceRadar.Sync.ClientConnectTest do
 
   alias ServiceRadar.Sync.Client
 
+  # The :grpc application owns GRPC.Client.Supervisor, which GRPC.Stub.connect/2 starts each
+  # connection under. The unit lane does not boot the core application tree.
+  setup_all do
+    {:ok, _apps} = Application.ensure_all_started(:grpc)
+    :ok
+  end
+
   test "connect/1 with ssl returns an error for an unreachable endpoint instead of raising" do
     port = unused_port()
 

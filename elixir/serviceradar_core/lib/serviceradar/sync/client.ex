@@ -55,7 +55,7 @@ defmodule ServiceRadar.Sync.Client do
     endpoint = "#{host}:#{port}"
 
     cred_opts = if ssl, do: [cred: GRPC.Credential.new([])], else: []
-    connect_opts = [interceptors: [GRPCClientInterceptor] | cred_opts]
+    connect_opts = [{:interceptors, [GRPCClientInterceptor]} | cred_opts]
 
     case GRPC.Stub.connect(endpoint, connect_opts) do
       {:ok, channel} ->

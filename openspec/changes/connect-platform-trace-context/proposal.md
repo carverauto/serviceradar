@@ -93,10 +93,10 @@ spans, and re-enabling Ecto/Oban tracing by default.
   supersedes task 4.3 (closed as out of scope) and completes task 4.5 of
   `refactor-otel-signal-correlation`.
 - Affected code:
-  - `elixir/serviceradar_agent_gateway`: endpoint interceptor, edge-record
-    publish headers.
-  - `elixir/serviceradar_core`: `Otel` gRPC client and server interceptors,
-    `DataService.Client` and `Sync.Client` connections,
+  - `elixir/serviceradar_agent_gateway`: endpoint server interceptor,
+    edge-record publish headers.
+  - `elixir/serviceradar_core`: `Otel` gRPC client interceptor,
+    `DataService.Client`, `Sync.Client` and `NATS.AccountClient` connections,
     `EventWriter.Producer` destination template, `EventWriter.Pipeline`
     destination attribute, `Analytics.StarRocks.StreamLoad` and the
     `EdgeRecord` processor persistence spans,
