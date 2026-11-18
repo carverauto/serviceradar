@@ -567,9 +567,11 @@ class ImageSecurityManualRescanTest(unittest.TestCase):
         lister.chmod(0o755)
         inventory = root / "docker/images/image_inventory.bzl"
         inventory.parent.mkdir(parents=True)
-        inventory.write_text("IMAGES = [\n" + "".join(
+        # A Dockerfile image is published outside releases, so the tag never carries it.
+        inventory.write_text("PUBLISHABLE_IMAGES = [\n" + "".join(
             f'    {{"image": "{image}_image", "repository": "{self.REGISTRY}/{image}"}},\n'
-            for image in images) + "]\n")
+            for image in images) + "]\n\nDOCKERFILE_IMAGES = [\n"
+            '    {"repository": "example-runner", "dockerfile": "Dockerfile", "context": "."},\n]\n')
         return root
 
     def test_rescan_runs_current_tooling_against_the_tags_published_images(self):

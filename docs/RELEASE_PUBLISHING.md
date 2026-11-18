@@ -314,9 +314,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 The sidecars are not signed separately. Their lines also appear in the signed
 `SHA256SUMS`.
 
-The image workflow verifies every repository declared in
-`docker/images/image_inventory.bzl`. The current contract covers 16 image
-repositories and requires the release tag and `latest` to match the immutable
+The image workflow verifies every repository in `PUBLISHABLE_IMAGES` in
+`docker/images/image_inventory.bzl` (`DOCKERFILE_IMAGES` are never published by
+a release). It requires the release tag and `latest` to match the immutable
 `sha-<commit>` digest before and after publishing. Signatures are verified
 before release finalization.
 
