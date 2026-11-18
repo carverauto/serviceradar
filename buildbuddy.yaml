@@ -2177,12 +2177,14 @@ actions:
   # .github/workflows/elixir-quality.yml. Advisories are published on their own
   # schedule, so this has to run without a commit to trigger it.
   #
-  # --skip-compile: the projects themselves are not compiled here. BazelCI
-  # compiles each one with warnings as errors (`warnings_as_errors` on mix_app)
-  # and runs the committed OpenAPI drift test in //elixir/web-ng:unit_tests, on
-  # every pull request. Compiling them a second time under Mix needed the Rust
-  # NIFs this image cannot build (no cargo; Rust links on RBE), and without
-  # them the Boundary compiler crashed on modules it could not load.
+  # --skip-compile: the projects themselves are not compiled by the script.
+  # BazelCI compiles every Bazel-built first-party app with warnings as errors
+  # (`warnings_as_errors` on mix_app) and runs the committed OpenAPI drift test
+  # in //elixir/web-ng:unit_tests, on every pull request. Compiling them a
+  # second time under Mix needed the Rust NIFs this image cannot build (no
+  # cargo; Rust links on RBE), and without them the Boundary compiler crashed
+  # on modules it could not load. elixir/palisade is not built by Bazel and has
+  # no NIFs, so this job compiles it with warnings as errors after the script.
   #
   # The Hex dependencies are still compiled, because Mix refuses to run Credo
   # or the audits against uncompiled ones. Their C code builds with this
@@ -2253,3 +2255,4 @@ actions:
           mix local.rebar --force
 
           ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-compile
+          (cd elixir/palisade && mix compile --no-deps-check --warnings-as-errors)
