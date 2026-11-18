@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -325,28 +326,121 @@ func filterDevices(devices []device, blacklist []string) []device {
 
 	filtered := make([]device, 0, len(devices))
 	for _, item := range devices {
-		rawIP := item.primaryIP()
-		ips := splitDeviceIPs(rawIP)
-		if len(ips) == 0 {
-			if rawIP == "" {
+		raw, candidates := item.addressCandidates()
+		if len(candidates) == 0 {
+			if raw == "" {
 				filtered = append(filtered, item)
 			}
 			continue
 		}
 
-		for _, ip := range ips {
-			if ipBlacklisted(ip, cidrs) {
-				continue
+		allowed := make([]string, 0, len(candidates))
+		for _, ip := range candidates {
+			if !ipBlacklisted(ip, cidrs) {
+				allowed = append(allowed, ip)
 			}
-
-			normalized := item
-			normalized.IPAddress = ip
-			filtered = append(filtered, normalized)
-			break
 		}
+		if len(allowed) == 0 {
+			continue
+		}
+
+		normalized := item
+		normalized.IPAddress = bestAddress(allowed)
+		filtered = append(filtered, normalized)
 	}
 
 	return filtered
+}
+
+// addressCandidates is every address Armis reports for the device: the split
+// IPAddress, IPv4Addresses and IPv6Addresses, in that order and without
+// duplicates. raw is the device's first non-empty address field, so a device
+// that reports only unparseable values is told apart from one that reports none.
+func (d device) addressCandidates() (string, []string) {
+	fields := make([]string, 0, 1+len(d.IPv4Addresses)+len(d.IPv6Addresses))
+	fields = append(fields, d.IPAddress)
+	fields = append(fields, d.IPv4Addresses...)
+	fields = append(fields, d.IPv6Addresses...)
+
+	raw := ""
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if raw == "" {
+			raw = strings.TrimSpace(field)
+		}
+		for _, ip := range splitDeviceIPs(field) {
+			if _, ok := seen[ip]; ok {
+				continue
+			}
+			seen[ip] = struct{}{}
+			candidates = append(candidates, ip)
+		}
+	}
+
+	return raw, candidates
+}
+
+// bestAddress picks the device's primary address the way core's
+// Identity.Address.best/1 does: the strongest candidate (a usable IPv4, then a
+// routable IPv6, then a link-local only if nothing else), and only among equally
+// strong candidates the lowest address. A list of never-primary values
+// (loopback, unspecified) keeps its first entry, as the walk always did.
+func bestAddress(candidates []string) string {
+	best := ""
+	bestStrength := 0
+	var bestAddr netip.Addr
+	for _, candidate := range candidates {
+		addr, err := netip.ParseAddr(candidate)
+		if err != nil {
+			continue
+		}
+		strength := addressStrength(addr)
+		if strength == 0 {
+			continue
+		}
+		if strength > bestStrength || (strength == bestStrength && addr.Unmap().Less(bestAddr.Unmap())) {
+			best, bestStrength, bestAddr = candidate, strength, addr
+		}
+	}
+	if best == "" {
+		return candidates[0]
+	}
+	return best
+}
+
+var (
+	privateIPv4Prefixes = []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+		netip.MustParsePrefix("100.64.0.0/10"),
+	}
+	uniqueLocalIPv6 = netip.MustParsePrefix("fc00::/7")
+)
+
+// addressStrength mirrors platform.sr_address_strength / Identity.Address.strength:
+// usable IPv4 300+rank, routable IPv6 200+rank, link-local 120, never 0, where
+// rank is 50 global, 40 private, 30 unique-local, 20 link-local.
+func addressStrength(addr netip.Addr) int {
+	addr = addr.Unmap()
+	switch {
+	case !addr.IsValid(), addr.IsLoopback(), addr.IsUnspecified():
+		return 0
+	case addr.IsLinkLocalUnicast():
+		return 120
+	case addr.Is4():
+		for _, prefix := range privateIPv4Prefixes {
+			if prefix.Contains(addr) {
+				return 340
+			}
+		}
+		return 350
+	case uniqueLocalIPv6.Contains(addr):
+		return 230
+	default:
+		return 250
+	}
 }
 
 func splitDeviceIPs(value string) []string {

@@ -36,6 +36,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Observability.PluginResultHandler
   alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Observability.PluginResultProvenance
@@ -757,12 +758,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     }
 
     if camera_classified_device?(device) do
-      Map.merge(common_attrs, %{
+      common_attrs
+      |> Map.merge(%{
         type: "camera",
         type_id: 7,
         name: attrs.name,
         hostname: attrs.hostname,
-        ip: attrs.ip,
         mac: attrs.mac,
         gateway_id: nil,
         agent_id: nil,
@@ -770,9 +771,21 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         vendor_name: attrs.vendor_name,
         model: attrs.model
       })
+      |> put_camera_primary_ip(device, attrs.ip)
     else
       common_attrs
     end
+  end
+
+  # The descriptor's address replaces the camera's primary only through the shared keep
+  # decision (`DeviceWrites.direct_write_takes_primary?/3`); otherwise the stored one stays.
+  # A descriptor with no address (or one withheld as contested) still clears it.
+  defp put_camera_primary_ip(update_attrs, _device, nil), do: Map.put(update_attrs, :ip, nil)
+
+  defp put_camera_primary_ip(update_attrs, %Device{} = device, ip) do
+    if DeviceWrites.direct_write_takes_primary?(device, ip, nil),
+      do: Map.put(update_attrs, :ip, ip),
+      else: update_attrs
   end
 
   defp camera_classified_device?(%Device{} = device) do

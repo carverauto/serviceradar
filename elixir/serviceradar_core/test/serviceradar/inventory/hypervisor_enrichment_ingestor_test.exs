@@ -194,6 +194,65 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
            }
   end
 
+  test "a host's management IP is its usable IPv4 over any IPv6, and a link-local only when nothing is routable" do
+    parent = self()
+
+    nic = fn host, name, attrs ->
+      Map.merge(
+        %{
+          "provider_ref" => "vsphere:vcenter-a:nic:#{host}:#{name}",
+          "host_provider_ref" => "vsphere:vcenter-a:host:#{host}",
+          "name" => name,
+          "source" => "host_config"
+        },
+        attrs
+      )
+    end
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(@observed_at),
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => "vsphere",
+        "hosts" =>
+          for host <- ["host-dual", "host-ll"] do
+            %{
+              "provider_ref" => "vsphere:vcenter-a:host:#{host}",
+              "name" => "#{host}.example",
+              "status" => "connected"
+            }
+          end,
+        "network_interfaces" => [
+          # A gateway on the IPv6 NIC does not outweigh the family.
+          nic.("host-dual", "vmk0", %{
+            "ip_addresses" => ["fe80::10/64", "2001:db8::10/64"],
+            "gateway" => "2001:db8::1"
+          }),
+          nic.("host-dual", "vmk1", %{"address" => "10.1.0.10", "cidr" => "10.1.0.10/24"}),
+          nic.("host-ll", "vmk0", %{"address" => "fe80::11", "cidr" => "fe80::11/64"})
+        ]
+      }
+    }
+
+    assert :ok =
+             HypervisorEnrichmentIngestor.ingest(payload, %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    ips_by_ref =
+      Map.new(records.hosts, fn host -> {host.provider_ref, get_in(host, [:metadata, "ip"])} end)
+
+    assert ips_by_ref == %{
+             "vsphere:vcenter-a:host:host-dual" => "10.1.0.10",
+             "vsphere:vcenter-a:host:host-ll" => "fe80::11"
+           }
+  end
+
   test "guest_lookup_identities/1 skips host-internal bridge, CNI, and own-prefix gateway IPs while keeping hypervisor-attached and LAN guest IPs" do
     guest_ref = "vsphere:vcenter-a:guest:vm-100"
 

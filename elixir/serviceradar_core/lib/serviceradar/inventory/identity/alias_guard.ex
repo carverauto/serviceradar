@@ -321,6 +321,64 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
       :ok
   end
 
+  @doc """
+  Expire every other device's live IP alias of `ip` once `holder_device_id` holds a
+  confirmed alias of it: an address has one live holder per partition. Staled in the
+  caller's transaction, with the same revision bump as `invalidate_ip_alias/5`, so a
+  recycled address stops being attributed to the device that held it before. Returns the
+  notifications of the staled rows for the caller to send after its commit.
+  """
+  @spec expire_superseded_ip_aliases(String.t(), String.t() | nil, String.t(), term()) ::
+          {:ok, [Ash.Notifier.Notification.t()]} | {:error, term()}
+  def expire_superseded_ip_aliases(ip, partition, holder_device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and device_id != ^holder_device_id and
+          state in [:detected, :confirmed, :updated]
+      )
+      |> Resolver.maybe_filter_alias_partition(partition)
+
+    with {:ok, alias_states} <- Ash.read(query, query_opts),
+         {:ok, notifications} <- stale_all(alias_states, query_opts) do
+      bumped =
+        alias_states
+        |> Enum.map(& &1.device_id)
+        |> Enum.uniq()
+        |> Enum.flat_map(&bump_revision_in_transaction(&1, query_opts))
+
+      {:ok, notifications ++ bumped}
+    end
+  end
+
+  # bump_alias_owner_revision/2 for a caller holding a transaction: the bump's notifications
+  # are returned for it to send after the commit.
+  defp bump_revision_in_transaction(device_id, query_opts) do
+    actor = Keyword.get(query_opts, :actor) || SystemActor.system(:alias_guard)
+
+    with {:ok, %Device{} = device} <- Device.get_by_uid(device_id, false, actor: actor),
+         {:ok, _device, notifications} <-
+           Device.bump_identity_revision(device, actor: actor, return_notifications?: true) do
+      notifications
+    else
+      _ -> []
+    end
+  end
+
+  defp stale_all(alias_states, query_opts) do
+    Enum.reduce_while(alias_states, {:ok, []}, fn alias_state, {:ok, acc} ->
+      alias_state
+      |> Ash.Changeset.for_update(:mark_stale, %{})
+      |> Ash.update(Keyword.put(query_opts, :return_notifications?, true))
+      |> case do
+        {:ok, _staled, notifications} -> {:cont, {:ok, notifications ++ acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
   # Best-effort, matching the rest of this function: a failed bump must not stop
   # an alias from being invalidated, since leaving a conflicting alias in
   # resolution is the worse outcome.

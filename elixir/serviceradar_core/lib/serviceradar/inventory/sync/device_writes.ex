@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Resolver
@@ -57,9 +58,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # adopted on hostname agreement: that identifier decides its identity.
   @source_authoritative_types SourceAuthorityGuard.source_identifier_types()
 
-  # Tombstones the upsert never writes to (device_upsert_update_query/0): a merged-away
+  # Tombstones the upsert never writes to (device_upsert_update_query/1): a merged-away
   # device and a retained tombstone (`Device.retained_reasons/0`).
   @unrevivable_reasons ["merged" | Device.retained_reasons()]
+
+  # The `^absent` and `^resighted` arrays pinned into device_upsert_update_query/1,
+  # bound once per use on top of the rows (ParameterChunking).
+  @upsert_extra_parameters 7
 
   # An anchorless sweep seed that releases its only address to an identified
   # device (retire_released_seeds/1).
@@ -94,12 +99,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           {:ok, %{String.t() => String.t()}, [String.t()]} | {:error, term()}
   def bulk_upsert_devices(records, strong_uids, resolved_updates, opts) do
     records = attach_identity_claims(records, resolved_updates)
-    update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
     lock? = Keyword.get(opts, :lock_remap_targets, false)
 
     records
-    |> do_bulk_upsert_devices(update_query, strong_uids, refresh_rollups?, lock?)
+    |> do_bulk_upsert_devices(strong_uids, refresh_rollups?, lock?)
     |> follow_merged_away_uids(records, lock?)
   rescue
     e ->
@@ -107,7 +111,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       {:error, e}
   end
 
-  defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?, lock?) do
+  defp do_bulk_upsert_devices(records, strong_uids, refresh_rollups?, lock?) do
     within_savepoint("device_writes_attempt", fn ->
       # Resolve predictable active-IP collisions up front so the first insert
       # succeeds. Reactive recovery below only covers concurrent writers that
@@ -125,7 +129,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         prepared_records,
         releases,
         stale_releases,
-        update_query,
         refresh_rollups?
       )
 
@@ -136,7 +139,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       if ip_unique_conflict?(e) do
         recover_ip_conflict_and_retry(
           records,
-          update_query,
           strong_uids,
           e,
           refresh_rollups?,
@@ -150,7 +152,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   defp recover_ip_conflict_and_retry(
          records,
-         update_query,
          strong_uids,
          original_error,
          refresh_rollups?,
@@ -185,7 +186,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            recovered_records,
            releases,
            stale_releases,
-           update_query,
            refresh_rollups?
          ) do
       :ok -> {:ok, remap, stale_uids}
@@ -241,18 +241,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Enum.reject(targets, &MapSet.member?(live, &1))
   end
 
-  defp do_bulk_upsert_devices_once(
-         records,
-         releases,
-         stale_releases,
-         update_query,
-         refresh_rollups?
-       ) do
+  defp do_bulk_upsert_devices_once(records, releases, stale_releases, refresh_rollups?) do
     insert_devices_with_releases(
       records,
       releases,
       stale_releases,
-      update_query,
       refresh_rollups?
     )
 
@@ -264,7 +257,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   # A uid merged into another device is never written back to life: the upsert's
-  # on_conflict WHERE leaves its tombstone alone (device_upsert_update_query/0). What
+  # on_conflict WHERE leaves its tombstone alone (device_upsert_update_query/1). What
   # the batch resolved for that uid -- identifiers, interfaces, aliases -- follows the
   # merge instead, through the same remap an active-IP recovery uses, so none of it
   # lands on the tombstone.
@@ -363,20 +356,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # strong-identified record takes from a stale holder
   # (`claim_address_from_holder/5`), whose released seeds retire in the same
   # transaction (`lock_and_clear_for_upsert/3`).
-  defp insert_devices_with_releases(
-         records,
-         releases,
-         stale_releases,
-         update_query,
-         refresh_rollups?
-       ) do
+  defp insert_devices_with_releases(records, releases, stale_releases, refresh_rollups?) do
     with_deadlock_retry(fn ->
       within_savepoint("device_writes_upsert", fn ->
         do_insert_devices_with_releases(
           records,
           releases,
           stale_releases,
-          update_query,
           refresh_rollups?
         )
       end)
@@ -402,26 +388,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end
   end
 
-  defp do_insert_devices_with_releases(records, [], [], update_query, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+  defp do_insert_devices_with_releases(records, [], [], refresh_rollups?) do
+    insert_devices(records, refresh_rollups?)
   end
 
-  defp do_insert_devices_with_releases(records, releases, stale_releases, update_query, true) do
+  defp do_insert_devices_with_releases(records, releases, stale_releases, true) do
     with_inventory_rollup_bypassed(fn ->
       lock_and_clear_for_upsert(records, releases, stale_releases)
-      insert_devices(records, update_query, false)
+      insert_devices(records, false)
     end)
   end
 
-  defp do_insert_devices_with_releases(records, releases, stale_releases, update_query, false) do
+  defp do_insert_devices_with_releases(records, releases, stale_releases, false) do
     within_transaction(fn ->
       lock_and_clear_for_upsert(records, releases, stale_releases)
-      insert_devices(records, update_query, false)
+      insert_devices(records, false)
     end)
   end
 
-  defp insert_devices(records, update_query, true) do
-    with_inventory_rollup_bypassed(fn -> insert_devices(records, update_query, false) end)
+  defp insert_devices(records, true) do
+    with_inventory_rollup_bypassed(fn -> insert_devices(records, false) end)
   end
 
   # One statement per chunk, so a wide batch stays under the bound-parameter
@@ -431,14 +417,14 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # column belongs to the merged resolver, so the records go in with is_available nil
   # (the upsert's COALESCE keeps the stored value) and the values go to the
   # compatibility table instead (LegacyWrites).
-  defp insert_devices(records, update_query, false) do
+  defp insert_devices(records, false) do
     within_transaction(fn ->
       {records, legacy_values} = route_legacy_availability(records)
 
       records
       |> jsonb_safe()
-      |> ParameterChunking.insert_all_chunks()
-      |> Enum.each(fn chunk -> insert_device_chunk(chunk, update_query) end)
+      |> ParameterChunking.insert_all_chunks(extra_parameters: @upsert_extra_parameters)
+      |> Enum.each(&insert_device_chunk/1)
 
       _written = LegacyWrites.record(legacy_values)
       :ok
@@ -473,14 +459,164 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     if Repo.in_transaction?(), do: fun.(), else: Repo.transaction(fun, timeout: :infinity)
   end
 
-  defp insert_device_chunk(chunk, update_query) do
+  # The stored primaries a chunk's records may replace at equal strength are read in
+  # the write's transaction, right before the statement (primary_ip_inputs/1); the
+  # upsert compares strengths against the row it updates.
+  defp insert_device_chunk(chunk) do
+    inputs = primary_ip_inputs(chunk)
+
     Repo.insert_all(
       Device,
-      chunk,
-      on_conflict: update_query,
+      Enum.map(chunk, &insert_row/1),
+      on_conflict: device_upsert_update_query(inputs),
       conflict_target: [:uid]
     )
   end
+
+  defp insert_row(record) do
+    record
+    |> Map.delete(:ip_sightings)
+    |> Map.update(:ip_seen_at, nil, &usec/1)
+  end
+
+  # Separates a device uid from its stored address in a primary-ip input key.
+  @primary_key_separator <<31>>
+
+  @doc """
+  The equal-strength inputs to the primary-ip guard for `records`, from the stored rows.
+
+  The upsert keeps a stored primary unless the incoming address is strictly stronger
+  (`platform.sr_address_strength/1`), or the stored address is absent from the
+  sightings of the source that recorded it (`ip_source`). Absence is decided here,
+  never inferred in SQL from the incoming address differing:
+
+    * the recording source reported the device in this write with a complete
+      address set (`ip_sightings`, built by `DeviceRecords`) that no longer contains it; or
+    * the recording source has not sighted it within the primary sighting window
+      (`ip_seen_at`); a row with no recorded source has no sighting to keep it.
+
+  A record whose recording source re-sighted the stored primary refreshes
+  `ip_seen_at` (`resighted`). Another source's update never counts as absence.
+  Keys are `uid <> <<31>> <> stored_ip`, so an input never applies to an address the
+  row no longer holds.
+  """
+  @spec primary_ip_inputs([map()]) :: %{absent: [String.t()], resighted: [String.t()]}
+  def primary_ip_inputs(records) do
+    candidates =
+      for %{uid: uid} = record <- records, present_ip?(Map.get(record, :ip)), do: {uid, record}
+
+    stored = load_stored_primaries(Enum.map(candidates, &elem(&1, 0)))
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -primary_ip_sighting_window_seconds())
+
+    Enum.reduce(candidates, %{absent: [], resighted: []}, fn {uid, record}, acc ->
+      case Map.get(stored, uid) do
+        %{ip: ip} = row when is_binary(ip) and ip != "" ->
+          key = uid <> @primary_key_separator <> ip
+
+          case stored_primary_sighting(row, Map.get(record, :ip_sightings) || %{}, record, cutoff) do
+            :absent -> %{acc | absent: [key | acc.absent]}
+            :resighted -> %{acc | resighted: [key | acc.resighted]}
+            :present -> acc
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp stored_primary_sighting(%{ip: ip, ip_source: nil}, sightings, record, _cutoff) do
+    # No recorded source: the record's own source adopts the address when it sighted
+    # it; otherwise nothing recorded keeps it.
+    if sighted?(Map.get(sightings, Map.get(record, :ip_source)), ip),
+      do: :resighted,
+      else: :absent
+  end
+
+  defp stored_primary_sighting(%{ip: ip, ip_source: source} = row, sightings, _record, cutoff) do
+    entry = Map.get(sightings, source)
+
+    cond do
+      sighted?(entry, ip) -> :resighted
+      entry != nil and entry.complete? -> :absent
+      aged_out?(row.ip_seen_at, cutoff) -> :absent
+      true -> :present
+    end
+  end
+
+  defp sighted?(%{addresses: addresses}, ip), do: MapSet.member?(addresses, ip)
+  defp sighted?(_entry, _ip), do: false
+
+  @doc """
+  Whether a writer that sets one device's `ip` directly, outside the bulk upsert (an agent
+  check-in, a camera inventory update), replaces the stored primary with `incoming`.
+
+  The same keep decision as the upsert: `incoming` replaces the stored primary when it is
+  strictly stronger (`Address.better?/2`), or when the stored primary is absent from the
+  sightings of the source that recorded it. A direct writer reports one address for the
+  device, which is its whole view of it, so a stored primary it recorded (`source`) and
+  one no source recorded are absent once it reports another; a primary another source
+  recorded is absent only after that source has not sighted it for the window. Another
+  source's equally strong address never displaces it, and an IPv6 never displaces a
+  usable IPv4.
+  """
+  @spec direct_write_takes_primary?(Device.t(), String.t() | nil, String.t() | nil) :: boolean()
+  def direct_write_takes_primary?(%Device{ip: stored} = device, incoming, source)
+      when is_binary(incoming) do
+    cond do
+      not present_ip?(incoming) -> false
+      not present_ip?(stored) -> true
+      incoming == stored -> false
+      Address.better?(incoming, stored) -> true
+      Address.strength(incoming) == 0 -> false
+      device.ip_source in [nil, source] -> true
+      true -> primary_ip_aged_out?(device.ip_seen_at)
+    end
+  end
+
+  def direct_write_takes_primary?(_device, _incoming, _source), do: false
+
+  @doc """
+  True when a stored primary's recording source last sighted it (`seen_at`) longer ago
+  than the primary sighting window, or never.
+  """
+  @spec primary_ip_aged_out?(DateTime.t() | NaiveDateTime.t() | nil) :: boolean()
+  def primary_ip_aged_out?(seen_at) do
+    aged_out?(
+      seen_at,
+      DateTime.shift(DateTime.utc_now(), second: -primary_ip_sighting_window_seconds())
+    )
+  end
+
+  defp aged_out?(nil, _cutoff), do: true
+
+  defp aged_out?(%NaiveDateTime{} = at, cutoff),
+    do: aged_out?(DateTime.from_naive!(at, "Etc/UTC"), cutoff)
+
+  defp aged_out?(%DateTime{} = at, cutoff), do: DateTime.before?(at, cutoff)
+
+  defp load_stored_primaries([]), do: %{}
+
+  defp load_stored_primaries(uids) do
+    from(d in Device,
+      where: d.uid in ^Enum.uniq(uids) and is_nil(d.deleted_at),
+      select: {d.uid, %{ip: d.ip, ip_source: d.ip_source, ip_seen_at: d.ip_seen_at}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @default_primary_ip_sighting_window_seconds 86_400
+
+  defp primary_ip_sighting_window_seconds do
+    case Application.get_env(:serviceradar_core, :primary_ip_sighting_window_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> @default_primary_ip_sighting_window_seconds
+    end
+  end
+
+  defp present_ip?(ip) when is_binary(ip), do: String.trim(ip) != ""
+  defp present_ip?(_ip), do: false
 
   # Last line of defence before anything reaches a jsonb column.
   #
@@ -1245,7 +1381,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # A record that already carries an observation (a discovery poll of the
   # device itself, MapperResultsIngestor) keeps the later of the two. The
   # upsert keeps the later of the record's and the stored value
-  # (device_upsert_update_query/0).
+  # (device_upsert_update_query/1).
   defp put_identity_observed_at(record, observed_at) do
     case Map.fetch(observed_at, record.uid) do
       {:ok, at} ->
@@ -1932,7 +2068,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # identity transition -- the uid names a live thing again -- so it bumps
   # identity_revision exactly as Device :restore does. The
   # trg_ocsf_devices_revival_audit trigger records the tombstone the revival clears.
-  defp device_upsert_update_query do
+  defp device_upsert_update_query(%{absent: absent, resighted: resighted}) do
     from(d in Device,
       where:
         is_nil(d.deleted_at) or is_nil(d.deleted_reason) or
@@ -1944,29 +2080,24 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
           #
-          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
-          # An equal-ranked address must still win, because that is a host
-          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
-          # refusing it would freeze every device at its first address. What it
-          # blocks is a WORSE address overwriting a good one: an NDP census
-          # sighting carries a `fe80::` link-local, and before this guard that
-          # silently replaced a routable primary -- 25 of 126 live devices on one
-          # deployment (GitHub #3905).
+          # The stored primary is KEPT unless the incoming address is strictly
+          # stronger (platform.sr_address_strength: a usable IPv4 beats any IPv6,
+          # a routable address of either family beats a link-local of either
+          # family, otherwise the higher rank within the family wins), or the
+          # stored address is absent from the sightings of the source that
+          # recorded it (`absent`, decided by primary_ip_inputs/1 before the
+          # write; never inferred here from EXCLUDED.ip differing).
           #
-          # A device whose only known address is link-local keeps it: its current
-          # rank is then equal, not higher, so the incoming value still applies.
+          # Comparing ranks alone tied a global IPv6 (50) with a private IPv4
+          # (40), so the last writer won and a dual-stack device's primary
+          # flipped between families on every census pass. An equal-strength
+          # address replacing on arrival let two addresses of one device take
+          # turns. A real re-IP still lands: the old address leaves its
+          # recording source's sightings.
           #
-          # LEAST(rank, 40) collapses global and private into ONE routable tier
-          # for this comparison. Both are legitimate primary addresses, and a
-          # host re-addressed from a public to an RFC1918 address is a real move,
-          # not noise -- comparing the fine-grained ranks would refuse it and
-          # freeze the device on a stale public address. The finer ranking still
-          # applies where it belongs, in Identity.Address.best/1, which chooses
-          # among addresses known at the SAME time.
-          #
-          # What stays blocked is what this guard is for: ULA (30) and link-local
-          # (20) cannot overwrite anything routable, and nothing can overwrite
-          # with an address that is never a primary (0).
+          # A link-local-only device keeps its link-local: nothing stronger
+          # arrives, and an equal-strength link-local (fe80:: vs 169.254/16)
+          # does not swap.
           #
           # A revival takes only the address the incoming record carries, ahead of
           # both rules above. A tombstone's stored address is history that another
@@ -1982,8 +2113,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
                 WHEN ? IS NULL THEN EXCLUDED.ip
-                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
-                     >= LEAST(platform.sr_address_rank(?), 40)
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
                   THEN EXCLUDED.ip
                 ELSE ?
               END
@@ -1992,7 +2125,78 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.ip,
               d.ip,
               d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
               d.ip
+            ),
+          # The source that recorded the primary, and when it last sighted it.
+          # Both follow the ip expression above branch for branch; a stored
+          # primary its recording source re-sighted (`resighted`) refreshes the
+          # sighting time, and a row with no recorded source adopts the source
+          # that re-sighted it.
+          ip_source:
+            fragment(
+              """
+              CASE
+                WHEN ? IS NOT NULL THEN
+                  CASE WHEN NULLIF(btrim(EXCLUDED.ip), '') IS NULL THEN NULL ELSE EXCLUDED.ip_source END
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                WHEN ? IS NULL THEN EXCLUDED.ip_source
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip_source
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                  THEN EXCLUDED.ip_source
+                WHEN (? || chr(31) || ?) = ANY(?::text[]) THEN COALESCE(?, EXCLUDED.ip_source)
+                ELSE ?
+              END
+              """,
+              d.deleted_at,
+              d.ip_source,
+              d.ip,
+              d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
+              d.uid,
+              d.ip,
+              ^resighted,
+              d.ip_source,
+              d.ip_source
+            ),
+          ip_seen_at:
+            fragment(
+              """
+              CASE
+                WHEN ? IS NOT NULL THEN
+                  CASE WHEN NULLIF(btrim(EXCLUDED.ip), '') IS NULL THEN NULL ELSE EXCLUDED.ip_seen_at END
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                WHEN ? IS NULL THEN EXCLUDED.ip_seen_at
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip_seen_at
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                  THEN EXCLUDED.ip_seen_at
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                  THEN GREATEST(?, EXCLUDED.ip_seen_at)
+                ELSE ?
+              END
+              """,
+              d.deleted_at,
+              d.ip_seen_at,
+              d.ip,
+              d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
+              d.uid,
+              d.ip,
+              ^resighted,
+              d.ip_seen_at,
+              d.ip_seen_at
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),

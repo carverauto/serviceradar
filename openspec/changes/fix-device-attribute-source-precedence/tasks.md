@@ -150,7 +150,7 @@
 
 ## 7. Primary address and aliases
 
-- [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
+- [x] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
       device has a usable IPv4 (a routable IPv4 with `sr_address_rank >= 40`;
       routable = chooser-accepted, not link-local, not a directed broadcast,
       not host-internal, ULA included);
@@ -170,14 +170,14 @@
       computes the recording source's membership and window per device
       before the write and passes it to the upsert, which decides; the
       upsert never infers absence from `EXCLUDED.ip` differing
-- [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
+- [x] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
       `better?/2`'s equal-rank-never-replaces; take the stored primary as an
       optional input and, only among equal-class equal-rank candidates,
       tie-break stored primary first, then lowest address, never across
       ranks); extend the existing SQL /
       Elixir rank parity test to the family rule and the keep-unless-stronger
       rule
-- [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
+- [x] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
       and the camera and succession primary-IP paths follow the same rule;
       `GuestAddress.primary/1` keeps skipping host-internal addresses (for
       example a docker bridge), and no chooser promotes an address it rejects
@@ -195,7 +195,7 @@
       IPv6, link-local, then higher rank within the family) and only among
       equal-class equal-rank candidates puts the stored primary first, then
       the lowest address
-- [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
+- [x] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
       (`go/pkg/agent/syncsources/armis/device.go`, called from `driver.go`;
@@ -214,7 +214,7 @@
       (`go/cmd/wasm-plugins/netbox/main.go`) takes `primary_ip4` only when
       it is a usable IPv4, otherwise its routable IPv6, otherwise a
       link-local, so a link-local-only device is not dropped
-- [ ] 7.6 Route the agent gateway check-in (`AgentGatewaySync`
+- [x] 7.6 Route the agent gateway check-in (`AgentGatewaySync`
       `update_existing_device_for_agent` and `:gateway_restore`) and any
       other writer that sets a device's `ip` directly through the same
       ranked keep decision instead of assigning `ip`; keep the explicit
@@ -224,7 +224,7 @@
       primary to `203.0.113.5`
 - [ ] 7.7 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
-- [ ] 7.8 Census decoder: an NDP / IPv6 sighting of a device with a usable
+- [x] 7.8 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is never an alias or a name, and sets the
       primary only of a link-local-only device
@@ -240,7 +240,7 @@
 - [ ] 7.10 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
-- [ ] 7.11 `SweepCompiler` attributes each target only to the current live
+- [x] 7.11 `SweepCompiler` attributes each target only to the current live
       holder
 - [ ] 7.12 Test: dual-stack census keeps the usable IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local

@@ -445,7 +445,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* conflicts), as a mapper result does for the address it polled. recordAlias is a sighting
         \* that reaches the confirmation threshold and confirms its row, the result's own.
         \* Rows are per device (DeviceAliasState.lookup_for_device/4): a sighting counts only toward
-        \* the observed record's own row, and another device's row at the address is never touched.
+        \* the observed record's own row. Confirming it expires every other device's live row at the
+        \* address in the same write (AliasGuard.expire_superseded_ip_aliases/4): an address has one
+        \* live holder.
         confirms == IF recordAlias THEN {target} ELSE {}
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
@@ -459,9 +461,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ recIp' = recIp2
     /\ alias' = [q \in Ips |->
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
-                   kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
-                        \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})
-                   \cup (IF q = p THEN confirms ELSE {})]
+                   IF q = p /\ recordAlias THEN confirms
+                   ELSE kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
+                             \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})]
     /\ ifClaims' = [r \in Recs |->
                       ifClaims[r]
                       \cup (IF r = target0 THEN UNION {ifClaims[m] : m \in step1Merged} ELSE {})
@@ -530,11 +532,16 @@ ArpObserve(h, x) ==
 \* MACs link it to, and merge it with, a record holding or having held a source id. Step 1's
 \* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart. On a
 \* Proxmox node the agent also reports the node certificate its local pveproxy serves.
+\* The check-in's address replaces the record's existing one only when it is strictly stronger
+\* or the existing one is absent from the sightings of the source that recorded it
+\* (DeviceWrites.direct_write_takes_primary?/3). The model has no address strength, recording
+\* source or clock, so an existing record may keep the address it holds (keep) or take the
+\* check-in's.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN :
+    /\ \E ra \in BOOLEAN, keep \in BOOLEAN :
          Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds) \cup CertsOf(h), ra, "guard",
-                 "Agent", {}, {})
+                 "Agent", {}, IF keep THEN Ips ELSE {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
@@ -749,12 +756,18 @@ AddressNeverMerges == [][act'.addressMerged = {}]_vars
 \* An address follows the device observed at it: after an identity-bearing observation lands,
 \* the record it landed on holds the observed address. A census carries no identity-bearing time
 \* of its own, so after one the address may instead stay with a holder whose identity was
-\* observed (D7).
+\* observed (D7). An agent check-in may instead leave the record it landed on with the primary
+\* address it already held, which another source recorded and still sights
+\* (fix-device-attribute-source-precedence, decision 14).
 ObservedAddressHeld ==
     [][(act'.name \in {"Armis", "Arp", "Agent"} /\ act'.ids # {}) =>
-         \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
-                         /\ \/ act'.ids \cap HeldIn(owner', r, Ids) # {}
-                            \/ act'.name = "Arp" /\ idSeen'[r]]_vars
+         \/ \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
+                            /\ \/ act'.ids \cap HeldIn(owner', r, Ids) # {}
+                               \/ act'.name = "Arp" /\ idSeen'[r]
+         \/ act'.name = "Agent"
+            /\ \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec
+                               /\ act'.ids \cap HeldIn(owner', r, Ids) # {}
+                               /\ recIp'[r] # NoIp /\ recIp'[r] = recIp[r]]_vars
 
 \* IP Alias Resolution; IP Alias Sightings and Promotion: after a source sync observes a device at
 \* an address, every identified record keeping a confirmed alias of the address describes that

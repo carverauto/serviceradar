@@ -586,13 +586,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
                )
     end
 
-    # The record a batch writes for a device is its last update for that device, so that
-    # update's source decides. A sighting of the node at its held address earlier in the batch
-    # does not make the configured address that wins a move.
+    # The record a batch writes for a device carries the strongest address its updates
+    # submitted, so the update that submitted it decides. A sighting of the node at its held
+    # (private, weaker) address in the same batch does not make the configured address that
+    # wins a move.
     test "a declarative update that wins its batch keeps the address after an observed sighting",
          %{actor: actor} do
       seed = System.unique_integer([:positive, :monotonic])
-      held_ip = test_net_ip("192.0.2", seed)
+      held_ip = test_net_ip("10.250.#{rem(div(seed, 254), 250)}", seed)
       declared_ip = test_net_ip("198.51.100", seed)
       armis_id = "#{seed}"
       integration_id = "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:node:node02"

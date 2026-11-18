@@ -53,6 +53,31 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
     assert GuestAddress.primary(without_net0) == "192.0.2.30"
   end
 
+  test "a usable IPv4 is primary over any IPv6, on an earlier NIC or on the same one" do
+    # NIC order decides only among equally strong addresses.
+    ipv6_nic_first = [
+      %{
+        name: "eth0",
+        source: "config",
+        ip_addresses: ["fe80::40/64", "2001:db8::40/64"],
+        config_key: "net0"
+      },
+      %{name: "eth1", source: "config", ip_addresses: ["192.0.2.40/24"], config_key: "net1"}
+    ]
+
+    assert GuestAddress.primary(ipv6_nic_first) == "192.0.2.40"
+
+    dual_stack_nic = [
+      %{
+        name: "eth0",
+        source: "guest_agent",
+        ip_addresses: ["fe80::41/64", "2001:db8::41/64", "198.51.100.41/24"]
+      }
+    ]
+
+    assert GuestAddress.primary(dual_stack_nic) == "198.51.100.41"
+  end
+
   test "without a configuration source, guest-tools NICs win over host-internal networks" do
     interfaces = [
       %{name: "docker0", source: "guest_tools", ip_addresses: ["172.17.0.1/16"]},

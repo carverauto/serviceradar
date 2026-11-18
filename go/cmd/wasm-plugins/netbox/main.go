@@ -455,24 +455,73 @@ func relativizePath(next string) string {
 	}
 }
 
-// primaryIP returns the device's primary IP as a bare address, preferring
-// IPv4. NetBox reports addresses in CIDR form ("10.0.0.5/24").
+// primaryIP is the device's primary address from NetBox's primary_ip4 and
+// primary_ip6: the IPv4 only when it is a usable (routable) IPv4, otherwise the
+// routable IPv6, otherwise a link-local, so a link-local-only device still has
+// one. NetBox reports addresses in CIDR form ("10.0.0.5/24"); the result is
+// the bare address. It ranks the two the way core's Identity.Address.strength/1
+// does.
 func primaryIP(item gjson.Result) string {
+	best := ""
+	bestStrength := 0
 	for _, field := range []string{"primary_ip4.address", "primary_ip6.address"} {
-		address := strings.TrimSpace(item.Get(field).String())
-		if address == "" {
+		addr, ok := parseAddress(strings.TrimSpace(item.Get(field).String()))
+		if !ok {
 			continue
 		}
-
-		if prefix, err := netip.ParsePrefix(address); err == nil {
-			return prefix.Addr().String()
-		}
-		if addr, err := netip.ParseAddr(address); err == nil {
-			return addr.String()
+		if strength := addressStrength(addr); strength > bestStrength {
+			best, bestStrength = addr.String(), strength
 		}
 	}
 
-	return ""
+	return best
+}
+
+func parseAddress(address string) (netip.Addr, bool) {
+	if address == "" {
+		return netip.Addr{}, false
+	}
+	if prefix, err := netip.ParsePrefix(address); err == nil {
+		return prefix.Addr(), true
+	}
+	if addr, err := netip.ParseAddr(address); err == nil {
+		return addr, true
+	}
+	return netip.Addr{}, false
+}
+
+var (
+	privateIPv4Prefixes = []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+		netip.MustParsePrefix("100.64.0.0/10"),
+	}
+	uniqueLocalIPv6 = netip.MustParsePrefix("fc00::/7")
+)
+
+// addressStrength mirrors core's platform.sr_address_strength: usable IPv4
+// 300+rank, routable IPv6 200+rank, link-local 120, never 0, where rank is 50
+// global, 40 private, 30 unique-local.
+func addressStrength(addr netip.Addr) int {
+	addr = addr.Unmap()
+	switch {
+	case !addr.IsValid(), addr.IsLoopback(), addr.IsUnspecified():
+		return 0
+	case addr.IsLinkLocalUnicast():
+		return 120
+	case addr.Is4():
+		for _, prefix := range privateIPv4Prefixes {
+			if prefix.Contains(addr) {
+				return 340
+			}
+		}
+		return 350
+	case uniqueLocalIPv6.Contains(addr):
+		return 230
+	default:
+		return 250
+	}
 }
 
 // parseBlacklist accepts CIDRs and bare addresses (treated as single-host

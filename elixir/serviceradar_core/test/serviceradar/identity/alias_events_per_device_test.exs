@@ -48,7 +48,7 @@ defmodule ServiceRadar.Identity.AliasEventsPerDeviceTest do
     assert count == held.sighting_count
   end
 
-  test "a device's sightings confirm its own row, not another device's", %{actor: actor} do
+  test "a device's sightings confirm its own row and expire another device's", %{actor: actor} do
     ip = "203.0.113.11"
     {:ok, holder} = create_device(actor, "per-device-earlier")
     {:ok, device} = create_device(actor, "per-device-now")
@@ -60,7 +60,10 @@ defmodule ServiceRadar.Identity.AliasEventsPerDeviceTest do
     assert [%DeviceAliasState{state: :confirmed, sighting_count: 3}] =
              alias_rows(device.uid, ip, actor)
 
-    assert [%DeviceAliasState{state: :detected, sighting_count: 1}] =
+    # One live holder per address: confirming the re-attribution expires the earlier
+    # holder's alias in the same write, so nothing (a sweep target, a lookup) still
+    # attributes the address to it.
+    assert [%DeviceAliasState{state: :stale, sighting_count: 1}] =
              alias_rows(holder.uid, ip, actor)
   end
 

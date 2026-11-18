@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.IdentityProjections
   alias ServiceRadar.Inventory.Identity.Mac
@@ -1506,7 +1507,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       ip = primary_interface_ip(iface)
 
       if present?(host_ref) and not present?(guest_ref) and present?(ip) do
-        candidate = {ip, management_ip_score(iface, ip)}
+        candidate = {ip, host_ip_rank(iface, ip)}
 
         Map.update(acc, host_ref, candidate, fn current ->
           if elem(candidate, 1) > elem(current, 1), do: candidate, else: current
@@ -1540,15 +1541,37 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
+  # A host's management address: the strongest address on any of its interfaces
+  # (`Address.strength/1`: a usable IPv4 over any IPv6, a routable address over a
+  # link-local, then the rank), and only among equally strong addresses the
+  # management score (a gateway, a private address, a Linux bridge) and then the
+  # lowest address. A 169.254/16 or fe80:: address is submitted only by a host
+  # with nothing routable.
+  defp host_ip_rank(iface, ip),
+    do: {Address.strength(ip), management_ip_score(iface, ip), lowest_first(ip)}
+
+  defp lowest_first(ip) do
+    case :inet.parse_address(String.to_charlist(ip)) do
+      {:ok, parsed} ->
+        parsed |> Tuple.to_list() |> Enum.map(&(-&1)) |> then(&{-tuple_size(parsed), &1})
+
+      _ ->
+        {-99, []}
+    end
+  end
+
+  # The interface's strongest address, the first of equally strong ones.
   defp primary_interface_ip(iface) do
-    Enum.find_value(
-      [
-        iface |> Map.get(:ip_addresses, []) |> Enum.find_value(&normalize_ip_identifier/1),
-        normalize_ip_identifier(Map.get(iface, :cidr)),
-        normalize_ip_identifier(Map.get(iface, :address))
-      ],
-      & &1
-    )
+    iface
+    |> Map.get(:ip_addresses, [])
+    |> List.wrap()
+    |> Enum.concat([Map.get(iface, :cidr), Map.get(iface, :address)])
+    |> Enum.map(&normalize_ip_identifier/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      addresses -> Enum.max_by(addresses, &Address.strength/1)
+    end
   end
 
   defp management_ip_score(iface, ip) do
@@ -1584,8 +1607,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp private_172_ip?(_value), do: false
 
+  # Not link-local (fe80::/10 or 169.254/16) and usable as a primary at all.
   defp routable_management_ip?(value) when is_binary(value) do
-    not String.starts_with?(value, ["0.", "127.", "169.254."])
+    Address.strength_class(value) in [:usable_ipv4, :routable_ipv6]
   end
 
   defp routable_management_ip?(_value), do: false

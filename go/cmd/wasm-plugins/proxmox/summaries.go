@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -119,14 +120,23 @@ func primaryIP(interfaces []proxmoxGuestNetworkInterface) string {
 	// the device's primary IP is wrong and non-deterministic (it depends on
 	// guest-agent interface order). The configured NIC carries the host's real
 	// address, and the merge unions the agent-discovered IP onto it.
-	if ip := firstUsableIP(interfaces, true); ip != "" {
+	if ip := bestUsableIP(interfaces, true); ip != "" {
 		return ip
 	}
 
-	return firstUsableIP(interfaces, false)
+	return bestUsableIP(interfaces, false)
 }
 
-func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly bool) string {
+// bestUsableIP is the strongest usable address among the interfaces, ranked
+// the way core's Identity.Address.strength/1 ranks a primary: a usable IPv4
+// beats any IPv6 and the rank decides within a family; only equally strong
+// addresses fall back to the lowest one. Loopback and link-local addresses are
+// never offered, and the unconfigured pass skips host-internal addresses.
+func bestUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly bool) string {
+	best := ""
+	bestStrength := 0
+	var bestAddr netip.Addr
+
 	for _, iface := range interfaces {
 		if configuredOnly && iface.ConfigKey == "" {
 			continue
@@ -136,13 +146,61 @@ func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly boo
 			if !configuredOnly && isHostInternalAddress(iface.Name, ip) {
 				continue
 			}
-			if plain := stripIPPrefix(ip); plain != "" && !isLoopbackOrLinkLocal(plain) {
-				return plain
+			plain := stripIPPrefix(ip)
+			if plain == "" || isLoopbackOrLinkLocal(plain) {
+				continue
+			}
+			addr, err := netip.ParseAddr(plain)
+			if err != nil {
+				// An unparseable value is kept only when nothing else qualifies,
+				// as the first-in-order walk always kept it.
+				if best == "" {
+					best = plain
+				}
+				continue
+			}
+			strength := addressStrength(addr)
+			if strength > bestStrength || (strength == bestStrength && addr.Unmap().Less(bestAddr.Unmap())) {
+				best, bestStrength, bestAddr = plain, strength, addr
 			}
 		}
 	}
 
-	return ""
+	return best
+}
+
+var (
+	privateIPv4Prefixes = []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+		netip.MustParsePrefix("100.64.0.0/10"),
+	}
+	uniqueLocalIPv6 = netip.MustParsePrefix("fc00::/7")
+)
+
+// addressStrength mirrors core's platform.sr_address_strength: usable IPv4
+// 300+rank, routable IPv6 200+rank, link-local 120, never 0, where rank is 50
+// global, 40 private, 30 unique-local.
+func addressStrength(addr netip.Addr) int {
+	addr = addr.Unmap()
+	switch {
+	case !addr.IsValid(), addr.IsLoopback(), addr.IsUnspecified():
+		return 0
+	case addr.IsLinkLocalUnicast():
+		return 120
+	case addr.Is4():
+		for _, prefix := range privateIPv4Prefixes {
+			if prefix.Contains(addr) {
+				return 340
+			}
+		}
+		return 350
+	case uniqueLocalIPv6.Contains(addr):
+		return 230
+	default:
+		return 250
+	}
 }
 
 var hostInternalInterfacePrefixes = []string{
