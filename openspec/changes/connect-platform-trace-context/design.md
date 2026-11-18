@@ -43,6 +43,11 @@ therefore sit at the real persistence clients, and each is created only when a
 span is already active. They never start a root, so telemetry-subject stores,
 which deliberately have no batch span, never trace themselves.
 
+The active span is the caller's. `Destination.load_chunks/6` runs chunked
+Stream Loads in `Task.async_stream` tasks, which do not inherit the caller's
+context, so it captures the caller's context and attaches it in each task
+before `persist/3`. A caller with no span still produces none.
+
 - `starrocks.stream_load`: one per StarRocks Stream Load, with
   `db.system=starrocks`, `db.collection.name=<table>`, the row count and
   status ERROR on failure.

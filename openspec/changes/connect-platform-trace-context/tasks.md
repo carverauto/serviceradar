@@ -27,13 +27,15 @@
 
 - [ ] 4.1 `starrocks.stream_load` CLIENT span around each
       `StarRocks.StreamLoad.persist/3` call (db.system=starrocks,
-      db.collection.name, row count, ERROR status), created only when a span
-      is active
+      db.collection.name, row count, ERROR status), created only when the
+      caller has an active span; `Destination.load_chunks/6` attaches the
+      caller's context in each parallel task before `persist/3`
 - [ ] 4.2 `edge_record.ingest` CLIENT span around each edge-record ingest
       transaction (db.system=postgresql, output contract, outcome), created
       only when a span is active
 - [ ] 4.3 Tests: each persistence span is a child of the active batch span,
-      the Stream Load span carries ERROR status on failure, and no
+      including chunks loaded in parallel tasks, the Stream Load span carries
+      ERROR status on failure, and no
       persistence span is created when no span is active
 - [ ] 4.4 Producer carries the delivering stream's filter subject as
       `:destination_template`; the batch span's `messaging.destination.name`

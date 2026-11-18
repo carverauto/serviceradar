@@ -68,16 +68,18 @@ open, and the demo data shows the propagation work was never finished.
   `starrocks.stream_load` and each edge-record ingest transaction runs as a
   CLIENT span `edge_record.ingest`. Under `event_writer.process_batch` they
   show where batch time goes. Neither ever starts a root, so telemetry-subject
-  stores stay untraced. They cost one span per Stream Load or edge-record
+  stores stay untraced. The active span is the caller's, so Stream Loads run
+  in parallel tasks attach it before loading. They cost one span per Stream Load or edge-record
   transaction, not one per query, so Ecto and Oban tracing stay opt-in.
 - **Bounded messaging destination attributes.** NATS spans record a subject
   template (the delivering stream's filter subject), never a concrete
   subject. The analytics-prediction subject embeds a series key that
   hex-encodes device identity and metric values.
-- **Root-span-ratio alert names the real failure.** The threshold and window
-  are unchanged. The warning stops asserting ingest loss and names the
-  services and span kinds that contribute the most unparented roots, so the
-  alert can be acted on.
+- **Root-span-ratio alert lists its contributors.** The threshold, window,
+  floor and linked-consumer exclusion are unchanged. The warning stops
+  asserting ingest loss: it states that the roots carry neither a parent nor
+  a link, names no cause, and lists the top contributors (service, span
+  kind, root count).
 
 Not in scope: Rust service propagation (`rust/kvutil`, flow collector). Those
 callers have no active tracer to propagate from today, and raw flows start

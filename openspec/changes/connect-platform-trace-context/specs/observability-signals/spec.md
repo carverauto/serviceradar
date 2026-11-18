@@ -27,7 +27,7 @@ The agent gateway SHALL stamp W3C `traceparent` and `tracestate` on every edge-r
 - **AND** the `event_writer.process_batch` span SHALL carry a link to the gateway span that published them
 
 ### Requirement: EventWriter persistence clients record child spans
-EventWriter persistence clients SHALL record a CLIENT span for each StarRocks Stream Load and each edge-record ingest transaction when a span is already active, and SHALL NOT create such a span when no span is active.
+EventWriter persistence clients SHALL record a CLIENT span for each StarRocks Stream Load and each edge-record ingest transaction when a span is already active, and SHALL NOT create such a span when no span is active. The active span is the calling batch's span, including for Stream Loads run in parallel tasks.
 
 The `starrocks.stream_load` span carries `db.system=starrocks`, `db.collection.name` set to the target table, the row count, and status ERROR on failure. The `edge_record.ingest` span carries `db.system=postgresql`, the output contract, and the outcome. Other CNPG writes are covered only by the opt-in Ecto tracing. Telemetry subjects (`otel.>`, `logs.>`, `metrics.>`) remain untraced.
 
@@ -37,6 +37,11 @@ The `starrocks.stream_load` span carries `db.system=starrocks`, `db.collection.n
 - **THEN** a `starrocks.stream_load` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
 - **AND** its `db.collection.name` SHALL name the target table
 - **AND** its status SHALL be ERROR when the Stream Load fails
+
+#### Scenario: Parallel chunk loads keep the batch parent
+- **GIVEN** an `event_writer.process_batch` span is active
+- **WHEN** a warehouse batch is split into chunks loaded in parallel tasks
+- **THEN** each chunk's `starrocks.stream_load` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
 
 #### Scenario: Edge-record ingest child span
 - **GIVEN** an `event_writer.process_batch` span is active for an edge-record batch
