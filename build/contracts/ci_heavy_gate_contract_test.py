@@ -838,7 +838,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
     def test_action_is_explicit_only_and_uses_the_existing_runner(self):
         self.assertIn('pool: "workflows"', self.action)
         self.assertIn(
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6\"",
             self.action,
         )
         self.assertIn('branches:\n          - "benchmark/parallel-core-integration"', self.action)
@@ -1656,7 +1656,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIs(True, action["self_hosted"])
         self.assertEqual("workflows-pr", action["pool"])
         self.assertEqual(
-            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5",
+            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6",
             action["container_image"],
         )
         self.assertEqual(
@@ -2246,7 +2246,7 @@ print(open(sys.argv[2]).read().strip())
             'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "self_hosted: true",
             'pool: "workflows-lig"',
-            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5\"",
+            "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6\"",
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
@@ -2314,7 +2314,7 @@ print(open(sys.argv[2]).read().strip())
         self.assertEqual("workflows", action["pool"])
         self.assertIs(True, action["self_hosted"])
         self.assertEqual(
-            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5",
+            "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6",
             action["container_image"],
         )
         self.assertEqual("bridge", action["platform_properties"]["dockerNetwork"])
