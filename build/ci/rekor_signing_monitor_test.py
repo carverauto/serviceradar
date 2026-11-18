@@ -494,6 +494,25 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=4)), 0)
         self.assertEqual(len(self.world.discord), 2, "an entry now in the log was still reported")
 
+    def test_the_canary_issue_closes_once_every_entry_it_names_is_seen(self):
+        self.world.add_run("publish-oci.yml", 20, NOW - timedelta(hours=8), NOW - timedelta(hours=3),
+                           [self.canary_line(2, NOW - timedelta(hours=5)), self.canary_line(3, NOW - timedelta(hours=5))])
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.add_entry(b"filler", key_pub=self.world.other_pub)
+        two = self.world.add_entry(b"index two", when=NOW - timedelta(hours=5))
+        self.world.ledgers[20].append({"event": "sign", "payload_sha256": two["payload_sha256"]})
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        issue = self.world.issues[0]
+        self.assertEqual(issue["state"], "open")
+        self.assertIn("log index 2", issue["comments"][-1])
+        self.assertNotIn("log index 3", issue["comments"][-1])
+        three = self.world.add_entry(b"index three", when=NOW - timedelta(hours=5))
+        self.world.ledgers[20].append({"event": "sign", "payload_sha256": three["payload_sha256"]})
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=2)), 0)
+        self.assertEqual(issue["state"], "closed")
+        self.assertIn("log index 3", issue["comments"][-1])
+        self.assertEqual(len(self.world.issues), 1)
+
     def test_a_rerun_that_ends_later_is_checked_again(self):
         self.world.add_run("publish-oci.yml", 19, NOW - timedelta(hours=8), NOW - timedelta(hours=3), [])
         self.assertEqual(self.run_monitor(), 0)

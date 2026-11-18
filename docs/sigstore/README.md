@@ -107,7 +107,8 @@ retention, is checked after it ends until every entry it ledgered is seen (again
 later), so a monitor outage is caught up on the next successful run. Each unseen entry is kept in
 the checkpoint, named on the open canary issue (or a new one, if it was closed) and posted to
 Discord every run until it appears in the log or its log index is listed in
-`rekor-acknowledged-entries.json`. A run that cannot vouch for the log (unreachable, a
+`rekor-acknowledged-entries.json`; the issue gets a comment as each named entry resolves and is
+closed once all of them have. A run that cannot vouch for the log (unreachable, a
 signature or root mismatch, a rewritten or replaced tree, a changed key, a missing checkpoint)
 fails, opens an issue and posts to Discord. Only a checkpoint from a successful scheduled or
 dispatched run on `staging` is used. The daily scheduled job watch reports the monitor when its

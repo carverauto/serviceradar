@@ -426,6 +426,7 @@ def run(args, environ, now):
     for item in blind:
         findings.setdefault(f"{item['run_id']}:{item['log_index']}", item)
     resolved = {match["log_index"] for match in matches} | {item["log_index"] for item in acknowledged_items}
+    cleared = {key: item for key, item in findings.items() if item["log_index"] in resolved}
     findings = {key: item for key, item in findings.items() if item["log_index"] not in resolved}
 
     open_issues = github.open_issues()
@@ -452,11 +453,22 @@ def run(args, environ, now):
         decided[uuid] = {"status": "explained" if source == "ledger" else "acknowledged", "reason": reason}
         if uuid in by_uuid:
             github.close_issue(by_uuid[uuid]["number"], f"Explained by {reason}.")
-    canary_lines = {key: f"ledgered log index {item['log_index']} ({item['subject']}) from {item['run']} not seen"
-                    for key, item in sorted(findings.items())}
+    def describe(item):
+        return f"ledgered log index {item['log_index']} ({item['subject']}) from {item['run']}"
+
+    canary_lines = {key: f"{describe(item)} not seen" for key, item in sorted(findings.items())}
+    title = "Rekor signing monitor is blind to ledgered entries"
+    canary_issue = next((issue for issue in open_issues if issue["title"] == title), None)
+    if canary_issue is not None:
+        named = "\n".join(f"- {describe(item)}" for _key, item in sorted(cleared.items())
+                          if item.get("issue") == canary_issue["number"])
+        if not findings:
+            github.close_issue(canary_issue["number"],
+                               f"Every ledgered entry this issue names is now in the log or acknowledged:\n\n{named}")
+            canary_issue = None
+        elif named:
+            github.comment(canary_issue["number"], f"Now in the log or acknowledged:\n\n{named}")
     if findings:
-        title = "Rekor signing monitor is blind to ledgered entries"
-        canary_issue = next((issue for issue in open_issues if issue["title"] == title), None)
         unnamed = [key for key in canary_lines
                    if canary_issue is None or findings[key].get("issue") != canary_issue["number"]]
         details = "\n".join(f"- {canary_lines[key]}" for key in unnamed)
