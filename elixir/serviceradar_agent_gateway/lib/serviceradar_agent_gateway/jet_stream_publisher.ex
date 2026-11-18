@@ -333,12 +333,16 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # from anything on the frame. That is what makes "an agent cannot select the recovery publisher"
   # true at this call site rather than only in PublisherLane's docs: the route profile here is the
   # one the effective grant produced.
-  # EventWriter keeps a record ledger-only by its LATE_FENCED_DELIVERY stamp, so an audit
-  # publication without that stamp would be projected authoritatively from the audit stream.
+  # EventWriter keeps an audit record ledger-only by its non-authoritative stamp -- LATE_FENCED_DELIVERY
+  # for a stale-fence replay, LATE_ADMISSION for core's AUDIT late-admission decision -- so an audit
+  # publication without one would be projected authoritatively from the audit stream.
   defp audit_mode(%{publication: :audit} = publication) do
-    if Map.get(publication, :delivery_mode) == PublicationIdentity.mode_late_fenced(),
-      do: :ok,
-      else: {:error, {:derivation, :audit_delivery_mode}}
+    if Map.get(publication, :delivery_mode) in [
+         PublicationIdentity.mode_late_fenced(),
+         PublicationIdentity.mode_late_admission()
+       ],
+       do: :ok,
+       else: {:error, {:derivation, :audit_delivery_mode}}
   end
 
   defp audit_mode(_publication), do: :ok

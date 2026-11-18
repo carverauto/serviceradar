@@ -205,6 +205,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   # a watermark jump larger than that is acked as several contiguous runs.
   @max_dispositions_per_ack 4096
   @permanent :EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT
+  # Go: edgerecord.RejectionLateAdmissionRequired.
+  @late_admission_required "LATE_ADMISSION_REQUIRED"
   # The session's pipeline and bound lane, for the cleanup in `stream/2`'s `after`, which cannot
   # see the state threaded through the receive loop.
   @session_key {__MODULE__, :pipeline_session}
@@ -305,16 +307,6 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       raise GRPC.RPCError, status: :invalid_argument, message: "route_profile and traffic_class are required"
     end
 
-    # A LATE session carries records admitted under the production-time rule, which
-    # only core's authority history can judge (add-edge-production-time-admission
-    # phase 2). Until this gateway implements that path it advertises no late
-    # admission and refuses the session, so a late record is never judged as live.
-    if lane_open.late_admission do
-      raise GRPC.RPCError,
-        status: :unimplemented,
-        message: "late admission sessions are not available on this gateway"
-    end
-
     class =
       case PublisherLane.for_lane(route_profile, traffic_class) do
         {:ok, class} -> class
@@ -354,6 +346,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       session_nonce: lane_open.session_nonce,
       route_profile: route_profile,
       traffic_class: traffic_class,
+      # A LATE session carries records admitted under the production-time rule; core's late
+      # grant decides each (add-edge-production-time-admission). The version is what a LIVE session
+      # advertised: from 1 its undeliverable records resolve as LATE_ADMISSION_REQUIRED.
+      late_admission: lane_open.late_admission == true,
+      late_admission_protocol_version: lane_open.late_admission_protocol_version || 0,
       pipeline: pipeline,
       pipeline_monitor: pipeline_monitor,
       # {network_scope_id, agent, spool} once the first authorized record binds it.
@@ -367,6 +364,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       resolved: %{},
       # sequence => the decoded record's event id, above acked_through, for the ack that covers it.
       event_ids: %{},
+      # sequence => the rejection code of a permanent rejection other than the plain one.
+      rejection_codes: %{},
       # sequence => how many outcomes are still owed for it by the pipeline.
       outstanding: %{}
     }
@@ -397,6 +396,17 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         state
         |> bind_lane!(decision.record.network_scope_id)
         |> admit_frame(stream, sequence, frame, decision)
+
+      {:error, :permanent, :late_admission_required, event_id} ->
+        # Not a rejection of the record: it cannot be delivered live, and the agent moves its exact
+        # bytes to late storage before it persists this resolution.
+        Logger.info("edge record resolved for late admission (LATE_ADMISSION_REQUIRED)")
+        :telemetry.execute([:serviceradar, :agent_gateway, :edge_record, :late_admission_required], %{count: 1}, %{})
+
+        state
+        |> remember_event_id(sequence, event_id)
+        |> remember_rejection_code(sequence, @late_admission_required)
+        |> then(&reject_frame(stream, &1, sequence))
 
       {:error, :permanent, reason, event_id} ->
         # `event_id` is empty only for a refusal made before the record decoded, the one case the
@@ -434,8 +444,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       {:ok, snapshot} ->
         identity = EdgeRecordTrust.with_network_scopes(snapshot, state.identity)
 
-        with {:ok, decision} <-
-               EdgeRecordAuthorization.authorize_frame(frame, state, identity, snapshot, System.os_time(:nanosecond)) do
+        authorize =
+          if state.late_admission,
+            do: &EdgeRecordAuthorization.authorize_late_frame/5,
+            else: &EdgeRecordAuthorization.authorize_frame/5
+
+        with {:ok, decision} <- authorize.(frame, state, identity, snapshot, System.os_time(:nanosecond)) do
           {:ok, Map.put(decision, :registry, snapshot.registry)}
         end
 
@@ -503,7 +517,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
     contract = PipelineStats.contract_ref(record)
 
-    case EdgeContractRegistry.admit(record, session, decision.registry) do
+    case admission(state, record, session, decision) do
       {:ok, route} ->
         state
         |> require_recovery_coverage!(contract)
@@ -525,6 +539,24 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         state
     end
   end
+
+  # On a late session the lane, not the registry, routes a security-quarantine frame and an AUDIT
+  # frame core retired the contract for: the retired contract has no installed entry, a quarantined
+  # record is never projected, and a foreign-origin record would fail the registry's session
+  # principal check before it could reach quarantine (design Decision 7). Every other publication
+  # is admitted through the registry exactly as a live one is.
+  defp admission(%{late_admission: true} = state, _record, _session, %{publication: :security_quarantine}),
+    do: {:ok, lane_route(state)}
+
+  defp admission(%{late_admission: true} = state, _record, _session, %{
+         publication: :audit,
+         late_reason: :contract_retired
+       }), do: {:ok, lane_route(state)}
+
+  defp admission(_state, record, session, decision), do: EdgeContractRegistry.admit(record, session, decision.registry)
+
+  defp lane_route(state),
+    do: %{route_profile: state.route_profile, traffic_class: state.traffic_class, partition_rule: :network_scope_v1}
 
   defp require_recovery_coverage!(state, contract) do
     {coverage, state} = current_recovery_coverage(state, contract)
@@ -553,7 +585,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
 
       _ ->
         {scope, _agent, spool} = state.lane
-        result = EdgeRecoveryControl.coverage(scope, spool, state.route_profile, state.traffic_class, state.identity)
+        result = coverage(state, scope, spool)
         deadline = started + @recovery_coverage_freshness_ms
 
         if System.monotonic_time(:millisecond) >= deadline,
@@ -563,6 +595,22 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
         {coverage, %{state | recovery_coverage: {deadline, coverage}}}
     end
   end
+
+  # A late session's lane scope comes from a record whose production capability this gateway
+  # verified, so its coverage is authorized by that signed scope rather than the current binding,
+  # which a deleted assignment takes with it (design Decision 7).
+  defp coverage(%{late_admission: true} = state, scope, spool),
+    do:
+      EdgeRecoveryControl.coverage_for_verified_scope(
+        scope,
+        spool,
+        state.route_profile,
+        state.traffic_class,
+        state.identity
+      )
+
+  defp coverage(state, scope, spool),
+    do: EdgeRecoveryControl.coverage(scope, spool, state.route_profile, state.traffic_class, state.identity)
 
   defp coverage_result!({:ok, :none}, _contract), do: :none
 
@@ -802,7 +850,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       state
       | acked_through: resolved_through,
         resolved: Map.drop(state.resolved, sequences),
-        event_ids: Map.drop(state.event_ids, sequences)
+        event_ids: Map.drop(state.event_ids, sequences),
+        rejection_codes: Map.drop(state.rejection_codes, sequences)
     }
   end
 
@@ -816,11 +865,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
       kind: Map.fetch!(state.resolved, sequence),
       rejection_code:
         if(Map.fetch!(state.resolved, sequence) == @permanent,
-          do: "REJECTED_PERMANENT",
+          do: Map.get(state.rejection_codes, sequence, "REJECTED_PERMANENT"),
           else: ""
         )
     }
   end
+
+  defp remember_rejection_code(state, sequence, code),
+    do: %{state | rejection_codes: Map.put(state.rejection_codes, sequence, code)}
 
   defp finish_stream(_stream, {:awaiting_lane_open, _identity}) do
     raise GRPC.RPCError, status: :failed_precondition, message: "edge record stream ended before lane_open"

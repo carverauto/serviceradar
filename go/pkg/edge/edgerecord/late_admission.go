@@ -57,6 +57,53 @@ const RejectionLateAdmissionRequired = "LATE_ADMISSION_REQUIRED"
 // LateAdmissionProtocolVersion is the late-admission protocol this code implements.
 const LateAdmissionProtocolVersion uint32 = 1
 
+// ErrLateAdmissionRequired is the live-session outcome a gateway resolves as a
+// REJECTED_PERMANENT disposition carrying RejectionLateAdmissionRequired: the record
+// cannot be delivered live and belongs in the late generation (or a foreign-origin
+// hold), where core's authority history decides it.
+var ErrLateAdmissionRequired = errors.New("edgerecord: late admission required (" + RejectionLateAdmissionRequired + ")")
+
+// ValidateLiveFrameSigned is the gateway decision for a frame on a LIVE session
+// whose lane open advertised lateVersion (Go oracle, design Decision 7). Below
+// LateAdmissionProtocolVersion it is exactly ValidateFrameSigned. At or above it, a
+// record that cannot be delivered live resolves as ErrLateAdmissionRequired instead
+// of today's dead end: a foreign origin principal (today an identity conflict), a
+// stale fence with no delivery grant (today ErrFenceStale), and a missing fence with
+// no grant or a renewal grant (today a forever-withhold). The grant-backed audit
+// drains and a fence the gateway has not learned yet are unchanged. The gateway
+// resolves a network scope no longer bound to the agent the same way; that binding
+// is gateway-local and not part of AuthorizationPolicy.
+func ValidateLiveFrameSigned(f *edgev1.EdgeDeliveryFrameV1, authenticatedPrincipal []byte, policy AuthorizationPolicy, lateVersion uint32) (FrameDecision, error) {
+	if lateVersion < LateAdmissionProtocolVersion {
+		return ValidateFrameSigned(f, policy)
+	}
+	if err := ValidateDeliveryFrame(f, true); err != nil {
+		return FrameDecision{}, err
+	}
+	record, err := DecodeRecord(f.GetRecordBytes())
+	if err != nil {
+		return FrameDecision{}, err
+	}
+	if !bytes.Equal(record.GetProducerContext().GetOriginPrincipalId(), authenticatedPrincipal) {
+		return FrameDecision{}, ErrLateAdmissionRequired
+	}
+	decision, err := ValidateFrameSigned(f, policy)
+	if err == nil {
+		return decision, nil
+	}
+	missing := policy.ActiveFence.relation(record.GetProducerContext().GetAuthorityEpoch()) == FenceUnavailable
+	dc := f.GetDeliveryCapability()
+	switch {
+	case errors.Is(err, ErrFenceStale):
+		// ValidateFrameSigned answers ErrFenceStale only when no delivery grant is attached.
+		return FrameDecision{}, ErrLateAdmissionRequired
+	case errors.Is(err, ErrFenceNotReady) && missing && (dc == nil || dc.GetDelivery().GetRenewal() != nil):
+		return FrameDecision{}, ErrLateAdmissionRequired
+	default:
+		return FrameDecision{}, err
+	}
+}
+
 // LateOutcome classifies a record that ValidateRecordProduced admitted. The zero
 // value is not an admission.
 type LateOutcome uint8

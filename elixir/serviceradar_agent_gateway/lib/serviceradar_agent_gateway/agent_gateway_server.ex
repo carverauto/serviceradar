@@ -143,9 +143,23 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_outdated: config_outdated,
-      edge_recovery_protocol_version: 1
+      edge_recovery_protocol_version: 1,
+      edge_late_admission_protocol_version: edge_late_admission_protocol_version()
     }
   end
+
+  @doc """
+  The late-admission protocol this gateway advertises in Hello
+  (openspec add-edge-production-time-admission, Decision 7). It is the single switch that makes
+  agents open late sessions and send `late_admission_protocol_version` on every lane open, which
+  turns on `LATE_ADMISSION_REQUIRED` for their live records.
+
+  Held at 0 until EventWriter accepts the `LATE_ADMISSION` delivery mode (task 2.7): before that a
+  published late record would be refused downstream. The gateway already serves late sessions and
+  the live relocation behind this switch.
+  """
+  @spec edge_late_admission_protocol_version() :: non_neg_integer()
+  def edge_late_admission_protocol_version, do: 0
 
   @doc """
   Handle an agent mTLS certificate renewal request.

@@ -244,3 +244,55 @@ func TestLateAdmissionDecisionIsSigned(t *testing.T) {
 		t.Fatalf("AUDIT decision rewritten to PRIMARY = (%+v, %v), want ErrCapabilitySignatureInvalid", d, err)
 	}
 }
+
+// On a LIVE session at late-admission version 1 or later, a record that cannot be
+// delivered live -- a foreign origin, a stale fence with no grant, a missing fence
+// with no grant or a renewal -- resolves as LATE_ADMISSION_REQUIRED so the agent
+// relocates it to late storage; at version 0 every outcome is ValidateFrameSigned's
+// (design Decision 7, the live half of task 1.3).
+func TestValidateLiveFrameSignedResolvesWhatCannotBeLiveAsLateAdmissionRequired(t *testing.T) {
+	f := newLateFixture(t)
+	principal := f.record.GetProducerContext().GetOriginPrincipalId()
+	epoch := f.record.GetProducerContext().GetAuthorityEpoch()
+	renewal := f.grant(&edgev1.EdgeDeliveryClaimsV1{Transition: &edgev1.EdgeDeliveryClaimsV1_Renewal{Renewal: &edgev1.EdgeDeliveryRenewalV1{
+		RenewedNotBeforeUnixNano: f.policy.NowUnixNano - 60_000_000_000, RenewedExpiresUnixNano: f.policy.NowUnixNano + 60_000_000_000,
+	}}})
+	stale := f.policy
+	stale.ActiveFence = ResolvedFence(epoch + 1)
+	missing := f.policy
+	missing.ActiveFence = ActiveFence{}
+
+	cases := []struct {
+		name      string
+		frame     *edgev1.EdgeDeliveryFrameV1
+		principal []byte
+		policy    AuthorizationPolicy
+		today     error
+	}{
+		{"stale fence, no grant", f.frameFor(nil), principal, stale, ErrFenceStale},
+		{"missing fence, no grant", f.frameFor(nil), principal, missing, ErrFenceNotReady},
+		{"missing fence, renewal", f.frameFor(renewal), principal, missing, ErrFenceNotReady},
+	}
+	for _, c := range cases {
+		if _, err := ValidateLiveFrameSigned(c.frame, c.principal, c.policy, LateAdmissionProtocolVersion); !errors.Is(err, ErrLateAdmissionRequired) {
+			t.Fatalf("%s at version 1 = %v, want ErrLateAdmissionRequired", c.name, err)
+		}
+		if _, err := ValidateLiveFrameSigned(c.frame, c.principal, c.policy, 0); !errors.Is(err, c.today) {
+			t.Fatalf("%s at version 0 = %v, want today's %v", c.name, err, c.today)
+		}
+	}
+	current := f.policy
+	current.ActiveFence = ResolvedFence(epoch)
+	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), []byte("successor-principal"), current, LateAdmissionProtocolVersion); !errors.Is(err, ErrLateAdmissionRequired) {
+		t.Fatalf("foreign origin at version 1 = %v, want ErrLateAdmissionRequired", err)
+	}
+	// The grant-backed audit path and a fence not learned yet are unchanged.
+	if d, err := ValidateLiveFrameSigned(f.frameFor(renewal), principal, stale, LateAdmissionProtocolVersion); err != nil || d.Publication != FramePublicationAudit {
+		t.Fatalf("stale fence with a renewal = (%+v, %v), want the late-fenced audit drain", d, err)
+	}
+	ahead := f.policy
+	ahead.ActiveFence = ResolvedFence(epoch - 1)
+	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), principal, ahead, LateAdmissionProtocolVersion); !errors.Is(err, ErrFenceNotReady) {
+		t.Fatalf("a fence not learned yet = %v, want ErrFenceNotReady", err)
+	}
+}

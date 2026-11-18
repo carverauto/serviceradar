@@ -76,7 +76,14 @@ explicit, owner-approved byte budget already governs, as with the OTel spool's
   protocol (Decision 7).
 
 Late records go into a dedicated **late generation** per lane key, stored
-under `<root>/late/`, and are sent on their own **late session**. The record's
+under `<root>/late/`, and are sent on their own **late session**. A spool
+generation's identity is frozen to one `(network scope, origin principal)`: a
+late record from another scope rotates to a new generation of the same lane
+key, and the agent opens one late session per generation, in turn. So every
+late session carries a single network scope, which the gateway's
+one-scope-per-pipeline-lane invariant requires (owner decision 2026-11-17);
+"at most one late session per lane key" holds because the agent drains those
+generations serially. The record's
 route profile and traffic class are immutable signed fields, so "the recovery
 lane" means a separate generation and session for the same lane key, not a
 different route. The late session opens with `EdgeRecordLaneOpen.late_admission =
@@ -433,8 +440,42 @@ code `LATE_ADMISSION_REQUIRED`; the kind alone resolves the slot, as for every
 permanent rejection, and the capable agent does not copy the record into the
 evicting local quarantine. On the same sessions the gateway resolves a live
 frame whose origin principal is not the authenticated agent the same way, in
-place of `identity_conflict`. `LATE_ADMISSION_REQUIRED` neither withholds the
-frame nor sends it to the `fence_stale` quarantine. For an older agent, whose
+place of `identity_conflict`, and a live frame whose network scope is no longer
+bound to the agent (`scope_unbound` / `scope_not_bound`) the same way: deleting
+an assignment removes its scope binding together with its fence, and the scope
+check runs before the fence check, so without this its in-lane records would
+be withheld forever (owner decision 2026-11-17). Exactly these cases resolve
+`LATE_ADMISSION_REQUIRED`: a stale fence with no grant, a missing fence with no
+grant or with a renewal grant, an unbound scope, and a foreign origin. The
+grant-backed audit paths stay as they are (a stale fence with a delivery grant
+is `LATE_FENCED_DELIVERY` audit; a missing fence with a recovery rollover is
+audit), and a fence the gateway has not learned yet (an epoch ahead of it) is
+still withheld. `LATE_ADMISSION_REQUIRED` neither withholds the
+frame nor sends it to the `fence_stale` quarantine.
+
+**Registry epochs and routing on a late session.** Whether a late record's
+registry epoch is still admitted is core's check 9, answered by an AUDIT grant
+with reason `contract_retired`. So on a late session the gateway does not
+reject a frame for a retired or installation-static registry epoch. A frame
+whose grant is AUDIT `contract_retired`, and every security-quarantine frame on
+a late session, is routed from the lane: the session's route profile and
+traffic class, partitioned by network scope (`network_scope_v1`). The retired
+contract has no entry in the installed registry, and a quarantined record is
+never projected, so neither needs one; a foreign-origin record would also fail
+the registry's session-principal check before it could reach quarantine. Every
+other late publication (PRIMARY, and AUDIT for any other reason) is admitted
+through the registry exactly as live records are (owner decision 2026-11-17).
+
+**Recovery coverage on a late session.** Before publishing, the gateway checks
+that no recovery operation has fenced or already applied the session's spool.
+On a live session that lookup is authorized by the agent's current scope
+binding. On a late session it is authorized by the record's signed scope
+instead: the gateway has already verified the production capability, which
+binds exactly this agent principal to that network scope, so the agent owned
+the scope when it produced the record. The current binding is not required,
+because deleting an assignment removes it and the record must still drain. The
+check itself stays; only its authorization changes, and only on late sessions
+(owner decision 2026-11-17). For an older agent, whose
 lane open carries no version (absent or 0), the gateway keeps today's live
 dispositions unchanged: a missing fence is still withheld, a stale fence is
 still `fence_stale`, and an origin mismatch is still `identity_conflict`.

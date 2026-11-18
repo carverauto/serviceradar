@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantineTest do
 
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeOutputContractRef
+  alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine
 
@@ -56,6 +57,30 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantineTest do
 
     assert_received {:quarantined, %{count: 1},
                      %{publication: "security_quarantine", described: true}}
+  end
+
+  test "names both the principal that produced the record and the one that presented it" do
+    # A successor delivering a superseded predecessor's record from a per-principal hold.
+    record_bytes =
+      EdgeRecordV1.encode(%EdgeRecordV1{
+        event_id: @event_id,
+        producer_context: %EdgeProducerContext{origin_principal_id: "agent-predecessor"},
+        output_contract: %EdgeOutputContractRef{
+          contract_id: "serviceradar.test.contract",
+          contract_version: 1
+        }
+      })
+
+    log =
+      capture_log(fn ->
+        assert {:ok, 1} =
+                 EdgeRecordQuarantine.process_batch([
+                   message(record_bytes, headers(record_bytes), 9)
+                 ])
+      end)
+
+    assert log =~ "origin_principal_id=agent-predecessor"
+    assert log =~ "authenticated_agent_id=agent-1"
   end
 
   test "a contract id with a line break cannot forge a second inspection line" do
