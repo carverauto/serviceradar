@@ -70,6 +70,10 @@ open, and the demo data shows the propagation work was never finished.
   `db.system`, the row count and the error status. This is the real nested
   operation that shows where batch time goes. It costs one span per batch,
   not one per query, so Ecto and Oban tracing stay opt-in.
+- **Bounded messaging destination attributes.** NATS spans record a subject
+  template (the delivering stream's filter subject), never a concrete
+  subject. The analytics-prediction subject embeds a series key that
+  hex-encodes device identity and metric values.
 - **Root-span-ratio alert names the real failure.** The threshold and window
   are unchanged. The warning stops asserting ingest loss and names the
   services and span kinds that contribute the most unparented roots, so the
@@ -91,7 +95,8 @@ spans, and re-enabling Ecto/Oban tracing by default.
     publish headers.
   - `elixir/serviceradar_core`: `Otel` gRPC client and server interceptors,
     `DataService.Client` and `Sync.Client` connections,
-    `EventWriter.Pipeline` store child span,
+    `EventWriter.Producer` destination template, `EventWriter.Pipeline` store
+    child span and destination attribute,
     `Jobs.RootSpanRatioWorker` warning text and breakdown.
 - Span volume: about one additional span per EventWriter batch, one per
   gateway RPC or edge record, and one per Elixir datasvc call. Demo's current

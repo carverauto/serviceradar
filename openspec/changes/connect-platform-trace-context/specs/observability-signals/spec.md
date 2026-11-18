@@ -34,6 +34,15 @@ Telemetry subjects (`otel.>`, `logs.>`, `metrics.>`) remain untraced.
 - **WHEN** EventWriter persists a batch from a non-telemetry subject
 - **THEN** an `event_writer.store` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
 
+### Requirement: Messaging span destinations are bounded
+NATS producer and consumer spans SHALL record `messaging.destination.name` as a subject template drawn from a bounded set (a configured stream filter subject or a fixed subject family), and SHALL NOT record a concrete subject that embeds entity identifiers, series keys, or device addresses.
+
+#### Scenario: Per-series subject is recorded as its template
+- **GIVEN** EventWriter consumes a message on `signals.analytics.predictions.<series key>` through a stream filtered on `signals.analytics.predictions.>`
+- **WHEN** the batch span is exported
+- **THEN** `messaging.destination.name` SHALL equal `signals.analytics.predictions.>`
+- **AND** no span attribute SHALL contain the series key
+
 ### Requirement: Root-span ratio breach names its contributors
 The root-span-ratio health signal SHALL report a breach without asserting a single cause, and SHALL include the services and span kinds contributing the most unparented, unlinked roots. Its threshold, window, floor, and linked-consumer exclusion are unchanged by this requirement.
 

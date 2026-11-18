@@ -29,6 +29,11 @@
       persistence step (db.system, collection, row count, ERROR status)
 - [ ] 4.2 Test: the store span is a child of the batch span and carries ERROR
       status when the store fails
+- [ ] 4.3 Producer carries the delivering stream's filter subject as
+      `:destination_template`; the batch span's `messaging.destination.name`
+      uses it
+- [ ] 4.4 Test: a batch delivered on a subject that embeds a series key
+      records the template, not the concrete subject
 
 ## 5. Root-span-ratio worker
 

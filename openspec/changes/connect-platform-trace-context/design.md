@@ -27,6 +27,8 @@ producer gaps account for the whole demo span mix:
 
 ## Decisions
 
+All decisions below were approved as written on 2026-11-17.
+
 ### D1. Batch consumer spans keep links and gain one store child span
 
 `event_writer.process_batch` stays a CONSUMER root that links to up to
@@ -78,8 +80,7 @@ Alternative rejected: a PRODUCER span per edge record. It is the textbook
 path. A link to the stream's server span already ties the record to the
 agent's delivery.
 
-Open question for approval: whether to also add `tracestate`. It is
-recommended, because it costs nothing and the propagator handles it.
+Both `traceparent` and `tracestate` are stamped (approved 2026-11-17).
 
 ### D3. Elixir gRPC client interceptor for datasvc calls
 
@@ -94,7 +95,30 @@ Alternative rejected: inject only when a span is already active. Most datasvc
 calls run outside any span (config reads, sync), so this would change nothing
 for the measured traffic.
 
-### D4. RootSpanRatioWorker: unchanged signal, accurate message
+### D4. Messaging destination attributes are bounded
+
+`messaging.destination.name` on NATS spans SHALL name a subject template,
+never a concrete subject that embeds an entity. Today the EventWriter batch
+span records the delivered subject. For analytics predictions that subject is
+`signals.analytics.predictions.<series key>`, and the key built by
+`rust/anomaly-addon` `series_key_for` hex-encodes the partition, the device
+identity (an IP address) and the metric. The attribute is therefore
+unbounded and carries device identity into every span.
+
+The template is the filter subject of the configured JetStream stream that
+delivered the message. The producer already resolves it
+(`configured_stream/3`) and now carries it in message metadata as
+`:destination_template`, for example `signals.analytics.predictions.>` or
+`telemetry.edge-record.v1.bulk.>`. The configuration bounds that set.
+
+Inventory of NATS span sites (2026-11-17): the EventWriter batch span, which
+this decision changes, and `StateChangePublisher` `state_change.publish`,
+whose subject is `signals.state.<table>` with `table` a literal at every
+caller (`service_state`, `ocsf_devices`, `health_events`) and therefore
+already bounded. Go and Rust services emit no messaging spans. The
+gateway's new spans carry `rpc.*` attributes only.
+
+### D5. RootSpanRatioWorker: unchanged signal, accurate message
 
 The threshold (0.85), window (15 m), floor and linked-consumer exclusion stay
 as they are. The breach warning stops asserting ingest loss. It says roots are
@@ -105,7 +129,7 @@ breach.
 
 Alternative considered: measure only "entry" spans (SERVER/CONSUMER without
 parent or link). That signal is more precise, but it narrows what counts and
-reads as loosening. Revisit it once D1-D3 land and the measured ratio is
+reads as loosening. Revisit it once D1-D4 land and the measured ratio is
 known.
 
 ## Risks / Trade-offs
