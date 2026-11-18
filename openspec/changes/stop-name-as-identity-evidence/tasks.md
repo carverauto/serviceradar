@@ -93,9 +93,10 @@ invented uids and names). Unboxed database tests delete every row they create.
       owner, else none". **Regression**: an AWX update carrying a legacy `awx:host:<name>` id does
       not resolve to the device holding it.
 - [ ] 3.7 **Guard**: `AwxSourceRetirement` still archives `awx:host:` rows (existing tests).
-- [ ] 3.8 Extend the `awx:host:` cleanup to migrate or archive the references held in device
-      metadata (`integration_id` and `legacy_integration_ids`), not only identifier rows (OC2
-      found 60 on one deployment). **Regression**: a device whose metadata carries an
+- [ ] 3.8 Migrate the `awx:host:` name-keyed ids to retired/legacy unconditionally: archive the
+      live `integration_id` rows (OC1/OC2 recorded 17 on one deployment) and migrate or archive
+      the references held in device metadata (`integration_id` and `legacy_integration_ids`; OC2
+      recorded 60), without waiting for a source retirement or a further check. **Regression**: a device whose metadata carries an
       `awx:host:<name>` reference no longer carries it after the cleanup, and no device is merged
       or split.
 

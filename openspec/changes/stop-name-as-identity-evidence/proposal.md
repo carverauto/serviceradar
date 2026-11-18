@@ -41,8 +41,9 @@ mis-attribute unrelated devices.
   plugin-supplied stable id (explicit integration id, serial or stable hardware id), then a
   universally administered MAC, then none; a locally administered MAC never keys one. Existing name-keyed rows stay as inert history; nothing merges or splits.
 - AWX legacy name-keyed ids (`awx:host:<name>`) are retired as lookup keys in the plugin and in
-  core. The AWX source retirement still archives any that remain, and the cleanup also migrates
-  or archives `awx:host:` references held in device metadata.
+  core. Existing `awx:host:` rows are archived and the `awx:host:` references held in device
+  metadata are migrated or archived, without merging or splitting a device; the AWX source
+  retirement still archives any that remain.
 - Remediation steps stop using a hostname as ownership or deletion evidence: `agent-links`
   decides by agent id only, and `test-debris` keys on device uid and agent id, not a hostname
   list.

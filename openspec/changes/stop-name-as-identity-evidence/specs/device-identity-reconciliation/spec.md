@@ -351,6 +351,13 @@ when its MAC changes.
 - **THEN** no `integration_id` SHALL be derived from the MAC or the hostname
 - **AND** the record SHALL resolve by its address
 
+#### Scenario: A randomized-MAC record with no address is written but not keyed
+- **GIVEN** a plugin device-discovery record with hostname `host10.example.com` and only the locally administered MAC `02:00:5e:00:53:a1`, and no stable id and no address
+- **WHEN** the record is ingested
+- **THEN** the record SHALL be written and SHALL NOT be counted as unresolved
+- **AND** no `integration_id` SHALL be derived from the MAC or the hostname
+- **AND** it SHALL resolve under requirement "Randomized MACs Are Evidence Only"
+
 #### Scenario: A rotating MAC without a stable id is not anchored by name
 - **GIVEN** a plugin device previously seen with hostname `host05.example.com` and MAC `00:00:5e:00:53:51`, and no stable id
 - **WHEN** the plugin reports it with the same hostname and MAC `00:00:5e:00:53:52`

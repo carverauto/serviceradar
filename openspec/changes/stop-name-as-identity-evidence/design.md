@@ -145,7 +145,8 @@ separate record, carrying `ansible_managed`, until an operator merges the pair f
   unique per live record, its `ORDER BY last_seen DESC LIMIT 1` pick is replaced by "exactly one
   owner, otherwise none".
 - `AwxSourceRetirement` keeps archiving `awx:host:` rows it finds, which is the cleanup path for
-  any that remain. The cleanup also migrates or archives `awx:host:` references held in device
+  any that remain. Independently of a retirement, task 3.8 archives the live `awx:host:` rows
+  and migrates or archives `awx:host:` references held in device
   metadata (`integration_id` and `legacy_integration_ids`), not only identifier rows; OC2 found
   such references on one deployment. Removing a reference merges or splits no device. An older plugin that still sends legacy ids during a rolling upgrade is
   harmless, because core ignores them.
@@ -299,8 +300,9 @@ archived. This proposal does not edit them, to keep its diff to its own change d
 
 ## Migration Plan
 No schema change. Existing merges, decisions and tasks stand. Name-keyed `integration_id` rows
-stay inert; `awx:host:` rows keep being archived by the AWX source retirement, and the
-`awx:host:` references in device metadata are migrated or archived with them (task 3.8). The rule version bump re-evaluates each blocked component once. Rollback is a
+stay inert, except the `awx:host:` ones: task 3.8 archives those live rows and migrates or
+archives the `awx:host:` references in device metadata, and the AWX source retirement keeps
+archiving any it later finds. The rule version bump re-evaluates each blocked component once. Rollback is a
 code revert; nothing written under the new rules needs undoing, because the new rules only
 write fewer merges and more review decisions.
 
@@ -376,8 +378,9 @@ Run on 2026-11-18 on one deployment (demo), read-only, counts only. The checks s
 other deployment.
 
 - OC1: `awx`/`host` 17 rows (17 live); `proxmox`/`v3` 6 rows (6 live), the cluster-scoped node
-  ids that D8 keeps. No other source used the name key, so on that deployment no plugin besides
-  the AWX legacy path relies on the A6 hostname leg.
+  ids that D8 keeps. No other source's live `integration_id` rows (the only rows the query
+  reads) were keyed on the device's name there. Name-keyed values held only in device metadata
+  or the archive are outside this query; OC2 counts the AWX ones.
 - OC2: `awx:host:` values 17 live, 32 archived, 60 in device metadata (`integration_id` or
   `legacy_integration_ids`). The A7 cleanup must therefore migrate or archive the metadata
   references as well as the rows (task 3.8).
