@@ -19,10 +19,13 @@ The control plane SHALL persist, for each agent, the privileged updater status t
 - **GIVEN** an agent release that reports no updater status
 - **WHEN** the control plane ingests its capability status
 - **THEN** the updater state SHALL be recorded as `unknown` rather than as a healthy state
+- **AND** this SHALL hold in a container or on a platform without a privileged updater, so the legacy capability string keeps deciding its eligibility
 
 #### Scenario: Platform without a privileged updater
-- **WHEN** an agent runs in a container or on a platform whose installer provides no privileged updater
-- **THEN** its updater state SHALL be `not_applicable`
+- **GIVEN** an agent that reports its updater status
+- **AND** it runs in a container or on a platform whose installer provides no privileged updater
+- **WHEN** the control plane ingests the reported `not_applicable` state
+- **THEN** its updater state SHALL be recorded as `not_applicable`
 - **AND** it SHALL NOT be counted among agents needing remediation
 
 #### Scenario: Operators query updater state

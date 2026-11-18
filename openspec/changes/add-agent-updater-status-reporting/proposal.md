@@ -73,9 +73,10 @@ the version floor, and the package payload layout. Those remain in the parked
   platform package and Ansible documentation.
 - Hosts already in the field: a helper installed before this change that passes the
   safety checks does not answer the self-description invocation, so it is reported
-  `package_upgrade_required` until its package is upgraded once. A pre-change helper that
-  fails the safety checks is reported `unavailable` and is never executed. That is the intended result, and it is the same package
-  upgrade those hosts need today.
+  `package_upgrade_required` until its package is upgraded once. That is the intended
+  result, and it is the same package upgrade those hosts need today. A pre-change helper
+  that fails the safety checks is reported `unavailable` and is never executed; its remedy
+  is a package reinstall or repair, not an upgrade.
 - Related changes: `add-agent-updater-self-update` (parked; its status, self-description,
   operation gating, eligibility and remedy requirements moved here),
   `add-awx-playbook-provisioning` (supplies the "install or upgrade the agent package"

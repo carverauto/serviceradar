@@ -105,13 +105,13 @@ The control plane SHALL decide whether an agent can receive a privileged add-on 
 
 #### Scenario: Updater needs a package upgrade
 - **GIVEN** an agent whose updater is `package_upgrade_required`
-- **WHEN** a privileged add-on rollout selects its targets
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
 - **THEN** the agent SHALL be ineligible and SHALL receive no install command
 - **AND** the recorded reason SHALL name the agent, the package upgrade and the required updater version
 
 #### Scenario: Updater is unavailable
 - **GIVEN** an agent whose updater is `unavailable`
-- **WHEN** a privileged add-on rollout selects its targets
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
 - **THEN** the agent SHALL be ineligible and SHALL receive no install command
 - **AND** the recorded reason SHALL name the agent and the safety check that failed
 - **AND** SHALL give a package reinstall or repair of the updater as the remedy
@@ -139,5 +139,5 @@ The control plane SHALL decide whether an agent can receive a privileged add-on 
 
 #### Scenario: Agent reports no updater status
 - **GIVEN** an agent release that predates updater status reporting
-- **WHEN** a privileged add-on rollout selects its targets
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
 - **THEN** the legacy updater capability string SHALL decide that agent's eligibility
