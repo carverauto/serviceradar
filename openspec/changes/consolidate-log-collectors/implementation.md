@@ -88,13 +88,17 @@ pushed or deployed.
   stream-info timeout, a test this branch does not touch.
 - The seeder refresh of `strip_full_message` is exercised only by a database
   test, which no run above includes.
-- Nothing has exercised bundle publication against a database or datasvc.
+- On the demo deployment on 2026-11-18, bundle publication was observed
+  through datasvc: ten bundle keys were listed, collectors followed and
+  activated the syslog bundle, and they re-established the watch after the
+  datasvc pods were replaced.
 - The publish-window benchmark ran on a shared workstation over loopback. It
   shows serial publishing as the limit at window 1 and the listener and codec
   path as the limit from window 8 up. See `performance.md`; no multiplier is
   claimed.
-- No live deployment smoke test or full-repository `make test` has been
-  completed for this branch.
+- On the same deployment, TCP and UDP syslog were each stored end to end.
+  Normalized mode is not enabled there, so it has no live evidence.
+- No full-repository `make test` has been completed for this branch.
 - Live operational inventory is not stored in the repository.
 
 ## Findings that need an owner
