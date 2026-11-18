@@ -66,7 +66,8 @@ software, a hardware vendor, or not a vendor: a sysObjectID under enterprise
 8072 with a hardware vendor from sysDescr or a classification rule ranks in
 the strongest tier. An OS, software or platform name (such as Linux,
 Microsoft, NGINX, or an automation platform's own product name) is not vendor
-evidence and SHALL NOT be written to the vendor, from any source; it is
+evidence and SHALL NOT be written to the vendor, from any source, and a write
+whose vendor is not vendor evidence SHALL NOT write the model either; it is
 ignored for the vendor (an OS or software name goes to the OS / software
 fields) while the same update's OUI or hardware vendor is still ranked. The
 model SHALL be accepted or rejected together with the vendor as one value, at
@@ -151,7 +152,7 @@ ingestion batch.
 #### Scenario: A fingerprint classification naming an OS does not change the vendor
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
 - **WHEN** a passive fingerprint update whose classification names an operating system such as Linux is ingested
-- **THEN** the stored vendor SHALL be unchanged
+- **THEN** the stored vendor and model SHALL be unchanged
 - **AND** the operating system SHALL be recorded in the OS field, not the vendor
 
 #### Scenario: An OS classification does not suppress the OUI vendor
@@ -169,6 +170,11 @@ ingestion batch.
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
 - **WHEN** an automation inventory update that reports its own platform product name as the vendor is ingested
 - **THEN** the stored vendor SHALL be unchanged
+
+#### Scenario: A platform product name does not write the model either
+- **GIVEN** a hypervisor node whose vendor and model were recorded from SNMP hardware evidence
+- **WHEN** a hypervisor discovery update reporting the platform product name Proxmox as vendor and PVE as model is ingested
+- **THEN** the stored vendor and model SHALL be unchanged
 
 #### Scenario: Automation inventory does not replace hypervisor type and integration type
 - **GIVEN** a hypervisor node whose type Hypervisor and integration type hypervisor were recorded from the hypervisor inventory
@@ -288,9 +294,13 @@ usable IPv4s SHALL replace the primary, and the never-downgrade address rank
 SHALL still apply within a family. Every primary-IP chooser SHALL follow this
 rule, including the upsert guard, the Elixir address ranking, hypervisor guest
 primary-IP selection, hypervisor host primary-IP selection, the discovery
-ingestor's guest address fallback, and the camera and succession paths: each
-SHALL submit the best chooser-accepted IPv4 among every address on the host or
-guest when one exists, and SHALL NOT submit a link-local address as primary. The address-fallback name
+ingestor's guest address fallback, the Proxmox plugin's guest primary-IP
+selection, the Armis sync source's primary-IP selection, the NetBox plugin's
+primary-IP selection (which already prefers the IPv4), the succession address
+hand-over, and the camera path: each SHALL submit a chooser-accepted IPv4 over
+any IPv6 among every address on the host or guest when one exists, keeping its
+own order among accepted IPv4s, and SHALL NOT submit a link-local address as
+primary. The address-fallback name
 SHALL follow the primary ip, so the name and hostname SHALL NOT take an IPv6
 literal when the device has an IPv4.
 
@@ -307,9 +317,10 @@ literal when the device has an IPv4.
 - **THEN** fe80::3 SHALL NOT be recorded as an alias, the primary ip or the name
 
 #### Scenario: A rejected host-internal address never becomes primary
-- **GIVEN** a guest whose chooser-accepted primary is 192.0.2.8 and which also reports a host-internal bridge address 198.51.100.1 that the guest chooser skips
+- **GIVEN** a guest whose chooser-accepted primary is 192.0.2.8 and which also reports the host-internal address 172.17.0.1 on docker0 that the guest chooser skips
 - **WHEN** the guest's primary ip is chosen
 - **THEN** the primary ip SHALL remain 192.0.2.8
+- **AND** 172.17.0.1 SHALL NOT be recorded as an alias of the guest
 
 #### Scenario: An IPv6-only device that gains an IPv4 switches primary
 - **GIVEN** an IPv6-only device whose primary ip is 2001:db8::5
@@ -323,10 +334,15 @@ literal when the device has an IPv4.
 - **THEN** the primary ip SHALL become 198.51.100.6
 
 ### Requirement: Each address has one live holder and own addresses stay live aliases
-Sync ingestion SHALL keep every aliasable address a device owns (global,
-private or ULA, in both families) as a live alias of that device, including an
-address displaced from primary or never promoted; a link-local address SHALL
-NOT be an alias. An address SHALL have one live holder per partition: a
+Sync ingestion SHALL keep every aliasable address a device owns, in both
+families, as a live alias of that device, including an address displaced from
+primary or never promoted. An address is aliasable when AliasPolicy's alias
+predicate accepts it (which, among others, admits global, private and ULA
+addresses and rejects link-local addresses and directed broadcasts) and it is
+not host-internal (an address a primary-IP chooser skips as host-internal, such
+as a container bridge, or a shared interface address kept off the ip merge
+type). A link-local, directed-broadcast or host-internal address SHALL NOT be
+an alias or the primary ip. An address SHALL have one live holder per partition: a
 confirmed re-attribution of an address to another device SHALL expire the
 previous holder's alias for it in the same write, and a holder that has not
 re-sighted an address within the alias expiry window SHALL be expired. Sweep

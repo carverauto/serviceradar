@@ -187,10 +187,17 @@ inventory state rather than of nondeterministic compilation.
   including the SQL upsert guard, `Identity.Address.best/1` and its rank
   (kept in step by the existing parity test), the hypervisor guest and host
   primary-IP selection (`primary_ip_by_guest`, `primary_ip_by_host/1`), the
-  discovery ingestor's guest address fallback, and the camera and
-  succession paths; none submits a link-local as primary.
-- Every aliasable address a device owns (global, private or ULA, in both
-  families) stays a live alias, so the sweep targets both families.
+  discovery ingestor's guest address fallback, the Proxmox plugin's
+  `primaryIP` / `firstUsableIP`, the Armis sync source's `primaryIP`, the
+  NetBox plugin's `primaryIP` (already IPv4-first), the succession hand-over
+  `MergeEngine.take_address?/2`, and the camera path; each keeps its own
+  order among accepted IPv4s and none submits a link-local as primary.
+- Every aliasable address a device owns, in both families, stays a live
+  alias, so the sweep targets both families. Aliasable means
+  `AliasPolicy.valid_alias_ip?/1` accepts it (global, private and ULA, among
+  others; link-local and directed broadcasts are rejected) and it is not
+  host-internal (a container bridge a chooser skips, or a shared interface
+  address); host-internal addresses are neither primary nor alias.
   Link-local addresses (`fe80::/10`, `169.254/16`) never become aliases,
   primary or name, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
   confirmed re-attribution expires the previous holder's alias in the same

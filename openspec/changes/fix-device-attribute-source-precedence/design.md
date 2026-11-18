@@ -53,7 +53,9 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    Not vendor evidence, and never written to `vendor_name` from any source: an
    OS, software or platform name (`Linux`, `Microsoft`, `NGINX`, `Apache`,
    `Caddy`, an automation platform's own product name, ...). OS and software
-   names are written to the OS / software fields instead. Such a name is
+   names are written to the OS / software fields instead. A write whose
+   vendor is not vendor evidence does not write `model` either (for example
+   Proxmox discovery's `Proxmox` / `PVE`). Such a name is
    ignored for `vendor_name`; the same update's OUI or hardware vendor is
    still ranked normally.
    `model` is accepted or rejected together with `vendor_name` as one value,
@@ -195,16 +197,31 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     the hypervisor host selection (`primary_ip_by_host/1` with
     `primary_interface_ip`, `management_ip_score` and
     `routable_management_ip?`), the `DeviceDiscoveryIngestor` guest address
-    fallback, and the camera and succession paths. Each submits the best
-    chooser-accepted IPv4 among every address on the host or guest when one
-    exists, and never submits a link-local (`fe80::/10`, `169.254/16`) as
-    primary. The address-fallback name (decision 7)
+    fallback, the Proxmox plugin's `primaryIP` / `firstUsableIP`
+    (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
+    `discovery.go`), the Armis sync source's `primaryIP`
+    (`go/pkg/agent/syncsources/armis/device.go`, called from `update.go`),
+    the NetBox plugin's `primaryIP` (`go/cmd/wasm-plugins/netbox/main.go`,
+    which already prefers `primary_ip4` and keeps its IPv6 fallback), the
+    succession hand-over `MergeEngine.take_address?/2`, and the camera path.
+    Each submits a chooser-accepted IPv4 over any IPv6 among every address
+    on the host or guest when one exists, keeps its own order among
+    accepted IPv4s (configured NIC index, `management_ip_score`), and never
+    submits a link-local (`fe80::/10`, `169.254/16`) as primary. The address-fallback name (decision 7)
     follows this primary, so it never takes an IPv6 literal when the device
     has an IPv4.
-15. Every aliasable address a device owns (global, private or ULA, in both
-    families, per `AliasPolicy.valid_alias_ip?/1`) stays a live `:ip` alias
+15. Every aliasable address a device owns, in both families, stays a live `:ip` alias
     in `device_alias_states`, including an address displaced from primary or
-    never promoted, so the sweep targets both families. Link-local addresses
+    never promoted, so the sweep targets both families. Aliasable means
+    `AliasPolicy.valid_alias_ip?/1` accepts the address (it admits, among
+    others, global, private and ULA addresses, and rejects link-local
+    addresses and directed broadcasts; the class list is illustrative) and
+    the address is not host-internal: not skipped by
+    `GuestAddress.host_internal_address?/2`, not in the Proxmox plugin's
+    host-internal set, and not a shared interface address that
+    `AliasEvents` keeps off the `:ip` merge type. A host-internal address is
+    neither primary nor alias, so a `172.17.0.1` reported by every container
+    host cannot move between devices. Link-local addresses
     (`fe80::/10`, `169.254/16`) never become aliases, primary or name; a
     shared link-local such as a vendor `fe80::1` would otherwise merge or
     flip between devices, consistent with the link-local alias archive

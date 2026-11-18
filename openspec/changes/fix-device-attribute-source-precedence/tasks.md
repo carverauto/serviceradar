@@ -69,7 +69,9 @@
       survives an OUI-only update
 - [ ] 3.6 Test: a fingerprint classification naming an OS leaves
       `vendor_name` unchanged; an automation inventory reporting its own
-      platform name leaves `vendor_name` unchanged; a metadata `Net-SNMP`
+      platform name leaves `vendor_name` and `model` unchanged; Proxmox
+      discovery's `Proxmox` / `PVE` leaves a recorded SNMP vendor and model
+      unchanged; an OS fingerprint leaves `model` unchanged; a metadata `Net-SNMP`
       leaves an OUI vendor in place and a metadata hardware vendor replaces it;
       an update classifying Linux with an OUI fills an empty vendor with the
       OUI; a census OUI `Ubiquiti Inc` leaves a recorded `sysObjectID`
@@ -160,24 +162,36 @@
       address fallback submit the best chooser-accepted IPv4 among every
       address on the host or guest, prefer it over any IPv6, and never submit
       a link-local (`fe80::/10`, `169.254/16`) as primary
-- [ ] 7.5 Find any other primary-IP chooser, apply the same rule, and cover
+- [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
+      (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
+      `discovery.go`), Armis `primaryIP`
+      (`go/pkg/agent/syncsources/armis/device.go`, called from `update.go`)
+      and the succession hand-over `MergeEngine.take_address?/2` prefer a
+      chooser-accepted IPv4 over any IPv6 and never submit a link-local;
+      keep each chooser's own order among accepted IPv4s; keep NetBox
+      `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
+- [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
-- [ ] 7.6 Census decoder: an NDP / IPv6 sighting of a device with a usable
+- [ ] 7.7 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is neither alias, primary nor name
-- [ ] 7.7 Alias recording: every aliasable address the device owns
-      (`AliasPolicy.valid_alias_ip?/1`: global, private, ULA, in both
-      families) stays a live `device_alias_states` row, including a displaced
-      or never-promoted address; link-local addresses never become aliases
-- [ ] 7.8 Alias expiry: a confirmed re-attribution expires the previous
+- [ ] 7.8 Alias recording: every aliasable address the device owns, in both
+      families, stays a live `device_alias_states` row, including a displaced
+      or never-promoted address; aliasable means `AliasPolicy.valid_alias_ip?/1`
+      accepts it (link-local and directed broadcasts are rejected) and it is
+      not host-internal (`GuestAddress.host_internal_address?/2`, the Proxmox
+      plugin's host-internal set, or a shared interface address `AliasEvents`
+      keeps off the `:ip` merge type)
+- [ ] 7.9 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
-- [ ] 7.9 `SweepCompiler` attributes each target only to the current live
+- [ ] 7.10 `SweepCompiler` attributes each target only to the current live
       holder
-- [ ] 7.10 Test: dual-stack census keeps the IPv4 primary and records the
+- [ ] 7.11 Test: dual-stack census keeps the IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
-      sighting records no alias, primary or name; a guest host-internal
-      bridge address never becomes primary; an IPv6-only device that
+      sighting records no alias, primary or name; a guest's `172.17.0.1` on
+      `docker0` never becomes primary or an alias; a directed broadcast is
+      never an alias; an IPv6-only device that
       gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
       an unchanged inventory produce identical sweep targets and
       `device_uid` attribution; a stale cross-device alias is expired on
