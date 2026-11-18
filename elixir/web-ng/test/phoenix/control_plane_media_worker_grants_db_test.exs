@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     %{actor: actor, deployment_ref: deployment_ref}
   end
 
-  test "issues reader-only archive and analysis_read local grants without leaking secrets, and returns 410 recording_gone on deleted/quarantined blocks",
+  test "issues reader-only archive wire credentials and analysis_read local grants without leaking workload tokens, and returns 410 recording_gone on deleted/quarantined blocks",
        %{actor: actor, deployment_ref: deployment_ref} do
     ctx = seed_grant_fixtures(actor)
 
@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
       assert denied.status == 401
     end
 
-    # 2. Archive-backed verified block -> 200 OK with reader-only grant and redacted credentials
+    # 2. Archive-backed verified block -> 200 OK with reader-only grant and wire reader credentials
     archive_conn =
       post_grant(deployment_ref, %{
         "schema_version" => 1,
@@ -102,8 +102,6 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
 
     assert archive_conn.status == 200
     assert get_resp_header(archive_conn, "cache-control") == ["no-store"]
-    refute archive_conn.resp_body =~ ctx.secret_access_key
-    refute archive_conn.resp_body =~ "SYNTHETICWORKERKEY"
     refute archive_conn.resp_body =~ @media_worker_token
 
     archive_body = Jason.decode!(archive_conn.resp_body)
@@ -111,6 +109,11 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     assert archive_body["init_sha256"] == ctx.init_sha
     assert archive_body["grant"]["role"] == "reader"
     assert Enum.sort(archive_body["grant"]["allowed_methods"]) == ["GET", "HEAD"]
+    assert archive_body["credential"]["role"] == "reader"
+    assert archive_body["credential"]["secret_id"] == ctx.reader_secret_id
+    assert archive_body["credential"]["access_key_id"] == "test-reader-access-key"
+    assert archive_body["credential"]["secret_access_key"] == ctx.secret_access_key
+    refute Map.has_key?(archive_body["credential"], "session_token")
     assert [%{"sha256" => frag_sha}] = archive_body["fragments"]
     assert frag_sha == ctx.frag_sha
     assert is_list(archive_body["coalesced_ranges"])
@@ -175,14 +178,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   defp seed_grant_fixtures(actor) do
     opts = [actor: actor]
     key = Ecto.UUID.generate()
-    secret_access_key = String.duplicate("m", 32)
+    secret_access_key = "test-reader-secret-key"
 
     {:ok, built_secret} =
       CredentialSecretBuilder.build(
         NativeDescriptors.s3_compatible(),
         "access_key",
         %{
-          "access_key_id" => "SYNTHETICWORKERKEY",
+          "access_key_id" => "test-reader-access-key",
           "secret_access_key" => secret_access_key
         },
         %{name: "Synthetic Worker Reader #{System.unique_integer([:positive])}"}
@@ -320,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
       local_job: local_job,
       init_sha: init_sha,
       frag_sha: frag_sha,
+      reader_secret_id: reader_secret.id,
       secret_access_key: secret_access_key
     }
   end

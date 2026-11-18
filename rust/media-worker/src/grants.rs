@@ -661,11 +661,10 @@ impl LocalGrantTarget {
 }
 
 /// Execution-time read grant plan returned by `POST /v1/media/workers/read-grants`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReadGrantPlan {
     #[serde(default = "default_schema_v1")]
     schema_version: u32,
-    #[serde(alias = "backing")]
     source: BackingSource,
     job_id: String,
     catalog_entry_id: String,
@@ -695,6 +694,85 @@ pub struct ReadGrantPlan {
     nvr_member: Option<String>,
     #[serde(default)]
     read_pool: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawReadGrantPlan {
+    #[serde(default = "default_schema_v1")]
+    schema_version: u32,
+    #[serde(default)]
+    source: Option<BackingSource>,
+    #[serde(default)]
+    backing: Option<BackingSource>,
+    job_id: String,
+    catalog_entry_id: String,
+    camera_source_id: String,
+    stream_profile_id: String,
+    storage_id: String,
+    block_key: String,
+    descriptor_sha256: String,
+    init_sha256: String,
+    #[serde(default = "default_ttl_secs")]
+    ttl_seconds: u64,
+    init: InitSlicePlan,
+    #[serde(default)]
+    media: Option<ArchiveMediaObjectPlan>,
+    fragments: Vec<FragmentSlicePlan>,
+    #[serde(default)]
+    coalesced_ranges: Vec<CoalescedRange>,
+    #[serde(default)]
+    archive: Option<ArchiveGrantTarget>,
+    #[serde(default)]
+    grant: Option<BrokerGrantScope>,
+    #[serde(default)]
+    credential: Option<EphemeralS3Credentials>,
+    #[serde(default)]
+    local: Option<LocalGrantTarget>,
+    #[serde(default)]
+    nvr_member: Option<String>,
+    #[serde(default)]
+    read_pool: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ReadGrantPlan {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let raw = RawReadGrantPlan::deserialize(deserializer)?;
+        let source = match (raw.source, raw.backing) {
+            (Some(src), Some(bck)) if src != bck => {
+                return Err(serde::de::Error::custom(
+                    "read grant source disagrees with backing",
+                ));
+            }
+            (Some(src), _) | (None, Some(src)) => src,
+            (None, None) => return Err(serde::de::Error::missing_field("source")),
+        };
+        Ok(Self {
+            schema_version: raw.schema_version,
+            source,
+            job_id: raw.job_id,
+            catalog_entry_id: raw.catalog_entry_id,
+            camera_source_id: raw.camera_source_id,
+            stream_profile_id: raw.stream_profile_id,
+            storage_id: raw.storage_id,
+            block_key: raw.block_key,
+            descriptor_sha256: raw.descriptor_sha256,
+            init_sha256: raw.init_sha256,
+            ttl_seconds: raw.ttl_seconds,
+            init: raw.init,
+            media: raw.media,
+            fragments: raw.fragments,
+            coalesced_ranges: raw.coalesced_ranges,
+            archive: raw.archive,
+            grant: raw.grant,
+            credential: raw.credential,
+            local: raw.local,
+            nvr_member: raw.nvr_member,
+            read_pool: raw.read_pool,
+        })
+    }
 }
 
 fn default_schema_v1() -> u32 {

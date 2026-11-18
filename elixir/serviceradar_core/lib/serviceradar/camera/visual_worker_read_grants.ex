@@ -20,7 +20,9 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
       short-lived `:reader`-only (`["HEAD", "GET"]`) `CredentialBrokerGrant`
       resolved via `ArchiveCredentialResolver` from `platform.network_credential_secrets`
       with `%RedactedCredential{}` redacting secrets on both `Inspect` and
-      `Jason.Encoder`; OR
+      default `Jason.Encoder` (`RedactedCredential.to_wire_payload/1` is used
+      exclusively on the authenticated `POST /v1/media/workers/read-grants`
+      wire boundary); OR
     - `:local` (`local_state == :present`): owning NVR member target and
       `analysis_read` pool descriptor plan.
   """
@@ -44,8 +46,11 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     @moduledoc """
     Execution-time archive reader credential wrapper (`1.6`).
 
-    Redacts secret material on both `Inspect` and `Jason.Encoder` so secret bytes
-    can never be logged, inspected, or echoed in HTTP responses.
+    Redacts secret material on both `Inspect` and default `Jason.Encoder` so
+    secret bytes can never be logged, inspected, or echoed in generic JSON
+    serialization. Only `to_wire_payload/1` explicitly materializes the
+    ephemeral `:reader` S3 credential fields for the authenticated
+    `POST /v1/media/workers/read-grants` wire response.
     """
 
     @derive {Inspect,
@@ -82,6 +87,36 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
             headers: map() | list() | nil,
             credential: map() | nil
           }
+
+    @doc """
+    Converts a `%RedactedCredential{}` into the explicit wire map consumed by
+    `serviceradar-media-worker` (`EphemeralS3Credentials` in
+    `rust/media-worker/src/credentials.rs`).
+    """
+    @spec to_wire_payload(t()) :: %{String.t() => term()}
+    def to_wire_payload(%__MODULE__{} = cred) do
+      base = %{
+        "reference" => cred.reference,
+        "generation" => cred.generation,
+        "role" => serialize_role(cred.role),
+        "secret_id" => serialize_secret_id(cred.secret_id),
+        "access_key_id" => cred.access_key_id,
+        "secret_access_key" => cred.secret_access_key
+      }
+
+      if is_binary(cred.session_token) and cred.session_token != "" do
+        Map.put(base, "session_token", cred.session_token)
+      else
+        base
+      end
+    end
+
+    defp serialize_role(nil), do: nil
+    defp serialize_role(role) when is_atom(role), do: Atom.to_string(role)
+    defp serialize_role(role) when is_binary(role), do: role
+
+    defp serialize_secret_id(nil), do: nil
+    defp serialize_secret_id(secret_id), do: to_string(secret_id)
   end
 
   @hex64 ~r/\A[0-9a-f]{64}\z/

@@ -148,6 +148,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants do
   end
 
   defp serialize_value(%CredentialBrokerGrant{} = grant), do: CredentialBrokerGrant.to_payload(grant)
+
+  defp serialize_value(%VisualWorkerReadGrants.RedactedCredential{} = cred) do
+    VisualWorkerReadGrants.RedactedCredential.to_wire_payload(cred)
+  end
+
   defp serialize_value(%DateTime{} = dt), do: DateTime.to_unix(dt, :second)
   defp serialize_value(struct) when is_struct(struct), do: struct
 

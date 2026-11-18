@@ -392,9 +392,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                )
     end
 
-    test "issues archive range plan with <= 4 MiB coalescing, GET/HEAD-only CredentialBrokerGrant, and zero leaked secrets" do
+    test "issues archive range plan with <= 4 MiB coalescing, GET/HEAD-only CredentialBrokerGrant, redacted Inspect/Jason.Encoder, and explicit to_wire_payload/1" do
       installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
-      synthetic_secret_key = "SYNTHETIC_NEVER_LOG_SECRET_MATERIAL_0123456789"
+      synthetic_secret_key = "test-reader-secret-key"
 
       req = %{
         "schema_version" => 1,
@@ -421,8 +421,36 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       refute "DELETE" in plan.grant["allowed_methods"]
 
       refute inspect(plan) =~ synthetic_secret_key
+      refute inspect(plan) =~ "test-reader-access-key"
+      refute inspect(plan.credential) =~ synthetic_secret_key
+      refute inspect(plan.credential) =~ "test-reader-access-key"
+
       encoded_json = Jason.encode!(plan)
       refute encoded_json =~ synthetic_secret_key
+      refute encoded_json =~ "test-reader-access-key"
+
+      encoded_cred_json = Jason.encode!(plan.credential)
+      refute encoded_cred_json =~ synthetic_secret_key
+      refute encoded_cred_json =~ "test-reader-access-key"
+
+      wire_payload = VisualWorkerReadGrants.RedactedCredential.to_wire_payload(plan.credential)
+
+      assert wire_payload == %{
+               "reference" => "secret:network_credential:#{@secret_id}",
+               "generation" => 1,
+               "role" => "reader",
+               "secret_id" => @secret_id,
+               "access_key_id" => "test-reader-access-key",
+               "secret_access_key" => synthetic_secret_key
+             }
+
+      with_session = %{plan.credential | session_token: "test-reader-session-token"}
+      refute inspect(with_session) =~ "test-reader-session-token"
+      refute Jason.encode!(with_session) =~ "test-reader-session-token"
+
+      assert VisualWorkerReadGrants.RedactedCredential.to_wire_payload(with_session)[
+               "session_token"
+             ] == "test-reader-session-token"
     end
 
     test "issues local analysis_read pool plan when block is local_only / unarchived" do
@@ -766,7 +794,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     }
   end
 
-  defp grant_loaders(entry, secret_key \\ "SYNTHETIC_READER_SECRET") do
+  defp grant_loaders(entry, secret_key \\ "test-reader-secret-key") do
     sampled = VisualIndexDispatcher.sample_descriptor_fragments(sample_descriptor(), 2_000, 64)
 
     %{
@@ -854,9 +882,10 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
          %{
            grant: grant_attrs,
            credential: %{
+             "reference" => "secret:network_credential:#{@secret_id}",
              "secret_id" => @secret_id,
              "generation" => 1,
-             "access_key_id" => "AKIA_SYNTHETIC_TEST",
+             "access_key_id" => "test-reader-access-key",
              "secret_access_key" => secret_key
            }
          }}

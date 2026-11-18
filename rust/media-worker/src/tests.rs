@@ -406,6 +406,251 @@ async fn read_grant_client_redacts_secrets_enforces_reader_only_and_handles_410_
 }
 
 #[tokio::test]
+async fn golden_control_plane_archive_read_grant_wire_json_deserializes_with_key_material() {
+    let block = generate_synthetic_cmaf_block(
+        160,
+        120,
+        90_000,
+        &[SyntheticFragmentSpec::new(
+            0,
+            0,
+            2_000_000_000,
+            [44, 48, 54],
+            vec![],
+        )],
+    )
+    .expect("generate synthetic block");
+
+    let (s3_addr, _s3_reqs, stop_s3) = spawn_loopback_s3_peer(
+        "synthetic-archive",
+        HashMap::from([
+            (
+                "nvr/archive-v2/00000000-0000-4000-8000-000000000301/1111111111111111111111111111111111111111111111111111111111111111/init.mp4".to_string(),
+                (block.init_mp4().to_vec(), "\"etag-init\"".to_string()),
+            ),
+            (
+                "nvr/archive-v2/00000000-0000-4000-8000-000000000301/1111111111111111111111111111111111111111111111111111111111111111/media.m4s".to_string(),
+                (block.media_m4s().to_vec(), "\"etag-media\"".to_string()),
+            ),
+        ]),
+    );
+
+    let job_id = "00000000-0000-7000-8000-000000000801";
+    let entry_id = "00000000-0000-7000-8000-000000000601";
+    let storage_id = "00000000-0000-4000-8000-000000000301";
+    let secret_id = "00000000-0000-4000-8000-000000000501";
+    let block_key = "11".repeat(32);
+    let desc_sha = block.descriptor_sha256();
+    let init_sha = block.init_plan().sha256();
+    let frag0 = &block.fragment_plans()[0];
+    let frag_len = frag0.length();
+    let frag_sha = frag0.sha256();
+    let media_len = block.media_m4s().len();
+    let media_sha = block.media_sha256();
+    let init_len = block.init_mp4().len();
+
+    // Exact wire JSON shape emitted by `ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants`
+    // (`POST /v1/media/workers/read-grants`) using `RedactedCredential.to_wire_payload/1`,
+    // including both `"backing"` and `"source"` top-level fields.
+    let golden_wire_json = serde_json::json!({
+        "schema_version": 1,
+        "backing": "archive",
+        "source": "archive",
+        "job_id": job_id,
+        "catalog_entry_id": entry_id,
+        "camera_source_id": "00000000-0000-4000-8000-000000000101",
+        "stream_profile_id": "00000000-0000-4000-8000-000000000201",
+        "storage_id": storage_id,
+        "block_key": block_key,
+        "descriptor_sha256": desc_sha,
+        "init_sha256": init_sha,
+        "ttl_seconds": 300,
+        "expires_at": "2026-11-18T03:00:00Z",
+        "init": {
+            "object_name": "init.mp4",
+            "offset": 0,
+            "first": 0,
+            "last": init_len - 1,
+            "length": init_len,
+            "sha256": init_sha,
+            "key": format!("nvr/archive-v2/{storage_id}/{block_key}/init.mp4"),
+            "etag": "\"etag-init\"",
+            "version_id": null
+        },
+        "media": {
+            "object_name": "media.m4s",
+            "key": format!("nvr/archive-v2/{storage_id}/{block_key}/media.m4s"),
+            "length": media_len,
+            "sha256": media_sha,
+            "etag": "\"etag-media\"",
+            "version_id": null
+        },
+        "fragments": [
+            {
+                "sequence": 0,
+                "offset": 0,
+                "first": 0,
+                "last": frag_len - 1,
+                "length": frag_len,
+                "start_ns": 0,
+                "duration_ns": 2_000_000_000u64,
+                "sha256": frag_sha
+            }
+        ],
+        "coalesced_ranges": [
+            {
+                "first": 0,
+                "last": frag_len - 1,
+                "length": frag_len,
+                "fragment_sequences": [0],
+                "slices": [
+                    {
+                        "sequence": 0,
+                        "offset": 0,
+                        "relative_offset": 0,
+                        "length": frag_len,
+                        "start_ns": 0,
+                        "duration_ns": 2_000_000_000u64,
+                        "sha256": frag_sha
+                    }
+                ]
+            }
+        ],
+        "archive": {
+            "binding_id": "00000000-0000-4000-8000-000000000401",
+            "provider": "s3_compatible",
+            "endpoint": format!("http://{s3_addr}"),
+            "region": "us-east-1",
+            "bucket": "synthetic-archive",
+            "namespace": "nvr/archive-v2",
+            "required_encryption": "sse_s3_aes256",
+            "destination_sha256": null,
+            "init_key": format!("nvr/archive-v2/{storage_id}/{block_key}/init.mp4"),
+            "init_etag": "\"etag-init\"",
+            "media_key": format!("nvr/archive-v2/{storage_id}/{block_key}/media.m4s"),
+            "media_etag": "\"etag-media\""
+        },
+        "grant": {
+            "grant_id": "00000000-0000-4000-8000-000000000499",
+            "grant_type": "camera_archive_credential",
+            "role": "reader",
+            "purpose": "camera_archive_read",
+            "secret_ref": format!("secret:network_credential:{secret_id}"),
+            "allowed_schemes": ["http"],
+            "allowed_hosts": ["127.0.0.1"],
+            "allowed_ports": [s3_addr.port()],
+            "allowed_paths": ["/synthetic-archive/nvr/archive-v2/*"],
+            "allowed_methods": ["HEAD", "GET"],
+            "expires_at": "2026-11-18T03:00:00Z"
+        },
+        "credential": {
+            "reference": format!("secret:network_credential:{secret_id}"),
+            "generation": 1,
+            "role": "reader",
+            "secret_id": secret_id,
+            "access_key_id": "test-reader-access-key",
+            "secret_access_key": "test-reader-secret-key"
+        }
+    });
+
+    let golden_str = serde_json::to_string(&golden_wire_json).expect("encode golden wire json");
+    let direct_plan: ReadGrantPlan =
+        serde_json::from_str(&golden_str).expect("deserialize golden ReadGrantPlan");
+    let direct_cred = direct_plan
+        .credential()
+        .expect("deserialized ReadGrantPlan must carry credential");
+    assert!(direct_cred.has_key_material());
+    assert_eq!(direct_cred.role(), Some("reader"));
+    assert_eq!(direct_cred.generation(), Some(1));
+    assert_eq!(direct_cred.secret_id(), Some(secret_id));
+    assert_eq!(direct_cred.access_key_id(), Some("test-reader-access-key"));
+    assert_eq!(
+        direct_cred.secret_access_key(),
+        Some("test-reader-secret-key")
+    );
+    assert_eq!(direct_cred.session_token(), None);
+
+    // Rust Debug and Serialize on `ReadGrantPlan` still redact the deserialized secret material.
+    let plan_debug = format!("{direct_plan:?}");
+    let plan_reserialized = serde_json::to_string(&direct_plan).expect("re-serialize plan");
+    for secret in ["test-reader-access-key", "test-reader-secret-key"] {
+        assert!(!plan_debug.contains(secret));
+        assert!(!plan_reserialized.contains(secret));
+    }
+
+    // Also verify optional `session_token` over `HttpControlPlaneGrantClient` (200 OK, `Cache-Control: no-store`)
+    // and end-to-end `LongshoreArchiveReader::fetch_archive_plan` with ZERO fallback credentials.
+    let mut with_session_json = golden_wire_json;
+    with_session_json["credential"]["session_token"] =
+        serde_json::Value::String("test-reader-session-token".to_string());
+    let http_body = serde_json::to_string(&with_session_json).expect("encode session wire json");
+
+    let cp_listener = TcpListener::bind("127.0.0.1:0").expect("bind mock control plane 200");
+    let cp_addr = cp_listener.local_addr().expect("cp_addr");
+    let cp_thread = std::thread::spawn(move || {
+        let (mut sock, _) = cp_listener.accept().expect("accept");
+        let mut reader = BufReader::new(sock.try_clone().expect("clone sock"));
+        let mut content_len = 0usize;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("read line");
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+            if let Some((k, v)) = trimmed.split_once(':')
+                && k.trim().eq_ignore_ascii_case("content-length")
+            {
+                content_len = v.trim().parse().unwrap_or(0);
+            }
+        }
+        let mut req_buf = vec![0u8; content_len];
+        reader.read_exact(&mut req_buf).expect("read body");
+
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            http_body.len(),
+            http_body
+        );
+        sock.write_all(resp.as_bytes()).expect("write 200");
+    });
+
+    let worker_auth = WorkerAuthCredentials::new(
+        "synthetic-media-worker-bearer-token-32bytes-0001",
+        "00000000-0000-4000-8000-000000000001",
+        "1",
+    );
+    let client = HttpControlPlaneGrantClient::new(
+        format!("http://{cp_addr}"),
+        worker_auth,
+        Duration::from_secs(5),
+    );
+    let req = ReadGrantRequest::new(job_id, entry_id, desc_sha);
+    let resolution = client
+        .acquire_read_grant(&req)
+        .await
+        .expect("200 OK wire grant must deserialize and validate");
+    cp_thread.join().expect("join cp_thread");
+
+    let GrantResolution::Admitted(admitted_plan) = resolution else {
+        panic!("expected GrantResolution::Admitted, got {resolution:?}");
+    };
+    let wire_cred = admitted_plan
+        .credential()
+        .expect("admitted wire plan must include credential");
+    assert!(wire_cred.has_key_material());
+    assert_eq!(wire_cred.session_token(), Some("test-reader-session-token"));
+
+    let archive_reader = LongshoreArchiveReader::new(1, Duration::from_secs(10));
+    let verified = archive_reader
+        .fetch_archive_plan(&admitted_plan)
+        .await
+        .expect("LongshoreArchiveReader must fetch using wire credential without fallback");
+    assert_eq!(verified.fragments().len(), 1);
+    stop_s3.store(true, std::sync::atomic::Ordering::Release);
+}
+
+#[tokio::test]
 async fn range_coalescing_caps_at_4_mib_and_longshore_s3_verifies_sha256_before_parse() {
     // 1. Verify range coalescing bounds (`<= 4 MiB` per GET, `<= 256 KiB` gap).
     let two_mib = 2 * 1024 * 1024;

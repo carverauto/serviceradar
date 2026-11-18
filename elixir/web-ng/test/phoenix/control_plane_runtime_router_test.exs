@@ -966,20 +966,27 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert ent_conn.status == 401
     end
 
-    test "returns 200 read plan with Cache-Control: no-store and redacts RedactedCredential secrets" do
+    test "returns 200 read plan with Cache-Control: no-store and wire reader credentials while RedactedCredential Inspect/Jason.Encoder stay redacted" do
       job_id = "00000000-0000-4000-8000-000000000901"
       entry_id = "00000000-0000-4000-8000-000000000902"
+      secret_id = "00000000-0000-4000-8000-000000000903"
       desc_sha = String.duplicate("ab", 32)
-      secret_marker = "synthetic-do-not-echo-s3-secret-material"
+      access_key = "test-reader-access-key"
+      secret_key = "test-reader-secret-key"
 
       redacted = %ServiceRadar.Camera.VisualWorkerReadGrants.RedactedCredential{
-        reference: "secret:00000000-0000-4000-8000-000000000903",
+        reference: "secret:network_credential:#{secret_id}",
         generation: 1,
         role: :reader,
-        secret_id: "00000000-0000-4000-8000-000000000903",
-        access_key_id: "SYNTHETIC_ACCESS_KEY",
-        secret_access_key: secret_marker
+        secret_id: secret_id,
+        access_key_id: access_key,
+        secret_access_key: secret_key
       }
+
+      refute inspect(redacted) =~ access_key
+      refute inspect(redacted) =~ secret_key
+      refute Jason.encode!(redacted) =~ access_key
+      refute Jason.encode!(redacted) =~ secret_key
 
       Application.put_env(
         :serviceradar_web_ng,
@@ -1010,20 +1017,198 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert conn.status == 200
       assert get_resp_header(conn, "cache-control") == ["no-store"]
       assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
-      refute conn.resp_body =~ secret_marker
-      refute conn.resp_body =~ "SYNTHETIC_ACCESS_KEY"
       refute conn.resp_body =~ @media_worker_token
 
       body = json_response(conn)
       assert body["source"] == "archive"
       assert body["grant"]["role"] == "reader"
       assert body["grant"]["allowed_methods"] == ["GET", "HEAD"]
-      assert body["credential"]["role"] == "reader"
-      refute Map.has_key?(body["credential"], "secret_access_key")
+
+      assert body["credential"] == %{
+               "reference" => "secret:network_credential:#{secret_id}",
+               "generation" => 1,
+               "role" => "reader",
+               "secret_id" => secret_id,
+               "access_key_id" => access_key,
+               "secret_access_key" => secret_key
+             }
 
       assert_received {:media_worker_read_grant_requested, installation, decoded_doc, _opts}
       assert installation == %{purpose: :media_worker, deployment_ref: @deployment_ref, generation: 1}
       assert decoded_doc["job_id"] == job_id
+    end
+
+    test "serializes full VisualWorkerReadGrants archive plan with ephemeral reader credentials on the wire" do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :control_plane_media_worker_grants_issuer,
+        ServiceRadar.Camera.VisualWorkerReadGrants
+      )
+
+      job_id = "00000000-0000-7000-8000-000000000801"
+      entry_id = "00000000-0000-7000-8000-000000000601"
+      cam_id = "00000000-0000-4000-8000-000000000101"
+      prof_id = "00000000-0000-4000-8000-000000000201"
+      storage_id = "00000000-0000-4000-8000-000000000301"
+      binding_id = "00000000-0000-4000-8000-000000000401"
+      secret_id = "00000000-0000-4000-8000-000000000501"
+      block_id = "00000000-0000-4000-8000-000000000701"
+      block_key = String.duplicate("11", 32)
+      desc_sha = String.duplicate("22", 32)
+      init_sha = String.duplicate("33", 32)
+      frag_sha = String.duplicate("44", 32)
+      media_sha = String.duplicate("88", 32)
+
+      descriptor = %{
+        "version" => 1,
+        "init" => %{"offset" => 0, "length" => 1024, "sha256" => init_sha},
+        "fragments" => [
+          %{
+            "sequence" => 0,
+            "offset" => 0,
+            "length" => 65_536,
+            "start_ns" => 0,
+            "duration_ns" => 2_000_000_000,
+            "keyframe" => true,
+            "sha256" => frag_sha
+          }
+        ]
+      }
+
+      loaders = %{
+        job_loader: fn ^job_id ->
+          {:ok,
+           %{
+             id: job_id,
+             catalog_entry_id: entry_id,
+             camera_source_id: cam_id,
+             stream_profile_id: prof_id,
+             state: :dispatched,
+             descriptor_sha256: desc_sha,
+             sampled_fragments: descriptor["fragments"]
+           }}
+        end,
+        entry_loader: fn ^entry_id ->
+          {:ok,
+           %{
+             id: entry_id,
+             recording_block_id: block_id,
+             camera_source_id: cam_id,
+             stream_profile_id: prof_id,
+             storage_id: storage_id,
+             block_key: block_key,
+             descriptor_sha256: desc_sha,
+             local_state: :reclaimed,
+             archive_state: :verified,
+             archive_binding_id: binding_id,
+             quarantine_reason: nil
+           }}
+        end,
+        block_loader: fn ^block_id ->
+          {:ok, %{id: block_id, descriptor: descriptor, descriptor_sha256: desc_sha}}
+        end,
+        binding_loader: fn ^binding_id ->
+          {:ok,
+           %{
+             id: binding_id,
+             schema_version: 2,
+             provisioning_ref: "operator:primary",
+             generation: 1,
+             purpose: "recording",
+             provider: "s3_compatible",
+             endpoint: "https://objects.example.com",
+             region: "us-east-1",
+             bucket: "synthetic-archive",
+             namespace: "nvr/archive-v2",
+             archive_format_version: 1,
+             required_encryption: "sse_s3_aes256",
+             destination_sha256: nil
+           }}
+        end,
+        receipt_loader: fn _entry ->
+          {:ok,
+           %{
+             recording_block_id: block_id,
+             archive_binding_id: binding_id,
+             objects: [
+               %{
+                 "name" => "init.mp4",
+                 "key" => "nvr/archive-v2/#{storage_id}/#{block_key}/init.mp4",
+                 "length" => 1024,
+                 "sha256" => init_sha,
+                 "etag" => "\"etag-init\""
+               },
+               %{
+                 "name" => "media.m4s",
+                 "key" => "nvr/archive-v2/#{storage_id}/#{block_key}/media.m4s",
+                 "length" => 65_536,
+                 "sha256" => media_sha,
+                 "etag" => "\"etag-media\""
+               }
+             ]
+           }}
+        end,
+        credential_resolver: fn binding, :reader, ttl ->
+          {:ok, grant_attrs} =
+            ServiceRadar.Camera.ArchiveCredentialResolver.grant_attrs(
+              binding,
+              :reader,
+              secret_id,
+              ttl_seconds: ttl
+            )
+
+          {:ok,
+           %{
+             grant: grant_attrs,
+             credential: %{
+               "reference" => "secret:network_credential:#{secret_id}",
+               "secret_id" => secret_id,
+               "generation" => 1,
+               "access_key_id" => "test-reader-access-key",
+               "secret_access_key" => "test-reader-secret-key",
+               "session_token" => "test-reader-session-token"
+             }
+           }}
+        end
+      }
+
+      req_body =
+        Jason.encode!(%{
+          "schema_version" => 1,
+          "job_id" => job_id,
+          "catalog_entry_id" => entry_id,
+          "descriptor_sha256" => desc_sha
+        })
+
+      conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", req_body)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@media_worker_generation_header, "1")
+        |> put_private(:control_plane_media_worker_grant_opts, loaders: loaders)
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      refute conn.resp_body =~ @media_worker_token
+
+      decoded = json_response(conn)
+      assert decoded["source"] == "archive"
+      assert decoded["backing"] == "archive"
+      assert decoded["grant"]["role"] == "reader"
+      assert Enum.sort(decoded["grant"]["allowed_methods"]) == ["GET", "HEAD"]
+
+      assert decoded["credential"] == %{
+               "reference" => "secret:network_credential:#{secret_id}",
+               "generation" => 1,
+               "role" => "reader",
+               "secret_id" => secret_id,
+               "access_key_id" => "test-reader-access-key",
+               "secret_access_key" => "test-reader-secret-key",
+               "session_token" => "test-reader-session-token"
+             }
     end
 
     test "maps deleted/quarantined entries to 410 Gone, conflicts to 409, bad requests to 400, and bounds body <= 8192 bytes" do
