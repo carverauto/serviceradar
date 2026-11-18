@@ -75,8 +75,10 @@ matched_uid], subject: address_or_nil, source: <path>, evidence: %{"name" => ...
 change. The `source` names the path: `sync_ip_hostname_agreement` (existing), `awx_host_name`,
 `hypervisor_name`, `camera_hostname`, `manual_device_hostname`.
 
-A task is opened only when the name matched one candidate: the address holder (A1, A5), or the
-single live device in the record's partition carrying the name (A8, A10, A11). A name shared by
+A task is opened only when the name matched exactly one candidate: the live address holder (A1,
+A5), the single live device in the record's partition carrying the name (A8, A10, A11), or, for
+a manual add or CSV import that matches no live device, the single soft-deleted device in the
+partition carrying the name (A11). The tombstone a review names stays deleted. A name shared by
 several live devices opens no task, because a task over many same-named devices is not
 actionable and a common name (for example a default appliance name) would flood the queue. The
 manual creator still reports such a collision to the operator (D10).
@@ -90,9 +92,11 @@ manual creator still reports such a collision to the operator (D10).
 `claim_address_from_holder/5`. `adopt_on_hostname_agreement?/4` and `hostname_adoption_refusal/4`
 are deleted, together with the helpers only they call (`third_party_identity_claim?/5`,
 `conflicting_integration_identity?/5`, `compatible_identity_claims?/2` if no other caller
-remains; verify before deleting). When the hostnames agree, the pair is recorded per D1 whatever
-the holder holds; the evidence drops the `refusal` field, because there is no adoption left to
-refuse. The `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` telemetry
+remains; verify before deleting). A new strong record that collides on an address with a live
+holder whose hostname agrees is written as its own device, and the pair is recorded per D1
+whatever the holder holds, so the record never forks from the holder silently; the address
+itself is decided by "Address Is Evidence, Not Identity". The evidence drops the `refusal`
+field, because there is no adoption left to refuse. The `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` telemetry
 event stays, without the `refusal` tag.
 
 ### D3. Succession and reactivation corroborate on first-seen time only (A2, A3, A4)
@@ -141,20 +145,24 @@ separate record, carrying `ansible_managed`, until an operator merges the pair f
   unique per live record, its `ORDER BY last_seen DESC LIMIT 1` pick is replaced by "exactly one
   owner, otherwise none".
 - `AwxSourceRetirement` keeps archiving `awx:host:` rows it finds, which is the cleanup path for
-  any that remain. An older plugin that still sends legacy ids during a rolling upgrade is
+  any that remain. The cleanup also migrates or archives `awx:host:` references held in device
+  metadata (`integration_id` and `legacy_integration_ids`), not only identifier rows; OC2 found
+  such references on one deployment. Removing a reference merges or splits no device. An older plugin that still sends legacy ids during a rolling upgrade is
   harmless, because core ignores them.
 
 ### D6. Derived integration ids never key on a name (A6)
 `prefixed_identifier/2` becomes: plugin-supplied integration id (already preferred by
-`integration_id/2`), then serial, then stable hardware id, then normalized MAC, then nil. The
-hostname/name/host leg is removed.
+`integration_id/2`), then serial, then stable hardware id, then a normalized universally
+administered unicast MAC, then nil. The hostname/name/host leg is removed, and a locally
+administered MAC no longer keys an id (requirement "Randomized MACs Are Evidence Only"): two
+serial-less sightings that share a randomized MAC must not resolve as one device through it.
 
 Existing rows: an `integration_id` minted from a name stays on its device. Nothing mints it
 again, so nothing looks it up: it is inert history. Integration ids are not source-authoritative,
 so absence retirement does not touch them, and no migration merges, splits or rewrites a device.
 An operator can find them with OC1.
 
-An update with no stable id, no MAC and no address would otherwise get a random uid and become a
+An update with no stable id, no universally administered MAC and no address would otherwise get a random uid and become a
 new device on every sighting. It is not written; the ingest outcome counts it as unresolved
 (reason `no_identity_evidence`). This is an interpretation of "then none (resolve by normal
 evidence)" for the case where there is no normal evidence.
@@ -205,6 +213,8 @@ whose name does not resolve still fails with `:missing_device_address`. After th
 written, the creator looks up live devices in the partition with the same hostname, other than
 the written one:
 - exactly one: recorded per D1 with source `manual_device_hostname`;
+- none live, exactly one soft-deleted: recorded per D1 against that tombstone, with source
+  `manual_device_hostname`; the tombstone stays deleted and is not updated;
 - several: no task; the LiveView result and the CSV import row report the collision and its
   count.
 A tombstone matched only by hostname is never restored and never updated. The callers (CSV
@@ -265,7 +275,7 @@ the old record.
   endpoint-attachment checks and `AgentCorroboration` (review only) are unchanged.
 
 ### D14. Pending change coordination
-Five pending changes state name-as-identity behavior (listed in the proposal). Archiving any of
+Six pending changes state name-as-identity behavior (listed in the proposal). Archiving any of
 them after this change would replay wording this change removes, and archiving
 `add-awx-host-address-corroboration` after this change would overwrite this change's copy of
 "Hostname Agreement Is Not Identity". Task group 0 amends or archives each before this change is
@@ -285,9 +295,9 @@ archived. This proposal does not edit them, to keep its diff to its own change d
 - Past name-driven merges stay merged (non-goal). OC4 lets an operator find them.
 
 ## Migration Plan
-No schema change and no data migration. Existing merges, decisions and tasks stand.
-Name-keyed `integration_id` rows stay inert; `awx:host:` rows keep being archived by the AWX
-source retirement. The rule version bump re-evaluates each blocked component once. Rollback is a
+No schema change. Existing merges, decisions and tasks stand. Name-keyed `integration_id` rows
+stay inert; `awx:host:` rows keep being archived by the AWX source retirement, and the
+`awx:host:` references in device metadata are migrated or archived with them (task 3.8). The rule version bump re-evaluates each blocked component once. Rollback is a
 code revert; nothing written under the new rules needs undoing, because the new rules only
 write fewer merges and more review decisions.
 
@@ -357,6 +367,22 @@ only, never with hostnames, addresses or uids.
   GROUP BY 1, 2;
   ```
   Verify the `details` key layout against one row first; the succession evidence may be nested.
+
+### Results on one deployment
+Run on 2026-11-18 on one deployment (demo), read-only, counts only. The checks stay for every
+other deployment.
+
+- OC1: `awx`/`host` 17 rows (17 live); `proxmox`/`v3` 6 rows (6 live), the cluster-scoped node
+  ids that D8 keeps. No other source used the name key, so on that deployment no plugin besides
+  the AWX legacy path relies on the A6 hostname leg.
+- OC2: `awx:host:` values 17 live, 32 archived, 60 in device metadata (`integration_id` or
+  `legacy_integration_ids`). The A7 cleanup must therefore migrate or archive the metadata
+  references as well as the rows (task 3.8).
+- OC3: `unscoped_integration_id` 0 and `unscoped_node_uid` 0. The no-source-scope fallback of
+  `device_uid_for_node/3` is not reachable there; task 5.4 stays conditional on other
+  deployments.
+- OC4: 2 `awx_host_network_match` merges with `ip_host_name` corroboration; 0 merge audit rows
+  with reason `source_succession`. Past merges stand (non-goal).
 
 ## Open Questions
 - None blocking. OC1-OC3 decide whether task 5.4 is needed and which plugins need a stable id;

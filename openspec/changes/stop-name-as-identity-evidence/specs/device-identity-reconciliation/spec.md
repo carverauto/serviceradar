@@ -68,11 +68,19 @@ confirm; it SHALL never join two records.
 Where a path would formerly have joined a record to a device on a name match, and the name is
 the only thing joining them, the record SHALL be written by its other evidence, or as its own
 device, and the path SHALL record a `policy_block` identity decision with reason
-`hostname_agreement_not_identity` naming the record and the device the name matched (the
-address holder, or the single live device in the record's partition carrying the name), with
-the name, the address if any and the path in its evidence. That decision opens a de-duplication
-task. When the name matches more than one live device in the partition, no task SHALL be opened
-for it. A name match SHALL NOT restore a soft-deleted device.
+`hostname_agreement_not_identity` naming the record and the device the name matched, with the
+name, the address if any and the path in its evidence. The matched device is the one candidate
+the name matched: the live address holder whose name agrees; else the single live device in the
+record's partition carrying the name; else, for manual device add and CSV import when no live
+device carries the name, the single soft-deleted device in the partition carrying it. That
+decision opens a de-duplication task. When the name matches more than one candidate, no task
+SHALL be opened for it. A name match SHALL NOT restore a soft-deleted device, including the one
+a review names.
+In particular, a sync write of a new record holding a source-authoritative or integration
+identifier at an address that a live device with the same name holds SHALL NOT adopt the
+holder's uid and SHALL NOT be refused for lack of other evidence: the record SHALL be written as
+its own device and the decision SHALL be recorded, so that the record never forks from the
+holder without a review.
 
 #### Scenario: Two existing devices with the same hostname stay separate
 - **GIVEN** two live devices whose hostnames agree
@@ -87,6 +95,12 @@ for it. A name match SHALL NOT restore a soft-deleted device.
 - **THEN** the record SHALL be written as its own device and SHALL NOT take device X's uid
 - **AND** the address SHALL be decided by requirement "Address Is Evidence, Not Identity"
 - **AND** a `policy_block` identity decision with reason `hostname_agreement_not_identity` SHALL name both devices and open a de-duplication task
+
+#### Scenario: A new record colliding with a same-hostname address holder opens a review
+- **GIVEN** a live device `host01.example.com` holding address `192.0.2.10`
+- **WHEN** a NetBox record with hostname `host01.example.com` and address `192.0.2.10` arrives
+- **THEN** the NetBox record SHALL be written as its own device
+- **AND** a `policy_block` identity decision with reason `hostname_agreement_not_identity` SHALL name both devices
 
 #### Scenario: A source-authoritative holder is not adopted on hostname agreement
 - **GIVEN** a device holding an Armis device id at address A
@@ -115,6 +129,13 @@ for it. A name match SHALL NOT restore a soft-deleted device.
 - **THEN** a new device SHALL be created for the submission
 - **AND** the live device SHALL NOT be updated or merged, and the soft-deleted device SHALL remain deleted
 - **AND** a `policy_block` identity decision with reason `hostname_agreement_not_identity` SHALL name the new device and the live device
+
+#### Scenario: A manual re-add matching only a tombstone by hostname opens a review against it
+- **GIVEN** a soft-deleted device `host08.example.com` deleted by an operator, and no live device carrying that hostname
+- **AND** no device holds address `198.51.100.80` or the uid the submission derives
+- **WHEN** an operator adds `host08.example.com` with address `198.51.100.80`, manually or by CSV import
+- **THEN** a new device SHALL be created for the submission and the soft-deleted device SHALL remain deleted
+- **AND** a `policy_block` identity decision with reason `hostname_agreement_not_identity` SHALL name the new device and the soft-deleted device
 
 #### Scenario: A hypervisor or camera record is not resolved by name
 - **GIVEN** a live device named `cam01` in partition `default`
@@ -297,7 +318,7 @@ the identity of any device.
 - **AND** it SHALL be recorded as an unresolved endpoint with the ambiguous name
 
 ### Requirement: Integration Identifiers Are Not Name-Keyed
-The system SHALL NOT mint, register or look up an `integration_id` keyed on a bare name or hostname: an integration identifier that ingest derives for a source object SHALL come from a plugin-supplied stable identifier (an explicit integration id, a serial or a stable hardware id), else from a universally administered MAC, and otherwise the record SHALL carry no derived integration identifier and SHALL resolve by its other evidence.
+The system SHALL NOT mint, register or look up an `integration_id` keyed on a bare name or hostname: an integration identifier that ingest derives for a source object SHALL come from a plugin-supplied stable identifier (an explicit integration id, a serial or a stable hardware id), else from a universally administered unicast MAC, and otherwise the record SHALL carry no derived integration identifier and SHALL resolve by its other evidence.
 A provider-issued object name that is scoped to its provider instance and cluster, such as a
 Proxmox node in a v2 or v3 integration identifier, is a provider-scoped identifier and SHALL
 remain identity. A name without that scope SHALL NOT be minted as, registered as or looked up as
@@ -306,8 +327,9 @@ AWX `awx:host:<name>` and ingest-minted `<source>:<kind>:<name>` values, SHALL N
 legacy lookup candidates or looked up. Existing rows holding such values SHALL stay where they
 are as inert history, or be archived by a source retirement that already archives them, and
 introducing this rule SHALL NOT merge or split any existing device. An update with no stable
-identifier, no MAC and no address SHALL NOT be written as a new device, and SHALL be counted as
-unresolved in the ingest outcome. A source whose MACs rotate and that supplies no stable
+identifier, no universally administered MAC and no address SHALL NOT be written as a new device, and SHALL be counted as
+unresolved in the ingest outcome. A locally administered (randomized) MAC SHALL NOT key an
+`integration_id` (requirement "Randomized MACs Are Evidence Only"). A source whose MACs rotate and that supplies no stable
 identifier resolves by its other evidence, and MAY produce a new record when its MAC changes.
 
 #### Scenario: A serial-less plugin device without a stable id or MAC is not keyed by name
@@ -320,6 +342,12 @@ identifier resolves by its other evidence, and MAY produce a new record when its
 - **GIVEN** a plugin device-discovery record carrying hardware id `HW-0001`, hostname `host04.example.com` and MAC `00:00:5e:00:53:41`
 - **WHEN** the record is ingested
 - **THEN** its derived `integration_id` SHALL be keyed on `HW-0001`
+
+#### Scenario: A locally administered MAC does not key an integration id
+- **GIVEN** a plugin device-discovery record with hostname `host09.example.com`, address `198.51.100.90` and only the locally administered MAC `02:00:5e:00:53:91`, and no stable id
+- **WHEN** the record is ingested
+- **THEN** no `integration_id` SHALL be derived from the MAC or the hostname
+- **AND** the record SHALL resolve by its address
 
 #### Scenario: A rotating MAC without a stable id is not anchored by name
 - **GIVEN** a plugin device previously seen with hostname `host05.example.com` and MAC `00:00:5e:00:53:51`, and no stable id

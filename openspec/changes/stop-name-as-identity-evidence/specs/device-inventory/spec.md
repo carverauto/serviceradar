@@ -67,3 +67,4 @@ identifier or an address under the rules above, or an explicit operator restore,
 - **WHEN** an operator adds `host07.example.com` with address `198.51.100.70`, manually or by CSV import
 - **THEN** the soft-deleted device SHALL remain deleted and no `device_revival_audit` row SHALL be written for it
 - **AND** a new device SHALL be created for the submission
+- **AND** when no live device carries `host07.example.com`, a `policy_block` identity decision with reason `hostname_agreement_not_identity` SHALL name the new device and the soft-deleted device

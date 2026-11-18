@@ -9,7 +9,10 @@ invented uids and names). Unboxed database tests delete every row they create.
 - [ ] 0.1 Archive `add-awx-host-address-corroboration` before this change, so that this change's
       MODIFIED copy of "Hostname Agreement Is Not Identity" is the one left in `specs/`.
 - [ ] 0.2 Amend `add-ansible-integration` (device-inventory, scenario "AWX host matches a device
-      by address and host name") to the review outcome of D4.
+      by address and host name", and `specs/ansible-integration/spec.md` "AWX Inventory as a
+      Plugin-Emitted Discovery Source", scenario "Plugin emits AWX hosts; DIRE merges with
+      existing devices", which merges an AWX host by name and `ansible_host`) to the review
+      outcome of D4.
 - [ ] 0.3 Amend `update-manual-device-hostname-readd`: "Manual Device Re-add Reconciliation" and
       the device-inventory "OCSF Device Schema" scenarios must not update, restore or merge a
       device matched only by hostname (D10).
@@ -19,16 +22,23 @@ invented uids and names). Unboxed database tests delete every row they create.
 - [ ] 0.5 Amend `link-agent-host-by-strong-identity` "Same-Named Hosts Without A Shared Strong
       Identifier Never Fuse": no holder is adopted on hostname agreement, and the decision
       carries no `agent_bound_holder` refusal.
-- [ ] 0.6 Before archiving, re-run `grep -rn -i "hostname" openspec/changes/*/specs` (excluding
+- [ ] 0.6 Amend `add-device-delete-guardrails` MODIFIED "Restore Soft-Deleted Devices" (scenario
+      "A returning source id restores a source-retired device" restores by the archived MAC and
+      hostname) to this change's wording: archived MAC and first-seen time, and no name match
+      restores. Otherwise archive it before this change, so that this change's copy lands last.
+- [ ] 0.7 Before archiving, re-run `grep -rn -i "hostname" openspec/changes/*/specs` (excluding
       `archive/`) and fix any other pending delta that states a name as identity evidence.
 
 ## 1. Sync active-IP adoption (A1, D2)
 - [ ] 1.1 In `DeviceWrites.resolve_record_active_ip/7`, remove the hostname-agreement adoption
       branch; delete `adopt_on_hostname_agreement?/4`, `hostname_adoption_refusal/4` and every
       helper only they call (check each for other callers first).
-- [ ] 1.2 Record the `policy_block` / `hostname_agreement_not_identity` decision whenever the
-      hostnames of the record and the address holder agree and the holder is not adopted as a
-      provisional seed; evidence carries the hostname, address and both uids, no `refusal`.
+- [ ] 1.2 When a new strong record collides on an address with a live holder whose hostname
+      agrees and the holder is not adopted as a provisional seed, write the record as its own
+      device (never refuse or drop it) and record the `policy_block` /
+      `hostname_agreement_not_identity` decision naming both; evidence carries the hostname,
+      address and both uids, no `refusal`. **Regression**: spec scenario "A new record colliding
+      with a same-hostname address holder opens a review".
 - [ ] 1.3 **Regression**: invert `sync_ingestor_vendor_type_test.exs` "a later strong
       integration converges when hostname agrees and no third identity claims it" (line 767):
       the two stay separate and a decision names both.
@@ -83,17 +93,24 @@ invented uids and names). Unboxed database tests delete every row they create.
       owner, else none". **Regression**: an AWX update carrying a legacy `awx:host:<name>` id does
       not resolve to the device holding it.
 - [ ] 3.7 **Guard**: `AwxSourceRetirement` still archives `awx:host:` rows (existing tests).
+- [ ] 3.8 Extend the `awx:host:` cleanup to migrate or archive the references held in device
+      metadata (`integration_id` and `legacy_integration_ids`), not only identifier rows (OC2
+      found 60 on one deployment). **Regression**: a device whose metadata carries an
+      `awx:host:<name>` reference no longer carries it after the cleanup, and no device is merged
+      or split.
 
 ## 4. Derived integration ids (A6, D6)
-- [ ] 4.1 `DeviceDiscoveryIngestor.prefixed_identifier/2`: remove the hostname/name/host leg;
-      rewrite the "Key preference" comment and the moduledoc.
-- [ ] 4.2 Skip an update with no stable id, no MAC and no address, and count it in the ingest
+- [ ] 4.1 `DeviceDiscoveryIngestor.prefixed_identifier/2`: remove the hostname/name/host leg,
+      and key on a MAC only when it is universally administered and unicast (a locally
+      administered MAC keys nothing); rewrite the "Key preference" comment and the moduledoc.
+- [ ] 4.2 Skip an update with no stable id, no universally administered MAC and no address, and count it in the ingest
       outcome as `no_identity_evidence`.
 - [ ] 4.3 **Regression**: replace `device_discovery_ingestor_test.exs` "prefers hostname over MAC
       so rotating MACs cannot rotate the id" (line 264) with "does not key on the hostname; falls
       back to the MAC", and state the rotating-MAC trade-off in the test's name or comment.
 - [ ] 4.4 **Regression**: a record with only a hostname and an address derives no
-      `integration_id`; a record with only a hostname is not written as a device.
+      `integration_id`; a record with only a hostname is not written as a device; a record whose
+      only MAC is locally administered derives no `integration_id`.
 - [ ] 4.5 **Guard**: a plugin-supplied integration id, serial or hardware id still keys the
       record ahead of the MAC.
 
@@ -126,8 +143,10 @@ invented uids and names). Unboxed database tests delete every row they create.
       `:hostname` from `canonical_rank/1`; never restore or update a tombstone matched only by
       hostname.
 - [ ] 7.2 After writing, look up live same-hostname devices in the partition; record the D1
-      decision (source `manual_device_hostname`) for exactly one, and report a collision with its
-      count for several in the LiveView result and the CSV import row result.
+      decision (source `manual_device_hostname`) for exactly one; when none is live and exactly
+      one soft-deleted device carries the hostname, record the decision against that tombstone
+      and leave it deleted; report a collision with its count for several in the LiveView result
+      and the CSV import row result.
 - [ ] 7.3 **Regression**: invert `manual_device_creator_test.exs` "updates an existing
       hostname-only manual device after resolving its IP" (line 259): a new device and one
       decision; the old record unchanged.
@@ -136,7 +155,8 @@ invented uids and names). Unboxed database tests delete every row they create.
       merged nor changed, and a decision names both.
 - [ ] 7.5 **Regression**: a soft-deleted device matched only by hostname stays deleted, with no
       revival audit row (spec scenario "A manual re-add matched only by hostname does not
-      restore a tombstone"), through both manual add and CSV import.
+      restore a tombstone"), through both manual add and CSV import, and when no live device
+      carries the hostname a decision names the new device and the tombstone.
 
 ## 8. Remediation steps (A12-A14, D11)
 - [ ] 8.1 `agent-links`: ownership and shared-device owner by agent id only; relocation
@@ -205,11 +225,17 @@ invented uids and names). Unboxed database tests delete every row they create.
       alternatives table and the trace descriptions.
 
 ## 12. Open checks (read-only, on a deployment, after merge; design "Open Checks")
-- [ ] 12.1 Run OC1 and record per-plugin counts; open an issue per plugin that needs a stable
-      source id.
-- [ ] 12.2 Run OC2 and record the counts of `awx:host:` values live, archived and in metadata.
-- [ ] 12.3 Run OC3; if `unscoped_node_uid` is non-zero, do task 5.4.
-- [ ] 12.4 Run OC4 and record the count of past name-driven merges for operator review.
+Results from one deployment are in design "Results on one deployment"; run the checks on each
+other deployment before relying on them there.
+- [x] 12.1 Run OC1 and record per-plugin counts; open an issue per plugin that needs a stable
+      source id. One deployment: no plugin besides the AWX legacy path uses the name key, so no
+      issue is needed there.
+- [x] 12.2 Run OC2 and record the counts of `awx:host:` values live, archived and in metadata.
+      One deployment: 17 live, 32 archived, 60 in metadata; task 3.8 covers the metadata.
+- [ ] 12.3 Run OC3; if `unscoped_node_uid` is non-zero, do task 5.4. One deployment: 0 and 0,
+      so task 5.4 is not needed there and stays conditional on other deployments.
+- [x] 12.4 Run OC4 and record the count of past name-driven merges for operator review. One
+      deployment: 2 `awx_host_network_match` merges with `ip_host_name`, 0 `source_succession`.
 - [ ] 12.5 Record counts only; never paste hostnames, addresses or uids from the deployment.
 
 ## 13. Validation

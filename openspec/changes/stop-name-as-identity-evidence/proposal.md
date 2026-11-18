@@ -20,23 +20,29 @@ mis-attribute unrelated devices.
   restores or resolves a record onto a device by itself. Where it used to, the record is written
   by its other evidence and the pair goes to the de-duplication review queue as a `policy_block`
   identity decision with reason `hostname_agreement_not_identity`. This covers:
-  - sync hostname-agreement adoption of an address holder (`DeviceWrites`);
+  - sync hostname-agreement adoption of an address holder (`DeviceWrites`): adoption and its
+    refusal checks are deleted, and a new strong record that collides on an address with a live
+    holder of the same hostname is written as its own device with the review recorded, never
+    forked silently;
   - AWX host-label agreement at an `ansible_host` address, which no longer merges and no longer
     claims an agent-managed device (`DeviceDiscoveryIngestor`);
   - the hypervisor enrichment name/hostname fallback (`HypervisorEnrichmentIngestor`);
   - the camera inventory hostname fallback (`Camera.InventoryIngestor`);
   - manual device add and CSV import in web-ng (`ManualDeviceCreator`), where a hostname match no
-    longer updates, restores or merges a device and never revives a tombstone.
+    longer updates, restores or merges a device and never revives a tombstone; when the only
+    match is one soft-deleted device, the review names that tombstone, which stays deleted.
+  A review is opened only when the name matches exactly one candidate.
 - **BREAKING (identity behavior)** Source-id succession and reactivation corroborate only on
   non-name evidence: a unique shared universally administered MAC plus an agreeing source
   first-seen time. A shared MAC whose only second factor is the hostname becomes a review
   (`succession_review` / `source_id_reissued`) instead of a merge or return. The D3 hostname time
   guard is retired.
 - Plugin `integration_id` minting no longer falls back to a hostname/name. The key is a
-  plugin-supplied stable id (explicit integration id, serial or stable hardware id), then a MAC,
-  then none. Existing name-keyed rows stay as inert history; nothing merges or splits.
+  plugin-supplied stable id (explicit integration id, serial or stable hardware id), then a
+  universally administered MAC, then none; a locally administered MAC never keys one. Existing name-keyed rows stay as inert history; nothing merges or splits.
 - AWX legacy name-keyed ids (`awx:host:<name>`) are retired as lookup keys in the plugin and in
-  core. The AWX source retirement still archives any that remain.
+  core. The AWX source retirement still archives any that remain, and the cleanup also migrates
+  or archives `awx:host:` references held in device metadata.
 - Remediation steps stop using a hostname as ownership or deletion evidence: `agent-links`
   decides by agent id only, and `test-debris` keys on device uid and agent id, not a hostname
   list.
@@ -67,7 +73,14 @@ this change removes:
   restore the corroboration wording.
 - `add-ansible-integration` (device-inventory, ADDED "Ansible-Managed Device Linkage Derived
   from AWX Inventory"): scenario "AWX host matches a device by address and host name" merges on
-  label agreement. Amend to the review outcome.
+  label agreement. Its ansible-integration delta ("AWX Inventory as a Plugin-Emitted Discovery
+  Source", scenario "Plugin emits AWX hosts; DIRE merges with existing devices") merges an AWX
+  host into the device with the same name and `ansible_host`. Amend both to the review outcome.
+- `add-device-delete-guardrails`: its MODIFIED "Restore Soft-Deleted Devices" restores a
+  source-retired device when its id returns "with the archived MAC and hostname", and lacks the
+  rule that a name match never restores. Amend it to this change's wording (archived MAC and
+  first-seen time), or archive it before this change so that this change's MODIFIED copy lands
+  last.
 - `update-manual-device-hostname-readd` (implemented, not archived): ADDED "Manual Device
   Re-add Reconciliation" merges a hostname-only duplicate, and its device-inventory "OCSF Device
   Schema" scenarios update or restore a device matched by hostname. Amend to: hostname matches

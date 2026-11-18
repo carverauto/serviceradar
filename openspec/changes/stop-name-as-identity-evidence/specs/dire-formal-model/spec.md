@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Source Identifier Change Is Modeled
-The DIRE resolution model SHALL represent a device's source-authoritative identifier as state that a re-key action can change, together with exact source collections, the absence of an identifier from them, its retirement, and the reconciler's succession merge, and every resolution `goal` configuration whose environment enables re-keys SHALL check that, once neither retirement nor succession can change anything, each physical device is described either by at most one live record holding a source identifier or by records that a recorded review names together.
+The DIRE resolution model SHALL represent a device's source-authoritative identifier as state that a re-key action can change, together with exact source collections, the absence of an identifier from them, its retirement, and the reconciler's succession merge, and every resolution `goal` configuration whose environment enables re-keys SHALL check that, once neither retirement nor succession can change anything, each physical device whose re-keys kept its first-seen time is described by at most one live record holding a source identifier, and each physical device re-keyed to an identifier carrying a new first-seen time is described by separate records that a recorded review names together.
 The goal configurations SHALL also check that a device's current source identifier, once
 owned, is owned by its canonical record; that no merge joins two records holding distinct
 current source identifiers; that every succession merge had a shared universally administered
@@ -12,12 +12,13 @@ keeps its existing state space. Devices SHALL be able to share a hostname, and a
 able to give a device a new first-seen time; a goal configuration SHALL check each, one with
 cloned machines sharing a MAC and a hostname and one with a re-key to an identifier carrying a
 new first-seen time, which SHALL end with the two records separate and a review naming them. A
-configuration that proves succession is reachable on an agreeing first-seen time SHALL
-accompany them.
+goal configuration with a re-key that keeps its first-seen time SHALL end with one live source
+record for that device, and a configuration that proves succession is reachable
+on an agreeing first-seen time SHALL accompany them.
 
 #### Scenario: A re-keyed device converges in the goal configuration
 - **WHEN** a goal configuration whose environment re-keys one device observed by Armis and the sweep, keeping its first-seen time, is model checked
-- **THEN** every goal property holds, including one source record per device at rest
+- **THEN** every goal property holds, including one live source record per device at rest, not separate records under a review
 
 #### Scenario: A retired identifier that still vetoes is rejected
 - **WHEN** the goal configuration for the re-key environment is model checked with a retired identifier still vetoing succession
