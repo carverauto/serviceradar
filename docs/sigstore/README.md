@@ -105,8 +105,8 @@ signature or root mismatch, a rewritten or replaced tree, a changed key, a missi
 fails, opens an issue and posts to Discord. The daily scheduled job watch reports the monitor
 when its last successful run is older than three hours.
 
-Entries made before the first monitor run are not judged; that history gap is the price of
-starting the monitor after the log. The first run is dispatched by hand with `bootstrap: true`,
+Every run judges every release-key entry in the log, including those made before the first
+monitor run, and keeps each decision in its checkpoint. The first run is dispatched by hand with `bootstrap: true`,
 and a dispatch with `self_test: true` proves the alert path. Acknowledge a benign entry (for
 example a signature made by hand) in `rekor-acknowledged-entries.json` in a reviewed PR, with
 its UUID, log index, the run or event that made it, and why it is benign.

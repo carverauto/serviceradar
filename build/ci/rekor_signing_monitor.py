@@ -5,7 +5,8 @@ The log (https://rekor.serviceradar.cloud) holds only ServiceRadar's entries, so
 all of them, recomputes the RFC 6962 root and compares it with the signed tree head, which must
 verify under the pinned docs/sigstore/rekor.pub. That proves the log is append-only between runs
 without consistency proofs. Every `hashedrekord` entry signed by the release key (docs/cosign.pub)
-and integrated after the monitor's first checkpoint is then decided:
+in the whole log is then decided, once; the decision is kept in the checkpoint state, so an entry
+a ledger explained stays explained after that run and its ledger artifact age out:
 
   * pending while a run of a release-key signing workflow that was active at the entry's
     integrated time is still in progress (its ledger is uploaded only when it ends);
@@ -282,11 +283,11 @@ def signing_runs(github, now):
     return runs
 
 
-def decide(matches, runs, ledgers, acknowledged, first_time):
-    """Split the release-key entries into explained, pending and unexplained."""
+def decide(matches, runs, ledgers, acknowledged, decided):
+    """Split the release-key entries not already explained into explained, pending and unexplained."""
     explained, pending, unexplained = {}, [], []
     for match in matches:
-        if match["integrated_time"] < first_time:
+        if decided.get(match["uuid"], {}).get("status") == "explained":
             continue
         when = datetime.fromtimestamp(match["integrated_time"], timezone.utc)
         active = [run for run in runs if run["started"] <= when and (run["ended"] is None or run["ended"] >= when)]
@@ -378,7 +379,8 @@ def run(args, environ, now):
     acknowledged = {item["uuid"]: f"{item['reason']} ({item['run']})"
                     for item in json.loads(Path(args.acknowledged).read_text()).get("entries", [])}
     first_time = state["first_integrated_time"]
-    explained, pending, unexplained = decide(matches, runs, ledgers, acknowledged, first_time)
+    decided = state.setdefault("decisions", {})
+    explained, pending, unexplained = decide(matches, runs, ledgers, acknowledged, decided)
     blind = blind_spots(matches, runs, ledgers, log_id, first_time, now)
 
     open_issues = github.open_issues()
@@ -401,7 +403,10 @@ def run(args, environ, now):
                 "entry is acknowledged in docs/sigstore/rekor-acknowledged-entries.json in a reviewed PR.")
         github.open_issue(title, body)
         alerts.append(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})")
+    for match in unexplained:
+        decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"]}
     for uuid, reason in explained.items():
+        decided[uuid] = {"status": "explained", "reason": reason}
         if uuid in by_uuid:
             github.close_issue(by_uuid[uuid]["number"], f"Explained by {reason}.")
     if blind:

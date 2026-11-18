@@ -187,8 +187,8 @@ class MonitorTest(unittest.TestCase):
         self.acknowledged = self.root / "acknowledged.json"
         self.acknowledged.write_text(json.dumps({"entries": []}))
         self.state = self.root / "state.json"
-        # An entry from before the monitor existed, never judged.
-        self.world.add_entry(b"historical", when=NOW - timedelta(hours=12))
+        # An entry from before the monitor existed is judged too; this one is someone else's.
+        self.world.add_entry(b"historical", key_pub=self.world.other_pub, when=NOW - timedelta(hours=12))
         self.assertEqual(self.run_monitor(bootstrap=True, now=NOW - timedelta(hours=10)), 0)
 
     def run_monitor(self, bootstrap=False, now=NOW):
@@ -227,6 +227,21 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.world.issues, [])
         self.assertEqual(self.world.blob_requests_with_auth, 0, "the GitHub token followed the artifact redirect")
+
+    def test_an_explained_entry_stays_explained_after_its_run_ages_out(self):
+        entry = self.world.add_entry(b"release payload")
+        self.world.add_run("release.yml", 7, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.runs["release.yml"].clear()
+        self.world.ledgers.clear()
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(days=30)), 0)
+        self.assertEqual(self.world.issues, [])
+
+    def test_a_release_key_entry_from_before_the_first_checkpoint_is_judged(self):
+        entry = self.world.add_entry(b"old unexplained", when=NOW - timedelta(days=2))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
 
     def test_entry_during_a_run_in_progress_waits_and_is_then_explained_or_reported(self):
         entry = self.world.add_entry(b"mid-run payload")
