@@ -25,7 +25,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -46,6 +48,7 @@ type httpRequestPayload struct {
 	ResponseMode        string                     `json:"response_mode"`
 	TimeoutMS           int                        `json:"timeout_ms"`
 	InsecureSkipVerify  bool                       `json:"insecure_skip_verify"`
+	FollowRedirects     *bool                      `json:"follow_redirects,omitempty"`
 	CredentialInjection *credentialInjectionIntent `json:"credential_injection,omitempty"`
 }
 
@@ -64,8 +67,46 @@ type credentialInjectionIntent struct {
 type httpResponsePayload struct {
 	Status       int               `json:"status"`
 	Headers      map[string]string `json:"headers,omitempty"`
+	SetCookies   []string          `json:"set_cookies,omitempty"`
 	BodyBase64   string            `json:"body_base64"`
 	BodyEncoding string            `json:"body_encoding,omitempty"`
+	Trace        *httpTracePayload `json:"trace,omitempty"`
+	TLS          *httpTLSPayload   `json:"tls,omitempty"`
+}
+
+type httpHopTracePayload struct {
+	URL                    string `json:"url"`
+	Status                 int    `json:"status"`
+	DNSDurationNS          int64  `json:"dns_duration_ns"`
+	ConnectDurationNS      int64  `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64  `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64  `json:"ttfb_duration_ns"`
+	RemoteAddr             string `json:"remote_addr,omitempty"`
+}
+
+type httpTracePayload struct {
+	DNSDurationNS          int64                 `json:"dns_duration_ns"`
+	ConnectDurationNS      int64                 `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64                 `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64                 `json:"ttfb_duration_ns"`
+	TransferDurationNS     int64                 `json:"transfer_duration_ns"`
+	TotalDurationNS        int64                 `json:"total_duration_ns"`
+	ConnectionReused       bool                  `json:"connection_reused"`
+	RedirectCount          int                   `json:"redirect_count"`
+	FinalURL               string                `json:"final_url"`
+	Protocol               string                `json:"protocol,omitempty"`
+	RemoteAddr             string                `json:"remote_addr,omitempty"`
+	Hops                   []httpHopTracePayload `json:"hops,omitempty"`
+}
+
+type httpTLSPayload struct {
+	Version           string `json:"version,omitempty"`
+	CipherSuite       string `json:"cipher_suite,omitempty"`
+	ALPN              string `json:"alpn,omitempty"`
+	LeafSubjectCN     string `json:"leaf_subject_cn,omitempty"`
+	LeafIssuerCN      string `json:"leaf_issuer_cn,omitempty"`
+	LeafNotAfterUnix  *int64 `json:"leaf_not_after_unix,omitempty"`
+	LeafDaysRemaining *int   `json:"leaf_days_remaining,omitempty"`
 }
 
 const (
@@ -218,8 +259,15 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
+	envelopeMode := strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "envelope")
+
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	var trace *pluginHTTPTrace
+	if envelopeMode {
+		trace = newPluginHTTPTrace(reqURL)
+		reqCtx = httptrace.WithClientTrace(reqCtx, trace.clientTrace())
+	}
 	httpReq = httpReq.WithContext(reqCtx)
 
 	httpClient := e.manager.httpTransports.clientForBinding(
@@ -229,18 +277,25 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		proxmoxBinding,
 	)
 	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
-	if hostCredentialBound {
+	if hostCredentialBound || (payload.FollowRedirects != nil && !*payload.FollowRedirects) {
 		// Host-retained credentials are authorized for this one canonical
 		// request. Redirect handling does not re-enter the host credential gate,
 		// so never replay the bearer, including to a same-origin location.
+		// Guests may also explicitly opt out via follow_redirects: false.
 		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
+	}
+	if trace != nil {
+		trace.wrapCheckRedirect(httpClient)
 	}
 	if proxmoxBinding != nil {
 		if err := e.ensureActiveProxmoxAssignment(reqCtx); err != nil {
 			return pluginErrDenied
 		}
+	}
+	if trace != nil {
+		trace.markStart()
 	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
@@ -256,7 +311,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}()
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
 
-	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL)
+	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL, trace)
 }
 
 // applyCredentialBrokerInjectionWithinBudget runs credential injection (which
@@ -284,7 +339,9 @@ func (e *pluginExecution) writePluginHTTPResponse(
 	respLen uint32,
 	proxmoxBinding *pluginHostAuthorityBinding,
 	reqURL *url.URL,
+	trace *pluginHTTPTrace,
 ) int32 {
+	bodyReadStart := time.Now()
 	limited := io.LimitReader(resp.Body, pluginMaxHTTPBodyBytes+1)
 	bodyBytes, err := io.ReadAll(limited)
 	if err != nil {
@@ -329,6 +386,13 @@ func (e *pluginExecution) writePluginHTTPResponse(
 		Headers:      flattenHeaders(resp.Header),
 		BodyBase64:   base64.StdEncoding.EncodeToString(bodyBytes),
 		BodyEncoding: "base64",
+	}
+	if strings.EqualFold(strings.TrimSpace(payload.ResponseMode), "envelope") {
+		responsePayload.SetCookies = cloneHeaderValues(resp.Header, "Set-Cookie")
+		if trace != nil {
+			responsePayload.Trace = trace.finishAndBuild(resp, bodyReadStart)
+		}
+		responsePayload.TLS = buildPluginHTTPTLS(resp.TLS, time.Now().UTC())
 	}
 
 	responseBytes, err := json.Marshal(responsePayload)
@@ -892,4 +956,316 @@ func (c *pluginHTTPTransportCache) derivedTransport(
 	c.transports[key] = httpTransport
 
 	return httpTransport
+}
+
+const pluginHTTPMaxTraceHops = 11
+
+type pluginHTTPTraceHop struct {
+	url              string
+	status           int
+	dnsNS            int64
+	connectNS        int64
+	tlsNS            int64
+	ttfbNS           int64
+	connectionReused bool
+	remoteAddr       string
+	wroteRequestAt   time.Time
+	firstByteAt      time.Time
+}
+
+type pluginHTTPTrace struct {
+	mu            sync.Mutex
+	requestStart  time.Time
+	dnsStart      time.Time
+	tlsStart      time.Time
+	connectStarts map[string]time.Time
+	hops          []pluginHTTPTraceHop
+	redirectCount int
+}
+
+func newPluginHTTPTrace(initialURL *url.URL) *pluginHTTPTrace {
+	return &pluginHTTPTrace{
+		connectStarts: make(map[string]time.Time),
+		hops: []pluginHTTPTraceHop{
+			{url: scrubPluginTraceURL(initialURL)},
+		},
+	}
+}
+
+func (t *pluginHTTPTrace) markStart() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.requestStart = time.Now()
+	t.mu.Unlock()
+}
+
+func (t *pluginHTTPTrace) activeHopLocked() *pluginHTTPTraceHop {
+	if len(t.hops) == 0 {
+		t.hops = append(t.hops, pluginHTTPTraceHop{})
+	}
+	return &t.hops[len(t.hops)-1]
+}
+
+func (t *pluginHTTPTrace) clientTrace() *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
+		DNSStart: func(_ httptrace.DNSStartInfo) {
+			t.mu.Lock()
+			t.dnsStart = time.Now()
+			t.mu.Unlock()
+		},
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			t.mu.Lock()
+			if !t.dnsStart.IsZero() && info.Err == nil {
+				t.activeHopLocked().dnsNS += max(0, time.Since(t.dnsStart).Nanoseconds())
+			}
+			t.dnsStart = time.Time{}
+			t.mu.Unlock()
+		},
+		ConnectStart: func(network, addr string) {
+			t.mu.Lock()
+			if t.connectStarts == nil {
+				t.connectStarts = make(map[string]time.Time)
+			}
+			t.connectStarts[network+"\x00"+addr] = time.Now()
+			t.mu.Unlock()
+		},
+		ConnectDone: func(network, addr string, err error) {
+			key := network + "\x00" + addr
+			t.mu.Lock()
+			start, ok := t.connectStarts[key]
+			delete(t.connectStarts, key)
+			if ok && err == nil {
+				t.activeHopLocked().connectNS += max(0, time.Since(start).Nanoseconds())
+			}
+			t.mu.Unlock()
+		},
+		TLSHandshakeStart: func() {
+			t.mu.Lock()
+			t.tlsStart = time.Now()
+			t.mu.Unlock()
+		},
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			t.mu.Lock()
+			if !t.tlsStart.IsZero() && err == nil {
+				t.activeHopLocked().tlsNS += max(0, time.Since(t.tlsStart).Nanoseconds())
+			}
+			t.tlsStart = time.Time{}
+			t.mu.Unlock()
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			t.mu.Lock()
+			hop := t.activeHopLocked()
+			hop.connectionReused = info.Reused
+			if info.Conn != nil && info.Conn.RemoteAddr() != nil {
+				hop.remoteAddr = info.Conn.RemoteAddr().String()
+			}
+			t.mu.Unlock()
+		},
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err != nil {
+				return
+			}
+			t.mu.Lock()
+			t.activeHopLocked().wroteRequestAt = time.Now()
+			t.mu.Unlock()
+		},
+		GotFirstResponseByte: func() {
+			now := time.Now()
+			t.mu.Lock()
+			hop := t.activeHopLocked()
+			hop.firstByteAt = now
+			if !hop.wroteRequestAt.IsZero() {
+				hop.ttfbNS = max(0, now.Sub(hop.wroteRequestAt).Nanoseconds())
+			}
+			t.mu.Unlock()
+		},
+	}
+}
+
+func (t *pluginHTTPTrace) wrapCheckRedirect(client *http.Client) {
+	if t == nil || client == nil {
+		return
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if previous != nil {
+			if err := previous(req, via); err != nil {
+				return err
+			}
+		} else if len(via) >= 10 {
+			return errPluginHTTPTooManyRedirects
+		}
+
+		t.mu.Lock()
+		hop := t.activeHopLocked()
+		if len(via) > 0 && via[len(via)-1] != nil && via[len(via)-1].URL != nil {
+			hop.url = scrubPluginTraceURL(via[len(via)-1].URL)
+		}
+		if req != nil && req.Response != nil {
+			hop.status = req.Response.StatusCode
+		}
+		t.redirectCount++
+		t.dnsStart = time.Time{}
+		t.tlsStart = time.Time{}
+		t.connectStarts = make(map[string]time.Time)
+		if len(t.hops) < pluginHTTPMaxTraceHops {
+			nextURL := ""
+			if req != nil {
+				nextURL = scrubPluginTraceURL(req.URL)
+			}
+			t.hops = append(t.hops, pluginHTTPTraceHop{url: nextURL})
+		}
+		t.mu.Unlock()
+
+		return nil
+	}
+}
+
+func (t *pluginHTTPTrace) finishAndBuild(resp *http.Response, bodyReadStart time.Time) *httpTracePayload {
+	if t == nil {
+		return nil
+	}
+	now := time.Now()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	finalURL := ""
+	if resp != nil && resp.Request != nil && resp.Request.URL != nil {
+		finalURL = scrubPluginTraceURL(resp.Request.URL)
+	}
+	if len(t.hops) > 0 {
+		last := &t.hops[len(t.hops)-1]
+		if resp != nil {
+			last.status = resp.StatusCode
+		}
+		if finalURL != "" {
+			last.url = finalURL
+		} else {
+			finalURL = last.url
+		}
+	}
+
+	var totalNS int64
+	if !t.requestStart.IsZero() {
+		totalNS = max(0, now.Sub(t.requestStart).Nanoseconds())
+	}
+
+	var transferNS int64
+	if len(t.hops) > 0 && !t.hops[len(t.hops)-1].firstByteAt.IsZero() {
+		transferNS = max(0, now.Sub(t.hops[len(t.hops)-1].firstByteAt).Nanoseconds())
+	} else if !bodyReadStart.IsZero() {
+		transferNS = max(0, now.Sub(bodyReadStart).Nanoseconds())
+	}
+
+	var dnsNS, connectNS, tlsNS int64
+	hops := make([]httpHopTracePayload, 0, len(t.hops))
+	for _, h := range t.hops {
+		dnsNS += h.dnsNS
+		connectNS += h.connectNS
+		tlsNS += h.tlsNS
+		hops = append(hops, httpHopTracePayload{
+			URL:                    h.url,
+			Status:                 h.status,
+			DNSDurationNS:          h.dnsNS,
+			ConnectDurationNS:      h.connectNS,
+			TLSHandshakeDurationNS: h.tlsNS,
+			TTFBDurationNS:         h.ttfbNS,
+			RemoteAddr:             h.remoteAddr,
+		})
+	}
+
+	var ttfbNS int64
+	var reused bool
+	var remoteAddr string
+	if len(t.hops) > 0 {
+		last := t.hops[len(t.hops)-1]
+		ttfbNS = last.ttfbNS
+		reused = last.connectionReused
+		remoteAddr = last.remoteAddr
+	}
+
+	protocol := ""
+	if resp != nil {
+		protocol = resp.Proto
+	}
+
+	return &httpTracePayload{
+		DNSDurationNS:          dnsNS,
+		ConnectDurationNS:      connectNS,
+		TLSHandshakeDurationNS: tlsNS,
+		TTFBDurationNS:         ttfbNS,
+		TransferDurationNS:     transferNS,
+		TotalDurationNS:        totalNS,
+		ConnectionReused:       reused,
+		RedirectCount:          t.redirectCount,
+		FinalURL:               finalURL,
+		Protocol:               protocol,
+		RemoteAddr:             remoteAddr,
+		Hops:                   hops,
+	}
+}
+
+func scrubPluginTraceURL(raw *url.URL) string {
+	if raw == nil {
+		return ""
+	}
+	clone := *raw
+	clone.User = nil
+	clone.RawQuery = ""
+	clone.ForceQuery = false
+	clone.Fragment = ""
+	clone.RawFragment = ""
+	return clone.String()
+}
+
+func buildPluginHTTPTLS(state *tls.ConnectionState, now time.Time) *httpTLSPayload {
+	if state == nil {
+		return nil
+	}
+
+	var version string
+	switch state.Version {
+	case tls.VersionTLS13:
+		version = "TLS1.3"
+	case tls.VersionTLS12:
+		version = "TLS1.2"
+	case tls.VersionTLS11:
+		version = "TLS1.1"
+	case tls.VersionTLS10:
+		version = "TLS1.0"
+	}
+
+	var cipherSuite string
+	if state.CipherSuite != 0 {
+		cipherSuite = tls.CipherSuiteName(state.CipherSuite)
+	}
+
+	out := &httpTLSPayload{
+		Version:     version,
+		CipherSuite: cipherSuite,
+		ALPN:        state.NegotiatedProtocol,
+	}
+	if len(state.PeerCertificates) > 0 && state.PeerCertificates[0] != nil {
+		leaf := state.PeerCertificates[0]
+		out.LeafSubjectCN = leaf.Subject.CommonName
+		out.LeafIssuerCN = leaf.Issuer.CommonName
+		notAfter := leaf.NotAfter.Unix()
+		daysRemaining := int(math.Floor(leaf.NotAfter.Sub(now).Seconds() / 86400.0))
+		out.LeafNotAfterUnix = &notAfter
+		out.LeafDaysRemaining = &daysRemaining
+	}
+	return out
+}
+
+func cloneHeaderValues(headers http.Header, name string) []string {
+	values := headers.Values(name)
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }

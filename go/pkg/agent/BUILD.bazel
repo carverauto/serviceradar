@@ -445,6 +445,7 @@ go_test(
         "plugin_runtime_host_authority_test.go",
         "plugin_runtime_http_body_policy_test.go",
         "plugin_runtime_http_egress_test.go",
+        "plugin_runtime_http_test.go",
         "plugin_runtime_local_test.go",
         "plugin_runtime_network_test.go",
         "plugin_runtime_notify_test.go",
