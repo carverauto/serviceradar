@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandsPubSub
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.NetperfPolicy
   alias ServiceRadar.Monitoring.NetperfPolicyResponder
@@ -63,6 +64,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
         assert {:error, {:redirect, %{to: "/settings/profile"}}} = live(conn, path)
       end
     end
+
+    test "connected admin downgraded to viewer is blocked on subsequent LiveView events without mutating or dispatching",
+         %{conn: conn} do
+      _other_admin = AccountsFixtures.user_fixture(%{role: :admin})
+      admin = AccountsFixtures.user_fixture(%{role: :admin})
+      conn = log_in_user(conn, admin)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/netperf")
+
+      {:ok, _downgraded} =
+        User.update_role(admin, %{role: :viewer}, actor: system_actor())
+
+      assert {:error, {:redirect, %{to: "/settings/profile", flash: flash}}} =
+               render_click(lv, "open_run_modal", %{})
+
+      assert flash["error"] =~ "Not authorized"
+
+      bad_profile_name = unique_uid("Unauthorized Profile")
+
+      assert {:error, {:redirect, %{to: "/settings/profile"}}} =
+               live(log_in_user(build_conn(), admin), ~p"/settings/networks/netperf/profiles/new")
+
+      assert {:error, _} = NetperfProfile.get_by_name(bad_profile_name, actor: system_actor())
+    end
   end
 
   describe "tabs, CRUD, authority_epoch, and Run Test Now" do
@@ -108,6 +133,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
         |> render_submit()
 
       assert html =~ "Failed to save profile"
+      assert {:error, _} = NetperfProfile.get_by_name(name, actor: system_actor())
+
+      # Malformed integer input must fail validation rather than coercing to a default
+      bad_int_html =
+        lv
+        |> form("#netperf-profile-form",
+          profile: %{
+            "name" => name,
+            "protocol" => "udp",
+            "direction" => "bidirectional",
+            "bandwidth_bps" => "25000000",
+            "duration_sec" => "abc",
+            "omit_sec" => "2",
+            "parallel" => "2",
+            "packet_length" => "1200",
+            "interval_seconds" => "300"
+          }
+        )
+        |> render_submit()
+
+      assert bad_int_html =~ "Failed to save profile"
       assert {:error, _} = NetperfProfile.get_by_name(name, actor: system_actor())
 
       # Valid submit
@@ -301,6 +347,194 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
         |> render_click()
 
       assert prof_html =~ "Failed to delete profile"
+    end
+
+    test "disabled New Policy button renders as button, mode switch preserves spoke selector, and mismatched save_* does not crash",
+         %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/netperf")
+      assert has_element?(lv, "button#netperf-new-policy-btn[disabled]")
+      refute has_element?(lv, "a#netperf-new-policy-btn")
+
+      # Mismatched save_* when @show_form is nil returns flash error without crashing
+      for {event, key} <- [
+            {"save_policy", "policy"},
+            {"save_responder", "responder"},
+            {"save_profile", "profile"}
+          ] do
+        html = render_hook(lv, event, %{key => %{"name" => "orphan"}})
+        assert html =~ "Form is no longer active"
+      end
+
+      {:ok, _profile} =
+        NetperfProfile.create_profile(%{name: unique_uid("Mode Switch Profile")},
+          actor: system_actor()
+        )
+
+      {:ok, policy_lv, _html} = live(conn, ~p"/settings/networks/netperf/policies/new")
+
+      policy_lv
+      |> form("#netperf-policy-form",
+        policy: %{
+          "mode" => "hub_and_spoke",
+          "spoke_partition_id" => "branch-west",
+          "spoke_tags_text" => "site=branch-01",
+          "spoke_srql_query" => "in:agents status:connected",
+          "spoke_agent_uids_text" => "agent-spoke-1"
+        }
+      )
+      |> render_change()
+
+      policy_lv
+      |> form("#netperf-policy-form", policy: %{"mode" => "hub_mesh"})
+      |> render_change()
+
+      assert has_element?(policy_lv, "#netperf-spoke-selector-fields.hidden")
+
+      policy_lv
+      |> form("#netperf-policy-form", policy: %{"mode" => "hub_and_spoke"})
+      |> render_change()
+
+      refute has_element?(policy_lv, "#netperf-spoke-selector-fields.hidden")
+
+      assert has_element?(
+               policy_lv,
+               "#netperf-policy-form input[name='policy[spoke_partition_id]'][value='branch-west']"
+             )
+
+      assert has_element?(
+               policy_lv,
+               "#netperf-policy-form input[name='policy[spoke_tags_text]'][value='site=branch-01']"
+             )
+
+      assert has_element?(
+               policy_lv,
+               "#netperf-policy-form input[name='policy[spoke_srql_query]'][value='in:agents status:connected']"
+             )
+
+      assert has_element?(
+               policy_lv,
+               "#netperf-policy-form input[name='policy[spoke_agent_uids_text]'][value='agent-spoke-1']"
+             )
+    end
+
+    test "Run Test Now modal render_change preserves manual overrides and rejects invalid numeric inputs",
+         %{conn: conn, admin: admin} do
+      spoke_uid = unique_uid("agent-spoke")
+      hub1_uid = unique_uid("agent-hub-1")
+      hub2_uid = unique_uid("agent-hub-2")
+      register_agent!(spoke_uid, %{ip: "198.51.100.20"})
+      register_agent!(hub1_uid, %{ip: "198.51.100.21"})
+      register_agent!(hub2_uid, %{ip: "198.51.100.22"})
+
+      NetperfResponder.create_responder!(
+        %{agent_uid: hub1_uid, name: "Hub One", advertise_address: "198.51.100.21", listen_port: 5199},
+        actor: system_actor()
+      )
+
+      NetperfResponder.create_responder!(
+        %{agent_uid: hub2_uid, name: "Hub Two", advertise_address: "198.51.100.22", listen_port: 5201},
+        actor: system_actor()
+      )
+
+      {:ok, profile} =
+        NetperfProfile.create_profile(
+          %{
+            name: unique_uid("UDP Override Profile"),
+            protocol: :udp,
+            direction: :download,
+            bandwidth_bps: 25_000_000,
+            duration_sec: 12,
+            omit_sec: 2,
+            parallel: 3,
+            packet_length: 1400
+          },
+          actor: system_actor()
+        )
+
+      prev_bus = Application.get_env(:serviceradar_web_ng, :netperf_command_bus)
+      cmd_id = Ecto.UUID.generate()
+      :persistent_term.put({CommandBusStub, :test_pid}, self())
+      :persistent_term.put({CommandBusStub, :result}, {:ok, cmd_id})
+      Application.put_env(:serviceradar_web_ng, :netperf_command_bus, CommandBusStub)
+
+      on_exit(fn ->
+        :persistent_term.erase({CommandBusStub, :test_pid})
+        :persistent_term.erase({CommandBusStub, :result})
+
+        if is_nil(prev_bus) do
+          Application.delete_env(:serviceradar_web_ng, :netperf_command_bus)
+        else
+          Application.put_env(:serviceradar_web_ng, :netperf_command_bus, prev_bus)
+        end
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/netperf")
+      lv |> element("#netperf-run-test-btn") |> render_click()
+
+      # Switching responder updates target_address and target_port
+      lv
+      |> form("#netperf-run-form", run: %{"responder_agent_id" => hub2_uid})
+      |> render_change()
+
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_address]'][value='198.51.100.22']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_port]'][value='5201']")
+
+      # Selecting profile populates profile parameters
+      lv
+      |> form("#netperf-run-form", run: %{"profile_id" => profile.id})
+      |> render_change()
+
+      assert has_element?(lv, "#netperf-run-form input[name='run[bandwidth_bps]'][value='25000000']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[packet_length]'][value='1400']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[duration_sec]'][value='12']")
+
+      # Editing target_address, target_port, and duration_sec preserves user values across render_change
+      lv
+      |> form("#netperf-run-form",
+        run: %{
+          "target_address" => "203.0.113.99",
+          "target_port" => "6200",
+          "duration_sec" => "18"
+        }
+      )
+      |> render_change()
+
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_address]'][value='203.0.113.99']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_port]'][value='6200']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[duration_sec]'][value='18']")
+
+      # Triggering another unrelated change (sender_agent_id) must still keep the user edits
+      lv
+      |> form("#netperf-run-form", run: %{"sender_agent_id" => spoke_uid})
+      |> render_change()
+
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_address]'][value='203.0.113.99']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[target_port]'][value='6200']")
+      assert has_element?(lv, "#netperf-run-form input[name='run[duration_sec]'][value='18']")
+
+      # Invalid numeric duration_sec shows error instead of coercing to default
+      bad_run_html =
+        lv
+        |> form("#netperf-run-form", run: %{"duration_sec" => "abc"})
+        |> render_submit()
+
+      assert has_element?(lv, "#netperf-run-error")
+      assert bad_run_html =~ "Duration (s)"
+      refute_received {:netperf_run_dispatched, _, _, _}
+
+      # Valid submit dispatches the preserved override values with refreshed actor
+      lv
+      |> form("#netperf-run-form", run: %{"duration_sec" => "18"})
+      |> render_submit()
+
+      assert_received {:netperf_run_dispatched, ^spoke_uid, dispatch_params, opts}
+      assert opts[:actor].id == admin.id
+      assert dispatch_params.responder_agent_id == hub2_uid
+      assert dispatch_params.target_address == "203.0.113.99"
+      assert dispatch_params.target_port == 6200
+      assert dispatch_params.duration_sec == 18
+      assert dispatch_params.protocol == "udp"
+      assert dispatch_params.direction == "download"
     end
 
     test "Run Test Now modal dispatches netperf.run, handles PubSub updates, and surfaces errors",

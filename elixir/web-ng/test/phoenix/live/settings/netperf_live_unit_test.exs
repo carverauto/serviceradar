@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveUnitTest do
 
   alias Phoenix.LiveView.Lifecycle
   alias Phoenix.LiveView.Socket
+  alias ServiceRadar.Monitoring.NetperfProfile
+  alias ServiceRadar.Monitoring.NetperfResponder
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Settings.NetperfLive.Data
   alias ServiceRadarWebNGWeb.Settings.NetperfLive.Forms
@@ -74,6 +76,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveUnitTest do
                Index.handle_params(%{}, "/settings/networks/netperf", socket)
 
       assert {:redirect, %{to: "/settings/profile"}} = denied.redirected
+    end
+
+    test "disconnected handle_params uses cached scope without DB queries even when user struct is present" do
+      scope = %Scope{
+        user: %{id: Ecto.UUID.generate(), role: :viewer},
+        permissions: MapSet.new(["settings.networks.manage"])
+      }
+
+      {:ok, mounted} = Index.mount(%{}, %{}, disconnected_socket(scope))
+
+      assert {:noreply, after_params} =
+               Index.handle_params(%{"tab" => "profiles"}, "/settings/networks/netperf", mounted)
+
+      assert after_params.assigns.active_tab == "profiles"
+      assert after_params.assigns.loading? == true
+    end
+
+    test "handle_event denies unauthenticated or unbacked scope via RBAC.authorize_current" do
+      socket = disconnected_socket(permitted_scope())
+
+      assert {:noreply, denied} =
+               Index.handle_event("open_run_modal", %{}, socket)
+
+      assert {:redirect, %{to: "/settings/profile"}} = denied.redirected
+      assert denied.assigns.flash["error"] =~ "Not authorized"
     end
   end
 
@@ -169,10 +196,240 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveUnitTest do
       assert merged["packet_length"] == "1400"
     end
 
+    test "apply_run_presets preserves user-edited overrides unless responder or profile changed" do
+      responders = [
+        %{
+          agent_uid: "hub-1",
+          advertise_address: "198.51.100.10",
+          listen_port: 5199,
+          agent: nil
+        },
+        %{
+          agent_uid: "hub-2",
+          advertise_address: "198.51.100.20",
+          listen_port: 5201,
+          agent: nil
+        }
+      ]
+
+      profiles = [
+        %{
+          id: "prof-1",
+          protocol: :tcp,
+          direction: :upload,
+          bandwidth_bps: 50_000_000,
+          duration_sec: 5,
+          omit_sec: 1,
+          parallel: 1,
+          packet_length: 1200
+        },
+        %{
+          id: "prof-2",
+          protocol: :udp,
+          direction: :download,
+          bandwidth_bps: 20_000_000,
+          duration_sec: 12,
+          omit_sec: 2,
+          parallel: 2,
+          packet_length: 1400
+        }
+      ]
+
+      # 4-arity call preserves explicit non-blank user values.
+      preserved_4 =
+        Forms.apply_run_presets(
+          %{
+            "responder_agent_id" => "hub-1",
+            "target_address" => "203.0.113.99",
+            "target_port" => "6200",
+            "profile_id" => "prof-1",
+            "protocol" => "udp",
+            "duration_sec" => "15"
+          },
+          responders,
+          profiles,
+          &Data.resolve_responder_address/1
+        )
+
+      assert preserved_4["target_address"] == "203.0.113.99"
+      assert preserved_4["target_port"] == "6200"
+      assert preserved_4["protocol"] == "udp"
+      assert preserved_4["duration_sec"] == "15"
+      assert preserved_4["direction"] == "upload"
+
+      prev = %{
+        "responder_agent_id" => "hub-1",
+        "target_address" => "198.51.100.10",
+        "target_port" => "5199",
+        "profile_id" => "prof-1",
+        "protocol" => "tcp",
+        "direction" => "upload",
+        "bandwidth_bps" => "50000000",
+        "duration_sec" => "5",
+        "omit_sec" => "1",
+        "parallel" => "1",
+        "packet_length" => "1200"
+      }
+
+      # Editing target_address or duration_sec preserves user input.
+      edited =
+        Forms.apply_run_presets(
+          Map.merge(prev, %{
+            "target_address" => "203.0.113.99",
+            "target_port" => "6200",
+            "protocol" => "udp",
+            "duration_sec" => "15"
+          }),
+          responders,
+          profiles,
+          &Data.resolve_responder_address/1,
+          target: ["run", "duration_sec"],
+          prev_params: prev
+        )
+
+      assert edited["target_address"] == "203.0.113.99"
+      assert edited["target_port"] == "6200"
+      assert edited["protocol"] == "udp"
+      assert edited["duration_sec"] == "15"
+
+      # Changing responder_agent_id updates target_address & target_port without clobbering profile edits.
+      switched_responder =
+        Forms.apply_run_presets(
+          Map.put(edited, "responder_agent_id", "hub-2"),
+          responders,
+          profiles,
+          &Data.resolve_responder_address/1,
+          target: ["run", "responder_agent_id"],
+          prev_params: edited
+        )
+
+      assert switched_responder["target_address"] == "198.51.100.20"
+      assert switched_responder["target_port"] == "5201"
+      assert switched_responder["protocol"] == "udp"
+      assert switched_responder["duration_sec"] == "15"
+
+      # Changing profile_id updates profile fields without clobbering target_address/port.
+      with_custom_target = Map.merge(switched_responder, %{"target_address" => "203.0.113.77", "target_port" => "7000"})
+
+      switched_profile =
+        Forms.apply_run_presets(
+          Map.put(with_custom_target, "profile_id", "prof-2"),
+          responders,
+          profiles,
+          &Data.resolve_responder_address/1,
+          target: ["run", "profile_id"],
+          prev_params: with_custom_target
+        )
+
+      assert switched_profile["target_address"] == "203.0.113.77"
+      assert switched_profile["target_port"] == "7000"
+      assert switched_profile["protocol"] == "udp"
+      assert switched_profile["direction"] == "download"
+      assert switched_profile["duration_sec"] == "12"
+      assert switched_profile["bandwidth_bps"] == "20000000"
+
+      # Actively clearing target_address does not snap back while target_address is the _target.
+      cleared_target =
+        Forms.apply_run_presets(
+          Map.put(prev, "target_address", ""),
+          responders,
+          profiles,
+          &Data.resolve_responder_address/1,
+          target: ["run", "target_address"],
+          prev_params: prev
+        )
+
+      assert cleared_target["target_address"] == ""
+    end
+
+    test "build_profile_attrs, build_responder_attrs, and build_run_params do not silently coerce malformed/blank integers" do
+      bad_profile_attrs =
+        Forms.build_profile_attrs(%{
+          "name" => "bad-nums",
+          "bandwidth_bps" => "not-a-num",
+          "duration_sec" => "abc",
+          "omit_sec" => "1.5",
+          "parallel" => "",
+          "packet_length" => "1200",
+          "interval_seconds" => "900"
+        })
+
+      assert bad_profile_attrs.bandwidth_bps == "not-a-num"
+      assert bad_profile_attrs.duration_sec == "abc"
+      assert bad_profile_attrs.omit_sec == "1.5"
+      assert bad_profile_attrs.parallel == nil
+
+      profile_cs = Ash.Changeset.for_create(NetperfProfile, :create, bad_profile_attrs)
+      refute profile_cs.valid?
+
+      bad_responder_attrs =
+        Forms.build_responder_attrs(%{
+          "agent_uid" => "hub-1",
+          "name" => "Hub One",
+          "listen_port" => "1.5",
+          "max_concurrent_sessions" => "abc",
+          "max_total_bandwidth_bps" => ""
+        })
+
+      assert bad_responder_attrs.listen_port == "1.5"
+      assert bad_responder_attrs.max_concurrent_sessions == "abc"
+      assert bad_responder_attrs.max_total_bandwidth_bps == nil
+
+      responder_cs = Ash.Changeset.for_create(NetperfResponder, :create, bad_responder_attrs)
+      refute responder_cs.valid?
+
+      valid_run_base = %{
+        "responder_agent_id" => "hub-1",
+        "target_address" => "198.51.100.10",
+        "target_port" => "5199",
+        "protocol" => "tcp",
+        "direction" => "upload",
+        "bandwidth_bps" => "50000000",
+        "duration_sec" => "5",
+        "omit_sec" => "1",
+        "parallel" => "1",
+        "packet_length" => "1200"
+      }
+
+      assert {:ok, parsed_run} = Forms.build_run_params(valid_run_base)
+      assert parsed_run.target_port == 5199
+      assert parsed_run.duration_sec == 5
+
+      for {field, bad_val} <- [
+            {"target_port", "abc"},
+            {"target_port", "1.5"},
+            {"target_port", ""},
+            {"duration_sec", "abc"},
+            {"bandwidth_bps", "1.5"},
+            {"omit_sec", ""},
+            {"parallel", "99"},
+            {"packet_length", "10"}
+          ] do
+        assert {:error, reason} = Forms.build_run_params(Map.put(valid_run_base, field, bad_val))
+        assert Forms.format_dispatch_error(reason) =~ ~r/integer|between/i
+      end
+    end
+
+    test "policy_to_form_params guards %Ash.NotLoaded{} on :responders" do
+      policy = %{
+        name: "Unloaded Responders Policy",
+        description: nil,
+        enabled: true,
+        mode: :hub_and_spoke,
+        profile_id: "prof-1",
+        spoke_selector: %{},
+        responders: %Ash.NotLoaded{type: :relationship, field: :responders}
+      }
+
+      params = Forms.policy_to_form_params(policy)
+      assert params["responder_ids"] == []
+    end
+
     test "format_dispatch_error/1 translates every CommandBus netperf error reason" do
       assert Forms.format_dispatch_error(:netperf_responder_disabled) =~ "disabled"
       assert Forms.format_dispatch_error(:netperf_self_target_forbidden) =~ "same agent"
       assert Forms.format_dispatch_error(:invalid_authority_epoch) =~ "authority epoch"
+      assert Forms.format_dispatch_error(:invalid_form_state) =~ "no longer active"
       assert Forms.format_dispatch_error({:agent_offline, "a-1"}) =~ "a-1 is offline"
 
       assert Forms.format_dispatch_error({:agent_capability_missing, "a-1", "netperf"}) =~

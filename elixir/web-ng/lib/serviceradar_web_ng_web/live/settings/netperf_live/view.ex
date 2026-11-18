@@ -176,11 +176,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
           </p>
         </div>
         <.ui_button
+          :if={@profiles_count > 0}
           id="netperf-new-policy-btn"
           variant="primary"
           size="sm"
           patch={~p"/settings/networks/netperf/policies/new"}
-          disabled={@profiles_count == 0}
+        >
+          <.icon name="hero-plus" class="size-4" /> New Policy
+        </.ui_button>
+        <.ui_button
+          :if={@profiles_count == 0}
+          id="netperf-new-policy-btn"
+          type="button"
+          variant="primary"
+          size="sm"
+          disabled
         >
           <.icon name="hero-plus" class="size-4" /> New Policy
         </.ui_button>
@@ -622,9 +632,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
         </div>
 
         <div
-          :if={not @hub_mesh?}
           id="netperf-spoke-selector-fields"
-          class="space-y-3 rounded-sr-surface border border-sr-line bg-sr-subtle/30 p-3"
+          class={[
+            "space-y-3 rounded-sr-surface border border-sr-line bg-sr-subtle/30 p-3",
+            @hub_mesh? && "hidden"
+          ]}
         >
           <div class="text-sm font-medium text-sr-ink">Spoke Selector (Hub &amp; Spoke)</div>
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2">

@@ -109,7 +109,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
   @spec policy_to_form_params(map()) :: map()
   def policy_to_form_params(policy) do
     selector = policy.spoke_selector || %{}
-    responder_ids = policy |> Map.get(:responders, []) |> Enum.map(&to_string(&1.id))
+
+    responder_ids =
+      case Map.get(policy, :responders) do
+        responders when is_list(responders) -> Enum.map(responders, &to_string(&1.id))
+        _ -> []
+      end
 
     %{
       "name" => policy.name || "",
@@ -132,12 +137,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
       description: blank_to_nil(Map.get(params, "description")),
       protocol: parse_protocol(Map.get(params, "protocol")),
       direction: parse_direction(Map.get(params, "direction")),
-      bandwidth_bps: parse_int(Map.get(params, "bandwidth_bps"), 50_000_000),
-      duration_sec: parse_int(Map.get(params, "duration_sec"), 5),
-      omit_sec: parse_int(Map.get(params, "omit_sec"), 1),
-      parallel: parse_int(Map.get(params, "parallel"), 1),
-      packet_length: parse_int(Map.get(params, "packet_length"), 1200),
-      interval_seconds: parse_int(Map.get(params, "interval_seconds"), 900)
+      bandwidth_bps: parse_int_input(Map.get(params, "bandwidth_bps")),
+      duration_sec: parse_int_input(Map.get(params, "duration_sec")),
+      omit_sec: parse_int_input(Map.get(params, "omit_sec")),
+      parallel: parse_int_input(Map.get(params, "parallel")),
+      packet_length: parse_int_input(Map.get(params, "packet_length")),
+      interval_seconds: parse_int_input(Map.get(params, "interval_seconds"))
     }
   end
 
@@ -147,10 +152,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
       name: trim_string(Map.get(params, "name")),
       enabled: parse_bool(Map.get(params, "enabled"), true),
       advertise_address: blank_to_nil(Map.get(params, "advertise_address")),
-      listen_port: parse_int(Map.get(params, "listen_port"), 5199),
+      listen_port: parse_int_input(Map.get(params, "listen_port")),
       udp_enabled: parse_bool(Map.get(params, "udp_enabled"), true),
-      max_concurrent_sessions: parse_int(Map.get(params, "max_concurrent_sessions"), 4),
-      max_total_bandwidth_bps: parse_int(Map.get(params, "max_total_bandwidth_bps"), 1_000_000_000)
+      max_concurrent_sessions: parse_int_input(Map.get(params, "max_concurrent_sessions")),
+      max_total_bandwidth_bps: parse_int_input(Map.get(params, "max_total_bandwidth_bps"))
     }
 
     if include_agent_uid? do
@@ -277,16 +282,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
     if parts == [], do: "All eligible agents", else: Enum.join(parts, " · ")
   end
 
-  @spec apply_run_presets(map(), [map()], [map()], (map() -> String.t() | nil)) :: map()
-  def apply_run_presets(params, responders, profiles, address_resolver)
+  @spec apply_run_presets(map(), [map()], [map()], (map() -> String.t() | nil), keyword() | map()) ::
+          map()
+  def apply_run_presets(params, responders, profiles, address_resolver, context \\ [])
       when is_map(params) and is_list(responders) and is_list(profiles) do
+    target = context_value(context, :target)
+    prev_params = context_value(context, :prev_params)
+
     params
-    |> maybe_apply_responder_preset(responders, address_resolver)
-    |> maybe_apply_profile_preset(profiles)
+    |> maybe_apply_responder_preset(responders, address_resolver, target, prev_params)
+    |> maybe_apply_profile_preset(profiles, target, prev_params)
   end
 
-  defp maybe_apply_responder_preset(params, responders, address_resolver) do
+  defp maybe_apply_responder_preset(params, responders, address_resolver, target, prev_params) do
     responder_uid = trim_string(Map.get(params, "responder_agent_id"))
+
+    responder_changed? =
+      target == ["run", "responder_agent_id"] or
+        (is_map(prev_params) and
+           responder_uid != trim_string(Map.get(prev_params, "responder_agent_id")))
 
     case Enum.find(responders, &(&1.agent_uid == responder_uid)) do
       nil ->
@@ -294,46 +308,75 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
 
       responder ->
         resolved_address = address_resolver.(responder) || ""
+        resolved_port = to_string(responder.listen_port || 5199)
 
-        params
-        |> maybe_fill_blank("target_address", resolved_address)
-        |> maybe_fill_blank("target_port", to_string(responder.listen_port || 5199))
+        if responder_changed? do
+          params
+          |> Map.put("target_address", resolved_address)
+          |> Map.put("target_port", resolved_port)
+        else
+          params
+          |> maybe_fill_blank_if_untargeted("target_address", resolved_address, target)
+          |> maybe_fill_blank_if_untargeted("target_port", resolved_port, target)
+        end
     end
   end
 
-  defp maybe_apply_profile_preset(params, profiles) do
+  defp maybe_apply_profile_preset(params, profiles, target, prev_params) do
     profile_id = trim_string(Map.get(params, "profile_id"))
+
+    profile_changed? =
+      target == ["run", "profile_id"] or
+        (is_map(prev_params) and profile_id != trim_string(Map.get(prev_params, "profile_id")))
 
     case Enum.find(profiles, &(to_string(&1.id) == profile_id)) do
       nil ->
         params
 
       profile ->
-        params
-        |> Map.put("protocol", to_string(profile.protocol))
-        |> Map.put("direction", to_string(profile.direction))
-        |> Map.put("bandwidth_bps", to_string(profile.bandwidth_bps))
-        |> Map.put("duration_sec", to_string(profile.duration_sec))
-        |> Map.put("omit_sec", to_string(profile.omit_sec))
-        |> Map.put("parallel", to_string(profile.parallel))
-        |> Map.put("packet_length", to_string(profile.packet_length))
+        profile_defaults = [
+          {"protocol", to_string(profile.protocol)},
+          {"direction", to_string(profile.direction)},
+          {"bandwidth_bps", to_string(profile.bandwidth_bps)},
+          {"duration_sec", to_string(profile.duration_sec)},
+          {"omit_sec", to_string(profile.omit_sec)},
+          {"parallel", to_string(profile.parallel)},
+          {"packet_length", to_string(profile.packet_length)}
+        ]
+
+        if profile_changed? do
+          Enum.reduce(profile_defaults, params, fn {k, v}, acc -> Map.put(acc, k, v) end)
+        else
+          Enum.reduce(profile_defaults, params, fn {k, v}, acc ->
+            maybe_fill_blank_if_untargeted(acc, k, v, target)
+          end)
+        end
     end
   end
 
-  @spec build_run_params(map()) :: map()
+  @spec build_run_params(map()) :: {:ok, map()} | {:error, {:invalid_run_param, String.t(), String.t()}}
   def build_run_params(params) when is_map(params) do
-    %{
-      responder_agent_id: trim_string(Map.get(params, "responder_agent_id")),
-      target_address: trim_string(Map.get(params, "target_address")),
-      target_port: parse_int(Map.get(params, "target_port"), 5199),
-      protocol: trim_string(Map.get(params, "protocol", "tcp")),
-      direction: trim_string(Map.get(params, "direction", "upload")),
-      bandwidth_bps: parse_int(Map.get(params, "bandwidth_bps"), 50_000_000),
-      duration_sec: parse_int(Map.get(params, "duration_sec"), 5),
-      omit_sec: parse_int(Map.get(params, "omit_sec"), 1),
-      parallel: parse_int(Map.get(params, "parallel"), 1),
-      packet_length: parse_int(Map.get(params, "packet_length"), 1200)
-    }
+    with {:ok, target_port} <- parse_run_int(params, "target_port", "Target Port", 1, 65_535),
+         {:ok, bandwidth_bps} <-
+           parse_run_int(params, "bandwidth_bps", "Bandwidth Ceiling (bps)", 100_000, 10_000_000_000),
+         {:ok, duration_sec} <- parse_run_int(params, "duration_sec", "Duration (s)", 1, 30),
+         {:ok, omit_sec} <- parse_run_int(params, "omit_sec", "Omit (s)", 0, 5),
+         {:ok, parallel} <- parse_run_int(params, "parallel", "Parallel", 1, 8),
+         {:ok, packet_length} <- parse_run_int(params, "packet_length", "Packet Size (B)", 64, 65_507) do
+      {:ok,
+       %{
+         responder_agent_id: trim_string(Map.get(params, "responder_agent_id")),
+         target_address: trim_string(Map.get(params, "target_address")),
+         target_port: target_port,
+         protocol: trim_string(Map.get(params, "protocol", "tcp")),
+         direction: trim_string(Map.get(params, "direction", "upload")),
+         bandwidth_bps: bandwidth_bps,
+         duration_sec: duration_sec,
+         omit_sec: omit_sec,
+         parallel: parallel,
+         packet_length: packet_length
+       }}
+    end
   end
 
   @spec format_bps(integer() | float() | nil) :: String.t()
@@ -391,6 +434,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
 
   def format_dispatch_error(:control_session_unavailable),
     do: "ControlStream session is unavailable for the selected sender agent."
+
+  def format_dispatch_error(:invalid_form_state), do: "Form is no longer active; please reopen it and try again."
+
+  def format_dispatch_error({:invalid_run_param, label, detail}) when is_binary(label) and is_binary(detail),
+    do: "#{label} #{detail}"
 
   def format_dispatch_error(%Ash.Error.Invalid{} = err), do: Exception.message(err)
   def format_dispatch_error(%Ash.Error.Forbidden{} = err), do: Exception.message(err)
@@ -485,16 +533,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
 
   defp parse_bool(_, default), do: default
 
-  defp parse_int(value, _default) when is_integer(value), do: value
+  defp parse_int_input(value) when is_integer(value), do: value
 
-  defp parse_int(value, default) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, ""} -> parsed
-      _ -> default
+  defp parse_int_input(value) when is_binary(value) do
+    case String.trim(value) do
+      "" ->
+        nil
+
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {parsed, ""} -> parsed
+          _ -> trimmed
+        end
     end
   end
 
-  defp parse_int(_, default), do: default
+  defp parse_int_input(nil), do: nil
+  defp parse_int_input(value), do: value
+
+  defp parse_run_int(params, key, label, min_val, max_val) do
+    case Map.get(params, key) do
+      value when is_integer(value) ->
+        validate_run_int_range(value, label, min_val, max_val)
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" ->
+            {:error, {:invalid_run_param, label, "is required and must be an integer."}}
+
+          trimmed ->
+            case Integer.parse(trimmed) do
+              {parsed, ""} ->
+                validate_run_int_range(parsed, label, min_val, max_val)
+
+              _ ->
+                {:error, {:invalid_run_param, label, "must be a valid integer."}}
+            end
+        end
+
+      _ ->
+        {:error, {:invalid_run_param, label, "is required and must be a valid integer."}}
+    end
+  end
+
+  defp validate_run_int_range(value, label, min_val, max_val) do
+    if value >= min_val and value <= max_val do
+      {:ok, value}
+    else
+      {:error, {:invalid_run_param, label, "must be between #{min_val} and #{max_val}."}}
+    end
+  end
 
   defp trim_string(value) when is_binary(value), do: String.trim(value)
   defp trim_string(_), do: ""
@@ -512,11 +600,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
   defp maybe_put_nonempty(map, _key, ""), do: map
   defp maybe_put_nonempty(map, key, value), do: Map.put(map, key, value)
 
+  defp maybe_fill_blank_if_untargeted(params, key, _value, ["run", key]), do: params
+
+  defp maybe_fill_blank_if_untargeted(params, key, value, _target) do
+    maybe_fill_blank(params, key, value)
+  end
+
   defp maybe_fill_blank(params, key, value) when is_binary(value) and value != "" do
-    Map.put(params, key, value)
+    if trim_string(Map.get(params, key)) == "" do
+      Map.put(params, key, value)
+    else
+      params
+    end
   end
 
   defp maybe_fill_blank(params, _key, _value), do: params
+
+  defp context_value(context, key) when is_list(context), do: Keyword.get(context, key)
+  defp context_value(context, key) when is_map(context), do: Map.get(context, key)
+  defp context_value(_context, _key), do: nil
 
   defp selector_value(selector, key) when is_map(selector) do
     Map.get(selector, key) || Enum.find_value(selector, fn {k, v} -> if to_string(k) == key, do: v end)

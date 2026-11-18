@@ -20,6 +20,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   @current_path "/settings/networks/netperf"
   @manage_permission "settings.networks.manage"
   @supported_tabs ~w(policies responders profiles)
+  @spoke_selector_form_keys ~w(
+    spoke_partition_id
+    spoke_tags_text
+    spoke_srql_query
+    spoke_agent_uids_text
+  )
 
   @doc "In-page tab query parameter values handled by this LiveView."
   @spec supported_tabs() :: [String.t()]
@@ -73,42 +79,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    if fresh_can_manage?(socket.assigns[:current_scope]) do
-      if connected?(socket) do
-        socket =
-          socket
-          |> load_and_assign_data()
-          |> assign(:loading?, false)
-          |> apply_action(socket.assigns.live_action, params)
+    if connected?(socket) do
+      case RBAC.authorize_current(socket.assigns[:current_scope], [@manage_permission]) do
+        {:ok, fresh_scope} ->
+          socket =
+            socket
+            |> assign(:current_scope, fresh_scope)
+            |> load_and_assign_data()
+            |> assign(:loading?, false)
+            |> apply_action(socket.assigns.live_action, params)
 
-        {:noreply, socket}
-      else
-        {:noreply, apply_disconnected_params(socket, socket.assigns.live_action, params)}
+          {:noreply, socket}
+
+        {:error, _reason} ->
+          {:noreply, unauthorized(socket)}
       end
     else
-      {:noreply, unauthorized(socket)}
+      if can_manage?(socket.assigns[:current_scope]) do
+        {:noreply, apply_disconnected_params(socket, socket.assigns.live_action, params)}
+      else
+        {:noreply, unauthorized(socket)}
+      end
     end
   end
 
   @impl true
   def handle_event("validate_policy", %{"policy" => params}, socket) do
-    authorize_manage_event(socket, fn ->
+    authorize_manage_event(socket, fn fresh_socket ->
+      merged_params =
+        if Map.get(params, "mode") == "hub_mesh" do
+          preserved = Map.take(fresh_socket.assigns.form_params || %{}, @spoke_selector_form_keys)
+          Map.merge(preserved, params)
+        else
+          params
+        end
+
       {:noreply,
-       socket
-       |> assign(:form_params, params)
-       |> assign(:form, to_form(params, as: :policy))}
+       fresh_socket
+       |> assign(:form_params, merged_params)
+       |> assign(:form, to_form(merged_params, as: :policy))}
     end)
   end
 
   def handle_event("save_policy", %{"policy" => params}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
       {attrs, responder_ids} = Forms.build_policy_attrs(params)
 
       result =
         save_policy_with_responders(
-          socket.assigns.show_form,
-          socket.assigns.editing_record,
+          fresh_socket.assigns.show_form,
+          fresh_socket.assigns.editing_record,
           attrs,
           responder_ids,
           scope
@@ -117,13 +138,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
       case result do
         {:ok, _policy} ->
           {:noreply,
-           socket
+           fresh_socket
            |> put_flash(:info, "Network performance policy saved")
            |> push_navigate(to: ~p"/settings/networks/netperf?tab=policies")}
 
         {:error, reason} ->
           {:noreply,
-           socket
+           fresh_socket
            |> assign(:form_params, params)
            |> assign(:form, to_form(params, as: :policy))
            |> put_flash(:error, "Failed to save policy: #{Forms.format_dispatch_error(reason)}")}
@@ -132,13 +153,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("toggle_policy", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, policy} <- NetperfPolicy.get_by_id(id, scope: scope),
            {:ok, _updated} <- toggle_policy_record(policy, scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(
            :info,
@@ -148,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to update policy: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -157,20 +178,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("delete_policy", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, policy} <- NetperfPolicy.get_by_id(id, scope: scope),
            :ok <- NetperfPolicy.delete_policy(policy, scope: scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(:info, "Network performance policy deleted")}
       else
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to delete policy: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -179,39 +200,42 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("validate_responder", %{"responder" => params}, socket) do
-    authorize_manage_event(socket, fn ->
+    authorize_manage_event(socket, fn fresh_socket ->
       {:noreply,
-       socket
+       fresh_socket
        |> assign(:form_params, params)
        |> assign(:form, to_form(params, as: :responder))}
     end)
   end
 
   def handle_event("save_responder", %{"responder" => params}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       result =
-        case socket.assigns.show_form do
-          :new_responder ->
+        case {fresh_socket.assigns.show_form, fresh_socket.assigns.editing_record} do
+          {:new_responder, _} ->
             attrs = Forms.build_responder_attrs(params, true)
             NetperfResponder.create_responder(attrs, scope: scope)
 
-          :edit_responder ->
+          {:edit_responder, %NetperfResponder{} = editing_record} ->
             attrs = Forms.build_responder_attrs(params, false)
-            NetperfResponder.update_responder(socket.assigns.editing_record, attrs, scope: scope)
+            NetperfResponder.update_responder(editing_record, attrs, scope: scope)
+
+          _ ->
+            {:error, :invalid_form_state}
         end
 
       case result do
         {:ok, _responder} ->
           {:noreply,
-           socket
+           fresh_socket
            |> put_flash(:info, "Hub Responder saved")
            |> push_navigate(to: ~p"/settings/networks/netperf?tab=responders")}
 
         {:error, reason} ->
           {:noreply,
-           socket
+           fresh_socket
            |> assign(:form_params, params)
            |> assign(:form, to_form(params, as: :responder))
            |> put_flash(
@@ -223,13 +247,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("toggle_responder", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, responder} <- NetperfResponder.get_by_id(id, scope: scope),
            {:ok, _updated} <- toggle_responder_record(responder, scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(
            :info,
@@ -242,7 +266,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to update Hub Responder: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -251,20 +275,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("bump_authority_epoch", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, responder} <- NetperfResponder.get_by_id(id, scope: scope),
            {:ok, updated} <- NetperfResponder.bump_authority_epoch(responder, scope: scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(:info, "Authority epoch bumped to #{updated.authority_epoch}")}
       else
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to bump authority epoch: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -273,20 +297,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("delete_responder", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, responder} <- NetperfResponder.get_by_id(id, scope: scope),
            :ok <- NetperfResponder.delete_responder(responder, scope: scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(:info, "Hub Responder deleted")}
       else
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to delete Hub Responder: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -295,38 +319,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("validate_profile", %{"profile" => params}, socket) do
-    authorize_manage_event(socket, fn ->
+    authorize_manage_event(socket, fn fresh_socket ->
       {:noreply,
-       socket
+       fresh_socket
        |> assign(:form_params, params)
        |> assign(:form, to_form(params, as: :profile))}
     end)
   end
 
   def handle_event("save_profile", %{"profile" => params}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
       attrs = Forms.build_profile_attrs(params)
 
       result =
-        case socket.assigns.show_form do
-          :new_profile ->
+        case {fresh_socket.assigns.show_form, fresh_socket.assigns.editing_record} do
+          {:new_profile, _} ->
             NetperfProfile.create_profile(attrs, scope: scope)
 
-          :edit_profile ->
-            NetperfProfile.update_profile(socket.assigns.editing_record, attrs, scope: scope)
+          {:edit_profile, %NetperfProfile{} = editing_record} ->
+            NetperfProfile.update_profile(editing_record, attrs, scope: scope)
+
+          _ ->
+            {:error, :invalid_form_state}
         end
 
       case result do
         {:ok, _profile} ->
           {:noreply,
-           socket
+           fresh_socket
            |> put_flash(:info, "Network performance profile saved")
            |> push_navigate(to: ~p"/settings/networks/netperf?tab=profiles")}
 
         {:error, reason} ->
           {:noreply,
-           socket
+           fresh_socket
            |> assign(:form_params, params)
            |> assign(:form, to_form(params, as: :profile))
            |> put_flash(:error, "Failed to save profile: #{Forms.format_dispatch_error(reason)}")}
@@ -335,20 +362,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("delete_profile", %{"id" => id}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
 
       with {:ok, profile} <- NetperfProfile.get_by_id(id, scope: scope),
            :ok <- NetperfProfile.delete_profile(profile, scope: scope) do
         {:noreply,
-         socket
+         fresh_socket
          |> load_and_assign_data()
          |> put_flash(:info, "Network performance profile deleted")}
       else
         {:error, reason} ->
           {:noreply,
            put_flash(
-             socket,
+             fresh_socket,
              :error,
              "Failed to delete profile: #{Forms.format_dispatch_error(reason)}"
            )}
@@ -357,11 +384,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("open_run_modal", _params, socket) do
-    authorize_manage_event(socket, fn ->
-      defaults = initial_run_params(socket.assigns)
+    authorize_manage_event(socket, fn fresh_socket ->
+      defaults = initial_run_params(fresh_socket.assigns)
 
       {:noreply,
-       socket
+       fresh_socket
        |> assign(:show_run_modal, true)
        |> assign(:run_error, nil)
        |> assign(:run_params, defaults)
@@ -370,26 +397,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("close_run_modal", _params, socket) do
-    authorize_manage_event(socket, fn ->
+    authorize_manage_event(socket, fn fresh_socket ->
       {:noreply,
-       socket
+       fresh_socket
        |> assign(:show_run_modal, false)
        |> assign(:run_error, nil)}
     end)
   end
 
-  def handle_event("validate_run", %{"run" => params}, socket) do
-    authorize_manage_event(socket, fn ->
+  def handle_event("validate_run", %{"run" => params} = event_params, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
       merged =
         Forms.apply_run_presets(
           params,
-          socket.assigns.responders_list,
-          socket.assigns.profiles_list,
-          &Data.resolve_responder_address/1
+          fresh_socket.assigns.responders_list,
+          fresh_socket.assigns.profiles_list,
+          &Data.resolve_responder_address/1,
+          target: Map.get(event_params, "_target"),
+          prev_params: fresh_socket.assigns.run_params
         )
 
       {:noreply,
-       socket
+       fresh_socket
        |> assign(:run_error, nil)
        |> assign(:run_params, merged)
        |> assign(:run_form, to_form(merged, as: :run))}
@@ -397,42 +426,42 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   def handle_event("run_netperf_test", %{"run" => params}, socket) do
-    authorize_manage_event(socket, fn ->
-      scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn fresh_socket ->
+      scope = fresh_socket.assigns.current_scope
       sender_agent_id = String.trim(Map.get(params, "sender_agent_id", ""))
-      run_params = Forms.build_run_params(params)
 
-      case dispatch_netperf_run(sender_agent_id, run_params, actor: scope.user) do
-        {:ok, command_id} ->
-          active_run = %{
-            command_id: command_id,
-            sender_agent_id: sender_agent_id,
-            responder_agent_id: run_params.responder_agent_id,
-            target_address: run_params.target_address,
-            target_port: run_params.target_port,
-            protocol: run_params.protocol,
-            direction: run_params.direction,
-            state: :sent,
-            progress_percent: nil,
-            message: "Dispatched to sender agent #{sender_agent_id}",
-            result_payload: nil
-          }
+      with {:ok, run_params} <- Forms.build_run_params(params),
+           {:ok, command_id} <-
+             dispatch_netperf_run(sender_agent_id, run_params, actor: scope.user) do
+        active_run = %{
+          command_id: command_id,
+          sender_agent_id: sender_agent_id,
+          responder_agent_id: run_params.responder_agent_id,
+          target_address: run_params.target_address,
+          target_port: run_params.target_port,
+          protocol: run_params.protocol,
+          direction: run_params.direction,
+          state: :sent,
+          progress_percent: nil,
+          message: "Dispatched to sender agent #{sender_agent_id}",
+          result_payload: nil
+        }
 
-          socket =
-            socket
-            |> assign(:show_run_modal, false)
-            |> assign(:run_error, nil)
-            |> assign(:active_run, active_run)
-            |> maybe_insert_command_into_stream(command_id, scope)
-            |> put_flash(:info, "Dispatched netperf.run (#{command_id})")
+        updated_socket =
+          fresh_socket
+          |> assign(:show_run_modal, false)
+          |> assign(:run_error, nil)
+          |> assign(:active_run, active_run)
+          |> maybe_insert_command_into_stream(command_id, scope)
+          |> put_flash(:info, "Dispatched netperf.run (#{command_id})")
 
-          {:noreply, socket}
-
+        {:noreply, updated_socket}
+      else
         {:error, reason} ->
           error_message = Forms.format_dispatch_error(reason)
 
           {:noreply,
-           socket
+           fresh_socket
            |> assign(:run_error, error_message)
            |> assign(:run_params, params)
            |> assign(:run_form, to_form(params, as: :run))
@@ -631,7 +660,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
     end)
   end
 
-  defp save_policy_with_responders(:edit_policy, policy, attrs, responder_ids, scope) do
+  defp save_policy_with_responders(:edit_policy, %NetperfPolicy{} = policy, attrs, responder_ids, scope) do
     Repo.transaction(fn ->
       with {:ok, updated} <- NetperfPolicy.update_policy(policy, attrs, scope: scope),
            :ok <- NetperfPolicy.sync_responders(updated.id, responder_ids, scope: scope) do
@@ -640,6 +669,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+  end
+
+  defp save_policy_with_responders(_show_form, _record, _attrs, _responder_ids, _scope) do
+    {:error, :invalid_form_state}
   end
 
   defp toggle_policy_record(%{enabled: true} = policy, scope), do: NetperfPolicy.disable_policy(policy, scope: scope)
@@ -668,7 +701,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
     |> Forms.apply_run_presets(
       assigns.responders_list,
       assigns.profiles_list,
-      &Data.resolve_responder_address/1
+      &Data.resolve_responder_address/1,
+      target: ["run", "responder_agent_id"],
+      prev_params: %{}
     )
   end
 
@@ -698,11 +733,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   defp normalize_tab(tab) when tab in @supported_tabs, do: tab
   defp normalize_tab(_), do: "policies"
 
-  defp authorize_manage_event(socket, fun) when is_function(fun, 0) do
-    if fresh_can_manage?(socket.assigns[:current_scope]) do
-      fun.()
-    else
-      {:noreply, unauthorized(socket)}
+  defp authorize_manage_event(socket, fun) when is_function(fun, 1) do
+    case RBAC.authorize_current(socket.assigns[:current_scope], [@manage_permission]) do
+      {:ok, fresh_scope} ->
+        socket
+        |> assign(:current_scope, fresh_scope)
+        |> fun.()
+
+      {:error, _reason} ->
+        {:noreply, unauthorized(socket)}
     end
   end
 
@@ -711,13 +750,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
     |> put_flash(:error, "Not authorized to manage network performance settings")
     |> redirect(to: ~p"/settings/profile")
   end
-
-  defp fresh_can_manage?(%{user: user}) when not is_nil(user) do
-    ServiceRadar.Identity.RBAC.clear_process_cache()
-    ServiceRadar.Identity.RBAC.has_permission?(user, @manage_permission)
-  end
-
-  defp fresh_can_manage?(scope), do: can_manage?(scope)
 
   defp can_manage?(scope), do: RBAC.can?(scope, @manage_permission)
 end
