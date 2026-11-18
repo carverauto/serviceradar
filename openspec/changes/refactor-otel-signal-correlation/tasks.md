@@ -60,10 +60,12 @@
 - [x] 4.2 Go: wire `InitializeTracing` into core/agent services that should
       emit spans (currently zero callers); propagate context on gRPC
 - [ ] 4.3 Rust services: propagate inbound context where spans are created
+      (superseded by `connect-platform-trace-context`)
 - [x] 4.4 Set span status ERROR on failures across SDK wrappers; verify error
       rate becomes non-zero-but-honest in rollups
 - [ ] 4.5 Demo validation: multi-span cross-service traces visible; root-span
       ratio drops below threshold
+      (superseded by `connect-platform-trace-context`, task 6)
 
 ## 5. Web-NG: trace detail + working pivots
 
