@@ -287,12 +287,13 @@ def decide(matches, runs, ledgers, acknowledged, decided):
     """Split the release-key entries not already explained into explained, pending and unexplained."""
     explained, pending, unexplained = {}, [], []
     for match in matches:
+        # Only a ledger match is kept for good; an acknowledgement counts while it is listed.
         if decided.get(match["uuid"], {}).get("status") == "explained":
             continue
         when = datetime.fromtimestamp(match["integrated_time"], timezone.utc)
         active = [run for run in runs if run["started"] <= when and (run["ended"] is None or run["ended"] >= when)]
         if match["uuid"] in acknowledged:
-            explained[match["uuid"]] = f"acknowledged: {acknowledged[match['uuid']]}"
+            explained[match["uuid"]] = ("acknowledged", f"acknowledged: {acknowledged[match['uuid']]}")
             continue
         if any(run["ended"] is None for run in active):
             pending.append(match)
@@ -300,7 +301,7 @@ def decide(matches, runs, ledgers, acknowledged, decided):
         explaining = [run for run in active
                       if match["payload_sha256"] in {line.get("payload_sha256") for line in ledgers.get(run["id"], [])}]
         if explaining:
-            explained[match["uuid"]] = f"signing run {explaining[0]['url'] or explaining[0]['id']}"
+            explained[match["uuid"]] = ("ledger", f"signing run {explaining[0]['url'] or explaining[0]['id']}")
         else:
             unexplained.append(match)
     return explained, pending, unexplained
@@ -405,8 +406,8 @@ def run(args, environ, now):
         alerts.append(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})")
     for match in unexplained:
         decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"]}
-    for uuid, reason in explained.items():
-        decided[uuid] = {"status": "explained", "reason": reason}
+    for uuid, (source, reason) in explained.items():
+        decided[uuid] = {"status": "explained" if source == "ledger" else "acknowledged", "reason": reason}
         if uuid in by_uuid:
             github.close_issue(by_uuid[uuid]["number"], f"Explained by {reason}.")
     if blind:

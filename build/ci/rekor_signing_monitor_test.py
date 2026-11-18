@@ -263,6 +263,23 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.titles("open"), [])
         self.assertIn("manual demo signing", self.world.issues[0]["comments"][0])
 
+    def test_retracting_an_acknowledgement_restores_detection(self):
+        entry = self.world.add_entry(b"acknowledged then retracted")
+        self.acknowledged.write_text(json.dumps({"entries": [
+            {"uuid": entry["uuid"], "log_index": entry["log_index"], "run": "n/a", "reason": "manual"}]}))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.world.issues, [])
+        self.acknowledged.write_text(json.dumps({"entries": []}))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
+
+    def test_a_bootstrap_dispatch_still_checks_an_existing_checkpoint(self):
+        self.world.add_entry(b"first")
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.bodies[1] = (b'{"kind":"rekord"}', self.world.bodies[1][1])
+        self.assertEqual(self.run_monitor(bootstrap=True), 1)
+        self.assertIn("rewrote entries", self.world.discord[-1])
+
     def test_rewritten_history_fails_and_alerts(self):
         self.world.add_entry(b"first")
         self.assertEqual(self.run_monitor(), 0)
