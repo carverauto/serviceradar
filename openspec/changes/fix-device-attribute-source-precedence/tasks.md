@@ -150,8 +150,9 @@
 ## 7. Primary address and aliases
 
 - [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
-      device has a usable IPv4 (a usable primary address: chooser-accepted,
-      `sr_address_rank >= 40`, not a directed broadcast, not host-internal);
+      device has a usable IPv4 (a routable IPv4 with `sr_address_rank >= 40`;
+      routable = chooser-accepted, not link-local, not a directed broadcast,
+      not host-internal, ULA included);
       IPv6 only on IPv6-only devices (no usable IPv4; a `169.254/16`
       address does not count); the preference ranks only addresses a chooser accepts; IPv4 to IPv4
       re-IP replaces; the #3905 rank applies within a family
@@ -167,7 +168,9 @@
       address fallback submit the best chooser-accepted IPv4 among every
       address on the host or guest, prefer it over any IPv6, and never submit
       a link-local (`fe80::/10`, `169.254/16`) as primary when a routable
-      address exists
+      address (as defined in 7.1, so `fe80::` is never routable even though
+      `routable_management_ip?` accepts it) exists; a host whose only
+      addresses are link-local still submits one as its primary
 - [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
@@ -177,12 +180,12 @@
       link-local only if nothing else, skipping blacklisted addresses;
       `primaryIP` is left alone)
       prefer a chooser-accepted IPv4 over any IPv6 and never submit a
-      link-local when a usable primary address exists; keep each chooser's own
+      link-local when a routable address exists; keep each chooser's own
       order among accepted IPv4s; the succession hand-over
       `MergeEngine.take_address?/2` compares only the successor's stored `ip`
       with the survivor's, never replaces a usable IPv4 with an IPv6 or a
-      usable primary address with a link-local, and takes a link-local only
-      when the survivor has no usable primary address; keep NetBox
+      routable address with a link-local, and takes a link-local only
+      when the survivor has no routable address; keep NetBox
       `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
@@ -210,7 +213,7 @@
       `docker0` never becomes primary or an alias; a bare `192.0.2.255` on a
       known `192.0.2.0/24` is never an alias; a link-local-only device keeps
       its link-local primary with no address-fallback name, and a later
-      usable primary address replaces it (the existing "a device with only
+      routable address replaces it (the existing "a device with only
       link-local addresses keeps one" sync test stays); an IPv6-only device that
       gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
       an unchanged inventory produce identical sweep targets and

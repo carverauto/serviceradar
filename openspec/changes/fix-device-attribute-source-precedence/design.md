@@ -183,12 +183,14 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
 
-14. IPv4 is always the preferred primary address. A usable primary address
-    is an address the chooser accepts, with `sr_address_rank >= 40`, that is
-    not a directed broadcast (per `AliasPolicy.valid_alias_ip?/2` with the
-    device's known CIDRs) and not host-internal; a usable IPv4 is such an
-    IPv4, and an IPv6-only device is one with no usable IPv4 (a `169.254/16`
-    IPv4 does not count). When a device has a usable IPv4, an IPv4 is the
+14. IPv4 is always the preferred primary address. A routable address is an
+    address the chooser accepts that is not link-local, not a directed
+    broadcast (per `AliasPolicy.valid_alias_ip?/2` with the device's known
+    CIDRs) and not host-internal; a ULA (rank 30) is routable. A usable IPv4
+    is a routable IPv4 (`sr_address_rank >= 40`), and an IPv6-only device is
+    one with no usable IPv4 (a `169.254/16` IPv4 does not count). Within a
+    family the never-downgrade rank still holds, so a link-local never
+    replaces a ULA or anything stronger. When a device has a usable IPv4, an IPv4 is the
     primary `ip`; no IPv6
     becomes primary on a dual-stack device, and every aliasable IPv6 (global
     or ULA, per `AliasPolicy.valid_alias_ip?/2` with the device's known
@@ -220,18 +222,19 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     submits a chooser-accepted IPv4 over any IPv6 among every address on the
     host or guest when one exists, keeps its own order among accepted IPv4s
     (configured NIC index, `management_ip_score`), and never submits a
-    link-local (`fe80::/10`, `169.254/16`) as primary when a usable primary
+    link-local (`fe80::/10`, `169.254/16`) as primary when a routable
     address exists. The succession hand-over `MergeEngine.take_address?/2`
     only compares the successor's stored `ip` with the survivor's; it does
     not scan other addresses, never replaces a usable IPv4 with an IPv6,
-    never replaces a usable primary address with a link-local, and takes a
-    link-local only when the survivor has no usable primary address. A device whose only address is link-local
+    never replaces a routable address with a link-local, and takes a
+    link-local only when the survivor has no routable address. A device whose only address is link-local
     keeps it as its primary under the #3905 rank (the existing sync test
     "a device with only link-local addresses keeps one" stays), without an
-    address-fallback name or hostname; any usable primary address replaces
-    it. The address-fallback name (decision 7) follows this primary when it
-    is not link-local, so it never takes an IPv6 literal when the device has
-    an IPv4, and never a link-local.
+    address-fallback name or hostname; any routable address replaces
+    it. The address-fallback name (decision 7) follows this primary except
+    that it is never a link-local; it never takes an IPv6 literal when the
+    device has a usable IPv4, and an IPv6-only device's fallback name may be
+    its routable IPv6.
 15. Every aliasable address a device owns, in both families, stays a live `:ip` alias
     in `device_alias_states`, including an address displaced from primary or
     never promoted, so the sweep targets both families. Aliasable means
@@ -248,7 +251,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     neither primary nor alias, so a `172.17.0.1` reported by every container
     host cannot move between devices. Link-local addresses
     (`fe80::/10`, `169.254/16`) never become aliases or names, and are never
-    primary on a device with a usable primary address; a
+    primary on a device with a routable address; a
     shared link-local such as a vendor `fe80::1` would otherwise merge or
     flip between devices, consistent with the link-local alias archive
     migration. An address has one

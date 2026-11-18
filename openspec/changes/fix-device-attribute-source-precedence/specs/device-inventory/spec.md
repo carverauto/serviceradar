@@ -284,12 +284,14 @@ inventory cleared it.
 - **AND** the stored type and type_id SHALL remain
 
 ### Requirement: A device with a usable IPv4 keeps an IPv4 primary address
-Sync ingestion SHALL treat as a usable primary address an address the
-primary-IP chooser accepts, with sr_address_rank 40 or higher, that is not a
-directed broadcast (as AliasPolicy's
-alias predicate decides with the device's known interface CIDRs) and not
-host-internal. A usable IPv4 is such an IPv4. An IPv6-only device is one with no
-usable IPv4; a link-local IPv4 (169.254/16) does not count. Sync ingestion SHALL
+Sync ingestion SHALL treat as a routable address an address the primary-IP
+chooser accepts that is not link-local, not a directed broadcast (as
+AliasPolicy's alias predicate decides with the device's known interface CIDRs)
+and not host-internal; a ULA (sr_address_rank 30) is routable. A usable IPv4 is
+a routable IPv4 (sr_address_rank 40 or higher). An IPv6-only device is one with
+no usable IPv4; a link-local IPv4 (169.254/16) does not count. Within a family
+the never-downgrade rank still holds, so a link-local never replaces a ULA or
+anything stronger. Sync ingestion SHALL
 keep a usable IPv4 as the primary ip of every device that has one; no IPv6 SHALL
 become primary on such a device, and
 every aliasable IPv6 (global or ULA) SHALL be recorded as an alias. The
@@ -297,10 +299,10 @@ preference SHALL rank only addresses a chooser already accepts as a primary
 and SHALL NOT promote an address a chooser rejects, such as a host-internal
 bridge address a guest chooser skips. A link-local address (fe80::/10 or
 169.254/16) SHALL NOT become an alias or the name or hostname, and SHALL NOT be
-the primary ip of a device that has any usable primary address. A device whose only
+the primary ip of a device that has any routable address. A device whose only
 address is link-local SHALL keep that link-local as its primary ip under the
 never-downgrade rank, with no address-fallback name (it keeps a stronger
-recorded name, or none), and any usable primary address (a usable IPv4, or a
+recorded name, or none), and any routable address (a usable IPv4, or a
 global or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
 and a usable IPv4 that device later gains SHALL take over. A change between two
 usable IPv4s SHALL replace the primary, and the never-downgrade address rank
@@ -315,14 +317,15 @@ else), the NetBox plugin's primary-IP selection (which already prefers the
 IPv4), and the camera path: each SHALL submit a chooser-accepted IPv4 over any
 IPv6 among every address on the host or guest when one exists, keeping its own
 order among accepted IPv4s, and SHALL NOT submit a link-local address as
-primary when a usable primary address exists. The succession address hand-over
+primary when a routable address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
-replace a usable IPv4 with an IPv6, SHALL NOT replace a usable primary address
-with a link-local, and MAY take a link-local only when the survivor has no
-usable primary address, so a link-local-only device keeps its only address. The
-address-fallback name SHALL follow the primary ip when that primary is not
-link-local, so the name and hostname SHALL NOT take an IPv6 literal when the
-device has an IPv4, and SHALL NOT take a link-local.
+replace a usable IPv4 with an IPv6, SHALL NOT replace a routable address with a
+link-local, and MAY take a link-local only when the survivor has no routable
+address, so a link-local-only device keeps its only address. The
+address-fallback name SHALL follow the primary ip except that it SHALL NOT be a
+link-local; when the device has a usable IPv4 the name and hostname SHALL NOT
+take an IPv6 literal, and an IPv6-only device's fallback name MAY be its
+routable IPv6.
 
 #### Scenario: A dual-stack census sighting keeps the IPv4 primary
 - **GIVEN** a device whose primary ip is 192.0.2.3
@@ -374,7 +377,7 @@ as a container bridge, or a shared interface address kept off the ip merge
 type). A link-local, directed-broadcast or host-internal address SHALL NOT be
 an alias; a directed-broadcast or host-internal address SHALL NOT be the
 primary ip, and a link-local SHALL NOT be the primary ip of a device that has
-any usable primary address. An address SHALL have one live holder per partition: a
+any routable address. An address SHALL have one live holder per partition: a
 confirmed re-attribution of an address to another device SHALL expire the
 previous holder's alias for it in the same write, and a holder that has not
 re-sighted an address within the alias expiry window SHALL be expired. Sweep

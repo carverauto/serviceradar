@@ -175,10 +175,12 @@ inventory state rather than of nondeterministic compilation.
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
-- IPv4 is always the preferred primary address. A usable primary address is
-  one the chooser accepts, with `sr_address_rank >= 40`, that is not a
-  directed broadcast or host-internal; an IPv6-only device has no usable IPv4
-  (a `169.254/16` address does not count). When a device has a usable IPv4,
+- IPv4 is always the preferred primary address. A routable address is one
+  the chooser accepts that is not link-local, a directed broadcast or
+  host-internal (a ULA is routable); a usable IPv4 is a routable IPv4
+  (`sr_address_rank >= 40`); an IPv6-only device has no usable IPv4 (a
+  `169.254/16` address does not count). Within a family the never-downgrade
+  rank still holds, so a link-local never replaces a ULA. When a device has a usable IPv4,
   an IPv4 is its primary `ip`; no IPv6 becomes primary
   on a dual-stack device, and every aliasable IPv6 (global or ULA, as
   `AliasPolicy.valid_alias_ip?/2` defines with the device's known CIDRs) is
@@ -197,11 +199,11 @@ inventory state rather than of nondeterministic compilation.
   `filterDevices` (over its split `IPAddress`, `IPv4Addresses` and
   `IPv6Addresses`), the NetBox plugin's `primaryIP` (already IPv4-first), and
   the camera path; each keeps its own order among accepted IPv4s and none
-  submits a link-local as primary when a usable primary address exists. The
+  submits a link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
   stored addresses, never replaces a usable IPv4 with an IPv6 or a usable
   primary address with a link-local, and takes a link-local only when the
-  survivor has no usable primary address. A link-local-only device keeps its link-local primary under
+  survivor has no routable address. A link-local-only device keeps its link-local primary under
   the #3905 rank, without an address-fallback name.
 - Every aliasable address a device owns, in both families, stays a live
   alias, so the sweep targets both families. Aliasable means
@@ -212,13 +214,14 @@ inventory state rather than of nondeterministic compilation.
   host-internal (a container bridge a chooser skips, or a shared interface
   address); host-internal addresses are neither primary nor alias.
   Link-local addresses (`fe80::/10`, `169.254/16`) never become aliases or
-  names, and are never primary on a device with any usable primary address, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
+  names, and are never primary on a device with any routable address, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
   confirmed re-attribution expires the previous holder's alias in the same
   write, holders that have not re-sighted an address within the alias expiry
   window are expired, and sweep target attribution reads only the current
-  live holder. The address-fallback name follows the primary `ip` when it is
-  not link-local, so it never takes an IPv6 literal when the device has an
-  IPv4 and never takes a link-local.
+  live holder. The address-fallback name follows the primary `ip` except
+  that it is never a link-local; it never takes an IPv6 literal when the
+  device has a usable IPv4, and an IPv6-only device's fallback name may be
+  its routable IPv6.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
