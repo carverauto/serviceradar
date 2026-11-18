@@ -64,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.EmptyDefaults do
           max_guest_memory_pct: 0.0,
           max_guest_disk_pct: 0.0,
           max_datastore_pct: 0.0,
+          max_datastore_label: nil,
           bottleneck_count: 0,
           ceph_warning_count: 0,
           ceph_error_count: 0,

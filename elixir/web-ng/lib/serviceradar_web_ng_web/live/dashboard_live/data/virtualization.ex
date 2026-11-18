@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Virtualization do
           max_guest_memory_pct: max_percent(guest_memory_ratios),
           max_guest_disk_pct: max_percent(guest_disk_ratios),
           max_datastore_pct: max_percent(datastore_ratios),
+          max_datastore_label: fullest_datastore_label(datastores),
           bottleneck_count: bottlenecks,
           ceph_warning_count: ceph_health.warning_count,
           ceph_error_count: ceph_health.error_count,
@@ -124,10 +125,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Virtualization do
 
         datastore_items =
           Enum.map(datastores, fn datastore ->
-            host = map_value(datastore, "host_name") || map_value(datastore, "node")
-            label = [display_name(datastore, "Datastore"), host] |> Enum.filter(&present?/1) |> Enum.join(" on ")
-
-            pressure_item(datastore, "Datastore", label, datastore_ratio(datastore),
+            pressure_item(datastore, "Datastore", datastore_label(datastore), datastore_ratio(datastore),
               fallback_href:
                 srql_href("in:virtualization_datastores storage:\"#{escape_query_value(map_value(datastore, "name"))}\"")
             )
@@ -152,6 +150,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Virtualization do
         (host_items ++ guest_items ++ datastore_items ++ storage_items)
         |> Enum.reject(&is_nil/1)
         |> Enum.sort_by(& &1.sort_value, :desc)
+      end
+
+      # The Datastore bar is the fullest single datastore, not usage across all of
+      # them, so the panel names the one it describes.
+      defp fullest_datastore_label([]), do: nil
+
+      defp fullest_datastore_label(datastores) do
+        datastores |> Enum.max_by(&datastore_ratio/1) |> datastore_label()
+      end
+
+      defp datastore_label(datastore) do
+        host = map_value(datastore, "host_name") || map_value(datastore, "node")
+        [display_name(datastore, "Datastore"), host] |> Enum.filter(&present?/1) |> Enum.join(" on ")
       end
 
       defp pressure_item(row, metric, label, value, opts \\ []) do
