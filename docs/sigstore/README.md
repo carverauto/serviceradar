@@ -38,8 +38,8 @@ keys, so no installation depends on the log being up.
   verification selects the file by the receipt's `logID` and passes it to cosign
   as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
   happens. A receipt whose log ID has no file here fails. The web-ng importer
-  will select keys the same way and the web-ng image will ship this directory
-  (pending: lands with the import-verifier PR).
+  selects keys the same way, and the web-ng image ships this directory at
+  `/usr/share/serviceradar/sigstore/rekor-keys`.
 - `rekor.pub`: the key of the log the signer writes to now, byte-identical to
   its file in `rekor-keys/`. The signer refuses an upload response whose log ID
   is not this key's.
@@ -47,8 +47,8 @@ keys, so no installation depends on the log being up.
   (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
   carry public-good receipts, and release verification checks such a receipt
   on a **reused** signature against this key. It is never accepted for a new
-  signature, and it will not be accepted at import or shipped in the web-ng
-  image (pending: lands with the import-verifier PR). The transparency-log
+  signature, and it is not accepted at import or shipped in the web-ng
+  image. The transparency-log
   monitor will watch only the self-hosted log (pending: lands with the monitor
   PR).
 
