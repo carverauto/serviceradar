@@ -120,16 +120,16 @@ FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca1
 # --no-install-recommends is what keeps this small: git's recommends alone pull in perl-doc,
 # less and a mail transport agent.
 #
-# NOT build-essential. gcc/g++/binutils is the single largest thing upstream has that this does
-# not. Database callers use --strategy=TestRunner=local, which runs already-built test binaries
-# here while compilation and linking remain eligible for RBE under --config=ci. The remote C
-# toolchain lives in the executor image, not this runner. If a genuine runner-local link ever
-# fails with "linker `cc` not found", add build-essential -- that is the fix, and it costs
-# ~80 MB. `make` itself ships (v1.0.24.5): it is reached by name rather than through the
-# compiler, and the apt-get-as-root workaround for its absence is what poisoned the shared
-# caches in issue 4855.
+# build-essential  REQUIRED since v1.0.24.6. "Elixir Quality (daily)" runs `mix` in this
+#                  container, not on an executor, and its dependencies include C NIFs
+#                  (`bcrypt_elixir`): without a compiler it failed at `cc: not found` before any
+#                  check ran. Bazel actions are unaffected either way: database callers
+#                  use --strategy=TestRunner=local, which runs already-built test binaries
+#                  here, and compilation and linking stay on RBE under --config=ci, where the
+#                  C toolchain lives in the executor image. It costs ~80 MB.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential \
       bzip2 \
       ca-certificates \
       curl \
