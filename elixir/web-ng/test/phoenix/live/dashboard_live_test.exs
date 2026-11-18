@@ -544,20 +544,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       |> Ash.Changeset.for_create(:create, guest_attrs)
       |> Ash.create(actor: system_actor())
 
-    {:ok, _datastore} =
-      VirtualizationDatastore
-      |> Ash.Changeset.for_create(:create, %{
-        provider: "proxmox",
-        provider_ref: "proxmox:datastore:dashboard-pve-#{unique}:local-zfs",
-        host_id: host.id,
-        name: "local-zfs",
-        storage_type: "zfspool",
-        used_bytes: 92,
-        total_bytes: 100,
-        observed_at: observed_at
-      })
-      |> Ash.create(actor: system_actor())
-
+    # Created before the fuller one, so taking the first row would name the
+    # wrong datastore.
     {:ok, _roomy_datastore} =
       VirtualizationDatastore
       |> Ash.Changeset.for_create(:create, %{
@@ -568,6 +556,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         storage_type: "dir",
         used_bytes: 10,
         total_bytes: 1000,
+        observed_at: observed_at
+      })
+      |> Ash.create(actor: system_actor())
+
+    {:ok, _datastore} =
+      VirtualizationDatastore
+      |> Ash.Changeset.for_create(:create, %{
+        provider: "proxmox",
+        provider_ref: "proxmox:datastore:dashboard-pve-#{unique}:local-zfs",
+        host_id: host.id,
+        name: "local-zfs",
+        storage_type: "zfspool",
+        used_bytes: 92,
+        total_bytes: 100,
         observed_at: observed_at
       })
       |> Ash.create(actor: system_actor())
