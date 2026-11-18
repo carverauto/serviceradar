@@ -134,8 +134,11 @@ sets up. Why this path:
 
 The release verification scripts (`verify-oci-publish.sh`, `verify-wasm-plugin-publish.sh`,
 `verify-native-addon-publish.sh`) switch `cosign_verify_legacy_signature` to this form for every
-digest signed in the run. A digest whose `.sig` was reused from before the cutover goes through the
-allowlist rule instead (Open Question 1).
+signature created in the current run, and only for those. A signature reused from before the
+cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin, carries no
+receipt and is exempt from the receipt check in release verification: it is verified key-only, as
+today. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
+Wasm plugin and native add-on digests and is not consulted by release verification.
 
 ## Decision 5: The pinned Rekor key and how it is updated
 
@@ -144,8 +147,9 @@ allowlist rule instead (Open Question 1).
   `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer and the release verifiers pick it
   up without new wiring. The signer's own post-upload check then uses the same key.
 - **Image copy:** the web-ng image carries the same bytes at a fixed path. `runtime.exs` points
-  `first_party_plugin_import` at it, and an operator may override it with a mounted file. A
-  `build/contracts` test keeps the image copy byte-identical to `docs/sigstore/rekor.pub`, as
+  `first_party_plugin_import` at it. There is no runtime override: no operator-supplied mounted
+  file, setting or environment variable replaces the pinned key. The key changes only through a reviewed change of
+  `docs/sigstore/rekor.pub` that ships in a web-ng image. A `build/contracts` test keeps the image copy byte-identical to `docs/sigstore/rekor.pub`, as
   `first_party_plugin_cosign_key_consistency_test` does for `docs/cosign.pub`.
 - **Initial value:** the key comes from Sigstore's signed TUF `trusted_root.json` (`tlogs` entry
   whose `logId` matches), not from a Rekor `/api/v1/log/publicKey` response. The commit records the
@@ -200,10 +204,21 @@ signature, written **before** `cosign sign-blob` is called. The line holds the p
 subject `repo@digest` (or the file name for `SHA256SUMS`), the workflow, the run ID and attempt, and
 the time. After signing, a second line adds the returned `logIndex` and entry UUID. The ledger is
 uploaded with `if: always()` as a workflow artifact named per run attempt, retained 90 days, and
-for tag runs it is also attached to the GitHub release. A Rekor entry is explained when it is a
-`hashedrekord` whose `data.hash` equals a payload SHA-256 in the ledger of a run of `release.yml`,
-`publish-oci.yml`, `wasm-plugins.yml` or `native-addons.yml` that started before the entry's
-`integratedTime` and ended no more than one hour before it.
+for tag runs it is also attached to the GitHub release.
+
+The release-key signing workflows are every workflow that signs with `hashivault://cosign-release`:
+`release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml` and
+`external-wasm-plugin.yml` (through `sign-wasm-plugin-publish.sh`). Each of them writes and uploads
+the ledger.
+
+A Rekor entry is explained when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256
+in the ledger of a run of any release-key signing workflow that was active at the entry's
+`integratedTime` (started before it, and still running or ended after it). Because the ledger is
+uploaded only when the job ends, the monitor does not decide on an entry while a release-key
+signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
+and no alert is raised. Once every such run has ended, the entry is explained if one of their
+ledgers holds its payload hash, and unexplained otherwise. A pending entry is kept in the
+monitor's state, next to the checkpoint, so later scans re-evaluate it.
 
 **False positives.**
 
@@ -224,9 +239,12 @@ for tag runs it is also attached to the GitHub release. A Rekor entry is explain
 
 **Alerts.** Each unexplained entry opens one GitHub issue labelled `security` and
 `signing-monitor`, deduplicated by entry UUID. The issue holds the log index, UUID, integrated
-time, payload hash and a link to the entry. The workflow also posts to Discord through the
+time, payload hash and a link to the entry. Every scan re-checks the open `signing-monitor`
+issues, and when a later scan finds an entry explained (its ledger became visible, or it was
+acknowledged) the monitor closes that entry's issue with a comment naming the explaining run or
+acknowledgement. The workflow also posts to Discord through the
 existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_watch.py` does. Open
-Question 3 asks whether security alerts should have their own channel.
+Question 2 asks whether security alerts should have their own channel.
 
 **The monitor must be able to fail.**
 
@@ -236,13 +254,16 @@ Question 3 asks whether security alerts should have their own channel.
   its last successful run is more than three hours old. A monitor that stopped running is then
   noticed even if no run is left to report on itself.
 - *Blindness canary:* every ledger line with a `logIndex` from a signing run that ended more than
-  two hours ago must have been seen by the monitor as a matching entry. A ledger entry the monitor
+  two hours ago, whose entry was integrated after the monitor's first retained checkpoint, must
+  have been seen by the monitor as a matching entry. Entries integrated before that checkpoint
+  were never in the monitor's scan range (see Historical entries) and are not checked. A ledger entry the monitor
   never saw means the monitor is blind (wrong fingerprint, broken scan) or the receipt is bogus.
   Either way it alerts. Each release thereby proves the monitor works.
 
 **Historical entries.** `rekor-monitor` starts from the latest checkpoint. Entries made before the
 first monitor run are not scanned. That is acceptable, because the ledger begins in the same
-change; the gap is recorded in `docs/sigstore/README.md`.
+change; the gap is recorded in `docs/sigstore/README.md`. The monitor keeps the integrated time of
+its first retained checkpoint in its state, and the blindness canary uses it as its lower bound.
 
 **Unverified:** how long an hourly scan of public-good Rekor v1 takes on an ARC runner, and how
 much it downloads. The first task measures it before the schedule is enabled. If an hourly scan
@@ -251,8 +272,40 @@ does not fit, the fallback is a less frequent scan with a longer window, not the
 ## Decision 8: Record the receipt status on the imported package
 
 `first_party_importer.ex` already stores `cosign_verified`. It also stores `transparency_receipt`:
-`verified` (with `log_index` and `integrated_time`), or `absent_allowlisted`. The plugin and add-on
-detail views show it. An operator can then tell which installed packages have a public log record.
+`verified` (with `log_index` and `integrated_time`), or `absent_allowlisted`, in the import
+verification metadata. No UI change is part of this change.
+
+## Decision 9: Pre-cutover Wasm plugins and native add-ons use a frozen digest allowlist
+
+Decided by the product owner. Every first-party `.sig` published before the cutover release lacks
+the annotation (see Context). Harbor tag immutability prevents adding one, since the classic tag is
+addressed by digest.
+
+At the cutover, the list of every first-party OCI digest in every published
+`serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json` is generated
+(v1.5.6 lists 16 Wasm plugins; GitHub shows 50 releases, so on the order of a thousand digests at
+most), committed and shipped in the web-ng image. At import, those digests verify key-only and are
+recorded as `absent_allowlisted`. Every other first-party Wasm plugin or native add-on digest
+requires a receipt from the cutover release on. A contract test fails if the list changes after the
+cutover. It is safe because an attacker cannot produce new content under an allowlisted digest. It
+costs one generated file, and it never grows. The list holds no image digests: images are admitted
+by Kyverno, and release verification exempts reused pre-cutover signatures (Decision 4). Web-ng
+releases before the cutover keep #6778 key-only behaviour and ignore the annotation.
+
+Alternatives considered:
+
+- **A. Version floor.** Require a receipt for index entries whose `release_tag` is at or after the
+  cutover; accept key-only below it. Rejected: the floor trusts the `release_tag` field of an index
+  fetched from GitHub, so an attacker who can write release assets and sign could publish under an
+  old tag.
+- **C. Re-publish.** Re-push affected artifacts under new digests with receipts. Rejected:
+  same-digest re-signing is impossible, new digests under old version numbers confuse installs
+  pinned to the old digests, and only recent releases are realistic candidates.
+- **D. Key-only forever, receipt advisory.** Verify the receipt when present and record the result,
+  but never require it. Rejected: against a key thief it adds no security, because a receipt that
+  is never required is simply left off.
+
+Third-party repositories are not affected: they use ed25519 upload signatures, not Cosign.
 
 ## Threat model
 
@@ -260,8 +313,9 @@ detail views show it. An operator can then tell which installed packages have a 
 Images are covered too, for the monitor and public verification, but Kyverno remains their
 admission gate.
 
-**What the receipt plus monitor adds.** Once receipts are required (after cutover; see Open
-Question 1), an accepted artifact must have a public, append-only record in Rekor v1, made by the
+**What the receipt plus monitor adds.** From the cutover release on, receipts are required for every
+first-party Wasm plugin and native add-on digest not on the frozen allowlist (Decision 9), so an
+accepted artifact must have a public, append-only record in Rekor v1, made by the
 holder of the release key. Without a receipt requirement, someone who can sign with the key can
 produce an importable package that leaves no public trace. With it they must log the signature, and
 the monitor reports any logged signature that none of our signing runs accounts for, within about
@@ -293,7 +347,7 @@ likelihood is low, and the impact is code execution on every agent that runs the
 
 **Complexity cost.** One shared signer helper replaces three copies. The verifier gains a receipt
 mode, a pinned key and an allowlist. The pinned cosign version moves in two places. Two
-consistency tests, a ledger in four workflows, one new scheduled workflow and a check in the
+consistency tests, a ledger in five workflows, one new scheduled workflow and a check in the
 existing job watcher are added. Operationally, a release now cannot sign while public Rekor v1 is
 down (already true in practice, since upload is on and failures are not swallowed), and the
 monitor's alerts need an owner.
@@ -319,7 +373,7 @@ monitor's alerts need an owner.
    verification scripts. From then on every new signature carries a receipt.
 3. Enable the monitor once the scan cost is measured. Release N+1's ledger is the first end-to-end
    canary.
-4. Ship the verifier change with the chosen treatment of receipt-less artifacts (Open Question 1).
+4. Ship the verifier change with the frozen pre-cutover allowlist (Decision 9).
    Until it ships, #6778's key-only verification remains in force.
 
 Rollback: the verifier change can be reverted to #6778's key-only mode on its own. A key-only
@@ -329,50 +383,18 @@ annotation offline (Decision 3), and the release gate has already checked it.
 
 ## Open questions
 
-### Open Question 1: What happens to first-party artifacts without a receipt?
-
-Every first-party `.sig` published before the cutover release lacks the annotation (see Context).
-Harbor tag immutability prevents adding one, since the classic tag is addressed by digest.
-
-- **A. Version floor.** Require a receipt for index entries whose `release_tag` is at or after the
-  cutover; accept key-only below it. Simple, but the floor trusts the `release_tag` field of an index
-  fetched from GitHub. An attacker who can write release assets and sign could publish under an old
-  tag.
-- **B. Frozen digest allowlist (recommended).** At the cutover, generate the list of every
-  first-party OCI digest in every published `serviceradar-wasm-plugin-index.json` and
-  `serviceradar-native-addon-index.json` (v1.5.6 lists 16 Wasm plugins; GitHub shows 50 releases,
-so on the order of a thousand digests at most).
-  Commit it and ship it in the web-ng image. Those digests verify key-only and are recorded as
-  `absent_allowlisted`. Every other first-party digest requires a receipt. A contract test fails if
-  the list changes after the cutover. It is safe because the attacker cannot produce new content
-  under an allowlisted digest. It costs one generated file, and it never grows.
-- **C. Re-publish.** Re-push affected artifacts under new digests with receipts. Same-digest
-  re-signing is impossible, new digests under old version numbers confuse installs pinned to the
-  old digests, and only recent releases are realistic candidates. Not recommended, except possibly
-  for the last pre-cutover release if B is rejected.
-- **D. Key-only forever, receipt advisory.** Verify the receipt when present and record the result,
-  but never require it. Cheapest, but against a key thief it adds no security, because a receipt
-  that is never required is simply left off. The monitor still detects signatures that were logged.
-
-Recommendation: **B**, with receipts required for all non-allowlisted first-party digests in the
-cutover release. Web-ng releases before the cutover keep #6778 key-only behaviour and ignore the
-annotation.
-
-Third-party repositories are not affected under any option: they use ed25519 upload signatures,
-not Cosign.
-
-### Open Question 2: Is an hourly full-log scan affordable on ARC?
+### Open Question 1: Is an hourly full-log scan affordable on ARC?
 
 Recommendation: measure first (task 5.1). Keep `rekor-monitor` log scanning even if the interval
 has to grow. Do not fall back to the incomplete index search.
 
-### Open Question 3: Where do signing-monitor alerts go?
+### Open Question 2: Where do signing-monitor alerts go?
 
 Recommendation: a GitHub issue per unexplained entry, plus Discord. The existing
 `CI_FAILURE_DISCORD_WEBHOOK_URL` is acceptable at the start. A dedicated security webhook secret
 would keep key-misuse alerts out of CI-failure noise, and the owner should choose.
 
-### Open Question 4: Which cosign version?
+### Open Question 3: Which cosign version?
 
 Recommendation: v3.1.4, the latest patch release at the time of writing, in the signer and the
 image together. The floor is v3.1.3 (all four advisories in Decision 6).

@@ -32,13 +32,19 @@ The release signer SHALL upload signatures to the pinned public-good Rekor v1 lo
 
 ### Requirement: Release verification requires the receipt offline
 The repository release verification for images, native add-ons and Wasm plugins SHALL verify the embedded receipt of every signature created in the run against the pinned Rekor public key without contacting any Sigstore service.
-A missing or invalid receipt on a signature created in the run fails the release before promotion.
+A missing or invalid receipt on a signature created in the run fails the release before promotion. A signature reused from before the cutover release, for an image, a native add-on or a Wasm plugin, carries no receipt and SHALL be exempt from the receipt check; it is verified with the release key alone. Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
 
 #### Scenario: Signature created without a receipt
 - **GIVEN** a signature created in the current release run whose `.sig` layer has no receipt
 - **WHEN** release verification runs
 - **THEN** verification SHALL fail
 - **AND** the artifact SHALL NOT be promoted
+
+#### Scenario: Reused pre-cutover signature
+- **GIVEN** an image, native add-on or Wasm plugin digest whose classic `.sig` signature was created before the cutover release and is reused by the current run
+- **WHEN** release verification runs
+- **THEN** the signature SHALL be verified with the release key
+- **AND** the absence of a receipt SHALL NOT fail the release
 
 #### Scenario: Receipt for a different entry
 - **GIVEN** a `.sig` layer whose receipt carries a valid SignedEntryTimestamp for a log entry that names a different signature, key or payload hash
@@ -60,8 +66,8 @@ The copy shipped in the web-ng image is byte-identical to it, and a contract tes
 - **THEN** it SHALL raise a signing-monitor alert naming the change
 
 ### Requirement: Signing ledger
-Every workflow run that signs with the release key SHALL record each signature in a signing ledger before it uploads the signature to the transparency log.
-A ledger line holds the payload SHA-256, the subject, the workflow, the run ID and attempt, and the time. A second line adds the log index and entry UUID once the upload returns. The ledger is kept as a workflow artifact for at least 90 days whether or not the run succeeds, and for tag runs it is also attached to the GitHub release.
+Every run of a release-key signing workflow SHALL record each signature in a signing ledger before it uploads the signature to the transparency log.
+A ledger line holds the payload SHA-256, the subject, the workflow, the run ID and attempt, and the time. A second line adds the log index and entry UUID once the upload returns. The ledger is kept as a workflow artifact for at least 90 days whether or not the run succeeds, and for tag runs it is also attached to the GitHub release. The release-key signing workflows are every workflow that signs with the release key, including `release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml` and `external-wasm-plugin.yml`.
 
 #### Scenario: Run fails after the upload
 - **GIVEN** a signing run whose transparency-log upload succeeded and which then failed
@@ -71,13 +77,25 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 
 ### Requirement: Transparency-log monitoring for the release key
 A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new public-good Rekor v1 entry for the release public key's fingerprint at least every hour, verifying log consistency between checkpoints.
-It SHALL alert on every matching entry that is not explained. An entry is explained when it is a `hashedrekord` whose payload hash appears in the signing ledger of a run of a repository signing workflow active at the entry's integrated time, or when it is listed in the committed acknowledged-entries file. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook.
+It SHALL alert on every matching entry that is not explained. An entry is explained when it is a `hashedrekord` whose payload hash appears in a signing ledger that a run of any release-key signing workflow active at the entry's integrated time has published or will publish, or when it is listed in the committed acknowledged-entries file. While such a run is still in progress, the monitor SHALL NOT alert on the entry and SHALL evaluate it after the run ends. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue.
 
 #### Scenario: Signature made outside the signing workflows
 - **GIVEN** a Rekor v1 entry signed by the release key whose payload hash is in no signing ledger and not acknowledged
+- **AND** no release-key signing run that was active at the entry's integrated time is still in progress
 - **WHEN** the monitor scans the log past that entry
 - **THEN** the monitor SHALL open a GitHub issue for the entry UUID
 - **AND** SHALL post an alert to Discord
+
+#### Scenario: Entry from a signing run still in progress
+- **GIVEN** a Rekor v1 entry signed by the release key during a release-key signing run that has not yet ended and has not yet published its ledger
+- **WHEN** the monitor scans the log past that entry
+- **THEN** the monitor SHALL NOT raise an alert for the entry
+- **AND** SHALL evaluate the entry against that run's ledger after the run ends
+
+#### Scenario: Entry explained after its issue was opened
+- **GIVEN** an open signing-monitor issue for an entry UUID
+- **WHEN** a later scan finds the entry explained by a published ledger or the acknowledged-entries file
+- **THEN** the monitor SHALL close that issue
 
 #### Scenario: Retried upload of the same payload
 - **GIVEN** two Rekor entries for the same payload hash, created by retries within one ledgered signing run
@@ -98,9 +116,15 @@ It SHALL alert on every matching entry that is not explained. An entry is explai
 
 #### Scenario: Monitor is blind to its own signatures
 - **GIVEN** a ledger line with a log index from a signing run that ended more than two hours ago
+- **AND** the entry was integrated after the monitor's first retained checkpoint
 - **AND** the monitor has not observed that entry as a match
 - **WHEN** the monitor runs
 - **THEN** it SHALL raise an alert that the monitor or the receipt is broken
+
+#### Scenario: Ledgered entry from before the monitor's first checkpoint
+- **GIVEN** a ledger line whose entry was integrated before the monitor's first retained checkpoint
+- **WHEN** the monitor runs
+- **THEN** the blindness canary SHALL NOT raise an alert for that line
 
 ### Requirement: Signer and verifier Cosign versions move together
 The Cosign version installed by the release signer and the Cosign version shipped in the web-ng image SHALL be the same release, and that release SHALL include the fixes for GHSA-whqx-f9j3-ch6m and GHSA-fx35-mq7g-6g98.

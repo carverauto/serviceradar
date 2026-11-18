@@ -31,7 +31,7 @@ The receipt is accepted only when its SignedEntryTimestamp verifies under a pinn
 
 ### Requirement: Pre-cutover first-party artifacts without a receipt
 ServiceRadar SHALL accept a first-party OCI artifact by release-key verification alone only when its digest is on the frozen pre-cutover allowlist shipped in the web-ng image.
-The allowlist lists every first-party OCI digest published in a Wasm plugin or native add-on release index before the cutover release. It is generated once, at the cutover, and a contract test fails if it changes afterwards. This requirement follows the recommended option of design.md, Open Question 1, and is rewritten if a different option is chosen.
+The allowlist lists every first-party OCI digest published in a Wasm plugin or native add-on release index before the cutover release. It is generated once, at the cutover, and a contract test fails if it changes afterwards. It holds no container image digests. From the cutover release on, every other first-party Wasm plugin or native add-on digest requires a receipt.
 
 #### Scenario: Allowlisted pre-cutover artifact
 - **GIVEN** a first-party artifact whose digest is on the pre-cutover allowlist and whose classic signature has no receipt
@@ -45,9 +45,10 @@ The allowlist lists every first-party OCI digest published in a Wasm plugin or n
 - **THEN** the test SHALL fail
 
 ### Requirement: Imported packages record their receipt status
-ServiceRadar SHALL store, on every imported first-party plugin or add-on package, whether its signature's transparency-log receipt was `verified`, with log index and integrated time, or `absent_allowlisted`, and SHALL show that status in the package detail view.
+ServiceRadar SHALL store, in the import verification metadata of every imported first-party plugin or add-on package, whether its signature's transparency-log receipt was `verified`, with log index and integrated time, or `absent_allowlisted`.
 
-#### Scenario: Operator reviews a package
-- **GIVEN** an imported first-party package whose receipt verified
-- **WHEN** an operator opens the package detail view
-- **THEN** the view SHALL show the receipt as verified, with its log index
+#### Scenario: Package imported with a verified receipt
+- **GIVEN** a first-party artifact whose receipt verifies
+- **WHEN** the artifact is imported
+- **THEN** the package's verification metadata SHALL record the receipt as `verified`
+- **AND** SHALL record its log index and integrated time
