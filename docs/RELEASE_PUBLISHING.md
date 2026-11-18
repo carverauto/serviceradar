@@ -324,8 +324,11 @@ before release finalization.
 For an additional operator check:
 
 ```bash
-make verify_publish VERIFY_TAG="v$(cat VERSION)"
+make verify_publish VERIFY_TAG="v$(cat VERSION)" SIGNING_LEDGER=<signing-ledger artifact>
 ```
+
+The ledger is the one the signing run attached to the draft release (see
+"Transparency-log receipts and the signing ledger" below).
 
 For releases that touch sync streaming, edge-record ingestion, identity
 reconciliation, sweep ingestion, mapper promotion, or Armis ingestion, also run
