@@ -276,9 +276,13 @@ inventory cleared it.
 
 ### Requirement: A device with a usable IPv4 keeps an IPv4 primary address
 Sync ingestion SHALL keep an IPv4 as the primary ip of every device that has a
-usable IPv4 (private or public, sr_address_rank 40 or higher); every IPv6
-(global, ULA or link-local) SHALL be recorded as an alias and SHALL NOT become
-primary on such a device. An IPv6 SHALL be primary only on an IPv6-only device,
+usable IPv4 (private or public, sr_address_rank 40 or higher) that the primary-IP
+chooser already accepts; no IPv6 SHALL become primary on such a device, and
+every aliasable IPv6 (global or ULA) SHALL be recorded as an alias. The
+preference SHALL rank only addresses a chooser already accepts as a primary
+and SHALL NOT promote an address a chooser rejects, such as a host-internal
+bridge address a guest chooser skips. A link-local address (fe80::/10 or
+169.254/16) SHALL NOT become an alias, the primary ip or the name. An IPv6 SHALL be primary only on an IPv6-only device,
 and a usable IPv4 that device later gains SHALL take over. A change between two
 usable IPv4s SHALL replace the primary, and the never-downgrade address rank
 SHALL still apply within a family. Every primary-IP chooser (the upsert guard,
@@ -289,10 +293,20 @@ literal when the device has an IPv4.
 
 #### Scenario: A dual-stack census sighting keeps the IPv4 primary
 - **GIVEN** a device whose primary ip is 192.0.2.3
-- **WHEN** the passive census sights it by NDP as 2001:db8::3 and fe80::3
+- **WHEN** the passive census sights it by NDP as 2001:db8::3
 - **THEN** the primary ip SHALL remain 192.0.2.3
-- **AND** 2001:db8::3 and fe80::3 SHALL be recorded as live aliases of the device
+- **AND** 2001:db8::3 SHALL be recorded as a live alias of the device
 - **AND** the device name and hostname SHALL NOT be an IPv6 literal
+
+#### Scenario: A link-local sighting is not identity
+- **GIVEN** a device whose primary ip is 192.0.2.3
+- **WHEN** the passive census sights it by NDP as fe80::3
+- **THEN** fe80::3 SHALL NOT be recorded as an alias, the primary ip or the name
+
+#### Scenario: A rejected host-internal address never becomes primary
+- **GIVEN** a guest whose chooser-accepted primary is 192.0.2.8 and which also reports a host-internal bridge address 198.51.100.1 that the guest chooser skips
+- **WHEN** the guest's primary ip is chosen
+- **THEN** the primary ip SHALL remain 192.0.2.8
 
 #### Scenario: An IPv6-only device that gains an IPv4 switches primary
 - **GIVEN** an IPv6-only device whose primary ip is 2001:db8::5
@@ -306,9 +320,10 @@ literal when the device has an IPv4.
 - **THEN** the primary ip SHALL become 198.51.100.6
 
 ### Requirement: Each address has one live holder and own addresses stay live aliases
-Sync ingestion SHALL keep every address a device owns, in both families, as a
-live alias of that device, including an address displaced from primary or
-never promoted. An address SHALL have one live holder per partition: a
+Sync ingestion SHALL keep every aliasable address a device owns (global,
+private or ULA, in both families) as a live alias of that device, including an
+address displaced from primary or never promoted; a link-local address SHALL
+NOT be an alias. An address SHALL have one live holder per partition: a
 confirmed re-attribution of an address to another device SHALL expire the
 previous holder's alias for it in the same write, and a holder that has not
 re-sighted an address within the alias expiry window SHALL be expired. Sweep

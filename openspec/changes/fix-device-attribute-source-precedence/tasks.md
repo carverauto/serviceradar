@@ -144,24 +144,31 @@
 ## 7. Primary address and aliases
 
 - [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
-      device has a usable IPv4; IPv6 only on IPv6-only devices; IPv4 to IPv4
+      device has a usable, chooser-accepted IPv4; IPv6 only on IPv6-only
+      devices; the preference ranks only addresses a chooser accepts; IPv4 to IPv4
       re-IP replaces; the #3905 rank applies within a family
 - [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule; extend
       the existing SQL / Elixir rank parity test to the family rule
 - [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
-      and the camera and succession primary-IP paths follow the same rule
+      and the camera and succession primary-IP paths follow the same rule;
+      `GuestAddress.primary/1` keeps skipping host-internal addresses (for
+      example a docker bridge), and no chooser promotes an address it rejects
 - [ ] 7.4 Census decoder: an NDP / IPv6 sighting of a device with a usable
-      IPv4 records the IPv6 as an alias and does not set the primary `ip`
-- [ ] 7.5 Alias recording: every own address in both families stays a live
-      `device_alias_states` row, including a displaced or never-promoted
-      address
+      IPv4 records an aliasable IPv6 as an alias and does not set the primary
+      `ip`; a link-local sighting is neither alias, primary nor name
+- [ ] 7.5 Alias recording: every aliasable address the device owns
+      (`AliasPolicy.valid_alias_ip?/1`: global, private, ULA, in both
+      families) stays a live `device_alias_states` row, including a displaced
+      or never-promoted address; link-local addresses never become aliases
 - [ ] 7.6 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
 - [ ] 7.7 `SweepCompiler` attributes each target only to the current live
       holder
-- [ ] 7.8 Test: dual-stack census keeps the IPv4 primary and records both
-      IPv6 as live aliases with a non-IPv6 name; an IPv6-only device that
+- [ ] 7.8 Test: dual-stack census keeps the IPv4 primary and records the
+      global IPv6 as a live alias with a non-IPv6 name; a link-local
+      sighting records no alias, primary or name; a guest host-internal
+      bridge address never becomes primary; an IPv6-only device that
       gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
       an unchanged inventory produce identical sweep targets and
       `device_uid` attribution; a stale cross-device alias is expired on

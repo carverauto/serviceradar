@@ -177,9 +177,14 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     settled by the same-source tie-break (decision 6).
 
 14. IPv4 is always the preferred primary address. When a device has a usable
-    IPv4 (private or public, `sr_address_rank >= 40`), an IPv4 is the
-    primary `ip`; every IPv6 (global, ULA, link-local) is recorded as an
-    alias and never becomes primary. An IPv6 is primary only on an IPv6-only
+    IPv4 (private or public, `sr_address_rank >= 40`) that the chooser
+    already accepts as a primary, an IPv4 is the primary `ip`; no IPv6
+    becomes primary on a dual-stack device, and every aliasable IPv6 (global
+    or ULA, per `AliasPolicy.valid_alias_ip?/1`) is recorded as an alias.
+    The preference only ranks addresses each chooser already accepts:
+    `GuestAddress.primary/1` keeps skipping host-internal addresses such as
+    a docker bridge, and the rule never promotes an address a chooser
+    rejects. An IPv6 is primary only on an IPv6-only
     device; if that device later gains a usable IPv4, the IPv4 takes over. A
     change between two usable IPv4s is a real re-IP and replaces the
     primary, and the #3905 never-downgrade rank still applies within a
@@ -190,9 +195,14 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     the camera and succession paths. The address-fallback name (decision 7)
     follows this primary, so it never takes an IPv6 literal when the device
     has an IPv4.
-15. A device's own addresses in both families always stay live aliases in
-    `device_alias_states`, including an address displaced from primary or
-    never promoted, so the sweep targets both families. An address has one
+15. Every aliasable address a device owns (global, private or ULA, in both
+    families, per `AliasPolicy.valid_alias_ip?/1`) stays a live `:ip` alias
+    in `device_alias_states`, including an address displaced from primary or
+    never promoted, so the sweep targets both families. Link-local addresses
+    (`fe80::/10`, `169.254/16`) never become aliases, primary or name; a
+    shared link-local such as a vendor `fe80::1` would otherwise merge or
+    flip between devices, consistent with the link-local alias archive
+    migration. An address has one
     live holder per partition: on a confirmed re-attribution of an address
     to another device, the previous holder's alias for it is expired in the
     same write; holders that have not re-sighted an address within the alias

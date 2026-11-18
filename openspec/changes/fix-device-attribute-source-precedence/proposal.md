@@ -174,17 +174,23 @@ inventory state rather than of nondeterministic compilation.
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
 - IPv4 is always the preferred primary address. When a device has a usable
-  IPv4 (private or public, `sr_address_rank >= 40`), an IPv4 is its primary
-  `ip`; every IPv6 (global, ULA, link-local) is recorded as an alias and
-  never becomes primary. An IPv6 is primary only on an IPv6-only device, and
+  IPv4 (private or public, `sr_address_rank >= 40`) that the chooser already
+  accepts as a primary, an IPv4 is its primary `ip`; no IPv6 becomes primary
+  on a dual-stack device, and every aliasable IPv6 (global or ULA, as
+  `AliasPolicy.valid_alias_ip?/1` defines) is recorded as an alias. The rule
+  only ranks addresses a chooser already accepts, so it never promotes one
+  the chooser rejects (for example a host-internal docker bridge address
+  that `GuestAddress.primary/1` skips). An IPv6 is primary only on an IPv6-only device, and
   an IPv4 it later gains takes over. A change between two usable IPv4s is a
   real re-IP and replaces the primary; the #3905 never-downgrade rank still
   applies within a family. Every primary-IP chooser follows this rule: the
   SQL upsert guard, `Identity.Address.best/1` and its rank (kept in step by
   the existing parity test), the hypervisor guest primary-IP NIC selection,
   and the camera and succession paths.
-- A device's own addresses in both families stay live aliases, so the sweep
-  targets both families. An address has one live holder per partition: a
+- Every aliasable address a device owns (global, private or ULA, in both
+  families) stays a live alias, so the sweep targets both families.
+  Link-local addresses (`fe80::/10`, `169.254/16`) never become aliases,
+  primary or name, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
   confirmed re-attribution expires the previous holder's alias in the same
   write, holders that have not re-sighted an address within the alias expiry
   window are expired, and sweep target attribution reads only the current
