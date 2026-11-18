@@ -53,7 +53,7 @@ until an operator selects it:
 - **Signed.** Add-on OCI bundles are Cosign-signed with the release key, and
   each per-architecture pushed artifact carries an ed25519 signature from the agent
   release key; the agent verifies before activation. The Cosign signature carries
-  its public transparency-log receipt, which ServiceRadar verifies offline at import
+  its transparency-log receipt from ServiceRadar's Rekor log, which ServiceRadar verifies offline at import
   and records on the package as `transparency_receipt` (`verified`, or
   `absent_allowlisted` for an add-on published before receipts were introduced).
 - **Out-of-process by default.** The `agent-sidecar` model runs add-ons as

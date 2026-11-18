@@ -328,14 +328,10 @@ py_test(
     size = "small",
     srcs = ["rekor_key_consistency_test.py"],
     data = [
-<<<<<<< HEAD
-=======
-        "//:MODULE.bazel",
         "//docker/images:web_ng_sigstore_layer",
         "//docs:sigstore/pre-cutover-first-party-digests.json",
->>>>>>> 6dfac19d60 (feat(web-ng): verify first-party transparency-log receipts offline at import)
-        "//docs:sigstore/rekor.pub",
         "//docs:sigstore/pre-cutover-rekor-keys",
+        "//docs:sigstore/rekor.pub",
         "//docs:sigstore/rekor-keys",
         "//scripts:install-cosign.sh",
         "//scripts:install-download-integrity.sh",

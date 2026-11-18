@@ -683,8 +683,9 @@ with and does not contact the public Sigstore services, so the import works on a
 installation with no internet access beyond the artifact registry.
 
 A first-party signature also carries its transparency-log receipt: proof that the
-signature was recorded in the public Rekor log. ServiceRadar checks the receipt
-offline against the Rekor keys shipped in the web-ng image, and requires it for
+signature was recorded in ServiceRadar's Rekor transparency log. ServiceRadar checks the receipt
+offline against the Rekor keys shipped in the web-ng image, never by contacting the
+log, so an installation does not depend on reaching it. ServiceRadar requires it for
 every first-party artifact except those published before receipts were introduced,
 whose digests ServiceRadar lists explicitly. Each imported package records the
 outcome in its verification metadata as `transparency_receipt`: `verified`, with

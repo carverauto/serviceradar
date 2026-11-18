@@ -138,7 +138,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
   end
 
   # The pinned cosign against synthetic keys, a stand-in transparency log and a
-  # loopback registry, with every other destination routed to a dead proxy.
+  # loopback registry. Every other destination, any Rekor included, goes through a
+  # recording proxy that answers nothing, so a request leaves evidence and fails.
   describe "with the pinned cosign binary" do
     setup %{trust_dir: trust_dir} do
       cosign = pinned_cosign()
@@ -149,19 +150,24 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
         cosign_public_key: fixture.release_public_pem
       )
 
+      proxy = __MODULE__.Fixture.start_recording_proxy()
+
       for {name, value} <- [
-            {"HTTPS_PROXY", "http://127.0.0.1:9"},
-            {"HTTP_PROXY", "http://127.0.0.1:9"},
+            {"HTTPS_PROXY", proxy.url},
+            {"HTTP_PROXY", proxy.url},
             {"NO_PROXY", "localhost,127.0.0.1"}
           ] do
         System.put_env(name, value)
         on_exit(fn -> System.delete_env(name) end)
       end
 
-      %{fixture: fixture}
+      %{fixture: fixture, proxy: proxy, cosign: cosign}
     end
 
-    test "verifies a receipt offline and records the logged entry", %{fixture: fixture} do
+    test "verifies a receipt offline, records the logged entry, and contacts no Rekor", %{
+      fixture: fixture,
+      proxy: proxy
+    } do
       {ref, digest, signature_manifest} = __MODULE__.Fixture.publish(fixture, :own_entry)
 
       assert {:ok, receipt} = CosignVerifier.verify(%{ref: ref, digest: digest, signature_manifest: signature_manifest})
@@ -172,6 +178,32 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
                "log_index" => 4242,
                "integrated_time" => 1_767_225_600
              }
+
+      assert __MODULE__.Fixture.proxied_requests(proxy) == []
+    end
+
+    # Control for the assertion above: the proxy does see a transparency-log lookup
+    # when cosign is asked for one (no receipt, no --offline, no --insecure-ignore-tlog).
+    test "the recording proxy sees the Rekor lookup cosign makes without a receipt", %{
+      fixture: fixture,
+      proxy: proxy,
+      cosign: cosign
+    } do
+      {ref, digest, _signature_manifest} = __MODULE__.Fixture.publish(fixture, :no_receipt)
+      key = Path.join(temp_dir("serviceradar-cosign-control"), "release.pub")
+      File.write!(key, fixture.release_public_pem)
+      home = temp_dir("serviceradar-cosign-control-home")
+      target = String.replace(ref, ":v1", "@" <> digest)
+
+      {_output, status} =
+        System.cmd(cosign, ["verify", "--timeout", "20s", "--new-bundle-format=false", "--key", key, target],
+          stderr_to_stdout: true,
+          env: [{"HOME", home}, {"SIGSTORE_CACHE_DIR", Path.join(home, "sigstore")}]
+        )
+
+      assert status != 0
+      requests = __MODULE__.Fixture.proxied_requests(proxy)
+      assert Enum.any?(requests, &String.contains?(&1, "sigstore.dev")), inspect(requests)
     end
 
     test "rejects a valid receipt for another artifact's log entry", %{fixture: fixture} do
@@ -288,7 +320,7 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
     @moduledoc false
     # A synthetic release key, a stand-in transparency-log key and a loopback OCI registry.
 
-    import ExUnit.Callbacks, only: [start_supervised!: 1]
+    import ExUnit.Callbacks, only: [start_supervised!: 1, start_supervised!: 2]
 
     defmodule Registry do
       @moduledoc false
@@ -324,6 +356,29 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
     @manifest_type "application/vnd.oci.image.manifest.v1+json"
     @config ~s({"architecture":"","os":"","config":{}})
 
+    # An HTTP proxy on loopback that records each request line and answers 502.
+    def start_recording_proxy do
+      requests = start_supervised!({Agent, fn -> [] end}, id: :recording_proxy_requests)
+      {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, packet: :line, ip: {127, 0, 0, 1}])
+      {:ok, port} = :inet.port(listener)
+      start_supervised!({Task, fn -> accept(listener, requests) end}, id: :recording_proxy)
+      %{url: "http://127.0.0.1:#{port}", requests: requests}
+    end
+
+    def proxied_requests(proxy), do: proxy.requests |> Agent.get(& &1) |> Enum.reverse()
+
+    defp accept(listener, requests) do
+      {:ok, socket} = :gen_tcp.accept(listener)
+
+      with {:ok, line} <- :gen_tcp.recv(socket, 0, 5_000) do
+        Agent.update(requests, &[String.trim(line) | &1])
+      end
+
+      :gen_tcp.send(socket, "HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\n\r\n")
+      :gen_tcp.close(socket)
+      accept(listener, requests)
+    end
+
     def start(trust_dir) do
       store = start_supervised!({Agent, fn -> %{} end})
       server = start_supervised!({Bandit, plug: {Registry, store}, ip: :loopback, port: 0, startup_log: false})
@@ -344,8 +399,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
       }
     end
 
-    # Push a fresh image and its classic `.sig`, whose receipt logs either this
-    # signature or a genuine entry for another artifact signed with the same key.
+    # Push a fresh image and its classic `.sig`, with no receipt or with a receipt that
+    # logs either this signature or a genuine entry for another artifact signed with the
+    # same key.
     def publish(fixture, logged) do
       put(fixture, "/v2/example/blobs/" <> digest(@config), "application/octet-stream", @config)
 
@@ -366,23 +422,30 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
       signature = sign(fixture.release_key, payload)
       put(fixture, "/v2/example/blobs/" <> digest(payload), "application/octet-stream", payload)
 
-      {logged_payload, logged_signature} =
+      annotations =
         case logged do
+          :no_receipt ->
+            %{"dev.cosignproject.cosign/signature" => signature}
+
           :own_entry ->
-            {payload, signature}
+            %{
+              "dev.cosignproject.cosign/signature" => signature,
+              "dev.sigstore.cosign/bundle" => rekor_bundle(fixture, payload, signature)
+            }
 
           :other_entry ->
             other = simple_signing(repository, "sha256:" <> String.duplicate("e", 64))
-            {other, sign(fixture.release_key, other)}
+
+            %{
+              "dev.cosignproject.cosign/signature" => signature,
+              "dev.sigstore.cosign/bundle" => rekor_bundle(fixture, other, sign(fixture.release_key, other))
+            }
         end
 
       layer =
         "application/vnd.dev.cosign.simplesigning.v1+json"
         |> descriptor(payload)
-        |> Map.put("annotations", %{
-          "dev.cosignproject.cosign/signature" => signature,
-          "dev.sigstore.cosign/bundle" => rekor_bundle(fixture, logged_payload, logged_signature)
-        })
+        |> Map.put("annotations", annotations)
 
       signature_manifest = %{
         "schemaVersion" => 2,
