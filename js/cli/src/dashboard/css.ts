@@ -248,6 +248,7 @@ function isLocalFileInProject(rawUrl: string, projectDir?: string): boolean {
  * - Rejects external font URLs, non-inlineable `.svg#...` font references
  *   (such as `@blueprintjs/icons/lib/css/blueprint-icons.css`), and unresolved
  *   or public-dir font URLs.
+ * - Rejects any other external `url()` in `build` mode (dev tolerates Vite dev-server URLs).
  * - Permits `data:` URIs and small local inlineable assets.
  */
 export function assertCspSafeCss(css: string, sourceId: string, options: CspCheckOptions): void {
@@ -285,6 +286,12 @@ export function assertCspSafeCss(css: string, sourceId: string, options: CspChec
         throw new Error(
           `CSP-unsafe external font URL in ${sourceId}: "${url}"\n` +
             `→ ServiceRadar CSP forbids external font requests (use data: URIs or modular SVG components)`,
+        )
+      }
+      if (options.mode === "build") {
+        throw new Error(
+          `CSP-unsafe external URL in ${sourceId}: "${url}"\n` +
+            `→ dashboard renderers must be self-contained (inline assets as data: URIs or import local files)`,
         )
       }
       continue

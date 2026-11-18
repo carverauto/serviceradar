@@ -94,14 +94,43 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackagesManifestTest do
     sample_frame_ids = MapSet.new(sample_frames, & &1["id"])
     assert manifest_frame_ids == sample_frame_ids
 
-    assert sample_settings["defaultWindow"] == "last_24h"
     assert is_number(sample_settings["lossAlertThresholdPct"])
     assert is_number(sample_settings["jitterAlertThresholdMs"])
 
-    raw_frames_text = Jason.encode!(sample_frames)
-    assert raw_frames_text =~ "192.0.2."
-    assert raw_frames_text =~ "198.51.100."
-    assert raw_frames_text =~ "203.0.113."
-    assert raw_frames_text =~ ".example."
+    rows = Enum.flat_map(sample_frames, & &1["results"])
+
+    ips =
+      rows
+      |> Enum.flat_map(&[&1["target_device_ip"], &1["ip"], sample_row_tags(&1)["target"]])
+      |> Enum.reject(&is_nil/1)
+
+    hosts = rows |> Enum.map(& &1["host"]) |> Enum.reject(&is_nil/1)
+
+    assert ips != []
+    assert hosts != []
+
+    for ip <- ips do
+      assert rfc5737_documentation_ip?(ip), "non-RFC 5737 address in sample frames: #{ip}"
+    end
+
+    for host <- hosts do
+      assert String.ends_with?(host, ".example.com"),
+             "non-example.com host in sample frames: #{host}"
+    end
   end
+
+  defp sample_row_tags(%{"tags" => tags}) when is_binary(tags), do: Jason.decode!(tags)
+  defp sample_row_tags(%{"tags" => tags}) when is_map(tags), do: tags
+  defp sample_row_tags(_row), do: %{}
+
+  defp rfc5737_documentation_ip?(ip) when is_binary(ip) do
+    case :inet.parse_ipv4strict_address(String.to_charlist(ip)) do
+      {:ok, {192, 0, 2, _}} -> true
+      {:ok, {198, 51, 100, _}} -> true
+      {:ok, {203, 0, 113, _}} -> true
+      _ -> false
+    end
+  end
+
+  defp rfc5737_documentation_ip?(_ip), do: false
 end

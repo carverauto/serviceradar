@@ -250,6 +250,24 @@ describe("assertCspSafeCss", () => {
       assert.throws(() => assertCspSafeCss(bad, "bad.css", {mode: "build"}))
     }
   })
+
+  test("rejects external non-font url() values in build mode", () => {
+    for (const bad of [
+      `.x { background-image: url(https://cdn.example.com/bg.png); }`,
+      `.x { background-image: url("http://cdn.example.com/bg.png"); }`,
+      `.x { cursor: url('//cdn.example.com/c.cur'), auto; }`,
+    ]) {
+      assert.throws(
+        () => assertCspSafeCss(bad, "bad.css", {mode: "build"}),
+        /CSP-unsafe external URL in bad\.css/,
+      )
+    }
+  })
+
+  test("tolerates Vite dev-server asset URLs in dev mode", () => {
+    const css = `.x { background-image: url("http://localhost:5173/src/dot.svg"); }`
+    assert.doesNotThrow(() => assertCspSafeCss(css, "dev.css", {mode: "dev", projectDir: process.cwd()}))
+  })
 })
 
 describe("dashboard build self-contained CSS bundling and lifecycle", () => {

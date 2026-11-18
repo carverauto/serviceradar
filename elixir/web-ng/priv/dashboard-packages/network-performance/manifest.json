@@ -124,11 +124,6 @@
   "settings_schema": {
     "type": "object",
     "properties": {
-      "defaultWindow": {
-        "type": "string",
-        "title": "Default time window",
-        "default": "last_24h"
-      },
       "lossAlertThresholdPct": {
         "type": "number",
         "title": "Packet loss alert threshold (%)",
