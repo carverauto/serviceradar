@@ -18,6 +18,7 @@ import {HARNESS_DIR} from "../paths.js"
 import {errorStack, openBrowser, relativePath, relativeUrl} from "../utils.js"
 import {formatValidationFailures, validateProject} from "../validation.js"
 import {buildCommand} from "./build.js"
+import {DASHBOARD_DEV_ENTRY_URL, dashboardCssDevPlugins} from "./css-plugin.js"
 import {assertReactResolvable, devViteAliases, projectReactAliases} from "./resolve.js"
 
 const DEFAULT_HOST = "127.0.0.1"
@@ -62,12 +63,17 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
   const reactAliases = projectReactAliases(projectDir)
   assertReactResolvable(projectDir, reactAliases)
 
-  const vite = await createViteServer({
+  let vite: any = null
+  vite = await createViteServer({
     root: projectDir,
     configFile: false,
     appType: "custom",
     server: {middlewareMode: true},
-    plugins: [dashboardHarnessPlugin(), react()],
+    plugins: [
+      dashboardHarnessPlugin(),
+      ...dashboardCssDevPlugins({projectDir, entryPath, getViteServer: () => vite}),
+      react(),
+    ],
     define: {
       "process.env.NODE_ENV": JSON.stringify("development"),
       ...(config.vite?.define || {}),
@@ -91,7 +97,7 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
   const fixtureResolver = resolveFixtureResolverUrl(projectDir, config)
 
   const harnessHtml = renderDevHarnessHtml({
-    entry: "/" + relativeUrl(projectDir, entryPath),
+    entry: DASHBOARD_DEV_ENTRY_URL,
     manifest: synthesizeManifestForDev(config),
     samples,
     fixtures,
