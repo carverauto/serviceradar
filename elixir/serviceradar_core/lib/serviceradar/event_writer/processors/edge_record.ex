@@ -354,7 +354,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          %{producer_context: %{producer_assignment_id: <<_::128>> = assignment_id} = context},
          %{publication: :primary} = late
        ) do
-    if LateAdmission.revoked_interval?(repo, assignment_id, context.authority_epoch || 0),
+    if LateAdmission.revoked_interval?(repo, assignment_id, context.authority_epoch),
       do: {:error, :certificate_revoked_interval},
       else: {:ok, late}
   end

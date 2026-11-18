@@ -236,7 +236,8 @@ defmodule ServiceRadar.Edge.LateAdmissionTest do
           {grant, other_epoch, key, :binding},
           {grant, put_in(delivery.record.event_id, binary_part(item.event_id, 0, 15)), key,
            :binding},
-          {grant, put_in(delivery.record.producer_context.authority_epoch, -1), key, :binding}
+          {grant, put_in(delivery.record.producer_context.authority_epoch, -1), key, :binding},
+          {grant, put_in(delivery.record.producer_context.authority_epoch, nil), key, :binding}
         ] do
       assert LateAdmission.verify_delivered(candidate, delivery, verifier) ==
                {:error, {:late_admission_grant, reason}}
