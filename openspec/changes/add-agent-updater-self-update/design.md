@@ -1,3 +1,10 @@
+> **Parked (2026-11-18), not approved for implementation.** See the status section of
+> `proposal.md`. Decision 11's `current`, `unavailable`, `not_applicable` and `unknown`
+> states, the `--describe` invocation, operation gating and the package-upgrade remedy are
+> now specified by `add-agent-updater-status-reporting`, where a host that needs a package
+> upgrade is `package_upgrade_required`. The rest of this document is kept as written for
+> a possible revival.
+
 ## Context
 
 ### What exists today (read from code)

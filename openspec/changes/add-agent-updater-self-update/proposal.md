@@ -1,5 +1,22 @@
 # Change: Let the agent's privileged updater be replaced without an OS package upgrade
 
+## Status: parked, not approved for implementation
+
+Parked on 2026-11-18 by the product owner. Letting a root program be replaced on a remote
+command was judged a larger risk than the stale-updater problem it solves. Do not start
+any task in this change.
+
+The parts that need no remote write to the privileged path moved to
+`add-agent-updater-status-reporting`: updater self-description, the per-agent updater
+status, operation gating in the agent, add-on eligibility by updater state, and the
+package-upgrade remedy in the UI. That change also states the package as the only writer
+of the updater. What remains here is the self-replacement mechanism and its safeguards.
+
+If this change is revived, it builds on that one: it must reverse the "changed only by
+the operating system package" requirement there with an explicit MODIFIED or REMOVED
+delta, and extend the updater states (`outdated`, `bootstrap_required`,
+`replacement_failed`, the version floor) with MODIFIED deltas against the archived specs.
+
 ## Why
 
 The Linux agent runs unprivileged and updates itself: it stages a verified release under
@@ -54,8 +71,8 @@ path to fix it.
   the destination directory, self-tested by the running updater, given its final owner,
   mode and security label, and published with one `rename(2)`. An interrupted replacement
   leaves the previous updater in place.
-- **Machine-readable self-description.** The updater reports its version, platform and
-  supported operations as JSON. The agent stops inferring capability from help text.
+- **Self-description gains the floor and replacement state.** The self-description
+  document itself is delivered by `add-agent-updater-status-reporting`.
 - **Package changes that stop regressions.** The package ships its updater as a
   package-owned, non-setuid payload and installs it to the active path only when it is not
   older than what is already there, so a package reinstall cannot regress a host and
@@ -63,9 +80,9 @@ path to fix it.
 - **The updater reconciles the host contract it depends on**: a managed systemd drop-in
   for the service properties its operations need, extending the drop-in mechanism that
   already exists (`go/pkg/agent/release_runtime.go:171`).
-- **Per-agent updater state in core and web-ng**: version, state, reason and supported
-  operations; fleet filters; the exact one-time remedy for hosts whose helper predates
-  self-replacement; updater outcome on release and add-on rollouts.
+- **Replacement outcome on release rollouts.** The per-agent updater state, fleet
+  filters and the package-upgrade remedy are delivered by
+  `add-agent-updater-status-reporting`.
 - **Rollout control as a runtime setting** with a code default: a kill switch stored in
   the database and not in Helm values. Rollouts pause on a fixed rule (an owner
   decision).
@@ -82,7 +99,8 @@ updaters "are upgraded by the OS package, not by an agent self-update"
 ## Impact
 
 - Affected specs: `agent-release-management` (new requirements; existing requirements
-  unchanged), `agent-registry`, `build-web-ui`.
+  unchanged), `build-web-ui`. The `agent-registry` read model moved to
+  `add-agent-updater-status-reporting`.
 - Affected code: `go/cmd/agent-updater`, `go/pkg/agent` (updater command, release runtime,
   capability reporting, control stream), `go/pkg/agent/updaterflags`, `build/release`
   (publisher and manifest), `build/packaging` (deb, rpm, postinstall, spec), the release
