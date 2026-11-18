@@ -43,8 +43,8 @@ detection value.
   byte-for-byte to a committed copy. `CosignVerifier` verifies the receipt with that key: the SET
   must verify, and the logged body must name the same signature, release public key and payload
   hash. Import never makes a network call to a Sigstore service.
-- **Artifacts without a receipt.** All first-party `.sig` signatures published up to the cutover
-  release lack the annotation, and Harbor tag immutability prevents adding it. The product owner
+- **Artifacts without a receipt.** The cutover release is the first release whose signer attaches
+  receipts. All first-party `.sig` signatures published before it lack the annotation, and Harbor tag immutability prevents adding it. The product owner
   decided on a frozen allowlist of every pre-cutover first-party Wasm plugin and native add-on
   digest, shipped in the web-ng image; those import key-only. From the cutover release on, every
   other first-party Wasm plugin or native add-on digest requires a receipt (design.md,
@@ -58,7 +58,9 @@ detection value.
   the gap in the trusted-root branch.
 - **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` scans new Rekor v1
   entries for the release key's fingerprint, hourly unless measurement forces a longer interval. It alerts on any entry that does not match a payload
-  recorded by one of the repository's release-key signing runs, within about one scan interval, and
+  recorded by one of the repository's release-key signing runs, within about one scan interval
+  after the entry becomes decidable (every release-key signing run active at its integrated time
+  has ended; a few hours at worst for an entry overlapping a long `release.yml` run), and
   on its own failure or blindness. The blindness canary alerts on a ledgered entry still unseen two
   scan intervals after its signing run ended, and the scheduled job watch reports the monitor stale
   when its last successful run is older than three scan intervals.
@@ -87,7 +89,10 @@ detection value.
   import must have a public Rekor record of its signature, unless its digest is on the frozen
   pre-cutover allowlist. A signature made with the release key outside the repository's signing workflows, for
   example by a stolen OpenBao token or an abused Transit role, is publicly detectable. The monitor
-  reports it within about one scan interval (an hour at the hourly default). The log is also a third-party-auditable history of everything
+  reports it within about one scan interval (an hour at the hourly default) after it becomes
+  decidable, that is, after every release-key signing run active at its integrated time has ended.
+  For an entry overlapping a long release run the worst case is the remaining run time plus one
+  scan interval, a few hours for `release.yml`. The log is also a third-party-auditable history of everything
   the key signed, which helps the forensics after an incident.
 - **Does not add:** prevention, protection against a compromised run of the signing workflow
   itself (its ledger explains its own entries), or protection before the cutover release. Until

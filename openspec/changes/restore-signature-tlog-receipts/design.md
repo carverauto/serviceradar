@@ -132,7 +132,9 @@ with no file in the set fails before cosign runs.
 
 **(b) Key-only mode.** Used by `CosignVerifier` only for digests on the frozen pre-cutover
 allowlist, which then records `absent_allowlisted`, and by release verification only for a
-reused signature that carries no receipt, which can only be pre-cutover. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
+reused signature that carries no receipt, which can only be pre-cutover. A digest whose signature
+carries a receipt is always verified in receipt-required mode and recorded as `verified`, never in
+key-only mode and never as `absent_allowlisted`. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
 key, no `SIGSTORE_REKOR_PUBLIC_KEY`.
 
 Both run with no `--trusted-root` and an isolated `HOME`, `XDG_*` and `SIGSTORE_CACHE_DIR`, as #6778 already
@@ -326,15 +328,19 @@ No UI change is part of this change.
 
 ## Decision 9: Pre-cutover Wasm plugins and native add-ons use a frozen digest allowlist
 
-Decided by the product owner. Every first-party `.sig` published before the cutover release lacks
-the annotation (see Context). Harbor tag immutability prevents adding one, since the classic tag is
-addressed by digest.
+Decided by the product owner. The cutover release is the first release whose signer attaches
+receipts (migration step 2). Every first-party `.sig` published before it lacks the annotation (see
+Context). Harbor tag immutability prevents adding one, since the classic tag is addressed by digest.
 
-At the cutover, the list of every first-party OCI digest in every published
-`serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json` is generated
-(v1.5.6 lists 16 Wasm plugins; GitHub shows 50 releases, so on the order of a thousand digests at
-most), committed and shipped in the web-ng image. At import, those digests verify key-only and are
-recorded as `absent_allowlisted`. Every other first-party Wasm plugin or native add-on digest
+The list of every first-party OCI digest in every `serviceradar-wasm-plugin-index.json` and
+`serviceradar-native-addon-index.json` published before the cutover release is generated (v1.5.6
+lists 16 Wasm plugins; GitHub shows 50 releases, so on the order of a thousand digests at most) and
+committed. It is frozen from those indexes only, shipped unchanged with the later verifier release
+(migration step 4), and never regenerated once receipt-bearing releases exist, so no receipt-bearing
+digest is on it. At import, those digests verify key-only and are
+recorded as `absent_allowlisted`. A digest whose signature carries a valid receipt is verified in
+receipt-required mode and recorded as `verified`, never key-only and never `absent_allowlisted`.
+Every other first-party Wasm plugin or native add-on digest
 requires a receipt from the cutover release on. A contract test fails if the list changes after the
 cutover. It is safe because an attacker cannot produce new content under an allowlisted digest. It
 costs one generated file, and it never grows. The list holds no image digests: images are admitted
@@ -367,8 +373,12 @@ first-party Wasm plugin and native add-on digest not on the frozen allowlist (De
 accepted artifact must have a public, append-only record in Rekor v1, made by the
 holder of the release key. Without a receipt requirement, someone who can sign with the key can
 produce an importable package that leaves no public trace. With it they must log the signature, and
-the monitor reports any logged signature that none of our signing runs accounts for, within about
-one scan interval (an hour at the hourly default). The log is also an independent record of everything the key signed, available to anyone,
+the monitor reports any logged signature that none of our signing runs accounts for within about
+one scan interval after the entry becomes decidable, that is, after every release-key signing run
+that was active at its `integratedTime` has ended (Decision 7, pending rule). For an entry outside
+any signing run that is about one scan interval (an hour at the hourly default). For an entry that
+overlaps a long release run the worst case is the remaining run time plus one scan interval, a few
+hours for `release.yml`. The log is also an independent record of everything the key signed, available to anyone,
 which bounds the investigation after an incident.
 
 **What it does not add.**
@@ -420,10 +430,13 @@ monitor's alerts need an owner.
 1. Upgrade cosign (signer and image), add `docs/sigstore/rekor-keys/` and `docs/sigstore/rekor.pub`,
    and add the consistency tests.
 2. Ship the signer change (receipt annotation and ledger) and the receipt check in the release
-   verification scripts. From then on every new signature carries a receipt.
+   verification scripts. The first release with this signer is the cutover release; from then on
+   every new signature carries a receipt. Generate and commit the frozen allowlist from the indexes
+   published before it.
 3. Enable the monitor once the scan cost is measured. Release N+1's ledger is the first end-to-end
    canary.
-4. Ship the verifier change with the frozen pre-cutover allowlist (Decision 9).
+4. Ship the verifier change with the frozen pre-cutover allowlist from step 2, unchanged and not
+   regenerated (Decision 9).
    Until it ships, #6778's key-only verification remains in force.
 
 Rollback: the verifier change can be reverted to #6778's key-only mode on its own. A key-only

@@ -58,12 +58,15 @@
   receipt-required mode for every non-allowlisted digest, with the pinned key selected from the
   shipped key set by the receipt's `logID` and passed as `SIGSTORE_REKOR_PUBLIC_KEY`,
   `--offline=true`, `--new-bundle-format=false`, no `--trusted-root`, no `--insecure-ignore-tlog`,
-  failing closed on a missing receipt; (b) key-only mode only for allowlisted digests, with #6778's
+  failing closed on a missing receipt; a digest whose signature carries a receipt always uses (a)
+  and records `verified`; (b) key-only mode only for allowlisted digests without a receipt, with #6778's
   flags (`--insecure-ignore-tlog=true`, no Rekor key). No TUF, isolated home and cache directories,
   bounded timeout.
-- [ ] 4.2 Generate and commit the frozen pre-cutover digest allowlist from every published
-  `serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json`. Ship it in
-  the image and add the freeze contract test.
+- [ ] 4.2 With the cutover release (the first release whose signer attaches receipts), generate
+  and commit the frozen allowlist from every `serviceradar-wasm-plugin-index.json` and
+  `serviceradar-native-addon-index.json` published before it. Ship that list unchanged with the
+  verifier release, never regenerate it once receipt-bearing releases exist, and add the freeze
+  contract test.
 - [ ] 4.3 Store `transparency_receipt` (`verified` with log index and integrated time, or
   `absent_allowlisted`) in the import verification metadata on both write paths: web-ng
   `first_party_importer.ex` for Wasm plugins, and for native add-ons web-ng
