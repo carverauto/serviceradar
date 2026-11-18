@@ -283,7 +283,7 @@ inventory cleared it.
 - **THEN** the device_role SHALL be updated
 - **AND** the stored type and type_id SHALL remain
 
-### Requirement: A device with a usable IPv4 keeps an IPv4 primary address
+### Requirement: A device with a usable IPv4 keeps a usable IPv4 primary address
 Sync ingestion SHALL treat as a routable address an address the primary-IP
 chooser accepts that is not link-local, not a directed broadcast (as
 AliasPolicy's alias predicate decides with the device's known interface CIDRs)
@@ -324,10 +324,12 @@ ingestor's guest address fallback, the Proxmox plugin's guest primary-IP
 selection, the Armis sync source's address walk (over the union of its split
 IPAddress, IPv4Addresses and IPv6Addresses, skipping blacklisted addresses:
 usable IPv4 first, then non-link-local IPv6, then a link-local only if nothing
-else), the NetBox plugin's primary-IP selection (which already prefers the
-IPv4), and the camera path: each SHALL submit a chooser-accepted IPv4 over any
-IPv6 among every address on the host or guest when one exists, keeping its own
-order among accepted IPv4s, and SHALL NOT submit a link-local address as
+else), the NetBox plugin's primary-IP selection (its primary IPv4 only when it
+is a usable IPv4), and the camera path: each SHALL submit a usable IPv4 over any
+IPv6 among every address on the host or guest when one exists; a link-local
+IPv4 (169.254/16) loses to any routable address of either family, so when the
+only IPv4 is link-local a routable IPv6 SHALL be submitted; each chooser keeps
+its own order among usable IPv4s, and SHALL NOT submit a link-local address as
 primary when a routable address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
 replace a usable IPv4 with an IPv6, SHALL NOT replace a routable address with a
@@ -340,7 +342,7 @@ link-local; when the device has a usable IPv4 the name and hostname SHALL NOT
 take an IPv6 literal, and an IPv6-only device's fallback name MAY be its
 routable IPv6.
 
-#### Scenario: A dual-stack census sighting keeps the IPv4 primary
+#### Scenario: A dual-stack census sighting keeps the usable IPv4 primary
 - **GIVEN** a device whose primary ip 192.0.2.3 was recorded by the passive census and is still in the census window
 - **WHEN** the passive census sights it by NDP as 2001:db8::3
 - **THEN** the primary ip SHALL remain 192.0.2.3
@@ -382,13 +384,13 @@ routable IPv6.
 - **THEN** the primary ip SHALL remain 192.0.2.8
 - **AND** 172.17.0.1 SHALL NOT be recorded as an alias of the guest
 
-#### Scenario: An IPv6-only device that gains an IPv4 switches primary
+#### Scenario: An IPv6-only device that gains a usable IPv4 switches primary
 - **GIVEN** an IPv6-only device whose primary ip is 2001:db8::5
 - **WHEN** a sighting reports the device at 192.0.2.5
 - **THEN** the primary ip SHALL become 192.0.2.5
 - **AND** 2001:db8::5 SHALL remain a live alias
 
-#### Scenario: An IPv4 re-IP still replaces the primary
+#### Scenario: A usable IPv4 re-IP still replaces the primary
 - **GIVEN** a device whose primary ip 192.0.2.6 was recorded by the passive census
 - **WHEN** 192.0.2.6 has left the census window and the census sights the device at 198.51.100.6
 - **THEN** the primary ip SHALL become 198.51.100.6

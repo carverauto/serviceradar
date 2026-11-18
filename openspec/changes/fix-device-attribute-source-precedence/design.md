@@ -191,7 +191,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     is a routable IPv4 (`sr_address_rank >= 40`), and an IPv6-only device is
     one with no usable IPv4 (a `169.254/16` IPv4 does not count). Within a
     family the never-downgrade rank still holds, so a link-local never
-    replaces a ULA or anything stronger. When a device has a usable IPv4, an IPv4 is the
+    replaces a ULA or anything stronger. When a device has a usable IPv4, a usable IPv4 is the
     primary `ip`; no IPv6
     becomes primary on a dual-stack device, and every aliasable IPv6 (global
     or ULA, per `AliasPolicy.valid_alias_ip?/2` with the device's known
@@ -200,7 +200,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     `GuestAddress.primary/1` keeps skipping host-internal addresses such as
     a docker bridge, and the rule never promotes an address a chooser
     rejects. An IPv6 is primary only on an IPv6-only
-    device; if that device later gains a usable IPv4, the IPv4 takes over.
+    device; if that device later gains a usable IPv4, the usable IPv4 takes over.
     A stored primary is kept unless the incoming address is strictly
     stronger (a usable IPv4 over any IPv6; a routable address of either
     family over a link-local primary of either family, so a routable IPv6
@@ -234,10 +234,13 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     `IPv4Addresses` and `IPv6Addresses`, ordered usable IPv4, then
     non-link-local IPv6, then a link-local only if nothing else, skipping
     blacklisted addresses; `primaryIP` is left alone), the NetBox plugin's `primaryIP`
-    (`go/cmd/wasm-plugins/netbox/main.go`, which already prefers
-    `primary_ip4` and keeps its IPv6 fallback), and the camera path. Each
-    submits a chooser-accepted IPv4 over any IPv6 among every address on the
-    host or guest when one exists, keeps its own order among accepted IPv4s
+    (`go/cmd/wasm-plugins/netbox/main.go`, which takes `primary_ip4` only
+    when it is a usable IPv4 and otherwise its routable IPv6), and the
+    camera path. Each submits a usable IPv4 over any IPv6 among every
+    address on the host or guest when one exists; a link-local IPv4
+    (`169.254/16`) loses to any routable address of either family, so when
+    the only IPv4 is link-local the routable IPv6 is submitted. Each keeps
+    its own order among usable IPv4s
     (configured NIC index, `management_ip_score`), and never submits a
     link-local (`fe80::/10`, `169.254/16`) as primary when a routable
     address exists. The succession hand-over `MergeEngine.take_address?/2`

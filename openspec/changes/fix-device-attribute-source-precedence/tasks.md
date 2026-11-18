@@ -179,8 +179,9 @@
 - [ ] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
       `primary_interface_ip`, `management_ip_score`,
       `routable_management_ip?`) and the `DeviceDiscoveryIngestor` guest
-      address fallback submit the best chooser-accepted IPv4 among every
-      address on the host or guest, prefer it over any IPv6, and never submit
+      address fallback submit the best usable IPv4 among every address on the
+      host or guest, prefer it over any IPv6 (a `169.254/16` IPv4 is
+      link-local and loses to any routable address), and never submit
       a link-local (`fe80::/10`, `169.254/16`) as primary when a routable
       address (as defined in 7.1, so `fe80::` is never routable even though
       `routable_management_ip?` accepts it) exists; a host whose only
@@ -193,15 +194,16 @@
       `IPv6Addresses`, ordered usable IPv4, then non-link-local IPv6, then a
       link-local only if nothing else, skipping blacklisted addresses;
       `primaryIP` is left alone)
-      prefer a chooser-accepted IPv4 over any IPv6 and never submit a
-      link-local when a routable address exists; keep each chooser's own
-      order among accepted IPv4s; the succession hand-over
+      prefer a usable IPv4 over any IPv6 and never submit a link-local when a
+      routable address exists; keep each chooser's own order among usable
+      IPv4s; the succession hand-over
       `MergeEngine.take_address?/2` compares only the successor's stored `ip`
       with the survivor's, never replaces a usable IPv4 with an IPv6, a
       routable address with a link-local, or a link-local with an
       equal-rank link-local, and takes a link-local only when the survivor
-      has no primary at all; keep NetBox
-      `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
+      has no primary at all; NetBox `primaryIP`
+      (`go/cmd/wasm-plugins/netbox/main.go`) takes `primary_ip4` only when
+      it is a usable IPv4 and otherwise its routable IPv6
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
 - [ ] 7.7 Census decoder: an NDP / IPv6 sighting of a device with a usable
@@ -222,7 +224,7 @@
       address within the alias expiry window is expired
 - [ ] 7.10 `SweepCompiler` attributes each target only to the current live
       holder
-- [ ] 7.11 Test: dual-stack census keeps the IPv4 primary and records the
+- [ ] 7.11 Test: dual-stack census keeps the usable IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
       sighting of a device with a routable address records no alias,
       primary or name; a guest's `172.17.0.1` on
@@ -233,7 +235,9 @@
       link-local addresses keeps one" sync test stays); an IPv6-only device
       that gains a usable IPv4 switches primary, and one that gains only a
       `169.254/16` address keeps its routable IPv6, and a device at
-      `169.254.1.5` that gains `2001:db8::5` takes the IPv6 as primary; an IPv4 re-IP replaces
+      `169.254.1.5` that gains `2001:db8::5` takes the IPv6 as primary; a NetBox device whose `primary_ip4` is
+      `169.254.1.5` and that has `2001:db8::5` submits the IPv6; a usable
+      IPv4 re-IP replaces
       once the old address leaves the recording source's window; two NICs
       both sighted keep the first primary; another source reporting a
       different IPv4 does not move the primary; fe80 and 169.254 sightings
@@ -275,4 +279,5 @@
       name
 - [ ] 8.3 Verify on a deployment: an affected agent's sweep config version
       stays constant across census passes, and dual-stack devices keep an
-      IPv4 primary, including a private rank-40 IPv4 against a global IPv6
+      usable IPv4 primary, including a private rank-40 IPv4 against a global
+      IPv6

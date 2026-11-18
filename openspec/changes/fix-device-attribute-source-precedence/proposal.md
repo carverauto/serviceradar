@@ -181,7 +181,7 @@ inventory state rather than of nondeterministic compilation.
   (`sr_address_rank >= 40`); an IPv6-only device has no usable IPv4 (a
   `169.254/16` address does not count). Within a family the never-downgrade
   rank still holds, so a link-local never replaces a ULA. When a device has a usable IPv4,
-  an IPv4 is its primary `ip`; no IPv6 becomes primary
+  a usable IPv4 is its primary `ip`; no IPv6 becomes primary
   on a dual-stack device, and every aliasable IPv6 (global or ULA, as
   `AliasPolicy.valid_alias_ip?/2` defines with the device's known CIDRs) is
   recorded as an alias. The rule
@@ -207,8 +207,10 @@ inventory state rather than of nondeterministic compilation.
   discovery ingestor's guest address fallback, the Proxmox plugin's
   `primaryIP` / `firstUsableIP`, the Armis sync source's address walk in
   `filterDevices` (over its split `IPAddress`, `IPv4Addresses` and
-  `IPv6Addresses`), the NetBox plugin's `primaryIP` (already IPv4-first), and
-  the camera path; each keeps its own order among accepted IPv4s and none
+  `IPv6Addresses`), the NetBox plugin's `primaryIP` (its `primary_ip4` only
+  when it is a usable IPv4), and the camera path; each submits a usable IPv4
+  over any IPv6, submits the routable IPv6 when the only IPv4 is a
+  `169.254/16` link-local, keeps its own order among usable IPv4s, and none
   submits a link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
   stored addresses, never replaces a usable IPv4 with an IPv6 or a routable
