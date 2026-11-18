@@ -253,6 +253,11 @@ class MonitorTest(unittest.TestCase):
             out.replace(self.state)
         return status
 
+    def move_first_checkpoint(self, when):
+        state = json.loads(self.state.read_text())
+        state["first_integrated_time"] = int(when.timestamp())
+        self.state.write_text(json.dumps(state))
+
     def titles(self, state="open"):
         return [issue["title"] for issue in self.world.issues if issue["state"] == state]
 
@@ -397,6 +402,7 @@ class MonitorTest(unittest.TestCase):
 
     def test_blindness_canary_reads_the_ledger_of_a_long_running_release(self):
         log_id = hashlib.sha256(monitor.pem_der(self.world.log_pub.read_text())).hexdigest()
+        self.move_first_checkpoint(NOW - timedelta(days=20))
         # Created ten days ago (a release waiting on its environment), ended three hours ago.
         self.world.add_run("release.yml", 13, NOW - timedelta(days=10), NOW - timedelta(hours=3), [
             {"event": "logged", "log_id": log_id, "log_index": 99,
@@ -427,12 +433,39 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(json.loads(out.read_text()), {"tree_size": 3})
 
+    def test_blindness_canary_checks_a_run_that_ended_days_before_the_scan_once(self):
+        log_id = hashlib.sha256(monitor.pem_der(self.world.log_pub.read_text())).hexdigest()
+        self.move_first_checkpoint(NOW - timedelta(days=10))
+        # Created and ended days after the first checkpoint, a week before this scan (an outage).
+        self.world.add_run("publish-oci.yml", 14, NOW - timedelta(days=8), NOW - timedelta(days=7), [
+            {"event": "logged", "log_id": log_id, "log_index": 99,
+             "integrated_time": int((NOW - timedelta(days=7, hours=12)).timestamp()),
+             "subject": "registry.example/agent@sha256:" + "c" * 64}])
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
+        self.assertEqual(len(self.world.discord), 1)
+        self.world.issues[0]["state"] = "closed"
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.assertEqual(self.titles(), [], "an already checked run was checked again")
+        self.assertEqual(len(self.world.discord), 1)
+
+    def test_entries_that_do_not_fit_one_discord_message_are_posted_on_later_runs(self):
+        entries = [self.world.add_entry(f"signed outside any run {number}".encode()) for number in range(30)]
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertTrue(all(len(message) <= 2000 for message in self.world.discord))
+        self.assertLess(sum(entry["uuid"] in self.world.discord[0] for entry in entries), len(entries))
+        for _ in range(3):
+            self.assertEqual(self.run_monitor(), 0)
+        posted = "\n".join(self.world.discord)
+        self.assertEqual([entry["uuid"] for entry in entries if entry["uuid"] not in posted], [])
+        self.assertEqual(len(self.world.issues), len(entries))
+
     def test_canary_ignores_entries_from_other_logs_and_before_the_first_checkpoint(self):
         log_id = hashlib.sha256(monitor.pem_der(self.world.log_pub.read_text())).hexdigest()
-        self.world.add_run("release.yml", 10, NOW - timedelta(hours=30), NOW - timedelta(hours=3), [
+        self.world.add_run("release.yml", 10, NOW - timedelta(hours=9), NOW - timedelta(hours=3), [
             {"event": "logged", "log_id": "public-good", "log_index": 5, "integrated_time": int(NOW.timestamp()) - 7200},
             {"event": "logged", "log_id": log_id, "log_index": 6,
-             "integrated_time": int((NOW - timedelta(hours=20)).timestamp())}])
+             "integrated_time": int((NOW - timedelta(hours=11)).timestamp())}])
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.world.issues, [])
 

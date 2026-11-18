@@ -16,7 +16,7 @@ a ledger explained stays explained after that run and its ledger artifact age ou
 
 An issue whose entry later becomes explained is closed. The blindness canary alerts when a
 ledgered entry from a run that ended more than two scan intervals ago is not among the entries
-the monitor saw. Any failure (log unreachable, signature or root mismatch, a rewritten tree, a
+the monitor saw; each run is checked once, and the checkpoint records which were. Any failure (log unreachable, signature or root mismatch, a rewritten tree, a
 changed log key, missing state) exits non-zero after opening an issue, so it cannot pass quietly.
 
 openspec/changes/restore-signature-tlog-receipts, design.md Decisions 5 and 7.
@@ -57,8 +57,9 @@ SCAN_INTERVAL = timedelta(hours=1)
 # within 30 days of its creation and fails a job that waits on an environment for 30 days, so a run
 # active at an entry's integrated time was created at most RUN_MARGIN before it.
 RUN_MARGIN = timedelta(days=60)
-# The blindness canary reads the ledgers of runs that ended this recently.
-CANARY_LOOKBACK = timedelta(days=3)
+# Signing-ledger artifacts are kept this long; the canary checks every run created within it.
+LEDGER_RETENTION = timedelta(days=90)
+MESSAGE_LIMIT = 2000
 BRANCH = "staging"
 SCAN_EVENTS = ("schedule", "workflow_dispatch")
 MONITOR_LABEL = "signing-monitor"
@@ -330,13 +331,11 @@ def decide(matches, runs, ledgers, acknowledged, decided):
     return explained, pending, unexplained
 
 
-def blind_spots(matches, runs, ledgers, log_id, first_time, now):
-    """Ledgered entries in this log, from runs that ended two intervals ago, the scan never saw."""
+def blind_spots(matches, runs, ledgers, log_id, first_time):
+    """Ledgered entries in this log, from the given ended runs, the scan never saw."""
     seen = {match["log_index"] for match in matches}
     missing = []
     for run in runs:
-        if run["ended"] is None or now - run["ended"] < 2 * SCAN_INTERVAL:
-            continue
         for line in ledgers.get(run["id"], []):
             if line.get("event") != "logged" or line.get("log_id") != log_id:
                 continue
@@ -354,7 +353,7 @@ def post_discord(http, environ, content):
         print(f"{WEBHOOK_ENV} is not set: Discord was not notified", file=sys.stderr)
         return False
     try:
-        http.request(webhook, "POST", {"content": content[:2000], "allowed_mentions": {"parse": []}})
+        http.request(webhook, "POST", {"content": content[:MESSAGE_LIMIT], "allowed_mentions": {"parse": []}})
     except (urllib.error.URLError, OSError) as error:
         # The URL is a credential: name the failure, never the URL.
         print(f"the Discord notification was not delivered ({getattr(error, 'code', None) or type(error).__name__})",
@@ -404,12 +403,20 @@ def run(args, environ, now):
     decided = state.setdefault("decisions", {})
     undecided = [integrated(match) for match in matches
                  if decided.get(match["uuid"], {}).get("status") != "explained" and match["uuid"] not in acknowledged]
-    runs = signing_runs(github, min([now - CANARY_LOOKBACK] + undecided) - RUN_MARGIN)
+    canary_since = max(datetime.fromtimestamp(first_time, timezone.utc), now - LEDGER_RETENTION)
+    runs = signing_runs(github, min([canary_since] + [when - RUN_MARGIN for when in undecided]))
+    # Each ended run is checked by the canary once (again if a re-run ends later).
+    checked = {run_id: ended for run_id, ended in state.get("canary_checked", {}).items()
+               if ended >= (now - LEDGER_RETENTION).timestamp()}
+    canary_runs = [run for run in runs
+                   if run["ended"] is not None and run["started"] >= canary_since
+                   and now - run["ended"] >= 2 * SCAN_INTERVAL
+                   and checked.get(str(run["id"]), 0) < int(run["ended"].timestamp())]
     ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs
                if run["ended"] is not None
-               and (run["ended"] >= now - CANARY_LOOKBACK or any(active_at(run, when) for when in undecided))}
+               and (run in canary_runs or any(active_at(run, when) for when in undecided))}
     explained, pending, unexplained = decide(matches, runs, ledgers, acknowledged, decided)
-    blind = blind_spots(matches, runs, ledgers, log_id, first_time, now)
+    blind = blind_spots(matches, canary_runs, ledgers, log_id, first_time)
 
     open_issues = github.open_issues()
     by_uuid = {}
@@ -419,8 +426,6 @@ def run(args, environ, now):
                 by_uuid[match["uuid"]] = issue
     alerts = []
     unalerted = [match for match in unexplained if not decided.get(match["uuid"], {}).get("alerted")]
-    for match in unalerted:
-        alerts.append(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})")
     for match in unexplained:
         if match["uuid"] in by_uuid:
             continue
@@ -443,12 +448,21 @@ def run(args, environ, now):
         if not any(issue["title"] == title for issue in open_issues):
             github.open_issue(title, "Ledgered signatures the monitor never saw in the log. The monitor or "
                                      f"the receipt is broken:\n\n{details}")
-        alerts.append(f"blindness canary: {len(blind)} ledgered entr{'y' if len(blind) == 1 else 'ies'} not seen")
-    delivered = bool(alerts) and post_discord(http, environ, "Rekor signing monitor:\n" + "\n".join(
-        f"- {line}" for line in alerts))
+        alerts.append((f"blindness canary: {len(blind)} ledgered entr{'y' if len(blind) == 1 else 'ies'} not seen",
+                       None))
+    alerts += [(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})", match["uuid"])
+               for match in unalerted]
+    content, sent = "Rekor signing monitor:", set()
+    for line, uuid in alerts:
+        if len(content) + len(line) + 3 <= MESSAGE_LIMIT:
+            content += f"\n- {line}"
+            sent.add(uuid)
+    delivered = bool(alerts) and post_discord(http, environ, content)
     for match in unexplained:
         decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"],
-                                  "alerted": delivered or match not in unalerted}
+                                  "alerted": (delivered and match["uuid"] in sent) or match not in unalerted}
+    checked.update({str(run["id"]): int(run["ended"].timestamp()) for run in canary_runs})
+    state["canary_checked"] = checked
 
     state.update({"tree_size": size, "root_hash": root, "checked_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                   "pending": [match["uuid"] for match in pending]})

@@ -102,7 +102,9 @@ it was integrated:
 The blindness canary opens an issue when a signing ledger records an entry in this log (its
 `logged` line names this log's ID) that was integrated after the first checkpoint's time, kept
 in the checkpoint, from a run that ended more than two hours ago, and that entry is not among
-the entries seen. A run that cannot vouch for the log (unreachable, a
+the entries seen. Every signing run created since the first checkpoint, within the 90-day ledger
+retention, is checked once after it ends (again if a re-run ends later); the checkpoint records
+which runs were checked, so a monitor outage is caught up on the next successful run. A run that cannot vouch for the log (unreachable, a
 signature or root mismatch, a rewritten or replaced tree, a changed key, a missing checkpoint)
 fails, opens an issue and posts to Discord. Only a checkpoint from a successful scheduled or
 dispatched run on `staging` is used. The daily scheduled job watch reports the monitor when its
