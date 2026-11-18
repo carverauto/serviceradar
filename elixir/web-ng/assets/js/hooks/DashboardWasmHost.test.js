@@ -615,6 +615,95 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook._host.package.frames.map((frame) => frame.id)).toEqual(["sites", "devices"])
   })
 
+  test("updates built-in first-party dashboards incrementally when entrypoint matches", () => {
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        status: "ok",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000}],
+      },
+    ]
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const nextHost = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-2", metric_name: "rperf.bits_per_second", value: 420_000_000}],
+          },
+          {
+            id: "spoke_history",
+            query: "in:rperf_metrics agent_id:\"agent-spoke-2\" time:last_24h sort:timestamp:desc limit:200",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-2", metric_name: "rperf.loss_percent", value: 0.4}],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(nextHost, "built-in-v2")).toEqual(true)
+    expect(hook._hostPayloadSignature).toEqual("built-in-v2")
+    expect(hook._host.package.frames).toBe(frames)
+    expect(frames.map((frame) => frame.id)).toEqual(["netperf_recent_samples", "spoke_history"])
+    expect(notified).toHaveLength(1)
+    expect(notified[0].payload.host_update).toBe(true)
+    expect(hook.disconnectFrameStream).not.toHaveBeenCalled()
+
+    const mismatchedEntrypointHost = baseHost({
+      package: {
+        ...nextHost.package,
+        renderer: {
+          ...nextHost.package.renderer,
+          entrypoint: "security_findings",
+          artifact: "security-findings",
+        },
+      },
+    })
+    expect(hook.updateBrowserModuleHost(mismatchedEntrypointHost, "built-in-v3")).toEqual(false)
+  })
+
   test("mounts trusted browser modules with the bounded host API", async () => {
     const hook = hookContext()
     const rendererUrl = new URL("./__fixtures__/trusted_dashboard_module.js", import.meta.url).href

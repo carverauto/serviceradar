@@ -342,6 +342,20 @@
       "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name limit:500"
     },
     {
+      "id": "metrics.rperf.avg_by_metric_name_newest",
+      "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
+      "sources": [
+        "elixir/web-ng/priv/dashboard-packages/network-performance/manifest.json"
+      ]
+    },
+    {
+      "id": "metrics.rperf.throughput_by_agent",
+      "query": "in:rperf_metrics {window_main} metric_name:rperf.jitter_ms stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+      "sources": [
+        "elixir/web-ng/priv/dashboard-packages/network-performance/manifest.json"
+      ]
+    },
+    {
       "id": "flows.bytes_5m_sum",
       "query": "in:flows {window_main} bucket:5m agg:sum value_field:bytes_total limit:500",
       "expect": "cnpg_refuses",

@@ -354,13 +354,40 @@ const DashboardWasmHost = {
   },
 
   updateBrowserModuleHost(nextHost, signature) {
-    if (!this._host || this.rendererKind(this._host) !== "browser_module" || this.rendererKind(nextHost) !== "browser_module") {
+    const currentKind = this._host ? this.rendererKind(this._host) : null
+    const nextKind = this.rendererKind(nextHost)
+    if (!this._host || currentKind !== nextKind) {
       return false
     }
 
-    const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
-    const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
-    if (!currentUrl || currentUrl !== nextUrl) return false
+    if (currentKind === "browser_module") {
+      const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
+      const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
+      if (!currentUrl || currentUrl !== nextUrl) return false
+    } else if (currentKind === "built_in") {
+      if (
+        this._host?.package?.source_type !== "first_party" ||
+        nextHost?.package?.source_type !== "first_party"
+      ) {
+        return false
+      }
+      const currentEntrypoint = String(
+        this._host?.package?.renderer?.entrypoint || this._host?.package?.renderer?.artifact || "",
+      )
+      const nextEntrypoint = String(
+        nextHost?.package?.renderer?.entrypoint || nextHost?.package?.renderer?.artifact || "",
+      )
+      if (!currentEntrypoint || currentEntrypoint !== nextEntrypoint) return false
+      if (
+        (nextHost?.package?.renderer?.interface_version || nextHost?.host?.interface_version) !==
+        (this._host?.package?.renderer?.interface_version || this._host?.host?.interface_version)
+      ) {
+        return false
+      }
+    } else {
+      return false
+    }
+
     const currentStreamToken = this._host?.data_provider?.stream_token || ""
     const currentStreamTopic = this._host?.data_provider?.stream_topic || ""
     const nextStreamToken = nextHost?.data_provider?.stream_token || ""

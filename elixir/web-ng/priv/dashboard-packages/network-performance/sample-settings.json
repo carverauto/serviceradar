@@ -1,0 +1,6 @@
+{
+  "defaultWindow": "last_24h",
+  "lossAlertThresholdPct": 1.0,
+  "jitterAlertThresholdMs": 20.0,
+  "preferences": {}
+}
