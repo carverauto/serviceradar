@@ -182,7 +182,8 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     IPv4 (private or public, `sr_address_rank >= 40`) that the chooser
     already accepts as a primary, an IPv4 is the primary `ip`; no IPv6
     becomes primary on a dual-stack device, and every aliasable IPv6 (global
-    or ULA, per `AliasPolicy.valid_alias_ip?/1`) is recorded as an alias.
+    or ULA, per `AliasPolicy.valid_alias_ip?/2` with the device's known
+    CIDRs) is recorded as an alias.
     The preference only ranks addresses each chooser already accepts:
     `GuestAddress.primary/1` keeps skipping host-internal addresses such as
     a docker bridge, and the rule never promotes an address a chooser
@@ -199,30 +200,42 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     `routable_management_ip?`), the `DeviceDiscoveryIngestor` guest address
     fallback, the Proxmox plugin's `primaryIP` / `firstUsableIP`
     (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
-    `discovery.go`), the Armis sync source's `primaryIP`
-    (`go/pkg/agent/syncsources/armis/device.go`, called from `update.go`),
-    the NetBox plugin's `primaryIP` (`go/cmd/wasm-plugins/netbox/main.go`,
-    which already prefers `primary_ip4` and keeps its IPv6 fallback), the
-    succession hand-over `MergeEngine.take_address?/2`, and the camera path.
-    Each submits a chooser-accepted IPv4 over any IPv6 among every address
-    on the host or guest when one exists, keeps its own order among
-    accepted IPv4s (configured NIC index, `management_ip_score`), and never
-    submits a link-local (`fe80::/10`, `169.254/16`) as primary. The address-fallback name (decision 7)
+    `discovery.go`), the Armis sync source's address walk in
+    `filterDevices` (`go/pkg/agent/syncsources/armis/device.go`, called from
+    `driver.go`; it prefers an IPv4, then a non-link-local IPv6, skipping
+    blacklisted addresses), the NetBox plugin's `primaryIP`
+    (`go/cmd/wasm-plugins/netbox/main.go`, which already prefers
+    `primary_ip4` and keeps its IPv6 fallback), and the camera path. Each
+    submits a chooser-accepted IPv4 over any IPv6 among every address on the
+    host or guest when one exists, keeps its own order among accepted IPv4s
+    (configured NIC index, `management_ip_score`), and never submits a
+    link-local (`fe80::/10`, `169.254/16`) as primary when a routable
+    address exists. The succession hand-over `MergeEngine.take_address?/2`
+    only compares the successor's stored `ip` with the survivor's; it does
+    not scan other addresses, never replaces a usable IPv4 with an IPv6, and
+    never takes a link-local. A device whose only address is link-local
+    keeps it as its primary under the #3905 rank (the existing sync test
+    "a device with only link-local addresses keeps one" stays), without an
+    address-fallback name or hostname; any routable address replaces it. The address-fallback name (decision 7)
     follows this primary, so it never takes an IPv6 literal when the device
     has an IPv4.
 15. Every aliasable address a device owns, in both families, stays a live `:ip` alias
     in `device_alias_states`, including an address displaced from primary or
     never promoted, so the sweep targets both families. Aliasable means
-    `AliasPolicy.valid_alias_ip?/1` accepts the address (it admits, among
-    others, global, private and ULA addresses, and rejects link-local
-    addresses and directed broadcasts; the class list is illustrative) and
+    `AliasPolicy.valid_alias_ip?/2`, called with the device's known
+    interface CIDRs as `AliasEvents` and the mapper already do, accepts the
+    address (it admits, among others, global, private and ULA addresses, and
+    rejects link-local addresses and directed broadcasts, including a bare
+    `192.0.2.255` on a known `192.0.2.0/24` interface; the class list is
+    illustrative) and
     the address is not host-internal: not skipped by
     `GuestAddress.host_internal_address?/2`, not in the Proxmox plugin's
     host-internal set, and not a shared interface address that
     `AliasEvents` keeps off the `:ip` merge type. A host-internal address is
     neither primary nor alias, so a `172.17.0.1` reported by every container
     host cannot move between devices. Link-local addresses
-    (`fe80::/10`, `169.254/16`) never become aliases, primary or name; a
+    (`fe80::/10`, `169.254/16`) never become aliases or names, and are never
+    primary on a device with a routable address; a
     shared link-local such as a vendor `fe80::1` would otherwise merge or
     flip between devices, consistent with the link-local alias archive
     migration. An address has one

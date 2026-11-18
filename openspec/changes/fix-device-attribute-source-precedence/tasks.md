@@ -161,14 +161,19 @@
       `routable_management_ip?`) and the `DeviceDiscoveryIngestor` guest
       address fallback submit the best chooser-accepted IPv4 among every
       address on the host or guest, prefer it over any IPv6, and never submit
-      a link-local (`fe80::/10`, `169.254/16`) as primary
+      a link-local (`fe80::/10`, `169.254/16`) as primary when a routable
+      address exists
 - [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
-      `discovery.go`), Armis `primaryIP`
-      (`go/pkg/agent/syncsources/armis/device.go`, called from `update.go`)
-      and the succession hand-over `MergeEngine.take_address?/2` prefer a
-      chooser-accepted IPv4 over any IPv6 and never submit a link-local;
-      keep each chooser's own order among accepted IPv4s; keep NetBox
+      `discovery.go`) and the Armis address walk in `filterDevices`
+      (`go/pkg/agent/syncsources/armis/device.go`, called from `driver.go`;
+      IPv4 first, then non-link-local IPv6, skipping blacklisted addresses)
+      prefer a chooser-accepted IPv4 over any IPv6 and never submit a
+      link-local when a routable address exists; keep each chooser's own
+      order among accepted IPv4s; the succession hand-over
+      `MergeEngine.take_address?/2` compares only the successor's stored `ip`
+      with the survivor's and never replaces a usable IPv4 with an IPv6 or
+      takes a link-local; keep NetBox
       `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
@@ -177,8 +182,10 @@
       `ip`; a link-local sighting is neither alias, primary nor name
 - [ ] 7.8 Alias recording: every aliasable address the device owns, in both
       families, stays a live `device_alias_states` row, including a displaced
-      or never-promoted address; aliasable means `AliasPolicy.valid_alias_ip?/1`
-      accepts it (link-local and directed broadcasts are rejected) and it is
+      or never-promoted address; aliasable means `AliasPolicy.valid_alias_ip?/2`
+      with the device's known CIDRs accepts it (link-local and directed
+      broadcasts, including a bare `192.0.2.255` on a known `192.0.2.0/24`,
+      are rejected) and it is
       not host-internal (`GuestAddress.host_internal_address?/2`, the Proxmox
       plugin's host-internal set, or a shared interface address `AliasEvents`
       keeps off the `:ip` merge type)
@@ -190,8 +197,11 @@
 - [ ] 7.11 Test: dual-stack census keeps the IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
       sighting records no alias, primary or name; a guest's `172.17.0.1` on
-      `docker0` never becomes primary or an alias; a directed broadcast is
-      never an alias; an IPv6-only device that
+      `docker0` never becomes primary or an alias; a bare `192.0.2.255` on a
+      known `192.0.2.0/24` is never an alias; a link-local-only device keeps
+      its link-local primary with no address-fallback name, and a later
+      routable address replaces it (the existing "a device with only
+      link-local addresses keeps one" sync test stays); an IPv6-only device that
       gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
       an unchanged inventory produce identical sweep targets and
       `device_uid` attribution; a stale cross-device alias is expired on
