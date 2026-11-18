@@ -12,10 +12,6 @@ defmodule Palisade.OutboundFetch do
   public-looking host returns a private IP between validation
   and fetch).
 
-  Ported from
-  `ServiceRadarWebNGWeb.Auth.OutboundFetch` (~/src/serviceradar).
-  Palisade is the canonical home.
-
   ## Usage
 
       Palisade.OutboundFetch.get("https://accounts.example.com/.well-known/openid-configuration")

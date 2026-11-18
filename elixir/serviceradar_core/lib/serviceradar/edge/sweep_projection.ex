@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
 
   import Ecto.Query
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PlanValidate
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
@@ -23,7 +24,6 @@ defmodule ServiceRadar.Edge.SweepProjection do
   alias Serviceradar.Edge.V1.TransportProtocol
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.Infrastructure.Partition
-  alias ServiceRadar.Policies.NetworkAddressPolicy
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult

@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy shared library first (dependency)
+COPY elixir/palisade ./elixir/palisade
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
 COPY elixir/serviceradar_recording_control ./elixir/serviceradar_recording_control
 COPY elixir/serviceradar_recording_metadata ./elixir/serviceradar_recording_metadata

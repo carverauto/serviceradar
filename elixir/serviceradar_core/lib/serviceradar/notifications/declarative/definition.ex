@@ -111,7 +111,7 @@ defmodule ServiceRadar.Notifications.Declarative.Definition do
   | A `config_schema` that fails `Plugins.ConfigSchema` | The channel form is generated from it |
   | A credential-shaped field name without `secretRef: true` | `NotificationChannel.config` is not a sensitive column |
   | A credential-shaped header whose value has no `secrets.*` reference | A literal token in the document lands in the non-sensitive `definition` column |
-  | A literal `http://` URL, or one with no scheme | `ServiceRadar.Policies.OutboundURLPolicy` answers `:disallowed_scheme` at dispatch; refusing at save time is the whole point |
+  | A literal `http://` URL, or one with no scheme | `Palisade.OutboundURLPolicy` answers `:disallowed_scheme` at dispatch; refusing at save time is the whole point |
   | A method outside `POST`/`PUT`/`PATCH` | The engine issues body-carrying requests only |
 
   The outbound URL policy still runs on the RESOLVED url at request time - it has

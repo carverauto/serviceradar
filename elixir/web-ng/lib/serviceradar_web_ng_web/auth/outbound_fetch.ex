@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundFetch do
   TLS hostname verification and Host semantics tied to the original hostname.
   """
 
+  alias Palisade.OutboundURLPolicy, as: SharedOutboundURLPolicy
   alias Req.Request
-  alias ServiceRadar.Policies.OutboundURLPolicy, as: SharedOutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
   @type request_target :: %{uri: URI.t(), address: tuple(), host: String.t()}
@@ -116,6 +116,6 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundFetch do
   end
 
   defp private_or_loopback_ip?(address) do
-    ServiceRadar.Policies.NetworkAddressPolicy.private_or_loopback_ip?(address)
+    Palisade.NetworkAddressPolicy.private_or_loopback_ip?(address)
   end
 end

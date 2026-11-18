@@ -18,9 +18,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   `:first_party_plugin_import` (`:repo_url`, `:registry_docker_config_json/file`).
   """
 
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Plugins.RepoUrl
-  alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Packages.RepoClient
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.ImportFailureMessages
@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   @github_api_host "api.github.com"
   @default_repo_url "https://github.com/carverauto/serviceradar"
   @oci_registry "registry.carverauto.dev"
+  # --- repo parsing -------------------------------------------------------------
   @github_asset_hosts [
     @github_host,
     @github_api_host,
@@ -48,8 +49,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   @doc "The default first-party repository URL."
   def default_repo_url, do: @default_repo_url
-
-  # --- repo parsing -------------------------------------------------------------
 
   def parse_repo_url(url) when is_binary(url) do
     # Parsing lives in `ServiceRadar.Plugins.RepoUrl` because `PluginRepository`
@@ -69,6 +68,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
            token: nil
          }}
 
+      # --- release + asset fetch ----------------------------------------------------
+
       {:error, _reason} ->
         {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
     end
@@ -84,8 +85,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   `GITHUB_TOKEN` remains the fallback for the built-in source.
   """
   def with_token(repo, token) when is_map(repo), do: Map.put(repo, :token, token)
-
-  # --- release + asset fetch ----------------------------------------------------
 
   def fetch_release(repo, tag) do
     %{owner: repo.owner, repo: repo.repo}
@@ -297,6 +296,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
     summary =
       releases
+      # --- OCI fetch ----------------------------------------------------------------
       |> Enum.filter(&(release_tag(&1) && release_asset_present?(&1, asset_name)))
       |> Enum.reduce(initial, fn release, acc ->
         case release_entries.(release) do
@@ -338,8 +338,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   def decode_index(body) when is_binary(body) do
     RepoClient.decode_index(body)
   end
-
-  # --- OCI fetch ----------------------------------------------------------------
 
   def parse_oci_ref(ref) when is_binary(ref) do
     ref = String.trim(ref)
@@ -421,6 +419,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       {:ok, %Req.Response{status: 200, body: body}} ->
         {:ok, IO.iodata_to_binary(body)}
 
+      # --- HTTP + registry auth -----------------------------------------------------
       {:ok, %Req.Response{status: status} = response} when status in [301, 302, 303, 307, 308] ->
         with {:ok, redirect_url} <- redirect_location(url, response),
              {:ok, request_url} <- validate_provider_asset_url(repo, redirect_url) do
@@ -465,8 +464,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     |> List.first()
     |> normalize_string()
   end
-
-  # --- HTTP + registry auth -----------------------------------------------------
 
   def request(url, opts) do
     with :ok <- durable_registry_source(url) do
@@ -705,6 +702,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
         {:error, {:artifact_http_error, status}}
 
       {:error, reason} ->
+        # --- URL validation -----------------------------------------------------------
         {:error, reason}
     end
   end
@@ -757,6 +755,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   defp auth_headers(repo) do
     case repo_token(repo) || configured_token() do
       nil -> []
+      # --- cosign + digest + string utils ------------------------------------------
       token -> [{"authorization", "Bearer #{token}"}]
     end
   end
@@ -776,8 +775,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       _ -> false
     end
   end
-
-  # --- URL validation -----------------------------------------------------------
 
   def validate_provider_api_url(_repo, url) do
     with {:ok, uri} <- validate_url(url),
@@ -830,8 +827,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
         end
     end
   end
-
-  # --- cosign + digest + string utils ------------------------------------------
 
   def verify_cosign_signature(nil, _digest), do: {:error, :oci_ref_required}
   def verify_cosign_signature(_ref, nil), do: {:error, :oci_digest_required}
