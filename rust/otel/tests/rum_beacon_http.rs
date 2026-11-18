@@ -460,3 +460,134 @@ async fn rate_limiter_returns_429_with_retry_after() {
     assert_eq!(r2.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(r2.headers().get(header::RETRY_AFTER).is_some());
 }
+
+#[tokio::test]
+async fn ipv6_non_default_ports_uppercase_multipart_boundary_and_javascript_rejection() {
+    let snapshot = WebPropertyRumPolicySnapshot {
+        version: 1,
+        generated_at_unix_ms: 0,
+        properties: vec![
+            WebPropertyRumPolicy {
+                web_property_id: "01JWEBPROP0000000000000010".to_string(),
+                name: "ipv6-storefront".to_string(),
+                canonical_origin: "https://[2001:db8::1]:8443".to_string(),
+                allowed_origins: vec!["https://[2001:db8::1]:8443".to_string()],
+                allowed_query_keys: vec!["page".to_string()],
+                trace_propagate_origins: vec![],
+                rum_site_key: "sr_rum_live_ipv6_port".to_string(),
+                rum_enabled: true,
+                rum_sample_rate: 1.0,
+                anonymize_client_ip: true,
+                environment: "production".to_string(),
+                prefix_tags: vec![],
+            },
+            WebPropertyRumPolicy {
+                web_property_id: "01JWEBPROP0000000000000011".to_string(),
+                name: "port-storefront".to_string(),
+                canonical_origin: "https://shop.example:8443".to_string(),
+                allowed_origins: vec!["https://shop.example:8443".to_string()],
+                allowed_query_keys: vec!["page".to_string()],
+                trace_propagate_origins: vec![],
+                rum_site_key: "sr_rum_live_port8443".to_string(),
+                rum_enabled: true,
+                rum_sample_rate: 1.0,
+                anonymize_client_ip: true,
+                environment: "production".to_string(),
+                prefix_tags: vec![],
+            },
+        ],
+        global_prefix_tags: vec![],
+    };
+
+    let output = Arc::new(RecordingOutput::default());
+    let collector = ServiceRadarCollector::with_output(output.clone());
+    let runtime = RumRuntime::new(
+        RumConfig {
+            per_key_rps: 100.0,
+            per_key_burst: 100.0,
+            per_subnet_rps: 100.0,
+            per_subnet_burst: 100.0,
+            ..RumConfig::default()
+        },
+        Arc::new(RumPolicyCache::from_snapshot(snapshot)),
+    );
+
+    // 1. Multipart with uppercase BOUNDARY= + IPv6 literal with :8443 port
+    let mut mp_headers = HeaderMap::new();
+    mp_headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("https://[2001:db8::1]:8443"),
+    );
+    mp_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("multipart/form-data; BOUNDARY=\"MyBoundary\""),
+    );
+    let mp_body = b"--MyBoundary\r\nContent-Disposition: form-data; name=\"sr.key\"\r\n\r\nsr_rum_live_ipv6_port\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"u\"\r\n\r\nhttps://[2001:db8::1]:8443/checkout?page=2&token=secret\r\n--MyBoundary--\r\n";
+
+    let resp = handle_rum_request(
+        &Method::POST,
+        None,
+        &mp_headers,
+        Full::new(Bytes::from_static(mp_body)),
+        None,
+        &runtime,
+        &collector,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // 2. Non-default port hostname preserves :8443
+    let mut port_headers = HeaderMap::new();
+    port_headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("https://shop.example:8443"),
+    );
+    port_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-www-form-urlencoded"),
+    );
+    let resp_port = handle_rum_request(
+        &Method::POST,
+        None,
+        &port_headers,
+        Full::new(Bytes::from_static(
+            b"sr.key=sr_rum_live_port8443&u=https%3A%2F%2Fshop.example%3A8443%2Fcheckout%3Fpage%3D2%26token%3Dsecret",
+        )),
+        None,
+        &runtime,
+        &collector,
+    )
+    .await;
+    assert_eq!(resp_port.status(), StatusCode::NO_CONTENT);
+
+    // 3. javascript: scheme rejected with 400 Bad Request
+    let resp_js = handle_rum_request(
+        &Method::POST,
+        None,
+        &port_headers,
+        Full::new(Bytes::from_static(
+            b"sr.key=sr_rum_live_port8443&u=javascript%3Aalert(1)%3Ftoken%3Dabc",
+        )),
+        None,
+        &runtime,
+        &collector,
+    )
+    .await;
+    assert_eq!(resp_js.status(), StatusCode::BAD_REQUEST);
+
+    let beacons = output.beacons.lock().unwrap();
+    assert_eq!(beacons.len(), 2);
+    assert_eq!(
+        beacons[0].1.url,
+        "https://[2001:db8::1]:8443/checkout?page=2"
+    );
+    assert_eq!(beacons[0].1.host, "[2001:db8::1]");
+    assert_eq!(beacons[0].1.path, "/checkout");
+
+    assert_eq!(
+        beacons[1].1.url,
+        "https://shop.example:8443/checkout?page=2"
+    );
+    assert_eq!(beacons[1].1.host, "shop.example");
+    assert_eq!(beacons[1].1.path, "/checkout");
+}

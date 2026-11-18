@@ -177,7 +177,9 @@ fn parse_json_params(text: &str) -> Result<HashMap<String, String>, String> {
 fn extract_multipart_boundary(content_type: &str) -> Option<String> {
     for param in content_type.split(';').skip(1) {
         let trimmed = param.trim();
-        if let Some(raw) = trimmed.strip_prefix("boundary=") {
+        if let Some((name, raw)) = trimmed.split_once('=')
+            && name.trim().eq_ignore_ascii_case("boundary")
+        {
             let boundary = raw.trim().trim_matches('"');
             if !boundary.is_empty() {
                 return Some(boundary.to_string());
@@ -238,26 +240,28 @@ pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl
         None => (without_fragment, None),
     };
 
-    let (scheme, host, path) = if let Some((scheme, rest)) = base.split_once("://") {
+    let (scheme, host, port, path) = if let Some((raw_scheme, rest)) = base.split_once("://") {
+        let scheme = raw_scheme.to_ascii_lowercase();
+        if scheme != "http" && scheme != "https" {
+            return None;
+        }
         let (authority, raw_path) = match rest.find('/') {
             Some(idx) => (&rest[..idx], &rest[idx..]),
             None => (rest, "/"),
         };
-        let host = authority
-            .rsplit('@')
-            .next()
-            .unwrap_or(authority)
-            .split(':')
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let host_port = authority.rsplit('@').next().unwrap_or(authority).trim();
+        let (parsed_host, parsed_port) = split_scrub_host_port(host_port)?;
+        let host = parsed_host.to_ascii_lowercase();
         if host.is_empty() {
             return None;
         }
+        let default_port = if scheme == "https" { 443 } else { 80 };
+        let port = parsed_port.filter(|&p| p != default_port);
         let path = normalize_raw_path(raw_path);
         (
-            Some(scheme.to_ascii_lowercase()),
+            Some(scheme),
             host,
+            port,
             if path.is_empty() {
                 "/".to_string()
             } else {
@@ -265,8 +269,11 @@ pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl
             },
         )
     } else {
+        if has_explicit_scheme_prefix(base) {
+            return None;
+        }
         let path = normalize_raw_path(base);
-        (None, String::new(), path)
+        (None, String::new(), None, path)
     };
 
     let retained_query = if let (Some(q), false) = (raw_query, allowed_query_keys.is_empty()) {
@@ -299,7 +306,10 @@ pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl
     };
 
     let scrubbed_base = match scheme {
-        Some(s) => format!("{s}://{host}{path}"),
+        Some(s) => match port {
+            Some(p) => format!("{s}://{host}:{p}{path}"),
+            None => format!("{s}://{host}{path}"),
+        },
         None => path.clone(),
     };
     let url = match retained_query {
@@ -308,6 +318,54 @@ pub fn scrub_url(raw: &str, allowed_query_keys: &[String]) -> Option<ScrubbedUrl
     };
 
     Some(ScrubbedUrl { url, host, path })
+}
+
+fn split_scrub_host_port(authority: &str) -> Option<(&str, Option<u16>)> {
+    if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        let host = &authority[..=end];
+        if host.len() <= 2 {
+            return None;
+        }
+        let after = &authority[end + 1..];
+        if after.is_empty() {
+            return Some((host, None));
+        }
+        let port_str = after.strip_prefix(':')?;
+        if port_str.is_empty() {
+            return Some((host, None));
+        }
+        let port = port_str.parse::<u16>().ok()?;
+        return Some((host, Some(port)));
+    }
+    match authority.rsplit_once(':') {
+        Some((host, port_str)) if !host.contains(':') => {
+            if port_str.is_empty() {
+                Some((host, None))
+            } else {
+                let port = port_str.parse::<u16>().ok()?;
+                Some((host, Some(port)))
+            }
+        }
+        Some(_) => None,
+        None => Some((authority, None)),
+    }
+}
+
+fn has_explicit_scheme_prefix(base: &str) -> bool {
+    if base.starts_with('/') || base.starts_with("./") || base.starts_with("../") {
+        return false;
+    }
+    let first_seg = base.split('/').next().unwrap_or(base);
+    let Some((scheme, _)) = first_seg.split_once(':') else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic()
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
 }
 
 fn normalize_raw_path(raw: &str) -> String {
@@ -1051,5 +1109,85 @@ mod tests {
         assert!(names.contains(&"rum.cls"));
         assert!(names.contains(&"rum.akamai_edge_rtt_ms"));
         assert!(names.contains(&"rum.akamai_origin_rtt_ms"));
+    }
+
+    #[test]
+    fn url_scrubbing_preserves_ipv6_literals_and_non_default_ports_and_strips_defaults() {
+        let allowed = vec!["page".to_string()];
+
+        let ipv6 = scrub_url(
+            "https://[2001:db8::1]:8443/checkout?page=2&token=secret",
+            &allowed,
+        )
+        .unwrap();
+        assert_eq!(ipv6.url, "https://[2001:db8::1]:8443/checkout?page=2");
+        assert_eq!(ipv6.host, "[2001:db8::1]");
+        assert_eq!(ipv6.path, "/checkout");
+
+        let ipv6_default =
+            scrub_url("https://[2001:DB8::1]:443/checkout?token=secret", &allowed).unwrap();
+        assert_eq!(ipv6_default.url, "https://[2001:db8::1]/checkout");
+        assert_eq!(ipv6_default.host, "[2001:db8::1]");
+        assert_eq!(ipv6_default.path, "/checkout");
+
+        let non_default = scrub_url("https://shop.example:8443/checkout?page=2", &allowed).unwrap();
+        assert_eq!(non_default.url, "https://shop.example:8443/checkout?page=2");
+        assert_eq!(non_default.host, "shop.example");
+        assert_eq!(non_default.path, "/checkout");
+
+        let default_https =
+            scrub_url("https://shop.example:443/checkout?page=2", &allowed).unwrap();
+        assert_eq!(default_https.url, "https://shop.example/checkout?page=2");
+        assert_eq!(default_https.host, "shop.example");
+
+        let default_http = scrub_url("http://shop.example:80/checkout?page=2", &allowed).unwrap();
+        assert_eq!(default_http.url, "http://shop.example/checkout?page=2");
+        assert_eq!(default_http.host, "shop.example");
+
+        let ipv4_port = scrub_url("http://192.0.2.10:8080/health?token=secret", &[]).unwrap();
+        assert_eq!(ipv4_port.url, "http://192.0.2.10:8080/health");
+        assert_eq!(ipv4_port.host, "192.0.2.10");
+    }
+
+    #[test]
+    fn url_scrubbing_rejects_non_http_schemes_while_allowing_relative_paths() {
+        assert_eq!(scrub_url("javascript:alert(1)?token=abc", &[]), None);
+        assert_eq!(scrub_url("JAVASCRIPT:alert(1)", &[]), None);
+        assert_eq!(
+            scrub_url("data:text/html,<script>alert(1)</script>", &[]),
+            None
+        );
+        assert_eq!(scrub_url("ftp://files.example/archive.tgz", &[]), None);
+        assert_eq!(scrub_url("ftp:archive.tgz", &[]), None);
+
+        let rel = scrub_url("/checkout/step1?token=secret", &[]).unwrap();
+        assert_eq!(rel.url, "/checkout/step1");
+        assert_eq!(rel.host, "");
+        assert_eq!(rel.path, "/checkout/step1");
+
+        let path_only =
+            scrub_url("checkout/step2?page=2&token=secret", &["page".to_string()]).unwrap();
+        assert_eq!(path_only.url, "/checkout/step2?page=2");
+        assert_eq!(path_only.host, "");
+        assert_eq!(path_only.path, "/checkout/step2");
+
+        let colon_in_subpath = scrub_url("/items/a:b?token=secret", &[]).unwrap();
+        assert_eq!(colon_in_subpath.url, "/items/a:b");
+        assert_eq!(colon_in_subpath.path, "/items/a:b");
+    }
+
+    #[test]
+    fn multipart_decoder_accepts_case_insensitive_boundary_parameter() {
+        let body = b"--MyBoundary\r\nContent-Disposition: form-data; name=\"sr.key\"\r\n\r\nsr_rum_test\r\n--MyBoundary\r\nContent-Disposition: form-data; name=\"u\"\r\n\r\nhttps://shop.example/checkout?token=secret\r\n--MyBoundary--\r\n";
+        let params =
+            decode_beacon_params("multipart/form-data; BOUNDARY=\"MyBoundary\"", body).unwrap();
+        assert_eq!(
+            params.get("sr.key").map(String::as_str),
+            Some("sr_rum_test")
+        );
+        assert_eq!(
+            params.get("u").map(String::as_str),
+            Some("https://shop.example/checkout?token=secret")
+        );
     }
 }
