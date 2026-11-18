@@ -33,7 +33,9 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -185,10 +187,11 @@ type PushLoop struct {
 	// collected again until it is empty.
 	mtrEdge      mtrEdgePending
 	sweepSummary edgeMetricsQueue[map[string]any]
-	// rperfEdge holds at most one drained rperf metrics status, unbuilt while
-	// no metrics grant is held and built while the spool refuses admission;
-	// polling is paused until empty.
-	rperfEdge rperfEdgePending
+	// netperfEdge holds completed network performance test samples and responder
+	// gauges while awaiting a metrics standing grant or spool admission.
+	netperfEdge       edgeMetricsQueue[netperfSample]
+	netperfFallbackMu sync.Mutex
+	netperfFallback   *NetperfService
 	// sweepResultsEdge is the records of the unleased sweep results response
 	// being spooled, including its final record and, after a permanent spool
 	// refusal of a sibling, its cancel record.
@@ -343,6 +346,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	// spool target now that it does.
 	if server != nil {
 		bindAddonOtlpRelayEdge(server, pushLoop)
+		pushLoop.ensureNetperfService()
 	}
 
 	// Take already-leased groups off their local ticker before the server
@@ -540,6 +544,11 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	// not the gateway is reachable, so it starts before connection state
 	// matters.
 	p.startSweepLeaseExecutor(runCtx)
+	if netperfSvc := p.ensureNetperfService(); netperfSvc != nil {
+		if err := netperfSvc.Start(runCtx); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to start embedded netperf service")
+		}
+	}
 
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(runCtx)
@@ -589,6 +598,10 @@ func (p *PushLoop) Stop(ctx context.Context) error {
 		p.cancel()
 	}
 	p.cancelMu.Unlock()
+
+	if svc := p.netperfService(); svc != nil {
+		_ = svc.Stop(ctx)
+	}
 
 	p.stateMu.RLock()
 	started := p.started
@@ -642,6 +655,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	p.pushSysmonMetrics()
 	p.pushICMPResults(ctx)
 	p.pushMtrResults(ctx)
+	p.pushNetperfMetrics()
 	p.pushSweepResults(ctx)
 	p.pushMapperResults()
 	p.pushMapperInterfaces()
@@ -654,6 +668,89 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	p.pushPluginSignals()
 	p.pushPluginTelemetry(ctx)
 	p.pushAddonTelemetry()
+}
+
+func (p *PushLoop) netperfService() *NetperfService {
+	if p == nil {
+		return nil
+	}
+	if p.server != nil {
+		p.server.mu.RLock()
+		svc := p.server.netperfService
+		p.server.mu.RUnlock()
+		if svc != nil {
+			return svc
+		}
+	}
+	p.netperfFallbackMu.Lock()
+	defer p.netperfFallbackMu.Unlock()
+	return p.netperfFallback
+}
+
+func (p *PushLoop) ensureNetperfService() *NetperfService {
+	if p == nil {
+		return nil
+	}
+	if svc := p.netperfService(); svc != nil {
+		return svc
+	}
+
+	var agentID, partition string
+	if p.server != nil {
+		p.server.mu.RLock()
+		if p.server.config != nil {
+			agentID = p.server.config.AgentID
+			partition = p.server.config.Partition
+		}
+		p.server.mu.RUnlock()
+	}
+
+	svc := NewNetperfService(NetperfServiceConfig{
+		AgentID:       agentID,
+		PartitionID:   partition,
+		Logger:        p.logger,
+		TrustSnapshot: p.EdgeRecordTrustSnapshot,
+		SecurityConfig: func() *models.SecurityConfig {
+			if p.server == nil {
+				return nil
+			}
+			p.server.mu.RLock()
+			defer p.server.mu.RUnlock()
+			if p.server.config == nil {
+				return nil
+			}
+			if p.server.config.GatewaySecurity != nil {
+				return p.server.config.GatewaySecurity
+			}
+			return p.server.config.Security
+		},
+		MTLSProvider: func() *srgrpc.MTLSProvider {
+			if p.gateway == nil {
+				return nil
+			}
+			return p.gateway.MTLSProvider()
+		},
+	})
+
+	if p.server != nil {
+		p.server.mu.Lock()
+		if p.server.netperfService == nil {
+			p.server.netperfService = svc
+		} else {
+			svc = p.server.netperfService
+		}
+		p.server.mu.Unlock()
+		return svc
+	}
+
+	p.netperfFallbackMu.Lock()
+	if p.netperfFallback == nil {
+		p.netperfFallback = svc
+	} else {
+		svc = p.netperfFallback
+	}
+	p.netperfFallbackMu.Unlock()
+	return svc
 }
 
 // getSourceIP attempts to determine the source IP of this agent.

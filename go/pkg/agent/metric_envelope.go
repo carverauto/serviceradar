@@ -26,9 +26,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/netperf"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
-	gproto "google.golang.org/protobuf/proto"
+	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
 
 const (
@@ -382,6 +383,220 @@ func buildMTRMetricBatch(results []mtrCheckResult, ctx metricEnvelopeContext) (*
 	return batch, nil
 }
 
+func rperfGaugeMetric(name, unit string) *metricpb.Metric {
+	return &metricpb.Metric{
+		Name:        metricUTF8(name),
+		MetricType:  "rperf",
+		Kind:        metricpb.MetricKind_METRIC_KIND_GAUGE,
+		Temporality: metricpb.MetricTemporality_METRIC_TEMPORALITY_UNSPECIFIED,
+		Unit:        metricUTF8(unit),
+		Tags: entries(map[string]string{
+			"metric_family": "rperf",
+		}),
+	}
+}
+
+func pushRperfFloatPoint(metric *metricpb.Metric, val float64, observedAt uint64, attrs, meta map[string]string) {
+	metric.Points = append(metric.Points, &metricpb.MetricPoint{
+		Value:              val,
+		RawValue:           metricUTF8(strconv.FormatFloat(val, 'f', -1, 64)),
+		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
+		ObservedAtUnixNano: observedAt,
+		Attributes:         entries(attrs),
+		Metadata:           entries(meta),
+	})
+}
+
+func pushRperfUintPoint(metric *metricpb.Metric, val uint64, observedAt uint64, attrs, meta map[string]string) {
+	metric.Points = append(metric.Points, &metricpb.MetricPoint{
+		Value:              float64(val),
+		RawValue:           metricUTF8(strconv.FormatUint(val, 10)),
+		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64,
+		ObservedAtUnixNano: observedAt,
+		Attributes:         entries(attrs),
+		Metadata:           entries(meta),
+	})
+}
+
+func pushRperfBoolPoint(metric *metricpb.Metric, available bool, observedAt uint64, attrs, meta map[string]string) {
+	val := 0.0
+	raw := rawBoolFalse
+	if available {
+		val = 1.0
+		raw = rawBoolTrue
+	}
+	metric.Points = append(metric.Points, &metricpb.MetricPoint{
+		Value:              val,
+		RawValue:           metricUTF8(raw),
+		RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_BOOL,
+		ObservedAtUnixNano: observedAt,
+		Attributes:         entries(attrs),
+		Metadata:           entries(meta),
+	})
+}
+
+func netperfProtocolLabel(protoEnum netperfpb.NetperfProtocol) string {
+	switch protoEnum {
+	case netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP:
+		return mtrProtocolTCP
+	case netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP:
+		return mtrProtocolUDP
+	case netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UNSPECIFIED:
+		return mtrProtocolTCP
+	default:
+		return mtrProtocolTCP
+	}
+}
+
+func netperfExecutionSourceLabel(src netperfpb.NetperfExecutionSource) string {
+	switch src {
+	case netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_ON_DEMAND:
+		return "on_demand"
+	case netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_SCHEDULED_POLICY,
+		netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_UNSPECIFIED:
+		return "scheduled_policy"
+	default:
+		return "scheduled_policy"
+	}
+}
+
+// buildNetperfMetricBatch builds the canonical rperf-metrics MetricBatch envelope
+// for embedded netperf test results and responder utilization gauges.
+func buildNetperfMetricBatch(samples []netperfSample, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
+	if len(samples) == 0 {
+		return nil, errRperfNoMetricPoints
+	}
+
+	meta := currentRuntimeMetadata()
+	batch := &metricpb.MetricBatch{
+		SchemaVersion: metricEnvelopeSchemaVersion,
+		Resource: metricResource(
+			ctx.AgentID, ctx.GatewayID, ctx.Partition, "rperf", "rperf", meta.Hostname, "", ctx.KvStoreID,
+		),
+		IngestIdentity: metricIngest(
+			"rperf-metrics", "agent", ctx.AgentID, ctx.GatewayID,
+		),
+		EmittedAtUnixNano: uint64(time.Now().UnixNano()),
+		Metrics: []*metricpb.Metric{
+			rperfGaugeMetric("rperf.available", "1"),
+			rperfGaugeMetric("rperf.duration_seconds", "s"),
+			rperfGaugeMetric("rperf.bytes_sent", "By"),
+			rperfGaugeMetric("rperf.bytes_received", "By"),
+			rperfGaugeMetric("rperf.bits_per_second", "bit/s"),
+			rperfGaugeMetric("rperf.packets_sent", "{packet}"),
+			rperfGaugeMetric("rperf.packets_received", "{packet}"),
+			rperfGaugeMetric("rperf.packets_lost", "{packet}"),
+			rperfGaugeMetric("rperf.loss_percent", "%"),
+			rperfGaugeMetric("rperf.jitter_ms", "ms"),
+			rperfGaugeMetric("rperf.responder_active_sessions", "1"),
+			rperfGaugeMetric("rperf.responder_sessions_total", "{session}"),
+			rperfGaugeMetric("rperf.responder_busy_rejections_total", "{rejection}"),
+			rperfGaugeMetric("rperf.responder_bytes_total", "By"),
+		},
+	}
+
+	for _, sample := range samples {
+		observedAt := uint64(sample.Timestamp)
+		if sample.Timestamp <= 0 {
+			observedAt = uint64(time.Now().UnixNano())
+		}
+
+		switch sample.Kind {
+		case netperfSampleResponderStats:
+			attrs := map[string]string{
+				"responder_agent_id": ctx.AgentID,
+			}
+			pushRperfUintPoint(batch.Metrics[10], sample.ResponderStats.ActiveSessions, observedAt, attrs, nil)
+			pushRperfUintPoint(batch.Metrics[11], sample.ResponderStats.SessionsTotal, observedAt, attrs, nil)
+			pushRperfUintPoint(batch.Metrics[12], sample.ResponderStats.BusyRejectionsTotal, observedAt, attrs, nil)
+			pushRperfUintPoint(batch.Metrics[13], sample.ResponderStats.BytesTotal, observedAt, attrs, nil)
+
+		case netperfSampleTest:
+			res := sample.Result
+			if res == nil {
+				continue
+			}
+
+			type dirPhase struct {
+				dirLabel string
+				phase    netperf.PhaseResult
+			}
+			var phases []dirPhase
+			switch res.Direction {
+			case netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD:
+				p := res.Primary
+				if res.Upload != nil {
+					p = *res.Upload
+				}
+				phases = append(phases, dirPhase{dirLabel: "upload", phase: p})
+			case netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD:
+				p := res.Primary
+				if res.Download != nil {
+					p = *res.Download
+				}
+				phases = append(phases, dirPhase{dirLabel: "download", phase: p})
+			case netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL:
+				if res.Available && res.Upload != nil && res.Download != nil {
+					phases = append(phases,
+						dirPhase{dirLabel: "upload", phase: *res.Upload},
+						dirPhase{dirLabel: "download", phase: *res.Download},
+					)
+				} else {
+					phases = append(phases, dirPhase{dirLabel: "upload", phase: res.Primary})
+				}
+			case netperfpb.NetperfDirection_NETPERF_DIRECTION_UNSPECIFIED:
+				phases = append(phases, dirPhase{dirLabel: "upload", phase: res.Primary})
+			default:
+				phases = append(phases, dirPhase{dirLabel: "upload", phase: res.Primary})
+			}
+
+			target := firstMetricNonEmpty(res.ResponderLabel, res.Target, sample.TargetAddress)
+			for _, dp := range phases {
+				attrs := map[string]string{
+					"target":             target,
+					"responder_agent_id": res.ResponderAgentID,
+					"policy_id":          res.PolicyID,
+					"profile_id":         res.ProfileID,
+					"direction":          dp.dirLabel,
+					"protocol":           netperfProtocolLabel(res.Protocol),
+					"execution_source":   netperfExecutionSourceLabel(res.ExecutionSource),
+					"parallel":           strconv.FormatUint(uint64(res.Parallel), 10),
+				}
+				pointMeta := map[string]string{}
+				if res.Error != "" {
+					pointMeta["error"] = res.Error
+				}
+				if sample.PermitID != "" {
+					pointMeta["permit_id"] = sample.PermitID
+				}
+				if sample.TargetAddress != "" && sample.TargetAddress != target {
+					pointMeta["target_address"] = sample.TargetAddress
+				}
+
+				pushRperfBoolPoint(batch.Metrics[0], res.Available, observedAt, attrs, pointMeta)
+				if !res.Available {
+					continue
+				}
+				pushRperfFloatPoint(batch.Metrics[1], dp.phase.DurationSeconds, observedAt, attrs, pointMeta)
+				pushRperfUintPoint(batch.Metrics[2], dp.phase.BytesSent, observedAt, attrs, pointMeta)
+				pushRperfUintPoint(batch.Metrics[3], dp.phase.BytesReceived, observedAt, attrs, pointMeta)
+				pushRperfFloatPoint(batch.Metrics[4], dp.phase.BitsPerSecond, observedAt, attrs, pointMeta)
+				pushRperfUintPoint(batch.Metrics[5], dp.phase.PacketsSent, observedAt, attrs, pointMeta)
+				pushRperfUintPoint(batch.Metrics[6], dp.phase.PacketsReceived, observedAt, attrs, pointMeta)
+				pushRperfUintPoint(batch.Metrics[7], dp.phase.PacketsLost, observedAt, attrs, pointMeta)
+				pushRperfFloatPoint(batch.Metrics[8], dp.phase.LossPercent, observedAt, attrs, pointMeta)
+				pushRperfFloatPoint(batch.Metrics[9], dp.phase.JitterMs, observedAt, attrs, pointMeta)
+			}
+		}
+	}
+
+	batch.Metrics = metricsWithPoints(batch.Metrics)
+	if len(batch.Metrics) == 0 {
+		return nil, errRperfNoMetricPoints
+	}
+	return batch, nil
+}
+
 // buildSweepMetricBatchFromMap builds the sweep metric envelope for one sweep
 // status or results payload.
 func buildSweepMetricBatchFromMap(decoded map[string]any, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
@@ -694,19 +909,6 @@ func cloneMetricAttrs(attrs map[string]string) map[string]string {
 	}
 
 	return clone
-}
-
-func metricEnvelopePayload(data []byte) bool {
-	if len(data) == 0 {
-		return false
-	}
-
-	var batch metricpb.MetricBatch
-	if err := gproto.Unmarshal(data, &batch); err != nil {
-		return false
-	}
-
-	return batch.GetSchemaVersion() == metricEnvelopeSchemaVersion && len(batch.GetMetrics()) > 0
 }
 
 func icmpMetric(name, unit string) *metricpb.Metric {

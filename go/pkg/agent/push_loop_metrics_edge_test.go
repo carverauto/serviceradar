@@ -38,10 +38,12 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
+	"github.com/carverauto/serviceradar/go/pkg/netperf"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
+	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
 
 // The agent id the loop under test runs as.
@@ -1273,56 +1275,30 @@ func TestEdgeAdmissionFlowFollowsTheSignedProducerRun(t *testing.T) {
 	}
 }
 
-type fakeRperfMetricsService struct {
-	queued []*proto.StatusResponse
-	polls  int
-}
-
-func (f *fakeRperfMetricsService) Start(context.Context) error       { return nil }
-func (f *fakeRperfMetricsService) Stop(context.Context) error        { return nil }
-func (f *fakeRperfMetricsService) Name() string                      { return "rperf" }
-func (f *fakeRperfMetricsService) UpdateConfig(*models.Config) error { return nil }
-func (f *fakeRperfMetricsService) GetStatus(context.Context) (*proto.StatusResponse, error) {
-	f.polls++
-	if len(f.queued) == 0 {
-		return nil, nil
-	}
-	next := f.queued[0]
-	f.queued = f.queued[1:]
-	return next, nil
-}
-
-func syntheticRperfStatus(t *testing.T, metricsCount int) *proto.StatusResponse {
-	t.Helper()
-	observedAt := uint64(time.Now().UnixNano())
-	metrics := make([]*metricpb.Metric, metricsCount)
-	for i := range metrics {
-		metrics[i] = &metricpb.Metric{
-			Name:       fmt.Sprintf("rperf.bits_per_second.%d", i),
-			MetricType: "rperf",
-			Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
-			Unit:       "bit/s",
-			Points: []*metricpb.MetricPoint{{
-				Value:              float64(1_000_000 + i),
-				RawValue:           strconv.Itoa(1_000_000 + i),
-				RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_INT64,
-				ObservedAtUnixNano: observedAt,
-				Attributes: []*metricpb.StringMapEntry{
-					{Key: "target", Value: "192.0.2.50"},
-				},
-			}},
-		}
-	}
-	payload, err := gproto.Marshal(&metricpb.MetricBatch{
-		SchemaVersion: metricEnvelopeSchemaVersion,
-		Metrics:       metrics,
-	})
-	require.NoError(t, err)
-	return &proto.StatusResponse{
-		Available:   true,
-		Message:     payload,
-		ServiceName: "rperf",
-		ServiceType: "rperf",
+func syntheticNetperfSample(bps float64, ts int64) netperfSample {
+	return netperfSample{
+		Kind:          netperfSampleTest,
+		Timestamp:     ts,
+		PermitID:      "permit-edge-1",
+		TargetAddress: "192.0.2.50",
+		Result: &netperf.TestResult{
+			Available:        true,
+			Target:           "192.0.2.50:5199",
+			ResponderAgentID: "agent-hub-01",
+			PolicyID:         "policy-edge-1",
+			ProfileID:        "profile-edge-1",
+			Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+			Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+			Parallel:         1,
+			ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_SCHEDULED_POLICY,
+			Primary: netperf.PhaseResult{
+				Direction:       netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+				DurationSeconds: 5,
+				BytesSent:       625_000,
+				BytesReceived:   625_000,
+				BitsPerSecond:   bps,
+			},
+		},
 	}
 }
 
@@ -1336,143 +1312,93 @@ func rperfMetricStatuses(statuses []*proto.GatewayServiceStatus) int {
 	return count
 }
 
-func TestRperfMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
+func TestNetperfMetricsWithAGrantGoOnlyToTheEdgeSpool(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop, _ := sysmonEdgeLoop(t, sp)
-	svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2)}}
-	loop.server.services = []Service{svc}
+	svc := loop.ensureNetperfService()
+	svc.enqueueSample(syntheticNetperfSample(1_000_000, time.Now().UnixNano()))
 	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
 	statuses := loop.collectAllStatuses(context.Background())
+	require.True(t, loop.pushNetperfMetrics())
 
 	batches := spooledMetricBatches(t, sp)
 	require.Zero(t, rperfMetricStatuses(statuses), "no rperf-metrics status")
 	require.Len(t, batches, 1)
 	require.Equal(t, "rperf-metrics", batches[0].GetIngestIdentity().GetSource())
-	require.Equal(t, "rperf-checker", batches[0].GetIngestIdentity().GetProducerKind())
+	require.Equal(t, "agent", batches[0].GetIngestIdentity().GetProducerKind())
 	require.Equal(t, sysmonEdgeAgentID, batches[0].GetResource().GetAgentId())
 	require.Equal(t, "rperf", batches[0].GetResource().GetServiceName())
 	require.Equal(t, "rperf", batches[0].GetResource().GetServiceType())
-	require.Len(t, batches[0].GetMetrics(), 2)
 }
 
-// Without a metrics grant one polled rperf status is held unbuilt and the rperf
-// service is not polled again; once the grant is held the status is built,
-// spooled, and polling resumes.
-func TestRperfMetricsWithoutAGrantHoldOneStatusAndPausePolling(t *testing.T) {
+func TestNetperfMetricsWithoutAGrantHoldBoundedAndFlushOnGrant(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop, _ := sysmonEdgeLoop(t, sp)
-	svc := &fakeRperfMetricsService{queued: []*proto.StatusResponse{syntheticRperfStatus(t, 2), syntheticRperfStatus(t, 1)}}
-	loop.server.services = []Service{svc}
+	svc := loop.ensureNetperfService()
 
-	statuses := loop.collectAllStatuses(context.Background())
-	require.Zero(t, rperfMetricStatuses(statuses), "rperf metrics never ride the status push")
+	for i := range maxPendingEdgeMetrics + 5 {
+		svc.enqueueSample(syntheticNetperfSample(float64(1_000_000+i), int64(1_795_000_000_000_000_000+i)))
+	}
+	require.False(t, loop.pushNetperfMetrics())
 	require.Empty(t, spooledMetricBatches(t, sp))
-	require.True(t, loop.rperfEdge.hasPending())
-	require.Equal(t, 1, svc.polls)
-
-	loop.collectAllStatuses(context.Background())
-	require.Equal(t, 1, svc.polls, "rperf polling is paused while a status is held")
+	require.Equal(t, maxPendingEdgeMetrics, loop.netperfEdgePendingCount())
 	require.Positive(t, loop.server.edgeProducerDrops.grantHolds[edgeProducerRperf].Load())
+	// Service bounded queue capped at maxPendingEdgeMetrics=1024; 5 extra overflowed awaiting grant or enqueue cap.
+	// Push another sample while still without a grant to confirm awaiting_grant drop counter increments.
+	svc.enqueueSample(syntheticNetperfSample(9_999_999, 1_795_000_001_000_000_000))
+	require.False(t, loop.pushNetperfMetrics())
+	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerRperf, edgeDropAwaitingGrant))
 
 	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
-	loop.collectAllStatuses(context.Background())
-	require.False(t, loop.rperfEdge.hasPending())
-	require.Equal(t, 2, svc.polls, "polling resumes once the held status is spooled")
-	batches := spooledMetricBatches(t, sp)
-	require.Len(t, batches, 2)
-	require.Len(t, batches[0].GetMetrics(), 2, "the held status is spooled first")
-	require.Len(t, batches[1].GetMetrics(), 1)
+	require.True(t, loop.pushNetperfMetrics())
+	require.Zero(t, loop.netperfEdgePendingCount())
+	require.NotEmpty(t, spooledMetricBatches(t, sp))
 }
 
-func TestRperfEdgeSpoolBackpressurePausesPollingAndPreservesEventID(t *testing.T) {
+func TestNetperfEdgeSpoolBackpressurePreservesEventID(t *testing.T) {
 	inner := openTestEdgeSpool(t)
 	script := &appendScript{inner: inner, refuseAfter: 0}
 	loop, _ := sysmonEdgeLoop(t, nil)
 	loop.edgeMetricsSpool = script
 	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
 
-	svc := &fakeRperfMetricsService{
-		queued: []*proto.StatusResponse{
-			syntheticRperfStatus(t, 1),
-			syntheticRperfStatus(t, 2),
-		},
-	}
-	loop.server.services = []Service{svc}
+	svc := loop.ensureNetperfService()
+	svc.enqueueSample(syntheticNetperfSample(2_500_000, time.Now().UnixNano()))
 
-	// First push polls the first rperf status, builds its edge record, and holds
-	// it in rperfEdge when the spool refuses admission.
-	statuses := loop.collectAllStatuses(context.Background())
-	require.Zero(t, rperfMetricStatuses(statuses))
-	require.Equal(t, 1, svc.polls)
-	require.Len(t, svc.queued, 1, "second status remains in the service until the first is admitted")
-	require.True(t, loop.rperfEdge.hasPending())
+	require.False(t, loop.pushNetperfMetrics())
+	require.Equal(t, 1, loop.netperfEdgePendingCount())
 	require.Len(t, script.ids, 1)
 	firstEventID := bytes.Clone(script.ids[0])
 	require.Empty(t, spooledMetricBatches(t, inner))
 
-	// Second push while the spool still refuses retries the held record with its
-	// original event_id and does not poll the rperf service again.
-	statuses = loop.collectAllStatuses(context.Background())
-	require.Zero(t, rperfMetricStatuses(statuses))
-	require.Equal(t, 1, svc.polls, "rperf polling is paused while rperfEdge holds an undelivered item")
-	require.Len(t, svc.queued, 1)
-	require.True(t, loop.rperfEdge.hasPending())
+	// Retry under backpressure reuses the exact same event_id.
+	require.False(t, loop.pushNetperfMetrics())
+	require.Equal(t, 1, loop.netperfEdgePendingCount())
 	require.Len(t, script.ids, 2)
 	require.Equal(t, firstEventID, script.ids[1])
-	require.Zero(t, edgeDrops(loop, edgeProducerRperf, edgeDropRetryBufferFull))
-	require.Zero(t, edgeDrops(loop, edgeProducerRperf, edgeDropInvalidRecord))
 
-	// Once the spool admits, the retained record is written with its original
-	// event_id and polling resumes for the next queued status.
 	script.admitAll()
-	statuses = loop.collectAllStatuses(context.Background())
-	require.Zero(t, rperfMetricStatuses(statuses))
-	require.False(t, loop.rperfEdge.hasPending())
-	require.Equal(t, 2, svc.polls)
-	require.Empty(t, svc.queued)
-	require.Len(t, script.ids, 2)
-	require.Equal(t, firstEventID, script.ids[0], "retained record keeps its original event_id")
-
+	require.True(t, loop.pushNetperfMetrics())
+	require.Zero(t, loop.netperfEdgePendingCount())
 	batches := spooledMetricBatches(t, inner)
-	require.Len(t, batches, 2)
-	require.Len(t, batches[0].GetMetrics(), 1)
-	require.Len(t, batches[1].GetMetrics(), 2)
+	require.Len(t, batches, 1)
 }
 
-func TestRperfSplitAndDropInvalidPoint(t *testing.T) {
+func TestNetperfSplitRespectsMaxProjectedRows(t *testing.T) {
 	sp := openTestEdgeSpool(t)
 	loop, _ := sysmonEdgeLoop(t, sp)
 	now := time.Now()
-	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 2)
+	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 3)
 	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
 
-	status := syntheticRperfStatus(t, 3)
-	var batch metricpb.MetricBatch
-	require.NoError(t, gproto.Unmarshal(status.GetMessage(), &batch))
-	batch.Metrics = append(batch.Metrics, &metricpb.Metric{
-		Name:       "rperf.oversized",
-		MetricType: "rperf",
-		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
-		Points: []*metricpb.MetricPoint{{
-			Value:              1,
-			RawValue:           asciiNoise(edgeMetricsMaxPayloadBytes+1024, 3),
-			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_STRING,
-			ObservedAtUnixNano: uint64(now.UnixNano()),
-		}},
-	})
-	encoded, err := gproto.Marshal(&batch)
-	require.NoError(t, err)
-	status.Message = encoded
+	svc := loop.ensureNetperfService()
+	svc.enqueueSample(syntheticNetperfSample(5_000_000, now.UnixNano()))
+	require.True(t, loop.pushNetperfMetrics())
 
-	loop.server.services = []Service{&fakeRperfMetricsService{queued: []*proto.StatusResponse{status}}}
-
-	statuses := loop.collectAllStatuses(context.Background())
-	require.Zero(t, rperfMetricStatuses(statuses))
-	require.Equal(t, uint64(1), edgeDrops(loop, edgeProducerRperf, edgeDropInvalidRecord))
 	batches := spooledMetricBatches(t, sp)
-	require.Len(t, batches, 2, "three valid metrics split across two maxRows=2 records")
-	assertMetricsRecordsWithinCaps(t, sp, batches, 2)
+	require.Greater(t, len(batches), 1, "10 canonical rperf metrics split across maxRows=3 records")
+	assertMetricsRecordsWithinCaps(t, sp, batches, 3)
 }
 
 // A target whose poll failed has no readings to spool; its availability point is

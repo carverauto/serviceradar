@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -350,6 +351,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	if firstAttempt {
 		// Apply check configs (icmp checks supported)
 		p.applyCheckConfigs(configResp.Checks)
+		p.applyNetperfConfig(ctx, configResp.GetNetperfConfig())
 	}
 
 	// Record that this version made it through the full idempotent pipeline at least once, so
@@ -1301,6 +1303,12 @@ func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
 
 	// Apply MTR check configs from the same check list.
 	p.applyMtrCheckConfigs(checks)
+}
+
+func (p *PushLoop) applyNetperfConfig(ctx context.Context, cfg *netperfpb.NetperfConfig) {
+	if svc := p.ensureNetperfService(); svc != nil {
+		svc.ApplyConfig(ctx, cfg)
+	}
 }
 
 func parseICMPCheckConfig(check *proto.AgentCheckConfig) *icmpCheckConfig {

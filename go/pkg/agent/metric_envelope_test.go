@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
+	"github.com/carverauto/serviceradar/go/pkg/netperf"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
-	srproto "github.com/carverauto/serviceradar/proto"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
+	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestBuildSysmonMetricBatch(t *testing.T) {
@@ -409,31 +409,87 @@ func TestBuildSweepMetricBatch(t *testing.T) {
 	require.InDelta(t, 2.0, metrics["sweep.banner_grab.inflight"].Points[0].Value, 1e-9)
 }
 
-func TestDefaultStatusSourceMarksRperfMetricEnvelope(t *testing.T) {
+func TestBuildNetperfMetricBatchBidirectionalAndResponderStats(t *testing.T) {
 	t.Parallel()
 
-	payload, err := proto.Marshal(&metricpb.MetricBatch{
-		SchemaVersion: metricEnvelopeSchemaVersion,
-		Metrics: []*metricpb.Metric{
-			{
-				Name:       "rperf.bits_per_second",
-				MetricType: "rperf",
-				Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
-				Points: []*metricpb.MetricPoint{
-					{
-						Value:              1600,
-						ObservedAtUnixNano: uint64(time.Now().UnixNano()),
-					},
+	ctx := metricEnvelopeContext{
+		AgentID:   "agent-spoke-01",
+		GatewayID: "gateway-01",
+		Partition: "default",
+	}
+
+	batch, err := buildNetperfMetricBatch([]netperfSample{
+		{
+			Kind:          netperfSampleTest,
+			Timestamp:     1_795_046_400_000_000_000,
+			PermitID:      "permit-1",
+			TargetAddress: "192.0.2.10",
+			Result: &netperf.TestResult{
+				Available:        true,
+				Target:           "192.0.2.10:5199",
+				ResponderAgentID: "agent-hub-01",
+				ResponderLabel:   "hub-east",
+				PolicyID:         "policy-1",
+				ProfileID:        "profile-1",
+				Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+				Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+				Parallel:         2,
+				ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_ON_DEMAND,
+				Upload: &netperf.PhaseResult{
+					Direction:       netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+					DurationSeconds: 4.0,
+					BytesSent:       4_000_000,
+					BytesReceived:   3_900_000,
+					BitsPerSecond:   7_800_000,
+					PacketsSent:     3333,
+					PacketsReceived: 3250,
+					PacketsLost:     83,
+					LossPercent:     2.49,
+					JitterMs:        0.42,
+				},
+				Download: &netperf.PhaseResult{
+					Direction:       netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+					DurationSeconds: 4.0,
+					BytesSent:       5_000_000,
+					BytesReceived:   5_000_000,
+					BitsPerSecond:   10_000_000,
+					PacketsSent:     4166,
+					PacketsReceived: 4166,
+					PacketsLost:     0,
+					LossPercent:     0,
+					JitterMs:        0.15,
 				},
 			},
 		},
-	})
+		{
+			Kind:      netperfSampleResponderStats,
+			Timestamp: 1_795_046_405_000_000_000,
+			ResponderStats: netperf.ResponderSnapshot{
+				ActiveSessions:      2,
+				SessionsTotal:       19,
+				BusyRejectionsTotal: 3,
+				BytesTotal:          99_000_000,
+			},
+		},
+	}, ctx)
 	require.NoError(t, err)
+	require.Equal(t, "rperf-metrics", batch.GetIngestIdentity().GetSource())
+	require.Equal(t, "agent", batch.GetIngestIdentity().GetProducerKind())
+	require.Equal(t, "rperf", batch.GetResource().GetServiceName())
 
-	require.True(t, metricEnvelopePayload(payload))
-	require.Equal(t, "rperf-metrics", defaultStatusSource(&srproto.StatusResponse{Message: payload}, "rperf", "rperf"))
-	require.Equal(t, "status", defaultStatusSource(&srproto.StatusResponse{Message: []byte(`{"status":{}}`)}, "rperf", "rperf"))
-	require.Equal(t, "status", defaultStatusSource(&srproto.StatusResponse{Message: payload}, "sweep", "sweep"))
+	byName := metricsByName(batch)
+	require.Len(t, byName["rperf.available"].GetPoints(), 2)
+	require.Equal(t, "upload", entry(byName["rperf.available"].GetPoints()[0].GetAttributes(), "direction"))
+	require.Equal(t, "download", entry(byName["rperf.available"].GetPoints()[1].GetAttributes(), "direction"))
+	require.Equal(t, "hub-east", entry(byName["rperf.available"].GetPoints()[0].GetAttributes(), "target"))
+	require.Equal(t, "udp", entry(byName["rperf.available"].GetPoints()[0].GetAttributes(), "protocol"))
+	require.Equal(t, "on_demand", entry(byName["rperf.available"].GetPoints()[0].GetAttributes(), "execution_source"))
+	require.Equal(t, "permit-1", entry(byName["rperf.available"].GetPoints()[0].GetMetadata(), "permit_id"))
+	require.InDelta(t, 7_800_000.0, byName["rperf.bits_per_second"].GetPoints()[0].GetValue(), 1e-6)
+	require.InDelta(t, 0.15, byName["rperf.jitter_ms"].GetPoints()[1].GetValue(), 1e-6)
+	require.InDelta(t, 2.0, byName["rperf.responder_active_sessions"].GetPoints()[0].GetValue(), 1e-6)
+	require.InDelta(t, 3.0, byName["rperf.responder_busy_rejections_total"].GetPoints()[0].GetValue(), 1e-6)
+	require.InDelta(t, 99_000_000.0, byName["rperf.responder_bytes_total"].GetPoints()[0].GetValue(), 1e-6)
 }
 
 func metricsByName(batch *metricpb.MetricBatch) map[string]*metricpb.Metric {

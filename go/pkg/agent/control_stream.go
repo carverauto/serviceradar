@@ -42,7 +42,9 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
+	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 	"google.golang.org/grpc"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -68,6 +70,7 @@ const (
 	commandTypeSweepCancel                 = "sweep.cancel_group"
 	commandTypeMtrRun                      = "mtr.run"
 	commandTypeMtrBulkRun                  = "mtr.bulk_run"
+	commandTypeNetperfRun                  = "netperf.run"
 	commandTypeCameraRelayOpen             = "camera.open_relay"
 	commandTypeCameraRelayStop             = "camera.close_relay"
 	commandTypeCameraRelayReconcileOpen    = "camera.reconcile_relay_open"
@@ -704,6 +707,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleMtrRun(ctx, cmd, sender)
 		case commandTypeMtrBulkRun:
 			p.handleMtrBulkRun(ctx, cmd, sender)
+		case commandTypeNetperfRun:
+			p.handleNetperfRun(ctx, cmd, sender)
 		case commandTypeAdhocScan:
 			p.handleAdhocScan(ctx, cmd, sender)
 		case commandTypeCameraRelayOpen:
@@ -1713,6 +1718,74 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Msg("On-demand MTR trace completed")
 
 	p.sendMtrRunResult(cmd, sender, commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+func (p *PushLoop) handleNetperfRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := netperfRunPayload{}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid netperf payload", nil))
+			return
+		}
+	}
+
+	if strings.TrimSpace(payload.ResponderAgentID) == "" ||
+		strings.TrimSpace(payload.TargetAddress) == "" ||
+		strings.TrimSpace(payload.PermitB64) == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing responder_agent_id, target_address, or permit_b64", nil))
+		return
+	}
+
+	permitBytes, err := base64.StdEncoding.DecodeString(payload.PermitB64)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, "invalid permit_b64 encoding", nil))
+		return
+	}
+	var permit netperfpb.NetperfPermitV1
+	if err := gproto.Unmarshal(permitBytes, &permit); err != nil {
+		_ = sender.Send(commandResult(cmd, false, "invalid NetperfPermitV1 protobuf", nil))
+		return
+	}
+	if permit.GetResponderAgentId() != payload.ResponderAgentID {
+		_ = sender.Send(commandResult(cmd, false, "permit responder_agent_id mismatch", nil))
+		return
+	}
+
+	runTimeout := commandRemainingTimeout(cmd, defaultNetperfOnDemandDeadline)
+	if runTimeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
+		return
+	}
+	if runTimeout > defaultNetperfOnDemandDeadline {
+		runTimeout = defaultNetperfOnDemandDeadline
+	}
+
+	svc := p.ensureNetperfService()
+	if svc == nil {
+		_ = sender.Send(commandResult(cmd, false, "netperf service unavailable", nil))
+		return
+	}
+	if !svc.TryAcquireOnDemand() {
+		_ = sender.Send(commandResult(cmd, false, "agent busy: netperf run already in progress", nil))
+		return
+	}
+	defer svc.ReleaseOnDemand()
+
+	_ = sender.Send(commandProgress(cmd, 10, "starting netperf test"))
+
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+
+	sample, summary, runErr := svc.RunOnDemand(runCtx, payload, &permit)
+	if sample.Result != nil && !sample.Result.BusyExhausted {
+		p.commitNetperfSamples([]netperfSample{sample})
+	}
+
+	if runErr != nil {
+		_ = sender.Send(commandResult(cmd, false, runErr.Error(), summary))
+		return
+	}
+	_ = sender.Send(commandResult(cmd, true, "netperf test completed", summary))
 }
 
 // onDemandMtrRunner runs a single on-demand MTR trace.
