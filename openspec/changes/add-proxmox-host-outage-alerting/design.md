@@ -83,17 +83,21 @@ not establish OOM as the cause.
 - **Recover through the existing condition scope, not plugin memory.** The
   WASM plugin is re-instantiated on every check and has no state between
   polls, so it cannot compare with a previous poll or know that it emitted an
-  event before. Each read unit gets its own condition scope: for runtime
-  state the guest list if one list call returns it, otherwise each guest; for
-  storage each node, since storage is already fetched per node. A unit read
-  fully emits its active conditions and a scope-complete marker listing their
-  keys, with an empty list when nothing is active, which is what clears its
-  last key. The agent's condition debounce already forwards a condition on
-  first sight, on a level change and at its unchanged-level refresh interval,
-  and synthesizes the clearing level for a key its scope's marker no longer
-  lists. A unit that could not be read fully emits no marker, which the agent
-  treats as a partial view of that scope only, so an unread guest or node
-  neither clears its own keys nor blocks clears for the others.
+  event before. Each node gets two condition scopes, one for its guest
+  list and one for its storage, which is already fetched per node. A scope
+  read fully emits its active conditions and a scope-complete marker listing
+  their keys, with an empty list when nothing is active, which is what clears
+  its last key. The guest-runtime marker also lists a guest the list shows
+  running whose runtime state could not be read, so a failed per-guest read
+  holds only that guest's alert, and it omits a guest the list shows stopped
+  or no longer contains, so stopping or deleting a paused guest clears its
+  alert. The agent's condition debounce already forwards a condition event on
+  first sight, on a level change and on its unchanged-level refresh, and
+  forwards one clear for a key it still remembers that its scope's marker no
+  longer lists. A marker never opens a key. A scope that could not be read
+  fully emits no marker, which the agent treats as a partial view of that
+  scope only. An agent restart or the expiry of a remembered key clears
+  nothing, so such an alert stays open until an operator resolves it.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 

@@ -62,18 +62,20 @@ of the plugin work in sections 2-5.
       called, add it to the agent's Proxmox path allowlist.
 - [ ] 4a.2 Report a `running` guest whose runtime state is not `running` as
       not available, in the inventory result and in the running-guest count.
-- [ ] 4a.3 For each read unit of runtime state (the guest list if it
-      returns the runtime state, otherwise each guest) read fully in a poll,
-      emit `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
+- [ ] 4a.3 For each node whose guest list is read fully in a poll, emit
+      `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
       non-running runtime state, carrying the guest's canonical DeviceID, the
-      node and the runtime state, and emit the unit's scope-complete marker
-      listing those keys, empty when none is paused. Emit no marker for a
-      unit not read fully. Keep no state between polls.
+      node and the runtime state, and emit the node's scope-complete marker
+      listing those keys plus the keys of running guests whose runtime state
+      could not be read. Emit no marker for a node whose guest list was not
+      read fully. Keep no state between polls.
 - [ ] 4a.4 Unit test the plugin output for a single invented observation: a
       guest in `io-error` emits the condition, is marked not available and
-      its key is listed; a running guest emits no condition and its unit's
-      marker has an empty key list; an unreadable unit emits no marker while
-      a fully read sibling unit still emits its marker.
+      its key is listed; a running guest and a stopped guest emit no
+      condition and their keys are absent; a running guest with an unreadable
+      runtime state emits no condition but its key is listed; a node with an
+      unreadable guest list emits no marker while a fully read sibling node
+      still emits its marker.
 
 ## 4b. Proxmox plugin: node storage capacity
 
@@ -90,11 +92,11 @@ of the plugin work in sections 2-5.
       fully read sibling node still emits its marker.
 - [ ] 4b.3 Confirm the event remains separate from the periodic
       ok/warning/critical pressure summaries, which keep their behaviour.
-- [ ] 4b.4 Agent-level test with invented markers for both condition scopes,
-      with both runs inside the agent's refresh interval: listing a key and
-      then omitting it from the next marker of the same scope forwards one
-      open and one clearing event; a run without that scope's marker clears
-      none of its keys, and a marker for a different scope does not clear it.
+- [ ] 4b.4 Agent-level test with invented records for both condition scopes:
+      a condition event opens a key and a later marker of the same scope that
+      omits it forwards one clearing event; a marker listing a key the agent
+      never saw forwards nothing; a run without that scope's marker, or with
+      only another scope's marker, clears nothing.
 
 ## 5. Manifest wiring
 
@@ -113,9 +115,9 @@ of the plugin work in sections 2-5.
 - [ ] 6.1 Enable the rules through the existing alert-rules UI in a
       disposable test environment.
 - [ ] 6.1a Pause a disposable guest and confirm it shows as not available,
-      its alert opens once, and the alert clears when a later poll that
-      reads its unit fully no longer lists the guest after it resumes. Fill a disposable datastore
-      past the critical threshold and confirm the same for the storage rule.
+      its alert opens, and the alert clears after the guest resumes or is
+      stopped. Fill a disposable datastore past the critical threshold, confirm
+      its alert opens, and confirm it clears after space is freed.
 - [ ] 6.2 Stop a disposable guest and separately simulate a host OOM kill;
       confirm each alert reaches the selected notification route within the
       configured rule window. Do not commit captured logs or test-environment

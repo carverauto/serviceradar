@@ -58,21 +58,22 @@ Repository context:
   (`qmpstatus`) for a guest whose `status` is `running`. A guest that is
   paused, or paused on an I/O error or lack of space, is reported not
   available and emits `com.carverauto.proxmox.guest_runtime_paused` with the
-  hypervisor's reason, listing its condition key in its read unit's
+  hypervisor's reason, listing its condition key in its node's guest-runtime
   condition scope.
 - **Node storage capacity:** emit
   `com.carverauto.proxmox.node_storage_capacity` for each node datastore in
   the critical band the plugin already computes, listing its condition key in
-  that node's condition scope. The existing pressure summary carries no
-  recovery, so an alert opened on it could never clear.
+  that node's storage condition scope. The existing pressure summary carries
+  no recovery, so an alert opened on it could never clear.
 - **Recovery through the condition scope:** the plugin keeps no state between
-  polls. Each read unit (the guest list or each guest for runtime state, each
-  node for storage) has its own scope and, when fully read, emits a
-  scope-complete marker listing its active keys, empty when none is active.
-  The agent's condition debounce forwards a condition on first sight, on a
-  level change and at its refresh interval, and synthesizes the clearing
-  event when a unit's marker no longer lists a key. A unit that could not be
-  read fully emits no marker, so only its own keys stay untouched.
+  polls. Each node's guest list and each node's storage has its own scope
+  and, when fully read, emits a scope-complete marker listing its active
+  keys, empty when none is active. A guest whose runtime state could not be
+  read stays listed; a guest the list shows stopped or absent is omitted. The
+  agent forwards a condition event on first sight, on a level change and on
+  its refresh, and forwards one clear when a marker omits a key it still
+  remembers. A scope that could not be read fully emits no marker, so only
+  its own keys stay untouched.
 - **Manifest alert catalog:** declare `guest-availability-changed`,
   `guest-runtime-paused`, `node-storage-capacity` and `node-oom-kill` under
   `alert_rules:` so package approval provisions disabled rules that an
