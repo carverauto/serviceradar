@@ -39,12 +39,23 @@ When that log cannot be reached, rejects the upload, or answers without a Signed
 
 ### Requirement: Release verification requires the receipt offline
 The repository release verification for images, native add-ons and Wasm plugins SHALL verify the embedded receipt of every signature created in the run against the pinned Rekor public key without contacting any Sigstore service.
-A missing or invalid receipt on a signature created in the run fails the release before promotion. The cutover release is v1.5.8 or later: the first release built from a commit containing the signer change. Release verification SHALL classify each digest from the signer's per-digest record in the signing ledger of whether it created a new signature or reused an existing one, and SHALL NOT classify it by whether a receipt is present. A digest in neither the created set nor the reused set SHALL fail verification. Every signature created in the run, and every reused signature that carries a receipt, SHALL be verified in receipt-required mode: the pinned Rekor key selected by the receipt's log ID from the retained key set, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. A reused signature without a receipt can only predate the cutover release, for an image, a native add-on or a Wasm plugin; it SHALL be exempt from the receipt check and is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist. A signature created in the run SHALL carry a receipt from a log in `docs/sigstore/rekor-keys/`. A reused signature whose receipt names the public-good Rekor log SHALL be verified in receipt-required mode against `docs/sigstore/pre-cutover-rekor-keys/`; a receipt naming a log in neither set SHALL fail. Release verification SHALL NOT contact any Rekor, the self-hosted one included.
+A missing or invalid receipt on a signature created in the run fails the release before promotion. The cutover release is v1.5.8 or later: the first release built from a commit containing the signer change. Release verification SHALL classify each digest from the signer's per-digest record in the signing ledger of whether it created a new signature or reused an existing one, and SHALL NOT classify it by whether a receipt is present. A digest in neither the created set nor the reused set SHALL fail verification. Every signature created in the run, and every reused signature that carries a receipt, SHALL be verified in receipt-required mode: the pinned Rekor key selected by the receipt's log ID from the retained key set, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. Reuse alone does not make a signature pre-cutover. A reused Wasm plugin or native add-on digest without a receipt SHALL be accepted, in key-only mode with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key), only when the digest is on the frozen pre-cutover allowlist, which release verification consults for this case; otherwise it SHALL fail. A reused container image signature without a receipt is verified in key-only mode and exempt from the receipt check, because Kyverno remains the admission gate for images. A signature created in the run SHALL carry a receipt from a log in `docs/sigstore/rekor-keys/`. A reused signature whose receipt names the public-good Rekor log SHALL be verified in receipt-required mode against `docs/sigstore/pre-cutover-rekor-keys/` and accepted only when its SET-signed integrated time is before the cutover time pinned in `docs/sigstore/` (the v1.5.8 tag time, pinned by the implementation PR from the real tag); a later public-good receipt SHALL fail. A receipt naming a log in neither set SHALL fail. Release verification SHALL NOT contact any Rekor, the self-hosted one included.
 
 #### Scenario: Reused signature with a pre-cutover public-good receipt
 - **GIVEN** a digest the signing ledger records as reused, whose signature carries a receipt from the public-good Rekor log made before the cutover
 - **WHEN** release verification runs
 - **THEN** the receipt SHALL be verified offline against the key in `docs/sigstore/pre-cutover-rekor-keys/`
+- **AND** its SET-signed integrated time SHALL be before the pinned cutover time
+
+#### Scenario: Reused post-cutover public-good receipt
+- **GIVEN** a digest the signing ledger records as reused, whose signature carries a receipt from the public-good Rekor log with an integrated time at or after the pinned cutover time
+- **WHEN** release verification runs
+- **THEN** verification SHALL fail
+
+#### Scenario: Reused receipt-less Wasm plugin or add-on digest not on the allowlist
+- **GIVEN** a Wasm plugin or native add-on digest the signing ledger records as reused, whose signature carries no receipt and whose digest is not on the frozen pre-cutover allowlist
+- **WHEN** release verification runs
+- **THEN** verification SHALL fail
 
 #### Scenario: Created signature with a public-good receipt
 - **GIVEN** a digest the signing ledger records as created in the current run, whose receipt names the public-good Rekor log
@@ -76,7 +87,7 @@ A missing or invalid receipt on a signature created in the run fails the release
 - **AND** the receipt SHALL verify
 
 #### Scenario: Reused pre-cutover signature
-- **GIVEN** an image, native add-on or Wasm plugin digest whose classic `.sig` signature was created before the cutover release and is reused by the current run
+- **GIVEN** a container image digest, or a native add-on or Wasm plugin digest on the frozen pre-cutover allowlist, whose classic `.sig` signature carries no receipt and is reused by the current run
 - **WHEN** release verification runs
 - **THEN** the signature SHALL be verified with the release key
 - **AND** the absence of a receipt SHALL NOT fail the release

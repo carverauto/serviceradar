@@ -181,7 +181,8 @@ nowhere.
 signature created in the current run, accept only `docs/sigstore/rekor-keys/` (the self-hosted
 log); a created signature whose receipt names any other log fails. A **reused** signature whose
 receipt names the public-good log is verified in receipt-required mode against
-`docs/sigstore/pre-cutover-rekor-keys/`; that set is never shipped and never accepted at import. A
+`docs/sigstore/pre-cutover-rekor-keys/` and accepted only when its SET-signed `integratedTime` is
+before the cutover time pinned in `docs/sigstore/` (the v1.5.8 tag time, pinned by the implementation PR from the real tag); a later public-good receipt fails. That set is never shipped and never accepted at import. A
 reused signature whose receipt names a log in neither set fails. A verifier never calls a Rekor:
 both modes run offline, and a test proves that no request reaches a Rekor URL during verification.
 
@@ -213,7 +214,8 @@ cosign runs.
 
 **(b) Key-only mode.** Used by `CosignVerifier` only for digests on the frozen pre-cutover
 allowlist, which then records `absent_allowlisted`, and by release verification only for a
-reused signature that carries no receipt, which can only be pre-cutover. A digest whose signature
+reused signature that carries no receipt and is either a container image or a Wasm plugin or native
+add-on digest on the frozen pre-cutover allowlist. A digest whose signature
 carries a receipt is always verified in receipt-required mode and recorded as `verified`, never in
 key-only mode and never as `absent_allowlisted`. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
 key, no `SIGSTORE_REKOR_PUBLIC_KEY`.
@@ -240,11 +242,14 @@ one (Decision 2). The release verification scripts (`verify-oci-publish.sh`,
 - a digest in the created set is verified in receipt-required mode, so a current-run signature
   published without its receipt fails;
 - a digest in the reused set is verified in receipt-required mode if its signature carries a
-  receipt, and in key-only mode if it does not. A reused signature without a receipt can only
-  predate the cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin,
-  and is exempt from the receipt check, as today;
-- a digest in neither set fails closed. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
-Wasm plugin and native add-on digests and is not consulted by release verification.
+  receipt (a public-good receipt only if integrated before the pinned cutover time), and in key-only
+  mode if it does not. Reuse alone does not prove a signature predates the cutover: a reused
+  receipt-less Wasm plugin or native add-on digest is accepted only when it is on the frozen
+  pre-cutover allowlist (Decision 9) and fails otherwise; a reused receipt-less container image is
+  exempt from the receipt check, because Kyverno admits images;
+- a digest in neither set fails closed. Kyverno remains the admission gate for images. The
+  allowlist (Decision 9) covers only Wasm plugin and native add-on digests; release verification
+  consults it for reused receipt-less digests of those kinds.
 
 ## Decision 5: The pinned Rekor key and how it is updated
 
@@ -457,7 +462,8 @@ Every other first-party Wasm plugin or native add-on digest
 requires a receipt from the cutover release on. A contract test fails if the list changes after the
 cutover. It is safe because an attacker cannot produce new content under an allowlisted digest. It
 costs one generated file, and it never grows. The list holds no image digests: images are admitted
-by Kyverno, and release verification exempts reused pre-cutover signatures (Decision 4). Web-ng
+by Kyverno. Release verification also consults the list: a reused receipt-less Wasm plugin or native
+add-on digest passes only when it is on the list (Decision 4). Web-ng
 releases before the cutover keep #6778 key-only behaviour and ignore the annotation.
 
 Alternatives considered:

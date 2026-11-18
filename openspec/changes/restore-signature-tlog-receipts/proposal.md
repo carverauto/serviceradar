@@ -51,11 +51,12 @@ Rekor, so no installation depends on that log being up.
   record, never from whether a receipt is present; a digest in neither set fails. They check offline
   the receipt of every created signature and every reused signature that carries one, selecting
   the pinned Rekor key by the receipt's log ID, and fail the release when it is missing or does not
-  verify. A signature created in the run must carry a receipt from the self-hosted log. A reused
-  pre-cutover signature (including a container image's) carries no receipt, or a receipt from
-  public-good Rekor written by an earlier manual signing; it is exempt from the receipt
-  requirement, and a public-good receipt on it is still checked offline against a separately kept
-  pre-cutover key. Kyverno remains the admission gate for images.
+  verify. A signature created in the run must carry a receipt from the self-hosted log. Reuse alone
+  does not prove a signature is pre-cutover: a reused public-good receipt (from an earlier manual
+  signing) is checked offline against a separately kept pre-cutover key and accepted only when
+  integrated before the pinned cutover time (the v1.5.8 tag time); a reused receipt-less Wasm
+  plugin or native add-on digest passes only when it is on the frozen pre-cutover allowlist; a
+  reused receipt-less container image is exempt because Kyverno admits images. Kyverno remains the admission gate for images.
 - **Offline verification at import.** The web-ng image ships the self-hosted log's public key,
   pinned byte-for-byte to a committed copy. `CosignVerifier` verifies the receipt with that key:
   the SET must verify, and the logged body must name the same signature, release public key and

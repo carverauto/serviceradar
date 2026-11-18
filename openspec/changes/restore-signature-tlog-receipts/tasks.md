@@ -47,10 +47,10 @@
   (design.md, Decision 4), selecting the pinned key by the receipt's `logID`: for a created
   signature only from `docs/sigstore/rekor-keys/`; for a reused signature from
   `docs/sigstore/rekor-keys/`, or from `docs/sigstore/pre-cutover-rekor-keys/` when the receipt
-  names the public-good log. Reused signatures without a receipt, which can only be pre-cutover (including
-  container images), stay key-only and are exempt from the receipt check; the import allowlist is
-  not consulted here.
-- [x] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
+  names the public-good log. Reused receipt-less container images stay key-only and are exempt from
+  the receipt check; a reused receipt-less Wasm plugin or native add-on digest passes key-only only
+  when it is on the frozen pre-cutover allowlist.
+- [ ] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
   that signs a SET over a synthetic entry, plus a synthetic release key. A missing receipt fails, a
   valid SET for a different entry fails, an unknown log ID fails, a created digest without a
   receipt fails, and a digest with no ledger record fails.
@@ -61,6 +61,12 @@
   `docs/sigstore/rekor-keys/`, and checks a reused signature's public-good receipt against
   `docs/sigstore/pre-cutover-rekor-keys/`. Negative tests: a created signature with a public-good
   receipt fails; a reused one with a public-good receipt verifies offline.
+- [ ] 3.5 Follow-up to the signer PR: bound release verification of reused signatures. Pin the
+  cutover time in `docs/sigstore/` from the real v1.5.8 tag; accept a reused public-good receipt only
+  when its SET-signed `integratedTime` is before it; accept a reused receipt-less Wasm plugin or
+  native add-on digest only when it is on the frozen pre-cutover allowlist. Negative tests: a reused
+  post-cutover public-good receipt fails; a reused receipt-less non-allowlisted Wasm/add-on digest
+  fails.
 
 ## 4. Import verifier (web-ng)
 
@@ -142,7 +148,7 @@
   that reports `transit/sign/cosign-release` requests not explained by a `sign` line in a ledger of a release-key signing run active at the
   request's time, with the
   monitor's pending rule (a request is pending while a release-key signing run active at its time is
-  in progress, then decided: explained only by a `sign` line, not a reused line, in that run's ledger, or alerted) and a position in its own
+  in progress, then decided: explained only by a `sign` line, not a reused line, in a ledger of one of the release-key signing runs active at its time, or alerted) and a position in its own
   state that advances only past decided records, so a sign call decided while its ledger was
   retained is never re-examined after the ledger ages out (design.md, Decision 10). Agents do not enable the audit device.
 - [ ] 5b.3 Operator check, recorded in `docs/sigstore/README.md`: `bao read
@@ -151,9 +157,11 @@
 - [ ] 5b.4 Operator tasks (design.md, Risks): back up the self-hosted log's Trillian MySQL database
   and test a restore, and remint the Rekor OpenBao token (or move Rekor to Kubernetes auth) before
   it expires around 2026-12-01. Agents do not run them.
-- [ ] 5b.5 Remove the pre-cutover transition entry from the Kyverno policy once every image admitted
-  in demo carries a self-hosted receipt. Check the running images; do not assume (an unchanged
-  digest such as `serviceradar-cnpg` keeps its pre-cutover signature until rebuilt).
+- [ ] 5b.5 Operator-owned: remove the pre-cutover transition entry from the Kyverno policy once
+  every image admitted in demo carries a self-hosted receipt. Check the running images; do not
+  assume (an unchanged digest such as `serviceradar-cnpg` keeps its pre-cutover signature until
+  rebuilt). When it is time, an agent drafts the `carverauto/gitops` PR; a person merges and
+  applies it.
 
 ## 6. Docs
 
