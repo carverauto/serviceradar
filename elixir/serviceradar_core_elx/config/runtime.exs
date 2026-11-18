@@ -818,9 +818,10 @@ if config_env() == :prod do
     awx_controller_health_interval_seconds: "AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS" |> parse_int_env.(30) |> max(5),
     awx_run_watchdog_interval_seconds: "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
     awx_schedule_evaluator_interval_seconds: "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
-    ansible_catalog_base_dir:
-      System.get_env("ANSIBLE_CATALOG_BASE_DIR") ||
-        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog"),
+    # No default here: this file is also evaluated by the migrations Job, which has
+    # no writable temporary directory. GitCatalogSyncWorker picks the fallback when
+    # it first needs a directory.
+    ansible_catalog_base_dir: System.get_env("ANSIBLE_CATALOG_BASE_DIR"),
     device_enrichment_rules_dir:
       System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
