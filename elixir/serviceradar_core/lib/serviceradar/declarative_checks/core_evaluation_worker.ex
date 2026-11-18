@@ -29,7 +29,10 @@ defmodule ServiceRadar.DeclarativeChecks.CoreEvaluationWorker do
         now = Evaluation.db_now()
 
         if force? or due?(check, now) do
-          handle_result(check, Evaluation.run_full(check, actor: actor, now: now))
+          handle_result(
+            check,
+            Evaluation.run_full(check, actor: actor, now: now, force_edge_eval?: force?)
+          )
         else
           {:ok, :not_due}
         end

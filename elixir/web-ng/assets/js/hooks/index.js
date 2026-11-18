@@ -14,6 +14,7 @@ import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWindowSelect from "./DashboardWindowSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
+import DeclarativeCheckCanvasHook from "./DeclarativeCheckCanvasHook"
 import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
 import UserTime from "./UserTime"
@@ -69,6 +70,7 @@ export default {
   DashboardMapViewSelect,
   DashboardWindowSelect,
   DashboardWasmHost,
+  DeclarativeCheckCanvasHook,
   DetailsState,
   JdmEditorHook,
   UserTime,

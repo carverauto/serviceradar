@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
   @moduledoc false
 
+  alias ServiceRadar.DeclarativeChecks.LegacyImporter
+
   @store_key {__MODULE__, :checks}
 
   @secret_keys MapSet.new([
@@ -62,7 +64,60 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
 
   def reset! do
     Process.put(@store_key, %{})
+    Process.delete({__MODULE__, :credential_options})
     :ok
+  end
+
+  def put_credential_options!(opts_map) when is_map(opts_map) do
+    Process.put({__MODULE__, :credential_options}, opts_map)
+    :ok
+  end
+
+  def supported_posture_evaluators do
+    [
+      "storage.entitlement_utilization",
+      "storage.hold_pin_pressure",
+      "storage.archive_credential_and_usage_health",
+      "camera.continuous_recording_silence"
+    ]
+  end
+
+  def canonical_pretty_json(doc) when is_map(doc) do
+    doc
+    |> stringify_map()
+    |> canonical_export_map()
+    |> encode_sorted_json(0)
+    |> Kernel.<>("\n")
+  end
+
+  def validate_document(raw, _opts \\ []) do
+    with {:ok, parsed} <- parse_doc(raw),
+         :ok <- check_document_validity(parsed) do
+      canonical = canonical_export_map(parsed)
+      {:ok, canonical, encode_sorted_json(canonical, 0) <> "\n"}
+    end
+  end
+
+  def list_credential_options(_opts \\ []) do
+    Process.get({__MODULE__, :credential_options}, %{secrets: [], rules: []})
+  end
+
+  def clone_service_check(sc, opts \\ []) do
+    with {:ok, draft} <- LegacyImporter.from_service_check(sc, opts) do
+      slug = available_slug(draft["slug"])
+      create_check(Map.put(draft, "slug", slug), opts)
+    end
+  end
+
+  def clone_composite_check(cc, opts \\ []) do
+    with {:ok, draft} <- LegacyImporter.from_composite_check(cc, opts) do
+      slug = available_slug(draft["slug"])
+      create_check(Map.put(draft, "slug", slug), opts)
+    end
+  end
+
+  defp available_slug(base) do
+    if Map.has_key?(store(), base), do: "#{base}-draft", else: base
   end
 
   def list_checks(opts \\ []) do
@@ -83,10 +138,16 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
     {:ok, checks}
   end
 
-  def get_check(slug, _opts \\ []) do
-    case Map.fetch(store(), slug) do
-      {:ok, entry} -> {:ok, serialize_entry(entry)}
-      :error -> {:error, :not_found}
+  def get_check(slug_or_id, _opts \\ []) do
+    case Map.fetch(store(), slug_or_id) do
+      {:ok, entry} ->
+        {:ok, serialize_entry(entry)}
+
+      :error ->
+        case Enum.find(Map.values(store()), &(&1.check["id"] == slug_or_id)) do
+          nil -> {:error, :not_found}
+          entry -> {:ok, serialize_entry(entry)}
+        end
     end
   end
 
@@ -95,7 +156,7 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
     bindings_input = Map.get(normalized, "credential_bindings", [])
     doc_candidate = Map.drop(normalized, ["credential_bindings", "confirm_detach", "allow_detach"])
 
-    with :ok <- validate_document(doc_candidate),
+    with :ok <- check_document_validity(doc_candidate),
          :ok <- ensure_slug_available(doc_candidate["slug"]) do
       entry = build_entry(doc_candidate, bindings_input)
       put_entry(entry)
@@ -140,7 +201,7 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
     force_overwrite = Keyword.get(opts, :force_overwrite, false)
 
     with {:ok, parsed} <- parse_doc(raw_doc),
-         :ok <- validate_document(parsed) do
+         :ok <- check_document_validity(parsed) do
       reconcile_import(parsed, dry_run, force_overwrite)
     end
   end
@@ -155,7 +216,7 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
   def test_run(doc, params, _opts) when is_map(doc) and is_map(params) do
     normalized = stringify_map(doc)
 
-    with :ok <- validate_document(normalized) do
+    with :ok <- check_document_validity(normalized) do
       execute_ephemeral(normalized, stringify_map(params))
     end
   end
@@ -196,7 +257,7 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
 
       doc_to_validate = canonical_export_map(merged)
 
-      with :ok <- validate_document(doc_to_validate) do
+      with :ok <- check_document_validity(doc_to_validate) do
         bindings =
           if is_list(bindings_patch),
             do: normalize_bindings(bindings_patch),
@@ -404,7 +465,7 @@ defmodule ServiceRadarWebNG.TestSupport.DeclarativeChecksStub do
     end
   end
 
-  defp validate_document(doc) when is_map(doc) do
+  defp check_document_validity(doc) when is_map(doc) do
     secret_issues = scan_secrets(doc, "$")
 
     if secret_issues == [] do

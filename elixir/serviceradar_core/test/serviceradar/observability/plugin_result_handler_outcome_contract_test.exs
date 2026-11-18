@@ -138,7 +138,7 @@ defmodule ServiceRadar.Observability.PluginResultHandlerOutcomeContractTest do
   describe "registered platform handlers implement PluginResultHandler" do
     test "every handler in platform_contract_handlers/0 exports disjoint settled_reasons/0 and refused_reasons/0" do
       handlers = PluginResultIngestor.platform_contract_handlers()
-      assert length(handlers) == 11
+      assert length(handlers) == 12
 
       Enum.each(handlers, fn handler ->
         assert Code.ensure_loaded?(handler), "expected #{inspect(handler)} to load"

@@ -127,12 +127,14 @@ go_test(
     name = "plugin_runtime_test",
     srcs = [
         "awx_runtime_test.go",
+        "declarative_check_runner_runtime_test.go",
         "proxmox_runtime_test.go",
         "tinygo_reflection_runtime_test.go",
         "wasm_runtime_host_test.go",
     ],
     data = [
         ":awx_wasm",
+        ":declarative_check_runner_wasm",
         ":proxmox_inventory_wasm",
         ":tinygo_reflection_probe_wasm",
     ],

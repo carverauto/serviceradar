@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
 
   import ServiceRadarWebNGWeb.PluginResults
 
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ServiceLive.Service
   alias ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable
 
@@ -26,9 +27,25 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
                     <span :if={!@service}>No matching service check found.</span>
                   </div>
                 </div>
-                <.ui_button navigate={~p"/services"} size="xs" variant="ghost">
-                  Back to services
-                </.ui_button>
+                <div class="flex items-center gap-2">
+                  <.ui_button
+                    :if={
+                      @service &&
+                        Service.type(@service) != "declarative_check" &&
+                        RBAC.can?(@current_scope, "declarative_checks.manage")
+                    }
+                    id="clone-service-as-declarative-check-btn"
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    phx-click="clone_as_declarative_check"
+                  >
+                    Clone as Declarative Check
+                  </.ui_button>
+                  <.ui_button navigate={~p"/services"} size="xs" variant="ghost">
+                    Back to services
+                  </.ui_button>
+                </div>
               </div>
             </:header>
 

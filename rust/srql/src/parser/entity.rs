@@ -111,6 +111,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "composite_results" | "composite_check_results" | "composite_verdicts" => {
             Ok(Entity::CompositeResults)
         }
+        "declarative_check_results" | "declarative_results" | "declarative_verdicts" => {
+            Ok(Entity::DeclarativeCheckResults)
+        }
         "timeseries_metrics" | "timeseries" => Ok(Entity::TimeseriesMetrics),
         "timeseries_metric_interface_hourly"
         | "timeseries_metrics_interface_hourly"

@@ -1,7 +1,11 @@
 defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   @moduledoc false
 
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheck
   alias ServiceRadar.Security.SecurityEvent
+  alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
+
+  require Logger
 
   @wifi_site_filter_fields [
     "source_id",
@@ -799,6 +803,40 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "status" => ["healthy", "degraded", "down", "unknown"]
       },
       stats_fields: ["verdict", "status", "check"],
+      downsample: false
+    },
+    %{
+      id: "declarative_check_results",
+      label: "Declarative Check Results",
+      route: nil,
+      default_time: "",
+      default_sort_field: "evaluated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "check_slug",
+      exact_fields: ["check_id", "state", "status", "target_kind"],
+      timestamp_fields: ["evaluated_at", "changed_at"],
+      filter_fields: [
+        "check",
+        "check_slug",
+        "slug",
+        "check_name",
+        "check_id",
+        "target_key",
+        "target_kind",
+        "device_uid",
+        "service_target_id",
+        "verdict",
+        "status",
+        "state",
+        "evaluated_at",
+        "changed_at"
+      ],
+      known_values: %{
+        "status" => ["healthy", "degraded", "down", "unknown"],
+        "state" => ["draft", "enabled", "disabled"],
+        "target_kind" => ["singleton", "device", "service_target"]
+      },
+      stats_fields: ["status", "verdict", "check_slug", "check", "state", "target_kind"],
       downsample: false
     },
     %{
@@ -2526,7 +2564,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     "endpoint_vulnerability_matches" => "endpoint_vulnerability_assessments",
     "vulnerability_matches" => "endpoint_vulnerability_assessments",
     "cve_matches" => "endpoint_vulnerability_assessments",
-    "advisory_matches" => "endpoint_vulnerability_assessments"
+    "advisory_matches" => "endpoint_vulnerability_assessments",
+    "declarative_results" => "declarative_check_results",
+    "declarative_verdicts" => "declarative_check_results"
   }
 
   @completion_field_groups [
@@ -2564,17 +2604,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def completion_tokens, do: @completion_tokens
 
   @doc """
-  Catalog for a request scope, including composite-check entities when enabled.
-  Shared by GET /api/srql/catalog and the MCP get_srql_catalog tool.
+  Catalog for a request scope, including composite-check and declarative-check
+  device filters when enabled. Shared by GET /api/srql/catalog and the MCP
+  get_srql_catalog tool.
   """
   def for_scope(scope) do
-    case ServiceRadarWebNGWeb.CompositeChecks.Catalog.enabled_with_verdicts(scope: scope) do
-      [] ->
+    composite_checks = CompositeCatalog.enabled_with_verdicts(scope: scope)
+    declarative_checks = enabled_declarative_checks_with_verdicts(scope: scope)
+
+    case {composite_checks, declarative_checks} do
+      {[], []} ->
         structured()
 
-      checks ->
+      _ ->
         @entities
-        |> with_composite_checks(checks)
+        |> with_composite_checks(composite_checks)
+        |> with_declarative_checks(declarative_checks)
         |> structured_from_entities()
     end
   end
@@ -2640,6 +2685,144 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     devices
     |> Map.update!(:filter_fields, &(&1 ++ fields))
     |> Map.update(:known_values, values, &Map.merge(&1, values))
+  end
+
+  @doc """
+  Injects `declarative.<slug>` and `declarative.<slug>.status` filter fields per
+  enabled declarative check into the `devices` entity, offering each check's
+  authored verdicts and the canonical status enum as completions.
+  """
+  @spec with_declarative_checks([map()], [map()]) :: [map()]
+  def with_declarative_checks(entities, []) when is_list(entities), do: entities
+
+  def with_declarative_checks(entities, checks) when is_list(entities) and is_list(checks) do
+    Enum.map(entities, fn
+      %{id: "devices"} = devices -> inject_declarative_fields(devices, checks)
+      entity -> entity
+    end)
+  end
+
+  defp inject_declarative_fields(devices, checks) do
+    fields =
+      Enum.flat_map(checks, fn check ->
+        ["declarative.#{check.slug}", "declarative.#{check.slug}.status"]
+      end)
+
+    values =
+      Enum.reduce(checks, %{}, fn check, acc ->
+        acc
+        |> Map.put("declarative.#{check.slug}", declarative_check_verdicts(check))
+        |> Map.put("declarative.#{check.slug}.status", @composite_statuses)
+      end)
+
+    devices
+    |> Map.update!(:filter_fields, &(&1 ++ fields))
+    |> Map.update(:known_values, values, &Map.merge(&1, values))
+  end
+
+  @doc """
+  Extracts the sorted list of verdict slugs a declarative check can emit from its
+  authored DAG nodes (`alert_output`, `decision_table`, and `threshold_assert`).
+  """
+  @spec declarative_check_verdicts(map()) :: [String.t()]
+  def declarative_check_verdicts(%{verdicts: verdicts}) when is_list(verdicts), do: verdicts
+
+  def declarative_check_verdicts(check) when is_map(check) do
+    nodes = List.wrap(Map.get(check, :nodes) || Map.get(check, "nodes"))
+    mapped_by_status = Enum.reduce(nodes, %{}, &collect_alert_output_verdict_map/2)
+    all_statuses_mapped? = Enum.all?(@composite_statuses, &Map.has_key?(mapped_by_status, &1))
+
+    upstream_verdicts =
+      if all_statuses_mapped? do
+        []
+      else
+        Enum.flat_map(nodes, &extract_upstream_node_verdicts/1)
+      end
+
+    (Map.values(mapped_by_status) ++ upstream_verdicts)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp collect_alert_output_verdict_map(node, acc) do
+    with "alert_output" <- node_kind(node),
+         vmap when is_map(vmap) <- Map.get(node_config(node), "verdict_map") do
+      Enum.reduce(vmap, acc, &put_non_empty_verdict/2)
+    else
+      _ -> acc
+    end
+  end
+
+  defp put_non_empty_verdict({status, verdict}, acc) when is_binary(verdict) and verdict != "" do
+    Map.put(acc, to_string(status), verdict)
+  end
+
+  defp put_non_empty_verdict(_entry, acc), do: acc
+
+  defp extract_upstream_node_verdicts(node) do
+    cfg = node_config(node)
+
+    case node_kind(node) do
+      "decision_table" ->
+        cfg
+        |> Map.get("rules", [])
+        |> List.wrap()
+        |> Enum.map(fn rule -> is_map(rule) && (rule["verdict"] || rule[:verdict]) end)
+        |> Enum.filter(&is_binary/1)
+
+      "threshold_assert" ->
+        [
+          Map.get(cfg, "pass_verdict", "healthy"),
+          Map.get(cfg, "warn_verdict", "degraded"),
+          Map.get(cfg, "crit_verdict", "down"),
+          Map.get(cfg, "unknown_verdict", "unknown")
+        ]
+
+      _ ->
+        []
+    end
+  end
+
+  defp node_kind(node) when is_map(node), do: to_string(node["kind"] || node[:kind] || "")
+  defp node_kind(_), do: ""
+
+  defp node_config(node) when is_map(node) do
+    case node["config"] || node[:config] do
+      cfg when is_map(cfg) -> cfg
+      _ -> %{}
+    end
+  end
+
+  defp node_config(_), do: %{}
+
+  defp enabled_declarative_checks_with_verdicts(opts) do
+    case DeclarativeCheck.list_enabled(opts) do
+      {:ok, checks} ->
+        checks
+        |> Enum.filter(&device_filterable_declarative_check?/1)
+        |> Enum.map(fn check ->
+          %{
+            id: check.id,
+            slug: check.slug,
+            name: check.name,
+            verdicts: declarative_check_verdicts(check)
+          }
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  rescue
+    exception ->
+      Logger.warning("declarative check catalog unavailable: #{Exception.message(exception)}")
+      []
+  end
+
+  defp device_filterable_declarative_check?(check) do
+    binding = Map.get(check, :target_binding) || Map.get(check, "target_binding") || %{}
+    mode = is_map(binding) && to_string(binding["mode"] || binding[:mode] || "")
+    mode in ["srql_devices", "service_targets"]
   end
 
   def structured_from_entities(entities) when is_list(entities) do

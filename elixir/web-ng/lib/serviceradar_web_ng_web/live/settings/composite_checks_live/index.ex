@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
   alias ServiceRadar.CompositeChecks.Rollup
   alias ServiceRadar.CompositeChecks.RuleGenerator
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadarWebNG.DeclarativeChecks
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FactKeys
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState
@@ -50,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
        |> assign(:current_path, @current_path)
        |> assign(:can_manage, RBAC.can?(scope, @manage_permission))
        |> assign(:can_evaluate, RBAC.can?(scope, @evaluate_permission))
+       |> assign(:can_clone_declarative, RBAC.can?(scope, "declarative_checks.manage"))
        |> assign(:editing, nil)
        |> assign(:form, FormState.default_form())
        |> assign(:errors, [])
@@ -376,6 +378,69 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
       {:noreply, delete_check(socket, id)}
     else
       {:noreply, forbid(socket)}
+    end
+  end
+
+  def handle_event("clone_as_declarative_check", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "declarative_checks.manage") do
+      target =
+        case fetch_check(socket, id) do
+          {:ok, check} ->
+            inputs =
+              case Map.get(check, :inputs) do
+                rows when is_list(rows) -> rows
+                _ -> load_inputs(check, scope)
+              end
+
+            rules =
+              cond do
+                is_list(Map.get(check, :rules)) ->
+                  Map.get(check, :rules)
+
+                is_map(socket.assigns[:editing]) and same_check_id?(socket.assigns.editing.id, check.id) and
+                    is_list(socket.assigns[:rules]) ->
+                  socket.assigns.rules
+
+                true ->
+                  case CompositeCheckRule.list_by_check(check.id, scope: scope) do
+                    {:ok, rows} -> rows
+                    _ -> []
+                  end
+              end
+
+            {check, inputs, rules}
+
+          _ ->
+            {id, nil, nil}
+        end
+
+      result =
+        case target do
+          {check, inputs, rules} when is_list(inputs) and is_list(rules) ->
+            declarative_checks_module().clone_composite_check(check,
+              scope: scope,
+              inputs: inputs,
+              rules: rules
+            )
+
+          {raw_id, _, _} ->
+            declarative_checks_module().clone_composite_check(raw_id, scope: scope)
+        end
+
+      case result do
+        {:ok, created} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Cloned composite check as draft declarative check #{created["slug"]}")
+           |> push_navigate(to: ~p"/settings/declarative-checks/#{created["slug"]}")}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, FormState.error_message(reason))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage declarative checks")}
     end
   end
 
@@ -974,6 +1039,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
+  defp declarative_checks_module do
+    Application.get_env(:serviceradar_web_ng, :declarative_checks, DeclarativeChecks)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -1004,6 +1073,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
           device_facts={@device_facts}
           fact_key_suggestions={@fact_key_suggestions}
           agents={@agents}
+          can_clone_declarative={@can_clone_declarative}
         />
 
         <div :if={@editing} class="mt-6 space-y-6">
@@ -1066,7 +1136,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Index do
             </p>
           </div>
 
-          <.check_list :if={@checks != []} entries={@checks} can_manage={@can_manage} />
+          <.check_list
+            :if={@checks != []}
+            entries={@checks}
+            can_manage={@can_manage}
+            can_clone_declarative={@can_clone_declarative}
+          />
         </div>
       </Shell.settings_chrome>
     </Layouts.app>

@@ -1406,6 +1406,12 @@ defmodule ServiceRadarWebNGWeb.Router do
         :edit
       )
 
+      scope "/settings/declarative-checks", Settings.DeclarativeCheckLive do
+        live("/", Index, :index)
+        live("/new", Edit, :new)
+        live("/:slug", Edit, :edit)
+      end
+
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)

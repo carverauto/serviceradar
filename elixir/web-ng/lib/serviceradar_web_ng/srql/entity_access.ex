@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   # Parser aliases from rust/srql/src/parser/entity.rs plus catalog ids.
   @permission_entities %{
     "plugins.view" => ~w(plugin_fleet plugin_fleets),
+    "declarative_checks.view" => ~w(declarative_check_results declarative_results declarative_verdicts),
     "settings.audit.view" => ~w(security_events),
     "devices.view" => ~w(
       devices device device_inventory

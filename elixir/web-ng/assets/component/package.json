@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@blueprintjs/core": "^6.23.0",
+    "@blueprintjs/icons": "^6.16.0",
+    "@blueprintjs/select": "^6.4.2",
     "@gorules/jdm-editor": "^1.50.4",
+    "@xyflow/react": "^12.12.1",
     "react": "19.2.9",
     "react-dom": "19.2.9"
   },
