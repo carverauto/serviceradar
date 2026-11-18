@@ -10,6 +10,14 @@ A later memory sample can look healthy after the process has been killed.
 This example is invented solely to illustrate the failure mode; it describes
 no deployment or observed incident.
 
+A second failure mode has the same shape. A node's storage pool fills. The
+hypervisor pauses every guest whose disk lives on it, with an I/O error, until
+space is freed. The guest processes still exist, so the Proxmox API keeps
+reporting `status: running`, the plugin keeps marking those guests available,
+and their inventory records keep refreshing. The storage pressure event the
+plugin emits at 90% matches no alert rule, and nothing is sent when the pool
+recovers. The guests are frozen for as long as nobody looks.
+
 Availability checks, Kubernetes readiness conditions, and host OOM events
 answer different questions. The proposal adds the missing Proxmox condition
 signals while reusing the existing ServiceCheck and notification mechanisms.
@@ -46,15 +54,27 @@ Repository context:
 - **Host OOM-kill detection:** scan each node's kernel log since the last
   successful poll and emit `com.carverauto.proxmox.node_oom_kill`, carrying
   the node, killed process when parseable, and raw log line as event detail.
-- **Manifest alert catalog:** declare `guest-availability-changed` and
-  `node-oom-kill` under `alert_rules:` so package approval provisions disabled
-  rules that an operator can enable without hand-authoring definitions.
+- **Guests paused by the hypervisor:** read the QEMU runtime state
+  (`qmpstatus`) for a guest whose `status` is `running`. A guest that is
+  paused, or paused on an I/O error or lack of space, is reported not
+  available and emits `com.carverauto.proxmox.guest_runtime_paused` with the
+  hypervisor's reason; resuming emits the recovery.
+- **Node storage capacity:** emit `com.carverauto.proxmox.node_storage_capacity`
+  when a node datastore enters the critical band the plugin already computes,
+  and a recovery when it leaves it. The existing pressure summary carries no
+  recovery, so an alert opened on it could never clear.
+- **Manifest alert catalog:** declare `guest-availability-changed`,
+  `guest-runtime-paused`, `node-storage-capacity` and `node-oom-kill` under
+  `alert_rules:` so package approval provisions disabled rules that an
+  operator can enable without hand-authoring definitions.
 
 ## Impact
 
 - Affected specs: `proxmox-host-monitoring` (new capability).
 - Affected code: `go/cmd/wasm-plugins/proxmox/`, including guest transition
-  handling, node log collection, and `plugin.yaml`.
+  handling, guest runtime state, node storage events, node log collection,
+  and `plugin.yaml`; the agent's Proxmox API path allowlist if the runtime
+  state needs a per-guest call.
 - No additional core provisioning mechanism is anticipated beyond
   `add-plugin-alert-rules`.
 - Prerequisites: `fix-proxmox-inventory-plugin-reliability` and completion of

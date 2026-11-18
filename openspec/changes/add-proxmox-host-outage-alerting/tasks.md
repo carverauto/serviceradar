@@ -55,19 +55,51 @@ of the plugin work in sections 2-5.
       entry emits an event with expected fields; no matching entry emits
       none; an entry processed in a previous poll is not emitted again.
 
+## 4a. Proxmox plugin: guests paused by the hypervisor
+
+- [ ] 4a.1 Determine whether the guest list returns the QEMU runtime state
+      (`qmpstatus`) or a per-guest status call is needed; if a new API path is
+      called, add it to the agent's Proxmox path allowlist.
+- [ ] 4a.2 Report a `running` guest whose runtime state is not `running` as
+      not available, in the inventory result and in the running-guest count.
+- [ ] 4a.3 Emit `com.carverauto.proxmox.guest_runtime_paused` on entry to a
+      non-running runtime state, carrying the guest's canonical DeviceID, the
+      node and the runtime state, and emit the recovery on resume.
+- [ ] 4a.4 Unit test with invented guest observations: running then
+      `io-error` emits exactly one event and marks the guest not available;
+      remaining `io-error` emits none; returning to running emits the
+      recovery; an unreadable runtime state changes nothing.
+
+## 4b. Proxmox plugin: node storage capacity
+
+- [ ] 4b.1 Emit `com.carverauto.proxmox.node_storage_capacity` when a node
+      datastore enters the critical band, carrying node, datastore, used and
+      total bytes, and emit the recovery when it leaves the band.
+- [ ] 4b.2 Unit test with invented storage observations: crossing the
+      threshold emits exactly one event; staying above emits none; dropping
+      below emits the recovery.
+- [ ] 4b.3 Confirm the event remains separate from the periodic
+      ok/warning/critical pressure summaries, which keep their behaviour.
+
 ## 5. Manifest wiring
 
 - [ ] 5.1 Add `alert_rules:` entries to
       `go/cmd/wasm-plugins/proxmox/plugin.yaml` for
-      `guest-availability-changed` and `node-oom-kill`, matching the schema
+      `guest-availability-changed`, `guest-runtime-paused`,
+      `node-storage-capacity` and `node-oom-kill`, matching the schema
       defined by `add-plugin-alert-rules`; do not set `enabled` or `priority`.
+      The paused-guest and storage rules declare their recovery.
 - [ ] 5.2 Ship a new plugin package version and verify approval materializes
-      both rules disabled and namespaced `plugin:proxmox:<name>`.
+      all four rules disabled and namespaced `plugin:proxmox:<name>`.
 
 ## 6. Verification
 
-- [ ] 6.1 Enable both rules through the existing alert-rules UI in a
+- [ ] 6.1 Enable the rules through the existing alert-rules UI in a
       disposable test environment.
+- [ ] 6.1a Pause a disposable guest and confirm it shows as not available,
+      its alert opens, and the alert clears when the guest resumes. Fill a
+      disposable datastore past the critical threshold and confirm the same
+      for the storage rule.
 - [ ] 6.2 Stop a disposable guest and separately simulate a host OOM kill;
       confirm each alert reaches the selected notification route within the
       configured rule window. Do not commit captured logs or test-environment

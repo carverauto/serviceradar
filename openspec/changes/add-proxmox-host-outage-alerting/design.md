@@ -41,6 +41,8 @@ not establish OOM as the cause.
 
 **Goals**
 - Detect guest stops and host OOM kills as distinct condition events.
+- Detect guests the hypervisor has paused, which the guest status alone
+  reports as running, and a node datastore at critical capacity.
 - Complement endpoint checks and Kubernetes readiness notifications with
   host-level evidence.
 - Reuse `ServiceCheck`, `Notifications`, and plugin-manifest alert rules.
@@ -66,6 +68,15 @@ not establish OOM as the cause.
   spike; a retained OOM-killer log entry records the kill after pressure
   subsides. Scan since the last successful poll and avoid repeat events for
   entries already processed.
+- **Trust the runtime state over the status for a running guest.** Proxmox
+  reports `status: running` while a QEMU process exists, including when the
+  guest is paused or stopped on an I/O error. The runtime state is the only
+  field that tells the two apart, so a non-running runtime state makes the
+  guest not available. Containers have no such state and keep their status.
+- **Give capacity its own event with a recovery.** The pressure summary is
+  band-classified and de-duplicated, and a return to `ok` is the absence of
+  further events. An alert needs an explicit recovery to close, so the
+  critical band gets a separate event pair and the summaries are left alone.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 
@@ -95,6 +106,10 @@ not establish OOM as the cause.
    and verify alert delivery through the selected notification route.
 
 ## Open Questions
+
+- Does the guest list return the runtime state, or does each running guest
+  need its own status call? A per-guest call adds one request per running
+  guest per poll and a new entry in the agent's Proxmox path allowlist.
 
 - Which Proxmox API log endpoint and permissions provide the required kernel
   entries? If unavailable, can the existing SSH console-access path supply
