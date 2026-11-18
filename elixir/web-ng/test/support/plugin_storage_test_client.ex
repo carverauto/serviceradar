@@ -1,12 +1,23 @@
 defmodule ServiceRadarWebNG.PluginStorageTestClient do
   @moduledoc false
 
+  @put_blob_failure_key {__MODULE__, :put_blob_failure}
+
   def start_link(name) when is_atom(name) do
     Agent.start_link(fn -> %{} end, name: name)
   end
 
+  def fail_next_put(reason) do
+    Agent.update(store(), &Map.put(&1, @put_blob_failure_key, reason))
+  end
+
   def put_blob(object_key, payload) when is_binary(object_key) and is_binary(payload) do
-    Agent.update(store(), &Map.put(&1, object_key, payload))
+    Agent.get_and_update(store(), fn blobs ->
+      case Map.pop(blobs, @put_blob_failure_key) do
+        {nil, blobs} -> {:ok, Map.put(blobs, object_key, payload)}
+        {reason, blobs} -> {{:error, reason}, blobs}
+      end
+    end)
   end
 
   def put_blob_file(object_key, source_path) when is_binary(source_path) do
