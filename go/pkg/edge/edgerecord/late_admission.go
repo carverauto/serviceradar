@@ -74,8 +74,13 @@ var ErrLateAdmissionRequired = errors.New("edgerecord: late admission required (
 // LATE_FENCED), as is a stale fence with a grant; a fence the gateway has not
 // learned yet is unchanged. The gateway
 // resolves a network scope no longer bound to the agent the same way; that binding
-// is gateway-local and not part of AuthorizationPolicy.
+// is gateway-local and not part of AuthorizationPolicy. At every version, a frame
+// carrying a late-admission grant is refused first (ErrLateAdmissionGrantMismatch),
+// before fence classification or security quarantine, as the gateway's wrapper does.
 func ValidateLiveFrameSigned(f *edgev1.EdgeDeliveryFrameV1, authenticatedPrincipal []byte, policy AuthorizationPolicy, lateVersion uint32) (FrameDecision, error) {
+	if f.GetDeliveryCapability().GetDelivery().GetLateAdmission() != nil {
+		return FrameDecision{}, fmt.Errorf("delivery_capability: %w: a late-admission grant is accepted only on a late session", ErrLateAdmissionGrantMismatch)
+	}
 	if lateVersion < LateAdmissionProtocolVersion {
 		return ValidateFrameSigned(f, policy)
 	}

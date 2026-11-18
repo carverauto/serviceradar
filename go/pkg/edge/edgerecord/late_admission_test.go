@@ -304,6 +304,22 @@ func TestValidateLiveFrameSignedResolvesWhatCannotBeLiveAsLateAdmissionRequired(
 	if _, err := ValidateLiveFrameSigned(f.frameFor(forged), principal, missing, LateAdmissionProtocolVersion); !errors.Is(err, ErrCapabilitySignatureInvalid) {
 		t.Fatalf("missing fence with a forged rollover = %v, want ErrCapabilitySignatureInvalid", err)
 	}
+	lateGrant := f.grant(f.late(edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_PRIMARY, edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_ADMITTED))
+	future := f.policy
+	future.ActiveFence = ResolvedFence(epoch - 1)
+	pc := f.record.GetProductionCapability()
+	compromised := current
+	compromised.Trust = statusTrust{status: KeyHistoricallyRevoked, public: f.policy.Trust.(mapTrust)[trustKey(pc.GetIssuerId(), pc.GetIssuerKeyId())]}
+	for _, c := range []struct {
+		name   string
+		policy AuthorizationPolicy
+	}{{"fence unavailable", missing}, {"fence in the future", future}, {"compromise-revoked production key", compromised}} {
+		for _, version := range []uint32{LateAdmissionProtocolVersion, 0} {
+			if d, err := ValidateLiveFrameSigned(f.frameFor(lateGrant), principal, c.policy, version); !errors.Is(err, ErrLateAdmissionGrantMismatch) {
+				t.Fatalf("late grant, %s, at version %d = (%+v, %v), want ErrLateAdmissionGrantMismatch", c.name, version, d, err)
+			}
+		}
+	}
 	ahead := f.policy
 	ahead.ActiveFence = ResolvedFence(epoch - 1)
 	if _, err := ValidateLiveFrameSigned(f.frameFor(nil), principal, ahead, LateAdmissionProtocolVersion); !errors.Is(err, ErrFenceNotReady) {
