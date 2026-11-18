@@ -32,13 +32,31 @@ The release signer SHALL upload signatures to the pinned public-good Rekor v1 lo
 
 ### Requirement: Release verification requires the receipt offline
 The repository release verification for images, native add-ons and Wasm plugins SHALL verify the embedded receipt of every signature created in the run against the pinned Rekor public key without contacting any Sigstore service.
-A missing or invalid receipt on a signature created in the run fails the release before promotion. A signature created in the run SHALL be verified in receipt-required mode: the pinned Rekor key in `SIGSTORE_REKOR_PUBLIC_KEY`, `--offline=true` and `--new-bundle-format=false`, with no `--trusted-root` and no `--insecure-ignore-tlog`. A signature reused from before the cutover release, for an image, a native add-on or a Wasm plugin, carries no receipt and SHALL be exempt from the receipt check; it is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
+A missing or invalid receipt on a signature created in the run fails the release before promotion. Release verification SHALL classify each digest from the signer's per-digest record in the signing ledger of whether it created a new signature or reused an existing one, and SHALL NOT classify it by whether a receipt is present. A digest in neither the created set nor the reused set SHALL fail verification. Every signature created in the run, and every reused signature that carries a receipt, SHALL be verified in receipt-required mode: the pinned Rekor key selected by the receipt's log ID from the retained key set, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. A reused signature without a receipt can only predate the cutover release, for an image, a native add-on or a Wasm plugin; it SHALL be exempt from the receipt check and is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
 
 #### Scenario: Signature created without a receipt
 - **GIVEN** a signature created in the current release run whose `.sig` layer has no receipt
 - **WHEN** release verification runs
 - **THEN** verification SHALL fail
 - **AND** the artifact SHALL NOT be promoted
+
+#### Scenario: Created signature whose receipt was dropped
+- **GIVEN** a digest the signing ledger records as created in the current run
+- **AND** its `.sig` layer has no receipt
+- **WHEN** release verification runs
+- **THEN** verification SHALL fail in receipt-required mode
+- **AND** SHALL NOT fall back to key-only mode
+
+#### Scenario: Digest with no signing record
+- **GIVEN** a digest that the signing ledger records neither as created nor as reused in the current run
+- **WHEN** release verification runs
+- **THEN** verification SHALL fail
+
+#### Scenario: Reused post-cutover signature after a Rekor rotation
+- **GIVEN** a digest the signing ledger records as reused, whose receipt names an older log ID that is still in the retained key set
+- **WHEN** release verification runs
+- **THEN** it SHALL select the key for that log ID
+- **AND** the receipt SHALL verify
 
 #### Scenario: Reused pre-cutover signature
 - **GIVEN** an image, native add-on or Wasm plugin digest whose classic `.sig` signature was created before the cutover release and is reused by the current run
@@ -73,7 +91,7 @@ The web-ng image ships the whole set, byte-identical to the committed files, and
 
 ### Requirement: Signing ledger
 Every run of a release-key signing workflow SHALL record each signature in a signing ledger before it uploads the signature to the transparency log.
-A ledger line holds the payload SHA-256, the subject, the workflow, the run ID and attempt, and the time. A second line adds the log index and entry UUID once the upload returns. The ledger is kept as a workflow artifact for at least 90 days whether or not the run succeeds, and for tag runs it is also attached to the GitHub release. The release-key signing workflows are every workflow that signs with the release key, including `release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml` and `external-wasm-plugin.yml`.
+A ledger line holds the payload SHA-256, the subject, the workflow, the run ID and attempt, and the time. A second line adds the log index and entry UUID once the upload returns. For a digest whose existing signature is reused, the ledger SHALL record that the signature was reused, so the ledger states for every digest in the run whether its signature was created or reused. The ledger is kept as a workflow artifact for at least 90 days whether or not the run succeeds, and for tag runs it is also attached to the GitHub release. The release-key signing workflows are every workflow that signs with the release key, including `release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml` and `external-wasm-plugin.yml`.
 
 #### Scenario: Run fails after the upload
 - **GIVEN** a signing run whose transparency-log upload succeeded and which then failed
@@ -83,7 +101,7 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 
 ### Requirement: Transparency-log monitoring for the release key
 A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new public-good Rekor v1 entry for the release public key's fingerprint at a configured scan interval, verifying log consistency between checkpoints. The scan interval is one hour unless a measured scan cost forces a longer one.
-It SHALL alert on every matching entry that is not explained. An entry is explained when it is a `hashedrekord` whose payload hash appears in a signing ledger that a run of any release-key signing workflow active at the entry's integrated time has published or will publish, or when it is listed in the committed acknowledged-entries file. While such a run is still in progress, the monitor SHALL NOT alert on the entry and SHALL evaluate it after the run ends. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue. An unexplained entry is reported within about one scan interval. The blindness canary alerts on a ledgered entry still unseen two scan intervals after its signing run ended, and the monitor is reported stale when its last successful run is older than three scan intervals.
+It SHALL alert on every matching entry that is not explained. An entry is pending while a run of any release-key signing workflow that was active at the entry's integrated time is in progress; the monitor SHALL NOT alert on a pending entry and SHALL evaluate it after those runs end. An entry is explained only when it is a `hashedrekord` whose payload hash appears in a published signing ledger of one of those runs, or when it is listed in the committed acknowledged-entries file. Once those runs have ended, an entry that is not explained is unexplained. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue. An unexplained entry is reported within about one scan interval. The blindness canary alerts on a ledgered entry still unseen two scan intervals after its signing run ended, and the monitor is reported stale when its last successful run is older than three scan intervals.
 
 #### Scenario: Signature made outside the signing workflows
 - **GIVEN** a Rekor v1 entry signed by the release key whose payload hash is in no signing ledger and not acknowledged

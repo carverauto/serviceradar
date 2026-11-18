@@ -32,8 +32,11 @@ detection value.
 - **Pinned log.** The signer uploads to the public-good Rekor v1 log through cosign's legacy upload
   path (`--use-signing-config=false`), not to whatever log the TUF-delivered signing config names.
   A Rekor v2 entry has no SET and cannot be expressed in the legacy annotation.
-- **Release verification.** The repository verification scripts check the receipt of every
-  signature created in the current run offline and fail the release when it is missing or does not
+- **Release verification.** The signer records in its ledger whether each digest's signature was
+  created or reused in the run, and the repository verification scripts classify digests from that
+  record, never from whether a receipt is present; a digest in neither set fails. They check offline
+  the receipt of every created signature and every reused signature that carries one, selecting
+  the pinned Rekor key by the receipt's log ID, and fail the release when it is missing or does not
   verify. A reused pre-cutover signature (including a container image's) carries no receipt and is
   exempt from that check; Kyverno remains the admission gate for images.
 - **Offline verification at import.** The web-ng image ships the Rekor v1 public key, pinned

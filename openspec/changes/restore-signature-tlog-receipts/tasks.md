@@ -29,20 +29,25 @@
   after it. Upload the ledger with `if: always()` in every release-key signing workflow
   (`release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml` and
   `external-wasm-plugin.yml`), and attach it to the release on tag runs. Cover
-  `sign-release-checksums.sh` too.
+  `sign-release-checksums.sh` too. Record in the ledger, per digest, whether the signature was
+  created or reused in the run.
 - [ ] 2.5 Extend `scripts/test-release-publish-contracts.sh`: an upload without a SET fails; the
   annotation equals the legacy bundle's `rekorBundle`; a reused signature is not re-signed; the
   ledger line exists before the upload.
 
 ## 3. Release verification
 
-- [ ] 3.1 Switch `cosign_verify_legacy_signature` to the offline receipt form (design.md,
-  Decision 4) for signatures created in the current run only. Reused pre-cutover signatures,
-  including container images, stay key-only and are exempt from the receipt check; the import
-  allowlist is not consulted here.
+- [ ] 3.1 Classify each digest in `cosign_verify_legacy_signature` from the signer's ledger record
+  (created or reused), never from whether a receipt is present, and fail a digest in neither set.
+  Verify created signatures and reused signatures that carry a receipt in the receipt-required form
+  (design.md, Decision 4), selecting the pinned key from `docs/sigstore/rekor-keys/` by the
+  receipt's `logID`. Reused signatures without a receipt, which can only be pre-cutover (including
+  container images), stay key-only and are exempt from the receipt check; the import allowlist is
+  not consulted here.
 - [ ] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
   that signs a SET over a synthetic entry, plus a synthetic release key. A missing receipt fails, a
-  valid SET for a different entry fails, and an unknown log ID fails.
+  valid SET for a different entry fails, an unknown log ID fails, a created digest without a
+  receipt fails, and a digest with no ledger record fails.
 - [ ] 3.3 Re-run one image digest's `.sig` through the release gate and through Kyverno-equivalent
   verification (`cosign verify --new-bundle-format=false --key`, `IgnoreTlog=false`, TUF Rekor keys)
   before the first release with annotations. Record the output in the PR.

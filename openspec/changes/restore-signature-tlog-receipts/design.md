@@ -114,7 +114,7 @@ There are exactly two command shapes.
 
 **(a) Receipt-required mode.** Used by `CosignVerifier` for every first-party Wasm plugin or
 native add-on digest that is not on the frozen allowlist (Decision 9), and by release verification
-for every signature created in the current run:
+for every signature created in the current run and every reused signature that carries a receipt:
 
 ```
 SIGSTORE_REKOR_PUBLIC_KEY=<pinned Rekor key file> \
@@ -123,16 +123,16 @@ cosign verify --new-bundle-format=false --offline=true --key <release key> \
 ```
 
 with no `--trusted-root` and no `--insecure-ignore-tlog` flag. This mode is not conditional on a
-receipt being present: a missing receipt fails closed. Release verification uses
-`docs/sigstore/rekor.pub`, since signatures created in the current run are on the current log.
-`CosignVerifier` reads `logID` from the annotation, selects the matching key file from the retained
-key set in the image (Decision 5) and passes it as `SIGSTORE_REKOR_PUBLIC_KEY`, so a receipt under
-an older accepted log still verifies; a missing annotation or a log ID with no file in the set
-fails before cosign runs.
+receipt being present: a missing receipt fails closed. Both `CosignVerifier` and release
+verification read `logID` from the annotation, select the matching key file from the retained key
+set (Decision 5; the image copy at import, `docs/sigstore/rekor-keys/` in release verification) and
+pass it as `SIGSTORE_REKOR_PUBLIC_KEY`, so a receipt under an older accepted log still verifies,
+including a post-cutover signature reused after a Rekor rotation. A missing annotation or a log ID
+with no file in the set fails before cosign runs.
 
 **(b) Key-only mode.** Used by `CosignVerifier` only for digests on the frozen pre-cutover
-allowlist, which then records `absent_allowlisted`, and by release verification only for reused
-pre-cutover signatures. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
+allowlist, which then records `absent_allowlisted`, and by release verification only for a
+reused signature that carries no receipt, which can only be pre-cutover. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
 key, no `SIGSTORE_REKOR_PUBLIC_KEY`.
 
 Both run with no `--trusted-root` and an isolated `HOME`, `XDG_*` and `SIGSTORE_CACHE_DIR`, as #6778 already
@@ -149,12 +149,18 @@ sets up. Why this path:
   (GHSA-whqx-f9j3-ch6m), so a SET for any unrelated entry would pass. The advisory's own
   workaround is this env-key path. The cosign upgrade (Decision 6) closes the gap in both branches.
 
-The release verification scripts (`verify-oci-publish.sh`, `verify-wasm-plugin-publish.sh`,
-`verify-native-addon-publish.sh`) switch `cosign_verify_legacy_signature` to the receipt-required
-form for every signature created in the current run, and only for those. A signature reused from before the
-cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin, carries no
-receipt and is exempt from the receipt check in release verification: it is verified with the
-key-only form, as today. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
+Release verification never classifies a signature by whether a receipt is present. The signer
+records in the signing ledger, per digest, whether it created a new signature or reused an existing
+one (Decision 2). The release verification scripts (`verify-oci-publish.sh`,
+`verify-wasm-plugin-publish.sh`, `verify-native-addon-publish.sh`) read that record:
+
+- a digest in the created set is verified in receipt-required mode, so a current-run signature
+  published without its receipt fails;
+- a digest in the reused set is verified in receipt-required mode if its signature carries a
+  receipt, and in key-only mode if it does not. A reused signature without a receipt can only
+  predate the cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin,
+  and is exempt from the receipt check, as today;
+- a digest in neither set fails closed. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
 Wasm plugin and native add-on digests and is not consulted by release verification.
 
 ## Decision 5: The pinned Rekor key and how it is updated
@@ -164,9 +170,9 @@ Wasm plugin and native add-on digests and is not consulted by release verificati
   Rekor v1 key whose log ID is `c0d23d6a...801d`. `docs/sigstore/rekor.pub` is the key of the log
   the signer currently writes to, byte-identical to that log's file in the set.
   `cosign_export_trust_overrides` already exports `docs/sigstore/rekor.pub` as
-  `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer and the release verifiers, which
-  only verify signatures created in the current run against the current log, pick it up without
-  new wiring. The signer's own post-upload check then uses the same key.
+  `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer picks it up without new wiring
+  and its own post-upload check uses the same key. The release verifiers, like `CosignVerifier`,
+  select the key from `docs/sigstore/rekor-keys/` by the receipt's log ID (Decision 4).
 - **Image copy:** the web-ng image carries the whole `docs/sigstore/rekor-keys/` set at a fixed
   path. `runtime.exs` points `first_party_plugin_import` at it. There is no runtime override: no
   operator-supplied mounted file, setting or environment variable replaces the pinned keys. The keys
@@ -228,7 +234,9 @@ silently miss entries does not meet the AGENTS.md rule that a verification must 
 **What counts as expected.** Every signing run writes a signing ledger: one JSON line per
 signature, written **before** `cosign sign-blob` is called. The line holds the payload SHA-256, the
 subject `repo@digest` (or the file name for `SHA256SUMS`), the workflow, the run ID and attempt, and
-the time. After signing, a second line adds the returned `logIndex` and entry UUID. The ledger is
+the time. After signing, a second line adds the returned `logIndex` and entry UUID. A digest whose
+existing signature is reused gets one line marking it reused instead, so the ledger records for
+every digest whether its signature was created or reused in the run. The ledger is
 uploaded with `if: always()` as a workflow artifact named per run attempt, retained 90 days, and
 for tag runs it is also attached to the GitHub release.
 
@@ -237,9 +245,11 @@ The release-key signing workflows are every workflow that signs with `hashivault
 `external-wasm-plugin.yml` (through `sign-wasm-plugin-publish.sh`). Each of them writes and uploads
 the ledger.
 
-A Rekor entry is explained when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256
-in the ledger of a run of any release-key signing workflow that was active at the entry's
-`integratedTime` (started before it, and still running or ended after it). Because the ledger is
+A Rekor entry is pending while a run of any release-key signing workflow that was active at the
+entry's `integratedTime` (started before it, and still running or ended after it) is in progress.
+It is explained only when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
+published ledger of one of those runs, or when the acknowledged-entries file lists it. Because the
+ledger is
 uploaded only when the job ends, the monitor does not decide on an entry while a release-key
 signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
 and no alert is raised. Once every such run has ended, the entry is explained if one of their
