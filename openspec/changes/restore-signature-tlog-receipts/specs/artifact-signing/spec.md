@@ -32,7 +32,7 @@ The release signer SHALL upload signatures to the pinned public-good Rekor v1 lo
 
 ### Requirement: Release verification requires the receipt offline
 The repository release verification for images, native add-ons and Wasm plugins SHALL verify the embedded receipt of every signature created in the run against the pinned Rekor public key without contacting any Sigstore service.
-A missing or invalid receipt on a signature created in the run fails the release before promotion. A signature reused from before the cutover release, for an image, a native add-on or a Wasm plugin, carries no receipt and SHALL be exempt from the receipt check; it is verified with the release key alone. Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
+A missing or invalid receipt on a signature created in the run fails the release before promotion. A signature created in the run SHALL be verified in receipt-required mode: the pinned Rekor key in `SIGSTORE_REKOR_PUBLIC_KEY`, `--offline=true` and `--new-bundle-format=false`, with no `--trusted-root` and no `--insecure-ignore-tlog`. A signature reused from before the cutover release, for an image, a native add-on or a Wasm plugin, carries no receipt and SHALL be exempt from the receipt check; it is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
 
 #### Scenario: Signature created without a receipt
 - **GIVEN** a signature created in the current release run whose `.sig` layer has no receipt

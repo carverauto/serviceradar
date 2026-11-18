@@ -49,9 +49,13 @@
 
 ## 4. Import verifier (web-ng)
 
-- [ ] 4.1 `CosignVerifier`: receipt-required mode for non-allowlisted digests, key-only mode for
-  allowlisted digests, and selection of the pinned key from the shipped key set by `logID`. No `--trusted-root`, no TUF,
-  isolated home and cache directories, bounded timeout.
+- [ ] 4.1 `CosignVerifier` with exactly two command shapes (design.md, Decision 4): (a)
+  receipt-required mode for every non-allowlisted digest, with the pinned key selected from the
+  shipped key set by the receipt's `logID` and passed as `SIGSTORE_REKOR_PUBLIC_KEY`,
+  `--offline=true`, `--new-bundle-format=false`, no `--trusted-root`, no `--insecure-ignore-tlog`,
+  failing closed on a missing receipt; (b) key-only mode only for allowlisted digests, with #6778's
+  flags (`--insecure-ignore-tlog=true`, no Rekor key). No TUF, isolated home and cache directories,
+  bounded timeout.
 - [ ] 4.2 Generate and commit the frozen pre-cutover digest allowlist from every published
   `serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json`. Ship it in
   the image and add the freeze contract test.

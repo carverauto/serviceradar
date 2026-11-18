@@ -110,20 +110,30 @@ admitted digest.
 
 ## Decision 4: Verify receipts offline with a pinned Rekor key, never with TUF
 
-Release verification of a signature created in the current run runs:
+There are exactly two command shapes.
+
+**(a) Receipt-required mode.** Used by `CosignVerifier` for every first-party Wasm plugin or
+native add-on digest that is not on the frozen allowlist (Decision 9), and by release verification
+for every signature created in the current run:
 
 ```
-SIGSTORE_REKOR_PUBLIC_KEY=<pinned rekor.pub> \
+SIGSTORE_REKOR_PUBLIC_KEY=<pinned Rekor key file> \
 cosign verify --new-bundle-format=false --offline=true --key <release key> \
   --timeout 60s <repo>@<digest>
 ```
 
-`CosignVerifier` at import runs one of two modes. For every digest that is not on the frozen
-allowlist (Decision 9) it runs receipt-required mode: it reads `logID` from the annotation, selects
-the matching key file from the retained key set in the image (Decision 5), rejects a log ID with no
-file in the set, and runs the same command with `SIGSTORE_REKOR_PUBLIC_KEY` set to that file, so a
-receipt under an older accepted log still verifies. For an allowlisted digest it runs key-only mode,
-#6778's `--insecure-ignore-tlog=true` command, and records `absent_allowlisted`.
+with no `--trusted-root` and no `--insecure-ignore-tlog` flag. This mode is not conditional on a
+receipt being present: a missing receipt fails closed. Release verification uses
+`docs/sigstore/rekor.pub`, since signatures created in the current run are on the current log.
+`CosignVerifier` reads `logID` from the annotation, selects the matching key file from the retained
+key set in the image (Decision 5) and passes it as `SIGSTORE_REKOR_PUBLIC_KEY`, so a receipt under
+an older accepted log still verifies; a missing annotation or a log ID with no file in the set
+fails before cosign runs.
+
+**(b) Key-only mode.** Used by `CosignVerifier` only for digests on the frozen pre-cutover
+allowlist, which then records `absent_allowlisted`, and by release verification only for reused
+pre-cutover signatures. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
+key, no `SIGSTORE_REKOR_PUBLIC_KEY`.
 
 Both run with no `--trusted-root` and an isolated `HOME`, `XDG_*` and `SIGSTORE_CACHE_DIR`, as #6778 already
 sets up. Why this path:
@@ -140,11 +150,11 @@ sets up. Why this path:
   workaround is this env-key path. The cosign upgrade (Decision 6) closes the gap in both branches.
 
 The release verification scripts (`verify-oci-publish.sh`, `verify-wasm-plugin-publish.sh`,
-`verify-native-addon-publish.sh`) switch `cosign_verify_legacy_signature` to this form for every
-signature created in the current run, and only for those. A signature reused from before the
+`verify-native-addon-publish.sh`) switch `cosign_verify_legacy_signature` to the receipt-required
+form for every signature created in the current run, and only for those. A signature reused from before the
 cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin, carries no
-receipt and is exempt from the receipt check in release verification: it is verified key-only, as
-today. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
+receipt and is exempt from the receipt check in release verification: it is verified with the
+key-only form, as today. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
 Wasm plugin and native add-on digests and is not consulted by release verification.
 
 ## Decision 5: The pinned Rekor key and how it is updated
