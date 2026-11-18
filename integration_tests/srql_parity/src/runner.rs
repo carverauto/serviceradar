@@ -812,6 +812,7 @@ async fn seed(
     let trace_summaries = fixture::traces::summaries(&spans);
     let bmp = fixture::bmp::rows(anchor);
     let transitions = fixture::availability::rows(anchor);
+    let rum = fixture::rum::rows(anchor);
 
     let cnpg_statements = [
         fixture::metric_inserts(&metrics, Backend::Cnpg, "platform"),
@@ -825,6 +826,7 @@ async fn seed(
         fixture::traces::summary_inserts(&trace_summaries, Backend::Cnpg, "platform"),
         fixture::bmp::inserts(&bmp, Backend::Cnpg, "platform"),
         fixture::availability::inserts(&transitions, Backend::Cnpg, "platform"),
+        fixture::rum::inserts(&rum, Backend::Cnpg, "platform"),
     ];
     for statement in cnpg_statements.iter().flatten() {
         cnpg.batch_execute(statement)
@@ -852,6 +854,7 @@ async fn seed(
         fixture::traces::summary_inserts(&trace_summaries, Backend::StarRocks, database),
         fixture::bmp::inserts(&bmp, Backend::StarRocks, database),
         fixture::availability::inserts(&transitions, Backend::StarRocks, database),
+        fixture::rum::inserts(&rum, Backend::StarRocks, database),
     ];
     for statement in sr_statements.iter().flatten() {
         sr_exec(sr, statement).await?;
@@ -897,6 +900,7 @@ async fn seed(
             "device_availability_transitions",
             transitions.len(),
         ),
+        ("rum_beacons", "rum_beacons", rum.len()),
     ] {
         let sr_count: Option<i64> = sr
             .query_first(format!("SELECT COUNT(*) FROM {database}.{table}"))

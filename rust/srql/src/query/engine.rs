@@ -6,7 +6,7 @@ use super::{
     devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
     interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, otel_services, public_endpoints, security_events, services,
+    otel_metrics, otel_services, public_endpoints, rum_beacons, security_events, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
     translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
@@ -102,6 +102,7 @@ impl QueryEngine {
                 Entity::DeviceAvailabilityHistory => {
                     device_availability_history::execute(&mut conn, &plan).await?
                 }
+                Entity::RumBeacons => rum_beacons::execute(&mut conn, &plan).await?,
                 Entity::DeviceIdentifiers => {
                     identity::device_identifiers::execute(&mut conn, &plan).await?
                 }

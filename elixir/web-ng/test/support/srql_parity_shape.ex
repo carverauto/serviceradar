@@ -46,7 +46,8 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "traces" => ~w(otel_traces traces trace_spans),
     "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries),
     "bmp_events" => ~w(bmp_events bmp_event bmp_routing_events),
-    "device_availability_history" => ~w(device_availability_history device_availability_transitions availability_history)
+    "device_availability_history" => ~w(device_availability_history device_availability_transitions availability_history),
+    "rum" => ~w(rum rum_beacons rum_beacon)
   }
   @spellings for {canonical, spellings} <- @canonical, spelling <- spellings, into: %{}, do: {spelling, canonical}
 

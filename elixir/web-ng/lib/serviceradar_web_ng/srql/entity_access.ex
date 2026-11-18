@@ -99,6 +99,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       otel_metrics metrics
       otel_metric_points metric_points
       capacity_forecasts capacity_forecast forecasts forecast
+      rum rum_beacons rum_beacon
     ),
     "observability.traces.view" => ~w(
       otel_traces traces trace_spans

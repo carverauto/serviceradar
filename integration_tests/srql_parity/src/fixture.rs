@@ -28,6 +28,7 @@ pub mod events;
 pub mod logs;
 pub mod mtr;
 pub mod otel;
+pub mod rum;
 pub mod traces;
 
 pub const DEVICE_A: &str = "sr:parity-dev-a";

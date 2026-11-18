@@ -242,6 +242,7 @@ async fn start_otel(config_path: &str) -> Result<()> {
     if ingest_auth.enabled() {
         info!("OTLP ingestion authentication enforced");
     }
+    let rum_nats_config = nats_config.clone();
     let collector = create_collector(nats_config)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -260,6 +261,17 @@ async fn start_otel(config_path: &str) -> Result<()> {
     // Start OTLP/HTTP listener (default port 4318) unless disabled.
     match otel::http_server::HttpServerOptions::from_config(&otel_cfg) {
         Ok(Some(http_options)) => {
+            if http_options.rum.config.enabled {
+                if let Some(cfg) = rum_nats_config.clone() {
+                    let policy_cache = std::sync::Arc::clone(&http_options.rum.policy);
+                    let rum_cfg = http_options.rum.config.clone();
+                    tokio::spawn(async move {
+                        otel::rum::policy::run_policy_sync(cfg, policy_cache, rum_cfg).await;
+                    });
+                } else {
+                    log::warn!("RUM enabled without [nats] config; policy sync inactive");
+                }
+            }
             let http_collector = collector.clone();
             tokio::spawn(async move {
                 if let Err(e) =

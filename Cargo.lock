@@ -5104,6 +5104,7 @@ dependencies = [
  "clap",
  "env_logger",
  "flate2",
+ "futures",
  "hex",
  "http-body-util",
  "hyper",
@@ -5116,6 +5117,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "serde_json",
  "serviceradar-cert-policy",
  "serviceradar-metric-proto",
  "tempfile",
@@ -5125,6 +5127,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "urlencoding",
  "uuid",
 ]
 

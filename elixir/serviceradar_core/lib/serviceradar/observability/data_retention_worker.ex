@@ -74,7 +74,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     :adhoc_scan_results_retention_days,
     :service_status_retention_days,
     :spans_red_retention_days,
-    :otel_metrics_hourly_stats_retention_days
+    :otel_metrics_hourly_stats_retention_days,
+    :rum_beacons_retention_days
   ]
   # Hypertables and continuous aggregates whose retention only migrations set
   # before this worker reconciled them. Defaults equal the migration values,
@@ -88,6 +89,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_spans_red_retention_days 90
   @default_traces_stats_retention_days 14
   @default_otel_metrics_hourly_stats_retention_days 90
+  @default_rum_beacons_retention_days 30
 
   # {table, retention_key, retention_default}
   @migration_tables [
@@ -97,6 +99,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     {"events", :service_status_retention_days, @default_service_status_retention_days},
     {"device_availability_transitions", :availability_history_retention_days,
      @default_availability_history_retention_days},
+    {"rum_beacons", :rum_beacons_retention_days, @default_rum_beacons_retention_days},
     {"endpoint_inventory_scan_history", :endpoint_inventory_history_retention_days,
      @default_endpoint_inventory_history_retention_days},
     {"endpoint_inventory_package_events", :endpoint_inventory_history_retention_days,

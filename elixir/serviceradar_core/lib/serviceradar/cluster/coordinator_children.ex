@@ -80,6 +80,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         plugin_target_policy_scheduler_child(),
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
+        rum_policy_sync_child(),
         event_writer_child()
       ],
       &is_nil/1
@@ -483,6 +484,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp cli_auth_scheduler_child do
     if enabled?("CLI_AUTH_SCHEDULER_ENABLED", :cli_auth_scheduler_enabled, true) do
       ServiceRadar.Identity.CliAuthScheduler
+    end
+  end
+
+  defp rum_policy_sync_child do
+    if enabled?("RUM_POLICY_SYNC_ENABLED", :rum_policy_sync_enabled, true) do
+      ServiceRadar.Inventory.RumPolicySync
     end
   end
 

@@ -15,7 +15,7 @@
 
 use std::convert::Infallible;
 use std::io::Read;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -73,6 +73,8 @@ pub struct HttpServerOptions {
     /// Ingestion-token authentication shared with the gRPC listener
     /// (`[auth]`); [`IngestAuth::disabled`] when enforcement is off.
     pub auth: Arc<IngestAuth>,
+    /// Public Boomerang RUM ingestion runtime (`/rum/v1/beacon`).
+    pub rum: Arc<crate::rum::RumRuntime>,
 }
 
 impl HttpServerOptions {
@@ -116,12 +118,18 @@ impl HttpServerOptions {
         let auth = IngestAuth::from_config(&config.auth)
             .map_err(|e| format!("invalid [auth] configuration: {e}"))?;
 
+        let rum = Arc::new(crate::rum::RumRuntime::new(
+            config.rum.clone(),
+            Arc::new(crate::rum::policy::RumPolicyCache::default()),
+        ));
+
         Ok(Some(Self {
             addr,
             allowed_origins: config.server.http.allowed_origins.clone(),
             max_request_bytes: config.server.max_request_bytes,
             tls_identity,
             auth: Arc::new(auth),
+            rum,
         }))
     }
 }
@@ -162,12 +170,15 @@ pub async fn start_http_server(
 
         tokio::spawn(async move {
             let _connection_permit = connection_permit;
+            let peer_ip = peer.ip();
             let service = service_fn(move |req: Request<Incoming>| {
                 let shared = Arc::clone(&shared);
                 let requests = Arc::clone(&requests);
                 async move {
                     let (options, collector) = &*shared;
-                    Ok::<_, Infallible>(handle_request(req, options, collector, &requests).await)
+                    Ok::<_, Infallible>(
+                        handle_request(req, options, collector, &requests, Some(peer_ip)).await,
+                    )
                 }
             });
 
@@ -236,19 +247,44 @@ async fn handle_request<B>(
     options: &HttpServerOptions,
     collector: &ServiceRadarCollector,
     requests: &Semaphore,
+    peer_ip: Option<IpAddr>,
 ) -> Response<Full<Bytes>>
 where
     B: hyper::body::Body<Data = Bytes> + Send,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
-    let origin = req
-        .headers()
+    let (parts, body) = req.into_parts();
+    if parts.uri.path() == crate::rum::RUM_BEACON_PATH {
+        let Ok(_permit) = requests.try_acquire() else {
+            return retryable_error_response("HTTP request capacity exhausted".to_owned(), None);
+        };
+        let query = parts.uri.query().map(str::to_owned);
+        let operation = crate::rum::handle_rum_request(
+            &parts.method,
+            query.as_deref(),
+            &parts.headers,
+            body,
+            peer_ip,
+            &options.rum,
+            collector,
+        );
+        return match timeout(REQUEST_TIMEOUT, operation).await {
+            Ok(response) => response,
+            Err(_) => error_response(
+                StatusCode::REQUEST_TIMEOUT,
+                "request timed out while reading body".to_owned(),
+                None,
+            ),
+        };
+    }
+
+    let origin = parts
+        .headers
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let cors_origin = resolve_cors_origin(&options.allowed_origins, origin.as_deref());
 
-    let (parts, body) = req.into_parts();
     if let Err(response) = admit_request(
         &parts.method,
         parts.uri.path(),
@@ -623,6 +659,10 @@ mod tests {
             max_request_bytes: 1024 * 1024,
             tls_identity: None,
             auth: Arc::new(IngestAuth::disabled()),
+            rum: Arc::new(crate::rum::RumRuntime::new(
+                crate::config::RumConfig::default(),
+                Arc::new(crate::rum::policy::RumPolicyCache::default()),
+            )),
         }
     }
 
@@ -737,7 +777,7 @@ mod tests {
                 .header(header::CONTENT_ENCODING, encoding)
                 .body(UnreadBody)
                 .unwrap();
-            let response = handle_request(request, options, &collector, &requests).await;
+            let response = handle_request(request, options, &collector, &requests, None).await;
             assert_eq!(response.status(), expected);
             assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         }
@@ -749,7 +789,7 @@ mod tests {
             .body(UnreadBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &anonymous, &collector, &requests)
+            handle_request(request, &anonymous, &collector, &requests, None)
                 .await
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
@@ -763,7 +803,7 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &enforced, &collector, &requests)
+            handle_request(request, &enforced, &collector, &requests, None)
                 .await
                 .status(),
             StatusCode::OK
@@ -797,7 +837,7 @@ mod tests {
             .body(PendingBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
+            handle_request(request, &options, &collector, &requests, None)
                 .await
                 .status(),
             StatusCode::REQUEST_TIMEOUT
@@ -810,7 +850,7 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
+            handle_request(request, &options, &collector, &requests, None)
                 .await
                 .status(),
             StatusCode::OK
@@ -830,7 +870,7 @@ mod tests {
             .body(Full::new(Bytes::from_static(b"synthetic")))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
+            handle_request(request, &options, &collector, &requests, None)
                 .await
                 .status(),
             StatusCode::PAYLOAD_TOO_LARGE
@@ -1144,6 +1184,22 @@ mod tests {
             self.record(ctx);
             Ok(Default::default())
         }
+
+        async fn publish_rum_beacon(
+            &self,
+            _web_property_id: &str,
+            _beacon: &crate::rum_proto::RumBeaconV1,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            Ok(Default::default())
+        }
+
+        async fn publish_rum_metrics(
+            &self,
+            _web_property_id: &str,
+            _metrics: &serviceradar_metric_proto::pb::MetricBatch,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            Ok(Default::default())
+        }
     }
 
     fn empty_traces_body() -> Bytes {
@@ -1361,5 +1417,72 @@ mod tests {
         let mut bad = Config::default();
         bad.auth.enabled = true;
         assert!(HttpServerOptions::from_config(&bad).is_err());
+    }
+
+    #[tokio::test]
+    async fn rum_beacon_route_bypasses_otlp_auth_while_v1_traces_stays_gated() {
+        use crate::rum::policy::RumPolicyCache;
+        use crate::rum_proto::{WebPropertyRumPolicy, WebPropertyRumPolicySnapshot};
+
+        let collector = test_collector().await;
+        let mut options = test_options_with_auth();
+        let cache = Arc::new(RumPolicyCache::from_snapshot(
+            WebPropertyRumPolicySnapshot {
+                version: 1,
+                generated_at_unix_ms: 0,
+                properties: vec![WebPropertyRumPolicy {
+                    web_property_id: "01JWEBPROP0000000000000001".to_string(),
+                    name: "shop".to_string(),
+                    canonical_origin: "https://shop.example".to_string(),
+                    allowed_origins: vec!["https://shop.example".to_string()],
+                    allowed_query_keys: vec![],
+                    trace_propagate_origins: vec![],
+                    rum_site_key: "sr_rum_live_testkey".to_string(),
+                    rum_enabled: true,
+                    rum_sample_rate: 1.0,
+                    anonymize_client_ip: true,
+                    environment: "production".to_string(),
+                    prefix_tags: vec![],
+                }],
+                global_prefix_tags: vec![],
+            },
+        ));
+        options.rum = Arc::new(crate::rum::RumRuntime::new(
+            crate::config::RumConfig::default(),
+            cache,
+        ));
+
+        let requests = Semaphore::new(4);
+
+        // Unauthenticated OTLP /v1/traces still fails 401.
+        let otlp_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(UnreadBody)
+            .unwrap();
+        let otlp_resp = handle_request(otlp_req, &options, &collector, &requests, None).await;
+        assert_eq!(otlp_resp.status(), StatusCode::UNAUTHORIZED);
+
+        // /rum/v1/beacon with valid rum_site_key & allowed Origin succeeds without OTLP token.
+        let rum_req = Request::builder()
+            .method(Method::POST)
+            .uri("/rum/v1/beacon")
+            .header(header::ORIGIN, "https://shop.example")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Full::new(Bytes::from_static(
+                b"sr.key=sr_rum_live_testkey&u=https%3A%2F%2Fshop.example%2F&t_page=420",
+            )))
+            .unwrap();
+        let rum_resp = handle_request(rum_req, &options, &collector, &requests, None).await;
+        assert_eq!(rum_resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            rum_resp
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .unwrap(),
+            "https://shop.example"
+        );
+        assert_eq!(rum_resp.headers().get(header::VARY).unwrap(), "Origin");
     }
 }

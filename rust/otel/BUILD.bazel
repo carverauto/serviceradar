@@ -23,6 +23,12 @@ copy_file(
     out = "proto/kv.proto",
 )
 
+copy_file(
+    name = "rum_proto_staged",
+    src = "//proto/rum/v1:rum_proto_src",
+    out = "proto/rum/v1/rum.proto",
+)
+
 cargo_build_script(
     name = "build_script",
     srcs = ["build.rs"],
@@ -32,6 +38,7 @@ cargo_build_script(
     crate_root = "build.rs",
     data = [
         ":kv_proto_staged",
+        ":rum_proto_staged",
         "//rust/otel:otel_proto_srcs",
     ],
     # Restores the execroot as this script's working directory.
@@ -83,6 +90,23 @@ rust_test(
     srcs = ["tests/nats_chunking.rs"],
     crate_root = "tests/nats_chunking.rs",
     deps = [":otel_lib"] + ["@crates//:prost"],
+)
+
+rust_test(
+    name = "rum_beacon_http_test",
+    srcs = ["tests/rum_beacon_http.rs"],
+    crate_root = "tests/rum_beacon_http.rs",
+    deps = [
+        ":otel_lib",
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "@crates//:flate2",
+        "@crates//:http-body-util",
+        "@crates//:hyper",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:tonic",
+        "@crates//:anyhow",
+    ],
 )
 
 filegroup(

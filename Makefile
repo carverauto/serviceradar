@@ -575,7 +575,8 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 		proto/agent/discovery/v1/discovery.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
-		proto/metric/v1/metric.proto
+		proto/metric/v1/metric.proto \
+		proto/rum/v1/rum.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
@@ -644,6 +645,7 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/agent/addon/v1/addon.proto \
 		proto/agent/discovery/v1/discovery.proto \
 		proto/metric/v1/metric.proto \
+		proto/rum/v1/rum.proto \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
 		proto/edge/v1/plugin_results.proto \

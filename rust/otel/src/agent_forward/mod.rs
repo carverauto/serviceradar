@@ -407,6 +407,22 @@ impl TelemetryOutput for AgentForwardOutput {
             rejected,
         })
     }
+
+    async fn publish_rum_beacon(
+        &self,
+        _web_property_id: &str,
+        _beacon: &crate::rum_proto::RumBeaconV1,
+    ) -> Result<PublishOutcome> {
+        Ok(PublishOutcome::default())
+    }
+
+    async fn publish_rum_metrics(
+        &self,
+        _web_property_id: &str,
+        _metrics: &serviceradar_metric_proto::pb::MetricBatch,
+    ) -> Result<PublishOutcome> {
+        Ok(PublishOutcome::default())
+    }
 }
 
 #[cfg(test)]

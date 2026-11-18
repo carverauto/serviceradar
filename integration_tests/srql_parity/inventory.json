@@ -1132,6 +1132,22 @@
     {
       "id": "availability.history.conflicts",
       "query": "in:device_availability_history {window_main} conflict:true sort:changed_at:asc limit:100"
+    },
+    {
+      "id": "rum.beacons.recent_errors",
+      "query": "in:rum {window_main} has_error:true sort:observed_at:desc limit:100"
+    },
+    {
+      "id": "rum.beacons.filtered_lcp_and_prefix_tag",
+      "query": "in:rum_beacons {window_main} !prefix_tag:partner-edge lcp_ms:>=1000 sort:lcp_ms:desc limit:50"
+    },
+    {
+      "id": "rum.beacons.stats_by_metric_path",
+      "query": "in:rum {window_main} stats:\"count() as beacons, avg(lcp_ms) as avg_lcp, max(page_load_ms) as max_load by metric_path\" sort:beacons:desc limit:20"
+    },
+    {
+      "id": "rum.beacons.stats_bucketed_hourly",
+      "query": "in:rum_beacon {window_main} stats:\"count() as beacons, avg(ttfb_ms) as avg_ttfb by time:1h\" limit:24"
     }
   ]
 }

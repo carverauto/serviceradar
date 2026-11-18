@@ -79,6 +79,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :exposure_package_dim
           | :exposure_retired_ordinals
           | :device_availability_transitions
+          | :rum_beacons
 
   @tables %{
     flows: "ocsf_network_activity",
@@ -100,7 +101,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     exposure_cve_dim: "exposure_cve_dim",
     exposure_package_dim: "exposure_package_dim",
     exposure_retired_ordinals: "exposure_retired_ordinals",
-    device_availability_transitions: "device_availability_transitions"
+    device_availability_transitions: "device_availability_transitions",
+    rum_beacons: "rum_beacons"
   }
 
   @spec table_for(dataset()) :: String.t()

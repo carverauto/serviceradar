@@ -1822,6 +1822,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.availability_transitions_stream(),
+        Config.rum_beacons_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
         Config.exposure_snapshots_stream(),

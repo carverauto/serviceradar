@@ -48,6 +48,7 @@ mod otel_metric_points;
 mod otel_metrics;
 mod otel_services;
 mod public_endpoints;
+mod rum_beacons;
 mod security_events;
 mod services;
 mod source_fact_disagreements;

@@ -1067,4 +1067,61 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Boomerang RUM beacons (`platform.rum_beacons`, TimescaleDB hypertable on `observed_at`).
+    rum_beacons (web_property_id, observed_at, beacon_id) {
+        web_property_id -> Text,
+        observed_at -> Timestamptz,
+        beacon_id -> Text,
+        canonical_origin -> Nullable<Text>,
+        environment -> Nullable<Text>,
+        url -> Nullable<Text>,
+        host -> Nullable<Text>,
+        path -> Nullable<Text>,
+        metric_path -> Nullable<Text>,
+        referrer -> Nullable<Text>,
+        page_group -> Nullable<Text>,
+        initiator -> Nullable<Text>,
+        trace_id -> Nullable<Text>,
+        span_id -> Nullable<Text>,
+        session_id -> Nullable<Text>,
+        user_agent -> Nullable<Text>,
+        device_type -> Nullable<Text>,
+        browser -> Nullable<Text>,
+        os -> Nullable<Text>,
+        lcp_ms -> Nullable<Float8>,
+        inp_ms -> Nullable<Float8>,
+        cls -> Nullable<Float8>,
+        fcp_ms -> Nullable<Float8>,
+        ttfb_ms -> Nullable<Float8>,
+        page_load_ms -> Nullable<Float8>,
+        dns_ms -> Nullable<Float8>,
+        connect_ms -> Nullable<Float8>,
+        tls_ms -> Nullable<Float8>,
+        dom_ready_ms -> Nullable<Float8>,
+        rage_clicks -> Int4,
+        js_errors -> Int4,
+        http_status -> Int4,
+        has_error -> Bool,
+        cdn_provider -> Nullable<Text>,
+        cdn_cache_status -> Nullable<Text>,
+        cdn_edge_rtt_ms -> Nullable<Float8>,
+        cdn_origin_rtt_ms -> Nullable<Float8>,
+        cdn_pop -> Nullable<Text>,
+        server_timing_raw -> Nullable<Text>,
+        client_ip -> Nullable<Text>,
+        client_ip_anonymized -> Bool,
+        country -> Nullable<Text>,
+        region -> Nullable<Text>,
+        city -> Nullable<Text>,
+        asn -> Nullable<Int4>,
+        as_org -> Nullable<Text>,
+        prefix_tag -> Nullable<Text>,
+        attributes -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

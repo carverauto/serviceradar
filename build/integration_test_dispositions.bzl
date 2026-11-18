@@ -71,6 +71,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/event_writer/processors/edge_record_db_test.exs",
     "test/serviceradar/event_writer/processors/edge_record_recovery_db_test.exs",
     "test/serviceradar/event_writer/processors/falco_events_test.exs",
+    "test/serviceradar/event_writer/processors/rum_beacons_db_test.exs",
     "test/serviceradar/event_writer/processors/trivy_reports_test.exs",
     "test/serviceradar/event_writer/service_catalog_db_test.exs",
     "test/serviceradar/events/audit_writer_test.exs",

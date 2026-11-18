@@ -66,6 +66,7 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "device_availability_history"
         | "device_availability_transitions"
         | "availability_history" => "device_availability_history",
+        "rum" | "rum_beacons" | "rum_beacon" => "rum",
         _ => return None,
     })
 }

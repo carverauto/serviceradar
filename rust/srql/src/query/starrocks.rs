@@ -13,6 +13,7 @@ mod flow_filters;
 mod flow_spread;
 mod mtr;
 mod otel_metrics;
+mod rum_beacons;
 mod traces;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
@@ -77,6 +78,9 @@ fn translate_inner(
     // dialect answers the queries the CNPG builder answers.
     if matches!(plan.entity, Entity::DeviceAvailabilityHistory) {
         return device_availability_history::translate(plan, database);
+    }
+    if matches!(plan.entity, Entity::RumBeacons) {
+        return rum_beacons::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {

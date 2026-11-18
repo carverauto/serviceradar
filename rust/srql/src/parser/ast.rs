@@ -83,6 +83,8 @@ pub enum Entity {
     DeviceRevivalAudit,
     /// Merged device availability history (`device_availability_transitions`).
     DeviceAvailabilityHistory,
+    /// Boomerang Real User Monitoring (RUM) telemetry beacons (`rum_beacons`).
+    RumBeacons,
     SecurityEvents,
     DeviceIdentifiers,
     IdentityReconciliationRuns,
