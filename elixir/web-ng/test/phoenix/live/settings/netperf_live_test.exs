@@ -73,15 +73,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
 
       {:ok, lv, _html} = live(conn, ~p"/settings/networks/netperf")
 
+      {:ok, profile_lv, _html} =
+        live(log_in_user(build_conn(), admin), ~p"/settings/networks/netperf/profiles/new")
+
       {:ok, _downgraded} =
         User.update_role(admin, %{role: :viewer}, actor: system_actor())
 
-      assert {:error, {:redirect, %{to: "/settings/profile", flash: flash}}} =
+      assert {:error, {:redirect, %{to: "/settings/profile"}}} =
                render_click(lv, "open_run_modal", %{})
 
+      flash = assert_redirect(lv, "/settings/profile")
       assert flash["error"] =~ "Not authorized"
 
       bad_profile_name = unique_uid("Unauthorized Profile")
+
+      assert {:error, {:redirect, %{to: "/settings/profile"}}} =
+               profile_lv
+               |> form("#netperf-profile-form", profile: %{"name" => bad_profile_name})
+               |> render_submit()
+
+      profile_flash = assert_redirect(profile_lv, "/settings/profile")
+      assert profile_flash["error"] =~ "Not authorized"
 
       assert {:error, {:redirect, %{to: "/settings/profile"}}} =
                live(log_in_user(build_conn(), admin), ~p"/settings/networks/netperf/profiles/new")
