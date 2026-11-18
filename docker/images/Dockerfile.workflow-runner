@@ -16,9 +16,9 @@
 # //k8s/buildbuddy/values-workflows.yaml, and the pinned image strings in
 # //build/contracts/ci_heavy_gate_contract_test.py. Push the image BEFORE moving any reference.
 #
-# Publish through the capacity-gated build/promote helper documented in
-# k8s/buildbuddy/README.md. Build into serviceradar-builds, promote the verified
-# graph, and pin consumers to the protected receipt digest before rollout.
+# Publish only through //.github/workflows/publish-dockerfile-image.yml (steps in
+# k8s/buildbuddy/README.md): it builds into serviceradar-builds, signs and promotes the
+# digest, and leaves the protected receipt digest that consumers pin before rollout.
 #
 # --provenance=false --sbom=false is not optional. Without them buildx wraps the image in an
 # OCI index carrying an unknown/unknown attestation manifest; every earlier tag in this

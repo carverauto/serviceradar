@@ -64,10 +64,12 @@ promotion. Never override them to write directly into the protected project.
 Canonical `image_inventory.bzl` repositories remain protected because receipts,
 chart generation, and runtime readers consume those names.
 
-For authorized executor or workflow-runner image maintenance, use the scoped
-build/promote sequence in [the BuildBuddy runbook](../k8s/buildbuddy/README.md).
-It requires the same capacity checks and protected receipt before a consumer pin
-changes. No workstation tag-copy or manual protected signature append is needed.
+For authorized executor or workflow-runner image maintenance, follow
+[the BuildBuddy runbook](../k8s/buildbuddy/README.md). The workflow-runner image
+and any other `DOCKERFILE_IMAGES` entry publish only through
+`.github/workflows/publish-dockerfile-image.yml`. Every path requires the same
+capacity checks and protected receipt before a consumer pin changes. No
+workstation tag-copy or manual protected signature append is needed.
 
 ## Verification
 
