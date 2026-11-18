@@ -117,9 +117,11 @@ inventory state rather than of nondeterministic compilation.
     hypervisor-enrichment update for an existing host or guest carries it
     from the inventory record). `hostname` is gated by
     the same tiers and decided together with `name` as one value, so plugin
-    inputs, which prefer `hostname`, stop flipping. An address fallback is the address the device keeps after
-    the existing address rank guard, never an address the guard rejected, so
-    an NDP or link-local (`fe80::`) sighting never renames a device.
+    inputs, which prefer `hostname`, stop flipping. An address fallback is
+    the address the device keeps after the existing address rank guard,
+    never an address the guard rejected and never a link-local, so an NDP
+    or link-local (`fe80::`) sighting never renames a device and a
+    link-local-only device keeps a stronger recorded name, or none.
   - `vendor_name`, weakest to strongest: a name that names SNMP agent
     software such as Net-SNMP (device, integration or metadata evidence) <
     IEEE OUI registrant (`metadata.mac_vendor_source = "ieee_oui"`), always
@@ -173,9 +175,11 @@ inventory state rather than of nondeterministic compilation.
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
-- IPv4 is always the preferred primary address. When a device has a usable
-  IPv4 (private or public, `sr_address_rank >= 40`) that the chooser already
-  accepts as a primary, an IPv4 is its primary `ip`; no IPv6 becomes primary
+- IPv4 is always the preferred primary address. A usable primary address is
+  one the chooser accepts, with `sr_address_rank >= 40`, that is not a
+  directed broadcast or host-internal; an IPv6-only device has no usable IPv4
+  (a `169.254/16` address does not count). When a device has a usable IPv4,
+  an IPv4 is its primary `ip`; no IPv6 becomes primary
   on a dual-stack device, and every aliasable IPv6 (global or ULA, as
   `AliasPolicy.valid_alias_ip?/2` defines with the device's known CIDRs) is
   recorded as an alias. The rule
@@ -190,12 +194,14 @@ inventory state rather than of nondeterministic compilation.
   primary-IP selection (`primary_ip_by_guest`, `primary_ip_by_host/1`), the
   discovery ingestor's guest address fallback, the Proxmox plugin's
   `primaryIP` / `firstUsableIP`, the Armis sync source's address walk in
-  `filterDevices`, the NetBox plugin's `primaryIP` (already IPv4-first), and
+  `filterDevices` (over its split `IPAddress`, `IPv4Addresses` and
+  `IPv6Addresses`), the NetBox plugin's `primaryIP` (already IPv4-first), and
   the camera path; each keeps its own order among accepted IPv4s and none
-  submits a link-local as primary when a routable address exists. The
+  submits a link-local as primary when a usable primary address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
-  stored addresses and never replaces a usable IPv4 with an IPv6 or takes a
-  link-local. A link-local-only device keeps its link-local primary under
+  stored addresses, never replaces a usable IPv4 with an IPv6 or a usable
+  primary address with a link-local, and takes a link-local only when the
+  survivor has no usable primary address. A link-local-only device keeps its link-local primary under
   the #3905 rank, without an address-fallback name.
 - Every aliasable address a device owns, in both families, stays a live
   alias, so the sweep targets both families. Aliasable means
@@ -206,12 +212,13 @@ inventory state rather than of nondeterministic compilation.
   host-internal (a container bridge a chooser skips, or a shared interface
   address); host-internal addresses are neither primary nor alias.
   Link-local addresses (`fe80::/10`, `169.254/16`) never become aliases or
-  names, and are never primary on a device with any routable address, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
+  names, and are never primary on a device with any usable primary address, matching `AliasPolicy` and the link-local alias archive. An address has one live holder per partition: a
   confirmed re-attribution expires the previous holder's alias in the same
   write, holders that have not re-sighted an address within the alias expiry
   window are expired, and sweep target attribution reads only the current
-  live holder. The address-fallback name follows the primary `ip`, so it never
-  takes an IPv6 literal (including `fe80::`) when the device has an IPv4.
+  live holder. The address-fallback name follows the primary `ip` when it is
+  not link-local, so it never takes an IPv6 literal when the device has an
+  IPv4 and never takes a link-local.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 

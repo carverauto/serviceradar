@@ -17,8 +17,10 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    inferred later from the value.
 2. Strength order for `name`, weakest first. Several sources may share a
    tier; the same-source tie-break (decision 6) decides between them:
-   1. address fallback: the update has no hostname, so the name is an address
-      (the passive census and hypervisor enrichment both produce these);
+   1. address fallback: the update has no hostname, so the name is the
+      kept address when it is not link-local (the passive census and
+      hypervisor enrichment both produce these); a link-local kept address
+      gives no address-fallback name;
    2. passive census sighting with an observed hostname;
    3. a name reported by an automation inventory (such as AWX);
    4. SNMP `sysName` from the mapper;
@@ -31,7 +33,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    `placeholder_device_update` on the create path, carry the inventory
    record's name as the tier 5 name / hostname pair when the record has one;
    a `provider_ref` or an address is never that name, and an update with no
-   record name is a tier 1 address fallback.
+   record name is a tier 1 address fallback (none for a link-local address).
 3. Strength order for `vendor_name`, weakest first:
    1. a name that names SNMP agent software (Net-SNMP and similar), from
       device, integration or metadata evidence;
@@ -89,8 +91,8 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    at the same tier keeps the stored value until a strictly stronger write
    arrives. Accepted trade-off: if the owning source is removed or stops
    reporting, its value stays until something strictly stronger writes. The
-   address-fallback name still follows the device's kept address, because it
-   is the same source rewriting its own value. A weaker write fills the
+   address-fallback name still follows the device's kept non-link-local
+   address, because it is the same source rewriting its own value. A weaker write fills the
    attribute only when no strength has been recorded; a recorded clear (an
    empty value with a recorded strength, such as a platform inventory's
    `nil` `management_device_id`) is a stored decision. Nothing else decides:
@@ -104,8 +106,11 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    the first mapper pass may change it once more to a stronger value.
 7. An address fallback name is derived from the address the device keeps after
    the address rank guard, never from an update address the guard rejected, so
-   an NDP or link-local (`fe80::`) sighting cannot rename a device. A recorded
-   address-fallback name follows the address the device keeps. An
+   an NDP or link-local (`fe80::`) sighting cannot rename a device, and
+   never from a link-local kept address: a link-local primary leaves the
+   name and hostname at a stronger recorded value, or unset. A recorded
+   address-fallback name follows the non-link-local address the device
+   keeps. An
    address-fallback write carries the kept address in both `name` and
    `hostname`, so the same source rewriting its own value moves the pair;
    the rule that a field a write does not carry stays stored (decision 8)
@@ -178,9 +183,13 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
 
-14. IPv4 is always the preferred primary address. When a device has a usable
-    IPv4 (private or public, `sr_address_rank >= 40`) that the chooser
-    already accepts as a primary, an IPv4 is the primary `ip`; no IPv6
+14. IPv4 is always the preferred primary address. A usable primary address
+    is an address the chooser accepts, with `sr_address_rank >= 40`, that is
+    not a directed broadcast (per `AliasPolicy.valid_alias_ip?/2` with the
+    device's known CIDRs) and not host-internal; a usable IPv4 is such an
+    IPv4, and an IPv6-only device is one with no usable IPv4 (a `169.254/16`
+    IPv4 does not count). When a device has a usable IPv4, an IPv4 is the
+    primary `ip`; no IPv6
     becomes primary on a dual-stack device, and every aliasable IPv6 (global
     or ULA, per `AliasPolicy.valid_alias_ip?/2` with the device's known
     CIDRs) is recorded as an alias.
@@ -202,23 +211,27 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
     `discovery.go`), the Armis sync source's address walk in
     `filterDevices` (`go/pkg/agent/syncsources/armis/device.go`, called from
-    `driver.go`; it prefers an IPv4, then a non-link-local IPv6, skipping
-    blacklisted addresses), the NetBox plugin's `primaryIP`
+    `driver.go`; its candidate set is the union of the split `IPAddress`,
+    `IPv4Addresses` and `IPv6Addresses`, ordered usable IPv4, then
+    non-link-local IPv6, then a link-local only if nothing else, skipping
+    blacklisted addresses; `primaryIP` is left alone), the NetBox plugin's `primaryIP`
     (`go/cmd/wasm-plugins/netbox/main.go`, which already prefers
     `primary_ip4` and keeps its IPv6 fallback), and the camera path. Each
     submits a chooser-accepted IPv4 over any IPv6 among every address on the
     host or guest when one exists, keeps its own order among accepted IPv4s
     (configured NIC index, `management_ip_score`), and never submits a
-    link-local (`fe80::/10`, `169.254/16`) as primary when a routable
+    link-local (`fe80::/10`, `169.254/16`) as primary when a usable primary
     address exists. The succession hand-over `MergeEngine.take_address?/2`
     only compares the successor's stored `ip` with the survivor's; it does
-    not scan other addresses, never replaces a usable IPv4 with an IPv6, and
-    never takes a link-local. A device whose only address is link-local
+    not scan other addresses, never replaces a usable IPv4 with an IPv6,
+    never replaces a usable primary address with a link-local, and takes a
+    link-local only when the survivor has no usable primary address. A device whose only address is link-local
     keeps it as its primary under the #3905 rank (the existing sync test
     "a device with only link-local addresses keeps one" stays), without an
-    address-fallback name or hostname; any routable address replaces it. The address-fallback name (decision 7)
-    follows this primary, so it never takes an IPv6 literal when the device
-    has an IPv4.
+    address-fallback name or hostname; any usable primary address replaces
+    it. The address-fallback name (decision 7) follows this primary when it
+    is not link-local, so it never takes an IPv6 literal when the device has
+    an IPv4, and never a link-local.
 15. Every aliasable address a device owns, in both families, stays a live `:ip` alias
     in `device_alias_states`, including an address displaced from primary or
     never promoted, so the sweep targets both families. Aliasable means
@@ -235,7 +248,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     neither primary nor alias, so a `172.17.0.1` reported by every container
     host cannot move between devices. Link-local addresses
     (`fe80::/10`, `169.254/16`) never become aliases or names, and are never
-    primary on a device with a routable address; a
+    primary on a device with a usable primary address; a
     shared link-local such as a vendor `fe80::1` would otherwise merge or
     flip between devices, consistent with the link-local alias archive
     migration. An address has one

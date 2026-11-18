@@ -12,9 +12,11 @@
       recorded clear is a stored decision)
 - [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
 - [ ] 1.4 Derive an address fallback name from the address kept after the
-      address rank guard
-- [ ] 1.5 An address-fallback write carries the kept address in both `name`
-      and `hostname`
+      address rank guard, only when that address is not link-local; a
+      link-local primary leaves the name and hostname at a stronger recorded
+      value, or unset
+- [ ] 1.5 An address-fallback write carries the kept non-link-local address
+      in both `name` and `hostname`
 
 ## 2. Name precedence
 
@@ -28,7 +30,8 @@
       guest update and `placeholder_device_update` (create path) carry the
       inventory record's name as the strongest-tier name / hostname pair when
       the record has one (a `provider_ref` or an address is never that name;
-      an update with no record name stays address fallback)
+      an update with no record name stays address fallback, none for a
+      link-local address)
 - [ ] 2.2 Test: a `sysName` survives a hostname-less census update, in one
       batch and across batches
 - [ ] 2.3 Test: a hostname-less sighting of a rejected address, including an
@@ -147,8 +150,10 @@
 ## 7. Primary address and aliases
 
 - [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
-      device has a usable, chooser-accepted IPv4; IPv6 only on IPv6-only
-      devices; the preference ranks only addresses a chooser accepts; IPv4 to IPv4
+      device has a usable IPv4 (a usable primary address: chooser-accepted,
+      `sr_address_rank >= 40`, not a directed broadcast, not host-internal);
+      IPv6 only on IPv6-only devices (no usable IPv4; a `169.254/16`
+      address does not count); the preference ranks only addresses a chooser accepts; IPv4 to IPv4
       re-IP replaces; the #3905 rank applies within a family
 - [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule; extend
       the existing SQL / Elixir rank parity test to the family rule
@@ -167,19 +172,24 @@
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
       (`go/pkg/agent/syncsources/armis/device.go`, called from `driver.go`;
-      IPv4 first, then non-link-local IPv6, skipping blacklisted addresses)
+      candidates are the union of split `IPAddress`, `IPv4Addresses` and
+      `IPv6Addresses`, ordered usable IPv4, then non-link-local IPv6, then a
+      link-local only if nothing else, skipping blacklisted addresses;
+      `primaryIP` is left alone)
       prefer a chooser-accepted IPv4 over any IPv6 and never submit a
-      link-local when a routable address exists; keep each chooser's own
+      link-local when a usable primary address exists; keep each chooser's own
       order among accepted IPv4s; the succession hand-over
       `MergeEngine.take_address?/2` compares only the successor's stored `ip`
-      with the survivor's and never replaces a usable IPv4 with an IPv6 or
-      takes a link-local; keep NetBox
+      with the survivor's, never replaces a usable IPv4 with an IPv6 or a
+      usable primary address with a link-local, and takes a link-local only
+      when the survivor has no usable primary address; keep NetBox
       `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
 - [ ] 7.7 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
-      `ip`; a link-local sighting is neither alias, primary nor name
+      `ip`; a link-local sighting is never an alias or a name, and sets the
+      primary only of a link-local-only device
 - [ ] 7.8 Alias recording: every aliasable address the device owns, in both
       families, stays a live `device_alias_states` row, including a displaced
       or never-promoted address; aliasable means `AliasPolicy.valid_alias_ip?/2`
@@ -200,7 +210,7 @@
       `docker0` never becomes primary or an alias; a bare `192.0.2.255` on a
       known `192.0.2.0/24` is never an alias; a link-local-only device keeps
       its link-local primary with no address-fallback name, and a later
-      routable address replaces it (the existing "a device with only
+      usable primary address replaces it (the existing "a device with only
       link-local addresses keeps one" sync test stays); an IPv6-only device that
       gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
       an unchanged inventory produce identical sweep targets and

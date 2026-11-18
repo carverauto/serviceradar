@@ -44,15 +44,18 @@ a passive census sighting; a name reported by an automation inventory (such as
 AWX); an SNMP sysName; a name reported by a platform inventory (such as the
 hypervisor or camera inventory). A
 name derived from an address SHALL use the address the device keeps after the
-address rank guard, and an address-fallback write SHALL carry that address in
-both the name and the hostname, so the same source rewriting its own value
-moves the pair together. The hostname SHALL be gated by the same tiers and SHALL be
+address rank guard, and only when that address is not link-local; an
+address-fallback write SHALL carry that address in both the name and the
+hostname, so the same source rewriting its own value moves the pair together. A
+link-local primary SHALL NOT become the name or hostname: the device keeps a
+stronger recorded name, or none. The hostname SHALL be gated by the same tiers and SHALL be
 accepted or rejected together with the name as one value. Every
 hypervisor-enrichment update for a host or guest, both the repeating update for
 an existing device and the placeholder update that creates one, SHALL carry the
 inventory record's name as the strongest-tier name and hostname pair when the
 record has one; a provider reference or an address is never that name, and an
-update with no record name stays an address fallback.
+update with no record name stays an address fallback (none when the kept
+address is link-local).
 
 Vendor strength, weakest first: a name that names SNMP agent software (such as
 Net-SNMP), from device, integration or metadata evidence; the IEEE OUI
@@ -281,35 +284,45 @@ inventory cleared it.
 - **AND** the stored type and type_id SHALL remain
 
 ### Requirement: A device with a usable IPv4 keeps an IPv4 primary address
-Sync ingestion SHALL keep an IPv4 as the primary ip of every device that has a
-usable IPv4 (private or public, sr_address_rank 40 or higher) that the primary-IP
-chooser already accepts; no IPv6 SHALL become primary on such a device, and
+Sync ingestion SHALL treat as a usable primary address an address the
+primary-IP chooser accepts, with sr_address_rank 40 or higher, that is not a
+directed broadcast (as AliasPolicy's
+alias predicate decides with the device's known interface CIDRs) and not
+host-internal. A usable IPv4 is such an IPv4. An IPv6-only device is one with no
+usable IPv4; a link-local IPv4 (169.254/16) does not count. Sync ingestion SHALL
+keep a usable IPv4 as the primary ip of every device that has one; no IPv6 SHALL
+become primary on such a device, and
 every aliasable IPv6 (global or ULA) SHALL be recorded as an alias. The
 preference SHALL rank only addresses a chooser already accepts as a primary
 and SHALL NOT promote an address a chooser rejects, such as a host-internal
 bridge address a guest chooser skips. A link-local address (fe80::/10 or
 169.254/16) SHALL NOT become an alias or the name or hostname, and SHALL NOT be
-the primary ip of a device that has any routable address. A device whose only
+the primary ip of a device that has any usable primary address. A device whose only
 address is link-local SHALL keep that link-local as its primary ip under the
 never-downgrade rank, with no address-fallback name (it keeps a stronger
-recorded name, or none), and any routable address (a usable IPv4, or a global
-or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
+recorded name, or none), and any usable primary address (a usable IPv4, or a
+global or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
 and a usable IPv4 that device later gains SHALL take over. A change between two
 usable IPv4s SHALL replace the primary, and the never-downgrade address rank
 SHALL still apply within a family. Every primary-IP chooser SHALL follow this
 rule, including the upsert guard, the Elixir address ranking, hypervisor guest
 primary-IP selection, hypervisor host primary-IP selection, the discovery
 ingestor's guest address fallback, the Proxmox plugin's guest primary-IP
-selection, the Armis sync source's address walk (skipping blacklisted
-addresses), the NetBox plugin's primary-IP selection (which already prefers the
+selection, the Armis sync source's address walk (over the union of its split
+IPAddress, IPv4Addresses and IPv6Addresses, skipping blacklisted addresses:
+usable IPv4 first, then non-link-local IPv6, then a link-local only if nothing
+else), the NetBox plugin's primary-IP selection (which already prefers the
 IPv4), and the camera path: each SHALL submit a chooser-accepted IPv4 over any
 IPv6 among every address on the host or guest when one exists, keeping its own
 order among accepted IPv4s, and SHALL NOT submit a link-local address as
-primary when a routable address exists. The succession address hand-over
+primary when a usable primary address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
-replace a usable IPv4 with an IPv6 and SHALL NOT take a link-local. The address-fallback name
-SHALL follow the primary ip, so the name and hostname SHALL NOT take an IPv6
-literal when the device has an IPv4.
+replace a usable IPv4 with an IPv6, SHALL NOT replace a usable primary address
+with a link-local, and MAY take a link-local only when the survivor has no
+usable primary address, so a link-local-only device keeps its only address. The
+address-fallback name SHALL follow the primary ip when that primary is not
+link-local, so the name and hostname SHALL NOT take an IPv6 literal when the
+device has an IPv4, and SHALL NOT take a link-local.
 
 #### Scenario: A dual-stack census sighting keeps the IPv4 primary
 - **GIVEN** a device whose primary ip is 192.0.2.3
@@ -361,7 +374,7 @@ as a container bridge, or a shared interface address kept off the ip merge
 type). A link-local, directed-broadcast or host-internal address SHALL NOT be
 an alias; a directed-broadcast or host-internal address SHALL NOT be the
 primary ip, and a link-local SHALL NOT be the primary ip of a device that has
-any routable address. An address SHALL have one live holder per partition: a
+any usable primary address. An address SHALL have one live holder per partition: a
 confirmed re-attribution of an address to another device SHALL expire the
 previous holder's alias for it in the same write, and a holder that has not
 re-sighted an address within the alias expiry window SHALL be expired. Sweep
