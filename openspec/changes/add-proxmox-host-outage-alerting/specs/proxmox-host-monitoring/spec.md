@@ -11,6 +11,8 @@ periodic ok/warning/critical resource-pressure summaries it already emits.
 - **THEN** the plugin SHALL emit a
   `com.carverauto.proxmox.guest_availability_changed` condition event
   referencing the guest's canonical DeviceID and its Proxmox node
+- **AND** the event SHALL carry the guest's canonical DeviceID as its
+  `condition_key`
 - **AND** this event SHALL be distinct from, not merged into, the periodic
   resource-pressure summary events
 
@@ -211,6 +213,9 @@ memory-pressure summaries.
 - **THEN** the plugin SHALL emit a `com.carverauto.proxmox.node_oom_kill`
   condition event carrying the node name, the killed process name/pid when
   parseable from the log line, and the raw log line as event detail
+- **AND** the event SHALL carry a `condition_key` built from the target
+  discriminator, the node and the log entry's own identity (its timestamp and
+  raw line), so two kills are distinct alert groups
 
 #### Scenario: No new OOM-kill log entries
 - **WHEN** no matching kernel log entries appear since the node's last
@@ -224,11 +229,16 @@ and `node-oom-kill` using the plugin-manifest alert-rule mechanism, so an
 operator can enable them without hand-authoring rule definitions, and without
 any rule being armed automatically. Each of the four entries SHALL declare
 signal `event`, threshold 1 and group_by `condition_key`, and SHALL NOT set
-`enabled` or `priority`. The `guest-runtime-paused` and
-`node-storage-capacity` rules SHALL declare as their recovery level `ok` on the
-same subject, which is the clearing event the agent synthesizes under the
-Scoped Condition Recovery requirement and which carries the same
-`condition_key`.
+`enabled` or `priority`. The `guest-runtime-paused` rule SHALL match the
+subject `com.carverauto.proxmox.guest_runtime_paused` with attribute level
+`warning` or `critical`, and the `node-storage-capacity` rule SHALL match the
+subject `com.carverauto.proxmox.node_storage_capacity` with attribute level
+`warning` or `critical`. Each of those two rules SHALL declare as its recovery
+level `ok` on that same subject, which is the clearing event the agent
+synthesizes under the Scoped Condition Recovery requirement and which carries
+the same `condition_key`. Because the opening match requires a non-ok level
+on the rule's own subject, the clearing event never opens or extends an
+alert, and the existing `node_storage` pressure summaries are never matched.
 
 #### Scenario: Plugin package is approved
 - **WHEN** an operator approves a Proxmox plugin package whose manifest
@@ -244,6 +254,8 @@ Scoped Condition Recovery requirement and which carries the same
 - **WHEN** the node's next node-storage scope-complete marker no longer lists
   that datastore's condition key and the agent forwards the clearing event
 - **THEN** the alert SHALL resolve and no new alert SHALL open
+- **AND** a `node_storage` pressure summary for the same datastore SHALL NOT
+  open or hold an alert on this rule
 
 #### Scenario: One event opens an alert per condition key
 - **GIVEN** the `plugin:proxmox:guest-runtime-paused` rule is enabled

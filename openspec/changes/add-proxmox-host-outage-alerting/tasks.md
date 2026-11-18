@@ -36,7 +36,7 @@ of the plugin work in sections 2-5.
 - [ ] 3.1 In `go/cmd/wasm-plugins/proxmox/`, emit a
       `com.carverauto.proxmox.guest_availability_changed` condition event on
       a running-to-stopped transition, carrying the guest's canonical
-      DeviceID and Proxmox node.
+      DeviceID and Proxmox node, with the DeviceID as its `condition_key`.
 - [ ] 3.2 Unit test with invented guest observations: running in poll N and
       stopped in N+1 emits exactly one event; remaining stopped emits none.
 - [ ] 3.3 Confirm the event remains separate from the periodic
@@ -50,9 +50,12 @@ of the plugin work in sections 2-5.
       entries, such as `oom-kill:` or "Out of memory: Killed process".
 - [ ] 4.3 Emit a `com.carverauto.proxmox.node_oom_kill` condition event per
       match, carrying node name, killed process name/pid when parseable,
-      and the raw log line as event detail.
+      and the raw log line as event detail, with a `condition_key` built from
+      the target discriminator, the node and the entry's timestamp and raw
+      line.
 - [ ] 4.4 Unit test using log fixtures invented from scratch: a new OOM-kill
-      entry emits an event with expected fields; no matching entry emits
+      entry emits an event with expected fields, including its
+      `condition_key`; two entries yield different keys; no matching entry emits
       none; an entry processed in a previous poll is not emitted again.
 
 ## 4a. Proxmox plugin: guests paused by the hypervisor
@@ -68,7 +71,7 @@ of the plugin work in sections 2-5.
       emit `com.carverauto.proxmox.guest_runtime_paused` in that node's
       guest-runtime scope for each QEMU guest whose status is `running` and
       whose runtime state is not `running`, carrying the guest's canonical
-      DeviceID, the node and the runtime state, and emit the node's
+      DeviceID, the node and the runtime state at a non-ok level, and emit the node's
       guest-runtime scope-complete marker listing those keys plus the keys of
       running QEMU guests whose runtime state could not be read, which get no
       event. Build the scope id from the target discriminator, the scope name
@@ -120,9 +123,11 @@ of the plugin work in sections 2-5.
       `node-storage-capacity` and `node-oom-kill`, matching the schema
       defined by `add-plugin-alert-rules`. Each entry declares signal
       `event`, threshold 1 and group_by `condition_key`; do not set `enabled`
-      or `priority`. The paused-guest and storage rules keep their recovery
-      as level `ok` on the same subject, the clearing event the agent
-      synthesizes from the condition scope.
+      or `priority`. The paused-guest and storage rules match their own event
+      subject with attribute level `warning` or `critical`, and keep their
+      recovery as level `ok` on that same subject, the clearing event the
+      agent synthesizes from the condition scope, so the clear never matches
+      as an opening event and pressure summaries are not matched.
 - [ ] 5.2 Ship a new plugin package version and verify approval materializes
       all four rules disabled and namespaced `plugin:proxmox:<name>`.
 
