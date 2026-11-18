@@ -506,8 +506,9 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   @doc """
   The uid of the device a polling host belongs to: the device whose uid it is,
   the device holding it as a confirmed IP alias, or the device whose IP,
-  hostname or name it is. `{:error, :device_not_found}` when none does; any
-  other error is a failed read.
+  hostname or name it is, preferred in that field order with the lowest uid
+  breaking a tie. `{:error, :device_not_found}` when none does; any other
+  error is a failed read.
   """
   @spec device_uid_for_host(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def device_uid_for_host(host, actor) when is_binary(host) do
@@ -878,18 +879,32 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp lookup_device_uid_by_fields(host, actor) do
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(ip == ^host or hostname == ^host or name == ^host)
-      |> Ash.Query.limit(1)
+  # Several devices can carry the same host: one as its address, another as a
+  # hostname or a name that spells that address. Without an order the database
+  # returns whichever matching row it reaches first, which can differ between
+  # two compiles of an unchanged inventory, so the target's credential and the
+  # agent's config version would flip with nothing changed. The device that
+  # holds the host as its address wins, then hostname, then name; the lowest
+  # uid breaks a tie within a field.
+  @host_lookup_fields [:ip, :hostname, :name]
 
-    case Ash.read_one(query, actor: actor) do
-      {:ok, %Device{} = device} -> {:ok, device.uid}
-      {:ok, nil} -> {:error, :device_not_found}
-      {:error, reason} -> {:error, reason}
-    end
+  defp lookup_device_uid_by_fields(host, actor) do
+    Enum.reduce_while(@host_lookup_fields, {:error, :device_not_found}, fn field, not_found ->
+      case read_first_device_with(field, host, actor) do
+        {:ok, %Device{} = device} -> {:halt, {:ok, device.uid}}
+        {:ok, nil} -> {:cont, not_found}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp read_first_device_with(field, host, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.do_filter([{field, host}])
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
   end
 
   defp lookup_device_uid_by_ip_alias(host, actor) do
