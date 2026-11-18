@@ -55,8 +55,10 @@ detection value.
   the gap in the trusted-root branch.
 - **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` scans new Rekor v1
   entries for the release key's fingerprint, hourly unless measurement forces a longer interval. It alerts on any entry that does not match a payload
-  recorded by one of the repository's release-key signing runs, and on its own failure or
-  blindness.
+  recorded by one of the repository's release-key signing runs, within about one scan interval, and
+  on its own failure or blindness. The blindness canary alerts on a ledgered entry still unseen two
+  scan intervals after its signing run ended, and the scheduled job watch reports the monitor stale
+  when its last successful run is older than three scan intervals.
 - **Pinned-key update process.** The same workflow compares the pinned Rekor keys with Sigstore's
   published trusted root and raises an alert when the active Rekor v1 key set changes. A reviewed
   update adds the new key and keeps every key an accepted receipt names.
@@ -103,7 +105,10 @@ detection value.
   `scripts/verify-*-publish.sh`, `scripts/install-cosign.sh`, `MODULE.bazel` (cosign archives),
   `docker/images/BUILD.bazel` (web-ng image layer for the pinned key),
   `elixir/web-ng/lib/serviceradar_web_ng/plugins/cosign_verifier.ex`,
-  `elixir/web-ng/lib/serviceradar_web_ng/plugins/first_party_importer.ex` (verification metadata),
+  `elixir/web-ng/lib/serviceradar_web_ng/plugins/first_party_importer.ex` (plugin verification
+  metadata), `elixir/web-ng/lib/serviceradar_web_ng/plugins/native_addon_importer.ex` and
+  `elixir/serviceradar_core/lib/serviceradar/plugins/native_addon_importer.ex` (add-on verification
+  metadata in `source_metadata/2`),
   `.github/workflows/` (new monitor workflow; ledger upload in every release-key signing workflow:
   `release.yml`, `publish-oci.yml`, `wasm-plugins.yml`, `native-addons.yml`,
   `external-wasm-plugin.yml`; `actions: read` in `scheduled-job-watch.yml`),

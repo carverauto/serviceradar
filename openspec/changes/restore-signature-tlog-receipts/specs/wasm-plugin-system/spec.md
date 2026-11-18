@@ -2,7 +2,7 @@
 
 ### Requirement: First-party import verifies the transparency-log receipt offline
 ServiceRadar SHALL verify the Rekor receipt embedded in a first-party OCI artifact's classic signature, for a Wasm plugin or a native add-on bundle, against the Rekor public key shipped in the web-ng image, without contacting any public Sigstore service.
-The receipt is accepted only when its SignedEntryTimestamp verifies under a pinned Rekor key for its log ID, and its logged body names the same signature, the configured release public key and the payload hash being verified. This does not change the requirement "First-party artifact import needs no public Sigstore service": the registry holding the artifact remains the only network destination.
+The receipt is accepted only when its SignedEntryTimestamp verifies under a pinned Rekor key for its log ID, and its logged body names the same signature, the configured release public key and the payload hash being verified. This does not change the no-network rule of the requirement "First-party artifact import needs no public Sigstore service": the registry holding the artifact remains the only network destination. From the cutover release on, that requirement's air-gap success scenario applies only to an artifact with a valid receipt or an allowlisted digest; a non-allowlisted artifact without a valid receipt fails as this requirement states.
 
 #### Scenario: Artifact with a valid receipt on an air-gapped installation
 - **GIVEN** an installation that can reach its artifact registry and no public Sigstore service

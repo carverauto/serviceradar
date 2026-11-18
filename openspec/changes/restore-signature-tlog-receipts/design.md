@@ -110,7 +110,7 @@ admitted digest.
 
 ## Decision 4: Verify receipts offline with a pinned Rekor key, never with TUF
 
-Both the release verification scripts and `CosignVerifier` run:
+Release verification of a signature created in the current run runs:
 
 ```
 SIGSTORE_REKOR_PUBLIC_KEY=<pinned rekor.pub> \
@@ -118,7 +118,14 @@ cosign verify --new-bundle-format=false --offline=true --key <release key> \
   --timeout 60s <repo>@<digest>
 ```
 
-with no `--trusted-root` and an isolated `HOME`, `XDG_*` and `SIGSTORE_CACHE_DIR`, as #6778 already
+`CosignVerifier` at import runs one of two modes. For every digest that is not on the frozen
+allowlist (Decision 9) it runs receipt-required mode: it reads `logID` from the annotation, selects
+the matching key file from the retained key set in the image (Decision 5), rejects a log ID with no
+file in the set, and runs the same command with `SIGSTORE_REKOR_PUBLIC_KEY` set to that file, so a
+receipt under an older accepted log still verifies. For an allowlisted digest it runs key-only mode,
+#6778's `--insecure-ignore-tlog=true` command, and records `absent_allowlisted`.
+
+Both run with no `--trusted-root` and an isolated `HOME`, `XDG_*` and `SIGSTORE_CACHE_DIR`, as #6778 already
 sets up. Why this path:
 
 - With `SIGSTORE_REKOR_PUBLIC_KEY` set, `SetTrustedMaterial` skips TUF and `GetRekorPubs` reads only
@@ -286,9 +293,16 @@ with a correspondingly longer window.
 
 ## Decision 8: Record the receipt status on the imported package
 
-`first_party_importer.ex` already stores `cosign_verified`. It also stores `transparency_receipt`:
-`verified` (with `log_index` and `integrated_time`), or `absent_allowlisted`, in the import
-verification metadata. No UI change is part of this change.
+Each imported package stores `transparency_receipt`: `verified` (with `log_index` and
+`integrated_time`), or `absent_allowlisted`, in its import verification metadata. There are two
+write paths:
+
+- Wasm plugins: web-ng `first_party_importer.ex`, which already stores `cosign_verified`.
+- Native add-ons: web-ng `native_addon_importer.ex` makes the cosign call and passes the receipt
+  fields into `Core.import_entry_with_disposition`, and core
+  `serviceradar/plugins/native_addon_importer.ex` writes them in `source_metadata/2`.
+
+No UI change is part of this change.
 
 ## Decision 9: Pre-cutover Wasm plugins and native add-ons use a frozen digest allowlist
 

@@ -56,7 +56,10 @@
   `serviceradar-wasm-plugin-index.json` and `serviceradar-native-addon-index.json`. Ship it in
   the image and add the freeze contract test.
 - [ ] 4.3 Store `transparency_receipt` (`verified` with log index and integrated time, or
-  `absent_allowlisted`) in the import verification metadata.
+  `absent_allowlisted`) in the import verification metadata on both write paths: web-ng
+  `first_party_importer.ex` for Wasm plugins, and for native add-ons web-ng
+  `native_addon_importer.ex` (the cosign call) passing the receipt fields into core
+  `native_addon_importer.ex` `source_metadata/2`.
 - [ ] 4.4 Load the `test-audit` skill, then extend `cosign_verifier_test.exs`: receipt-required
   rejects a missing receipt without a network call, allowlisted digests pass key-only, and an
   unknown log ID is rejected. Include one test that runs the real pinned cosign binary against
@@ -74,9 +77,9 @@
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
   missing state.
-- [ ] 5.3 Add the blindness canary (ledger entries older than two scan intervals, two hours at the
-  hourly default, integrated after the
-  monitor's first retained checkpoint, that were never observed) and the daily TUF trusted-root comparison for the pinned Rekor key.
+- [ ] 5.3 Add the blindness canary (ledger entries from a signing run that ended more than two scan
+  intervals ago, two hours at the hourly default, integrated after the monitor's first retained
+  checkpoint, that were never observed) and the daily TUF trusted-root comparison for the pinned Rekor key.
 - [ ] 5.4 Add a separate GitHub Actions workflow-run lookup for `rekor-signing-monitor.yml` to the
   scheduled job watch, give `.github/workflows/scheduled-job-watch.yml` `actions: read`, and report
   the monitor when its last successful run is older than three scan intervals (three hours at the
@@ -92,3 +95,7 @@
   verification and the `absent_allowlisted` status.
 - [ ] 6.3 Replace the manual demo signing path in `docs/agent-runbooks.md` with the
   `publish-oci.yml` dispatch, or document that each manual signature must be acknowledged.
+- [ ] 6.4 Once `verify-first-party-imports-without-sigstore` is archived into
+  `openspec/specs/wasm-plugin-system`, convert the precedence sentence in this change's
+  wasm-plugin-system delta into a MODIFIED delta of "First-party artifact import needs no public
+  Sigstore service" before archiving this change.
