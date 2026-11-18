@@ -370,4 +370,32 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     await flushUi()
     expect(root.textContent).toContain("No matching RUM beacons")
   })
+
+  test("clears cached CWV summary when a completed query returns zero rows", async () => {
+    const root = createMountRoot()
+    const {host, api, pushFrames} = createHostApi()
+
+    const mounted = await mountWebRum(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    expect(root.textContent).toContain("2.18 s")
+
+    // During loading, previous CWV summary remains visible
+    const loadingFrames = structuredClone(sampleFrames).map((frame) =>
+      frame.id === "rum_cwv_summary" ? {...frame, status: "loading", results: []} : frame,
+    )
+    pushFrames(loadingFrames)
+    await flushUi()
+    expect(root.textContent).toContain("2.18 s")
+
+    // Once status is no longer loading (e.g. "ok" with 0 rows), stale CWV cache is cleared
+    const emptyOkFrames = structuredClone(sampleFrames).map((frame) =>
+      frame.id === "rum_cwv_summary" ? {...frame, status: "ok", results: []} : frame,
+    )
+    pushFrames(emptyOkFrames)
+    await flushUi()
+    expect(root.textContent).not.toContain("2.18 s")
+    expect(root.textContent).toContain("No Data")
+  })
 })

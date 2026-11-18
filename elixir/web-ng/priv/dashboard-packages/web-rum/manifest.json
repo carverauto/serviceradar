@@ -227,6 +227,6 @@
     "artifact": "web-rum",
     "trust": "first_party",
     "entrypoint": "web_rum",
-    "sha256": "318410db081599b6a82bf36c10651ea1b87390622682cefccd72d7d485882de6"
+    "sha256": "5c1edf1aab72b6e8ba3990af5af4629f6bc620f1e5e29360fc0a780457a0fcb3"
   }
 }

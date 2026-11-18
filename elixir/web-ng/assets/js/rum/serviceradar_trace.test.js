@@ -277,7 +277,41 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     expect(lateInit).toHaveBeenCalledTimes(1)
   })
 
-  function createVmContext({withConfig = true} = {}) {
+  const DEFAULT_NAV_SERVER_TIMING = [
+    {name: "cdn-cache", duration: 0, description: "HIT"},
+    {name: "edge", duration: 18, description: ""},
+    {name: "origin", duration: 112, description: ""},
+    {name: "ak_p", duration: 0, description: "iad"},
+  ]
+
+  const DEFAULT_RESOURCE_ENTRIES = [
+    {
+      name: "https://portal.example.com/assets/app.js",
+      initiatorType: "script",
+      startTime: 25,
+      fetchStart: 25,
+      domainLookupStart: 25,
+      domainLookupEnd: 25,
+      connectStart: 25,
+      connectEnd: 25,
+      requestStart: 26,
+      responseStart: 44,
+      responseEnd: 52,
+      transferSize: 1024,
+      encodedBodySize: 800,
+      decodedBodySize: 2048,
+      serverTiming: [
+        {name: "cdn-cache", duration: 0, description: "HIT"},
+        {name: "edge", duration: 18, description: ""},
+      ],
+    },
+  ]
+
+  function createVmContext({
+    withConfig = true,
+    navServerTiming = DEFAULT_NAV_SERVER_TIMING,
+    resourceEntries = DEFAULT_RESOURCE_ENTRIES,
+  } = {}) {
     const beaconCalls = []
     const fetchCalls = []
     const consoleLogs = []
@@ -299,8 +333,25 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         getElementById: () => null,
         querySelector: () => null,
         querySelectorAll: () => [],
-        createElement: () => ({style: {}, setAttribute: () => {}}),
-        getElementsByTagName: () => [{parentNode: {insertBefore: () => {}}}],
+        createElement: () => {
+          let href = ""
+          return {
+            style: {},
+            setAttribute: () => {},
+            getAttribute: () => null,
+            ownerDocument: context.document,
+            get href() {
+              return href
+            },
+            set href(val) {
+              href = val == null ? "" : String(val)
+            },
+          }
+        },
+        getElementsByTagName: (tagName) =>
+          tagName === "script"
+            ? [{src: "https://portal.example.com/assets/boomerang-sr.min.js", parentNode: {insertBefore: () => {}}}]
+            : [],
         addEventListener: (type, fn) => {
           const list = documentListeners.get(type) || []
           list.push(fn)
@@ -332,6 +383,7 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         back: () => {},
         forward: () => {},
       },
+      PerformanceResourceTiming: function PerformanceResourceTiming() {},
       performance: {
         now: () => 42,
         timing: {
@@ -345,19 +397,28 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
           domContentLoadedEventEnd: 1_700_000_000_420,
           loadEventEnd: 1_700_000_000_650,
         },
-        getEntriesByType: (type) =>
-          type === "navigation"
-            ? [
-                {
-                  serverTiming: [
-                    {name: "cdn-cache", duration: 0, description: "HIT"},
-                    {name: "edge", duration: 18, description: ""},
-                    {name: "origin", duration: 112, description: ""},
-                    {name: "ak_p", duration: 0, description: "iad"},
-                  ],
-                },
-              ]
-            : [],
+        getEntriesByType: (type) => {
+          if (type === "navigation") {
+            return [
+              {
+                startTime: 0,
+                fetchStart: 5,
+                domainLookupStart: 5,
+                domainLookupEnd: 15,
+                connectStart: 15,
+                connectEnd: 45,
+                requestStart: 45,
+                responseStart: 120,
+                responseEnd: 140,
+                serverTiming: navServerTiming,
+              },
+            ]
+          }
+          if (type === "resource") {
+            return resourceEntries
+          }
+          return []
+        },
       },
       fetch: async (url, init) => {
         fetchCalls.push({url, init})
@@ -523,7 +584,13 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
       context.BOOMR.plugins[pluginName].is_complete = () => true
     }
 
-    // Beacon 1: Page load with CWV, HTTP 503, and restiming JSON lookup array in servertiming
+    // Beacon 1: Page load with CWV, HTTP 503, and jsUrl-encoded restiming lookup array in servertiming
+    const serializedLookup = context.BOOMR.utils.serializeForUrl([
+      ["cdn-cache", "HIT"],
+      ["edge", ""],
+    ])
+    expect(serializedLookup.startsWith("~(")).toBe(true)
+
     context.BOOMR.addVar(
       {
         u: "https://portal.example.com/overview",
@@ -532,7 +599,7 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         "et.inp": 132,
         "c.cls": 0.05,
         "http.errno": 503,
-        servertiming: '[["cdn-cache","HIT"],["edge",""]]',
+        servertiming: serializedLookup,
         "rt.tstart": 1_700_000_000_000,
       },
       true,
@@ -549,6 +616,7 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     expect(sentPayloads[0].st).toContain("edge;dur=18")
     expect(sentPayloads[0].servertiming).toContain('cdn-cache;dur=0;desc="HIT"')
     expect(sentPayloads[0].servertiming.startsWith("[")).toBe(false)
+    expect(sentPayloads[0].servertiming.startsWith("~(")).toBe(false)
 
     // Beacon 2: Subsequent XHR beacon must NOT inherit beacon 1's normalized single-beacon vars
     context.BOOMR.addVar(
@@ -597,5 +665,97 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     expect(lateSetup.fetchCalls[0].init.headers.traceparent).toMatch(
       /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
     )
+  })
+
+  test("built boomerang-sr.min.js converts ResourceTiming Compression.jsUrl servertiming to W3C Server-Timing without leaking ~(", () => {
+    const bundlePath = BUNDLE_CANDIDATES.find((p) => fs.existsSync(p))
+    expect(bundlePath).toBeDefined()
+    const bundleSource = fs.readFileSync(bundlePath, "utf8")
+
+    const {context} = createVmContext({withConfig: true})
+    vm.runInNewContext(`"use strict";\n${bundleSource}`, context, {
+      filename: "boomerang-sr.min.js",
+    })
+
+    expect(context.BOOMR.plugins.ResourceTiming.is_supported()).toBe(true)
+
+    const sentPayloads = []
+    context.BOOMR.subscribe("beacon", (data) => {
+      sentPayloads.push({...data})
+    })
+    for (const pluginName of Object.keys(context.BOOMR.plugins)) {
+      context.BOOMR.plugins[pluginName].is_complete = () => true
+    }
+
+    // Beacon 1: Real ResourceTiming.addResourceTimingToBeacon() emits jsUrl-encoded ~(...) servertiming
+    context.BOOMR.plugins.ResourceTiming.addResourceTimingToBeacon()
+    const rawVarBeforeBeacon = context.BOOMR.getVar("servertiming")
+    expect(typeof rawVarBeforeBeacon).toBe("string")
+    expect(rawVarBeforeBeacon.startsWith("~(")).toBe(true)
+
+    context.BOOMR.addVar(
+      {
+        u: "https://portal.example.com/overview",
+        "rt.tstart": 1_700_000_000_000,
+      },
+      true,
+    )
+    context.BOOMR.sendBeacon()
+    context.BOOMR.real_sendBeacon()
+
+    expect(sentPayloads).toHaveLength(1)
+    expect(sentPayloads[0].st).toContain('cdn-cache;dur=0;desc="HIT"')
+    expect(sentPayloads[0].st).toContain("edge;dur=18")
+    expect(sentPayloads[0].servertiming).toContain('cdn-cache;dur=0;desc="HIT"')
+    expect(sentPayloads[0].servertiming).toContain("edge;dur=18")
+    expect(sentPayloads[0].servertiming.startsWith("~(")).toBe(false)
+    expect(sentPayloads[0].servertiming.startsWith("[")).toBe(false)
+
+    // Beacon 2: XHR beacon with ResourceTiming lookup array must strip ~( instead of leaking it
+    context.BOOMR.plugins.ResourceTiming.addResourceTimingToBeacon()
+    context.BOOMR.addVar(
+      {
+        u: "https://portal.example.com/api/orders",
+        "http.initiator": "xhr",
+        "rt.tstart": 1_700_000_005_000,
+      },
+      true,
+    )
+    context.BOOMR.sendBeacon()
+    context.BOOMR.real_sendBeacon()
+
+    expect(sentPayloads).toHaveLength(2)
+    expect(sentPayloads[1].st).toBeUndefined()
+    expect(sentPayloads[1].servertiming).toBeUndefined()
+
+    // Explicit vars.st overrides ~( lookup array on any beacon
+    const explicitVars = {
+      "http.initiator": "xhr",
+      st: 'cdn-cache;dur=0;desc="MISS"',
+      servertiming: context.BOOMR.utils.serializeForUrl([["cdn-cache", "HIT"]]),
+    }
+    context.BOOMR.fireEvent("before_beacon", explicitVars)
+    expect(explicitVars.servertiming).toBe('cdn-cache;dur=0;desc="MISS"')
+
+    // Initial navigation with empty navigation.serverTiming also strips ~( lookup array
+    const noNavCtx = createVmContext({withConfig: true, navServerTiming: []})
+    vm.runInNewContext(`"use strict";\n${bundleSource}`, noNavCtx.context, {
+      filename: "boomerang-sr.min.js",
+    })
+    const noNavPayloads = []
+    noNavCtx.context.BOOMR.subscribe("beacon", (data) => {
+      noNavPayloads.push({...data})
+    })
+    for (const pluginName of Object.keys(noNavCtx.context.BOOMR.plugins)) {
+      noNavCtx.context.BOOMR.plugins[pluginName].is_complete = () => true
+    }
+    noNavCtx.context.BOOMR.plugins.ResourceTiming.addResourceTimingToBeacon()
+    expect(noNavCtx.context.BOOMR.getVar("servertiming")?.startsWith("~(")).toBe(true)
+    noNavCtx.context.BOOMR.addVar({u: "https://portal.example.com/no-nav-st"}, true)
+    noNavCtx.context.BOOMR.sendBeacon()
+    noNavCtx.context.BOOMR.real_sendBeacon()
+    expect(noNavPayloads).toHaveLength(1)
+    expect(noNavPayloads[0].st).toBeUndefined()
+    expect(noNavPayloads[0].servertiming).toBeUndefined()
   })
 })

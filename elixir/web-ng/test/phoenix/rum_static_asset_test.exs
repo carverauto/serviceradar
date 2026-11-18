@@ -60,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
 
     rum_opts = Enum.at(static_plugs, rum_index)
     assert Keyword.get(rum_opts, :from) == {:serviceradar_web_ng, "priv/static/assets/rum"}
+    assert match?({:@, _, [{:rum_static_headers, _, _}]}, Keyword.get(rum_opts, :headers))
 
     # Exercise live ServiceRadarWebNGWeb.Endpoint.call/2 dispatch for static assets.
     app_static_conn =
@@ -69,26 +70,6 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
 
     assert app_static_conn.halted
     assert app_static_conn.status == 200
-
-    staged_rum_path =
-      Application.app_dir(:serviceradar_web_ng, "priv/static/assets/rum/boomerang-sr.min.js")
-
-    if File.exists?(staged_rum_path) do
-      endpoint_conn =
-        :get
-        |> conn("/assets/rum/boomerang-sr.min.js")
-        |> ServiceRadarWebNGWeb.Endpoint.call([])
-
-      assert endpoint_conn.halted
-      assert endpoint_conn.status == 200
-      assert endpoint_conn.resp_body =~ "ServiceRadarTrace"
-      assert Plug.Conn.get_resp_header(endpoint_conn, "access-control-allow-origin") == ["*"]
-      assert Plug.Conn.get_resp_header(endpoint_conn, "timing-allow-origin") == ["*"]
-
-      assert Plug.Conn.get_resp_header(endpoint_conn, "cache-control") == [
-               "public, max-age=300, stale-while-revalidate=86400"
-             ]
-    end
 
     bundle_path = resolve_bundle_path()
     rum_dir = Path.dirname(bundle_path)

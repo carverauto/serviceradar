@@ -419,7 +419,9 @@ export function WebRumDashboard() {
   }, [recentBeaconsFrame?.status, recentBeaconsRows])
 
   useEffect(() => {
-    if (cwvFrame?.status !== "loading" && cwvSummaryRows.length > 0) {
+    if (cwvFrame?.status !== "loading") {
+      setCachedCwvSummary(cwvSummaryRows[0] || null)
+    } else if (cwvSummaryRows.length > 0) {
       setCachedCwvSummary(cwvSummaryRows[0])
     }
   }, [cwvFrame?.status, cwvSummaryRows])
@@ -516,7 +518,8 @@ export function WebRumDashboard() {
       : recentBeaconsFrame?.status === "loading"
         ? cachedRecentBeacons
         : []
-  const summaryRow = cwvSummaryRows[0] || cachedCwvSummary || {}
+  const summaryRow =
+    cwvSummaryRows[0] || (cwvFrame?.status === "loading" ? cachedCwvSummary : null) || {}
 
   const propertyOptions = useMemo(() => {
     const items = [{id: "", label: "All Web Properties", origin: ""}]

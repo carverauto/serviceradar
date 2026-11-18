@@ -361,22 +361,38 @@ function normalizeBoomerangVarsOnBeacon(vars, win, state) {
   }
 
   const rawServerTiming = vars.servertiming;
+  const trimmedServerTiming =
+    typeof rawServerTiming === "string" ? rawServerTiming.trim() : "";
   const isBoomerangLookupArray =
     Array.isArray(rawServerTiming) ||
-    (typeof rawServerTiming === "string" && rawServerTiming.trim().startsWith("["));
+    trimmedServerTiming.startsWith("[") ||
+    trimmedServerTiming.startsWith("~(");
   const isInitialNav =
     vars["http.initiator"] == null || vars["http.initiator"] === "spa_hard";
+  const hasExplicitSt =
+    typeof vars.st === "string" ? vars.st.trim() !== "" : vars.st != null;
 
-  if (vars.st == null && (rawServerTiming == null || isBoomerangLookupArray)) {
+  if (isBoomerangLookupArray) {
+    if (hasExplicitSt) {
+      setSingleBeaconVar(win, vars, state, "servertiming", vars.st);
+    } else {
+      const navServerTiming = isInitialNav ? formatNavigationServerTiming(win) : "";
+      if (navServerTiming) {
+        setSingleBeaconVar(win, vars, state, "st", navServerTiming);
+        setSingleBeaconVar(win, vars, state, "servertiming", navServerTiming);
+      } else {
+        delete vars.servertiming;
+        if (win && win.BOOMR && typeof win.BOOMR.removeVar === "function") {
+          win.BOOMR.removeVar("servertiming");
+        }
+      }
+    }
+  } else if (!hasExplicitSt && rawServerTiming == null) {
     const navServerTiming = isInitialNav ? formatNavigationServerTiming(win) : "";
     if (navServerTiming) {
       setSingleBeaconVar(win, vars, state, "st", navServerTiming);
-      if (isBoomerangLookupArray || rawServerTiming == null) {
-        setSingleBeaconVar(win, vars, state, "servertiming", navServerTiming);
-      }
+      setSingleBeaconVar(win, vars, state, "servertiming", navServerTiming);
     }
-  } else if (isBoomerangLookupArray && typeof vars.st === "string" && vars.st.trim() !== "") {
-    setSingleBeaconVar(win, vars, state, "servertiming", vars.st);
   }
 }
 
