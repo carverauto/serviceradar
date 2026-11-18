@@ -47,8 +47,8 @@ importers:
         specifier: ^6.4.2
         version: 6.4.2(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       '@carverauto/serviceradar-dashboard-sdk':
-        specifier: file:./vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz
-        version: file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz(@blueprintjs/core@6.23.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/icons@6.16.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/select@6.4.2(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
+        specifier: file:./vendor/carverauto-serviceradar-dashboard-sdk-0.5.0.tgz
+        version: file:vendor/carverauto-serviceradar-dashboard-sdk-0.5.0.tgz(@blueprintjs/core@6.23.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/icons@6.16.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/select@6.4.2(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       '@deck.gl/aggregation-layers':
         specifier: 9.4.0
         version: 9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@deck.gl/layers@9.4.0(@deck.gl/core@9.4.0(patch_hash=2972f4da058aa687f469f4d15c8e0d08df543251520ac6dd4b28728f5fea5906)(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2))))(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))
@@ -365,9 +365,9 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@carverauto/serviceradar-dashboard-sdk@file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz':
-    resolution: {integrity: sha512-wgTF0maE67lDGszHj3H6w7vnMj/ThZqxdMEBdvwl1glCQ7A1x1hnHohBf44x1cKhiBsIGt/avJCAxwRCKqqMtA==, tarball: file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz}
-    version: 0.4.1
+  '@carverauto/serviceradar-dashboard-sdk@file:vendor/carverauto-serviceradar-dashboard-sdk-0.5.0.tgz':
+    resolution: {integrity: sha512-LHzcbEg8hw3kq6ilK1d/CJH3UKEHRdO4pyBlpWJ8WwpL5cuXNDcDT0I5zsMYdmdIWxzfN3gVRwNrD7YBvoxfFQ==, tarball: file:vendor/carverauto-serviceradar-dashboard-sdk-0.5.0.tgz}
+    version: 0.5.0
     peerDependencies:
       '@blueprintjs/core': ^6.16.0
       '@blueprintjs/icons': ^6.16.0
@@ -3977,7 +3977,7 @@ snapshots:
       - terser
       - tsx
 
-  '@carverauto/serviceradar-dashboard-sdk@file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz(@blueprintjs/core@6.23.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/icons@6.16.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/select@6.4.2(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)':
+  '@carverauto/serviceradar-dashboard-sdk@file:vendor/carverauto-serviceradar-dashboard-sdk-0.5.0.tgz(@blueprintjs/core@6.23.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/icons@6.16.0(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@blueprintjs/select@6.4.2(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)':
     dependencies:
       '@carverauto/serviceradar-cli': 0.1.10(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.2)(@luma.gl/engine@9.4.2(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@luma.gl/webgpu@9.4.2(patch_hash=2342e9cbebf8abbb121555f91d5c3bee16c81b972f886c3dcfc5f4a3ea78dce5)(@luma.gl/core@9.4.2)(@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.2)))(@math.gl/web-mercator@4.1.0)(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)
       react: 19.2.9
