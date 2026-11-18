@@ -5,7 +5,8 @@ SNMP (mapper) reports `sysName`, `sysDescr` and `sysObjectID`; the passive
 census sees an IP and a MAC; hypervisor enrichment sees a node's address and
 platform role; an automation inventory lists hosts; an OUI lookup names the
 NIC registrant. Today the last write wins, except for `ip` (never-downgrade
-address rank, #3905) and manual `type` ownership.
+address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
+`type` ownership.
 
 ## Decisions
 
@@ -146,7 +147,7 @@ address rank, #3905) and manual `type` ownership.
     | `type` / `type_id` / `metadata.device_role` | plugin inputs (`target_kind`), `ProxmoxHostAuthority` | ranked (decision 4), one value |
     | `integration_type` | plugin inputs, unmerge | ranked (decision 5) |
     | metadata `integration_id` | (dropped) | provider-scoped identifiers (decision 10) |
-    | `ip` | SNMP compiler, plugin inputs | existing address rank guard |
+    | `ip` | SNMP compiler, sweep compiler, plugin inputs | IPv4 preferred (decision 14), then the #3905 rank within a family |
     | `hypervisor_provider_ref`, `proxmox_node`, `proxmox_cluster`, `hypervisor_guest_type`, `hypervisor_vmid`, `proxmox_base_url` | plugin inputs, `ProxmoxHostAuthority` | owner: hypervisor platform inventory |
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
@@ -174,6 +175,29 @@ address rank, #3905) and manual `type` ownership.
     `WifiMap.BatchIngestor`'s default when the row has none) is not vendor
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
+
+14. IPv4 is always the preferred primary address. When a device has a usable
+    IPv4 (private or public, `sr_address_rank >= 40`), an IPv4 is the
+    primary `ip`; every IPv6 (global, ULA, link-local) is recorded as an
+    alias and never becomes primary. An IPv6 is primary only on an IPv6-only
+    device; if that device later gains a usable IPv4, the IPv4 takes over. A
+    change between two usable IPv4s is a real re-IP and replaces the
+    primary, and the #3905 never-downgrade rank still applies within a
+    family. The rule holds in every primary-IP chooser: the SQL upsert guard
+    in `DeviceWrites`, `Identity.Address.best/1` and its rank (kept in step
+    by the existing parity test, extended to the family rule), the
+    hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`), and
+    the camera and succession paths. The address-fallback name (decision 7)
+    follows this primary, so it never takes an IPv6 literal when the device
+    has an IPv4.
+15. A device's own addresses in both families always stay live aliases in
+    `device_alias_states`, including an address displaced from primary or
+    never promoted, so the sweep targets both families. An address has one
+    live holder per partition: on a confirmed re-attribution of an address
+    to another device, the previous holder's alias for it is expired in the
+    same write; holders that have not re-sighted an address within the alias
+    expiry window are expired; `SweepCompiler` attributes a sweep target only
+    to the current live holder.
 
 ## Open questions
 

@@ -203,7 +203,7 @@ ingestion batch.
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets and plugin assignments are selected and named from device attributes
-- **AND** the name, hostname, vendor, model, type, type_id, device_role and integration type of those devices already have recorded strengths
+- **AND** the name, hostname, vendor, model, type, type_id, device_role, integration type and management_device_id (including a recorded clear) of those devices already have recorded strengths
 - **WHEN** mapper passes, passive census passes, automation-inventory cycles and hypervisor-enrichment cycles alternate with no change on the network
 - **THEN** the compiled agent config version SHALL NOT change
 
@@ -262,10 +262,10 @@ inventory cleared it.
 - **THEN** the stored vendor SHALL be unchanged
 
 #### Scenario: An SNMP-polled camera keeps its camera inventory identity
-- **GIVEN** a camera whose name, vendor, model and type were recorded from the camera inventory
+- **GIVEN** a camera whose name, vendor, model, type and management_device_id (including a recorded clear) were recorded from the camera inventory
 - **AND** the camera is also polled by SNMP and seen by the passive census
 - **WHEN** mapper passes and passive census passes alternate with camera inventory passes
-- **THEN** the camera name, vendor, model and type SHALL stay at the camera inventory values
+- **THEN** the camera name, vendor, model, type and management_device_id SHALL stay at the camera inventory values
 - **AND** the compiled agent config version SHALL NOT change
 
 #### Scenario: A role-only write keeps the stored type
@@ -273,6 +273,62 @@ inventory cleared it.
 - **WHEN** an equal-strength mapper write carrying only device_role is accepted
 - **THEN** the device_role SHALL be updated
 - **AND** the stored type and type_id SHALL remain
+
+### Requirement: A device with a usable IPv4 keeps an IPv4 primary address
+Sync ingestion SHALL keep an IPv4 as the primary ip of every device that has a
+usable IPv4 (private or public, sr_address_rank 40 or higher); every IPv6
+(global, ULA or link-local) SHALL be recorded as an alias and SHALL NOT become
+primary on such a device. An IPv6 SHALL be primary only on an IPv6-only device,
+and a usable IPv4 that device later gains SHALL take over. A change between two
+usable IPv4s SHALL replace the primary, and the never-downgrade address rank
+SHALL still apply within a family. Every primary-IP chooser (the upsert guard,
+the Elixir address ranking, hypervisor guest primary-IP selection, and the
+camera and succession paths) SHALL follow this rule. The address-fallback name
+SHALL follow the primary ip, so the name and hostname SHALL NOT take an IPv6
+literal when the device has an IPv4.
+
+#### Scenario: A dual-stack census sighting keeps the IPv4 primary
+- **GIVEN** a device whose primary ip is 192.0.2.3
+- **WHEN** the passive census sights it by NDP as 2001:db8::3 and fe80::3
+- **THEN** the primary ip SHALL remain 192.0.2.3
+- **AND** 2001:db8::3 and fe80::3 SHALL be recorded as live aliases of the device
+- **AND** the device name and hostname SHALL NOT be an IPv6 literal
+
+#### Scenario: An IPv6-only device that gains an IPv4 switches primary
+- **GIVEN** an IPv6-only device whose primary ip is 2001:db8::5
+- **WHEN** a sighting reports the device at 192.0.2.5
+- **THEN** the primary ip SHALL become 192.0.2.5
+- **AND** 2001:db8::5 SHALL remain a live alias
+
+#### Scenario: An IPv4 re-IP still replaces the primary
+- **GIVEN** a device whose primary ip is 192.0.2.6
+- **WHEN** the device is confirmed at 198.51.100.6 instead
+- **THEN** the primary ip SHALL become 198.51.100.6
+
+### Requirement: Each address has one live holder and own addresses stay live aliases
+Sync ingestion SHALL keep every address a device owns, in both families, as a
+live alias of that device, including an address displaced from primary or
+never promoted. An address SHALL have one live holder per partition: a
+confirmed re-attribution of an address to another device SHALL expire the
+previous holder's alias for it in the same write, and a holder that has not
+re-sighted an address within the alias expiry window SHALL be expired. Sweep
+target attribution SHALL read only the current live holder.
+
+#### Scenario: Sweep targets are stable for an unchanged inventory
+- **GIVEN** an agent whose sweep targets come from device addresses and aliases
+- **WHEN** the sweep configuration is compiled twice with no inventory change between
+- **THEN** both compiles SHALL produce identical sweep targets with identical device_uid attribution
+
+#### Scenario: A stale cross-device alias is expired on re-attribution
+- **GIVEN** an address 192.0.2.7 recorded as a live alias of device A
+- **WHEN** 192.0.2.7 is confirmed as belonging to device B
+- **THEN** device A's alias for 192.0.2.7 SHALL be expired in the same write
+- **AND** the sweep target for 192.0.2.7 SHALL be attributed to device B
+
+#### Scenario: A dual-stack device is swept in both families
+- **GIVEN** a device with primary ip 192.0.2.3 and alias 2001:db8::3
+- **WHEN** the sweep configuration is compiled
+- **THEN** both 192.0.2.3 and 2001:db8::3 SHALL be sweep targets attributed to that device
 
 ### Requirement: Integration identifiers are kept per integration
 A device observed by more than one integration SHALL keep each integration's

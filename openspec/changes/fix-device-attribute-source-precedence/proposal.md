@@ -51,6 +51,19 @@ the denormalized metadata `integration_id` slot is single-valued: the upsert
 merges `stored || EXCLUDED`, and both the automation inventory and hypervisor
 enrichment re-send it every cycle, so the last writer wins.
 
+The primary address also flips on dual-stack devices. The upsert's
+never-downgrade guard (the `ip` CASE in `DeviceWrites`) compares
+`LEAST(sr_address_rank(new), 40) >= LEAST(sr_address_rank(old), 40)`, so a
+global IPv6 (rank 50) and a private IPv4 (rank 40) tie and the last writer
+wins. The passive census decoder writes `ip` = the observation address for
+every sighting, so an NDP sighting makes the IPv6 primary and another writer
+puts the IPv4 back; one device went `2001:db8::3` -> `192.0.2.3` ->
+`2001:db8::3` -> `192.0.2.3` within two minutes. While the IPv6 is primary,
+the device's own IPv4 has no live `device_alias_states` row, so
+`SweepCompiler` drops it: the ICMP sparkline gaps and one agent's config
+re-versioned about 42 times per hour. Stale cross-device alias rows also make
+the sweep target `device_uid` attribution flip on each compile.
+
 ### Why this is a config-churn bug, not only an inventory-quality bug
 
 These attributes are inputs to agent config compilation:
@@ -160,6 +173,23 @@ inventory state rather than of nondeterministic compilation.
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
+- IPv4 is always the preferred primary address. When a device has a usable
+  IPv4 (private or public, `sr_address_rank >= 40`), an IPv4 is its primary
+  `ip`; every IPv6 (global, ULA, link-local) is recorded as an alias and
+  never becomes primary. An IPv6 is primary only on an IPv6-only device, and
+  an IPv4 it later gains takes over. A change between two usable IPv4s is a
+  real re-IP and replaces the primary; the #3905 never-downgrade rank still
+  applies within a family. Every primary-IP chooser follows this rule: the
+  SQL upsert guard, `Identity.Address.best/1` and its rank (kept in step by
+  the existing parity test), the hypervisor guest primary-IP NIC selection,
+  and the camera and succession paths.
+- A device's own addresses in both families stay live aliases, so the sweep
+  targets both families. An address has one live holder per partition: a
+  confirmed re-attribution expires the previous holder's alias in the same
+  write, holders that have not re-sighted an address within the alias expiry
+  window are expired, and sweep target attribution reads only the current
+  live holder. The address-fallback name follows the primary `ip`, so it never
+  takes an IPv6 literal (including `fe80::`) when the device has an IPv4.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
@@ -177,7 +207,7 @@ the OUI spelling (`vendor_name:"<OUI org>"`) then stops matching any device
 with a recorded hardware vendor whose spelling differs, and the rule's SNMPv3 credential no longer applies; the
 profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
-was stored. Every device that does not derive a hardware vendor keeps its OUI
+was stored. Every device with no recorded hardware-tier vendor keeps its OUI
 vendor, including a device whose only vendor evidence is the OUI and a device
 whose other evidence names agent software (for example Net-SNMP) or an OS,
 software or platform; rules keyed on the OUI spelling keep matching it.
@@ -190,9 +220,10 @@ agent-software, OS or software vendor with no recorded strength by the OUI
 vendor, so exact-OUI credential rules match that device again after that
 pass. That first census pass may also change any other vendor stored before
 rollout once, to the OUI vendor; the first hardware-tier writer after it,
-SNMP or a platform inventory, then becomes the owner of the vendor spelling. Each attribute (name / hostname,
-`vendor_name` / `model`, `type` / `type_id` / `device_role`,
-`integration_type`) changes at most once per
+SNMP or a platform inventory, then becomes the owner of the vendor spelling.
+Each attribute (name / hostname, `vendor_name` / `model`, `type` / `type_id`
+/ `device_role`, `integration_type`, `management_device_id` including a
+recorded clear) changes at most once per
 strictly stronger tier first recorded, then stays constant: a name stored
 before rollout may move to a census hostname, then an automation-inventory
 name, then the mapper `sysName`, and on a hypervisor node finally to the
@@ -219,4 +250,7 @@ string.
   `ServiceRadar.Inventory.Identity.IdentityProjections`,
   `ServiceRadar.Integrations.ArmisNorthboundPopulation`,
   `ServiceRadar.Inventory.SourceIdentityDrift`, and the result processor in
-  `ServiceRadar.Core`.
+  `ServiceRadar.Core`; for the primary address and aliases, the census
+  decoder (`Inventory.Discovery.Decoders.Census`),
+  `ServiceRadar.Inventory.Identity.Address`, `ServiceRadar.Identity.DeviceAliasState`
+  and `ServiceRadar.AgentConfig.Compilers.SweepCompiler`.

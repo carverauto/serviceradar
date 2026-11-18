@@ -141,26 +141,55 @@
       vendor does not write `vendor_name`; and the agent
       config version does not change
 
-## 7. Rollout
+## 7. Primary address and aliases
 
-- [ ] 7.1 Release note: credential rules keyed on an exact OUI vendor string
+- [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
+      device has a usable IPv4; IPv6 only on IPv6-only devices; IPv4 to IPv4
+      re-IP replaces; the #3905 rank applies within a family
+- [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule; extend
+      the existing SQL / Elixir rank parity test to the family rule
+- [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
+      and the camera and succession primary-IP paths follow the same rule
+- [ ] 7.4 Census decoder: an NDP / IPv6 sighting of a device with a usable
+      IPv4 records the IPv6 as an alias and does not set the primary `ip`
+- [ ] 7.5 Alias recording: every own address in both families stays a live
+      `device_alias_states` row, including a displaced or never-promoted
+      address
+- [ ] 7.6 Alias expiry: a confirmed re-attribution expires the previous
+      holder's alias in the same write; a holder that has not re-sighted an
+      address within the alias expiry window is expired
+- [ ] 7.7 `SweepCompiler` attributes each target only to the current live
+      holder
+- [ ] 7.8 Test: dual-stack census keeps the IPv4 primary and records both
+      IPv6 as live aliases with a non-IPv6 name; an IPv6-only device that
+      gains an IPv4 switches primary; an IPv4 re-IP replaces; two compiles of
+      an unchanged inventory produce identical sweep targets and
+      `device_uid` attribution; a stale cross-device alias is expired on
+      confirmed re-attribution
+
+## 8. Rollout
+
+- [ ] 8.1 Release note: credential rules keyed on an exact OUI vendor string
       stop matching any device with a recorded hardware vendor whose spelling
       differs; the settled spelling comes from the first source recorded at
       the hardware tier, SNMP (hardware `sysObjectID` enterprise, or a
       hardware vendor from `sysDescr` or a classification rule even when the
       `sysObjectID` is under enterprise 8072) or a platform inventory such as
       the camera inventory, and on pre-rollout rows from the first
-      hardware-tier writer after the census OUI pass; the OUI spelling remains for every device that does
-      not derive a hardware vendor, including devices whose only vendor
-      evidence is the OUI; legacy rows
+      hardware-tier writer after the census OUI pass; the OUI spelling
+      remains for every device with no recorded hardware-tier vendor,
+      including devices whose only vendor evidence is the OUI and devices
+      whose other evidence names agent software or an OS / software product;
+      legacy rows
       whose stored vendor was agent software, an OS or a software product
       start matching once the first census pass records the OUI vendor; rules
       keyed on fingerprint OS / software names in `vendor_name` must move to
       the OS / software fields
-- [ ] 7.2 Verify on a deployment with existing inventory: config version of an
+- [ ] 8.2 Verify on a deployment with existing inventory: config version of an
       affected agent changes at most once per strictly stronger tier first
       recorded for each attribute (name / hostname, `vendor_name` / `model`,
-      `type` / `type_id` / `device_role`, `integration_type`), then stays
+      `type` / `type_id` / `device_role`, `integration_type`,
+      `management_device_id` including a recorded clear), then stays
       constant across further
       census passes, mapper runs, automation-inventory cycles and
       hypervisor-enrichment cycles. Example name ladder on a hypervisor node:
@@ -169,3 +198,6 @@
       platform. A hostname-less census name is the address fallback and never
       replaces a populated name without recorded strength or any stronger
       name
+- [ ] 8.3 Verify on a deployment: an affected agent's sweep config version
+      stays constant across census passes, and dual-stack devices keep an
+      IPv4 primary
