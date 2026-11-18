@@ -37,7 +37,9 @@ of the plugin work in sections 2-5.
       `com.carverauto.proxmox.guest_availability_changed` condition event on
       a running-to-stopped transition, carrying the guest's canonical
       DeviceID and Proxmox node, with a `condition_key` built from the
-      target discriminator and the DeviceID.
+      target discriminator and the DeviceID, `log_name`
+      `com.carverauto.proxmox.guest_availability_changed` (not the SDK default
+      `events.ocsf.processed`) and `unmapped.level` `critical`.
 - [ ] 3.2 Unit test with invented guest observations: running in poll N and
       stopped in N+1 emits exactly one event; remaining stopped emits none.
 - [ ] 3.3 Confirm the event remains separate from the periodic
@@ -53,7 +55,8 @@ of the plugin work in sections 2-5.
       match, carrying node name, killed process name/pid when parseable,
       and the raw log line as event detail, with a `condition_key` built from
       the target discriminator, the node and the entry's timestamp and raw
-      line.
+      line, `log_name` `com.carverauto.proxmox.node_oom_kill` (not the SDK
+      default `events.ocsf.processed`) and `unmapped.level` `critical`.
 - [ ] 4.4 Unit test using log fixtures invented from scratch: a new OOM-kill
       entry emits an event with expected fields, including its
       `condition_key`; two entries yield different keys; no matching entry emits
@@ -72,7 +75,10 @@ of the plugin work in sections 2-5.
       emit `com.carverauto.proxmox.guest_runtime_paused` in that node's
       guest-runtime scope for each QEMU guest whose status is `running` and
       whose runtime state is not `running`, carrying the guest's canonical
-      DeviceID, the node and the runtime state at a non-ok level, and emit the node's
+      DeviceID, the node and the runtime state, with `log_name`
+      `com.carverauto.proxmox.guest_runtime_paused` (not the SDK default
+      `events.ocsf.processed`) and `unmapped.level` `warning` or `critical`,
+      and emit the node's
       guest-runtime scope-complete marker listing those keys plus the keys of
       running QEMU guests whose runtime state could not be read, which get no
       event. Build the scope id from the target discriminator, the scope name
@@ -96,6 +102,8 @@ of the plugin work in sections 2-5.
       `com.carverauto.proxmox.node_storage_capacity` in that node's
       node-storage scope for each datastore in the critical band, carrying
       node, datastore, used and total bytes but no ratio or threshold fields,
+      with `log_name` `com.carverauto.proxmox.node_storage_capacity` (not the
+      SDK default `events.ocsf.processed`) and `unmapped.level` `critical`,
       and emit the node's node-storage scope-complete marker listing those
       keys, empty when none is critical. Build the scope id from the target
       discriminator, the scope name `node-storage` and the node, and the key from the target discriminator, node
@@ -124,9 +132,11 @@ of the plugin work in sections 2-5.
       `node-storage-capacity` and `node-oom-kill`, matching the schema
       defined by `add-plugin-alert-rules`. Each entry declares signal
       `event`, threshold 1 and group_by `condition_key`; do not set `enabled`
-      or `priority`. The paused-guest and storage rules match their own event
-      subject with attribute level `warning` or `critical`, and keep their
-      recovery as level `ok` on that same subject, the clearing event the
+      or `priority`. Each rule's opening match is `subject_prefix` on its own
+      event's `log_name` plus `attribute_equals` on `level` listing `warning`
+      and `critical`. The paused-guest and storage rules keep their recovery
+      as the same `subject_prefix` with `attribute_equals` on `level` `ok`,
+      the clearing event the
       agent synthesizes from the condition scope, so the clear never matches
       as an opening event and pressure summaries are not matched. Those two
       rules declare `cooldown_seconds` 1800, above the agent's 15-minute

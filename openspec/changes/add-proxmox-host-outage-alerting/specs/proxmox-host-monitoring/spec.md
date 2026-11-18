@@ -15,6 +15,9 @@ periodic ok/warning/critical resource-pressure summaries it already emits.
   discriminator the plugin already uses as its condition-key prefix and the
   guest's canonical DeviceID, so two targets that stop the same VMID never
   share a key
+- **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.guest_availability_changed`, not the SDK default
+  `events.ocsf.processed` the pressure summaries use, and its
+  `unmapped.level` SHALL be `critical`
 - **AND** this event SHALL be distinct from, not merged into, the periodic
   resource-pressure summary events
 
@@ -54,6 +57,9 @@ follows the Scoped Condition Recovery requirement.
 - **AND** SHALL emit a `com.carverauto.proxmox.guest_runtime_paused` condition
   event at a non-ok level, in that node's guest-runtime scope, referencing the
   guest's canonical DeviceID, its Proxmox node and the runtime state
+- **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.guest_runtime_paused`, not the SDK default
+  `events.ocsf.processed` the pressure summaries use, and its
+  `unmapped.level` SHALL be `warning` or `critical`
 - **AND** SHALL list that guest's condition key in the node's guest-runtime
   scope-complete marker
 
@@ -142,6 +148,9 @@ Clearing follows the Scoped Condition Recovery requirement.
   `com.carverauto.proxmox.node_storage_capacity` condition event at the
   critical level, in that node's node-storage scope, carrying the node, the
   datastore name and the used and total bytes
+- **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.node_storage_capacity`, not the SDK default
+  `events.ocsf.processed` the pressure summaries use, and its
+  `unmapped.level` SHALL be `critical`
 - **AND** SHALL list that datastore's condition key in the node's
   node-storage scope-complete marker
 
@@ -218,6 +227,9 @@ memory-pressure summaries.
 - **AND** the event SHALL carry a `condition_key` built from the target
   discriminator, the node and the log entry's own identity (its timestamp and
   raw line), so two kills are distinct alert groups
+- **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.node_oom_kill`, not the SDK default
+  `events.ocsf.processed` the pressure summaries use, and its
+  `unmapped.level` SHALL be `critical`
 
 #### Scenario: No new OOM-kill log entries
 - **WHEN** no matching kernel log entries appear since the node's last
@@ -231,12 +243,14 @@ and `node-oom-kill` using the plugin-manifest alert-rule mechanism, so an
 operator can enable them without hand-authoring rule definitions, and without
 any rule being armed automatically. Each of the four entries SHALL declare
 signal `event`, threshold 1 and group_by `condition_key`, and SHALL NOT set
-`enabled` or `priority`. The `guest-runtime-paused` rule SHALL match the
-subject `com.carverauto.proxmox.guest_runtime_paused` with attribute level
-`warning` or `critical`, and the `node-storage-capacity` rule SHALL match the
-subject `com.carverauto.proxmox.node_storage_capacity` with attribute level
-`warning` or `critical`. Each of those two rules SHALL declare as its recovery
-level `ok` on that same subject, which is the clearing event the agent
+`enabled` or `priority`. Each rule's opening match SHALL be `subject_prefix`
+on its own event's `log_name` (`com.carverauto.proxmox.guest_availability_changed`,
+`com.carverauto.proxmox.guest_runtime_paused`,
+`com.carverauto.proxmox.node_storage_capacity` and
+`com.carverauto.proxmox.node_oom_kill` respectively) plus `attribute_equals`
+on `level` listing `warning` and `critical`. The `guest-runtime-paused` and
+`node-storage-capacity` rules SHALL declare as their recovery the same
+`subject_prefix` with `attribute_equals` on `level` equal to `ok`, which is the clearing event the agent
 synthesizes under the Scoped Condition Recovery requirement and which carries
 the same `condition_key`. Because the opening match requires a non-ok level
 on the rule's own subject, the clearing event never opens or extends an

@@ -79,7 +79,13 @@ not establish OOM as the cause.
   critical band gets a separate scoped condition and the summaries are left
   alone. The event omits the ratio and threshold fields, so the plugin's band
   decides membership and the agent's hysteresis does not hold the alert open
-  below the critical threshold.
+  below the critical threshold. Each new event, like the availability and
+  OOM events, sets `log_name` to its own subject string rather than the SDK
+  default `events.ocsf.processed` the pressure summaries use, and carries a
+  non-ok `unmapped.level`, because the stateful rule engine matches
+  `subject_prefix` against `log_name` and `attribute_equals` against
+  unmapped fields; the synthesized clear copies that `log_name` with level
+  `ok`, which is what the recovery match selects.
 - **Recover through the existing condition scope, not plugin memory.** The
   WASM plugin is re-instantiated on every check and has no state between
   polls, so it cannot compare with a previous poll or know that it emitted an
