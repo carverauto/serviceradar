@@ -328,15 +328,21 @@ selection, the Armis sync source's address walk (over the union of its split
 IPAddress, IPv4Addresses and IPv6Addresses, skipping blacklisted addresses:
 usable IPv4 first, then non-link-local IPv6, then a link-local only if nothing
 else), the NetBox plugin's primary-IP selection (its primary IPv4 only when it
-is a usable IPv4), and the camera path: each SHALL order its candidates usable
+is a usable IPv4), the agent gateway check-in (and any other writer that sets a
+device's ip directly, which SHALL go through the same keep decision rather than
+assigning ip), and the camera path: each SHALL order its candidates usable
 IPv4, then routable IPv6, then link-local only if nothing else; a link-local
 IPv4 (169.254/16) loses to any routable address of either family, so when the
 only IPv4 is link-local a routable IPv6 SHALL be submitted if one exists, and a
 device the source emits whose only addresses are link-local SHALL still submit
-one, never an empty primary. Within a class each chooser SHALL order
-deterministically: the stored primary first if present, then its own order
-among usable IPv4s, then lowest address, so the list order of an API cannot
-move the primary; Identity.Address.best/1 SHALL tie-break the same way. A
+one, never an empty primary. Each chooser and Identity.Address.best/1 SHALL pick
+the highest-strength candidate (usable IPv4, then routable IPv6, then
+link-local, then higher rank within the family); only among candidates of equal
+class and equal rank SHALL they tie-break deterministically, the stored primary
+first if present among them, then the lowest address, never across ranks; a
+stored 10.1.0.5 (rank 40) is therefore replaced when the same source reports
+203.0.113.5 (rank 50). Identity.Address.best/1 SHALL take the stored primary as
+an optional input used only for that equal-rank tie-break. A
 chooser SHALL NOT submit a link-local address as primary when a routable
 address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
@@ -361,6 +367,16 @@ routable IPv6.
 - **GIVEN** a device with no usable IPv4 whose primary ip is 169.254.1.5, still in its recording source's window
 - **WHEN** a sighting reports 2001:db8::5 for the device
 - **THEN** the primary ip SHALL become 2001:db8::5
+
+#### Scenario: A higher-rank usable IPv4 replaces a lower-rank one from the same source
+- **GIVEN** a device whose primary ip 10.1.0.5 (rank 40) was recorded by the passive census
+- **WHEN** a census snapshot for the device contains both 10.1.0.5 and 203.0.113.5 (rank 50)
+- **THEN** the primary ip SHALL become 203.0.113.5
+
+#### Scenario: An agent check-in does not move the primary ip
+- **GIVEN** a device whose primary ip 192.0.2.3 was recorded by the passive census and is still in its window
+- **WHEN** an agent gateway check-in arrives from source address 2001:db8::9
+- **THEN** the primary ip SHALL remain 192.0.2.3
 
 #### Scenario: A higher-rank IPv6 does not replace a private IPv4
 - **GIVEN** a device whose primary ip is the private 192.168.0.3 (rank 40), still in its recording source's window

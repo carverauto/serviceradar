@@ -171,8 +171,10 @@
       before the write and passes it to the upsert, which decides; the
       upsert never infers absence from `EXCLUDED.ip` differing
 - [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
-      `better?/2`'s equal-rank-never-replaces; tie-break deterministically:
-      stored primary first, then lowest address); extend the existing SQL /
+      `better?/2`'s equal-rank-never-replaces; take the stored primary as an
+      optional input and, only among equal-class equal-rank candidates,
+      tie-break stored primary first, then lowest address, never across
+      ranks); extend the existing SQL /
       Elixir rank parity test to the family rule and the keep-unless-stronger
       rule
 - [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
@@ -189,9 +191,10 @@
       address (as defined in 7.1, so `fe80::` is never routable even though
       `routable_management_ip?` accepts it) exists; a host whose only
       addresses are link-local still submits one as its primary; every
-      chooser orders usable IPv4, routable IPv6, then link-local, and within
-      a class puts the stored primary first, then its own order, then the
-      lowest address
+      chooser picks the highest-strength candidate (usable IPv4, routable
+      IPv6, link-local, then higher rank within the family) and only among
+      equal-class equal-rank candidates puts the stored primary first, then
+      the lowest address
 - [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
@@ -201,8 +204,8 @@
       link-local only if nothing else, skipping blacklisted addresses;
       `primaryIP` is left alone)
       prefer a usable IPv4 over any IPv6 and never submit a link-local when a
-      routable address exists; keep each chooser's own order among usable
-      IPv4s; the succession hand-over
+      routable address exists; use the same highest-strength pick and
+      equal-rank-only tie-break; the succession hand-over
       `MergeEngine.take_address?/2` compares only the successor's stored `ip`
       with the survivor's, never replaces a usable IPv4 with an IPv6, a
       routable address with a link-local, or a link-local with an
@@ -211,13 +214,21 @@
       (`go/cmd/wasm-plugins/netbox/main.go`) takes `primary_ip4` only when
       it is a usable IPv4, otherwise its routable IPv6, otherwise a
       link-local, so a link-local-only device is not dropped
-- [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
+- [ ] 7.6 Route the agent gateway check-in (`AgentGatewaySync`
+      `update_existing_device_for_agent` and `:gateway_restore`) and any
+      other writer that sets a device's `ip` directly through the same
+      ranked keep decision instead of assigning `ip`; keep the explicit
+      contested-address release to `nil`; test that a check-in from
+      `2001:db8::9` leaves a census-recorded `192.0.2.3` primary unchanged
+      and that a census snapshot with `10.1.0.5` and `203.0.113.5` moves the
+      primary to `203.0.113.5`
+- [ ] 7.7 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
-- [ ] 7.7 Census decoder: an NDP / IPv6 sighting of a device with a usable
+- [ ] 7.8 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is never an alias or a name, and sets the
       primary only of a link-local-only device
-- [ ] 7.8 Alias recording: every aliasable address the device owns, in both
+- [ ] 7.9 Alias recording: every aliasable address the device owns, in both
       families, stays a live `device_alias_states` row, including a displaced
       or never-promoted address; aliasable means `AliasPolicy.valid_alias_ip?/2`
       with the device's known CIDRs accepts it (link-local and directed
@@ -226,12 +237,12 @@
       not host-internal (`GuestAddress.host_internal_address?/2`, the Proxmox
       plugin's host-internal set, or a shared interface address `AliasEvents`
       keeps off the `:ip` merge type)
-- [ ] 7.9 Alias expiry: a confirmed re-attribution expires the previous
+- [ ] 7.10 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
-- [ ] 7.10 `SweepCompiler` attributes each target only to the current live
+- [ ] 7.11 `SweepCompiler` attributes each target only to the current live
       holder
-- [ ] 7.11 Test: dual-stack census keeps the usable IPv4 primary and records the
+- [ ] 7.12 Test: dual-stack census keeps the usable IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
       sighting of a device with a routable address records no alias,
       primary or name; a guest's `172.17.0.1` on

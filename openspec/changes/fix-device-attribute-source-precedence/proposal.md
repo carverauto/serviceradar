@@ -210,11 +210,13 @@ inventory state rather than of nondeterministic compilation.
   `primaryIP` / `firstUsableIP`, the Armis sync source's address walk in
   `filterDevices` (over its split `IPAddress`, `IPv4Addresses` and
   `IPv6Addresses`), the NetBox plugin's `primaryIP` (its `primary_ip4` only
-  when it is a usable IPv4), and the camera path; each orders usable IPv4,
+  when it is a usable IPv4), the agent gateway check-in (which no longer
+  assigns its source ip directly), and the camera path; each orders usable IPv4,
   then routable IPv6, then link-local only if nothing else, so a device
-  whose only addresses are link-local still submits one; within a class the
-  stored primary comes first, then the chooser's own order, then lowest
-  address, so API list order cannot move the primary; none submits a
+  whose only addresses are link-local still submits one; the
+  highest-strength candidate wins (class, then rank within the family), and
+  only among equal-class equal-rank candidates does the stored primary come
+  first, then the lowest address, never across ranks; none submits a
   link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
   stored addresses, never replaces a usable IPv4 with an IPv6 or a routable

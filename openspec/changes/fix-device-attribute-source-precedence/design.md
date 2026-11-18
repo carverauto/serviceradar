@@ -239,19 +239,27 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     blacklisted addresses; `primaryIP` is left alone), the NetBox plugin's `primaryIP`
     (`go/cmd/wasm-plugins/netbox/main.go`, which takes `primary_ip4` only
     when it is a usable IPv4, otherwise its routable IPv6, otherwise a
-    link-local), and the camera path. Each orders its candidates usable
+    link-local), the agent gateway check-in (`AgentGatewaySync`
+    `update_existing_device_for_agent` and the `:gateway_restore` path,
+    which today assign the check-in source ip directly and instead go
+    through the same keep decision; the explicit contested-address release
+    to `nil` stays), and the camera path. Each orders its candidates usable
     IPv4, then routable IPv6, then link-local only if nothing else; a
     link-local IPv4 (`169.254/16`) loses to any routable address of either
     family, so when the only IPv4 is link-local the routable IPv6 is
     submitted if one exists, and a device the source emits whose only
     addresses are link-local still submits one (never an empty primary that
     drops the device; Proxmox discovery's existing skip of guests with no
-    routable address is unchanged). Within a class each chooser orders
-    deterministically: the stored primary first if present, then its own
-    order among usable IPv4s, then lowest address, so API list order cannot
-    move the primary; `Identity.Address.best/1` tie-breaks the same way.
-    Each keeps its own order among usable IPv4s
-    (configured NIC index, `management_ip_score`), and never submits a
+    routable address is unchanged). Each chooser and
+    `Identity.Address.best/1` pick the highest-strength candidate (usable
+    IPv4, then routable IPv6, then link-local, then higher rank within the
+    family); only among candidates of equal class and equal rank do they
+    tie-break deterministically, the stored primary first if present among
+    them, then the lowest address, never across ranks, so a stored
+    `10.1.0.5` (rank 40) yields to `203.0.113.5` (rank 50) and a stored ULA
+    to a global IPv6 on an IPv6-only device. `best/1` takes the stored
+    primary as an optional input used only for that tie-break. No chooser
+    submits a
     link-local (`fe80::/10`, `169.254/16`) as primary when a routable
     address exists. The succession hand-over `MergeEngine.take_address?/2`
     only compares the successor's stored `ip` with the survivor's; it does
