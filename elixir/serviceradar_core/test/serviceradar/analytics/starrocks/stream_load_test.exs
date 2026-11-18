@@ -9,6 +9,16 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.LoadTasks
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
+  alias ServiceRadar.Otel
+  alias ServiceRadar.TestSupport.OtelSpanCapture
+
+  require Record
+
+  @span_fields Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
+  Record.defrecordp(:span, @span_fields)
+
+  @status_fields Record.extract(:status, from_lib: "opentelemetry_api/include/opentelemetry.hrl")
+  Record.defrecordp(:status, @status_fields)
 
   @moduletag :db_free
 
@@ -1863,5 +1873,85 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
       "msg" => "Success",
       "message" => "OK"
     })
+  end
+
+  describe "starrocks.stream_load span" do
+    setup do
+      OtelSpanCapture.start!()
+    end
+
+    # A synthetic FE that commits every row it is sent.
+    defp committing_http(request) do
+      rows = length(Jason.decode!(request.body))
+
+      {:ok,
+       %{
+         status: 200,
+         body:
+           Jason.encode!(%{
+             "Status" => "Success",
+             "NumberLoadedRows" => rows,
+             "NumberFilteredRows" => 0
+           })
+       }}
+    end
+
+    test "a load under the caller's span is a CLIENT child of it" do
+      Otel.span("event_writer.process_batch", %{kind: :consumer}, fn ->
+        assert {:ok, %{loaded: 2}} =
+                 StreamLoad.persist("otel_traces", @rows, http: &committing_http/1)
+      end)
+
+      assert_receive {:span, span(name: "starrocks.stream_load", kind: :client) = load}, 1_000
+      assert_receive {:span, span(name: "event_writer.process_batch") = batch}, 1_000
+      assert span(load, :parent_span_id) == span(batch, :span_id)
+
+      attributes = :otel_attributes.map(span(load, :attributes))
+      assert attributes["db.system"] == "starrocks"
+      assert attributes["db.collection.name"] == "otel_traces"
+      assert attributes["db.operation.batch.size"] == 2
+    end
+
+    test "a load with no span active creates none" do
+      assert {:ok, %{loaded: 2}} =
+               StreamLoad.persist("otel_traces", @rows, http: &committing_http/1)
+
+      refute_receive {:span, _span}, 200
+    end
+
+    test "a refused load ends its span with status ERROR" do
+      refusing_http = fn _request -> {:ok, %{status: 400, body: ""}} end
+
+      Otel.span("event_writer.process_batch", %{kind: :consumer}, fn ->
+        assert {:error, _reason} = StreamLoad.persist("otel_traces", @rows, http: refusing_http)
+      end)
+
+      assert_receive {:span, span(name: "starrocks.stream_load", status: load_status)}, 1_000
+      assert status(load_status, :code) == :error
+    end
+
+    test "each load of a split batch runs in its own task and is still a child of the caller's span" do
+      rows =
+        for n <- 1..3 do
+          %{id: "log-span-#{n}", timestamp: ~U[2000-01-01 00:00:00Z], body: "line #{n}"}
+        end
+
+      Otel.span("event_writer.process_batch", %{kind: :consumer}, fn ->
+        assert {:ok, %{loaded: 3, loads: 3}} =
+                 Destination.persist_warehouse(:logs, rows,
+                   http: &committing_http/1,
+                   stream_load: [max_rows: 1, max_in_flight: 3]
+                 )
+      end)
+
+      loads =
+        for _load <- 1..3 do
+          assert_receive {:span, span(name: "starrocks.stream_load") = load}, 1_000
+          load
+        end
+
+      assert_receive {:span, span(name: "event_writer.process_batch") = batch}, 1_000
+      assert Enum.all?(loads, &(span(&1, :parent_span_id) == span(batch, :span_id)))
+    end
   end
 end

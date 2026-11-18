@@ -5,10 +5,10 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   `otel_traces` as an ingest-health signal.
 
   A healthy trace pipeline has far more child spans than root spans
-  (`parent_span_id IS NULL`). When nearly every span is a root span the
-  parent linkage is being lost at ingest (id normalization bugs, producers
-  dropping `parent_span_id`, context propagation failures), which silently
-  degrades trace assembly.
+  (`parent_span_id IS NULL`). When nearly every span is a root span, parent
+  linkage is missing: producers not propagating context across a hop, or ingest
+  dropping `parent_span_id` (id normalization bugs). Either silently degrades
+  trace assembly.
 
   Per OpenTelemetry messaging conventions, asynchronous/batch consumer spans
   (`kind = 5`, `SPAN_KIND_CONSUMER`) legitimately start a new trace with
@@ -24,7 +24,10 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   - When total >= floor, a `[:serviceradar, :observability, :root_span_ratio]`
     gauge is ALWAYS emitted (so dashboards can chart the ratio).
   - When additionally roots/total exceeds the configured threshold, a
-    warning is logged.
+    warning is logged. It states what is missing (spans without a parent,
+    linked consumer roots excluded) and lists the services and span kinds
+    contributing the most such roots, without naming a cause: a missing parent
+    is as often never propagated by its producer as dropped on the way.
 
   Configuration (`config :serviceradar_core, __MODULE__`):
 
@@ -67,6 +70,22 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
       OR TRIM(links) IN ('', '[]', 'null')
     )
   """
+
+  # The roots `@counts_sql` counts (no parent and not a linked consumer root), grouped by the
+  # producer that emitted them, largest first.
+  @contributors_sql """
+  SELECT COALESCE(service_name, '') AS service_name, COALESCE(kind, 0) AS kind,
+    count(*)::bigint AS root_spans
+  FROM otel_traces
+  WHERE timestamp > NOW() - ($1::int * INTERVAL '1 minute')
+    AND parent_span_id IS NULL
+    AND (COALESCE(kind, 0) <> 5 OR links IS NULL OR TRIM(links) IN ('', '[]', 'null'))
+  GROUP BY 1, 2
+  ORDER BY root_spans DESC, service_name, kind
+  LIMIT $2
+  """
+
+  @top_contributors 5
 
   @telemetry_event [:serviceradar, :observability, :root_span_ratio]
 
@@ -126,10 +145,12 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     )
 
     if outcome == :breach do
+      contributors = top_contributors()
+
       Logger.warning(
         "Root span ratio breach: #{Float.round(ratio, 4)} of spans in the last " <>
-          "#{@window_minutes}m are root spans (threshold #{threshold}); parent " <>
-          "span linkage is likely being lost at ingest",
+          "#{@window_minutes}m have no parent span (linked consumer roots excluded; " <>
+          "threshold #{threshold}); top contributors: #{describe_contributors(contributors)}",
         root_span_ratio: ratio,
         total_spans: total,
         root_spans: roots,
@@ -140,6 +161,47 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
 
     :ok
   end
+
+  # One grouped read, only on breach. A failed read still reports the breach.
+  defp top_contributors do
+    result =
+      if Destination.enabled?() do
+        StarRocksQuery.execute(warehouse_contributors_sql(DateTime.utc_now()), timeout: 30_000)
+      else
+        SQL.query(ServiceRadar.Repo, @contributors_sql, [@window_minutes, @top_contributors],
+          timeout: 30_000
+        )
+      end
+
+    case result do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, fn [service, kind, count] -> {service, kind, count} end)}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp describe_contributors({:ok, []}), do: "none"
+
+  defp describe_contributors({:ok, contributors}) do
+    Enum.map_join(contributors, ", ", fn {service, kind, count} ->
+      "#{service_label(service)}/#{span_kind_name(kind)}=#{count}"
+    end)
+  end
+
+  defp describe_contributors({:error, error}), do: "unavailable (#{describe(error)})"
+
+  defp service_label(service) when is_binary(service) and service != "", do: service
+  defp service_label(_service), do: "unknown"
+
+  # OTLP SpanKind numbering.
+  defp span_kind_name(1), do: "internal"
+  defp span_kind_name(2), do: "server"
+  defp span_kind_name(3), do: "client"
+  defp span_kind_name(4), do: "producer"
+  defp span_kind_name(5), do: "consumer"
+  defp span_kind_name(_kind), do: "unspecified"
 
   @doc """
   Counts `{total_spans, root_spans}` over parsed `OtelTraces` span maps using
@@ -158,18 +220,33 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
   # time zone while spans are stored in UTC, so the cutoff is a UTC literal.
   @spec warehouse_counts_sql(DateTime.t()) :: String.t()
   def warehouse_counts_sql(now) do
-    cutoff =
-      now
-      |> DateTime.shift(minute: -@window_minutes)
-      |> DateTime.to_naive()
-      |> NaiveDateTime.truncate(:second)
-      |> NaiveDateTime.to_string()
+    cutoff = window_cutoff(now)
 
     "SELECT COUNT(*) AS total_spans, " <>
       "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans " <>
       "FROM #{StarRocksEnv.table("otel_traces")} WHERE `timestamp` > '#{cutoff}' " <>
       "AND (parent_span_id IS NOT NULL OR COALESCE(kind, 0) <> #{@span_kind_consumer} " <>
       "OR links IS NULL OR TRIM(links) IN ('', '[]', 'null'))"
+  end
+
+  @doc false
+  # The warehouse form of @contributors_sql, with the same UTC-literal cutoff.
+  @spec warehouse_contributors_sql(DateTime.t()) :: String.t()
+  def warehouse_contributors_sql(now) do
+    "SELECT COALESCE(service_name, '') AS service_name, COALESCE(kind, 0) AS kind, " <>
+      "COUNT(*) AS root_spans FROM #{StarRocksEnv.table("otel_traces")} " <>
+      "WHERE `timestamp` > '#{window_cutoff(now)}' AND parent_span_id IS NULL " <>
+      "AND (COALESCE(kind, 0) <> #{@span_kind_consumer} OR links IS NULL " <>
+      "OR TRIM(links) IN ('', '[]', 'null')) " <>
+      "GROUP BY 1, 2 ORDER BY root_spans DESC, service_name, kind LIMIT #{@top_contributors}"
+  end
+
+  defp window_cutoff(now) do
+    now
+    |> DateTime.shift(minute: -@window_minutes)
+    |> DateTime.to_naive()
+    |> NaiveDateTime.truncate(:second)
+    |> NaiveDateTime.to_string()
   end
 
   defp linked_consumer_root?(row) do

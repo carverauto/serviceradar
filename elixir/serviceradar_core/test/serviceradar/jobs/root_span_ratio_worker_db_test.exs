@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Jobs.RootSpanRatioWorkerDbTest do
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Jobs.RootSpanRatioWorker
   alias ServiceRadar.Repo
 
@@ -13,6 +15,7 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorkerDbTest do
       timestamp timestamptz NOT NULL,
       trace_id text,
       span_id text NOT NULL,
+      service_name text,
       parent_span_id text,
       kind int,
       links text
@@ -106,5 +109,31 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorkerDbTest do
 
     assert {total_spans, root_spans} == {5, 3}
     assert {total_spans, root_spans} == expected
+  end
+
+  test "a breach names its top contributors among the roots it counts, and no cause" do
+    # Synthetic producers: 700 unlinked consumer roots, 300 client roots, and 400 linked
+    # consumer roots the signal excludes, so they must not be reported either.
+    insert_roots("svc-alpha", 5, nil, 700)
+    insert_roots("svc-bravo", 3, nil, 300)
+    insert_roots("svc-charlie", 5, ~s([{"trace_id":"20000000000000000000000000000001"}]), 400)
+
+    log = capture_log(fn -> assert :ok = RootSpanRatioWorker.perform(%Oban.Job{}) end)
+
+    assert log =~ "Root span ratio breach"
+    assert log =~ "top contributors: svc-alpha/consumer=700, svc-bravo/client=300"
+    refute log =~ "svc-charlie"
+    refute log =~ "lost at ingest"
+  end
+
+  defp insert_roots(service, kind, links, count) do
+    Repo.query!(
+      """
+      INSERT INTO otel_traces (timestamp, trace_id, span_id, service_name, parent_span_id, kind, links)
+      SELECT NOW() - INTERVAL '1 minute', lpad(to_hex(n), 32, '0'), lpad(to_hex(n), 16, '0'), $1, NULL, $2, $3
+      FROM generate_series(1, $4::int) AS n
+      """,
+      [service, kind, links, count]
+    )
   end
 end

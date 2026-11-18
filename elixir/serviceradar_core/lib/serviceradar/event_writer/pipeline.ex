@@ -246,17 +246,38 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         %{
           kind: :consumer,
           links: batch_links(messages),
-          attributes: %{
-            "messaging.system" => "nats",
-            "messaging.operation.name" => "process",
-            "messaging.destination.name" => subject,
-            "messaging.batch.message_count" => length(messages)
-          }
+          attributes: batch_span_attributes(messages)
         },
         fun
       )
     end
   end
+
+  # `messaging.destination.name` is the delivering stream's filter subject, never the delivered
+  # subject: some subjects embed a series key or a device address, which would make the attribute
+  # unbounded and carry device identity into every span. A batch whose stream is unknown names
+  # no destination.
+  defp batch_span_attributes(messages) do
+    attributes = %{
+      "messaging.system" => "nats",
+      "messaging.operation.name" => "process",
+      "messaging.batch.message_count" => length(messages)
+    }
+
+    case batch_destination_template(messages) do
+      template when is_binary(template) ->
+        Map.put(attributes, "messaging.destination.name", template)
+
+      nil ->
+        attributes
+    end
+  end
+
+  defp batch_destination_template([%{metadata: %{destination_template: template}} | _rest])
+       when is_binary(template),
+       do: template
+
+  defp batch_destination_template(_messages), do: nil
 
   defp with_current_tracer_span(name, start_opts, fun) do
     Otel.span_with_tracer(current_tracer(), name, start_opts, fun)
