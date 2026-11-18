@@ -13,7 +13,7 @@ exports_files([
 # Every accepted Rekor v1 public key, named <logID>.pub. Shipped in the web-ng image and
 # kept byte-identical to it by //build/contracts:rekor_key_consistency_test.
 filegroup(
-    name = "sigstore_rekor_keys",
+    name = "sigstore/rekor-keys",
     srcs = glob(["sigstore/rekor-keys/*.pub"]),
     visibility = ["//visibility:public"],
 )

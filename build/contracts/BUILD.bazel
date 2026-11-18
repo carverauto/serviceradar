@@ -330,7 +330,7 @@ py_test(
     data = [
         "//:MODULE.bazel",
         "//docs:sigstore/rekor.pub",
-        "//docs:sigstore_rekor_keys",
+        "//docs:sigstore/rekor-keys",
         "//scripts:install-cosign.sh",
     ],
 )
