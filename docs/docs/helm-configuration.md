@@ -464,6 +464,11 @@ Use PostgreSQL units (`GB`, `MB`), not Kubernetes resource units (`Gi`, `Mi`).
 
 ### Cost and rollout
 
+Fresh installs that leave `cnpg.storageSize` unset request 250Gi. An upgrade
+that still relies on the previous built-in default also renders a 250Gi request;
+pin `cnpg.storageSize` before upgrading if the installation must keep another
+declared size.
+
 Worst-case `pg_wal` use is roughly `2 x max_wal_size` plus the slot cap. On the 250Gi
 default that amounts to about 91GB of the volume at worst case, so check free space on
 the data volume before upgrading an install already near its high-water mark.

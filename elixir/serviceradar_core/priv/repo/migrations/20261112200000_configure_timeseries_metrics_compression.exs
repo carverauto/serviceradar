@@ -5,10 +5,11 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
   serviceradar:allow-startup-maintenance - Timescale policy setup runs as
   privileged database maintenance, like the other hypertable policy migrations.
 
-  ## Why this table needs compression
+  ## Why this migration reasserts compression
 
-  The table was created as a hypertable without compression, so data accumulates
-  uncompressed and can fill the database volume.
+  Migration `20261006160000` and `DataRetentionWorker` already configure this
+  hypertable. This migration defensively applies the same settings when they are
+  missing, leaving an already-enabled table and an existing policy untouched.
 
   ## Segment-by choice
 
@@ -22,9 +23,9 @@ defmodule ServiceRadar.Repo.Migrations.ConfigureTimeseriesMetricsCompression do
 
   ## Policy intervals
 
-  `compression_after` is 6 days — a conservative initial value. The
-  `DataRetentionWorker` reconciles it to the operator-configured lag
-  (default 2 hours) on its next cron run (03:17 by default).
+  `compression_after` is 6 days — a conservative fallback used only when no
+  policy exists. `DataRetentionWorker` reconciles it to the operator-configured
+  lag (default 2 hours) on its next cron run (03:17 by default).
 
   Rollback is explicitly irreversible and raises `Ecto.MigrationError`. The
   compression configuration and policy may predate this migration, and removing
