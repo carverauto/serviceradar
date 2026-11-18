@@ -678,7 +678,9 @@ Bundles are signed with `build/wasm_plugins/upload_signature_tool.go`, a
 dependency-free Go binary that cross-compiles to macOS, Windows and Linux and
 reads its key from an environment variable or a file. **Cosign is not required**
 for a third-party repository. Cosign applies only to the first-party OCI artifact
-path, which additionally requires a public Rekor transparency-log entry.
+path. ServiceRadar verifies those artifacts against the release public key it ships
+with and does not contact the public Sigstore services, so the import works on an
+installation with no internet access beyond the artifact registry.
 
 The repository record stores the matching `key_id` and base64 public key, and a
 bundle is verified against *that repository's* key -- so a bundle signed by one

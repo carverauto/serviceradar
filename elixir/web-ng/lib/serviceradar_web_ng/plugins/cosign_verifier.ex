@@ -1,7 +1,19 @@
 defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   @moduledoc """
-  Verifies first-party Wasm plugin OCI artifacts with Cosign.
+  Verifies first-party Wasm plugin and native add-on OCI artifacts with Cosign.
+
+  Verification is against the configured release public key only, and needs no
+  network access beyond the registry that holds the artifact. The transparency
+  log is deliberately not consulted: a first-party signature carries no embedded
+  log proof, so checking the log means an online lookup at the public Sigstore
+  services, which an air-gapped installation cannot reach. A lookup that cannot
+  connect does not fail, it waits, and every import waited with it.
+
+  Cosign runs under its own `--timeout`, so an unreachable registry ends the
+  verification with an error instead of holding the import job open.
   """
+
+  @cosign_timeout "60s"
 
   @type artifact :: %{required(:ref) => String.t(), required(:digest) => String.t()}
 
@@ -17,9 +29,7 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
           {cmd_opts, cleanup_cmd_opts} = cosign_cmd_opts(config)
 
           try do
-            with {:ok, output} <- run_cosign(binary, key_arg, target, cmd_opts) do
-              verify_rekor_output(output)
-            end
+            run_cosign(binary, key_arg, target, cmd_opts)
           after
             cleanup_cmd_opts.()
           end
@@ -58,26 +68,14 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   end
 
   defp run_cosign(binary, key_arg, target, opts) do
-    case System.cmd(binary, ["verify", "--key", key_arg, target], opts) do
-      {output, 0} -> {:ok, output}
+    args = ["verify", "--timeout", @cosign_timeout, "--insecure-ignore-tlog=true", "--key", key_arg, target]
+
+    case System.cmd(binary, args, opts) do
+      {_output, 0} -> :ok
       {output, status} -> {:error, {:cosign_verify_failed, status, output}}
     end
   rescue
     error in ErlangError -> {:error, {:cosign_verify_failed, Exception.message(error)}}
-  end
-
-  defp verify_rekor_output(output) do
-    if rekor_verified?(output) do
-      :ok
-    else
-      {:error, :cosign_rekor_verification_missing}
-    end
-  end
-
-  defp rekor_verified?(output) when is_binary(output) do
-    output =~ "tlog entry verified" or
-      output =~ "Bundle verified" or
-      output =~ "transparency log was verified"
   end
 
   defp cosign_cmd_opts(config) do
