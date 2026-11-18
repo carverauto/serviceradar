@@ -315,7 +315,8 @@ which does not list the self-hosted log. Each run:
   other than a bootstrap dispatch, scheduled or manual, that finds no checkpoint artifact, a
   checkpoint that is not a prefix, a tree head that does not verify or a root that does not match
   fails, alerts and does not replace the checkpoint; a bootstrap dispatch while a checkpoint exists
-  still applies the prefix check. The checkpoint artifact is retained 90 days,
+  still applies the prefix check and, when the stored checkpoint is not a prefix, fails, alerts and
+  keeps the stored artifact. Every failed run, bootstrap included, writes no checkpoint. The checkpoint artifact is retained 90 days,
   as long as the signing ledgers, and every successful run replaces it, carrying forward the
   per-entry decisions and the first checkpoint's integrated time; it expires only if the monitor
   stops for 90 days;
@@ -326,7 +327,7 @@ which does not list the self-hosted log. Each run:
 **Bootstrap.** The first checkpoint is seeded only by an explicit manual `workflow_dispatch` with
 input `bootstrap=true`, started and reviewed by a person, never automatically. The bootstrap run
 verifies the signed tree head under the pinned key, judges the whole log as every run does, and
-writes the checkpoint. Scheduled runs never bootstrap.
+writes the checkpoint only if it succeeds; a failed bootstrap writes nothing. Scheduled runs never bootstrap.
 
 The rejected alternative is Rekor's `POST /api/v1/index/retrieve` search by public key. It is cheap,
 but Rekor's OpenAPI marks it deprecated, experimental and "may be incomplete". A monitor that can
@@ -359,8 +360,9 @@ signing run that was active at its `integratedTime` is still in progress: the en
 and no alert is raised. Once every such run has ended, the entry is explained by any of those
 three, and unexplained otherwise. The monitor keeps each entry's state
 in its checkpoint state: pending, explained with its reason (the ledger run or the
-acknowledgement), or reported. Later scans re-evaluate pending, reported and acknowledged
-entries; an entry
+acknowledgement), or reported. Later scans re-evaluate pending and reported entries and every
+entry explained by acknowledgement, so a stored acknowledgement decision never suppresses an alert
+once the file no longer lists the entry; an entry
 explained by a ledger stays explained after that run and its 90-day ledger artifact age out of the
 lookback.
 
@@ -394,7 +396,7 @@ existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_wat
 - A run that fails (a tree head that does not verify under the pinned key or a recomputed root
   that does not match it, Rekor unreachable, checkpoint not a prefix of the log, checkpoint
   artifact missing on any run other than a bootstrap dispatch, bad config) fails the workflow,
-  opens an issue, posts to Discord and does not replace the checkpoint.
+  opens an issue, posts to Discord and writes no checkpoint; this includes a bootstrap dispatch.
 - The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
   reports the monitor when its last successful run is older than three scan intervals (three hours
   at the hourly default). `build/ci/scheduled_job_watch.py` only reads BuildBuddy commit statuses
@@ -487,9 +489,12 @@ second line does not depend on the log.
   capacity monitoring and alerting as a database volume.
 - **Watch.** A scheduled job reads the audit log and reports every `transit/sign/cosign-release`
   request whose input hash (Transit signs the payload digest) matches no `sign` line in any signing
-  ledger. The watch keeps a position in its own state and examines each audit record once, only
-  records newer than that position, so a sign call checked while its ledger was retained is never
-  re-examined after the ledger ages out. Alerts go where the monitor's alerts go.
+  ledger. It reuses the monitor's pending rule: a request is pending while a release-key signing
+  run active at its time is still in progress; once those runs have ended it is decided (explained
+  if a ledger of one of them holds its input hash, otherwise alerted). The watch keeps a position
+  in its own state that advances only past decided records, and never re-examines a decided record,
+  so a sign call decided while its ledger was retained is not re-examined after the ledger ages
+  out. Alerts go where the monitor's alerts go.
 - **Scope.** This change specifies the device and the watch; the watch is implemented once the
   device exists. Until then the audit log is not available and the forged-receipt case is
   undetected.

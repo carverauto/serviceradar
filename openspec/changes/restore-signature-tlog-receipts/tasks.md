@@ -106,7 +106,9 @@
   checkpoint; the first checkpoint is seeded only by a manual `workflow_dispatch` with
   `bootstrap=true` reviewed by a person, and every other run, scheduled or manual, with no checkpoint artifact, a
   non-prefix checkpoint, an unverified tree head or a mismatched root fails, alerts and does not
-  replace the checkpoint; each entry's decision (explained with its reason, or
+  replace the checkpoint; every failed run, bootstrap included, writes no checkpoint, and a
+  bootstrap dispatch against an existing non-prefix checkpoint fails, alerts and keeps the stored
+  artifact; each entry's decision (explained with its reason, or
   reported) and the first checkpoint's integrated time kept in the checkpoint state; the
   checkpoint artifact retained 90 days, as long as the ledgers, and replaced by every successful
   run, so it expires only if the monitor stops for 90 days; an entry is explained by a matching
@@ -137,10 +139,11 @@
   public-good configuration; no `ignoreTlog: true`. A person merges and applies it, and it SHALL be
   live on demo before the cutover release is cut.
 - [ ] 5b.2 Specify and, once the operator has enabled the OpenBao audit device, implement the watch
-  that reports `transit/sign/cosign-release` requests no signing ledger accounts for, keeping a
-  position in its own state and examining each audit record once (only records newer than that
-  position), so a sign call checked while its ledger was retained is never re-examined after the
-  ledger ages out (design.md, Decision 10). Agents do not enable the audit device.
+  that reports `transit/sign/cosign-release` requests no signing ledger accounts for, with the
+  monitor's pending rule (a request is pending while a release-key signing run active at its time is
+  in progress, then decided: explained by that run's ledger or alerted) and a position in its own
+  state that advances only past decided records, so a sign call decided while its ledger was
+  retained is never re-examined after the ledger ages out (design.md, Decision 10). Agents do not enable the audit device.
 - [ ] 5b.3 Operator check, recorded in `docs/sigstore/README.md`: `bao read
   transit/keys/cosign-release` shows `exportable=false` and `allow_plaintext_backup=false`
   (design.md, Decision 11). Agents do not run it.

@@ -122,7 +122,7 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Signature made outside the signing workflows
 - **GIVEN** a Rekor v1 entry signed by the release key whose payload hash is in no signing ledger and not acknowledged
-- **AND** the entry is not recorded as explained in the monitor's checkpoint state
+- **AND** the entry is not recorded as explained by a ledger match in the monitor's checkpoint state
 - **AND** no release-key signing run that was active at the entry's integrated time is still in progress
 - **WHEN** the monitor scans the log past that entry
 - **THEN** the monitor SHALL open a GitHub issue for the entry UUID
@@ -147,12 +147,12 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Monitor run fails
 - **GIVEN** a monitor run that cannot reach the log, gets a signed tree head that does not verify under `docs/sigstore/rekor.pub`, or recomputes a root that does not match it
-- **OR** a monitor run, scheduled or manually dispatched, that finds a stored checkpoint that is not a prefix of the log
+- **OR** a monitor run, scheduled or manually dispatched and including a `bootstrap=true` dispatch, that finds a stored checkpoint that is not a prefix of the log
 - **OR** a monitor run other than a `bootstrap=true` dispatch that finds no checkpoint artifact
 - **WHEN** the run ends
 - **THEN** the workflow SHALL fail
 - **AND** an alert SHALL be raised
-- **AND** the run SHALL NOT replace the stored checkpoint
+- **AND** the run SHALL NOT write any checkpoint, so a stored checkpoint is kept
 
 #### Scenario: Bootstrap seeds the first checkpoint
 - **GIVEN** no checkpoint artifact exists yet
@@ -162,7 +162,7 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Unexplained entry from before the first checkpoint
 - **GIVEN** a release-key entry integrated before the monitor's first checkpoint whose payload hash is in no signing ledger and that is not acknowledged
-- **AND** the entry is not recorded as explained in the monitor's checkpoint state
+- **AND** the entry is not recorded as explained by a ledger match in the monitor's checkpoint state
 - **AND** no release-key signing run that was active at the entry's integrated time is still in progress
 - **WHEN** the monitor runs
 - **THEN** the monitor SHALL raise an alert for that entry
@@ -226,11 +226,12 @@ The receipt entry is a `keys` attestor with the release key, `rekor.pubkey` set 
 - **THEN** admission SHALL be denied
 
 ### Requirement: OpenBao audit log as the second line
-ServiceRadar's OpenBao SHALL have an audit device, enabled by the operator, and a scheduled watch SHALL report every `transit/sign/cosign-release` request that no signing ledger accounts for. The watch SHALL keep a position in its own state and examine each audit record once, only records newer than that position, so a sign call checked while its ledger was retained is never re-examined after the ledger ages out.
+ServiceRadar's OpenBao SHALL have an audit device, enabled by the operator, and a scheduled watch SHALL report every `transit/sign/cosign-release` request that no signing ledger accounts for. A request is pending while a release-key signing run that was active at its time is still in progress; the watch SHALL NOT alert on a pending request. Once those runs have ended the request is decided: explained if a ledger of one of them holds its input hash, otherwise alerted. The watch SHALL keep a position in its own state that advances only past decided records, and SHALL never re-examine a decided record, so a sign call decided while its ledger was retained is not re-examined after the ledger ages out.
 The self-hosted Rekor signs with a Transit key in the same OpenBao as `cosign-release`, so a receipt can be forged without a log entry; the audit log records the signing call regardless. OpenBao refuses requests when no enabled audit device can write, so the device's sink is monitored for capacity. Agents do not enable the audit device.
 
 #### Scenario: Release-key signing outside the signing runs
 - **GIVEN** an audit record of a `transit/sign/cosign-release` request whose input hash matches no `sign` line in any signing ledger
+- **AND** no release-key signing run that was active at the request's time is still in progress
 - **WHEN** the audit watch runs
 - **THEN** it SHALL raise a signing-monitor alert for that request
 
