@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Updater self-description
-The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. When the updater answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when an updater that passes the safety checks does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL remain `package_upgrade_required`.
+The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. The agent SHALL NOT execute an updater that fails the safety checks, including for self-description, and SHALL treat none of its operations as available. When an updater that passes the safety checks answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when an updater that passes the safety checks does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL remain `package_upgrade_required`.
 
 #### Scenario: Agent reads the updater's operations
 - **GIVEN** an installed updater that supports self-description
@@ -53,7 +53,7 @@ Each agent release SHALL declare the minimum updater version it requires and the
 - **THEN** the updater state SHALL remain `current`
 
 ### Requirement: Privileged features are gated by updater operation
-The agent SHALL require privileged operations by name and SHALL NOT invoke the updater with a flag the installed updater does not define.
+The agent SHALL require privileged operations by name, SHALL NOT invoke the updater with a flag the installed updater does not define, and SHALL NOT invoke an updater that fails the safety checks for any operation.
 
 #### Scenario: Agent needs an operation the updater lacks
 - **GIVEN** an agent feature that needs a named updater operation
@@ -61,6 +61,12 @@ The agent SHALL require privileged operations by name and SHALL NOT invoke the u
 - **WHEN** the feature is requested
 - **THEN** the agent SHALL report the feature blocked with the missing operation
 - **AND** SHALL NOT invoke the updater
+
+#### Scenario: Updater fails the safety checks
+- **GIVEN** an installed updater that fails any safety check
+- **WHEN** a privileged feature is requested or the agent inspects the updater
+- **THEN** the agent SHALL NOT execute it, including for self-description
+- **AND** SHALL report every privileged feature blocked with the updater `unavailable`
 
 ### Requirement: The privileged updater is changed only by the operating system package
 The system SHALL NOT replace, patch or reconfigure the installed privileged updater through a control-plane command, an agent release or an add-on. The operating system package, installed by a root operator or by automation acting as root on that host, SHALL be the only writer of the updater.
@@ -111,6 +117,13 @@ The control plane SHALL decide whether an agent can receive a privileged add-on 
 - **THEN** the agent SHALL be ineligible and SHALL receive no install command
 - **AND** the recorded reason SHALL be `updater lacks operation <name>`
 - **AND** SHALL give a package reinstall as the remedy, not a package upgrade
+
+#### Scenario: Platform has no privileged updater
+- **GIVEN** an agent whose updater state is `not_applicable`
+- **WHEN** a privileged add-on or managed certificate rollout that needs the updater selects its targets
+- **THEN** the agent SHALL be ineligible and SHALL receive no install command
+- **AND** SHALL NOT count as a candidate failure
+- **AND** the system SHALL present no package remedy for it
 
 #### Scenario: Excluded host does not pause the rollout
 - **GIVEN** a rollout whose scope contains eligible agents and agents excluded for their updater

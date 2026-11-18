@@ -22,6 +22,12 @@ The web UI SHALL show each agent's updater version, state, reason, supported ope
 - **THEN** the list SHALL offer a filter and a count for each updater state
 - **AND** Edge Ops SHALL show a notice while any agent is `package_upgrade_required` or `unavailable`
 
+#### Scenario: Agent has no privileged updater
+- **GIVEN** an agent whose updater state is `not_applicable`
+- **WHEN** an operator opens the agent or a rollout that excluded it
+- **THEN** the UI SHALL show the state as not applicable
+- **AND** SHALL NOT present a package upgrade, reinstall or repair remedy
+
 #### Scenario: Updater state is unknown
 - **WHEN** an agent has reported no updater status
 - **THEN** the UI SHALL show the state as unknown and SHALL NOT render it as current

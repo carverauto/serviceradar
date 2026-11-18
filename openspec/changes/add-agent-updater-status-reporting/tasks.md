@@ -19,7 +19,7 @@
 ## 4. Core
 
 - [ ] 4.1 Persist per-agent helper status from the capability status, including required version, package family and installed package version; expose it through the agent read actions and SRQL.
-- [ ] 4.2 Move add-on and managed-certificate eligibility from the capability string to helper state and required operations; keep the capability string as the fallback for agents that report `unknown`.
+- [ ] 4.2 Move add-on and managed-certificate eligibility from the capability string to helper state and required operations; keep the capability string as the fallback for agents that report `unknown`; `not_applicable` agents are ineligible, receive no install command and are not candidate failures.
 - [ ] 4.3 Record the ineligibility reason with the agent on the rollout target, replacing the bare `agent_updater_outdated`: the package upgrade and required version for `package_upgrade_required`, the failed safety check and a package reinstall or repair for `unavailable`; `updater lacks operation <name>` and a package reinstall for a `current` helper missing a declared operation.
 
 ## 5. Web UI
@@ -32,7 +32,7 @@
 ## 6. Tests
 
 - [ ] 6.1 Helper: self-description output matches the build; the invocation runs as a non-root caller and changes nothing on the host.
-- [ ] 6.2 Agent: each state is classified in order from a platform without a helper (`not_applicable`, no safety checks), an unsafe or missing helper where the installer provides one (`unavailable`, even if it answers), a safe one that does not answer or is below the minimum (`package_upgrade_required`), and a safe one that meets the minimum (`current`), including one missing an operation; a gated feature never invokes an undefined flag.
+- [ ] 6.2 Agent: each state is classified in order from a platform without a helper (`not_applicable`, no safety checks), an unsafe or missing helper where the installer provides one (`unavailable`, even if it answers), a safe one that does not answer or is below the minimum (`package_upgrade_required`), and a safe one that meets the minimum (`current`), including one missing an operation; a gated feature never invokes an undefined flag; an unsafe helper is never executed, including for self-description, and none of its operations is available.
 - [ ] 6.3 Core: read model, including `unknown` for an agent that reports no status and never counted as healthy; eligibility for each state and for a `current` helper missing a declared operation; the fallback to the capability string.
 - [ ] 6.4 LiveView: remedy panel, filters, counts and excluded rollout rows.
 
