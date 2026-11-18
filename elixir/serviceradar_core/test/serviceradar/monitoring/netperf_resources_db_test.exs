@@ -6,6 +6,7 @@ defmodule ServiceRadar.Monitoring.NetperfResourcesDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Monitoring.NetperfPolicy
@@ -117,6 +118,28 @@ defmodule ServiceRadar.Monitoring.NetperfResourcesDbTest do
                  actor: operator
                )
                |> Ash.create()
+
+      {:ok, valid_profile} =
+        NetperfProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: unique_name("update-omit"), duration_sec: 10, omit_sec: 3},
+          actor: operator
+        )
+        |> Ash.create()
+
+      # Atomic Ash validation catches omit_sec >= duration_sec on partial updates too.
+      assert {:error, %Invalid{}} =
+               valid_profile
+               |> Ash.Changeset.for_update(:update, %{duration_sec: 3}, actor: operator)
+               |> Ash.update()
+
+      assert {:error, %Invalid{}} =
+               valid_profile
+               |> Ash.Changeset.for_update(:update, %{omit_sec: 5, duration_sec: 5},
+                 actor: operator
+               )
+               |> Ash.update()
     end
   end
 
@@ -203,6 +226,19 @@ defmodule ServiceRadar.Monitoring.NetperfResourcesDbTest do
                    name: unique_name("bad-entity"),
                    profile_id: profile.id,
                    spoke_selector: %{"srql_query" => "in:alerts"}
+                 },
+                 actor: operator
+               )
+               |> Ash.create()
+
+      assert {:error, _} =
+               NetperfPolicy
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   name: unique_name("bad-blank-uid"),
+                   profile_id: profile.id,
+                   spoke_selector: %{"agent_uids" => ["agent-1", "   "]}
                  },
                  actor: operator
                )

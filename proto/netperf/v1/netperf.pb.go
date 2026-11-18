@@ -204,13 +204,16 @@ type NetperfPermitV1 struct {
 	AllowedDirections []NetperfDirection     `protobuf:"varint,11,rep,packed,name=allowed_directions,json=allowedDirections,proto3,enum=netperf.v1.NetperfDirection" json:"allowed_directions,omitempty"`
 	IssuedAtUnix      int64                  `protobuf:"varint,12,opt,name=issued_at_unix,json=issuedAtUnix,proto3" json:"issued_at_unix,omitempty"`
 	ExpiresAtUnix     int64                  `protobuf:"varint,13,opt,name=expires_at_unix,json=expiresAtUnix,proto3" json:"expires_at_unix,omitempty"`
-	AuthorityEpoch    uint64                 `protobuf:"varint,14,opt,name=authority_epoch,json=authorityEpoch,proto3" json:"authority_epoch,omitempty"`
-	IssuerId          string                 `protobuf:"bytes,15,opt,name=issuer_id,json=issuerId,proto3" json:"issuer_id,omitempty"`
-	IssuerKeyId       []byte                 `protobuf:"bytes,16,opt,name=issuer_key_id,json=issuerKeyId,proto3" json:"issuer_key_id,omitempty"`
-	Algorithm         string                 `protobuf:"bytes,17,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
-	Signature         []byte                 `protobuf:"bytes,18,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Plain monotonic uint64 responder fencing epoch (>= 1), directly comparable
+	// against NetperfResponderConfig.min_authority_epoch without bit-packing.
+	// Hub Responders MUST reject permits where permit.authority_epoch < responder.min_authority_epoch.
+	AuthorityEpoch uint64 `protobuf:"varint,14,opt,name=authority_epoch,json=authorityEpoch,proto3" json:"authority_epoch,omitempty"`
+	IssuerId       string `protobuf:"bytes,15,opt,name=issuer_id,json=issuerId,proto3" json:"issuer_id,omitempty"`
+	IssuerKeyId    []byte `protobuf:"bytes,16,opt,name=issuer_key_id,json=issuerKeyId,proto3" json:"issuer_key_id,omitempty"`
+	Algorithm      string `protobuf:"bytes,17,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	Signature      []byte `protobuf:"bytes,18,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *NetperfPermitV1) Reset() {
@@ -377,9 +380,11 @@ type NetperfResponderConfig struct {
 	MaxConcurrentSessions uint32                 `protobuf:"varint,4,opt,name=max_concurrent_sessions,json=maxConcurrentSessions,proto3" json:"max_concurrent_sessions,omitempty"`
 	MaxTotalBandwidthBps  uint64                 `protobuf:"varint,5,opt,name=max_total_bandwidth_bps,json=maxTotalBandwidthBps,proto3" json:"max_total_bandwidth_bps,omitempty"`
 	AdvertiseAddress      string                 `protobuf:"bytes,6,opt,name=advertise_address,json=advertiseAddress,proto3" json:"advertise_address,omitempty"`
-	MinAuthorityEpoch     uint64                 `protobuf:"varint,7,opt,name=min_authority_epoch,json=minAuthorityEpoch,proto3" json:"min_authority_epoch,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Plain monotonic uint64 fencing floor sourced from NetperfResponder.authority_epoch.
+	// Permits must satisfy NetperfPermitV1.authority_epoch >= min_authority_epoch.
+	MinAuthorityEpoch uint64 `protobuf:"varint,7,opt,name=min_authority_epoch,json=minAuthorityEpoch,proto3" json:"min_authority_epoch,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *NetperfResponderConfig) Reset() {

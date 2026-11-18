@@ -69,7 +69,6 @@ defmodule ServiceRadar.Monitoring.NetperfPolicyResponder do
     system_bypass()
     read_viewer_plus()
     action_type_with_permission([:create, :update, :destroy], @manage_check)
-    action_with_permission([:attach], @manage_check)
   end
 
   attributes do

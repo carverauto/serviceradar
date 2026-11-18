@@ -12,6 +12,7 @@ defmodule ServiceRadar.Monitoring.NetperfProfile do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Monitoring.Validations.NetperfProfileOmitDuration
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "settings.networks.manage"}
@@ -95,10 +96,12 @@ defmodule ServiceRadar.Monitoring.NetperfProfile do
 
     create :create do
       accept @fields
+      validate NetperfProfileOmitDuration
     end
 
     update :update do
       accept @fields
+      validate NetperfProfileOmitDuration
     end
   end
 

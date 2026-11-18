@@ -114,10 +114,11 @@ defmodule ServiceRadar.Monitoring.Validations.NetperfSpokeSelector do
         :ok
 
       uids when is_list(uids) ->
-        if Enum.all?(uids, &is_binary/1) do
+        if Enum.all?(uids, &(is_binary(&1) and String.trim(&1) != "")) do
           :ok
         else
-          {:error, field: :spoke_selector, message: "agent_uids must be a list of strings"}
+          {:error,
+           field: :spoke_selector, message: "agent_uids must be a list of non-empty strings"}
         end
 
       _ ->

@@ -80,7 +80,75 @@ defmodule ServiceRadar.Edge.NetperfPermitSigningTest do
     day_start = DateTime.to_unix(~U[2026-11-18 00:00:00Z], :second)
     assert permit1.issued_at_unix == day_start - 300
     assert permit1.expires_at_unix == day_start + 8 * 86_400
-    assert permit1.authority_epoch == NetperfPermitSigning.combined_authority_epoch(3, 5)
+    assert permit1.authority_epoch == 5
+  end
+
+  test "policy epoch increments rotate permit_id while keeping permit authority_epoch on responder scale" do
+    key = test_key()
+    now = ~U[2026-11-18 12:00:00Z]
+    responder = sample_responder(%{authority_epoch: 2})
+
+    {:ok, permit_v1} =
+      NetperfPermitSigning.sign_scheduled(
+        sample_policy(%{authority_epoch: 1}),
+        sample_profile(),
+        responder,
+        "agent-spoke-01",
+        "default",
+        issuer_key: key,
+        now: now
+      )
+
+    {:ok, permit_v2} =
+      NetperfPermitSigning.sign_scheduled(
+        sample_policy(%{authority_epoch: 2}),
+        sample_profile(),
+        responder,
+        "agent-spoke-01",
+        "default",
+        issuer_key: key,
+        now: now
+      )
+
+    assert permit_v1.authority_epoch == 2
+    assert permit_v2.authority_epoch == 2
+    assert permit_v1.permit_id != permit_v2.permit_id
+    assert permit_v1.signature != permit_v2.signature
+    assert NetperfPermitSigning.verify(permit_v1, key.public_key)
+    assert NetperfPermitSigning.verify(permit_v2, key.public_key)
+  end
+
+  test "responder authority_epoch bump places prior scheduled permits strictly below min_authority_epoch" do
+    key = test_key()
+    now = ~U[2026-11-18 12:00:00Z]
+
+    {:ok, old_permit} =
+      NetperfPermitSigning.sign_scheduled(
+        sample_policy(%{authority_epoch: 9}),
+        sample_profile(),
+        sample_responder(%{authority_epoch: 1}),
+        "agent-spoke-01",
+        "default",
+        issuer_key: key,
+        now: now
+      )
+
+    {:ok, new_permit} =
+      NetperfPermitSigning.sign_scheduled(
+        sample_policy(%{authority_epoch: 9}),
+        sample_profile(),
+        sample_responder(%{authority_epoch: 2}),
+        "agent-spoke-01",
+        "default",
+        issuer_key: key,
+        now: now
+      )
+
+    min_authority_epoch = 2
+    assert old_permit.authority_epoch == 1
+    assert old_permit.authority_epoch < min_authority_epoch
+    assert new_permit.authority_epoch == 2
+    assert new_permit.authority_epoch >= min_authority_epoch
   end
 
   test "verify rejects tampering of any signed claim or signature" do

@@ -127,6 +127,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.NetperfCompilerTest do
     assert permit_a.sender_agent_id == "agent-spoke-1"
     assert permit_a.responder_agent_id == "agent-hub-a"
     assert permit_a.partition_id == "branch-west"
+    assert permit_a.authority_epoch == 3
     assert NetperfPermitSigning.verify(permit_a, key.public_key)
 
     # Hub A also matches agent_uids/partition/tags, but is excluded from acting as a spoke on the same policy.
@@ -150,7 +151,87 @@ defmodule ServiceRadar.AgentConfig.Compilers.NetperfCompilerTest do
     assert hub_compiled["responder"]["enabled"] == true
     assert hub_compiled["responder"]["listen_port"] == 5199
     assert hub_compiled["responder"]["min_authority_epoch"] == 3
+    assert permit_a.authority_epoch == hub_compiled["responder"]["min_authority_epoch"]
     assert hub_compiled["targets"] == []
+  end
+
+  test "responder epoch bumps fence old permits while policy epoch bumps rotate permit_id and config_version" do
+    key = test_key()
+    now = ~U[2026-11-18 14:00:00Z]
+
+    hub_epoch_1 =
+      responder_fixture("agent-hub-1", advertise_address: "198.51.100.1", authority_epoch: 1)
+
+    hub_epoch_2 =
+      responder_fixture("agent-hub-1", advertise_address: "198.51.100.1", authority_epoch: 2)
+
+    hub_agent = agent_fixture("agent-hub-1", partition: "default")
+    spoke_agent = agent_fixture("agent-spoke-1", partition: "default")
+
+    policy_v1 = %{
+      id: "pol-epoch",
+      name: "Epoch Fencing",
+      enabled: true,
+      mode: :hub_and_spoke,
+      authority_epoch: 1,
+      profile: profile_fixture(),
+      spoke_selector: %{"agent_uids" => ["agent-spoke-1"]},
+      responders: [hub_epoch_1]
+    }
+
+    policy_v2 = %{policy_v1 | authority_epoch: 2}
+
+    {:ok, spoke_v1} =
+      NetperfCompiler.compile_inputs(spoke_agent, [hub_epoch_1], [policy_v1],
+        partition: "default",
+        issuer_key: key,
+        now: now
+      )
+
+    {:ok, spoke_policy_v2} =
+      NetperfCompiler.compile_inputs(spoke_agent, [hub_epoch_1], [policy_v2],
+        partition: "default",
+        issuer_key: key,
+        now: now
+      )
+
+    permit_v1 = NetperfPermitSigning.to_proto(hd(spoke_v1["targets"])["permit"])
+    permit_policy_v2 = NetperfPermitSigning.to_proto(hd(spoke_policy_v2["targets"])["permit"])
+
+    assert permit_v1.authority_epoch == 1
+    assert permit_policy_v2.authority_epoch == 1
+    assert permit_v1.permit_id != permit_policy_v2.permit_id
+
+    assert AgentConfigGenerator.compute_version_hash(%{netperf: spoke_v1}) !=
+             AgentConfigGenerator.compute_version_hash(%{netperf: spoke_policy_v2})
+
+    {:ok, hub_after_bump} =
+      NetperfCompiler.compile_inputs(
+        hub_agent,
+        [hub_epoch_2],
+        [%{policy_v2 | responders: [hub_epoch_2]}],
+        partition: "default",
+        issuer_key: key,
+        now: now
+      )
+
+    min_epoch = hub_after_bump["responder"]["min_authority_epoch"]
+    assert min_epoch == 2
+    assert permit_v1.authority_epoch < min_epoch
+    assert permit_policy_v2.authority_epoch < min_epoch
+
+    {:ok, spoke_after_bump} =
+      NetperfCompiler.compile_inputs(
+        spoke_agent,
+        [hub_epoch_2],
+        [%{policy_v2 | responders: [hub_epoch_2]}],
+        partition: "default",
+        issuer_key: key,
+        now: now
+      )
+
+    fresh_permit = NetperfPermitSigning.to_proto(hd(spoke_after_bump["targets"])["permit"])
+    assert fresh_permit.authority_epoch == min_epoch
   end
 
   test "hub_mesh compiles pairwise outbound targets excluding self -> self" do

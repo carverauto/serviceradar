@@ -64,6 +64,9 @@ message NetperfPermitV1 {
   repeated NetperfDirection allowed_directions = 11;
   int64 issued_at_unix = 12;
   int64 expires_at_unix = 13;
+  // Plain monotonic uint64 responder fencing epoch (>= 1), directly comparable
+  // against NetperfResponderConfig.min_authority_epoch without bit-packing.
+  // Hub Responders MUST reject permits where permit.authority_epoch < responder.min_authority_epoch.
   uint64 authority_epoch = 14;
   string issuer_id = 15;
   bytes issuer_key_id = 16;
@@ -78,6 +81,8 @@ message NetperfResponderConfig {
   uint32 max_concurrent_sessions = 4;
   uint64 max_total_bandwidth_bps = 5;
   string advertise_address = 6;
+  // Plain monotonic uint64 fencing floor sourced from NetperfResponder.authority_epoch.
+  // Permits must satisfy NetperfPermitV1.authority_epoch >= min_authority_epoch.
   uint64 min_authority_epoch = 7;
 }
 

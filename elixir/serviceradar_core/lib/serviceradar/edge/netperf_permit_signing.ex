@@ -4,7 +4,9 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
 
   Signed using `ServiceRadar.Edge.IssuerKey` (`issuer_id = "serviceradar-core"`).
   Go Hub Responders verify permits against the `keys` list delivered in
-  `AgentConfigResponse.edge_record_trust_document` (`RecordTrust.agent_snapshot/2`).
+  `AgentConfigResponse.edge_record_trust_document` (`RecordTrust.agent_snapshot/2`)
+  and enforce the plain monotonic `uint64` fencing contract
+  `permit.authority_epoch >= responder.min_authority_epoch`.
 
   ## Canonical Preimage Layout
 
@@ -98,9 +100,9 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
     issued_at_unix = day_bucket - @scheduled_lead_sec
     expires_at_unix = day_bucket + @scheduled_window_days * @seconds_per_day
 
-    policy_epoch = Map.get(policy, :authority_epoch, 1) || 1
-    responder_epoch = Map.get(responder, :authority_epoch, 1) || 1
-    authority_epoch = combined_authority_epoch(policy_epoch, responder_epoch)
+    policy_epoch = normalize_authority_epoch(Map.get(policy, :authority_epoch, 1))
+    responder_epoch = normalize_authority_epoch(Map.get(responder, :authority_epoch, 1))
+    authority_epoch = responder_epoch
 
     policy_id = to_string(Map.fetch!(policy, :id))
     responder_agent_id = to_string(Map.fetch!(responder, :agent_uid))
@@ -110,7 +112,7 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
         policy_id,
         responder_agent_id,
         sender_agent_id,
-        authority_epoch,
+        {policy_epoch, responder_epoch},
         day_bucket
       )
 
@@ -157,7 +159,7 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
       allowed_directions: [Map.fetch!(params, :direction)],
       issued_at_unix: now_unix - 60,
       expires_at_unix: now_unix + ttl_sec,
-      authority_epoch: Map.get(params, :authority_epoch, 1) || 1
+      authority_epoch: normalize_authority_epoch(Map.get(params, :authority_epoch, 1))
     }
 
     sign_claims(claims, opts)
@@ -283,14 +285,6 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
     }
   end
 
-  @doc """
-  Combines policy and responder epochs into a monotonic 64-bit `authority_epoch`.
-  """
-  @spec combined_authority_epoch(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
-  def combined_authority_epoch(policy_epoch, responder_epoch) do
-    Bitwise.bor(Bitwise.bsl(policy_epoch, 32), Bitwise.band(responder_epoch, 0xFFFF_FFFF))
-  end
-
   defp validate_structure(%NetperfPermitV1{} = permit) do
     cond do
       Map.get(permit, :__unknown_fields__, []) != [] ->
@@ -330,11 +324,14 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
     end
   end
 
+  defp normalize_authority_epoch(value) when is_integer(value) and value >= 1, do: value
+  defp normalize_authority_epoch(_value), do: 1
+
   defp deterministic_permit_id(
          policy_id,
          responder_agent_id,
          sender_agent_id,
-         authority_epoch,
+         {policy_epoch, responder_epoch},
          day_bucket
        ) do
     digest =
@@ -347,7 +344,9 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
         ":",
         sender_agent_id,
         ":",
-        Integer.to_string(authority_epoch),
+        Integer.to_string(policy_epoch),
+        ":",
+        Integer.to_string(responder_epoch),
         ":",
         Integer.to_string(day_bucket)
       ])

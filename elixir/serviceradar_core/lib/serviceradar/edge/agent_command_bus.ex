@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.NetperfPermitSigning
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Infrastructure.Agent, as: AgentRecord
+  alias ServiceRadar.Monitoring.NetperfResponder
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.RateLimiter
@@ -1051,6 +1052,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     with :ok <- authorize_netperf_run(actor),
          {:ok, normalized} <- validate_netperf_run_params(agent_id, params),
+         {:ok, authority_epoch} <-
+           resolve_netperf_authority_epoch(params, normalized.responder_agent_id),
          partition_id when is_binary(partition_id) <-
            resolve_initial_dispatch_partition(
              normalized.sender_agent_id,
@@ -1073,7 +1076,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
                bandwidth_bps: normalized.bandwidth_bps,
                duration_sec: normalized.duration_sec,
                parallel: normalized.parallel,
-               authority_epoch: normalized.authority_epoch,
+               authority_epoch: authority_epoch,
                ttl_seconds: ttl_seconds + 30
              },
              Keyword.take(opts, [:issuer_key, :now])
@@ -2012,17 +2015,83 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
          parallel: clamp_netperf_int(netperf_param(params, :parallel), 1, 1, 8),
          packet_length:
            clamp_netperf_int(netperf_param(params, :packet_length), 1200, 64, 65_507),
-         authority_epoch:
-           clamp_netperf_int(
-             netperf_param(params, :authority_epoch),
-             1,
-             1,
-             0xFFFF_FFFF_FFFF_FFFF
-           ),
          partition_id: normalize_optional_string(netperf_param(params, :partition_id))
        }}
     end
   end
+
+  defp resolve_netperf_authority_epoch(params, responder_agent_id) do
+    case explicit_netperf_authority_epoch(netperf_param(params, :authority_epoch)) do
+      {:ok, epoch} -> {:ok, epoch}
+      :none -> lookup_netperf_responder_epoch(responder_agent_id)
+    end
+  end
+
+  defp explicit_netperf_authority_epoch(nil), do: :none
+
+  defp explicit_netperf_authority_epoch(value) when is_integer(value) do
+    {:ok, value |> max(1) |> min(0xFFFF_FFFF_FFFF_FFFF)}
+  end
+
+  defp explicit_netperf_authority_epoch(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if trimmed == "" do
+      :none
+    else
+      case Integer.parse(trimmed) do
+        {parsed, ""} -> {:ok, parsed |> max(1) |> min(0xFFFF_FFFF_FFFF_FFFF)}
+        _ -> :none
+      end
+    end
+  end
+
+  defp explicit_netperf_authority_epoch(_value), do: :none
+
+  defp lookup_netperf_responder_epoch(responder_agent_id) do
+    if netperf_repo_ready?() do
+      actor = SystemActor.system(:agent_command_bus)
+
+      case NetperfResponder.get_by_agent_uid(responder_agent_id, actor: actor) do
+        {:ok, %NetperfResponder{enabled: false}} ->
+          {:error, :netperf_responder_disabled}
+
+        {:ok, %NetperfResponder{enabled: true, authority_epoch: epoch}} ->
+          {:ok, normalize_netperf_epoch(epoch)}
+
+        {:ok, nil} ->
+          {:ok, 1}
+
+        {:error, reason} ->
+          if netperf_not_found?(reason) do
+            {:ok, 1}
+          else
+            {:error, reason}
+          end
+      end
+    else
+      {:ok, 1}
+    end
+  end
+
+  defp netperf_repo_ready? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
+      is_pid(Process.whereis(Repo))
+  end
+
+  defp normalize_netperf_epoch(epoch) when is_integer(epoch) and epoch >= 1 do
+    min(epoch, 0xFFFF_FFFF_FFFF_FFFF)
+  end
+
+  defp normalize_netperf_epoch(_epoch), do: 1
+
+  defp netperf_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp netperf_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &netperf_not_found?/1)
+  end
+
+  defp netperf_not_found?(_), do: false
 
   defp netperf_run_ttl_seconds(normalized, opts) do
     multiplier = if normalized.direction == "bidirectional", do: 2, else: 1
@@ -3189,15 +3258,24 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp normalize_optional_string(nil), do: nil
 
-  defp normalize_optional_string(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> case do
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
       "" -> nil
       normalized -> normalized
     end
   end
+
+  defp normalize_optional_string(value) when is_atom(value) and not is_boolean(value) do
+    value
+    |> Atom.to_string()
+    |> normalize_optional_string()
+  end
+
+  defp normalize_optional_string(value) when is_integer(value) do
+    Integer.to_string(value)
+  end
+
+  defp normalize_optional_string(_value), do: nil
 
   # A multi-protocol set goes to an agent only when it advertises
   # mtr_protocol_set. An older agent runs one bulk job at a time and rejects a

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias Netperf.V1.NetperfPermitV1
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PersistenceWorker
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
@@ -12,6 +13,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   alias ServiceRadar.AgentCommands.StatusHandler
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.NetperfPermitSigning
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadar.TestSupport
@@ -1582,7 +1585,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
           capabilities: ["netperf"]
         })
 
-      {:ok, issuer_key} = ServiceRadar.Edge.IssuerKey.configured()
+      {:ok, issuer_key} = IssuerKey.configured()
 
       assert {:ok, command_id} =
                AgentCommandBus.dispatch_netperf_run(
@@ -1625,10 +1628,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert payload["bandwidth_bps"] == 10_000_000_000
 
       permit_bytes = Base.decode64!(payload["permit_b64"])
-      permit = Netperf.V1.NetperfPermitV1.decode(permit_bytes)
+      permit = NetperfPermitV1.decode(permit_bytes)
       assert permit.sender_agent_id == agent_id
       assert permit.responder_agent_id == "agent-hub-1"
-      assert ServiceRadar.Edge.NetperfPermitSigning.verify(permit, issuer_key.public_key)
+      assert NetperfPermitSigning.verify(permit, issuer_key.public_key)
 
       AgentCommandPubSub.broadcast_result(%{
         command_id: command.command_id,
@@ -1670,6 +1673,103 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert :ok = AgentCommandBus.push_config_for_type(:netperf, :all_online)
       assert_receive {:push_config, :netperf, %Monitoring.AgentConfigResponse{}}, 2_000
       refute_receive {:push_config, :other, _}, 200
+    end
+
+    test "dispatch_netperf_run resolves responder authority_epoch by default and rejects disabled responders",
+         %{
+           agent_id: agent_id,
+           actor: actor
+         } do
+      ensure_status_handler_started()
+      operator = %{id: Ash.UUID.generate(), role: :operator}
+      hub_uid = "#{agent_id}-hub-epoch"
+
+      {:ok, _hub_agent} =
+        ServiceRadar.Infrastructure.Agent
+        |> Ash.Changeset.for_create(:register, %{uid: hub_uid}, actor: actor)
+        |> Ash.create()
+
+      {:ok, responder} =
+        ServiceRadar.Monitoring.NetperfResponder
+        |> Ash.Changeset.for_create(
+          :create,
+          %{agent_uid: hub_uid, name: "Hub #{hub_uid}", advertise_address: "198.51.100.30"},
+          actor: operator
+        )
+        |> Ash.create()
+
+      {:ok, responder} =
+        responder
+        |> Ash.Changeset.for_update(:bump_authority_epoch, %{}, actor: operator)
+        |> Ash.update()
+
+      {:ok, responder} =
+        responder
+        |> Ash.Changeset.for_update(:bump_authority_epoch, %{}, actor: operator)
+        |> Ash.update()
+
+      assert responder.authority_epoch == 3
+
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["netperf"]
+        })
+
+      {:ok, issuer_key} = IssuerKey.configured()
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch_netperf_run(
+                 agent_id,
+                 %{
+                   responder_agent_id: hub_uid,
+                   target_address: "198.51.100.30"
+                 },
+                 actor: operator
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, _context}, 1_000
+      payload = Jason.decode!(command.payload_json)
+      permit = payload["permit_b64"] |> Base.decode64!() |> NetperfPermitV1.decode()
+
+      assert permit.authority_epoch == 3
+      assert NetperfPermitSigning.verify(permit, issuer_key.public_key)
+
+      {:ok, _disabled} =
+        responder
+        |> Ash.Changeset.for_update(:disable, %{}, actor: operator)
+        |> Ash.update()
+
+      assert {:error, :netperf_responder_disabled} =
+               AgentCommandBus.dispatch_netperf_run(
+                 agent_id,
+                 %{
+                   responder_agent_id: hub_uid,
+                   target_address: "198.51.100.30"
+                 },
+                 actor: operator
+               )
+    end
+
+    test "dispatch_netperf_run rejects non-scalar agent_id and responder_agent_id without raising",
+         %{
+           agent_id: agent_id
+         } do
+      operator = %{id: Ash.UUID.generate(), role: :operator}
+
+      assert {:error, :invalid_sender_agent_id} =
+               AgentCommandBus.dispatch_netperf_run(
+                 %{"unexpected" => "map"},
+                 %{responder_agent_id: "agent-hub-1", target_address: "198.51.100.1"},
+                 actor: operator
+               )
+
+      assert {:error, :responder_agent_id_required} =
+               AgentCommandBus.dispatch_netperf_run(
+                 agent_id,
+                 %{responder_agent_id: ["unexpected", "list"], target_address: "198.51.100.1"},
+                 actor: operator
+               )
     end
   end
 
