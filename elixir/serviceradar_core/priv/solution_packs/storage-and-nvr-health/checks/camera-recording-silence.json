@@ -1,0 +1,111 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Detects enabled continuous CameraRecordingPolicy streams sealing zero non-quarantined blocks across silence_window_minutes.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "posture_1",
+      "source_handle": "signal",
+      "target": "assert_silence",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_silence",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "silence_window_minutes"
+      },
+      "description": "Rolling window in minutes over which at least 1 block must seal",
+      "key": "silence_window_minutes",
+      "max": 1440,
+      "min": 5,
+      "type": "integer"
+    }
+  ],
+  "managed": true,
+  "name": "Camera Continuous Recording Silence",
+  "nodes": [
+    {
+      "config": {
+        "evaluator": "camera.continuous_recording_silence",
+        "silence_window_minutes": "{{inputs.silence_window_minutes}}"
+      },
+      "id": "posture_1",
+      "kind": "platform_posture",
+      "label": "Continuous Recording Silence"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": 1
+        },
+        "field": "silent_policy_count"
+      },
+      "id": "assert_silence",
+      "kind": "threshold_assert",
+      "label": "Silent Policy Count"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "recording_degraded",
+          "down": "continuous_recording_silent",
+          "healthy": "recording_active",
+          "unknown": "recording_status_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Recording Silence Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.storage-and-nvr-health",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 180,
+    "jitter_seconds": 10,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "camera-continuous-recording-silence",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_silence": {
+        "x": 380,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      },
+      "posture_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

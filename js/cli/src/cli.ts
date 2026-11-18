@@ -9,6 +9,7 @@ import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
 import {dispatchAgent, dispatchCollector, dispatchEdge, dispatchNats} from "./edge/index.js"
 import {dispatchNotifications} from "./notifications/index.js"
+import {dispatchPack} from "./pack/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
@@ -74,6 +75,12 @@ async function main(): Promise<void> {
     return dispatchPlugin(pluginSub, options, printHelp)
   }
 
+  if (first === "pack") {
+    const [packSub = "help", ...packRest] = rest
+    const options = parseArgs(packRest)
+    return dispatchPack(packSub, options, printHelp)
+  }
+
   if (first === "dashboard") {
     const [dashSub = "help", ...dashRest] = rest
     const options = parseArgs(dashRest)
@@ -91,6 +98,7 @@ function printHelp(): void {
   console.log(`ServiceRadar CLI
 
 Usage:
+  serviceradar <group> <subcommand> [...flags]
   serviceradar-cli <group> <subcommand> [...flags]
   srcloud <group> <subcommand> [...flags]      (same CLI; see "Bin names" below)
   serviceradar-cli --version
@@ -99,6 +107,7 @@ Usage:
 Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
+  pack        Validate, build, sign, and index ServiceRadar Solution Packs (.srpack).
   plugin         Author and publish ServiceRadar Wasm plugins.
   notifications  Configure notification routes against a ServiceRadar instance.
   edge        Edge onboarding: packages, sites (NATS leaf), and edge-host install helpers.
@@ -138,6 +147,13 @@ Plugin subcommands:
   serviceradar-cli plugin status --instance <url> --id <package-id>
   serviceradar-cli plugin assignments|secrets|rules|controllers <list|get|create|update|enable|disable> --instance <url>
   serviceradar-cli plugin apply --instance <url> --file playbooks/demo-plugins.yaml [--dry-run]
+
+Solution Pack subcommands:
+  serviceradar pack validate <dir-or-srpack> [--json]
+  serviceradar pack build <dir> [-o <out.srpack>] [--refresh-files] [--write-manifest] [--json]
+  serviceradar pack keygen [--out-dir <dir> | -o <prefix>] [--key-id <id>] [--force] [--json]
+  serviceradar pack sign <file.srpack> --key <privkey> --key-id <id> [-o <file.srpack.sig>] [--signer <name>]
+  serviceradar pack index <dir-or-packs...> [-o serviceradar-pack-index.json] [--repo <org/repo> --release-tag <vX.Y.Z> | --base-url <url>]
 
 Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
   serviceradar-cli agent list            --instance <url> [--json]

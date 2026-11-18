@@ -72,12 +72,12 @@ The system SHALL stamp pack-installed checks, rules, and authored dashboards wit
 - **AND** the operator's custom DAG or panel query remains intact
 
 ### Requirement: Signed Release Catalog Repositories
-The system MUST persist Solution Pack catalog sources in `platform.catalog_repositories`, seed the official `carverauto/serviceradar-apps` release catalog as an immutable `builtin: true` record, fetch all external catalog indexes and `.srpack` assets through `ServiceRadar.HTTP.EgressClient`, and verify every `:release_catalog` bundle against that repository's ed25519 `UploadSignature` public key without requiring public Sigstore Rekor entries.
+The system MUST persist Solution Pack catalog sources in `platform.catalog_repositories`, seed the official `carverauto/serviceradar` release catalog as an immutable `builtin: true` record, fetch all external catalog indexes (from GitHub/Gitea releases or direct HTTPS catalog portal endpoints such as `https://developer.serviceradar.cloud/packs/index.json`) and `.srpack` assets through `ServiceRadar.HTTP.EgressClient`, and verify every `:release_catalog` bundle against that repository's ed25519 `UploadSignature` public key without requiring public Sigstore Rekor entries.
 
 #### Scenario: Official release catalog is seeded and immutable except enablement
 - **GIVEN** a migrated ServiceRadar deployment
 - **WHEN** catalog repositories are listed
-- **THEN** `https://github.com/carverauto/serviceradar-apps` is present with `mode: :release_catalog`, `builtin: true`, and `is_default: true`
+- **THEN** `https://github.com/carverauto/serviceradar` is present with `mode: :release_catalog`, `builtin: true`, and `is_default: true`
 - **AND** attempts to edit its URL or signing keys or destroy it are rejected, while enabling and disabling it are permitted
 
 #### Scenario: Release catalog verifies per-repository ed25519 signature and isolates trust

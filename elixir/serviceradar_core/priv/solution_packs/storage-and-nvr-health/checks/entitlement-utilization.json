@@ -1,0 +1,126 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Monitors SaaS recordings storage entitlement utilization and hard-cap enforcement.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "posture_1",
+      "source_handle": "signal",
+      "target": "assert_util",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_util",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "utilization_warn_pct"
+      },
+      "description": "Warning utilization percentage",
+      "key": "utilization_warn_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    },
+    {
+      "default": {
+        "$pack_param": "utilization_crit_pct"
+      },
+      "description": "Critical utilization percentage",
+      "key": "utilization_crit_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    }
+  ],
+  "managed": true,
+  "name": "Storage Entitlement Utilization",
+  "nodes": [
+    {
+      "config": {
+        "consumer": "recordings",
+        "evaluator": "storage.entitlement_utilization"
+      },
+      "id": "posture_1",
+      "kind": "platform_posture",
+      "label": "Entitlement Utilization"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.utilization_crit_pct}}"
+        },
+        "fail_closed_field": "hard_cap_active",
+        "field": "utilization_percent",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.utilization_warn_pct}}"
+        }
+      },
+      "id": "assert_util",
+      "kind": "threshold_assert",
+      "label": "Utilization Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "approaching_entitlement_cap",
+          "down": "entitlement_cap_exceeded",
+          "healthy": "within_entitlement",
+          "unknown": "entitlement_unconfigured"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Storage Entitlement Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.storage-and-nvr-health",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "storage-entitlement-utilization",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_util": {
+        "x": 380,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      },
+      "posture_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

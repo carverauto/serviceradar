@@ -1573,6 +1573,62 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         }
       ]
+    },
+    %{
+      section: "catalog",
+      label: "Solution packs & catalog",
+      permissions: [
+        %{
+          key: "catalog.view",
+          section: "catalog",
+          resource: "catalog",
+          action: "view",
+          label: "View solution pack catalog",
+          description:
+            "Browse built-in, signed release, and GitOps solution packs and inspect installed pack status",
+          default_roles: @all_roles
+        },
+        %{
+          key: "catalog.packs.install",
+          section: "catalog",
+          resource: "catalog.packs",
+          action: "install",
+          label: "Install and upgrade solution packs",
+          description:
+            "Install, upgrade, detach, and uninstall solution packs and bind pack credential slots",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "catalog.packs.export",
+          section: "catalog",
+          resource: "catalog.packs",
+          action: "export",
+          label: "Export solution packs",
+          description:
+            "Export secret-free solution pack archives and directory trees from authored resources",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "catalog.repositories.manage",
+          section: "catalog",
+          resource: "catalog.repositories",
+          action: "manage",
+          label: "Manage catalog repositories",
+          description:
+            "Add, edit, enable, disable, and remove signed release catalog and private GitOps sources",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "catalog.gitops.sync",
+          section: "catalog",
+          resource: "catalog.gitops",
+          action: "sync",
+          label: "Synchronize GitOps solution packs",
+          description:
+            "Push secret-free solution pack trees to connected Git repositories and pull environment promotions",
+          default_roles: @operator_roles
+        }
+      ]
     }
   ]
 

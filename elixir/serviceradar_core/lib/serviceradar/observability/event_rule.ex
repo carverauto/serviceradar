@@ -15,7 +15,20 @@ defmodule ServiceRadar.Observability.EventRule do
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @event_rule_fields [:name, :enabled, :priority, :source_type, :source, :match, :event]
+  @event_rule_fields [
+    :name,
+    :enabled,
+    :priority,
+    :source_type,
+    :source,
+    :match,
+    :event,
+    :pack_id,
+    :pack_version,
+    :managed,
+    :template_fingerprint,
+    :parameter_overrides
+  ]
 
   postgres do
     table "event_rules"
@@ -142,6 +155,30 @@ defmodule ServiceRadar.Observability.EventRule do
     end
 
     attribute :event, :map do
+      default %{}
+      public? true
+    end
+
+    attribute :pack_id, :string do
+      public? true
+    end
+
+    attribute :pack_version, :string do
+      public? true
+    end
+
+    attribute :managed, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :template_fingerprint, :string do
+      public? true
+    end
+
+    attribute :parameter_overrides, :map do
+      allow_nil? false
       default %{}
       public? true
     end

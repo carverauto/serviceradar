@@ -252,6 +252,7 @@ config :serviceradar_core,
   ecto_repos: [ServiceRadar.Repo],
   ash_domains: [
     ServiceRadar.Camera,
+    ServiceRadar.Catalog,
     ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,
     ServiceRadar.DeclarativeChecks,

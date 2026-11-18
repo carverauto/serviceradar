@@ -51,10 +51,12 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   @default_profile :serviceradar_egress
   @default_timeout 30_000
+  @default_max_json_bytes 10 * 1024 * 1024
   @tls_versions [:"tlsv1.3", :"tlsv1.2"]
   @depth 4
   @default_max_redirects 5
   @redirect_statuses [301, 302, 303, 307, 308]
+  @json_methods [:get, :post, :put, :patch, :delete]
   @cross_origin_headers ~w(accept accept-encoding user-agent)
   @stale_temp_seconds 86_400
 
@@ -308,6 +310,278 @@ defmodule ServiceRadar.HTTP.EgressClient do
       other ->
         other
     end
+  end
+
+  @doc """
+  Sends a bounded, non-redirecting HTTPS JSON request (`:get | :post | :put | :patch | :delete`)
+  over `SERVICERADAR_EGRESS_PROXY` and workspace TLS trust anchors (`3.1`).
+
+  ## Security & Framing Invariants
+  - Strictly enforces `redirect: false`: passing `redirect: true` returns
+    `{:error, :redirects_not_supported}`, and any `3xx` response fails closed with
+    `{:error, {:redirect_refused, status}}` so bearer tokens and JSON payloads
+    never cross origin boundaries.
+  - Enforces `:max_request_bytes` (default #{@default_max_json_bytes} bytes) on
+    encoded request JSON and `:max_bytes` (default #{@default_max_json_bytes} bytes)
+    on streamed response bytes.
+  - Uses passive `Mint.HTTP` with `range_connect_opts/1` so Smokescreen / `goproxy`
+    `HTTP/1.0 200 OK` CONNECT replies and `CAStore` trust anchors work identically
+    to `fetch_range/3`.
+  """
+  @spec request_json(atom(), String.t(), term(), keyword()) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def request_json(method, url, body, opts \\ [])
+
+  def request_json(method, url, body, opts)
+      when method in @json_methods and is_binary(url) and is_list(opts) do
+    case Keyword.pop(opts, :http_json_client) do
+      {fun, rest_opts} when is_function(fun, 4) ->
+        fun.(method, url, body, rest_opts)
+
+      {nil, rest_opts} ->
+        execute_mint_json_request(method, url, body, rest_opts)
+    end
+  end
+
+  def request_json(_method, _url, _body, _opts), do: {:error, :invalid_json_request}
+
+  defp execute_mint_json_request(method, url, body, opts) do
+    with {:ok, req} <- build_json_request(method, url, body, opts),
+         {:ok, conn} <-
+           Mint.HTTP.connect(:https, req.uri.host, req.uri.port, range_connect_opts(opts)) do
+      try do
+        case Mint.HTTP.request(conn, req.method_str, req.path, req.headers, req.body) do
+          {:ok, conn, ref} ->
+            deadline =
+              System.monotonic_time(:millisecond) +
+                Keyword.get(opts, :receive_timeout, @default_timeout)
+
+            json_receive(
+              conn,
+              ref,
+              req.max_response_bytes,
+              deadline,
+              %{status: nil, headers: [], chunks: [], size: 0}
+            )
+
+          {:error, _conn, reason} ->
+            {:error, reason}
+        end
+      after
+        Mint.HTTP.close(conn)
+      end
+    end
+  end
+
+  defp build_json_request(method, url, body, opts) do
+    uri = URI.parse(url)
+    max_req = Keyword.get(opts, :max_request_bytes, @default_max_json_bytes)
+    max_resp = Keyword.get(opts, :max_bytes, @default_max_json_bytes)
+    redirect_opt = Keyword.get(opts, :redirect, false)
+    validate_origin = Keyword.get(opts, :validate_origin)
+
+    cond do
+      redirect_opt != false ->
+        {:error, :redirects_not_supported}
+
+      not valid_range_uri?(uri) ->
+        {:error, :invalid_json_request}
+
+      not (is_integer(max_req) and max_req > 0 and is_integer(max_resp) and max_resp > 0) ->
+        {:error, :invalid_json_request}
+
+      true ->
+        with :ok <- maybe_validate_origin(validate_origin, url),
+             {:ok, encoded_body} <- encode_json_request_body(method, body, max_req) do
+          caller_headers = normalize_headers(Keyword.get(opts, :headers, []))
+          headers = finalize_json_headers(caller_headers, encoded_body)
+          path = if uri.path in [nil, ""], do: "/", else: uri.path
+          path = if uri.query, do: path <> "?" <> uri.query, else: path
+
+          {:ok,
+           %{
+             method_str: method |> Atom.to_string() |> String.upcase(),
+             uri: uri,
+             path: path,
+             headers: headers,
+             body: encoded_body,
+             max_response_bytes: max_resp
+           }}
+        end
+    end
+  end
+
+  defp maybe_validate_origin(nil, _url), do: :ok
+  defp maybe_validate_origin(fun, url) when is_function(fun, 1), do: fun.(url)
+
+  defp encode_json_request_body(method, nil, _max_req) when method in [:get, :delete],
+    do: {:ok, nil}
+
+  defp encode_json_request_body(_method, raw_json, max_req) when is_binary(raw_json) do
+    if byte_size(raw_json) > max_req do
+      {:error, :request_too_large}
+    else
+      {:ok, raw_json}
+    end
+  end
+
+  defp encode_json_request_body(_method, payload, max_req) do
+    case Jason.encode(payload) do
+      {:ok, encoded} ->
+        if byte_size(encoded) > max_req do
+          {:error, :request_too_large}
+        else
+          {:ok, encoded}
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp finalize_json_headers(caller_headers, encoded_body) do
+    filtered =
+      Enum.reject(caller_headers, fn {name, _} ->
+        name in ["accept-encoding", "content-length", "transfer-encoding"]
+      end)
+
+    has_accept? = List.keymember?(filtered, "accept", 0)
+    has_ct? = List.keymember?(filtered, "content-type", 0)
+
+    headers = [{"accept-encoding", "identity"} | filtered]
+    headers = if has_accept?, do: headers, else: [{"accept", "application/json"} | headers]
+
+    if is_binary(encoded_body) do
+      headers =
+        if has_ct?,
+          do: headers,
+          else: [{"content-type", "application/json"} | headers]
+
+      [{"content-length", Integer.to_string(byte_size(encoded_body))} | headers]
+    else
+      headers
+    end
+  end
+
+  defp json_receive(conn, ref, max_bytes, deadline, state) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      {:error, :timeout}
+    else
+      case Mint.HTTP.recv(conn, 0, remaining) do
+        {:ok, conn, events} ->
+          case json_events(events, ref, max_bytes, state) do
+            {:cont, next_state} -> json_receive(conn, ref, max_bytes, deadline, next_state)
+            result -> result
+          end
+
+        {:error, _conn, %Mint.TransportError{reason: :closed}, _events} ->
+          {:error, :truncated_response}
+
+        {:error, _conn, %Mint.TransportError{reason: :timeout}, _events} ->
+          {:error, :timeout}
+
+        {:error, _conn, reason, _events} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp json_events([], _ref, _max_bytes, state), do: {:cont, state}
+
+  defp json_events([{:status, ref, status} | _events], ref, _max_bytes, _state)
+       when status in 300..399 do
+    {:error, {:redirect_refused, status}}
+  end
+
+  defp json_events([{:status, ref, status} | events], ref, max_bytes, state) do
+    json_events(events, ref, max_bytes, %{state | status: status})
+  end
+
+  defp json_events([{:headers, ref, headers} | events], ref, max_bytes, state) do
+    merged = state.headers ++ headers
+
+    if declared_content_length_exceeded?(merged, max_bytes) do
+      {:error, :response_too_large}
+    else
+      json_events(events, ref, max_bytes, %{state | headers: merged})
+    end
+  end
+
+  defp json_events([{:data, ref, chunk} | events], ref, max_bytes, state) do
+    next_size = state.size + byte_size(chunk)
+
+    if next_size > max_bytes do
+      {:error, :response_too_large}
+    else
+      json_events(events, ref, max_bytes, %{
+        state
+        | size: next_size,
+          chunks: [chunk | state.chunks]
+      })
+    end
+  end
+
+  defp json_events([{:done, ref} | _events], ref, _max_bytes, state) do
+    raw_body = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
+
+    if content_length_mismatch?(state.headers, state.size) do
+      {:error, :truncated_response}
+    else
+      decode_json_response(state.status || 200, state.headers, raw_body)
+    end
+  end
+
+  defp json_events([{:error, ref, reason} | _events], ref, _max_bytes, _state),
+    do: {:error, reason}
+
+  defp declared_content_length_exceeded?(headers, max_bytes) do
+    Enum.any?(headers, fn {name, val} ->
+      if String.downcase(name) == "content-length" do
+        case Integer.parse(String.trim(val)) do
+          {len, ""} -> len > max_bytes
+          _ -> false
+        end
+      else
+        false
+      end
+    end)
+  end
+
+  defp content_length_mismatch?(headers, actual_size) do
+    case Enum.find(headers, fn {name, _} -> String.downcase(name) == "content-length" end) do
+      {_, val} ->
+        case Integer.parse(String.trim(val)) do
+          {expected, ""} -> expected != actual_size
+          _ -> true
+        end
+
+      nil ->
+        false
+    end
+  end
+
+  defp decode_json_response(status, headers, raw_body)
+       when status in 200..299 and (status == 204 or raw_body == "") do
+    {:ok, response(status, headers, raw_body)}
+  end
+
+  defp decode_json_response(status, headers, raw_body) when status in 200..299 do
+    case Jason.decode(raw_body) do
+      {:ok, decoded} -> {:ok, response(status, headers, decoded)}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp decode_json_response(status, headers, raw_body) do
+    body =
+      case Jason.decode(raw_body) do
+        {:ok, decoded} -> decoded
+        {:error, _} -> raw_body
+      end
+
+    {:ok, response(status, headers, body)}
   end
 
   defp write_into(file) do

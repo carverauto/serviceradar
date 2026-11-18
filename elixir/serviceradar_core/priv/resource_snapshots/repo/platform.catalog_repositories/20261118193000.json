@@ -1,0 +1,454 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"uuid_generate_v7()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "name",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"release_catalog\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "mode",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"github\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "provider_type",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "repo_url",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"main\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "branch",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"packs\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "base_path",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"pull_request\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "push_strategy",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"serviceradar-pack-index.json\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "index_asset_name",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "signing_key_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "signing_public_key",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "catalog_repositories_credential_secret_id_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "network_credential_secrets"
+      },
+      "scale": null,
+      "size": null,
+      "source": "credential_secret_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "builtin",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "is_default",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "true",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "enabled",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "auto_reconcile",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "last_sync_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "last_sync_error",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "last_sync_summary",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "catalog_repositories_created_by_id_fkey",
+        "on_delete": "nilify",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "ng_users"
+      },
+      "scale": null,
+      "size": null,
+      "source": "created_by_id",
+      "type": "uuid"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "mode"
+      ],
+      "base_filter": null,
+      "check": "mode IN ('release_catalog', 'gitops_tree') AND\nprovider_type IN ('github', 'gitlab', 'gitea', 'portal') AND\npush_strategy IN ('pull_request', 'direct_commit') AND\nbtrim(name) <> '' AND\nbtrim(repo_url) <> '' AND\nrepo_url ~ '^https://' AND\nbtrim(branch) <> '' AND\nbtrim(base_path) <> '' AND\nbtrim(index_asset_name) <> '' AND\n(mode <> 'release_catalog' OR (\n  signing_key_id IS NOT NULL AND btrim(signing_key_id) <> '' AND\n  signing_public_key IS NOT NULL AND btrim(signing_public_key) <> ''\n)) AND\n(mode <> 'gitops_tree' OR (\n  provider_type IN ('github', 'gitlab', 'gitea') AND\n  credential_secret_id IS NOT NULL\n))\n",
+      "name": "catalog_repositories_valid_contract"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "is_default"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "is_default"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "catalog_repositories_single_default_uidx",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": true,
+      "using": null,
+      "where": "is_default"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "enabled"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "enabled"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "catalog_repositories_enabled_idx",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "credential_secret_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "credential_secret_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "catalog_repositories_credential_secret_id_idx",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "credential_secret_id IS NOT NULL"
+    }
+  ],
+  "custom_statements": [
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DELETE FROM platform.catalog_repositories\nWHERE builtin = true\n  AND repo_url = 'https://github.com/carverauto/serviceradar';\n",
+      "global?": false,
+      "name": "seed_official_serviceradar_catalog",
+      "up": "INSERT INTO platform.catalog_repositories\n  (id, name, mode, provider_type, repo_url, branch, base_path, push_strategy,\n   index_asset_name, signing_key_id, signing_public_key, enabled, auto_reconcile,\n   builtin, is_default, last_sync_summary, inserted_at, updated_at)\nVALUES\n  (uuid_generate_v7(), 'ServiceRadar Official Solution Packs', 'release_catalog',\n   'github', 'https://github.com/carverauto/serviceradar', 'main', 'packs',\n   'pull_request', 'serviceradar-pack-index.json', 'serviceradar-first-party-v2',\n   '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', true, false, true, true,\n   '{}'::jsonb, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'))\nON CONFLICT (mode, repo_url, branch, base_path) DO NOTHING;\n\nDO $$\nDECLARE\n  defaults integer;\nBEGIN\n  SELECT count(*) INTO defaults\n  FROM platform.catalog_repositories\n  WHERE is_default;\n\n  IF defaults <> 1 THEN\n    RAISE EXCEPTION\n      'catalog_repositories seed left % default row(s), expected exactly 1', defaults;\n  END IF;\nEND\n$$;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.authored_dashboards_pack_id_idx;\nALTER TABLE platform.authored_dashboards\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.zen_rules_pack_id_idx;\nALTER TABLE platform.zen_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.event_rules_pack_id_idx;\nALTER TABLE platform.event_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.stateful_alert_rules_pack_id_idx;\nALTER TABLE platform.stateful_alert_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
+      "global?": false,
+      "name": "extend_observability_and_dashboard_pack_provenance",
+      "up": "ALTER TABLE platform.stateful_alert_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS stateful_alert_rules_pack_id_idx\n  ON platform.stateful_alert_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.event_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS event_rules_pack_id_idx\n  ON platform.event_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.zen_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS zen_rules_pack_id_idx\n  ON platform.zen_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.authored_dashboards\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS authored_dashboards_pack_id_idx\n  ON platform.authored_dashboards (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
+    }
+  ],
+  "has_create_action": true,
+  "hash": "2FE52C1238D53F36AFF71D9CCBFFBA3363FBC0E001D348D89FD565ECA23B0B93",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "catalog_repositories_source_uidx",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "mode"
+        },
+        {
+          "type": "atom",
+          "value": "repo_url"
+        },
+        {
+          "type": "atom",
+          "value": "branch"
+        },
+        {
+          "type": "atom",
+          "value": "base_path"
+        }
+      ],
+      "name": "unique_source",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "catalog_repositories",
+  "temporal": null
+}
