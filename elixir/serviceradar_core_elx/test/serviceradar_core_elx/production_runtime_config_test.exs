@@ -591,7 +591,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     release_keys = Keyword.keys(read_prod_config()[:serviceradar_core])
     missing = core_keys -- (release_keys ++ @set_conditionally_here ++ @known_inert_in_release)
 
-    assert core_keys != [], "core's runtime.exs set no :serviceradar_core keys; nothing was compared"
+    assert core_keys != [],
+           "core's runtime.exs set no :serviceradar_core keys; nothing was compared"
 
     assert missing == [],
            "set in serviceradar_core/config/runtime.exs but not in this release's " <>
