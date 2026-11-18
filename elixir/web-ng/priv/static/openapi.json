@@ -996,6 +996,55 @@
         },
         "type": "object"
       },
+      "SolutionPackSummary": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "available_version": {
+            "nullable": true,
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "counts": {
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "installed_version": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "update_available": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "otel_trace-filter-status_code": {
         "additionalProperties": false,
         "description": "Status code (0=unset, 1=ok, 2=error)",
@@ -3146,6 +3195,20 @@
         },
         "type": "deepObject"
       },
+      "CatalogGitOpsPushRequest": {
+        "properties": {
+          "commit_message": {
+            "type": "string"
+          },
+          "files": {
+            "type": "object"
+          },
+          "pack_slug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-interface_uid": {
         "additionalProperties": false,
         "description": "Interface unique identifier (ifindex or name-based)",
@@ -4659,6 +4722,14 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -15607,6 +15678,59 @@
         },
         "type": "object"
       },
+      "CatalogRepositoryWriteRequest": {
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "credential_secret_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "release_catalog",
+              "gitops_tree"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "enum": [
+              "github",
+              "gitlab",
+              "gitea",
+              "portal"
+            ],
+            "type": "string"
+          },
+          "push_strategy": {
+            "enum": [
+              "pull_request",
+              "direct_commit"
+            ],
+            "type": "string"
+          },
+          "repo_url": {
+            "type": "string"
+          },
+          "signing_key_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signing_public_key": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-os": {
         "additionalProperties": false,
         "description": "Operating system info (OCSF OS object), including passive_fingerprint evidence",
@@ -19013,6 +19137,30 @@
         },
         "type": "object"
       },
+      "SolutionPackImportRequest": {
+        "properties": {
+          "archive_base64": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "type": "boolean"
+          },
+          "files": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-acknowledged_by_user_id": {
         "additionalProperties": false,
         "description": "Platform user who acknowledged, when one can be identified.\n\nThe free-text `acknowledged_by` is retained alongside this for external\nprincipals (a chat or paging identity with no platform user).\n",
@@ -19471,6 +19619,14 @@
           "type",
           "id"
         ],
+        "type": "object"
+      },
+      "CatalogRepositoryResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CatalogRepository"
+          }
+        },
         "type": "object"
       },
       "alert-filter-last_notification_at": {
@@ -22961,6 +23117,56 @@
             "type": "string"
           },
           "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogRepository": {
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "release_catalog",
+              "gitops_tree"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "enum": [
+              "github",
+              "gitlab",
+              "gitea",
+              "portal"
+            ],
+            "type": "string"
+          },
+          "push_strategy": {
+            "enum": [
+              "pull_request",
+              "direct_commit"
+            ],
+            "type": "string"
+          },
+          "repo_url": {
             "type": "string"
           }
         },
@@ -28274,6 +28480,34 @@
         },
         "type": "object"
       },
+      "CatalogGitOpsPullRequest": {
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": true,
+            "type": "boolean"
+          },
+          "ref": {
+            "nullable": true,
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
       "device": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a device",
@@ -29626,6 +29860,32 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SolutionPackInstallRequest": {
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SolutionPackResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SolutionPackSummary"
           }
         },
         "type": "object"
@@ -35212,6 +35472,25 @@
         },
         "type": "object"
       },
+      "CatalogRepositoryListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogRepository"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogOperationResponse": {
+        "properties": {
+          "data": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric-filter-target_device_ip": {
         "additionalProperties": false,
         "description": "Target device IP for SNMP/network metrics",
@@ -35690,6 +35969,17 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SolutionPackListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SolutionPackSummary"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -36364,6 +36654,81 @@
         },
         "tags": [
           "device"
+        ]
+      }
+    },
+    "/catalog/packs/{slug}/install": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Runs dry-run preview (`dry_run: true`) or atomic installation/upgrade via `ServiceRadar.Catalog.Reconciler`. Requires `catalog.packs.install`.",
+        "operationId": "installSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolutionPackInstallRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Reconciliation plan or apply result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Install or upgrade a Solution Pack (supports dry_run)",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -37725,6 +38090,91 @@
         ]
       }
     },
+    "/catalog/packs/{slug}/export": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Downloads a secret-free `.srpack` archive (`format=srpack`) or canonical `.json` bundle (`format=json`). Requires `catalog.packs.export`.",
+        "operationId": "exportSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Output format (`srpack` or `json`).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "srpack",
+              "enum": [
+                "srpack",
+                "json"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Secret-free Solution Pack archive or JSON bundle"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Export Solution Pack (.srpack or .json)",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/gateways/{id}/drain/finish": {
       "patch": {
         "callbacks": {},
@@ -38923,6 +39373,149 @@
         ]
       }
     },
+    "/catalog/repositories/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Deletes a non-built-in catalog repository. Requires `catalog.repositories.manage`.",
+        "operationId": "deleteCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Repository deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      },
+      "put": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Updates a non-built-in catalog repository. Requires `catalog.repositories.manage`.",
+        "operationId": "updateCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogRepositoryWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryResponse"
+                }
+              }
+            },
+            "description": "Updated repository"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/alerts/{id}": {
       "get": {
         "callbacks": {},
@@ -39314,6 +39907,82 @@
         },
         "tags": [
           "device_cleanup_settings"
+        ]
+      }
+    },
+    "/catalog/repositories/{id}/gitops/pull": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Previews (`dry_run: true`, default) or applies a GitOps promotion from a `:gitops_tree` branch. Requires `catalog.gitops.sync`.",
+        "operationId": "pullSolutionPackFromGitOps",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogGitOpsPullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "GitOps pull preview or applied result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Pull or dry-run preview a Solution Pack from GitOps repository",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -41566,6 +42235,77 @@
         ]
       }
     },
+    "/catalog/packs/export": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Serializes selected checks, rules, and dashboards through `SecretFreeValidator` into a `.srpack` or `.json` bundle. Requires `catalog.packs.export`.",
+        "operationId": "exportCustomSolutionPack",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Secret-free Solution Pack archive or JSON bundle"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or secret-free violation"
+          }
+        },
+        "summary": "Export custom Solution Pack spec",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/interface-classification-rules/{id}": {
       "get": {
         "callbacks": {},
@@ -41919,6 +42659,71 @@
         },
         "tags": [
           "agent"
+        ]
+      }
+    },
+    "/catalog/packs/{slug}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Returns full pack manifest, sanitized README, assets, check documents, rules, and dashboards. Requires `catalog.view`.",
+        "operationId": "getSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolutionPackResponse"
+                }
+              }
+            },
+            "description": "Solution Pack detail"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get Solution Pack detail",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -48480,6 +49285,51 @@
         ]
       }
     },
+    "/catalog/packs": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Lists built-in and installed Solution Packs with resource counts and update availability. Requires `catalog.view`.",
+        "operationId": "listSolutionPacks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolutionPackListResponse"
+                }
+              }
+            },
+            "description": "Solution Pack list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List Solution Packs",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/poll-jobs/running": {
       "get": {
         "callbacks": {},
@@ -48581,6 +49431,114 @@
         },
         "tags": [
           "poll-job"
+        ]
+      }
+    },
+    "/catalog/repositories": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Lists configured `:release_catalog` and `:gitops_tree` repositories. Requires `catalog.view`.",
+        "operationId": "listCatalogRepositories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryListResponse"
+                }
+              }
+            },
+            "description": "Repository list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List Catalog & GitOps Repositories",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Creates a `:release_catalog` or `:gitops_tree` repository. Requires `catalog.repositories.manage`.",
+        "operationId": "createCatalogRepository",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogRepositoryWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryResponse"
+                }
+              }
+            },
+            "description": "Created repository"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -48980,6 +49938,92 @@
         ]
       }
     },
+    "/catalog/repositories/{id}/gitops/push": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Pushes a secret-free pack file tree to a `:gitops_tree` repository via HTTPS Git Data REST APIs. Requires `catalog.gitops.sync`.",
+        "operationId": "pushSolutionPackToGitOps",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogGitOpsPushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "GitOps push result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Upstream branch conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Push secret-free Solution Pack to GitOps repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/notification-channels": {
       "get": {
         "callbacks": {},
@@ -49081,6 +50125,147 @@
         },
         "tags": [
           "notification_channel"
+        ]
+      }
+    },
+    "/catalog/repositories/{id}/sync": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Runs an immediate isolated sync for the specified catalog repository. Requires `catalog.repositories.manage` or `catalog.gitops.sync`.",
+        "operationId": "syncCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Sync summary"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Trigger isolated repository sync",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
+    "/catalog/packs/import": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Validates an uploaded archive or file map and previews or applies reconciliation. Requires `catalog.packs.install`.",
+        "operationId": "importSolutionPack",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolutionPackImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Import preview or applied result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Import a .srpack, .zip, or JSON Solution Pack (supports dry_run)",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -51494,6 +52679,10 @@
     {
       "description": "Declarative service and posture checks (DAG CRUD, canonical import/export, and ephemeral test-run)",
       "name": "declarative_checks"
+    },
+    {
+      "description": "Solution Packs catalog gallery, guided install/upgrade, secret-free export/import, signed release catalogs, and HTTPS GitOps sync",
+      "name": "solution_packs_catalog"
     }
   ]
 }

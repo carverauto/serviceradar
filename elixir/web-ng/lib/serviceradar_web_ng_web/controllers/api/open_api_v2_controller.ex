@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
 
   alias ServiceRadarWebNGWeb.AshJsonApiRouter
   alias ServiceRadarWebNGWeb.OpenAPI.DeclarativeCheckSpec
+  alias ServiceRadarWebNGWeb.OpenAPI.SolutionPackSpec
 
   def show(conn, _params) do
     spec =
@@ -44,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
   def customize_spec(spec, conn, opts) do
     spec
     |> DeclarativeCheckSpec.merge_spec(conn, opts)
+    |> SolutionPackSpec.merge_spec(conn, opts)
     |> seamless_session_auth(conn, opts)
   end
 

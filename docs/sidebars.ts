@@ -145,6 +145,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Extend',
       items: [
+        {type: 'doc', id: 'solution-packs', label: 'Solution Packs & Declarative Checks'},
         {type: 'doc', id: 'sdks', label: 'SDKs & Plugin Development'},
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
         {type: 'doc', id: 'telemetry-display-contracts', label: 'Telemetry Display Contracts'},
