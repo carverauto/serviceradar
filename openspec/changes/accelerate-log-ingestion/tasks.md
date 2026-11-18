@@ -30,12 +30,12 @@
 
 ## 5. Test and measurement tooling
 Hegel (`hegeltest`) for properties and Criterion for benchmarks, as the longshore project already uses them. Each is its own change.
-- [ ] 5.1 Keep the fraction of a second in stored log times. EventWriter reads a nanosecond time as whole seconds, so logs one sender wrote in the same second cannot be ordered. Fix it for logs on the OTLP, JSON and normalized paths without changing the shared `FieldParser`, which has 36 callers.
+- [x] 5.1 Keep the fraction of a second in stored log times. EventWriter reads a nanosecond time as whole seconds, so logs one sender wrote in the same second cannot be ordered. Fix it for logs on the OTLP, JSON and normalized paths without changing the shared `FieldParser`, which has 36 callers.
 - [x] 5.2 Add `hegeltest` to the workspace and the vendored crate set, and confirm it runs hermetically on the remote executors.
 - [x] 5.3 Hegel: for any decoded syslog record, the record the collector hands its rules equals the record JSON mode publishes.
 - [x] 5.4 Hegel: for any sequence of records, rulesets and limits, the batches hold every record once and in order, never mix rulesets, and stay within the byte limit unless one record exceeds it; every batch decodes to exactly its records.
 - [x] 5.5 Hegel: for any JSON object a rule can return, the row mapping produces a record without panicking.
 - [x] 5.6 Hegel: for any sender time and receive time, the stored time is the sender's or the receive time, and the fallback attributes are present exactly when it is the receive time.
-- [ ] 5.7 Cross-language property: generated records and rule outputs store the same row through the collector and EventWriter paths. Needs a harness across the Rust and Elixir test targets; the shared fixture covers hand-picked cases until then.
+- [x] 5.7 Cross-language property: generated records and rule outputs store the same row through the collector and EventWriter paths. EventWriter's parity test runs the collector's generators (300 cases per run, 30,000 nightly). Its first run found the JSON path storing a different row, or raising, for about half of the generated cases; `ServiceRadar.EventWriter.LogRow` now makes each column decision the way the collector does.
 - [x] 5.8 Criterion: normalize and encode one record with the bundled syslog rules, assemble a batch, and encode in JSON mode as the baseline. These give reproducible per-stage numbers that feed 4.1 to 4.3; they do not replace the end-to-end measurements those tasks and the design's rollout section require.
 - [ ] 5.9 If 5.8 shows the per-record ruleset lock matters and it is replaced with a lock-free read, ship that change with a Loom model of activation racing readers. The first measurement (consolidate-log-collectors `performance.md`) puts the lock inside 7.4 µs of an 80 µs record, so it does not matter yet; rule evaluation does.

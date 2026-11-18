@@ -47,9 +47,13 @@ defmodule ServiceRadar.EventWriter.LogSeverity do
         end
 
       :error ->
-        from_text(to_string(level))
+        from_text(level_name(level))
     end
   end
+
+  # A rule can set `level` to anything; a list or an object names no level.
+  defp level_name(level) when is_binary(level) or is_boolean(level), do: to_string(level)
+  defp level_name(_level), do: ""
 
   defp from_text(text) do
     severity = Map.get(@severity_aliases, String.downcase(String.trim(text)), "INFO")

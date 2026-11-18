@@ -90,6 +90,8 @@ test --flaky_test_attempts=2
 # The Hegel property targets draw a fresh random seed per attempt, so a retry would
 # replace a failing seed with a new one and hide the counterexample.
 test --flaky_test_attempts=//rust/flowgger:flowgger_propert.*@1
+# The same holds for the log parity test, which runs the collector's generators.
+test --flaky_test_attempts=//elixir/serviceradar_core:normalized_log_parity.*@1
 
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh

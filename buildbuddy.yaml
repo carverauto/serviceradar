@@ -1341,6 +1341,11 @@ actions:
   # 2,000,000 cases each, so inputs a pull request never tried are still tried. A failure
   # prints a `#[hegel::reproduce_failure("...")]` line; paste it above the failing test to
   # replay it.
+  #
+  # The second step is the property that spans the collector and EventWriter: 30,000
+  # generated records and rule outputs must store the same row through both paths, where a
+  # pull request tries 300. A failure prints one case of each kind of disagreement; add it
+  # to rust/flowgger/tests/resources/normalized_log_parity.json to keep it.
   - name: "RustPropertyExploration"
     self_hosted: true
     pool: "workflows"
@@ -1360,6 +1365,10 @@ actions:
       - run: >-
           bazel test -c opt --config=ci --test_output=errors
           //rust/flowgger:flowgger_property_exploration_test
+      - run: >-
+          bazel test -c opt --config=ci --test_output=errors --cache_test_results=no
+          --test_env=PARITY_CORPUS_CASES=30000 --test_timeout=3000
+          //elixir/serviceradar_core:normalized_log_parity_serviceradar
 
   - name: "LargeIngestionGate"
     env:

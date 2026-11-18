@@ -37,7 +37,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
-  alias ServiceRadar.EventWriter.LogSeverity
+  alias ServiceRadar.EventWriter.LogRow
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
@@ -238,274 +238,38 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp normalize_json_log(json, _metadata), do: json
 
+  # Every column but the ids, the body and the insertion time is decided by
+  # LogRow, the way the log collector decides it for a record it normalized.
   defp parse_json_log(json, metadata) when is_map(json) do
-    log_id = generated_uuid()
+    trace_id = OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId"))
+    columns = LogRow.columns(json, metadata[:received_at], trace_id)
 
-    attributes =
-      json
-      |> log_attributes()
-      |> attach_syslog_metadata(json)
-      |> prune_empty_metadata()
-
-    attributes = attach_ingest_metadata(attributes, metadata)
-    resource_attributes = normalize_resource_attributes(json)
-    {scope_name, scope_version} = parse_scope_fields(json)
-
-    source = FieldParser.get_field(json, "source", "source") || source_kind(metadata[:subject])
-
-    scope_attributes = parse_scope_attributes(json)
-    {severity_text, severity_number} = log_severity(json)
-    source_ip = normalize_source_ip(json)
-
-    observed_timestamp = parse_observed_timestamp(json) || metadata[:received_at]
-    {timestamp, attributes} = syslog_timestamp(json, attributes, metadata[:received_at])
-
-    %{
-      id: log_id,
-      timestamp: timestamp,
-      observed_timestamp: observed_timestamp,
-      trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
+    Map.merge(columns, %{
+      id: generated_uuid(),
+      trace_id: trace_id,
       span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
-      trace_flags: parse_trace_flags(json),
-      severity_text: severity_text,
-      severity_number: severity_number,
       body: extract_body(json),
-      event_name: FieldParser.get_field(json, "event_name", "eventName"),
-      source: source,
-      source_ip: source_ip,
-      service_name:
-        service_field(json, resource_attributes, "service_name", "serviceName", "service.name") ||
-          default_service_name(json, resource_attributes),
-      service_version:
-        service_field(
-          json,
-          resource_attributes,
-          "service_version",
-          "serviceVersion",
-          "service.version"
-        ),
-      service_instance:
-        service_field(
-          json,
-          resource_attributes,
-          "service_instance",
-          "serviceInstance",
-          "service.instance.id"
-        ),
-      scope_name: scope_name,
-      scope_version: scope_version,
-      scope_attributes: scope_attributes,
-      attributes: attributes,
-      resource_attributes: resource_attributes,
+      source: columns.source || source_kind(metadata[:subject]),
+      attributes: attach_ingest_metadata(columns.attributes, metadata),
       created_at: DateTime.utc_now()
-    }
+    })
   end
 
   defp parse_json_log(_json, _metadata), do: nil
 
-  defp log_attributes(json) when is_map(json) do
-    json["attributes"]
-    |> FieldParser.encode_jsonb()
-    |> prune_empty_metadata()
-    |> case do
-      attributes when is_map(attributes) -> attributes
-      _ -> %{}
-    end
-  end
-
-  defp attach_syslog_metadata(attributes, json) when is_map(attributes) and is_map(json) do
-    Enum.reduce(["_remote_addr", "_syslog_format", "_syslog_parse_fallback"], attributes, fn key,
-                                                                                             acc ->
-      case Map.get(json, key) do
-        nil -> acc
-        value -> Map.put(acc, key, value)
-      end
-    end)
-  end
-
-  defp normalize_source_ip(json) when is_map(json) do
-    json
-    |> source_ip_values()
-    |> Enum.find_value(fn value ->
-      value
-      |> source_ip_candidates()
-      |> Enum.find_value(&valid_source_ip/1)
-    end)
-  end
-
-  defp normalize_source_ip(_json), do: nil
-
-  defp source_ip_values(json) do
-    Enum.reject(
+  # The sender address of an OTLP record, from the first attribute that holds one.
+  defp normalize_source_ip(attributes) when is_map(attributes) do
+    Enum.find_value(
       [
-        FieldParser.get_field(json, "source_ip", "sourceIp"),
-        json["_remote_addr"],
-        # trapd publishes the sender as `source` ("ip:port"); the Zen rule
-        # overwrites `source` with 'snmp', so this only fires for traps that
-        # never went through logs.snmp normalization.
-        json["source"]
+        FieldParser.get_field(attributes, "source_ip", "sourceIp"),
+        attributes["_remote_addr"],
+        attributes["source"]
       ],
-      &is_nil/1
+      &LogRow.address/1
     )
   end
 
-  defp source_ip_candidates(value) when is_binary(value) do
-    value = String.trim(value)
-    bracketless = bracketless_ip(value)
-
-    [value, bracketless]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.flat_map(fn candidate ->
-      case String.split(candidate, ":", parts: 2) do
-        [prefix, address] -> [candidate, prefix, address, bracketless_ip(address)]
-        _ -> [candidate]
-      end
-    end)
-    |> Enum.uniq()
-  end
-
-  defp source_ip_candidates(_value), do: []
-
-  defp bracketless_ip(value) when is_binary(value) do
-    case Regex.run(~r/^\[([^\]]+)\](?::\d+)?$/, value, capture: :all_but_first) do
-      [ip] -> ip
-      _ -> value
-    end
-  end
-
-  defp bracketless_ip(_value), do: nil
-
-  defp valid_source_ip(value) when is_binary(value) do
-    case :inet.parse_address(String.to_charlist(value)) do
-      {:ok, _address} -> value
-      _ -> nil
-    end
-  end
-
-  defp valid_source_ip(_value), do: nil
-
-  # Resolves {severity_text, severity_number}. When an explicit severity_text /
-  # severity is present it wins. Otherwise a numeric GELF/syslog `level` is mapped
-  # through `LogSeverity.from_level/1` so we always
-  # populate BOTH columns (by_severity filtering + severity_color need
-  # severity_number) and never store a bare 0-7 int as severity_text. This is the
-  # Elixir-side complement to the bundled `syslog_severity` Zen rule.
-  defp log_severity(json) do
-    text = FieldParser.get_field(json, "severity_text", "severityText") || json["severity"]
-
-    number =
-      json
-      |> FieldParser.get_field("severity_number", "severityNumber")
-      |> FieldParser.safe_bigint()
-
-    cond do
-      is_binary(text) and text != "" ->
-        {text, number}
-
-      not is_nil(json["level"]) ->
-        {level_text, level_number} = LogSeverity.from_level(json["level"])
-        {level_text, number || level_number}
-
-      true ->
-        {text, number}
-    end
-  end
-
-  defp parse_scope_fields(json) when is_map(json) do
-    scope_name = FieldParser.get_field(json, "scope_name", "scopeName")
-    scope_version = FieldParser.get_field(json, "scope_version", "scopeVersion")
-
-    merge_scope_fields(json["scope"], scope_name, scope_version)
-  end
-
-  defp parse_scope_attributes(json) when is_map(json) do
-    json
-    |> FieldParser.get_field("scope_attributes", "scopeAttributes")
-    |> case do
-      nil -> json["scope"]
-      value -> value
-    end
-    |> FieldParser.encode_jsonb()
-    |> case do
-      nil -> %{}
-      value -> value
-    end
-  end
-
-  defp parse_observed_timestamp(json) when is_map(json) do
-    case json["observed_timestamp"] ||
-           json["observedTimestamp"] ||
-           json["observed_time_unix_nano"] ||
-           json["observedTimeUnixNano"] do
-      nil -> nil
-      value -> log_timestamp(value)
-    end
-  end
-
-  defp parse_trace_flags(json) when is_map(json) do
-    case json["trace_flags"] || json["traceFlags"] || json["flags"] do
-      value when is_integer(value) ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {int, _} -> int
-          :error -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp normalize_resource_attributes(json) do
-    json
-    |> resource_attributes_source()
-    |> FieldParser.encode_jsonb()
-    |> case do
-      nil -> %{}
-      value -> value
-    end
-  end
-
-  defp resource_attributes_source(json) do
-    FieldParser.get_field(json, "resource_attributes", "resourceAttributes") || json["resource"]
-  end
-
-  defp service_field(json, resource_attributes, snake_key, camel_key, resource_key) do
-    FieldParser.get_field(json, snake_key, camel_key) || resource_attributes[resource_key]
-  end
-
-  defp default_service_name(json, resource_attributes) when is_map(json) do
-    FieldParser.get_field(json, "application_name", "applicationName") ||
-      FieldParser.get_field(json, "app_name", "appName") ||
-      FieldParser.get_field(json, "host", "hostname") ||
-      resource_attributes["host.name"] ||
-      resource_attributes["host_name"]
-  end
-
-  defp default_service_name(_json, _resource_attributes), do: nil
-
-  defp merge_scope_fields(%{} = scope_map, scope_name, scope_version) do
-    scope_name =
-      scope_name ||
-        FieldParser.get_field(scope_map, "name", "scopeName") ||
-        FieldParser.get_field(scope_map, "scope_name", "scopeName")
-
-    scope_version =
-      scope_version ||
-        FieldParser.get_field(scope_map, "version", "scopeVersion") ||
-        FieldParser.get_field(scope_map, "scope_version", "scopeVersion")
-
-    {scope_name, scope_version}
-  end
-
-  defp merge_scope_fields(scope, scope_name, scope_version)
-       when is_binary(scope) and scope != "" do
-    {scope_name || scope, scope_version}
-  end
-
-  defp merge_scope_fields(_, scope_name, scope_version), do: {scope_name, scope_version}
+  defp normalize_source_ip(_attributes), do: nil
 
   defp parse_protobuf_log(data, metadata) do
     case decode_export_logs(data) do
@@ -720,71 +484,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       true -> DateTime.utc_now()
     end
   end
-
-  # A syslog record is filed under the time its sender wrote. A record filed
-  # under a wrong clock drops out of every recent view on either telemetry
-  # backend, so one whose time is implausible is filed under the receive time
-  # and keeps what the sender wrote. The log collector applies the same limits
-  # to the records it normalizes (rust/flowgger/src/flowgger/normalized/row.rs).
-  defp syslog_timestamp(json, attributes, received_at) do
-    timestamp = parse_timestamp(json)
-
-    if match?(%DateTime{}, received_at) and
-         implausible_syslog_time?(
-           json["_syslog_format"],
-           DateTime.diff(
-             DateTime.truncate(timestamp, :second),
-             DateTime.truncate(received_at, :second),
-             :second
-           )
-         ) do
-      attributes =
-        attributes
-        |> Map.put(
-          "_syslog_original_timestamp",
-          timestamp |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-        )
-        |> Map.put("_syslog_timestamp_fallback", true)
-
-      {received_at, attributes}
-    else
-      {timestamp, attributes}
-    end
-  end
-
-  @hour_seconds 3_600
-
-  # `ahead` is the sender's whole second minus the receive time's.
-  defp implausible_syslog_time?(nil, _ahead), do: false
-
-  # RFC 3164 has no zone, so a wrong assumed zone files a fresh log hours off.
-  defp implausible_syslog_time?("rfc3164", ahead), do: abs(ahead) > @hour_seconds
-
-  # Nothing is logged before it happens. A relay can hold logs through an
-  # outage, so the limit behind the receive time is generous.
-  defp implausible_syslog_time?(_format, ahead),
-    do: ahead > 24 * @hour_seconds or ahead < -30 * 24 * @hour_seconds
-
-  defp parse_timestamp(json) do
-    log_timestamp(
-      json["timestamp"] ||
-        json["time_unix_nano"] ||
-        json["timeUnixNano"] ||
-        json["observed_time_unix_nano"] ||
-        json["observedTimeUnixNano"]
-    )
-  end
-
-  # The log collector writes a syslog record's time as fractional Unix seconds,
-  # negative before 1970. A double holds a current time to the microsecond.
-  defp log_timestamp(seconds) when is_float(seconds) and abs(seconds) < 1.0e10,
-    do: DateTime.from_unix!(round(seconds * 1_000_000), :microsecond)
-
-  # The shared parser keeps whole seconds of a nanosecond time.
-  defp log_timestamp(nanos) when is_integer(nanos) and nanos > 1_000_000_000_000_000_000,
-    do: unix_nanos_timestamp(nanos)
-
-  defp log_timestamp(value), do: FieldParser.parse_timestamp(value)
 
   defp extract_body(json) do
     cond do

@@ -1,11 +1,12 @@
 //! Maps a normalized log record to the OTLP log record EventWriter stores.
 //!
 //! On the JSON path EventWriter runs the Zen rules and then decides every
-//! stored column from the resulting record
-//! (`ServiceRadar.EventWriter.Processors.Logs.parse_json_log/2`). Here the
-//! collector has run the rules, so it makes the same decisions and sends the
-//! outcome. A change to either side belongs in both; the shared cases in
-//! `normalized_log_parity.json` are run by both test suites.
+//! stored column from the resulting record (`ServiceRadar.EventWriter.LogRow`).
+//! Here the collector has run the rules, so it makes the same decisions and
+//! sends the outcome. A change to either side belongs in both. EventWriter's
+//! suite holds them together: it compares the rows the two paths store for
+//! the shared cases in `normalized_log_parity.json`, and for records and rule
+//! outputs this crate generates on each run (`write_parity_corpus`).
 //!
 //! OTLP has no field for four of the columns, and takes a fifth from the
 //! resource. Those travel as record attributes under [`COLUMN_PREFIX`], which
@@ -198,11 +199,12 @@ fn first<'a>(record: &'a Json, keys: &[&str]) -> Option<&'a Value> {
     keys.iter().find_map(|key| truthy(record.get(*key)))
 }
 
-/// A scalar as a text column stores it.
+/// A scalar as a text column stores it. A float has no one spelling, so it is
+/// not text.
 fn text(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text.clone()),
-        Value::Number(number) => Some(number.to_string()),
+        Value::Number(number) if !number.is_f64() => Some(number.to_string()),
         Value::Bool(flag) => Some(flag.to_string()),
         _ => None,
     }
