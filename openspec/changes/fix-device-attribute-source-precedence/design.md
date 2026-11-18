@@ -27,10 +27,13 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
 4. A write replaces the stored value when its strength is equal to or greater
    than the stored strength. A weaker write fills the attribute only when no
    value is stored. Nothing else decides: there is no test comparing the stored
-   name with the stored address. A stored value without a recorded strength
-   (rows written before this change) counts as the weakest, so the first
-   write after rollout records a strength and the attribute converges after
-   one mapper pass.
+   name with the stored address. A populated value without a recorded
+   strength (rows written before this change) is kept against every write
+   weaker than the strongest tier (address fallback, passive census sighting,
+   agent-software vendor, IEEE OUI); the next strongest-tier write (SNMP
+   `sysName`, hardware-enterprise `sysObjectID`, or integration-reported)
+   replaces it and records its strength. A missing strength is never treated
+   as a recorded weak strength.
 5. An address fallback name is derived from the address the device keeps after
    the address rank guard, never from an update address the guard rejected, so
    a link-local sighting cannot rename a device that keeps a better address.

@@ -1,7 +1,8 @@
 ## 1. Recorded strength for single-valued attributes
 
 - [ ] 1.1 Store source and evidence strength alongside `name` and `vendor_name`;
-      a stored value with no recorded strength counts as the weakest
+      a populated value with no recorded strength is kept against weaker
+      writes; the next strongest-tier write replaces it and records its strength
 - [ ] 1.2 Upsert: replace a stored value only with equal or greater strength;
       a weaker value fills only an empty attribute
 - [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
@@ -37,5 +38,7 @@
 
 - [ ] 5.1 Release note: credential rules keyed on an exact OUI vendor string
       stop matching devices with a hardware-enterprise SNMP vendor
-- [ ] 5.2 Verify on a deployment: config version of an affected agent stays
-      constant across two census passes and one mapper run
+- [ ] 5.2 Verify on a deployment with existing inventory: config version of an
+      affected agent stays constant across two census passes, then changes at
+      most once at the first mapper run (which records strengths), then stays
+      constant across further census passes and mapper runs

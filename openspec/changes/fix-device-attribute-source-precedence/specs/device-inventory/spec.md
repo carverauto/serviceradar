@@ -4,8 +4,10 @@
 Sync ingestion SHALL record, alongside each stored device name and vendor, the
 source and evidence strength of the value. A write SHALL replace a stored value
 only when its strength is equal to or greater than the recorded strength, and a
-weaker write SHALL only fill an attribute that has no stored value. A stored
-value without a recorded strength SHALL count as the weakest.
+weaker write SHALL only fill an attribute that has no stored value. A populated
+value without a recorded strength (written before this rule) SHALL be kept
+against every write weaker than the strongest tier; the next write of the
+strongest tier SHALL replace it and record its strength.
 
 Name strength, weakest first: a name derived from an address because the update
 carries no hostname; a hostname from a passive census sighting; an SNMP
