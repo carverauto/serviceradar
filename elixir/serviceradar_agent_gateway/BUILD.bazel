@@ -150,6 +150,7 @@ elixir_release(
         # transitively. Only the manifest is needed -- the compiled code arrives via `app`.
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/palisade:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",

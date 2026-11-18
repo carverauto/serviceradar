@@ -71,20 +71,7 @@ defmodule ServiceRadar.Notifications.Transports.HTTP do
   alias ServiceRadar.Notifications.Transport
   alias ServiceRadar.Notifications.Transport.Result
 
-  # `Palisade.OutboundURLPolicy` is the canonical home of this check and is what
-  # the design names. Palisade is not (yet) a dependency of `serviceradar_core`,
-  # and `ServiceRadar.Policies.OutboundURLPolicy` is the in-tree port of it -
-  # same function heads, same error atoms, same `NetworkAddressPolicy` CIDR
-  # table. Resolving the module once at compile time means the day palisade
-  # becomes a dependency every native transport starts calling it with no code
-  # change, and until then there is exactly one guard rather than none. A
-  # `Code.ensure_loaded?/1` per request would be the same decision made
-  # thousands of times.
-  @url_policy (if Code.ensure_loaded?(Palisade.OutboundURLPolicy) do
-                 Palisade.OutboundURLPolicy
-               else
-                 ServiceRadar.Policies.OutboundURLPolicy
-               end)
+  @url_policy Palisade.OutboundURLPolicy
 
   @default_timeout_ms 15_000
   @default_methods [:post, :put, :patch, :delete]

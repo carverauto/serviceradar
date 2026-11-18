@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.ClientIP do
 
   import Plug.Conn
 
-  alias ServiceRadar.Policies.NetworkAddressPolicy
+  alias Palisade.NetworkAddressPolicy
 
   require Logger
 

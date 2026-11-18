@@ -4,10 +4,6 @@ defmodule Palisade.OutboundURLPolicy do
   app code follows an admin-supplied URL (SAML IdP metadata,
   OIDC discovery, webhook callbacks).
 
-  Ported from `ServiceRadar.Policies.OutboundURLPolicy` /
-  `Crm.Policies.OutboundURLPolicy`. Palisade is the canonical
-  home.
-
   ## Rules
 
     * Scheme MUST be `https://` (case-insensitive). No `http://`,

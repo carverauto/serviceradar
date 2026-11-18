@@ -1321,6 +1321,7 @@ CORE_NATIVE_LIBS = {
 }
 
 CORE_DEPS = [
+    "//elixir/palisade:erlang_app",
     "//elixir/serviceradar_recording_control:erlang_app",
     "//elixir/serviceradar_recording_metadata:erlang_app",
     "//third_party/hex_vendored/connection:erlang_app",

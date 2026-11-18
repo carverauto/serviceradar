@@ -60,7 +60,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_nvr` | `release_tar`, `release_test` | Standalone NVR runtime with per-replica durable storage; see its `README.md` |
 | `elixir/serviceradar_nvr_client` | `erlang_app`, `release_fixture` (test-only) | Library that streams one finite capture to the NVR ingest endpoint; see its `README.md` |
 | `elixir/serviceradar_object_storage` | `erlang_app`, `unit_tests`, `quality_check`, `qualification_release` (test-only) | Rustler NIF and supervised session wrapping the pinned Longshore S3 client; opt-in transport for isolated camera archive storage. See its `README.md` |
-| `elixir/palisade` | none | Not compiled by Bazel; its `BUILD.bazel` only exports `mix.lock` for the Hex closure |
+| `elixir/palisade` | `erlang_app`, `unit_tests`, `quality_check` | Outbound URL and network address policy (SSRF defence) used by core, core-elx and web-ng; also published to Hex. See its `README.md` |
 
 Vendored Hex packages that used to sit in this tree now live in
 `//third_party/hex_vendored`, with the rest of the vendored code. They are still
@@ -801,7 +801,7 @@ code of every Bazel-built app fail the Bazel build itself (`warnings_as_errors` 
 `mix_app`), and `//elixir/web-ng:unit_tests` fails when the committed OpenAPI dump is
 stale. Dependency audits and Sobelow run daily from `//buildbuddy.yaml` (`Elixir Quality
 (daily)`), which also runs format and Credo for the projects outside the pull-request lint
-matrix and compiles `elixir/palisade`, which Bazel does not build, with warnings as errors.
+matrix.
 
 ```sh
 ./scripts/elixir_quality.sh --project elixir/serviceradar_core --lint-only

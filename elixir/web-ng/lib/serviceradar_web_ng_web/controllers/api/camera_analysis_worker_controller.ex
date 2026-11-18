@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraAnalysisWorkerController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadar.Camera.AnalysisWorkerAlertRouter
-  alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraAnalysisWorkers
   alias ServiceRadarWebNG.RBAC
