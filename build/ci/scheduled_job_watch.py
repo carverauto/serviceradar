@@ -34,6 +34,7 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPException
 
 # Every action in //:buildbuddy.yaml with a schedule trigger.
 # //build/ci:scheduled_job_watch_test fails when this list and that file differ.
@@ -102,6 +103,17 @@ def get_json(url, headers):
         return json.loads(response.read())
 
 
+def pages(url, headers, key):
+    """Every item of a GitHub list, one page of 100 at a time."""
+    page = 1
+    while True:
+        items = get_json(f"{url}{'&' if '?' in url else '?'}per_page=100&page={page}", headers).get(key) or []
+        yield from items
+        if len(items) < 100:
+            return
+        page += 1
+
+
 def monitor_problems(api, token, repository, now):
     """A line when the Rekor signing monitor has not scanned within MONITOR_EXPECTED_WITHIN.
 
@@ -111,14 +123,13 @@ def monitor_problems(api, token, repository, now):
     api = api.rstrip("/")
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                "User-Agent": "scheduled-job-watch/1"}
-    reply = get_json(f"{api}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success&per_page=100",
-                     headers)
     last = None
-    for run in reply.get("workflow_runs") or []:
+    for run in pages(f"{api}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success", headers,
+                     "workflow_runs"):
         if run.get("head_branch") != BRANCH or run.get("event") not in MONITOR_SCAN_EVENTS:
             continue
-        artifacts = get_json(f"{api}/repos/{repository}/actions/runs/{run['id']}/artifacts", headers)
-        if any(artifact["name"] == MONITOR_STATE_ARTIFACT for artifact in artifacts.get("artifacts") or []):
+        artifacts = pages(f"{api}/repos/{repository}/actions/runs/{run['id']}/artifacts", headers, "artifacts")
+        if any(artifact["name"] == MONITOR_STATE_ARTIFACT for artifact in artifacts):
             last = parse_time(run["updated_at"])
             break
     if last is not None and now - last <= MONITOR_EXPECTED_WITHIN:
@@ -233,7 +244,7 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB
         ):
             try:
                 found += read()
-            except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
+            except (urllib.error.URLError, OSError, HTTPException, ValueError, KeyError, TypeError) as error:
                 print(f"could not read {what}: {type(error).__name__}: {error}", file=sys.stderr)
                 found.append(f"Could not read {what} ({type(error).__name__}).")
                 read_failed = True
@@ -249,7 +260,7 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB
         return 1
     try:
         post(webhook, content)
-    except (urllib.error.URLError, OSError) as error:
+    except (urllib.error.URLError, OSError, HTTPException) as error:
         # The URL is a credential: report the kind of failure, never the URL.
         reason = getattr(error, "code", None) or type(error).__name__
         print(f"the notification was not delivered ({reason})", file=sys.stderr)

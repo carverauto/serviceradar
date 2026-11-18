@@ -86,6 +86,7 @@ class World:
         self.discord_status = 204
         self.state_zips = {}
         self.truncated_ledgers = set()
+        self.filler_artifacts = 0
         self.blob_requests_with_auth = 0
 
     def add_entry(self, payload, key_pub=None, when=NOW - timedelta(hours=3)):
@@ -144,6 +145,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @staticmethod
+    def page(items, query):
+        per_page, page = int(query.get("per_page", ["30"])[0]), int(query.get("page", ["1"])[0])
+        return items[(page - 1) * per_page:page * per_page]
+
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(length)) if length else None
@@ -162,8 +168,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if "created" in query:
                 since = monitor.parse_time(query["created"][0].removeprefix(">="))
                 runs = [run for run in runs if monitor.parse_time(run["created_at"]) >= since]
-            per_page, page = int(query.get("per_page", ["30"])[0]), int(query.get("page", ["1"])[0])
-            return self.reply(200, {"workflow_runs": runs[(page - 1) * per_page:page * per_page]})
+            return self.reply(200, {"workflow_runs": self.page(runs, query)})
         if path.startswith(prefix + "/labels/"):
             name = urllib.parse.unquote(path.split("/")[-1])
             return self.reply(200, {"name": name}) if name in world.labels else self.reply(404, {})
@@ -171,14 +176,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.reply(200, raw=world.state_zips[int(path.split("/")[-1])])
         if path.startswith(prefix + "/actions/runs/"):
             run_id = int(path.split("/")[-2])
+            artifacts = [{"name": f"build-output-{number}", "expired": False, "archive_download_url": "unused"}
+                         for number in range(world.filler_artifacts)]
             if run_id in world.state_zips:
-                return self.reply(200, {"artifacts": [{
+                artifacts.append({
                     "name": monitor.STATE_ARTIFACT, "expired": False,
-                    "archive_download_url": f"http://127.0.0.1:{self.server.server_port}/state/{run_id}"}]})
-            artifacts = [] if run_id not in world.ledgers else [{
-                "name": f"signing-ledger-x-publish-{run_id}-1", "expired": False,
-                "archive_download_url": f"http://127.0.0.1:{self.server.server_port}{prefix}/actions/artifacts/{run_id}/zip"}]
-            return self.reply(200, {"artifacts": artifacts})
+                    "archive_download_url": f"http://127.0.0.1:{self.server.server_port}/state/{run_id}"})
+            elif run_id in world.ledgers:
+                artifacts.append({
+                    "name": f"signing-ledger-x-publish-{run_id}-1", "expired": False,
+                    "archive_download_url": f"http://127.0.0.1:{self.server.server_port}{prefix}/actions/artifacts/{run_id}/zip"})
+            return self.reply(200, {"artifacts": self.page(artifacts, query)})
         if path.startswith(prefix + "/actions/artifacts/"):
             run_id = path.split("/")[-2]
             return self.reply(302, headers=[("Location", f"http://127.0.0.1:{self.server.server_port}/blob/{run_id}")])
@@ -187,7 +195,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 world.blob_requests_with_auth += 1
             return self.reply(200, raw=world.ledger_zip(int(path.split("/")[-1])))
         if path == prefix + "/issues":
-            return self.reply(200, [issue for issue in world.issues if issue["state"] == "open"])
+            # Like GitHub: newest first, paged.
+            return self.reply(200, self.page([issue for issue in reversed(world.issues) if issue["state"] == "open"],
+                                             query))
         self.reply(404, {})
 
     def do_POST(self):
@@ -210,6 +220,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             world.issues[int(path.split("/")[-2]) - 1]["comments"].append(payload["body"])
             return self.reply(201, {})
         if path == "/discord":
+            if world.discord_status == "truncated":
+                self.send_response(200)
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.write(b"{")
+                return None
             if world.discord_status == 204:
                 world.discord.append(payload["content"])
             return self.reply(world.discord_status)
@@ -430,6 +446,52 @@ class MonitorTest(unittest.TestCase):
         self.assertFalse(out.exists())
         self.assertEqual(self.titles(), ["Rekor signing monitor run failed"])
         self.assertIn("BadZipFile", self.world.discord[-1])
+
+    def test_an_issue_behind_a_full_page_of_newer_issues_is_still_found(self):
+        entry = self.world.add_entry(b"signed outside any run")
+        self.assertEqual(self.run_monitor(), 0)
+        for number in range(100):
+            self.world.issues.append({"number": len(self.world.issues) + 1, "title": f"Other alert {number}",
+                                      "body": "", "labels": ["signing-monitor"], "state": "open", "comments": []})
+        self.assertEqual(self.run_monitor(), 0)
+        title = f"Unexplained release-key signature in Rekor: {entry['uuid']}"
+        self.assertEqual(self.titles().count(title), 1, "the same entry was reported twice")
+        self.acknowledged.write_text(json.dumps({"entries": [
+            {"uuid": entry["uuid"], "log_index": entry["log_index"], "run": "n/a", "reason": "manual"}]}))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertNotIn(title, self.titles())
+
+    def test_a_ledger_artifact_after_a_full_page_of_artifacts_explains_the_entry(self):
+        entry = self.world.add_entry(b"release payload")
+        self.world.add_run("release.yml", 23, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        self.world.filler_artifacts = 100
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.world.issues, [])
+
+    def test_state_fetch_finds_a_checkpoint_behind_a_full_page_of_self_tests(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("state.json", json.dumps({"tree_size": 3}))
+        self.world.runs[monitor.MONITOR_WORKFLOW] = [
+            {"id": 1000 + number, "head_branch": "staging", "event": "workflow_dispatch"} for number in range(100)
+        ] + [{"id": 46, "head_branch": "staging", "event": "schedule"}]
+        self.world.state_zips = {46: archive.getvalue()}
+        out = self.root / "fetched.json"
+        status = monitor.main(["--github-api", self.base, "--fetch-state", "--state-out", str(out)],
+                              {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_TOKEN": "synthetic-token"})
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(out.read_text()), {"tree_size": 3})
+
+    def test_a_truncated_discord_reply_is_retried_without_failing_the_scan(self):
+        entry = self.world.add_entry(b"signed outside any run")
+        self.world.discord_status = "truncated"
+        self.assertEqual(self.run_monitor(), 0)
+        self.world.discord_status = 204
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(len(self.world.discord), 1)
+        self.assertIn(entry["uuid"], self.world.discord[0])
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
 
     def test_missing_checkpoint_fails_without_bootstrap(self):
         self.state.unlink()

@@ -38,6 +38,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPException
 from pathlib import Path
 
 REKOR_URL = "https://rekor.serviceradar.cloud"
@@ -228,21 +229,25 @@ class GitHub:
         self.api = api.rstrip("/")
         self.repository = repository
 
-    def runs(self, workflow, since):
-        created = urllib.parse.quote(f">={since:%Y-%m-%dT%H:%M:%SZ}")
-        runs, page = [], 1
+    def pages(self, path, key=None):
+        """Every item of a GitHub list, one page of 100 at a time."""
+        separator = "&" if "?" in path else "?"
+        page = 1
         while True:
-            reply = self.http.request(f"{self.api}/repos/{self.repository}/actions/workflows/{workflow}/runs"
-                                      f"?created={created}&per_page=100&page={page}")
-            runs.extend(reply.get("workflow_runs", []))
-            if len(reply.get("workflow_runs", [])) < 100:
-                return runs
+            reply = self.http.request(f"{self.api}/repos/{self.repository}/{path}{separator}per_page=100&page={page}")
+            items = reply if key is None else reply.get(key, [])
+            yield from items
+            if len(items) < 100:
+                return
             page += 1
 
+    def runs(self, workflow, since):
+        created = urllib.parse.quote(f">={since:%Y-%m-%dT%H:%M:%SZ}")
+        return list(self.pages(f"actions/workflows/{workflow}/runs?created={created}", "workflow_runs"))
+
     def ledger_lines(self, run_id):
-        reply = self.http.request(f"{self.api}/repos/{self.repository}/actions/runs/{run_id}/artifacts?per_page=100")
         lines = []
-        for artifact in reply.get("artifacts", []):
+        for artifact in self.pages(f"actions/runs/{run_id}/artifacts", "artifacts"):
             if not artifact["name"].startswith(LEDGER_ARTIFACT_PREFIX) or artifact.get("expired"):
                 continue
             archive = self.http.request(artifact["archive_download_url"], accept="application/zip", raw=True)
@@ -255,13 +260,10 @@ class GitHub:
 
     def latest_state(self):
         """The checkpoint the newest successful scan on staging kept, or None."""
-        reply = self.http.request(f"{self.api}/repos/{self.repository}/actions/workflows/{MONITOR_WORKFLOW}/runs"
-                                  "?status=success&per_page=100")
-        for run in reply.get("workflow_runs", []):
+        for run in self.pages(f"actions/workflows/{MONITOR_WORKFLOW}/runs?status=success", "workflow_runs"):
             if run.get("head_branch") != BRANCH or run.get("event") not in SCAN_EVENTS:
                 continue
-            artifacts = self.http.request(f"{self.api}/repos/{self.repository}/actions/runs/{run['id']}/artifacts")
-            for artifact in artifacts.get("artifacts", []):
+            for artifact in self.pages(f"actions/runs/{run['id']}/artifacts", "artifacts"):
                 if artifact["name"] == STATE_ARTIFACT and not artifact.get("expired"):
                     archive = self.http.request(artifact["archive_download_url"], accept="application/zip", raw=True)
                     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
@@ -269,8 +271,8 @@ class GitHub:
         return None
 
     def open_issues(self):
-        reply = self.http.request(f"{self.api}/repos/{self.repository}/issues?labels={MONITOR_LABEL}&state=open&per_page=100")
-        return [issue for issue in reply if "pull_request" not in issue]
+        return [issue for issue in self.pages(f"issues?labels={MONITOR_LABEL}&state=open")
+                if "pull_request" not in issue]
 
     def open_issue(self, title, body):
         try:
@@ -357,7 +359,7 @@ def post_discord(http, environ, content):
         return False
     try:
         http.request(webhook, "POST", {"content": content[:MESSAGE_LIMIT], "allowed_mentions": {"parse": []}})
-    except (urllib.error.URLError, OSError) as error:
+    except (urllib.error.URLError, OSError, HTTPException) as error:
         # The URL is a credential: name the failure, never the URL.
         print(f"the Discord notification was not delivered ({getattr(error, 'code', None) or type(error).__name__})",
               file=sys.stderr)
