@@ -627,6 +627,42 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     assert prov_late == load("transport_provenance_late.txt")
 
+    # LATE_ADMISSION (mode 5): a proof over core's late-admission grant, and over nothing else.
+    late_admission = PublicationIdentity.mode_late_admission()
+    assert late_admission == 5
+    late_admission_cap = EdgeSignedCapabilityV1.decode(load("delivery_late_admission_cap.bin"))
+    assert {:delivery, %{transition: {:late_admission, _}}} = late_admission_cap.claims
+
+    assert {:ok, late_admission_proof} =
+             PublicationIdentity.delivery_proof_digest(late_admission_cap, late_admission)
+
+    late_admission_in = %{
+      edge: slot,
+      record_sha256: record_sha,
+      delivery_mode: late_admission,
+      delivery_proof: late_admission_proof,
+      route_map_version: 7
+    }
+
+    assert {:ok, prov_late_admission} =
+             PublicationIdentity.transport_provenance(late_admission_in)
+
+    assert prov_late_admission == load("transport_provenance_late_admission.txt")
+
+    assert {:ok, %{delivery_mode: 5, delivery_proof: ^late_admission_proof}} =
+             PublicationIdentity.decode_transport_provenance(prov_late_admission)
+
+    for mode <- [2, 3, 4] do
+      assert {:error, :transition} =
+               PublicationIdentity.delivery_proof_digest(late_admission_cap, mode)
+    end
+
+    assert {:error, :transition} =
+             PublicationIdentity.delivery_proof_digest(renewal_cap, late_admission)
+
+    assert {:error, :transition} =
+             PublicationIdentity.delivery_proof_digest(rollover_cap, late_admission)
+
     # Values above 2^32 round-trip losslessly (u64, never truncated to 32 bits).
     big_slot = %{slot | sequence: 0x1_0000_0000_0007}
 

@@ -673,6 +673,8 @@ func TestGoldenPublicationIdentity(t *testing.T) {
 	}))
 	goldenBytes(t, "transport_provenance_late.txt", []byte(provLate))
 
+	checkGoldenLateAdmissionProvenance(t, record, slot, recordSha)
+
 	// Values above 2^32 in sequence and route_map_version must round-trip losslessly (u64,
 	// never truncated to 32 bits). This is the parity vector for the Elixir <<v::big-64>> guard.
 	bigSlot := slot
@@ -758,6 +760,68 @@ func TestGoldenPublicationIdentity(t *testing.T) {
 	}
 	if len(prov) > edgerecord.MaxTransportProvenanceHeaderBytes || len(provSvc) > edgerecord.MaxTransportProvenanceHeaderBytes {
 		t.Fatal("provenance header exceeds the 512-byte bound")
+	}
+}
+
+// checkGoldenLateAdmissionProvenance exports and checks the LATE_ADMISSION (mode 5) delivery
+// proof and transport provenance for TestGoldenPublicationIdentity.
+func checkGoldenLateAdmissionProvenance(t *testing.T, record *edgev1.EdgeRecordV1, slot edgerecord.EdgeSlot, recordSha []byte) {
+	t.Helper()
+
+	// LATE_ADMISSION (mode 5): a 32-byte proof over a late-admission delivery grant -- core's
+	// production-time decision (EdgeDeliveryLateAdmissionV1) -- and over nothing else. The grant
+	// is exported so the Elixir gateway proves the same digest from the same signed bytes.
+	producedAt, err := edgerecord.ProducedAtUnixNano(record)
+	if err != nil {
+		t.Fatalf("produced_at: %v", err)
+	}
+	lateAdmissionCap := signDeliveryCap(record, slot.SpoolID, slot.Sequence, &edgev1.EdgeDeliveryClaimsV1{
+		Transition: &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{
+			ProducedAtUnixNano: producedAt, AuthorityEpoch: record.GetProducerContext().GetAuthorityEpoch(),
+			Publication: edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_AUDIT,
+			Reason:      edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION,
+		}},
+	})
+	golden(t, "delivery_late_admission_cap.bin", lateAdmissionCap)
+	lateAdmissionProof, err := edgerecord.DeliveryProofDigest(lateAdmissionCap, edgerecord.DeliveryModeLateAdmission)
+	if err != nil {
+		t.Fatalf("late-admission delivery proof: %v", err)
+	}
+	lateAdmissionIn := edgerecord.TransportProvenanceInput{
+		Edge: &slot, RecordSha256: recordSha, DeliveryMode: edgerecord.DeliveryModeLateAdmission,
+		DeliveryProof: lateAdmissionProof, RouteMapVersion: 7,
+	}
+	provLateAdmission := mustStr(edgerecord.TransportProvenance(lateAdmissionIn))
+	goldenBytes(t, "transport_provenance_late_admission.txt", []byte(provLateAdmission))
+	decodedLate, err := edgerecord.DecodeTransportProvenance(provLateAdmission)
+	if err != nil || decodedLate.DeliveryMode != edgerecord.DeliveryModeLateAdmission || !bytes.Equal(decodedLate.DeliveryProof, lateAdmissionProof) {
+		t.Fatalf("late-admission provenance must decode to mode 5 with its proof: %+v, %v", decodedLate, err)
+	}
+	// The mode and the grant must agree in both directions: a late-admission grant never proves a
+	// renewal, rollover or late-fenced delivery, and no other grant proves a late admission.
+	for _, mode := range []uint64{edgerecord.DeliveryModeRenewal, edgerecord.DeliveryModeRollover, edgerecord.DeliveryModeLateFenced} {
+		if _, err := edgerecord.DeliveryProofDigest(lateAdmissionCap, mode); err == nil {
+			t.Fatalf("a late-admission grant must not prove delivery mode %d", mode)
+		}
+	}
+	for name, other := range map[string]*edgev1.EdgeSignedCapabilityV1{
+		"renewal":  renewalDeliveryCap(record, slot.SpoolID, slot.Sequence),
+		"rollover": deliveryCap(record, slot.SpoolID, slot.Sequence),
+	} {
+		if _, err := edgerecord.DeliveryProofDigest(other, edgerecord.DeliveryModeLateAdmission); err == nil {
+			t.Fatalf("a %s grant must not prove a late admission", name)
+		}
+	}
+	// A malformed decision is refused before a proof is minted: PRIMARY pairs only with ADMITTED.
+	badLate := signDeliveryCap(record, slot.SpoolID, slot.Sequence, &edgev1.EdgeDeliveryClaimsV1{
+		Transition: &edgev1.EdgeDeliveryClaimsV1_LateAdmission{LateAdmission: &edgev1.EdgeDeliveryLateAdmissionV1{
+			ProducedAtUnixNano: producedAt, AuthorityEpoch: 1,
+			Publication: edgev1.EdgeLatePublication_EDGE_LATE_PUBLICATION_PRIMARY,
+			Reason:      edgev1.EdgeLateDecisionReason_EDGE_LATE_DECISION_REASON_LEDGER_PRUNED,
+		}},
+	})
+	if _, err := edgerecord.DeliveryProofDigest(badLate, edgerecord.DeliveryModeLateAdmission); err == nil {
+		t.Fatal("a PRIMARY late-admission grant with a non-ADMITTED reason must not prove a delivery")
 	}
 }
 

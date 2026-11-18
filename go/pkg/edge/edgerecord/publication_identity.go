@@ -73,6 +73,10 @@ const (
 	DeliveryModeRenewal     uint64 = 2
 	DeliveryModeRollover    uint64 = 3
 	DeliveryModeLateFenced  uint64 = 4
+	// DeliveryModeLateAdmission is a record admitted under the production-time rule: core's
+	// late-admission grant (EdgeDeliveryLateAdmissionV1) decided PRIMARY or AUDIT from the
+	// authority live when it was produced (openspec add-edge-production-time-admission).
+	DeliveryModeLateAdmission uint64 = 5
 )
 
 var (
@@ -264,10 +268,11 @@ func ServiceDeliveryID(slot ServiceSlot) (string, error) {
 
 // --- grammar 8: Sr-Edge-Transport-Provenance ---
 
-// DeliveryProofDigest is the delivery_proof value for a RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY
-// record: SHA-256 (32 bytes) over the delivery capability's grammar-2 signing bytes. The
-// capability MUST be a DELIVERY capability whose transition matches the claimed delivery_mode
-// (RENEWAL -> renewal transition; ROLLOVER/LATE_FENCED_DELIVERY -> rollover), else it errors.
+// DeliveryProofDigest is the delivery_proof value for a RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY/
+// LATE_ADMISSION record: SHA-256 (32 bytes) over the delivery capability's grammar-2 signing
+// bytes. The capability MUST be a DELIVERY capability whose transition matches the claimed
+// delivery_mode (RENEWAL -> renewal; ROLLOVER -> rollover; LATE_FENCED_DELIVERY -> renewal or
+// rollover; LATE_ADMISSION -> late_admission, and only it), else it errors.
 func DeliveryProofDigest(deliveryCap *edgev1.EdgeSignedCapabilityV1, mode uint64) ([]byte, error) {
 	// Structurally validate the DELIVERY capability BEFORE hashing (version/issuer/algorithm/
 	// window/purpose/signature-present) so a proof can never be minted over a malformed grant.
@@ -287,6 +292,7 @@ func DeliveryProofDigest(deliveryCap *edgev1.EdgeSignedCapabilityV1, mode uint64
 	}
 	_, isRenewal := del.GetTransition().(*edgev1.EdgeDeliveryClaimsV1_Renewal)
 	_, isRollover := del.GetTransition().(*edgev1.EdgeDeliveryClaimsV1_Rollover)
+	_, isLateAdmission := del.GetTransition().(*edgev1.EdgeDeliveryClaimsV1_LateAdmission)
 	switch mode {
 	case DeliveryModeRenewal:
 		if !isRenewal {
@@ -302,8 +308,12 @@ func DeliveryProofDigest(deliveryCap *edgev1.EdgeSignedCapabilityV1, mode uint64
 		if !isRenewal && !isRollover {
 			return nil, fmt.Errorf("%w: late-fenced proof requires a renewal or rollover transition", ErrTransportProvenance)
 		}
+	case DeliveryModeLateAdmission:
+		if !isLateAdmission {
+			return nil, fmt.Errorf("%w: LATE_ADMISSION proof requires a late-admission transition", ErrTransportProvenance)
+		}
 	default:
-		return nil, fmt.Errorf("%w: delivery proof only for renewal/rollover/late-fenced", ErrTransportProvenance)
+		return nil, fmt.Errorf("%w: delivery proof only for renewal/rollover/late-fenced/late-admission", ErrTransportProvenance)
 	}
 	sum := sha256.Sum256(CapabilitySigningBytes(deliveryCap))
 	return sum[:], nil
@@ -329,7 +339,7 @@ func TransportProvenancePreimage(in TransportProvenanceInput) ([]byte, error) {
 		return nil, fmt.Errorf("%w: exactly one of edge/service slot required", ErrTransportProvenance)
 	}
 	switch in.DeliveryMode {
-	case DeliveryModeFresh, DeliveryModeRenewal, DeliveryModeRollover, DeliveryModeLateFenced:
+	case DeliveryModeFresh, DeliveryModeRenewal, DeliveryModeRollover, DeliveryModeLateFenced, DeliveryModeLateAdmission:
 	default:
 		return nil, fmt.Errorf("%w: unspecified or unknown delivery_mode", ErrTransportProvenance)
 	}
@@ -581,7 +591,7 @@ func DecodeTransportProvenance(header string) (*DecodedProvenance, error) {
 		return nil, err
 	}
 	switch mode {
-	case DeliveryModeFresh, DeliveryModeRenewal, DeliveryModeRollover, DeliveryModeLateFenced:
+	case DeliveryModeFresh, DeliveryModeRenewal, DeliveryModeRollover, DeliveryModeLateFenced, DeliveryModeLateAdmission:
 	default:
 		return nil, fmt.Errorf("%w: unknown delivery_mode %d", ErrTransportProvenance, mode)
 	}

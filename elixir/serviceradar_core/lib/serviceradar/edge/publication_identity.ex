@@ -60,7 +60,19 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @mode_renewal 2
   @mode_rollover 3
   @mode_late_fenced 4
-  @modes [@mode_fresh, @mode_renewal, @mode_rollover, @mode_late_fenced]
+  # A record admitted under the production-time rule, carrying core's late-admission grant
+  # (openspec add-edge-production-time-admission). Go: `DeliveryModeLateAdmission`.
+  @mode_late_admission 5
+  @modes [@mode_fresh, @mode_renewal, @mode_rollover, @mode_late_fenced, @mode_late_admission]
+
+  @late_audit_reasons [
+    :EDGE_LATE_DECISION_REASON_FENCED_AT_PRODUCTION,
+    :EDGE_LATE_DECISION_REASON_HISTORY_UNKNOWN,
+    :EDGE_LATE_DECISION_REASON_COMPROMISE_ENDED,
+    :EDGE_LATE_DECISION_REASON_BEYOND_LATE_WINDOW,
+    :EDGE_LATE_DECISION_REASON_CONTRACT_RETIRED,
+    :EDGE_LATE_DECISION_REASON_LEDGER_PRUNED
+  ]
 
   @doc "Header the publishing gateway stamps with its own id. Not part of the identity grammar."
   def header_gateway_id, do: "Sr-Edge-Gateway-Id"
@@ -70,6 +82,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   def mode_renewal, do: @mode_renewal
   def mode_rollover, do: @mode_rollover
   def mode_late_fenced, do: @mode_late_fenced
+  def mode_late_admission, do: @mode_late_admission
 
   @doc """
   Enforces the frozen authenticated-principal encoding: exact case-sensitive ASCII bytes,
@@ -256,11 +269,12 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
 
   @doc """
   SHA-256 (32 bytes) over the DELIVERY capability's grammar-2 signing bytes, for a
-  RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY provenance proof. The ACTUAL gateway is Elixir, so it must
-  never hash an arbitrary binary: the capability is STRUCTURALLY validated (delivery purpose,
-  version/issuer/algorithm/window/signature via `CapabilitySigning.validate/2`) AND its transition
-  must match the claimed mode (RENEWAL->renewal, ROLLOVER->rollover, LATE_FENCED_DELIVERY->renewal
-  OR rollover) BEFORE hashing. Returns `{:ok, digest}` or `{:error, reason}`.
+  RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY/LATE_ADMISSION provenance proof. The ACTUAL gateway is
+  Elixir, so it must never hash an arbitrary binary: the capability is STRUCTURALLY validated
+  (delivery purpose, version/issuer/algorithm/window/signature via `CapabilitySigning.validate/2`)
+  AND its transition must match the claimed mode (RENEWAL->renewal, ROLLOVER->rollover,
+  LATE_FENCED_DELIVERY->renewal OR rollover, LATE_ADMISSION->late_admission and only it) BEFORE
+  hashing. Returns `{:ok, digest}` or `{:error, reason}`.
   """
   @spec delivery_proof_digest(EdgeSignedCapabilityV1.t(), non_neg_integer()) ::
           {:ok, binary()} | {:error, atom()}
@@ -282,6 +296,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
         mode == @mode_renewal and transition == :renewal -> :ok
         mode == @mode_rollover and transition == :rollover -> :ok
         mode == @mode_late_fenced and transition in [:renewal, :rollover] -> :ok
+        mode == @mode_late_admission and transition == :late_admission -> :ok
         mode in @modes -> {:error, :transition}
         true -> {:error, :delivery_mode}
       end
@@ -293,7 +308,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   defp delivery_transition(capability) do
     case capability.claims do
       {:delivery, %{transition: {kind, member}} = claims}
-      when kind in [:renewal, :rollover] and is_struct(member) ->
+      when kind in [:renewal, :rollover, :late_admission] and is_struct(member) ->
         if valid_delivery_claims?(claims), do: {:ok, kind}, else: {:error, :claims}
 
       {:delivery, _} ->
@@ -327,13 +342,32 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
       u64_seq?(Map.get(ro, :prior_sequence))
   end
 
+  # Go's validateLateAdmissionClaims: a positive production time, and a decided publication whose
+  # reason agrees with it (ADMITTED only with PRIMARY; an audit reason only with AUDIT).
+  defp valid_transition?({:late_admission, %{} = late}, _spool_id) do
+    produced_at = Map.get(late, :produced_at_unix_nano) || 0
+
+    epoch = Map.get(late, :authority_epoch) || 0
+
+    i64?(produced_at) and produced_at > 0 and is_integer(epoch) and epoch >= 0 and
+      epoch <= @u64_max and
+      late_decision?(Map.get(late, :publication), Map.get(late, :reason))
+  end
+
   defp valid_transition?(_, _), do: false
+
+  defp late_decision?(:EDGE_LATE_PUBLICATION_PRIMARY, :EDGE_LATE_DECISION_REASON_ADMITTED),
+    do: true
+
+  defp late_decision?(:EDGE_LATE_PUBLICATION_AUDIT, reason), do: reason in @late_audit_reasons
+  defp late_decision?(_publication, _reason), do: false
 
   @doc """
   base64url(no-pad)-encodes the framed grammar-8 envelope (NOT a digest). `input` carries
   exactly one of `:edge` / `:service` slot, `:record_sha256`, a `:delivery_mode`
-  (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY), `:delivery_proof` (nil for FRESH,
-  exactly 32 bytes otherwise), and a nonzero `:route_map_version`. Service slots are FRESH-only.
+  (1=FRESH / 2=RENEWAL / 3=ROLLOVER / 4=LATE_FENCED_DELIVERY / 5=LATE_ADMISSION),
+  `:delivery_proof` (nil for FRESH, exactly 32 bytes otherwise), and a nonzero
+  `:route_map_version`. Service slots are FRESH-only.
   Returns `{:ok, header}` or `{:error, reason}`.
   """
   @spec transport_provenance(map()) :: {:ok, binary()} | {:error, atom()}

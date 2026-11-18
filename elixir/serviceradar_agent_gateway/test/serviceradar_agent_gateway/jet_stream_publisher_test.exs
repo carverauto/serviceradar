@@ -808,11 +808,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     end
 
     # mode -> the capability whose transition that mode accepts. fresh takes no proof;
-    # late_fenced accepts a renewal OR a rollover grant.
+    # late_fenced accepts a renewal OR a rollover grant; late_admission only a late-admission one.
     defp capability_for(:mode_fresh), do: nil
     defp capability_for(:mode_renewal), do: renewal_capability()
     defp capability_for(:mode_rollover), do: rollover_capability()
     defp capability_for(:mode_late_fenced), do: renewal_capability()
+
+    # LATE_ADMISSION accepts only core's late-admission grant (the shared Go-signed vector).
+    defp capability_for(:mode_late_admission), do: EdgeSignedCapabilityV1.decode(load("delivery_late_admission_cap.bin"))
 
     defp publication_in_mode(name, mode) do
       case capability_for(name) do
@@ -833,7 +836,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       {:mode_fresh, 1},
       {:mode_renewal, 2},
       {:mode_rollover, 3},
-      {:mode_late_fenced, 4}
+      {:mode_late_fenced, 4},
+      {:mode_late_admission, 5}
     ]
 
     test "every supported delivery mode is exercised, and the set is derived" do
@@ -846,7 +850,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
              "discovered #{inspect(Enum.sort(modes))}, normative #{inspect(@normative_modes)}"
 
       # And the reflection is not vacuously empty.
-      assert length(modes) == 4
+      assert length(modes) == 5
 
       for {name, mode} <- modes do
         assert {:ok, planned} = JetStreamPublisher.plan(publication_in_mode(name, mode)),
