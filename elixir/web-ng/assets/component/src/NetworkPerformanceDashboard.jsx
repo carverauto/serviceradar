@@ -809,8 +809,14 @@ export function NetworkPerformanceDashboard() {
     const medianDownload = medianOf(downloadBps)
     const maxBps = Math.max(1, ...allLinks.map((l) => l.throughputBps ?? 0))
 
-    const worstLoss = allLinks.reduce((max, l) => (l.lossPct !== null && l.lossPct > max ? l.lossPct : max), 0)
-    const worstJitter = allLinks.reduce((max, l) => (l.jitterMs !== null && l.jitterMs > max ? l.jitterMs : max), 0)
+    const worstLoss = allLinks.reduce(
+      (max, l) => (l.lossPct !== null && (max === null || l.lossPct > max) ? l.lossPct : max),
+      null,
+    )
+    const worstJitter = allLinks.reduce(
+      (max, l) => (l.jitterMs !== null && (max === null || l.jitterMs > max) ? l.jitterMs : max),
+      null,
+    )
     const unavailableLinks = allLinks.filter((l) => l.available !== null && l.available <= 0)
     const highLossLinks = allLinks.filter((l) => l.lossPct !== null && l.lossPct >= lossThresholdPct)
     const highJitterLinks = allLinks.filter((l) => l.jitterMs !== null && l.jitterMs >= jitterThresholdMs)
@@ -896,9 +902,22 @@ export function NetworkPerformanceDashboard() {
       const tags = parseTags(row.tags)
       const spoke = String(row.agent_id || tags.agent_id || "").trim()
       if (spoke !== selectedLink.spokeId) return false
-      const responder = String(tags.responder_agent_id || tags.target || row.target_device_ip || "").trim()
-      if (responder && responder !== selectedLink.responderId && !selectedLink.responderIsLegacy) {
-        return false
+      const explicitResponder = String(tags.responder_agent_id || "").trim()
+      const legacyTarget = String(tags.target || row.target_device_ip || "").trim()
+      if (selectedLink.responderIsLegacy) {
+        if (explicitResponder) return false
+        if (
+          legacyTarget &&
+          selectedLink.responderId !== "legacy-target" &&
+          legacyTarget !== selectedLink.responderId
+        ) {
+          return false
+        }
+      } else {
+        const responder = explicitResponder || legacyTarget
+        if (responder && responder !== selectedLink.responderId) {
+          return false
+        }
       }
       if (dirFilter !== "all") {
         const rowDir = tags.direction ? String(tags.direction).toLowerCase() : null
@@ -1061,26 +1080,37 @@ export function NetworkPerformanceDashboard() {
             <WarningSignIcon
               size={14}
               intent={
-                kpis.worstLoss >= lossThresholdPct || kpis.worstJitter >= jitterThresholdMs
-                  ? "warning"
-                  : "success"
+                kpis.worstLoss === null && kpis.worstJitter === null
+                  ? "none"
+                  : (kpis.worstLoss !== null && kpis.worstLoss >= lossThresholdPct) ||
+                      (kpis.worstJitter !== null && kpis.worstJitter >= jitterThresholdMs)
+                    ? "warning"
+                    : "success"
               }
             />
           </div>
           <div className="sr-netperf-kpi-value">{formatPct(kpis.worstLoss)}</div>
           <div className="sr-netperf-kpi-meta">
-            <span>UDP jitter {formatMs(kpis.worstJitter)}</span>
+            <span>
+              {kpis.worstJitter === null ? "No UDP jitter" : `UDP jitter ${formatMs(kpis.worstJitter)}`}
+            </span>
             <Tag
               minimal
               intent={
-                kpis.worstLoss >= lossThresholdPct || kpis.worstJitter >= jitterThresholdMs
-                  ? "warning"
-                  : "success"
+                kpis.worstLoss === null && kpis.worstJitter === null
+                  ? "none"
+                  : (kpis.worstLoss !== null && kpis.worstLoss >= lossThresholdPct) ||
+                      (kpis.worstJitter !== null && kpis.worstJitter >= jitterThresholdMs)
+                    ? "warning"
+                    : "success"
               }
             >
-              {kpis.worstLoss >= lossThresholdPct || kpis.worstJitter >= jitterThresholdMs
-                ? "degraded"
-                : "within SLA"}
+              {kpis.worstLoss === null && kpis.worstJitter === null
+                ? "no samples"
+                : (kpis.worstLoss !== null && kpis.worstLoss >= lossThresholdPct) ||
+                    (kpis.worstJitter !== null && kpis.worstJitter >= jitterThresholdMs)
+                  ? "degraded"
+                  : "within SLA"}
             </Tag>
           </div>
         </Card>

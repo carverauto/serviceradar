@@ -316,7 +316,8 @@ function hostRuntimeContextChanged(currentHost, nextHost) {
 
 const DashboardWasmHost = {
   mounted() {
-    this.cancelled = false
+    this._destroyed = false
+    this._bootGen = 0
     this._frameUpdateCallbacks = []
     this._hostPayloadSignature = null
     this._onResize = () => this.resizeMap()
@@ -345,13 +346,14 @@ const DashboardWasmHost = {
   },
 
   updated() {
+    if (this._destroyed) return
     const signature = this.el.dataset.host || ""
     if (!signature || signature === this._hostPayloadSignature) return
 
     const nextHost = this.readHostPayload()
     if (nextHost && this.updateBrowserModuleHost(nextHost, signature)) return
 
-    this.cancelled = true
+    this._bootGen = (this._bootGen || 0) + 1
 
     try {
       this._moduleDestroy?.()
@@ -365,7 +367,6 @@ const DashboardWasmHost = {
     this._wasmContext = null
     this._wasmInstance = null
     this._host = null
-    this.cancelled = false
     this.boot()
   },
 
@@ -501,7 +502,8 @@ const DashboardWasmHost = {
   },
 
   destroyed() {
-    this.cancelled = true
+    this._destroyed = true
+    this._bootGen = (this._bootGen || 0) + 1
     window.removeEventListener("resize", this._onResize)
     document.removeEventListener("visibilitychange", this._onVisibilityChange)
 
@@ -536,6 +538,8 @@ const DashboardWasmHost = {
   },
 
   async boot() {
+    const bootGen = (this._bootGen = (this._bootGen || 0) + 1)
+    if (this._destroyed) return
     const host = this.readHostPayload()
     if (!host) return
     this._hostPayloadSignature = this.el.dataset.host || ""
@@ -546,12 +550,12 @@ const DashboardWasmHost = {
       this.validateInterfaceVersion(host)
 
       if (this.rendererKind(host) === "built_in") {
-        await this.bootBuiltInRenderer(host)
+        await this.bootBuiltInRenderer(host, bootGen)
         return
       }
 
       if (this.rendererKind(host) === "browser_module") {
-        await this.bootBrowserModule(host)
+        await this.bootBrowserModule(host, bootGen)
         return
       }
 
@@ -559,6 +563,7 @@ const DashboardWasmHost = {
       if (!wasmUrl) throw new Error("renderer URL is missing")
 
       const response = await fetch(wasmUrl, {credentials: "same-origin", cache: "force-cache"})
+      if (this._bootGen !== bootGen) return
       if (!response.ok) throw new Error(`renderer fetch failed (${response.status})`)
 
       const wasmContext = {instance: null, memory: null, renderModel: null}
@@ -569,16 +574,20 @@ const DashboardWasmHost = {
         try {
           result = await WebAssembly.instantiateStreaming(response, imports)
         } catch (_error) {
+          if (this._bootGen !== bootGen) return
           const retry = await fetch(wasmUrl, {credentials: "same-origin", cache: "force-cache"})
+          if (this._bootGen !== bootGen) return
           const bytes = await retry.arrayBuffer()
+          if (this._bootGen !== bootGen) return
           result = await WebAssembly.instantiate(bytes, imports)
         }
       } else {
         const bytes = await response.arrayBuffer()
+        if (this._bootGen !== bootGen) return
         result = await WebAssembly.instantiate(bytes, imports)
       }
 
-      if (this.cancelled) return
+      if (this._bootGen !== bootGen) return
 
       const instance = result.instance || result
       wasmContext.instance = instance
@@ -589,14 +598,16 @@ const DashboardWasmHost = {
       this.invokeEntrypoint(instance, host)
 
       if (wasmContext.renderModel) {
-        this.renderModel(wasmContext.renderModel, host)
+        this.renderModel(wasmContext.renderModel, host, bootGen)
       } else {
         this.renderState("ready", `${host.package.name} renderer loaded`)
       }
 
       this.connectFrameStream(host)
     } catch (error) {
-      if (!this.cancelled) this.renderState("error", error?.message || String(error))
+      if (this._bootGen === bootGen && !this._destroyed) {
+        this.renderState("error", error?.message || String(error))
+      }
     }
   },
 
@@ -609,7 +620,7 @@ const DashboardWasmHost = {
     }
   },
 
-  async bootBrowserModule(host) {
+  async bootBrowserModule(host, bootGen = this._bootGen ?? 0) {
     const moduleUrl = host?.package?.renderer_url || host?.package?.wasm_url
     if (!moduleUrl) throw new Error("renderer module URL is missing")
     if (host?.package?.renderer?.trust !== "trusted") {
@@ -617,29 +628,38 @@ const DashboardWasmHost = {
     }
 
     const module = await import(/* @vite-ignore */ moduleUrl)
-    if (this.cancelled) return
+    if ((this._bootGen ?? 0) !== bootGen) return
 
     const mount = module.mountDashboard || module.default
     if (typeof mount !== "function") {
       throw new Error("dashboard browser module must export mountDashboard(hostElement, hostPayload, api)")
     }
 
+    const libraries = await loadMapDependencies()
+    if ((this._bootGen ?? 0) !== bootGen) return
+
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-browser-module")
     this._host = host
-    this._dashboardLibraries = await loadMapDependencies()
-    if (this.cancelled) return
+    this._dashboardLibraries = libraries
 
     const mounted = await withTimeout(
       Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
       rendererBootTimeoutMs(host),
       `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
     )
-    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
+    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
+    if ((this._bootGen ?? 0) !== bootGen) {
+      try {
+        destroyFn?.()
+      } catch (_error) {}
+      return
+    }
+    this._moduleDestroy = destroyFn
     this.connectFrameStream(host)
   },
 
-  async bootBuiltInRenderer(host) {
+  async bootBuiltInRenderer(host, bootGen = this._bootGen ?? 0) {
     const entrypoint = String(host?.package?.renderer?.entrypoint || host?.package?.renderer?.artifact || "")
     const mount = builtInDashboardRenderers[entrypoint]
 
@@ -651,18 +671,27 @@ const DashboardWasmHost = {
       throw new Error(`unknown built-in dashboard renderer: ${entrypoint || "missing"}`)
     }
 
+    const libraries = await loadMapDependencies()
+    if ((this._bootGen ?? 0) !== bootGen) return
+
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-built-in")
     this._host = host
-    this._dashboardLibraries = await loadMapDependencies()
-    if (this.cancelled) return
+    this._dashboardLibraries = libraries
 
     const mounted = await withTimeout(
       Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
       rendererBootTimeoutMs(host),
       `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
     )
-    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
+    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
+    if ((this._bootGen ?? 0) !== bootGen) {
+      try {
+        destroyFn?.()
+      } catch (_error) {}
+      return
+    }
+    this._moduleDestroy = destroyFn
     this.connectFrameStream(host)
   },
 
@@ -992,7 +1021,7 @@ const DashboardWasmHost = {
   connectFrameStream(host) {
     const topic = host?.data_provider?.stream_topic
     const token = host?.data_provider?.stream_token
-    if (!topic || !token || this._frameChannel || this.cancelled) return
+    if (!topic || !token || this._frameChannel || this._destroyed) return
 
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
 
@@ -1302,7 +1331,7 @@ const DashboardWasmHost = {
     }
   },
 
-  renderModel(model, host) {
+  renderModel(model, host, bootGen = this._bootGen || 0) {
     const kind = String(model?.kind || "deck_map")
 
     if (kind !== "deck_map") {
@@ -1314,7 +1343,7 @@ const DashboardWasmHost = {
     this._renderModel = model
     this._webglUnavailable = false
     this.ensureMapContainers()
-    this.createMap()
+    this.createMap(bootGen)
   },
 
   updateRenderModel(model, host) {
@@ -1342,13 +1371,13 @@ const DashboardWasmHost = {
     this.el.appendChild(this._mapContainer)
   },
 
-  async createMap() {
+  async createMap(bootGen = this._bootGen ?? 0) {
     const mapbox = this._host?.mapbox || {}
     const useMapbox = shouldUseMapbox(mapbox)
     const style = this.currentStyle(useMapbox)
     const initialViewState = this.initialViewState()
     const libraries = await loadMapDependencies()
-    if (this.cancelled) return
+    if (this._destroyed || (this._bootGen ?? 0) !== bootGen) return
 
     this._mapboxgl = libraries.mapboxgl
     this._MapboxOverlay = libraries.MapboxOverlay

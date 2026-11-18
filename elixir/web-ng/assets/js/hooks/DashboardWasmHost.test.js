@@ -899,3 +899,291 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook.connectFrameStream).toHaveBeenCalled()
   })
 })
+
+describe("DashboardWasmHost async boot/updated/destroyed race hardening", () => {
+  function createLifecycleHookContext() {
+    const children = []
+    let innerHtmlValue = ""
+    const el = {
+      dataset: {},
+      classList: {add: vi.fn()},
+      children,
+      appendChild: vi.fn((node) => {
+        children.push(node)
+        return node
+      }),
+      removeChild: vi.fn((node) => {
+        const index = children.indexOf(node)
+        if (index >= 0) children.splice(index, 1)
+      }),
+      get innerHTML() {
+        return innerHtmlValue
+      },
+      set innerHTML(value) {
+        innerHtmlValue = String(value)
+        children.length = 0
+      },
+    }
+
+    globalThis.window = {
+      ...globalThis.window,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }
+    globalThis.document = {
+      ...globalThis.document,
+      visibilityState: "visible",
+      documentElement: {},
+      body: {},
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      querySelector: vi.fn(() => null),
+    }
+    globalThis.MutationObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    return hookContext({
+      el,
+      teardownMap: vi.fn(),
+      disconnectFrameStream: vi.fn(),
+      applyThemeStyle: vi.fn(),
+      resizeMap: vi.fn(),
+    })
+  }
+
+  function deferred() {
+    let resolve
+    let reject
+    const promise = new Promise((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return {promise, resolve, reject}
+  }
+
+  async function flushMicrotasks(turns = 12) {
+    for (let i = 0; i < turns; i += 1) {
+      await Promise.resolve()
+    }
+  }
+
+  test("updated() mid-import() cancels stale boot without mounting stale module", async () => {
+    const mountCalls = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5RaceHooks = {
+      mod1(el) {
+        mountCalls.push("mod1")
+        const node = {id: "child-1"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("mod1")
+            el.removeChild(node)
+          },
+        }
+      },
+      mod2(el) {
+        mountCalls.push("mod2")
+        const node = {id: "child-2"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("mod2")
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+
+    const url1 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceHooks.mod1(el,host)}"
+    const url2 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceHooks.mod2(el,host)}"
+
+    try {
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url1}}),
+      )
+      hook.mounted()
+
+      // Immediately trigger updated() while boot1 is suspended at await import(url1)
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url2}}),
+      )
+      hook.updated()
+
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["mod2"])
+      expect(hook.el.children).toEqual([{id: "child-2"}])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+
+      hook.destroyed()
+      expect(destroyCalls).toEqual(["mod2"])
+      expect(hook.el.children).toEqual([])
+    } finally {
+      delete globalThis.__t5RaceHooks
+    }
+  }, 30_000)
+
+  test("updated() mid-mountDashboard() destroys out-of-order stale handle without overwriting live handle", async () => {
+    const d1 = deferred()
+    const d2 = deferred()
+    const entered1 = deferred()
+    const entered2 = deferred()
+    const mountCalls = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5RaceMount = {
+      async slow1(el) {
+        mountCalls.push("slow1")
+        entered1.resolve()
+        const handle = await d1.promise
+        const node = {id: "slow-node-1"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("slow1")
+            el.removeChild(node)
+            handle?.onDestroy?.()
+          },
+        }
+      },
+      async slow2(el) {
+        mountCalls.push("slow2")
+        entered2.resolve()
+        const handle = await d2.promise
+        const node = {id: "slow-node-2"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("slow2")
+            el.removeChild(node)
+            handle?.onDestroy?.()
+          },
+        }
+      },
+    }
+
+    const url1 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceMount.slow1(el,host)}"
+    const url2 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceMount.slow2(el,host)}"
+
+    try {
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url1}}),
+      )
+      hook.mounted()
+      await entered1.promise
+
+      // Trigger updated() while slow1's mountDashboard() is still pending
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url2}}),
+      )
+      hook.updated()
+      await entered2.promise
+
+      // Resolve slow2 BEFORE slow1 (out-of-order)
+      d2.resolve({})
+      await flushMicrotasks()
+      expect(hook.el.children).toEqual([{id: "slow-node-2"}])
+      expect(destroyCalls).toEqual([])
+
+      // Now slow1 settles late: must immediately destroy its stale handle and leave slow2 intact
+      d1.resolve({})
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["slow1", "slow2"])
+      expect(destroyCalls).toEqual(["slow1"])
+      expect(hook.el.children).toEqual([{id: "slow-node-2"}])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+
+      hook.destroyed()
+      expect(destroyCalls).toEqual(["slow1", "slow2"])
+      expect(hook.el.children).toEqual([])
+    } finally {
+      delete globalThis.__t5RaceMount
+    }
+  }, 30_000)
+
+  test("destroyed() mid-import() and mid-mountDashboard() prevents late mount or leaks", async () => {
+    const mountCalls = []
+    const destroyCalls = []
+
+    // Case A: destroyed() mid-import()
+    const hookA = createLifecycleHookContext()
+    globalThis.__t5DestroyImport = {
+      mount() {
+        mountCalls.push("import-mount")
+        return {destroy: () => destroyCalls.push("import-destroy")}
+      },
+    }
+    const urlA =
+      "data:text/javascript,export function mountDashboard(){return globalThis.__t5DestroyImport.mount()}"
+
+    try {
+      hookA.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: urlA}}),
+      )
+      hookA.mounted()
+      hookA.destroyed()
+
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual([])
+      expect(hookA.connectFrameStream).not.toHaveBeenCalled()
+    } finally {
+      delete globalThis.__t5DestroyImport
+    }
+
+    // Case B: destroyed() mid-mountDashboard()
+    const dPending = deferred()
+    const entered = deferred()
+    const hookB = createLifecycleHookContext()
+    globalThis.__t5DestroyMount = {
+      async mount(el) {
+        mountCalls.push("pending-mount")
+        entered.resolve()
+        await dPending.promise
+        const node = {id: "zombie-node"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("pending-destroy")
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+    const urlB =
+      "data:text/javascript,export function mountDashboard(el){return globalThis.__t5DestroyMount.mount(el)}"
+
+    try {
+      hookB.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: urlB}}),
+      )
+      hookB.mounted()
+      await entered.promise
+
+      hookB.destroyed()
+      dPending.resolve()
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["pending-mount"])
+      expect(destroyCalls).toEqual(["pending-destroy"])
+      expect(hookB.el.children).toEqual([])
+      expect(hookB._moduleDestroy).toBeUndefined()
+      expect(hookB.connectFrameStream).not.toHaveBeenCalled()
+    } finally {
+      delete globalThis.__t5DestroyMount
+    }
+  }, 30_000)
+})

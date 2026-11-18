@@ -604,4 +604,188 @@ describe("cloud.serviceradar.network-performance Blueprint dashboard", () => {
     expect(drawerText).toContain("Fleet-wide fallback")
     expect(drawerText).toContain("Fleet-Wide Throughput Baseline")
   })
+
+  test("isolates legacy link drawerHistory from named Hub Responder and sibling legacy target rows on the same spoke", async () => {
+    const root = createMountRoot()
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        status: "ok",
+        results: [
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 11_000_000,
+            target_device_ip: "198.51.100.99",
+            tags: {metric_family: "rperf", target: "198.51.100.99"},
+          },
+          {
+            timestamp: "2026-11-18T03:56:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 222_000_000,
+            target_device_ip: "198.51.100.100",
+            tags: {metric_family: "rperf", target: "198.51.100.100"},
+          },
+          {
+            timestamp: "2026-11-18T03:57:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 999_000_000,
+            target_device_ip: "198.51.100.10",
+            tags: {metric_family: "rperf", responder_agent_id: "agent-hub-real", direction: "upload", protocol: "tcp"},
+          },
+        ],
+      },
+      {id: "netperf_metric_trends", status: "ok", results: []},
+      {id: "netperf_spoke_summary", status: "ok", results: []},
+      {id: "netperf_responder_capacity", status: "ok", results: []},
+      {id: "netperf_agents", status: "ok", results: []},
+      {
+        id: "spoke_history",
+        status: "ok",
+        results: [
+          {
+            timestamp: "2026-11-18T03:50:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 12_000_000,
+            target_device_ip: "198.51.100.99",
+            tags: {metric_family: "rperf", target: "198.51.100.99"},
+          },
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 11_000_000,
+            target_device_ip: "198.51.100.99",
+            tags: {metric_family: "rperf", target: "198.51.100.99"},
+          },
+          {
+            timestamp: "2026-11-18T03:51:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 888_000_000,
+            target_device_ip: "198.51.100.10",
+            tags: {metric_family: "rperf", responder_agent_id: "agent-hub-real"},
+          },
+        ],
+      },
+    ]
+
+    const {host, api} = createHostApi({frames})
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const legacyRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("198.51.100.99 (legacy target)"),
+    )
+    expect(legacyRow).toBeDefined()
+    legacyRow.click()
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+    const drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("11,000,000")
+    expect(drawerText).toContain("12,000,000")
+    expect(drawerText).not.toContain("999,000,000")
+    expect(drawerText).not.toContain("888,000,000")
+    expect(drawerText).not.toContain("222,000,000")
+  })
+
+  test("renders neutral missing KPI state for empty and TCP-only telemetry while preserving threshold tags when samples exist", async () => {
+    // 1. Empty frames
+    const emptyRoot = createMountRoot()
+    const emptySetup = createHostApi({frames: []})
+    const emptyMount = await mountNetworkPerformance(emptyRoot, emptySetup.host, emptySetup.api)
+    activeMounts.push({mounted: emptyMount, root: emptyRoot})
+    await flushUi()
+
+    const emptyCard = Array.from(emptyRoot.querySelectorAll(".sr-netperf-kpi-card")).find((card) =>
+      card.textContent?.includes("Worst Spoke Loss & Jitter"),
+    )
+    expect(emptyCard).toBeDefined()
+    expect(emptyCard.querySelector(".sr-netperf-kpi-value")?.textContent).toBe("—")
+    expect(emptyCard.textContent).toContain("No UDP jitter")
+    expect(emptyCard.textContent).toContain("no samples")
+    expect(emptyCard.textContent).not.toContain("within SLA")
+    expect(emptyCard.textContent).not.toContain("0%")
+    expect(emptyCard.querySelector(".bp6-tag.bp6-intent-success")).toBeNull()
+    expect(emptyCard.querySelector(".bp6-tag.bp6-intent-warning")).toBeNull()
+
+    // 2. TCP-only frames (throughput + availability only, no loss or jitter)
+    const tcpRoot = createMountRoot()
+    const tcpSetup = createHostApi({
+      frames: [
+        {
+          id: "netperf_recent_samples",
+          status: "ok",
+          results: [
+            {
+              timestamp: "2026-11-18T03:58:00Z",
+              agent_id: "agent-spoke-tcp-01",
+              metric_name: "rperf.bits_per_second",
+              value: 750_000_000,
+              target_device_ip: "192.0.2.10",
+              tags: {responder_agent_id: "agent-hub-east-01", direction: "upload", protocol: "tcp"},
+            },
+            {
+              timestamp: "2026-11-18T03:58:00Z",
+              agent_id: "agent-spoke-tcp-01",
+              metric_name: "rperf.available",
+              value: 1,
+              target_device_ip: "192.0.2.10",
+              tags: {responder_agent_id: "agent-hub-east-01", direction: "upload", protocol: "tcp"},
+            },
+          ],
+        },
+      ],
+    })
+    const tcpMount = await mountNetworkPerformance(tcpRoot, tcpSetup.host, tcpSetup.api)
+    activeMounts.push({mounted: tcpMount, root: tcpRoot})
+    await flushUi()
+
+    const tcpCard = Array.from(tcpRoot.querySelectorAll(".sr-netperf-kpi-card")).find((card) =>
+      card.textContent?.includes("Worst Spoke Loss & Jitter"),
+    )
+    expect(tcpCard).toBeDefined()
+    expect(tcpCard.querySelector(".sr-netperf-kpi-value")?.textContent).toBe("—")
+    expect(tcpCard.textContent).toContain("No UDP jitter")
+    expect(tcpCard.textContent).toContain("no samples")
+    expect(tcpCard.textContent).not.toContain("within SLA")
+
+    // 3. Explicit 0% loss sample without UDP jitter preserves "within SLA" tag and "No UDP jitter"
+    const zeroLossRoot = createMountRoot()
+    const zeroLossSetup = createHostApi({
+      frames: [
+        {
+          id: "netperf_recent_samples",
+          status: "ok",
+          results: [
+            {
+              timestamp: "2026-11-18T03:58:00Z",
+              agent_id: "agent-spoke-tcp-02",
+              metric_name: "rperf.loss_percent",
+              value: 0,
+              target_device_ip: "192.0.2.10",
+              tags: {responder_agent_id: "agent-hub-east-01", direction: "upload", protocol: "tcp"},
+            },
+          ],
+        },
+      ],
+    })
+    const zeroLossMount = await mountNetworkPerformance(zeroLossRoot, zeroLossSetup.host, zeroLossSetup.api)
+    activeMounts.push({mounted: zeroLossMount, root: zeroLossRoot})
+    await flushUi()
+
+    const zeroLossCard = Array.from(zeroLossRoot.querySelectorAll(".sr-netperf-kpi-card")).find((card) =>
+      card.textContent?.includes("Worst Spoke Loss & Jitter"),
+    )
+    expect(zeroLossCard.querySelector(".sr-netperf-kpi-value")?.textContent).toBe("0%")
+    expect(zeroLossCard.textContent).toContain("No UDP jitter")
+    expect(zeroLossCard.textContent).toContain("within SLA")
+    expect(zeroLossCard.querySelector(".bp6-tag.bp6-intent-success")).not.toBeNull()
+  })
 })
