@@ -267,18 +267,10 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
 
     with true <- valid_uuid?(id),
          {:ok, %WebProperty{} = wp} <- WebProperty.get_by_id(id, scope: scope) do
+      bindings = load_bindings(wp.id, scope)
       checks = load_service_checks(wp.id, scope)
       synthetic = load_synthetic_assignments(wp.id, scope)
-
-      socket
-      |> assign(:page_title, wp.name)
-      |> assign(:web_property, wp)
-      |> assign(:error, nil)
-      |> assign(:edit_form, edit_form_for(wp))
-      |> reload_bindings(wp.id, scope)
-      |> assign(:service_checks_count, length(checks))
-      |> stream(:service_checks, checks, reset: true)
-      |> assign(:synthetic_assignments, synthetic)
+      apply_property_state(socket, wp, bindings, checks, synthetic)
     else
       _ ->
         socket
@@ -292,16 +284,40 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
     end
   end
 
-  defp reload_bindings(socket, web_property_id, scope) do
-    bindings =
-      case WebPropertyBinding.list_by_web_property(web_property_id, scope: scope) do
-        {:ok, list} -> list
-        _ -> []
+  @doc false
+  def apply_property_state(socket, %WebProperty{} = wp, bindings, checks, synthetic) do
+    edit_form =
+      if socket.assigns[:editing?] && not is_nil(socket.assigns[:edit_form]) do
+        socket.assigns.edit_form
+      else
+        edit_form_for(wp)
       end
+
+    socket
+    |> assign(:page_title, wp.name)
+    |> assign(:web_property, wp)
+    |> assign(:error, nil)
+    |> assign(:edit_form, edit_form)
+    |> assign(:bindings_count, length(bindings))
+    |> stream(:bindings, bindings, reset: true)
+    |> assign(:service_checks_count, length(checks))
+    |> stream(:service_checks, checks, reset: true)
+    |> assign(:synthetic_assignments, synthetic)
+  end
+
+  defp reload_bindings(socket, web_property_id, scope) do
+    bindings = load_bindings(web_property_id, scope)
 
     socket
     |> assign(:bindings_count, length(bindings))
     |> stream(:bindings, bindings, reset: true)
+  end
+
+  defp load_bindings(web_property_id, scope) do
+    case WebPropertyBinding.list_by_web_property(web_property_id, scope: scope) do
+      {:ok, list} -> list
+      _ -> []
+    end
   end
 
   defp load_service_checks(web_property_id, scope) do
@@ -412,7 +428,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
       :k8s_public_endpoint ->
         Map.merge(base, %{
           cluster_id: trim_or_nil(Map.get(params, "cluster_id")),
-          namespace: params |> Map.get("namespace", "") |> String.trim(),
+          namespace: String.trim(Map.get(params, "namespace") || ""),
           resource_kind: trim_or_nil(Map.get(params, "resource_kind")),
           resource_name: trim_or_nil(Map.get(params, "resource_name"))
         })
@@ -432,16 +448,24 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
   defp parse_bool(true, _default), do: true
   defp parse_bool(_, default), do: default
 
+  defp parse_float(nil, default), do: default
+
   defp parse_float(raw, default) when is_binary(raw) do
-    case Float.parse(String.trim(raw)) do
-      {val, ""} -> val
-      _ -> default
+    trimmed = String.trim(raw)
+
+    if trimmed == "" do
+      default
+    else
+      case Float.parse(trimmed) do
+        {val, ""} -> val
+        _ -> trimmed
+      end
     end
   end
 
   defp parse_float(val, _default) when is_float(val), do: val
   defp parse_float(val, _default) when is_integer(val), do: val / 1
-  defp parse_float(_, default), do: default
+  defp parse_float(other, _default), do: other
 
   defp split_csv_lines(raw) when is_binary(raw) do
     raw

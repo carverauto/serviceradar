@@ -358,6 +358,18 @@ fn text_array_condition(
             binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(format!("NOT (? = ANY({field_sql}))"))
         }
+        FilterOp::Like => {
+            binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!(
+                "EXISTS (SELECT 1 FROM unnest({field_sql}) AS item WHERE item ILIKE ?)"
+            ))
+        }
+        FilterOp::NotLike => {
+            binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(format!(
+                "NOT EXISTS (SELECT 1 FROM unnest({field_sql}) AS item WHERE item ILIKE ?)"
+            ))
+        }
         FilterOp::In => {
             let values = filter.value.as_list()?.to_vec();
             if values.is_empty() {
@@ -541,6 +553,29 @@ mod tests {
         assert!(sql.contains("$5 = ANY(wp.observed_vips)"), "{sql}");
         assert!(!sql.contains('?'), "{sql}");
         assert_eq!(binds.len(), 7);
+    }
+
+    #[test]
+    fn supports_like_and_not_like_on_allowed_origins_array() {
+        let (sql, binds) = to_sql_and_params(&plan(
+            "in:websites allowed_origins:%example.com% !allowed_origins:%internal.test% limit:5",
+        ))
+        .expect("sql");
+        assert!(
+            sql.contains(
+                "EXISTS (SELECT 1 FROM unnest(wp.allowed_origins) AS item WHERE item ILIKE $1)"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "NOT EXISTS (SELECT 1 FROM unnest(wp.allowed_origins) AS item WHERE item ILIKE $2)"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("LIMIT $3 OFFSET $4"), "{sql}");
+        assert!(!sql.contains('?'), "{sql}");
+        assert_eq!(binds.len(), 4);
     }
 
     #[test]

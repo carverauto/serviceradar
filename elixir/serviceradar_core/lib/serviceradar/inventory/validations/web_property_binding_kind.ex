@@ -65,10 +65,10 @@ defmodule ServiceRadar.Inventory.Validations.WebPropertyBindingKind do
       blank?(resource_name) ->
         {:error, field: :resource_name, message: "is required for k8s_public_endpoint bindings"}
 
-      not blank?(device_uid) ->
+      not is_nil(device_uid) ->
         {:error, field: :device_uid, message: "must be nil for k8s_public_endpoint bindings"}
 
-      not blank?(otel_service_name) ->
+      not is_nil(otel_service_name) ->
         {:error,
          field: :otel_service_name, message: "must be nil for k8s_public_endpoint bindings"}
 
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Inventory.Validations.WebPropertyBindingKind do
       blank?(device_uid) ->
         {:error, field: :device_uid, message: "is required for origin_device bindings"}
 
-      not blank?(otel_service_name) ->
+      not is_nil(otel_service_name) ->
         {:error, field: :otel_service_name, message: "must be nil for origin_device bindings"}
 
       true ->
@@ -111,7 +111,7 @@ defmodule ServiceRadar.Inventory.Validations.WebPropertyBindingKind do
       blank?(otel_service_name) ->
         {:error, field: :otel_service_name, message: "is required for otel_service bindings"}
 
-      not blank?(device_uid) ->
+      not is_nil(device_uid) ->
         {:error, field: :device_uid, message: "must be nil for otel_service bindings"}
 
       true ->

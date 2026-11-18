@@ -1887,6 +1887,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       boolean_fields: ["rum_enabled", "anonymize_client_ip"],
       array_fields: ["allowed_origins", "observed_vips"],
+      address_fields: ["observed_vips"],
+      exact_fields: ["id", "tag"],
       timestamp_fields: ["tls_not_after", "last_posture_checked_at", "created_at", "updated_at"],
       known_values: %{
         "environment" => ["production", "staging", "development", "internal"],

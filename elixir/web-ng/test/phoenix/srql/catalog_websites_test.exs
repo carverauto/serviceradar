@@ -72,4 +72,60 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogWebsitesTest do
     assert decoded["sql"] =~ "wp.environment = $1"
     assert decoded["sql"] =~ "wp.rum_enabled = $2"
   end
+
+  test "catalog default_filter_op and Builder.build align with Rust websites translator" do
+    assert Catalog.default_filter_op("websites", "observed_vips") == "equals"
+    assert Catalog.default_filter_op("websites", "tag") == "equals"
+    assert Catalog.default_filter_op("websites", "id") == "equals"
+    assert Catalog.default_filter_op("websites", "allowed_origins") == "contains"
+
+    state = %{
+      "entity" => "websites",
+      "limit" => 25,
+      "sort_field" => "name",
+      "sort_dir" => "asc",
+      "filters" => [
+        %{
+          "field" => "allowed_origins",
+          "op" => Catalog.default_filter_op("websites", "allowed_origins"),
+          "value" => "example.com"
+        },
+        %{
+          "field" => "allowed_origins",
+          "op" => "not_contains",
+          "value" => "staging.local"
+        },
+        %{
+          "field" => "observed_vips",
+          "op" => Catalog.default_filter_op("websites", "observed_vips"),
+          "value" => "203.0.113.10"
+        },
+        %{
+          "field" => "tag",
+          "op" => Catalog.default_filter_op("websites", "tag"),
+          "value" => "tier"
+        }
+      ]
+    }
+
+    srql = Builder.build(state)
+    assert srql =~ "allowed_origins:%example.com%"
+    assert srql =~ "!allowed_origins:%staging.local%"
+    assert srql =~ "observed_vips:(203.0.113.10)"
+    assert srql =~ "tag:tier"
+
+    assert {:ok, json} = Native.translate(srql, nil, nil, nil, "legacy")
+    decoded = Jason.decode!(json)
+    sql = decoded["sql"]
+
+    assert sql =~ "wp.observed_vips && $1"
+    assert sql =~ "jsonb_exists(wp.tags, $2)"
+    assert sql =~ "EXISTS (SELECT 1 FROM unnest(wp.allowed_origins) AS item WHERE item ILIKE $3)"
+
+    assert sql =~
+             "NOT EXISTS (SELECT 1 FROM unnest(wp.allowed_origins) AS item WHERE item ILIKE $4)"
+
+    assert sql =~ "LIMIT $5 OFFSET $6"
+    refute sql =~ "?"
+  end
 end

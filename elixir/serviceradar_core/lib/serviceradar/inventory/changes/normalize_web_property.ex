@@ -290,44 +290,91 @@ defmodule ServiceRadar.Inventory.Changes.NormalizeWebProperty do
 
   defp parse_and_normalize_origin(raw, opts) do
     allow_wildcard? = Keyword.get(opts, :allow_wildcard?, false)
-    uri = URI.parse(raw)
-    scheme = uri.scheme && String.downcase(uri.scheme)
+
+    case :uri_string.parse(raw) do
+      {:error, _, _} ->
+        {:error, "must be a valid http or https origin"}
+
+      %{} = parsed ->
+        validate_parsed_origin(parsed, allow_wildcard?)
+    end
+  end
+
+  defp validate_parsed_origin(parsed, allow_wildcard?) do
+    scheme = parsed |> Map.get(:scheme) |> downcase_string()
+    raw_host = Map.get(parsed, :host)
+    port = Map.get(parsed, :port)
 
     cond do
       scheme not in ["http", "https"] ->
         {:error, "scheme must be http or https"}
 
-      is_binary(uri.userinfo) and uri.userinfo != "" ->
+      Map.has_key?(parsed, :userinfo) ->
         {:error, "cannot include userinfo"}
 
-      not is_binary(uri.host) or String.trim(uri.host) == "" ->
+      not is_binary(raw_host) or String.trim(raw_host) == "" ->
         {:error, "must include a valid host"}
 
-      String.contains?(uri.host, "*") and not allow_wildcard? ->
-        {:error, "canonical origin cannot contain wildcards"}
+      port == :undefined ->
+        {:error, "port must be between 1 and 65535"}
 
-      not is_nil(uri.port) and (not is_integer(uri.port) or uri.port < 1 or uri.port > 65_535) ->
+      not is_nil(port) and (not is_integer(port) or port < 1 or port > 65_535) ->
         {:error, "port must be between 1 and 65535"}
 
       true ->
-        host = String.downcase(uri.host)
+        host = String.downcase(raw_host)
 
-        formatted_host =
-          if String.contains?(host, ":") and not String.starts_with?(host, "[") do
-            "[#{host}]"
-          else
-            host
-          end
+        with :ok <- validate_origin_host(host, allow_wildcard?) do
+          formatted_host =
+            if String.contains?(host, ":") and not String.starts_with?(host, "[") do
+              "[#{host}]"
+            else
+              host
+            end
 
-        port_suffix =
-          case {scheme, uri.port} do
-            {"http", 80} -> ""
-            {"https", 443} -> ""
-            {_, nil} -> ""
-            {_, port} -> ":#{port}"
-          end
+          port_suffix =
+            case {scheme, port} do
+              {"http", 80} -> ""
+              {"https", 443} -> ""
+              {_, nil} -> ""
+              {_, port_num} -> ":#{port_num}"
+            end
 
-        {:ok, "#{scheme}://#{formatted_host}#{port_suffix}"}
+          {:ok, "#{scheme}://#{formatted_host}#{port_suffix}"}
+        end
     end
   end
+
+  defp validate_origin_host(host, allow_wildcard?) do
+    if String.contains?(host, "*") do
+      cond do
+        not allow_wildcard? ->
+          {:error, "canonical origin cannot contain wildcards"}
+
+        valid_wildcard_host?(host) ->
+          :ok
+
+        true ->
+          {:error, "wildcard origins must use scheme://*.domain.tld"}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp valid_wildcard_host?(host) do
+    if String.starts_with?(host, "*.") do
+      rest = String.replace_prefix(host, "*.", "")
+      labels = String.split(rest, ".")
+
+      not String.contains?(rest, "*") and
+        length(labels) >= 2 and
+        Enum.all?(labels, &(&1 != ""))
+    else
+      false
+    end
+  end
+
+  defp downcase_string(val) when is_binary(val), do: String.downcase(val)
+  defp downcase_string(_), do: nil
 end

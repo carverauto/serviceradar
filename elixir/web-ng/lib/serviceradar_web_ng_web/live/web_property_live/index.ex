@@ -265,16 +265,24 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Index do
   defp parse_bool(true, _default), do: true
   defp parse_bool(_, default), do: default
 
+  defp parse_float(nil, default), do: default
+
   defp parse_float(raw, default) when is_binary(raw) do
-    case Float.parse(String.trim(raw)) do
-      {val, ""} -> val
-      _ -> default
+    trimmed = String.trim(raw)
+
+    if trimmed == "" do
+      default
+    else
+      case Float.parse(trimmed) do
+        {val, ""} -> val
+        _ -> trimmed
+      end
     end
   end
 
   defp parse_float(val, _default) when is_float(val), do: val
   defp parse_float(val, _default) when is_integer(val), do: val / 1
-  defp parse_float(_, default), do: default
+  defp parse_float(other, _default), do: other
 
   defp split_csv_lines(raw) when is_binary(raw) do
     raw

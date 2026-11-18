@@ -112,6 +112,7 @@ defmodule ServiceRadar.Inventory.WebPropertyBinding do
 
     attribute :namespace, :string do
       public? true
+      constraints allow_empty?: true, trim?: true
       description "Kubernetes namespace for k8s_public_endpoint bindings"
     end
 

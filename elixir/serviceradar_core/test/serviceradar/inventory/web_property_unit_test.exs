@@ -41,7 +41,54 @@ defmodule ServiceRadar.Inventory.WebPropertyUnitTest do
       assert {:error, _} =
                WebProperty.normalize_canonical_origin("https://user:pass@shop.example.com")
 
+      assert {:error, _} =
+               WebProperty.normalize_canonical_origin("https://@shop.example.com")
+
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://shop.example.com:abc")
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://shop.example.com:-1")
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://shop.example.com:0")
+
+      assert {:error, _} =
+               WebProperty.normalize_canonical_origin("https://shop.example.com:65536")
+
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://shop.example.com:")
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://2001:db8::1")
+      assert {:error, _} = WebProperty.normalize_canonical_origin("https://[::1")
       assert {:error, _} = WebProperty.normalize_canonical_origin("https://*.example.com")
+    end
+
+    test "restricts wildcard allowed_origins to scheme://*.<domain> with at least two labels" do
+      for bad_wildcard <- [
+            "https://*",
+            "https://*.*",
+            "https://*.com",
+            "https://*.*.example.com",
+            "https://foo*.example.com",
+            "https://*.example..com"
+          ] do
+        changeset =
+          Ash.Changeset.for_create(WebProperty, :create, %{
+            name: "Bad Wildcard",
+            canonical_origin: "https://shop.example.com",
+            allowed_origins: [bad_wildcard]
+          })
+
+        refute changeset.valid?, "expected #{bad_wildcard} to be rejected"
+      end
+
+      changeset =
+        Ash.Changeset.for_create(WebProperty, :create, %{
+          name: "Valid Wildcard",
+          canonical_origin: "https://shop.example.com",
+          allowed_origins: ["https://*.sub.example.com:8443", "https://*.example.com:443"]
+        })
+
+      assert changeset.valid?
+
+      assert Ash.Changeset.get_attribute(changeset, :allowed_origins) == [
+               "https://*.sub.example.com:8443",
+               "https://*.example.com"
+             ]
     end
   end
 
@@ -171,6 +218,113 @@ defmodule ServiceRadar.Inventory.WebPropertyUnitTest do
 
       assert otel_ok.valid?
     end
+
+    test "allows cluster-scoped k8s_public_endpoint with empty namespace and rejects nil namespace" do
+      wp_id = Ash.UUID.generate()
+
+      cluster_scoped =
+        Ash.Changeset.for_create(WebPropertyBinding, :create, %{
+          web_property_id: wp_id,
+          binding_kind: :k8s_public_endpoint,
+          source: :k8s_discovery,
+          cluster_id: "cluster-1",
+          namespace: "",
+          resource_kind: "Gateway",
+          resource_name: "public-gw"
+        })
+
+      assert cluster_scoped.valid?
+      assert Ash.Changeset.get_attribute(cluster_scoped, :namespace) == ""
+
+      nil_namespace =
+        Ash.Changeset.for_create(WebPropertyBinding, :create, %{
+          web_property_id: wp_id,
+          binding_kind: :k8s_public_endpoint,
+          source: :k8s_discovery,
+          cluster_id: "cluster-1",
+          namespace: nil,
+          resource_kind: "Gateway",
+          resource_name: "public-gw"
+        })
+
+      refute nil_namespace.valid?
+    end
+
+    test "WebPropertyBindingKind rejects empty strings on forbidden target attributes" do
+      alias ServiceRadar.Inventory.Validations.WebPropertyBindingKind
+
+      wp_id = Ash.UUID.generate()
+
+      # Input coercion converts empty strings to nil on non-empty string attrs:
+      k8s_coerced =
+        Ash.Changeset.for_create(WebPropertyBinding, :create, %{
+          web_property_id: wp_id,
+          binding_kind: :k8s_public_endpoint,
+          source: :k8s_discovery,
+          cluster_id: "cluster-1",
+          namespace: "web",
+          resource_kind: "HTTPRoute",
+          resource_name: "shop-route",
+          device_uid: "",
+          otel_service_name: ""
+        })
+
+      assert k8s_coerced.valid?
+      assert is_nil(Ash.Changeset.get_attribute(k8s_coerced, :device_uid))
+      assert is_nil(Ash.Changeset.get_attribute(k8s_coerced, :otel_service_name))
+
+      # Empty strings placed in attributes or atomics (bypassing input coercion) must be
+      # rejected by WebPropertyBindingKind so it matches the Postgres IS NULL constraint 1-to-1:
+      k8s_empty_device =
+        WebPropertyBinding
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.force_change_attribute(:web_property_id, wp_id)
+        |> Ash.Changeset.force_change_attribute(:binding_kind, :k8s_public_endpoint)
+        |> Ash.Changeset.force_change_attribute(:cluster_id, "cluster-1")
+        |> Ash.Changeset.force_change_attribute(:namespace, "web")
+        |> Ash.Changeset.force_change_attribute(:resource_kind, "HTTPRoute")
+        |> Ash.Changeset.force_change_attribute(:resource_name, "shop-route")
+        |> Map.update!(:attributes, &Map.put(&1, :device_uid, ""))
+
+      assert {:error, field: :device_uid, message: _} =
+               WebPropertyBindingKind.validate(k8s_empty_device, [], %{})
+
+      k8s_empty_otel =
+        WebPropertyBinding
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.force_change_attribute(:web_property_id, wp_id)
+        |> Ash.Changeset.force_change_attribute(:binding_kind, :k8s_public_endpoint)
+        |> Ash.Changeset.force_change_attribute(:cluster_id, "cluster-1")
+        |> Ash.Changeset.force_change_attribute(:namespace, "web")
+        |> Ash.Changeset.force_change_attribute(:resource_kind, "HTTPRoute")
+        |> Ash.Changeset.force_change_attribute(:resource_name, "shop-route")
+        |> Map.update!(:atomics, &Keyword.put(&1, :otel_service_name, ""))
+
+      assert {:error, field: :otel_service_name, message: _} =
+               WebPropertyBindingKind.atomic(k8s_empty_otel, [], %{})
+
+      origin_empty_otel =
+        WebPropertyBinding
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.force_change_attribute(:web_property_id, wp_id)
+        |> Ash.Changeset.force_change_attribute(:binding_kind, :origin_device)
+        |> Ash.Changeset.force_change_attribute(:device_uid, "sr:dev-1")
+        |> Map.update!(:attributes, &Map.put(&1, :otel_service_name, ""))
+
+      assert {:error, field: :otel_service_name, message: _} =
+               WebPropertyBindingKind.validate(origin_empty_otel, [], %{})
+
+      otel_empty_device =
+        WebPropertyBinding
+        |> Ash.Changeset.new()
+        |> Ash.Changeset.force_change_attribute(:web_property_id, wp_id)
+        |> Ash.Changeset.force_change_attribute(:binding_kind, :otel_service)
+        |> Ash.Changeset.force_change_attribute(:otel_service_name, "web-api")
+        |> Map.update!(:attributes, &Map.put(&1, :device_uid, ""))
+
+      assert {:error, field: :device_uid, message: _} =
+               WebPropertyBindingKind.validate(otel_empty_device, [], %{})
+    end
   end
 
   describe "ServiceCheck.web_property_id and Metrics attribution guard" do
@@ -247,6 +401,30 @@ defmodule ServiceRadar.Inventory.WebPropertyUnitTest do
                  port: 22,
                  protocol: "TCP",
                  route_kind: ""
+               })
+
+      assert :ignore =
+               WebPropertyDiscoveryWorker.endpoint_to_origin(%{
+                 hostname: "https://already.example.com",
+                 port: 443,
+                 protocol: "TCP",
+                 route_kind: "HTTPRoute"
+               })
+
+      assert :ignore =
+               WebPropertyDiscoveryWorker.endpoint_to_origin(%{
+                 hostname: "bad host.example.com",
+                 port: 443,
+                 protocol: "TCP",
+                 route_kind: "HTTPRoute"
+               })
+
+      assert {:ok, "https://[2001:db8::1]:8443"} =
+               WebPropertyDiscoveryWorker.endpoint_to_origin(%{
+                 hostname: "2001:db8::1",
+                 port: 8443,
+                 protocol: "TCP",
+                 route_kind: "HTTPRoute"
                })
     end
 

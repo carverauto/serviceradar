@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
 
   alias Phoenix.LiveView.Lifecycle
   alias Phoenix.LiveView.Socket
+  alias ServiceRadar.Inventory.WebProperty
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.WebPropertyLive.Index
   alias ServiceRadarWebNGWeb.WebPropertyLive.Show
@@ -94,6 +95,140 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
       Show.handle_params(%{"id" => id}, "https://example.test/websites/#{id}", show_socket)
 
     assert {:live, :redirect, %{to: "/dashboard"}} = denied_show.redirected
+  end
+
+  test "invalid rum_sample_rate text is rejected instead of silently resetting to 1.0" do
+    socket = manager_socket()
+    {:ok, index_socket} = Index.mount(%{}, %{}, socket)
+
+    for bad_rate <- ["abc", "0.5ms"] do
+      {:noreply, failed_index} =
+        Index.handle_event(
+          "create_web_property",
+          %{
+            "web_property" => %{
+              "name" => "Shop",
+              "canonical_origin" => "https://shop.example.com",
+              "rum_sample_rate" => bad_rate
+            }
+          },
+          index_socket
+        )
+
+      assert is_binary(failed_index.assigns.form_error)
+      assert failed_index.assigns.form_error =~ "rum_sample_rate"
+      assert failed_index.assigns.create_form.params["rum_sample_rate"] == bad_rate
+    end
+
+    wp = %WebProperty{
+      id: Ash.UUID.generate(),
+      name: "Shop",
+      canonical_origin: "https://shop.example.com",
+      environment: :production,
+      rum_enabled: true,
+      rum_sample_rate: 0.5,
+      anonymize_client_ip: true,
+      allowed_origins: [],
+      allowed_query_keys: [],
+      trace_propagate_origins: []
+    }
+
+    {:ok, show_socket} = Show.mount(%{}, %{}, manager_socket())
+
+    show_socket =
+      show_socket
+      |> Show.apply_property_state(wp, [], [], [])
+      |> Map.update!(:assigns, &Map.put(&1, :editing?, true))
+
+    for bad_rate <- ["abc", "0.5ms"] do
+      {:noreply, failed_show} =
+        Show.handle_event(
+          "save_web_property",
+          %{
+            "web_property" => %{
+              "name" => "Shop",
+              "canonical_origin" => "https://shop.example.com",
+              "rum_sample_rate" => bad_rate
+            }
+          },
+          show_socket
+        )
+
+      assert is_binary(failed_show.assigns.form_error)
+      assert failed_show.assigns.form_error =~ "rum_sample_rate"
+      assert failed_show.assigns.edit_form.params["rum_sample_rate"] == bad_rate
+    end
+  end
+
+  test "Show.apply_property_state preserves active @edit_form when editing? is true" do
+    wp_initial = %WebProperty{
+      id: Ash.UUID.generate(),
+      name: "Initial Site",
+      canonical_origin: "https://shop.example.com",
+      environment: :production,
+      rum_enabled: true,
+      rum_sample_rate: 0.5,
+      anonymize_client_ip: true,
+      allowed_origins: [],
+      allowed_query_keys: [],
+      trace_propagate_origins: [],
+      edge_provider: nil
+    }
+
+    wp_posture_updated = %{wp_initial | edge_provider: "cloudflare", name: "Posture Updated"}
+
+    {:ok, socket} = Show.mount(%{}, %{}, manager_socket())
+    socket = Show.apply_property_state(socket, wp_initial, [], [], [])
+
+    unsaved_form =
+      Phoenix.Component.to_form(
+        %{
+          "name" => "Unsaved Operator Edit",
+          "canonical_origin" => "https://shop.example.com",
+          "environment" => "staging",
+          "rum_sample_rate" => "0.25"
+        },
+        as: :web_property
+      )
+
+    editing_socket =
+      Map.update!(socket, :assigns, fn assigns ->
+        assigns
+        |> Map.put(:editing?, true)
+        |> Map.put(:edit_form, unsaved_form)
+      end)
+
+    refreshed_while_editing =
+      Show.apply_property_state(editing_socket, wp_posture_updated, [], [], [])
+
+    assert refreshed_while_editing.assigns.web_property.edge_provider == "cloudflare"
+    assert refreshed_while_editing.assigns.edit_form.params["name"] == "Unsaved Operator Edit"
+    assert refreshed_while_editing.assigns.edit_form.params["environment"] == "staging"
+
+    non_editing_socket =
+      Map.update!(editing_socket, :assigns, &Map.put(&1, :editing?, false))
+
+    refreshed_when_not_editing =
+      Show.apply_property_state(non_editing_socket, wp_posture_updated, [], [], [])
+
+    assert refreshed_when_not_editing.assigns.edit_form.params["name"] == "Posture Updated"
+  end
+
+  defp manager_socket do
+    %Socket{
+      endpoint: ServiceRadarWebNGWeb.Endpoint,
+      router: ServiceRadarWebNGWeb.Router,
+      private: %{live_temp: %{}, lifecycle: %Lifecycle{}},
+      assigns: %{
+        __changed__: %{},
+        flash: %{},
+        live_action: :index,
+        current_scope: %Scope{
+          user: %{id: "op-1", role: :operator},
+          permissions: MapSet.new(["devices.view", "settings.networks.manage"])
+        }
+      }
+    }
   end
 
   defp disconnected_socket(permissions) do

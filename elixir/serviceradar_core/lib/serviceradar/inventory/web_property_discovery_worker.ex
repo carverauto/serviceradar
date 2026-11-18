@@ -107,15 +107,18 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
 
     web_candidate? =
       is_binary(hostname) and
+        not String.contains?(hostname, "://") and
+        not String.match?(hostname, ~r/\s/) and
         not String.ends_with?(String.downcase(hostname), ".svc.cluster.local") and
         protocol in ["TCP", "HTTP", "HTTPS"] and
         (route_kind in @http_route_kinds or port in @http_ports)
 
     if web_candidate? do
       scheme = infer_scheme(port, listener_name)
+      formatted_host = format_endpoint_host(hostname)
       port_part = if is_integer(port) and port > 0, do: ":#{port}", else: ""
 
-      case WebProperty.normalize_canonical_origin("#{scheme}://#{hostname}#{port_part}") do
+      case WebProperty.normalize_canonical_origin("#{scheme}://#{formatted_host}#{port_part}") do
         {:ok, origin} -> {:ok, origin}
         {:error, _} -> :ignore
       end
@@ -297,7 +300,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
 
   defp upsert_k8s_binding(property, ep, actor, now) do
     cluster_id = trim_or_nil(ep[:cluster_id]) || "default"
-    namespace = ep[:namespace] || ""
+    namespace = (ep[:namespace] || "") |> to_string() |> String.trim()
     resource_kind = trim_or_nil(ep[:route_kind]) || "Service"
 
     resource_name =
@@ -777,6 +780,15 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
       )
 
       []
+  end
+
+  defp format_endpoint_host(hostname) do
+    if not String.starts_with?(hostname, "[") and
+         match?({:ok, _}, :inet.parse_ipv6_address(String.to_charlist(hostname))) do
+      "[#{hostname}]"
+    else
+      hostname
+    end
   end
 
   defp infer_scheme(port, listener_name) do
