@@ -214,6 +214,87 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     refute_receive {:origin_request, _}
   end
 
+  test "request_json tunnels POST, PUT, PATCH, and GET over HTTP/1.0 CONNECT and decodes JSON",
+       ctx do
+    req_opts = [
+      proxy: %{scheme: :http, host: "127.0.0.1", port: ctx.proxy.port},
+      cacerts: ctx.cacerts,
+      headers: [{"authorization", "Bearer synthetic-gitops-pat"}],
+      receive_timeout: 15_000
+    ]
+
+    for method <- [:post, :put, :patch] do
+      assert {:ok, %Req.Response{status: 201, body: body}} =
+               EgressClient.request_json(
+                 method,
+                 "https://localhost/gitops-echo",
+                 %{"pack" => "storage-and-nvr-health", "version" => "0.1.0"},
+                 req_opts
+               )
+
+      assert body["method"] == method |> Atom.to_string() |> String.upcase()
+      assert body["payload"] == %{"pack" => "storage-and-nvr-health", "version" => "0.1.0"}
+      assert body["headers"]["authorization"] == "Bearer synthetic-gitops-pat"
+      assert body["headers"]["content-type"] == "application/json"
+      assert_receive {:origin_request, _}
+    end
+
+    assert {:ok, %Req.Response{status: 200, body: %{"name" => "synthetic"}}} =
+             EgressClient.request_json(:get, "https://localhost/json-object", nil, req_opts)
+
+    assert_receive {:origin_request, _}
+  end
+
+  test "request_json refuses redirects and enforces strict request/response byte limits", ctx do
+    req_opts = [
+      proxy: %{scheme: :http, host: "127.0.0.1", port: ctx.proxy.port},
+      cacerts: ctx.cacerts,
+      headers: [{"authorization", "Bearer synthetic-gitops-pat"}],
+      receive_timeout: 15_000
+    ]
+
+    assert {:error, :redirects_not_supported} =
+             EgressClient.request_json(
+               :post,
+               "https://localhost/gitops-echo",
+               %{},
+               Keyword.put(req_opts, :redirect, true)
+             )
+
+    assert {:error, {:redirect_refused, 302}} =
+             EgressClient.request_json(
+               :post,
+               "https://localhost/cross-host-redirect",
+               %{"hello" => "world"},
+               req_opts
+             )
+
+    assert_receive {:origin_request, redirected_req}
+    assert redirected_req =~ "POST /cross-host-redirect "
+    refute_receive {:origin_request, _}
+
+    assert {:error, :request_too_large} =
+             EgressClient.request_json(
+               :post,
+               "https://localhost/gitops-echo",
+               %{"oversized" => String.duplicate("a", 128)},
+               Keyword.put(req_opts, :max_request_bytes, 32)
+             )
+
+    assert {:error, :response_too_large} =
+             EgressClient.request_json(
+               :get,
+               "https://localhost/json-object",
+               nil,
+               Keyword.put(req_opts, :max_bytes, 4)
+             )
+
+    assert_receive {:origin_request, _}
+
+    assert {:error, :invalid_json_request} =
+             EgressClient.request_json(:post, "http://localhost/gitops-echo", %{}, req_opts)
+  end
+
   defp range_opts(ctx, extra \\ []) do
     opts(
       ctx,
@@ -729,9 +810,8 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   end
 
   defp origin_serve(socket, owner) do
-    case :ssl.recv(socket, 0, 5_000) do
+    case read_full_http_request(socket, "") do
       {:ok, request} ->
-        request = to_string(request)
         send(owner, {:origin_request, request})
 
         cond do
@@ -780,6 +860,47 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     end
   end
 
+  defp read_full_http_request(socket, acc) do
+    case :binary.split(acc, "\r\n\r\n") do
+      [head, body] ->
+        expected_len = parse_request_content_length(head)
+
+        if byte_size(body) >= expected_len do
+          {:ok, head <> "\r\n\r\n" <> binary_part(body, 0, expected_len)}
+        else
+          case :ssl.recv(socket, 0, 5_000) do
+            {:ok, chunk} -> read_full_http_request(socket, acc <> to_string(chunk))
+            err -> err
+          end
+        end
+
+      [_incomplete_head] ->
+        case :ssl.recv(socket, 0, 5_000) do
+          {:ok, chunk} -> read_full_http_request(socket, acc <> to_string(chunk))
+          err -> err
+        end
+    end
+  end
+
+  defp parse_request_content_length(head) do
+    head
+    |> String.split("\r\n")
+    |> Enum.find_value(0, fn line ->
+      case String.split(line, ":", parts: 2) do
+        [name, val] ->
+          if String.downcase(String.trim(name)) == "content-length" do
+            case Integer.parse(String.trim(val)) do
+              {len, ""} when len >= 0 -> len
+              _ -> 0
+            end
+          end
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
   defp origin_response(request) do
     cond do
       String.contains?(request, "/range/") ->
@@ -804,6 +925,42 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
       String.contains?(request, "/cross-origin-redirect") ->
         redirect_response("https://localhost:8443/echo-headers")
+
+      String.contains?(request, "/gitops-echo") ->
+        [head_part, raw_body] =
+          case String.split(request, "\r\n\r\n", parts: 2) do
+            [h, b] -> [h, b]
+            [h] -> [h, ""]
+          end
+
+        [request_line | header_lines] = String.split(head_part, "\r\n")
+        [method | _] = String.split(request_line, " ")
+
+        headers =
+          header_lines
+          |> Enum.flat_map(fn line ->
+            case String.split(line, ":", parts: 2) do
+              [name, value] -> [{String.downcase(name), String.trim(value)}]
+              _ -> []
+            end
+          end)
+          |> Map.new()
+
+        decoded_payload =
+          case Jason.decode(raw_body) do
+            {:ok, d} -> d
+            _ -> raw_body
+          end
+
+        body =
+          Jason.encode!(%{
+            "method" => method,
+            "headers" => headers,
+            "payload" => decoded_payload
+          })
+
+        "HTTP/1.1 201 Created\r\ncontent-type: application/json\r\n" <>
+          "content-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
 
       String.contains?(request, "/echo-headers") ->
         headers =

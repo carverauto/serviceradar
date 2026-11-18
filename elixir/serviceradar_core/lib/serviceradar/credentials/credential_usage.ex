@@ -13,6 +13,9 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
   alias ServiceRadar.Automation.Ansible.Controller, as: AnsibleController
   alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsiblePlaybookRepository
   alias ServiceRadar.Camera.RecordingArchiveSettings
+  alias ServiceRadar.Catalog.CatalogRepository
+  alias ServiceRadar.Catalog.InstalledSolutionPack
+  alias ServiceRadar.Catalog.InstalledSolutionPackCredentialBinding
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialUsage.Consumer
   alias ServiceRadar.Credentials.CredentialUsage.LiveGrant
@@ -176,9 +179,12 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
       {:outbound_mail_settings, &load_outbound_mail_settings/1},
       {:recording_archive_settings, &load_recording_archive_settings/1},
       {:plugin_repositories, &load_plugin_repositories/1},
+      {:catalog_repositories, &load_catalog_repositories/1},
       {:ansible_controllers, &load_ansible_controllers/1},
       {:ansible_playbook_repositories, &load_ansible_playbook_repositories/1},
-      {:declarative_check_credential_bindings, &load_declarative_check_credential_bindings/1}
+      {:declarative_check_credential_bindings, &load_declarative_check_credential_bindings/1},
+      {:installed_solution_pack_credential_bindings,
+       &load_installed_solution_pack_credential_bindings/1}
     ]
 
     run_loaders(loaders, ids)
@@ -376,6 +382,15 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
     |> map_direct(:plugin_repository, :credential_secret_id, :name)
   end
 
+  defp load_catalog_repositories(ids) do
+    CatalogRepository
+    |> read_selected(
+      Ash.Query.filter(CatalogRepository, credential_secret_id in ^ids),
+      [:id, :credential_secret_id, :name]
+    )
+    |> map_direct(:catalog_repository, :credential_secret_id, :name)
+  end
+
   defp load_ansible_controllers(ids) do
     query =
       Ash.Query.filter(
@@ -446,6 +461,56 @@ defmodule ServiceRadar.Credentials.CredentialUsage do
              row.credential_secret_id,
              :declarative_check,
              check_id,
+             "#{base_label} (#{row.slot})",
+             row.slot
+           )
+         end)}
+      else
+        :error
+      end
+    end
+  end
+
+  defp load_installed_solution_pack_credential_bindings(ids) do
+    query = Ash.Query.filter(InstalledSolutionPackCredentialBinding, credential_secret_id in ^ids)
+
+    with {:ok, rows} <-
+           read_selected(
+             InstalledSolutionPackCredentialBinding,
+             query,
+             [:id, :installed_pack_id, :slot, :credential_secret_id]
+           ) do
+      map_installed_pack_bindings(rows)
+    end
+  end
+
+  defp map_installed_pack_bindings([]), do: {:ok, []}
+
+  defp map_installed_pack_bindings(rows) do
+    pack_ids = rows |> Enum.map(& &1.installed_pack_id) |> Enum.uniq()
+    pack_query = Ash.Query.filter(InstalledSolutionPack, id in ^pack_ids)
+
+    with {:ok, packs} <-
+           read_selected(InstalledSolutionPack, pack_query, [:id, :name, :pack_id, :slug]) do
+      packs_by_id =
+        Map.new(packs, fn p ->
+          label =
+            present_label(p.name) || present_label(p.pack_id) || present_label(p.slug) ||
+              to_string(p.id)
+
+          {to_string(p.id), label}
+        end)
+
+      if map_size(packs_by_id) == length(pack_ids) do
+        {:ok,
+         Enum.map(rows, fn row ->
+           pack_uuid = to_string(row.installed_pack_id)
+           base_label = Map.fetch!(packs_by_id, pack_uuid)
+
+           direct_entry(
+             row.credential_secret_id,
+             :installed_solution_pack,
+             pack_uuid,
              "#{base_label} (#{row.slot})",
              row.slot
            )

@@ -201,7 +201,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
       {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message},
       {:id, "declarative_check_credential_bindings_credential_secret_id_fkey",
-       @credential_in_use_message}
+       @credential_in_use_message},
+      {:id, "catalog_repositories_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "installed_solution_pack_bindings_credential_secret_fkey", @credential_in_use_message}
     ]
   end
 

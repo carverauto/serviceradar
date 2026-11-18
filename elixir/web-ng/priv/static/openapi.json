@@ -653,6 +653,10 @@
                 ],
                 "description": "Field included by default."
               },
+              "managed": {
+                "description": "Field included by default.",
+                "type": "boolean"
+              },
               "match": {
                 "anyOf": [
                   {
@@ -668,6 +672,34 @@
               "name": {
                 "description": "Field included by default.",
                 "type": "string"
+              },
+              "pack_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "pack_version": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "parameter_overrides": {
+                "description": "Field included by default.",
+                "type": "object"
               },
               "priority": {
                 "anyOf": [
@@ -700,11 +732,25 @@
                   "metric"
                 ],
                 "type": "string"
+              },
+              "template_fingerprint": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               }
             },
             "required": [
               "name",
-              "source_type"
+              "source_type",
+              "managed",
+              "parameter_overrides"
             ],
             "type": "object"
           },
@@ -9132,6 +9178,15 @@
             "type": "array",
             "uniqueItems": true
           },
+          "pack_id": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-pack_id"
+          },
+          "pack_version": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-pack_version"
+          },
+          "parameter_overrides": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-parameter_overrides"
+          },
           "plugin_package_id": {
             "$ref": "#/components/schemas/stateful-alert-rule-filter-plugin_package_id"
           },
@@ -12670,6 +12725,60 @@
         },
         "type": "object"
       },
+      "stateful-alert-rule-filter-pack_version": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "poll-job-filter-id": {
         "additionalProperties": false,
         "properties": {
@@ -14454,6 +14563,60 @@
         },
         "type": "object"
       },
+      "event-rule-filter-template_fingerprint": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-partition": {
         "additionalProperties": false,
         "description": "Network partition. The same IP may exist in more than one partition.",
@@ -15129,6 +15292,60 @@
       "link": {
         "description": "A link MUST be represented as either: a string containing the link's URL or a link object.",
         "type": "string"
+      },
+      "event-rule-filter-pack_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "device-group-filter-desc": {
         "additionalProperties": false,
@@ -26860,6 +27077,9 @@
           "id": {
             "$ref": "#/components/schemas/event-rule-filter-id"
           },
+          "managed": {
+            "$ref": "#/components/schemas/event-rule-filter-managed"
+          },
           "match": {
             "$ref": "#/components/schemas/event-rule-filter-match"
           },
@@ -26876,6 +27096,15 @@
             "type": "array",
             "uniqueItems": true
           },
+          "pack_id": {
+            "$ref": "#/components/schemas/event-rule-filter-pack_id"
+          },
+          "pack_version": {
+            "$ref": "#/components/schemas/event-rule-filter-pack_version"
+          },
+          "parameter_overrides": {
+            "$ref": "#/components/schemas/event-rule-filter-parameter_overrides"
+          },
           "priority": {
             "$ref": "#/components/schemas/event-rule-filter-priority"
           },
@@ -26884,6 +27113,9 @@
           },
           "source_type": {
             "$ref": "#/components/schemas/event-rule-filter-source_type"
+          },
+          "template_fingerprint": {
+            "$ref": "#/components/schemas/event-rule-filter-template_fingerprint"
           }
         },
         "type": "deepObject"
@@ -29768,6 +30000,34 @@
                 "description": "Field included by default.",
                 "type": "string"
               },
+              "pack_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "pack_version": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "parameter_overrides": {
+                "description": "Field included by default.",
+                "type": "object"
+              },
               "plugin_package_id": {
                 "anyOf": [
                   {
@@ -29842,7 +30102,8 @@
               "bucket_seconds",
               "cooldown_seconds",
               "renotify_seconds",
-              "managed"
+              "managed",
+              "parameter_overrides"
             ],
             "type": "object"
           },
@@ -32425,6 +32686,84 @@
         },
         "type": "object"
       },
+      "event-rule-filter-managed": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "event-rule-filter-parameter_overrides": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric_interface_hourly-filter-device_id": {
         "additionalProperties": false,
         "properties": {
@@ -33690,6 +34029,60 @@
         },
         "type": "object"
       },
+      "event-rule-filter-pack_version": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-last_seen_time": {
         "additionalProperties": false,
         "description": "When agent was last seen",
@@ -33869,6 +34262,60 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "stateful-alert-rule-filter-pack_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -35576,6 +36023,45 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "stateful-alert-rule-filter-parameter_overrides": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
           }
         },
         "type": "object"
@@ -39321,7 +39807,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -39379,12 +39865,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -39459,12 +39945,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -39580,6 +40066,36 @@
                           },
                           "name": {
                             "type": "string"
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "plugin_package_id": {
                             "anyOf": [
@@ -40704,7 +41220,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -40729,12 +41245,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -46442,7 +46958,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides))*$",
               "type": "string"
             },
             "style": "form"
@@ -46467,12 +46983,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -47511,12 +48027,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47572,12 +48088,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47655,12 +48171,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47778,6 +48294,36 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
                               },
                               {
                                 "type": "null"
@@ -48573,12 +49119,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48634,12 +49180,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48717,12 +49263,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48763,6 +49309,16 @@
                               }
                             ]
                           },
+                          "managed": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "match": {
                             "anyOf": [
                               {
@@ -48777,6 +49333,36 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
                               },
                               {
                                 "type": "null"
@@ -48810,6 +49396,16 @@
                                   "log",
                                   "metric"
                                 ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "template_fingerprint": {
+                            "anyOf": [
+                              {
                                 "type": "string"
                               },
                               {
@@ -49170,7 +49766,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides))*$",
               "type": "string"
             },
             "style": "form"
@@ -49228,12 +49824,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -49308,12 +49904,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -49354,6 +49950,16 @@
                               }
                             ]
                           },
+                          "managed": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "match": {
                             "anyOf": [
                               {
@@ -49366,6 +49972,36 @@
                           },
                           "name": {
                             "type": "string"
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "priority": {
                             "anyOf": [
@@ -49394,6 +50030,16 @@
                                   "log",
                                   "metric"
                                 ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "template_fingerprint": {
+                            "anyOf": [
+                              {
                                 "type": "string"
                               },
                               {

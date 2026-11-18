@@ -338,6 +338,7 @@ config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
     ServiceRadar.Camera,
+    ServiceRadar.Catalog,
     ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,

@@ -20,6 +20,10 @@ export const BOOLEAN_FLAGS: Set<string> = new Set([
   "clear-test",
   // `edge site bundle --wait` polls until the site's leaf server is ready.
   "wait",
+  // `pack` subcommands
+  "refresh-files",
+  "write-manifest",
+  "require-signatures",
 ])
 
 // Single-letter aliases. Only `-o` is recognised: download commands take
