@@ -40,6 +40,7 @@ defmodule ServiceRadar.Events.OcsfEventPublisher do
     camera: "camera",
     composite_check: "composite_check",
     credential: "credential",
+    declarative_check: "declarative_check",
     integration: "integration",
     inventory: "inventory",
     jobs: "jobs",
@@ -85,6 +86,7 @@ defmodule ServiceRadar.Events.OcsfEventPublisher do
           | :camera
           | :composite_check
           | :credential
+          | :declarative_check
           | :integration
           | :inventory
           | :jobs

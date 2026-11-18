@@ -2,8 +2,8 @@ use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_statuses, advisory_coordinates, agents, alerts, bmp_events, build_query_plan,
     camera_sources, capacity_forecasts, composite_results, dashboard_service_views, dashboards,
-    device_availability_history, device_graph, device_sweep_overlap, devices, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    declarative_check_results, device_availability_history, device_graph, device_sweep_overlap,
+    devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
     interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
     otel_metrics, otel_services, public_endpoints, security_events, services,
@@ -137,6 +137,9 @@ impl QueryEngine {
                 Entity::MtrTraces => mtr_traces::execute(&mut conn, &plan).await?,
                 Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,
                 Entity::CompositeResults => composite_results::execute(&mut conn, &plan).await?,
+                Entity::DeclarativeCheckResults => {
+                    declarative_check_results::execute(&mut conn, &plan).await?
+                }
                 Entity::FieldSurveySessions
                 | Entity::FieldSurveyRasters
                 | Entity::FieldSurveyArtifacts

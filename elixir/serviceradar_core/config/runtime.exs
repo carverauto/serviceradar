@@ -1471,9 +1471,9 @@ if config_env() == :prod do
       "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
     awx_schedule_evaluator_interval_seconds:
       "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
-    ansible_catalog_base_dir:
-      System.get_env("ANSIBLE_CATALOG_BASE_DIR") ||
-        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
+    # No default here: GitCatalogSyncWorker picks the fallback when it first needs
+    # a directory, so loading this file never requires a writable temp directory.
+    ansible_catalog_base_dir: System.get_env("ANSIBLE_CATALOG_BASE_DIR")
 
   config :serviceradar_core,
     cluster_enabled: cluster_enabled
@@ -1686,6 +1686,8 @@ if config_env() == :prod do
       topology_projection:
         String.to_integer(System.get_env("OBAN_QUEUE_TOPOLOGY_PROJECTION") || "2"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
+      declarative_checks:
+        String.to_integer(System.get_env("OBAN_QUEUE_DECLARATIVE_CHECKS") || "5"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
       notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),

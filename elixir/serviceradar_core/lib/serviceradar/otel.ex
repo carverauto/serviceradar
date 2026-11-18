@@ -32,6 +32,46 @@ defmodule ServiceRadar.Otel do
     end
   end
 
+  @doc """
+  Runs `fun` inside a child span named `name` when a span is already active,
+  and plainly otherwise.
+
+  For instrumentation at a shared client (a database or warehouse write) that
+  must describe work done on behalf of a traced operation but must never start
+  a trace of its own: telemetry pipelines deliberately run without a span, and a
+  root here would trace the act of storing telemetry. `result_status` maps the
+  function's result to `:ok` or `{:error, reason}` so a failure returned as a
+  value (not raised) still ends the span with status ERROR.
+  """
+  @spec child_span(:opentelemetry.span_name(), map() | keyword(), (-> result), (result ->
+                                                                                  :ok
+                                                                                  | {:error,
+                                                                                     term()})) ::
+          result
+        when result: var
+  def child_span(name, start_opts, fun, result_status \\ &default_result_status/1)
+      when is_function(fun, 0) and is_function(result_status, 1) do
+    case Tracer.current_span_ctx() do
+      :undefined ->
+        fun.()
+
+      _active ->
+        span(name, start_opts, fn ->
+          result = fun.()
+
+          case result_status.(result) do
+            {:error, reason} -> set_error(reason)
+            :ok -> :ok
+          end
+
+          result
+        end)
+    end
+  end
+
+  defp default_result_status({:error, reason}), do: {:error, reason}
+  defp default_result_status(_result), do: :ok
+
   @doc false
   @spec span_with_tracer(
           :opentelemetry.tracer(),

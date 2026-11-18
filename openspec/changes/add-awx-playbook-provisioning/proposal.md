@@ -132,8 +132,8 @@ must land first or be implemented under this change. Which one is an owner decis
 - `publish-ssh-ca-ansible-enrollment` and `publish-windows-qemu-guest-agent-ansible` leave
   AWX import to "the later ServiceRadar/AWX binding change". This is that change for
   non-callback content.
-- `add-agent-updater-self-update` links to the worked example as one remedy for hosts that
-  need a one-time agent package upgrade.
+- `add-agent-updater-status-reporting` links to the worked example as the fleet-wide remedy
+  for hosts that need an agent package upgrade.
 
 ## Impact
 

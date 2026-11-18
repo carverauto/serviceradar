@@ -156,6 +156,7 @@ So `mix_app` runs `mix compile --no-deps-check` inside one action:
 | `extra_config` | Build-system concerns that must not leak into checked-in config. Currently only Rustler `skip_compilation?: true`. |
 | `native_libs` | `{"//path/to:nif_target": "crate_name"}`. See [Native NIFs](#native-nifs). |
 | `hdrs` | Public `.hrl` headers, so a dependent's `-include_lib` resolves. |
+| `warnings_as_errors` | `True` on every first-party target, so a warning in that package fails its compile. Leave it off for Hex and vendored packages: Mix scopes the flag to the project being compiled, and their warnings are not ours to fix. |
 
 ## How dependencies work
 
@@ -795,9 +796,12 @@ Formatting, Credo and Dialyzer run through Mix; web-ng also wraps its fast lint
 tasks in the Bazel target described below.
 
 Pull requests gate `mix format --check-formatted` and `mix credo --strict` via
-`.github/workflows/elixir-quality.yml` (`--lint-only`). Compile warnings, xref,
-dependency audits, Sobelow, and the OpenAPI dump check run daily from
-`//buildbuddy.yaml` (`Elixir Quality (daily)`).
+`.github/workflows/elixir-quality.yml` (`--lint-only`). Compile warnings in first-party
+code of every Bazel-built app fail the Bazel build itself (`warnings_as_errors` on
+`mix_app`), and `//elixir/web-ng:unit_tests` fails when the committed OpenAPI dump is
+stale. Dependency audits and Sobelow run daily from `//buildbuddy.yaml` (`Elixir Quality
+(daily)`), which also runs format and Credo for the projects outside the pull-request lint
+matrix and compiles `elixir/palisade`, which Bazel does not build, with warnings as errors.
 
 ```sh
 ./scripts/elixir_quality.sh --project elixir/serviceradar_core --lint-only

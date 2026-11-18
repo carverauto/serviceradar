@@ -1,0 +1,103 @@
+{
+  "type": "object",
+  "description": "Compiled declarative check Edge subgraph assignment configuration.",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "description": "Compiled Edge assignment schema identifier.",
+      "default": "serviceradar.declarative_check_assignment.v1"
+    },
+    "check_id": {
+      "type": "string",
+      "description": "DeclarativeCheck UUID."
+    },
+    "slug": {
+      "type": "string",
+      "description": "DeclarativeCheck canonical slug."
+    },
+    "name": {
+      "type": "string",
+      "description": "DeclarativeCheck display name."
+    },
+    "topology": {
+      "type": "string",
+      "description": "Check topology classification.",
+      "enum": ["edge_only", "hybrid"]
+    },
+    "single_agent_complete": {
+      "type": "boolean",
+      "description": "True when this Edge run evaluates the complete single-vantage DAG directly.",
+      "default": false
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "description": "Default probe timeout in milliseconds.",
+      "default": 10000,
+      "minimum": 100,
+      "maximum": 300000
+    },
+    "allowlist": {
+      "type": "object",
+      "description": "Strict per-assignment destination allowlist enforced by the guest before host dispatch.",
+      "properties": {
+        "schemes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "networks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Resolved check input values.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Compiled Edge subgraph nodes.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Compiled Edge subgraph directed edges.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "Expanded target contexts for this assignment chunk.",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "check_id",
+    "slug",
+    "nodes"
+  ]
+}

@@ -308,9 +308,14 @@ class SignerIntegrationTest(unittest.TestCase):
             root = Path(directory)
             scripts = root / "scripts"
             scripts.mkdir()
-            for name in ("cosign_common.sh", "oci_registry.sh", "wasm-plugin-publish-context.sh",
+            for name in ("cosign_common.sh", "cosign_receipt.py", "oci_registry.sh", "wasm-plugin-publish-context.sh",
                          "sign-oci-publish.sh", "sign-native-addon-publish.sh", "sign-wasm-plugin-publish.sh"):
                 shutil.copy2(ROOT / "scripts" / name, scripts / name)
+            sigstore = root / "docs/sigstore"
+            sigstore.mkdir(parents=True)
+            shutil.copy2(ROOT / "docs/sigstore/rekor.pub", sigstore / "rekor.pub")
+            log_id = subprocess.run([sys.executable, str(scripts / "cosign_receipt.py"), "log-id", str(sigstore / "rekor.pub")],
+                                    check=True, capture_output=True, text=True).stdout.strip()
             # This caller test replaces only the shared reconciliation boundary;
             # the owning tests above exercise actual signature/hash verification.
             (scripts / "reconcile-legacy-signature.py").write_text(
@@ -347,14 +352,19 @@ class SignerIntegrationTest(unittest.TestCase):
                  "if command=='public-key': print('synthetic caller-test public key')\n"
                  "elif command=='triangulate': print(sys.argv[-1].replace('@sha256:',':sha256-')+'.sig')\n"
                  "elif command=='generate': print('{}')\n"
-                 "elif command=='sign-blob': open(sys.argv[sys.argv.index('--output-signature')+1],'w').write('c3ludGhldGlj')\n"
+                 "elif command=='sign-blob':\n"
+                 " open(sys.argv[sys.argv.index('--output-signature')+1],'w').write('c3ludGhldGlj')\n"
+                 " receipt={'SignedEntryTimestamp':'c3ludGhldGlj','Payload':{'body':'e30=','integratedTime':1,'logIndex':1,"
+                 "'logID':os.environ['LOG_ID']}}\n"
+                 " open(sys.argv[sys.argv.index('--bundle')+1],'w').write(json.dumps({'rekorBundle':receipt}))\n"
                  "else: raise SystemExit(2)\n")
             calls = root / "calls"
             env = os.environ | {"PATH": str(binaries) + os.pathsep + os.environ["PATH"], "CALLS": str(calls),
                 "OCI_REGISTRY": "registry.example", "OCI_PROJECT": "serviceradar-builds", "OCI_USERNAME": "synthetic", "OCI_TOKEN": "synthetic",
                 "HARBOR_LIFECYCLE_DIR": str(root), "COSIGN_KEY_REF": "env://SYNTHETIC_KEY", "COSIGN_TLOG_UPLOAD": "true",
                 "SERVICERADAR_SIGN_REGISTRY_TAG": "sha-synthetic", "SERVICERADAR_REPO_ROOT": str(root),
-                "BAZEL_BIN_DIR": str(root), "METADATA_DIR": str(metadata), "WASM_PLUGIN_METADATA_DIR": str(metadata)}
+                "BAZEL_BIN_DIR": str(root), "METADATA_DIR": str(metadata), "WASM_PLUGIN_METADATA_DIR": str(metadata),
+                "SERVICERADAR_SIGNING_LEDGER": str(root / "signing-ledger.jsonl"), "LOG_ID": log_id}
             reconciled = "reconcile registry.example/serviceradar-builds/example@" + SUBJECT
             # absent: one new classic signature; reused: none; refuse: publication stops.
             expectations = {"absent": (True, ["cosign sign-blob"]), "reused": (True, []), "refuse": (False, [])}

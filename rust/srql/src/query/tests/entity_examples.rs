@@ -946,6 +946,145 @@ fn composite_results_stats_rejects_unsupported_aggregation() {
 }
 
 #[test]
+fn declarative_check_results_joins_checks_and_supports_core_filters() {
+    let query = "in:declarative_check_results check_slug:storage-entitlement-utilization check_id:00000000-0000-7000-8000-000000000001 target_key:device:sr:device-0001 device_uid:sr:device-0001 verdict:approaching_entitlement_cap status:(degraded,down) state:enabled limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::DeclarativeCheckResults));
+    let (sql, params) = declarative_check_results::to_sql_and_params(&plan)
+        .expect("should build declarative check results SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("inner join \"declarative_checks\""),
+        "expected inner join onto declarative_checks, got: {sql}"
+    );
+    assert!(
+        sql.contains("AS check_slug") && sql.contains("AS check_name") && sql.contains("AS state"),
+        "expected joined check columns to be aliased, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_checks\".\"slug\" = "),
+        "expected slug filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"check_id\" = "),
+        "expected check_id filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"target_key\" = "),
+        "expected target_key filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"device_uid\" = "),
+        "expected device_uid filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"verdict\" = "),
+        "expected verdict filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"status\" = any("),
+        "expected status list filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"declarative_checks\".\"state\" = "),
+        "expected state filter, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"declarative_check_instances\".\"evaluated_at\" desc"),
+        "expected default evaluated_at desc order, got: {sql}"
+    );
+    assert!(
+        params.iter().any(|p| matches!(p, BindParam::Uuid(_))),
+        "expected UUID bind for check_id, got: {params:?}"
+    );
+}
+
+#[test]
+fn declarative_check_results_supports_evaluated_at_and_changed_at_time_bounds_sorting_and_pagination()
+ {
+    let config = test_config();
+    let cursor = encode_cursor(50, &config.cursor_secret).expect("encode cursor");
+    let request = QueryRequest {
+        query: "in:declarative_check_results slug:checkout-api-health evaluated_at:>=2026-11-18T00:00:00Z changed_at:[2026-11-18T00:00:00Z,2026-11-18T06:00:00Z] sort:changed_at:asc limit:25".to_string(),
+        limit: None,
+        cursor: Some(cursor),
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let translated =
+        translate_request(&config, request).expect("should translate paged declarative query");
+    let lower = translated.sql.to_lowercase();
+
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"evaluated_at\" >= "),
+        "expected evaluated_at bound, got: {}",
+        translated.sql
+    );
+    assert!(
+        lower.contains("\"declarative_check_instances\".\"changed_at\" >= ")
+            && lower.contains("\"declarative_check_instances\".\"changed_at\" <= "),
+        "expected changed_at range bounds, got: {}",
+        translated.sql
+    );
+    assert!(
+        lower.contains("order by \"declarative_check_instances\".\"changed_at\" asc"),
+        "expected changed_at asc sort, got: {}",
+        translated.sql
+    );
+    assert_eq!(translated.pagination.limit, Some(25));
+    assert!(translated.pagination.next_cursor.is_some());
+    assert!(translated.pagination.prev_cursor.is_some());
+}
+
+#[test]
+fn declarative_check_results_stats_rolls_up_by_status_verdict_and_check_slug() {
+    let plan = plan_for(
+        "in:declarative_check_results state:enabled evaluated_at:>=2026-11-18T00:00:00Z stats:count() as total by check_slug,status,verdict",
+    );
+    let (sql, params) = declarative_check_results::to_sql_and_params(&plan)
+        .expect("should build declarative check results stats");
+    let lower = sql.to_lowercase();
+
+    assert!(lower.contains("group by"), "expected GROUP BY, got: {sql}");
+    assert!(
+        sql.contains("'check_slug', declarative_checks.slug")
+            && sql.contains("'status', declarative_check_instances.status")
+            && sql.contains("'verdict', declarative_check_instances.verdict"),
+        "expected check_slug, status, and verdict in jsonb_build_object, got: {sql}"
+    );
+    assert_eq!(
+        params.len(),
+        2,
+        "expected state + evaluated_at binds, got: {params:?}"
+    );
+
+    let ungrouped =
+        plan_for("in:declarative_check_results slug:checkout-api-health stats:count() as n");
+    let (ungrouped_sql, _) = declarative_check_results::to_sql_and_params(&ungrouped)
+        .expect("should build ungrouped declarative stats");
+    assert!(
+        !ungrouped_sql.to_lowercase().contains("group by") && ungrouped_sql.contains("'n'"),
+        "expected ungrouped count payload, got: {ungrouped_sql}"
+    );
+}
+
+#[test]
+fn declarative_check_results_rejects_unsupported_filters_and_stats() {
+    let bad_filter = plan_for("in:declarative_check_results hostname:edge-01");
+    assert!(declarative_check_results::to_sql_and_params(&bad_filter).is_err());
+
+    let bad_group = plan_for("in:declarative_check_results stats:count() as n by hostname");
+    assert!(declarative_check_results::to_sql_and_params(&bad_group).is_err());
+
+    let bad_agg = plan_for("in:declarative_check_results stats:sum(bytes) as n by status");
+    assert!(declarative_check_results::to_sql_and_params(&bad_agg).is_err());
+}
+
+#[test]
 fn sweep_groups_example_partition_and_enabled() {
     let query = "in:sweep_groups partition:default enabled:true sort:name:asc";
     let plan = plan_for(query);

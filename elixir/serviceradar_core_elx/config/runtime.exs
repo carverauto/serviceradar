@@ -746,6 +746,101 @@ if config_env() == :prod do
     sync_ingestor_worker_timeout_ms: sync_ingestor_worker_timeout_ms
 end
 
+# Native add-on packages the seeders publish, rendered by Helm from
+# core.netprobeAddon, core.workloadIdentityAddon and core.endpointInventoryAddon
+# (the OTel collector add-on has no chart values yet). Without signed artifacts
+# a seeder stages the manifest version instead of approving it.
+native_addon_package_env = fn prefix ->
+  artifacts =
+    case System.get_env("SERVICERADAR_#{prefix}_ADDON_ARTIFACTS") do
+      json when is_binary(json) and json != "" ->
+        case Jason.decode(json) do
+          {:ok, %{} = map} -> map
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
+
+  Enum.reduce(
+    [version: "VERSION", source_oci_ref: "OCI_REF", source_oci_digest: "OCI_DIGEST"],
+    [artifacts: artifacts],
+    fn {key, suffix}, config ->
+      case System.get_env("SERVICERADAR_#{prefix}_ADDON_#{suffix}") do
+        value when is_binary(value) and value != "" -> Keyword.put(config, key, value)
+        _ -> config
+      end
+    end
+  )
+end
+
+config :serviceradar_core,
+  netprobe_native_addon_package: native_addon_package_env.("NETPROBE"),
+  otel_collector_native_addon_package: native_addon_package_env.("OTEL_COLLECTOR"),
+  workload_identity_native_addon_package: native_addon_package_env.("WORKLOAD_IDENTITY"),
+  endpoint_inventory_native_addon_package: native_addon_package_env.("ENDPOINT_INVENTORY")
+
+# Gates RDP-capable agent release artifacts. Helm renders it on core and web-ng.
+config :serviceradar_core,
+  remote_access_desktop_rdp_enabled:
+    System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "false") in ~w(true 1 yes)
+
+# Settings serviceradar_core/config/runtime.exs applies in prod only, with the
+# same variables, defaults and bounds. Several are rendered by Helm on the core
+# pod; until they were read here, the code defaults applied whatever was set.
+if config_env() == :prod do
+  parse_bool_env = fn env_name, default ->
+    case System.get_env(env_name) do
+      nil -> default
+      value -> String.downcase(value) in ["1", "true", "yes", "on"]
+    end
+  end
+
+  # RetentionWorker treats 0 detail days as "disabled"; unset or non-positive
+  # summary days means "keep forever".
+  ansible_retention_run_summary_days =
+    case parse_int_env.("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", 0) do
+      days when is_integer(days) and days > 0 -> days
+      _ -> nil
+    end
+
+  sweep_srql_page_limit =
+    case parse_int_env.("SWEEP_SRQL_PAGE_LIMIT", nil) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> 500
+    end
+
+  config :serviceradar_core,
+    ansible_retention_run_detail_days: "ANSIBLE_RETENTION_RUN_DETAIL_DAYS" |> parse_int_env.(90) |> max(0),
+    ansible_retention_run_summary_days: ansible_retention_run_summary_days,
+    ansible_retention_interval_seconds: "ANSIBLE_RETENTION_INTERVAL_SECONDS" |> parse_int_env.(86_400) |> max(3_600),
+    awx_controller_health_interval_seconds: "AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS" |> parse_int_env.(30) |> max(5),
+    awx_run_watchdog_interval_seconds: "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    awx_schedule_evaluator_interval_seconds: "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    # No default here: this file is also evaluated by the migrations Job, which has
+    # no writable temporary directory. GitCatalogSyncWorker picks the fallback when
+    # it first needs a directory.
+    ansible_catalog_base_dir: System.get_env("ANSIBLE_CATALOG_BASE_DIR"),
+    device_enrichment_rules_dir:
+      System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
+
+  # Prefix-tag flow enrichment. Enable enrichment only after its migrations are
+  # applied everywhere EventWriter inserts.
+  config :serviceradar_core,
+    prefix_tag_enrichment_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", false),
+    prefix_tag_provider_trie_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED", true),
+    threat_intel_engine_match_enabled: parse_bool_env.("SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED", true),
+    geo_tag_derivation_enabled: parse_bool_env.("SERVICERADAR_GEO_TAG_DERIVATION_ENABLED", false),
+    prefix_tags_loader_enabled: parse_bool_env.("SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED", true)
+
+  config :serviceradar_core,
+    sweep_srql_page_limit: sweep_srql_page_limit,
+    topology_endpoint_identity_promotion_enabled:
+      parse_bool_env.("SERVICERADAR_TOPOLOGY_ENDPOINT_IDENTITY_PROMOTION", false),
+    topology_v2_contract_consumption_enabled: parse_bool_env.("SERVICERADAR_TOPOLOGY_V2_CONSUMPTION_ENABLED", true)
+end
+
 # Shared WebRTC ICE credential provider. core-elx mints for its own ExWebRTC
 # peers, so its TURN URLs point at the in-cluster TURN Service.
 config :serviceradar_core,

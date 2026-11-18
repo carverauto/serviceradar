@@ -1,20 +1,5 @@
 ## ADDED Requirements
 
-### Requirement: Updater self-description
-The privileged agent updater SHALL report its version, platform, supported operations, version floor and state as a machine-readable document through an invocation that performs no privileged change. The agent SHALL use that document, not usage text, to decide whether a privileged operation is available.
-
-#### Scenario: Agent reads the updater's operations
-- **GIVEN** an installed updater that supports self-description
-- **WHEN** the agent inspects it
-- **THEN** the agent SHALL obtain the updater's version and the named operations it supports
-- **AND** SHALL NOT execute any privileged change to obtain them
-
-#### Scenario: Updater predates self-description
-- **GIVEN** an installed updater that does not answer the self-description invocation
-- **WHEN** the agent inspects it
-- **THEN** the agent SHALL classify the updater as `bootstrap_required`
-- **AND** SHALL still be able to use the operations that updater has
-
 ### Requirement: Signed updater release descriptor
 Every published agent release SHALL include, for each supported Linux architecture, an updater binary and a descriptor that names the component kind, version, operating system, architecture, SHA-256 digest and operation set of that binary, signed with a dedicated updater signing key. The signed message SHALL be the fixed context string, a newline, then the exact descriptor bytes. The installed updater SHALL verify the signature over that domain-separated message before parsing the descriptor, and SHALL reject a descriptor that carries a field its schema does not define or omits a required one.
 
@@ -135,14 +120,7 @@ The agent package SHALL deliver its updater as a package-owned payload and SHALL
 - **THEN** verification SHALL report no modified packaged file because of that replacement
 
 ### Requirement: Updater and agent version compatibility
-The updater SHALL remain compatible with the command lines of every agent release inside the supported upgrade window, and the agent SHALL require privileged operations by name. An updater newer than the agent SHALL always be acceptable, and the agent SHALL NOT attempt to install an older updater.
-
-#### Scenario: Agent needs an operation the updater lacks
-- **GIVEN** an agent feature that needs a named updater operation
-- **AND** the installed updater does not list it
-- **WHEN** the feature is requested
-- **THEN** the agent SHALL report the feature blocked with the missing operation
-- **AND** SHALL NOT invoke the updater with flags it does not define
+The updater SHALL remain compatible with the command lines of every agent release inside the supported upgrade window. An updater newer than the agent SHALL always be acceptable, and the agent SHALL NOT attempt to install an older updater.
 
 #### Scenario: Agent release is rolled back
 - **WHEN** an agent release is rolled back after the updater was replaced
@@ -188,30 +166,11 @@ The updater SHALL own a managed systemd drop-in for the agent service that decla
 - **WHEN** the caller attempts to supply or alter the drop-in content
 - **THEN** the updater SHALL ignore it
 
-### Requirement: Hosts needing a one-time package upgrade are identified
-The system SHALL identify every agent whose installed updater predates self-replacement, SHALL report why it cannot be remediated remotely, and SHALL present the exact remedy for that host.
-
-#### Scenario: Field updater predates self-replacement
-- **GIVEN** an agent classified `bootstrap_required`
-- **WHEN** an operator views the agent or a rollout that skipped it
-- **THEN** the system SHALL state that one package upgrade is required
-- **AND** SHALL show the package command for the host's package family with the target version
-
-#### Scenario: Host is upgraded
-- **WHEN** the upgraded updater answers self-description
-- **THEN** the agent's updater state SHALL leave `bootstrap_required` without operator action in ServiceRadar
-
-### Requirement: Add-on eligibility follows updater operations
-The control plane SHALL decide whether an agent can receive a privileged add-on from the updater operations the agent reports, SHALL treat a replaceable outdated updater as remediable, and SHALL keep an agent that needs a package upgrade ineligible with that reason.
+### Requirement: Replaceable updaters are remediated before add-on delivery
+The control plane SHALL treat an updater it can replace as remediable: when such an updater lacks an operation an assigned add-on needs, the control plane SHALL replace the updater first and deliver the add-on afterwards.
 
 #### Scenario: Replaceable updater lacks an add-on operation
 - **GIVEN** an agent whose updater is `outdated` and lacks an operation an add-on needs
 - **WHEN** the add-on is assigned
 - **THEN** the control plane SHALL schedule the updater replacement first
 - **AND** SHALL deliver the add-on after the operation is reported
-
-#### Scenario: Updater needs a package upgrade
-- **GIVEN** an agent whose updater is `bootstrap_required`
-- **WHEN** a privileged add-on is assigned
-- **THEN** the target SHALL be ineligible
-- **AND** the recorded reason SHALL name the agent and the one-time package upgrade

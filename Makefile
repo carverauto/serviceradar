@@ -60,7 +60,9 @@ BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
 # scripts/elixir_quality.sh workspace_projects. PRs gate format + Credo (--lint-only) through
 # the .github/workflows/elixir-quality.yml matrix, which need not list every project here;
-# the rest of the Mix contract runs daily from //buildbuddy.yaml.
+# BazelCI compiles each Bazel-built project with warnings as errors, and the dependency
+# audits, Sobelow and a warnings-as-errors compile of elixir/palisade (which Bazel does not
+# build) run daily from //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
@@ -197,13 +199,17 @@ push_all_release: ## Publish through the verified GitHub workflow
 	@exit 2
 
 .PHONY: verify_publish
-verify_publish: ## Verify published OCI image shape and runtime metadata (set VERIFY_TAG=<tag> to include an extra tag)
+verify_publish: ## Verify published OCI images against a signing run's ledger (SIGNING_LEDGER=<the run's signing-ledger artifact>; VERIFY_TAG=<tag> adds a tag)
 	@set -eu; \
+	if [ -z "$(SIGNING_LEDGER)" ]; then \
+		echo "Set SIGNING_LEDGER to the signing-ledger artifact of the run that signed these images." >&2; \
+		exit 2; \
+	fi; \
 	primary_tag="$(VERIFY_TAG)"; \
 	if [ -z "$${primary_tag}" ]; then \
 		primary_tag="sha-$$(git rev-parse HEAD)"; \
 	fi; \
-	./scripts/verify-oci-publish.sh latest "$${primary_tag}"
+	SERVICERADAR_SIGNING_LEDGER="$(SIGNING_LEDGER)" ./scripts/verify-oci-publish.sh latest "$${primary_tag}"
 
 .PHONY: build_wasm_plugins
 build_wasm_plugins: ## Build first-party Wasm plugin bundle artifacts locally with Bazel

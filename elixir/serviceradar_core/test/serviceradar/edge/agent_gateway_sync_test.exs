@@ -2110,6 +2110,48 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert recovered.is_healthy == true
       assert recovered.config_source == :remote
     end
+
+    test "a check-in from a disconnected agent records the transition to connected", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "returning-agent-#{unique_id}"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(agent_id, %{name: "Returning Agent", host: "192.0.2.61"})
+
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
+
+      {:ok, _} =
+        agent
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert List.last(agent_state_changes(agent_id)) == ["connected", "disconnected"]
+
+      :ok = AgentGatewaySync.heartbeat_agent(agent_id, %{is_healthy: true})
+
+      {:ok, returned} = Agent.get_by_uid(agent_id, actor: actor)
+      assert returned.status == :connected
+      assert List.last(agent_state_changes(agent_id)) == ["disconnected", "connected"]
+
+      # A further check-in from a connected agent is not a transition.
+      recorded = length(agent_state_changes(agent_id))
+      :ok = AgentGatewaySync.heartbeat_agent(agent_id, %{is_healthy: true})
+      assert length(agent_state_changes(agent_id)) == recorded
+    end
+  end
+
+  defp agent_state_changes(agent_id) do
+    Repo.query!(
+      """
+      SELECT old_state, new_state
+      FROM platform.health_events
+      WHERE entity_type = 'agent' AND entity_id = $1
+      ORDER BY recorded_at, id
+      """,
+      [agent_id]
+    ).rows
   end
 
   defp enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip) do

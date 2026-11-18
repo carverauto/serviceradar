@@ -1,3 +1,8 @@
+> **Parked (2026-11-18). Do not start these tasks.** See the status section of
+> `proposal.md`. Tasks for self-description, the status read model, operation gating and
+> the remedy UI moved to `add-agent-updater-status-reporting`; the numbering below keeps
+> its gaps so earlier references stay readable.
+
 ## 1. Decisions and contracts
 
 - [ ] 1.1 Owner resolves the Open Decisions in `design.md` (mechanism, key, A/B slots, package layout, kill-switch default, pause rule, drop-in scope, upgrade window, lowering the floor, bootstrap enforcement).
@@ -7,7 +12,6 @@
 
 ## 2. Updater
 
-- [ ] 2.1 Add `--describe`: JSON version, platform, operations, floor and state, with no privileged side effect.
 - [ ] 2.2 Add the dedicated updater public key file, embedded at build time as the updater's list of trusted keys (Decision 2), with a release-time assertion that the current key matches the signing secret. The privileged path never reads a key from the environment.
 - [ ] 2.3 Add `--updater-install`: no-follow bounded reads, signature verified over the domain-separated message of Decision 2 (context string, newline, exact descriptor bytes) before parsing, rejection of undefined or missing descriptor fields (the signed operation set is required), kind/platform/digest checks, rollback checks.
 - [ ] 2.4 Add the root-owned state directory, the floor file, the exclusive lock and stale temporary-file cleanup.
@@ -19,10 +23,9 @@
 
 ## 3. Agent
 
-- [ ] 3.1 Replace the help-text flag probe with `--describe`, keeping the probe as the fallback that classifies `bootstrap_required`.
-- [ ] 3.2 Report updater version, state, reason, operations, floor and observation time in the capability status; keep reporting `addon.systemd.updater.unavailable` for older cores.
+- [ ] 3.1 Classify `outdated`, `bootstrap_required` and `replacement_failed` on top of the states `add-agent-updater-status-reporting` reports.
+- [ ] 3.2 Add the floor, `below_floor` and `restart_pending` to the reported updater status.
 - [ ] 3.3 Stage the updater binary and descriptor through the existing release artifact transport and invoke the installed updater; handle `agent.update_updater` and the updater section of `agent.update_release` after a healthy activation.
-- [ ] 3.4 Gate privileged features on named operations and report a blocked feature with the missing operation instead of a flag error.
 
 ## 4. Release pipeline and packages
 
@@ -34,19 +37,16 @@
 
 ## 5. Core
 
-- [ ] 5.1 Persist per-agent updater status from the capability status; expose it through the agent read actions and SRQL.
+- [ ] 5.1 Extend the per-agent updater status with the replacement states, floor and restart-pending flag.
 - [ ] 5.2 Add the runtime setting `updater_replacement_enabled` with a code default; no Helm value.
 - [ ] 5.3 Deliver the updater descriptor with `agent.update_release`; sequence a descriptor's `min_installed_version` stepping stone for key rotation (Decision 2); add `agent.update_updater` and reconcile `outdated` agents on the rollout cohort schedule.
 - [ ] 5.4 Record updater outcome per rollout target; apply the fixed pause rule chosen in Open Decision 6.
-- [ ] 5.5 Move add-on eligibility from the capability string to required operations; make an `outdated` updater a remediable state and keep `bootstrap_required` ineligible with its reason.
+- [ ] 5.5 Make an `outdated` updater a remediable state for add-on eligibility: replace the updater first, then deliver the add-on.
 - [ ] 5.6 Emit audit events for dispatch, outcome, pause and kill-switch changes.
 
 ## 6. Web UI
 
-- [ ] 6.1 Agent detail: updater version, state, reason, operations, floor, last observation.
-- [ ] 6.2 Agents list: updater state column, filter and counts; Edge Ops banner while any agent is `bootstrap_required` or `unavailable`.
-- [ ] 6.3 Remedy panel for `bootstrap_required` and `unavailable`: package-family command with target version, onboarding reinstall, and the Ansible automation link when available.
-- [ ] 6.4 Release and add-on rollout views show updater outcome and name the host and reason for skipped targets.
+- [ ] 6.4 Release rollout view shows the updater replacement outcome per target.
 - [ ] 6.5 Settings: kill switch with its effective value.
 
 ## 7. Tests
@@ -54,15 +54,15 @@
 - [ ] 7.1 Updater unit tests: valid install; add-on signature and manifest signature rejected as updater signatures; tampered binary; wrong kind; wrong platform; equal and lower versions; below floor; oversized input; symlinked input; environment key ignored.
 - [ ] 7.2 Setuid integration tests as a non-root caller: destination, owner and mode are fixed; interrupted replacement before rename leaves the old updater working; stale temporary file is removed; floor heals.
 - [ ] 7.3 Self-test failure prevents the rename.
-- [ ] 7.4 Agent tests: state classification for each of the six states the agent reports; replacement only on command; feature gating by operation.
-- [ ] 7.5 Core tests: read model, including `unknown` recorded for an agent that reports no updater status and never counted as healthy; setting default and override; cohort dispatch, pause by reason class, add-on eligibility transitions.
-- [ ] 7.6 LiveView tests for the remedy panel, filters and rollout rows.
+- [ ] 7.4 Agent tests: classification of `outdated`, `bootstrap_required` and `replacement_failed`; replacement only on command.
+- [ ] 7.5 Core tests: replacement states in the updater status; setting default and override; cohort dispatch, pause by reason class, the `outdated` add-on eligibility transition.
+- [ ] 7.6 LiveView tests for the replacement outcome on rollout rows and the kill-switch setting.
 - [ ] 7.7 Enforcing-SELinux host verification of label preservation and of a privileged operation after replacement; record the result against the specific host and replacement time.
 
 ## 8. Rollout and documentation
 
 - [ ] 8.1 Canary: one cohort, verified by the reported updater version of each host observed after dispatch, with an explicit failure branch for hosts that did not change.
 - [ ] 8.2 Exercise the kill switch and the pause rule during the canary.
-- [ ] 8.3 Update `docs/docs/agent-release-management.md`, `docs/docs/agent-platform-packages.md` and `docs/docs/native-addons.md`, including the amended "package-owned" statement and the bootstrap remedy.
+- [ ] 8.3 Update `docs/docs/agent-release-management.md`, `docs/docs/agent-platform-packages.md` and `docs/docs/native-addons.md`, for the amended "package-owned" statement.
 - [ ] 8.4 Update the flag-contract comment in `go/pkg/agent/updaterflags/flags.go`.
 - [ ] 8.5 Run `openspec validate add-agent-updater-self-update --strict`, the focused Go and Elixir checks, and the required Bazel suite; report every check not run.

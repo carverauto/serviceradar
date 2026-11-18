@@ -430,13 +430,25 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
           {"Nats-Expected-Stream", route.expected_stream},
           {"Sr-Edge-Delivery-Id", delivery_id},
           {"Sr-Edge-Transport-Provenance", provenance}
-        ] ++ grant_header ++ gateway_header()
+        ] ++ gateway_header() ++ trace_context(publication)
 
       recovery_header_bound(headers, route, publication)
     else
       {:error, reason} -> {:error, {:derivation, reason}}
     end
   end
+
+  # The ingest RPC's `traceparent`/`tracestate`, captured by the stream handler
+  # (`ServiceRadar.Otel.Propagation.trace_context_headers/0` bounds them). Only those two names
+  # pass, so a publication cannot smuggle a header that names an identity or a stream.
+  defp trace_context(%{trace_context: headers}) when is_list(headers) do
+    Enum.filter(headers, fn
+      {name, value} when name in ["traceparent", "tracestate"] and is_binary(value) -> true
+      _other -> false
+    end)
+  end
+
+  defp trace_context(_publication), do: []
 
   defp recovery_header_bound(headers, route, %{route_profile: profile})
        when profile in [:EDGE_RECORD_ROUTE_PROFILE_RECOVERY_CONTROL_V1, 3] do

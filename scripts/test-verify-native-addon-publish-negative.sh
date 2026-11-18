@@ -46,6 +46,8 @@ bazel_bin="${TMP_DIR}/bazel-bin"
 metadata_dir="${bazel_bin}/build/native_addons"
 mkdir -p "${fake_bin}" "${metadata_dir}"
 printf '%s\n' 'synthetic cosign public key fixture' >"${TMP_DIR}/cosign.pub"
+# The signing run reused the fixture digest's existing signature.
+printf '{"event":"reused","digest":"sha256:%s"}\n' "$(printf 'c%.0s' {1..64})" >"${TMP_DIR}/signing-ledger.jsonl"
 
 cat >"${metadata_dir}/fixture.metadata.json" <<'JSON'
 {
@@ -168,6 +170,9 @@ cat >"${fake_bin}/cosign" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-}" in
+  triangulate)
+    printf '%s.sig\n' "${2/@sha256:/:sha256-}"
+    ;;
   verify)
     if [[ "${VERIFY_NATIVE_ADDON_FIXTURE_MODE:-}" == "unsigned" ]]; then
       echo "fixture unsigned artifact" >&2
@@ -209,6 +214,7 @@ run_expected_failure() {
     BAZEL_BIN_DIR="${bazel_bin}" \
     METADATA_DIR="${metadata_dir}" \
     COSIGN_PUBLIC_KEY_FILE="${TMP_DIR}/cosign.pub" \
+    SERVICERADAR_SIGNING_LEDGER="${TMP_DIR}/signing-ledger.jsonl" \
     OCI_REGISTRY="registry.example.test" \
     OCI_PROJECT="serviceradar" \
     VERIFY_NATIVE_ADDON_FIXTURE_MODE="${mode}" \
@@ -221,6 +227,11 @@ run_expected_failure() {
 
   if [[ "${mode}" == "path-traversal" && -e "${blob_fetch_marker}" ]]; then
     echo "  VIOLATION verifier fetched a blob before rejecting an unsafe title" >&2
+    return 1
+  fi
+  if [[ "${mode}" == "unsigned" ]] && ! grep -q "fixture unsigned artifact" "${log_file}"; then
+    echo "  VIOLATION verifier rejected the unsigned fixture before verifying its signature" >&2
+    sed 's/^/    /' "${log_file}" >&2
     return 1
   fi
   if [[ "${mode}" == "path-traversal" ]] &&

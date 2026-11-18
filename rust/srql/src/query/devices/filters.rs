@@ -1,5 +1,6 @@
 mod availability;
 mod composite;
+mod declarative;
 mod defaults;
 mod identity;
 mod ip;
@@ -28,6 +29,7 @@ pub(super) use self::{
 use self::{
     availability::{apply_agent_availability_filter, apply_availability_source_freshness_filter},
     composite::{apply_composite_verdict_filter, parse_composite_field},
+    declarative::{apply_declarative_verdict_filter, parse_declarative_field},
     defaults::{apply_active_filter, apply_retired_filter},
     identity::{apply_device_type_filter, apply_mac_filter},
     ip::apply_ip_filter,
@@ -335,6 +337,12 @@ pub(super) fn apply_filter<'a>(
                 ServiceError::InvalidRequest(format!("invalid composite check field '{field}'"))
             })?;
             query = apply_composite_verdict_filter(query, filter, &slug, column)?;
+        }
+        field if field.starts_with("declarative.") => {
+            let (slug, column) = parse_declarative_field(field).ok_or_else(|| {
+                ServiceError::InvalidRequest(format!("invalid declarative check field '{field}'"))
+            })?;
+            query = apply_declarative_verdict_filter(query, filter, &slug, column)?;
         }
         // JSONB path queries for metadata (arbitrary keys)
         field if field.starts_with("metadata.") => {

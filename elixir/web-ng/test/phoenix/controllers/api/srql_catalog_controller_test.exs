@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.DeclarativeChecks
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @moduletag :web_ng_shared_fixture_db
@@ -160,10 +162,134 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert "composite.#{check.slug}" in device_fields
       assert "composite.#{check.slug}.status" in device_fields
     end
+
+    test "registers the declarative_check_results entity", %{conn: conn} do
+      response =
+        conn
+        |> get(~p"/api/srql/catalog")
+        |> json_response(200)
+
+      decl = response["entities"]["declarative_check_results"]
+      fields = decl["fields"]
+
+      assert "check_slug" in fields["filter"]
+      assert "slug" in fields["filter"]
+      assert "check_id" in fields["filter"]
+      assert "target_key" in fields["filter"]
+      assert "device_uid" in fields["filter"]
+      assert "verdict" in fields["filter"]
+      assert "status" in fields["filter"]
+      assert "state" in fields["filter"]
+      assert "evaluated_at" in fields["timestamp"]
+      assert "changed_at" in fields["timestamp"]
+      assert "status" in fields["stats"]
+      assert "verdict" in fields["stats"]
+      assert "check_slug" in fields["stats"]
+      assert decl["enums"]["status"] == ["healthy", "degraded", "down", "unknown"]
+      assert decl["enums"]["state"] == ["draft", "enabled", "disabled"]
+    end
+
+    test "offers an enabled device-scoped declarative check with its verdicts", %{conn: conn} do
+      check = enabled_declarative_device_check()
+
+      response =
+        conn
+        |> get(~p"/api/srql/catalog")
+        |> json_response(200)
+
+      devices = response["entities"]["devices"]
+      device_fields = devices["fields"]["filter"]
+
+      assert "declarative.#{check.slug}" in device_fields
+      assert "declarative.#{check.slug}.status" in device_fields
+
+      assert devices["enums"]["declarative.#{check.slug}"] == [
+               "cert_expired",
+               "cert_expiring_soon",
+               "cert_unknown",
+               "cert_valid"
+             ]
+
+      assert devices["enums"]["declarative.#{check.slug}.status"] == [
+               "healthy",
+               "degraded",
+               "down",
+               "unknown"
+             ]
+    end
+  end
+
+  defp enabled_declarative_device_check do
+    actor = SystemActor.system(:srql_catalog_test)
+    slug = "catalog-tls-#{System.unique_integer([:positive])}"
+
+    {:ok, check} =
+      DeclarativeChecks.create_check(
+        %{
+          "schema_version" => 1,
+          "slug" => slug,
+          "name" => "Catalog TLS Check #{slug}",
+          "state" => "enabled",
+          "schedule" => %{"interval_seconds" => 300, "timeout_seconds" => 30, "jitter_seconds" => 5},
+          "target_binding" => %{"mode" => "srql_devices", "scope_query" => "in:devices"},
+          "inputs" => [],
+          "credential_slots" => [],
+          "nodes" => [
+            %{
+              "id" => "tls_1",
+              "kind" => "tls_handshake",
+              "label" => "TLS Handshake",
+              "config" => %{"host" => "example.com", "port" => 443}
+            },
+            %{
+              "id" => "assert_1",
+              "kind" => "threshold_assert",
+              "label" => "Days Remaining",
+              "config" => %{
+                "field" => "leaf_days_remaining",
+                "warn" => %{"op" => "<=", "value" => 14},
+                "crit" => %{"op" => "<=", "value" => 3}
+              }
+            },
+            %{
+              "id" => "out_1",
+              "kind" => "alert_output",
+              "label" => "TLS Verdict",
+              "config" => %{
+                "verdict_map" => %{
+                  "healthy" => "cert_valid",
+                  "degraded" => "cert_expiring_soon",
+                  "down" => "cert_expired",
+                  "unknown" => "cert_unknown"
+                }
+              }
+            }
+          ],
+          "edges" => [
+            %{
+              "id" => "e1",
+              "source" => "tls_1",
+              "source_handle" => "signal",
+              "target" => "assert_1",
+              "target_handle" => "in"
+            },
+            %{
+              "id" => "e2",
+              "source" => "assert_1",
+              "source_handle" => "verdict",
+              "target" => "out_1",
+              "target_handle" => "in"
+            }
+          ],
+          "alert_policy" => %{"emit_ocsf_transition" => false}
+        },
+        actor: actor
+      )
+
+    check
   end
 
   defp enabled_composite_check do
-    alias ServiceRadar.Actors.SystemActor
     alias ServiceRadar.CompositeChecks.CompositeCheck
     alias ServiceRadar.CompositeChecks.CompositeCheckRule
 

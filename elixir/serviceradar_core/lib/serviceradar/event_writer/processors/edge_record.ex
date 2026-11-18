@@ -94,9 +94,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.EdgeRecordTransientError
   alias ServiceRadar.NATS.PublishDeniedError
+  alias ServiceRadar.Otel
   alias ServiceRadar.Repo
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   @ash_inputs [Ash.Changeset, Ash.Query, Ash.ActionInput]
 
@@ -145,7 +147,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         publication: publication_of(metadata)
       )
 
-    case ingest_decoded_with_disposition(data, decoded, headers, repo, opts) do
+    case traced_ingest(data, decoded, headers, repo, opts, contract) do
       {:ok, {:deferred, state}} ->
         {:failed, %EdgeRecordDeferredError{state: state}}
 
@@ -188,6 +190,39 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       Logger.error("Edge record failed: #{inspect(e)}")
       {:failed, e}
   end
+
+  # One CNPG transaction per record, as a child of the batch's consumer span (never a root: a
+  # caller with no span gets none).
+  defp traced_ingest(data, decoded, headers, repo, opts, contract) do
+    Otel.child_span(
+      "edge_record.ingest",
+      %{kind: :client, attributes: ingest_attributes(contract, opts)},
+      fn ->
+        result = ingest_decoded_with_disposition(data, decoded, headers, repo, opts)
+        Tracer.set_attribute("serviceradar.edge_record.outcome", ingest_outcome(result))
+        result
+      end
+    )
+  end
+
+  defp ingest_attributes(contract, opts) do
+    attributes = %{
+      "db.system" => "postgresql",
+      "serviceradar.edge_record.publication" => Atom.to_string(opts[:publication])
+    }
+
+    case contract do
+      {id, version} ->
+        Map.put(attributes, "serviceradar.edge_record.contract", "#{id}/v#{version}")
+
+      nil ->
+        attributes
+    end
+  end
+
+  defp ingest_outcome({:ok, {:deferred, state}}), do: "deferred_#{state}"
+  defp ingest_outcome({:ok, disposition, outcome}), do: "#{disposition}_#{outcome}"
+  defp ingest_outcome({:error, _reason}), do: "error"
 
   # A refused record is dead-lettered on its first delivery: redelivering the same bytes is
   # refused the same way, and acknowledging it would lose the record with nothing to inspect or

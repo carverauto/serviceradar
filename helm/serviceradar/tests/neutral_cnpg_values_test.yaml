@@ -18,7 +18,7 @@ tests:
           value: 3
       - equal:
           path: spec.storage.size
-          value: 100Gi
+          value: 250Gi
   - it: applies neutral CNPG cluster overrides
     template: templates/cnpg-cluster.yaml
     set:

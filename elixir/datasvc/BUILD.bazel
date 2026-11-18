@@ -37,6 +37,7 @@ filegroup(
 # too. Removed; nothing in this package or its consumers resolves them.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = [":srcs"],
     app_name = "datasvc",
     deps = [

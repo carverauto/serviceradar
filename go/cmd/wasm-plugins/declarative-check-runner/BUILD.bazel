@@ -1,0 +1,37 @@
+# gazelle:ignore
+#
+# First-party WASI Preview 1 plugin executing compiled Edge check subgraphs for
+# declarative service and posture checks (io.serviceradar.declarative-check-runner).
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "main.go",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "dist/**",
+            "manifest.json",
+        ],
+    ),
+)
+
+go_test(
+    name = "declarative_check_runner_test",
+    srcs = [
+        "evaluators.go",
+        "main.go",
+        "main_test.go",
+        "metrics.go",
+        "probes.go",
+        "sdk_bridge_native.go",
+        "tls_wire.go",
+    ],
+)

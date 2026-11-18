@@ -10,16 +10,7 @@ defmodule Datasvc.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Elixir client for ServiceRadar datasvc gRPC service",
-      package: package(),
-      # Keep Hex's advisory gate aligned with the documented, temporary
-      # exceptions in .deps_audit_ignore. See that file for mitigations and
-      # removal criteria for each advisory.
-      hex: [
-        ignore_advisories: [
-          "EEF-CVE-2026-43966",
-          "GHSA-w4f7-4cxr-rv3c"
-        ]
-      ]
+      package: package()
     ]
   end
 

@@ -461,6 +461,19 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     end
   end
 
+  test "declarative check result aliases require declarative_checks.view and resolve in Catalog" do
+    viewer = %Scope{user: nil, permissions: MapSet.new(["declarative_checks.view"])}
+    other = %Scope{user: nil, permissions: MapSet.new(["services.view"])}
+
+    for alias_name <- ~w(declarative_check_results declarative_results declarative_verdicts) do
+      assert {:ok, "declarative_checks.view"} = EntityAccess.permission_for_entity(alias_name)
+      assert :ok = EntityAccess.authorize("in:#{alias_name} limit:1", viewer)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{alias_name} limit:1", other)
+      assert Catalog.entity(alias_name).id == "declarative_check_results"
+      assert {:ok, _ast} = Native.parse_ast("in:#{alias_name} limit:1")
+    end
+  end
+
   describe "otel_services any-of gate" do
     # One catalog covers three signals, so the gate admits a caller holding any
     # one view permission and hands SRQL the signals it holds. Before this

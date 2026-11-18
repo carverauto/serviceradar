@@ -1,3 +1,86 @@
+# ServiceRadar v1.5.8
+
+This release fixes the v1.5.7 upgrade: the Helm migrations Job crashed at boot
+because the release configuration required a writable temporary directory, so
+v1.5.7's migrations never ran. It also makes agent state transitions record
+health events and alert when an edge agent disconnects, adds the declarative
+checks edge WASM runner, SRQL surface and visual DAG builder, and logs release
+signatures to ServiceRadar's self-hosted Rekor transparency log with offline
+receipt verification at release time.
+
+## Upgrade Notes
+
+- **Upgrading from v1.5.6 or earlier: read the v1.5.7 upgrade notes below
+  first.** They still apply and are not repeated here.
+- **Installations that rolled to v1.5.7 have unapplied migrations.** The
+  v1.5.7 migrations Job failed with "could not get a writable temporary
+  directory". Upgrading to v1.5.8 runs the Job again and applies them; no
+  manual step is needed. The release configuration no longer computes a
+  temporary-directory default at boot; `ANSIBLE_CATALOG_BASE_DIR` is passed
+  through when set, and the Ansible catalog sync worker falls back to a
+  temporary directory only when it runs.
+- **Release signatures now carry receipts from ServiceRadar's self-hosted
+  Rekor log** (`https://rekor.serviceradar.cloud`) instead of the public-good
+  Rekor. Signatures are still made with the key in `docs/cosign.pub`. If you
+  verify ServiceRadar images at admission with Kyverno or cosign and do not
+  ignore the transparency log, configure the pinned Rekor public key from
+  `docs/sigstore/rekor.pub` for these images. With Kyverno's default Rekor
+  settings, a v1.5.8 image is denied, because its receipt is not from the
+  public-good log. Verification checks the receipt offline against that key
+  and never contacts the log.
+- **Agent disconnects now raise an alert.** Agent, gateway and checker state
+  transitions now write health events, and a disconnected edge agent raises
+  an alert. Installations that previously saw no agent-offline alerts will
+  start seeing them.
+
+## Fixes
+
+- core-elx: load the release configuration without a writable temporary
+  directory (#6815).
+- core: record agent state transitions and alert on a disconnected agent
+  (#6816).
+
+## Features
+
+- Declarative checks: edge WASM runner, SRQL surface and visual DAG builder
+  (#6813).
+- Signing: log release signatures to the self-hosted Rekor log and verify
+  receipts at release (#6814).
+
+## Build and CI
+
+- Pin the BuildBuddy workflow runner image to v1.0.24.7 (#6817).
+
+# ServiceRadar v1.5.7
+
+This release adds the Wave 1 declarative checks DAG engine and posture-pack
+catalog, semantic camera clip search with CLIP embedding schema and projector,
+SigV4 pre-signed S3 read grants for the media worker, a stateless Rust GPU
+media worker, and the LATE_ADMISSION transport-provenance delivery mode in both
+Go and Elixir (dormant at version 0). It fixes timeseries_metrics compression
+and raises the default CNPG storage to 250Gi, removes the unsupported
+`allow_overcommit` field from the NATS server config (it caused a crash on NATS
+2.14.0 when JetStream overcommit was enabled in the chart), fixes core-elx
+reading the runtime settings the release config ignored, restores parented OTel
+spans across gateway/datasvc/EventWriter hops, fixes SNMP target reuse across
+compiles, and allows TCP syslog through the namespace network policy.
+
+## Upgrade Notes
+
+- **Upgrading from v1.5.3 or earlier: read the v1.5.5, v1.5.4, and v1.5.6
+  upgrade notes below first.** They all still apply and are not repeated here.
+- **CNPG storage default raised to 250Gi.** Installations with less than 250Gi
+  should set `cnpg.storageSize` explicitly to their current size to prevent the
+  chart from requesting an expansion. CNPG refuses to shrink storage, so a value
+  below the live size will fail the upgrade.
+- **timeseries_metrics compression is now configured by this migration.** The
+  migration is idempotent and safe to run against a database where compression
+  was already set up by an earlier migration or `DataRetentionWorker`.
+- **NATS `allow_overcommit` chart fix.** If you previously worked around NATS
+  pod crashes by setting `nats.jetstream.allowOvercommit: true`, that value is
+  now safe and only bypasses the chart's render-time budget check; it no longer
+  writes an unsupported field to the NATS server config.
+
 # ServiceRadar v1.5.6
 
 This release fixes a NATS lockout that a runtime certificate rotation

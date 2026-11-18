@@ -15,7 +15,7 @@ Constraints:
 **Goals**
 - A CLI-driven publish round-trip that completes in a single `serviceradar-cli dashboard publish --instance … --route … --enable --yes` call, with no LiveView interaction.
 - Defense in depth: bearer-token scope check + RBAC permission check + Ash resource policy. A vulnerability in any one layer SHALL NOT yield publish capability.
-- Safe re-publish: `manifest.id@version` is upserted by content; a re-push with the same bytes is a noop, and a re-push with different bytes is rejected unless the package is currently `:disabled` or the version was bumped.
+- Safe re-publish: `manifest.id@version` follows the version-overwrite invariant in the capability delta; a re-push with the same bytes is an idempotent retry, and a re-push with different bytes is rejected unless the package is currently `:disabled` or the version was bumped.
 - Safe slug ownership: a slug already bound to package A SHALL NOT be silently rebound to package B by a different author. Conflict surfaces as a structured 409 with the colliding `dashboard_id`.
 - Bounded resource consumption: explicit byte caps on every part of the multipart, rate-limited by token, audit-logged on each successful and failed write.
 - Symmetric disable so the CLI has a clean rollback path without a LiveView trip.
@@ -65,14 +65,14 @@ The check SHALL run inside the same transaction as the `import_json/3` upsert + 
 
 `DashboardPackage.upsert` is keyed on `unique_dashboard_version` ([:dashboard_id, :version]). Re-pushing the same `id@version` is allowed by Ash, but we want stronger guarantees so we don't silently swap renderer bytes under operators' browsers:
 
-- If the upsert resolves to an existing row whose `content_hash` matches the new bytes' SHA256: noop (truly idempotent — return 200 with the existing package row).
+- If the upsert resolves to an existing row whose `content_hash` matches the new bytes' SHA256: follow the idempotent retry contract in `specs/dashboard-package-publish-api/spec.md`. Preserve a complete row; if the prior attempt left the renderer object unrecorded, store it and persist its key before returning 200.
 - If the existing row's `content_hash` differs and the existing row is `:enabled` or `:verification_status: "verified"`: reject with 409 `{"error":"version_already_published","dashboard_id","version","existing_content_hash"}`. The CLI surfaces this as a hint to bump `manifest.version` or run disable first.
 - If the existing row is `:disabled` (or revoked): allow the overwrite, but reset `verification_status` to `"pending"` so a subsequent enable re-runs verification.
 
 This rule is enforced in `Packages.import_json/3` (or a sibling `Packages.publish/3` that wraps it) so the LiveView upload path picks it up too.
 
 **Alternatives considered:**
-- *Strictly forbid same-version re-push.* Rejected — breaks idempotent retries from the CLI when the response is lost mid-flight (TCP reset, etc.). The "same bytes → noop" path is exactly what an idempotent client needs.
+- *Strictly forbid same-version re-push.* Rejected — breaks idempotent retries from the CLI when the response is lost mid-flight (TCP reset, etc.). The same-content retry path is exactly what an idempotent client needs.
 - *Silently overwrite.* Rejected — anyone with publish capability could swap the renderer code under a known stable version label. Operator browsers cache by ETag (`content_hash`) so the swap could go undetected for hours.
 
 ### Decision 4: Multipart vs. JSON request body

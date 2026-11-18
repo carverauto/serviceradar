@@ -2380,6 +2380,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def platform_contract_handlers do
     [
       PluginIngestor,
+      ServiceRadar.DeclarativeChecks.EdgeResultIngestor,
       ServiceRadar.NetworkConfig.InterfaceCheckIngestor,
       DeviceDiscoveryIngestor,
       HypervisorEnrichmentIngestor,

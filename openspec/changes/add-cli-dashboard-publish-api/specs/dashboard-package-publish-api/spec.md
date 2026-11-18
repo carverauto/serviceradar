@@ -105,14 +105,23 @@ A `DashboardInstance.route_slug` row SHALL belong to at most one `dashboard_id` 
 - **AND** the prior binding row for `com.a.x` SHALL remain (rows persist, only `enabled` and the active link change)
 
 ### Requirement: Version-overwrite invariant
-A `DashboardPackage` row keyed on `(dashboard_id, version)` SHALL NOT have its persisted `content_hash` silently replaced. Re-publishes of the same `dashboard_id@version` SHALL be a noop when bytes match, SHALL be allowed when the existing row is `:disabled` (resetting verification), and SHALL be rejected when the existing row is `:enabled` or `verification_status="verified"` and the bytes differ.
+A `DashboardPackage` row keyed on `(dashboard_id, version)` SHALL NOT have its persisted `content_hash` silently replaced. Re-publishes of the same `dashboard_id@version` SHALL be a noop when bytes match and the renderer object is already recorded, SHALL repair a missing renderer object before succeeding when the matching row has no `wasm_object_key`, SHALL be allowed when the existing row is `:disabled` (resetting verification), and SHALL be rejected when the existing row is `:enabled` or `verification_status="verified"` and the bytes differ.
 
 #### Scenario: Idempotent re-publish with identical bytes
 - **GIVEN** an existing `DashboardPackage` row for `com.example.foo@0.1.0` with `content_hash=H`
+- **AND** the row has a non-null `wasm_object_key` for its stored renderer object
 - **WHEN** the CLI publishes the same `id@version` whose renderer SHA256 also resolves to `H`
 - **THEN** the system SHALL respond HTTP 200 with the existing row
 - **AND** the persisted `content_hash` SHALL remain `H`
 - **AND** the system SHALL NOT mark the package row as updated by the operation (it MAY update only the `updated_at` timestamp)
+
+#### Scenario: Idempotent re-publish repairs a missing renderer object
+- **GIVEN** a prior publish persisted a `DashboardPackage` row for `com.example.foo@0.1.0` with `content_hash=H`
+- **AND** storing the renderer object failed, leaving `wasm_object_key` null
+- **WHEN** the CLI publishes the same `id@version` whose renderer SHA256 also resolves to `H`
+- **THEN** the system SHALL store the uploaded renderer under the package's deterministic object key
+- **AND** it SHALL persist that key in `wasm_object_key` before responding HTTP 200
+- **AND** the renderer object SHALL be retrievable by its persisted object key
 
 #### Scenario: Re-publish to an enabled package with new bytes is rejected
 - **GIVEN** an existing enabled `DashboardPackage` row for `com.example.foo@0.1.0` with `content_hash=H1`

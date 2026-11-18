@@ -833,6 +833,33 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "declarative_checks_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_declarative_checks/check.json",
+        "generated_declarative_checks/binding.json",
+        "generated_declarative_checks/instance.json",
+        "generated_declarative_checks/edge_observation.json",
+        "generated_declarative_checks/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "test/db/declarative_checks_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_declarative_checks_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.declarative_checks/20261118053000.json": ":generated_declarative_checks/check.json",
+        "priv/resource_snapshots/repo/platform.declarative_check_credential_bindings/20261118053000.json": ":generated_declarative_checks/binding.json",
+        "priv/resource_snapshots/repo/platform.declarative_check_instances/20261118053000.json": ":generated_declarative_checks/instance.json",
+        "priv/resource_snapshots/repo/platform.declarative_check_edge_observations/20261118053000.json": ":generated_declarative_checks/edge_observation.json",
+        "priv/repo/migrations/20261118053000_add_declarative_checks.exs": ":generated_declarative_checks/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
@@ -987,6 +1014,7 @@ _TEST_RUNTIME_DATA = glob(
     "//go/cmd/wasm-plugins/alienvault-otx:srcs",
     "//go/cmd/wasm-plugins/awx:srcs",
     "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
@@ -1062,6 +1090,7 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/alienvault-otx:srcs",
     "//go/cmd/wasm-plugins/awx:srcs",
     "//go/cmd/wasm-plugins/axis:srcs",
+    "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
@@ -1375,6 +1404,7 @@ CORE_DEV_DEPS = [
 # path. Compiling under :prod would silently omit them.
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = CORE_SRCS,
     app_name = "serviceradar_core",
     extra_config = CORE_EXTRA_CONFIG,
@@ -1390,6 +1420,7 @@ mix_app(
 # into production, so //build:elixir_release.bzl consumes this one.
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = CORE_SRCS,
     app_name = "serviceradar_core",
     extra_config = CORE_EXTRA_CONFIG,

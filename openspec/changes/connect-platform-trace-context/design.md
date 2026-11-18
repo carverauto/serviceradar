@@ -72,8 +72,9 @@ Alternatives rejected:
 
 ### D2. Agent gateway: server interceptor plus context on the edge-record publish
 
-A project-owned `GRPC.Server.Interceptor` (in `serviceradar_core`, so web-ng
-and core can reuse it) does three things:
+A project-owned `GRPC.Server.Interceptor`
+(`ServiceRadarAgentGateway.GRPCTraceInterceptor`, in the gateway because
+`serviceradar_core` does not depend on `grpc_server`) does three things:
 
 1. Extracts `traceparent`/`tracestate` from request metadata with
    `:otel_propagator_text_map`.
@@ -105,8 +106,9 @@ Both `traceparent` and `tracestate` are stamped (approved 2026-11-17).
 
 A project-owned `GRPC.Client.Interceptor` starts a CLIENT span per call
 (named after the RPC) and injects `traceparent` into the request metadata.
-It is attached where `ServiceRadar.DataService.Client` and
-`ServiceRadar.Sync.Client` connect their channels. When no span is active,
+It is attached where `ServiceRadar.DataService.Client`,
+`ServiceRadar.Sync.Client` and `ServiceRadar.NATS.AccountClient` (its fallback
+channel) connect their channels. When no span is active,
 the CLIENT span is itself a root and the datasvc SERVER span becomes its
 child.
 

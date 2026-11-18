@@ -9,8 +9,10 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.DeclarativeChecks.DeclarativeCheckCredentialBinding
 
   require Ash.Query
 
@@ -44,7 +46,8 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
   defp guard(changeset, context, :destroy) do
     with {:ok, rule} <- lock_rule(changeset.data.id, context),
          :ok <- require_disabled(rule),
-         :ok <- require_no_live_grants(rule.id, context) do
+         :ok <- require_no_live_grants(rule.id, context),
+         :ok <- require_no_declarative_check_bindings(rule.id) do
       %{changeset | data: rule}
     else
       {:error, reason} -> invalid(changeset, :id, reason)
@@ -88,6 +91,23 @@ defmodule ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle do
       |> Ash.Query.limit(1)
 
     case Ash.read(query, opts) do
+      {:ok, []} -> :ok
+      {:ok, [_]} -> {:error, :credential_rule_in_use}
+      {:error, _error} -> {:error, :credential_rule_usage_unavailable}
+    end
+  end
+
+  defp require_no_declarative_check_bindings(id) do
+    system_actor = SystemActor.system(:credential_rule_lifecycle)
+
+    query =
+      DeclarativeCheckCredentialBinding
+      |> Ash.Query.for_read(:read, %{}, actor: system_actor)
+      |> Ash.Query.filter(credential_rule_id == ^id)
+      |> Ash.Query.select([:id])
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, actor: system_actor) do
       {:ok, []} -> :ok
       {:ok, [_]} -> {:error, :credential_rule_in_use}
       {:error, _error} -> {:error, :credential_rule_usage_unavailable}

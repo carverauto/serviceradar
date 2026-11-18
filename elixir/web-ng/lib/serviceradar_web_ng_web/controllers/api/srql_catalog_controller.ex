@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
   @moduledoc """
-  Serves the browser-facing SRQL catalog used by compact editors.
+  Serves the browser-facing SRQL catalog used by compact editors, including
+  static entity metadata (`composite_results`, `declarative_check_results`, etc.)
+  and dynamic per-check device filters (`composite.<slug>`, `declarative.<slug>`).
 
   The `ETag` response header is the HTTP validator and is quoted per the HTTP
   header grammar. The JSON body's `version` field is the same digest without

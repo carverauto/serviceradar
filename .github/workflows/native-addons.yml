@@ -191,6 +191,15 @@ jobs:
 
           echo "${OCI_TOKEN}" | oras login "${OCI_REGISTRY}" -u "${OCI_USERNAME}" --password-stdin
 
+      - name: Start the signing ledger
+        # Every release-key signature this job makes or reuses is recorded here before it
+        # is uploaded to the transparency log (scripts/cosign_receipt.py).
+        run: |
+          set -euo pipefail
+          ledger="${RUNNER_TEMP}/signing-ledger.jsonl"
+          : > "${ledger}"
+          echo "SERVICERADAR_SIGNING_LEDGER=${ledger}" >> "${GITHUB_ENV}"
+
       - name: Prepare scoped Harbor publishing and verified promotion
         env:
           HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
@@ -394,6 +403,23 @@ jobs:
             "${index_path}" \
             serviceradar-native-addon-index.json
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"
+
+      - name: Retain signing ledger
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signing-ledger-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SERVICERADAR_SIGNING_LEDGER }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach signing ledger to the release
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' && startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          # ARC does not put the reserved GITHUB_TOKEN name in the step env.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/ci/attach-signing-ledger.sh "${SERVICERADAR_SIGNING_LEDGER}" "${RELEASE_TAG}"
 
       - name: Retain Harbor promotion receipts
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}

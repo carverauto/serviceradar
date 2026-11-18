@@ -17,6 +17,8 @@ defmodule ServiceRadar.Otel.Propagation do
   @typedoc "NATS-style header list (Gnat `:headers` publish option)."
   @type headers :: [{binary(), binary()}]
 
+  @max_tracestate_bytes 512
+
   @doc """
   Merges `traceparent`/`tracestate` headers for the active span context into
   the given NATS header list.
@@ -29,6 +31,30 @@ defmodule ServiceRadar.Otel.Propagation do
   @spec inject_headers(headers()) :: headers()
   def inject_headers(headers \\ []) when is_list(headers) do
     :otel_propagator_text_map.inject(headers)
+  end
+
+  @doc """
+  The active span context as `traceparent`/`tracestate` headers only, for a
+  hop that must carry trace context and nothing else.
+
+  Unlike `inject_headers/1`, which emits every configured propagator (baggage
+  included), this keeps a header set bounded and free of caller-supplied
+  baggage. A `tracestate` longer than #{@max_tracestate_bytes} bytes is not
+  propagated (W3C Trace Context lets a vendor drop a `tracestate` it does not
+  carry whole); `traceparent` alone still links the hop. Returns `[]` when no
+  valid span context is active.
+  """
+  @spec trace_context_headers() :: headers()
+  def trace_context_headers do
+    []
+    |> inject_headers()
+    |> Enum.flat_map(fn {key, value} ->
+      case String.downcase(key) do
+        "traceparent" -> [{"traceparent", value}]
+        "tracestate" when byte_size(value) <= @max_tracestate_bytes -> [{"tracestate", value}]
+        _other -> []
+      end
+    end)
   end
 
   @doc """

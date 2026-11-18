@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNGWeb.AshJsonApiRouter
+  alias ServiceRadarWebNGWeb.OpenAPI.DeclarativeCheckSpec
 
   def show(conn, _params) do
     spec =
@@ -29,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
           # targets `/api/v2/<resource>` (where the JSON:API router is mounted).
           prefix: "/api/v2",
           phoenix_endpoint: conn.private[:phoenix_endpoint] || ServiceRadarWebNGWeb.Endpoint,
-          modify_open_api: {__MODULE__, :seamless_session_auth, []}
+          modify_open_api: {__MODULE__, :customize_spec, []}
         ],
         conn
       )
@@ -37,6 +38,13 @@ defmodule ServiceRadarWebNGWeb.Api.OpenApiV2Controller do
     conn
     |> put_resp_content_type("application/json")
     |> send_resp(200, Jason.encode!(spec))
+  end
+
+  @doc false
+  def customize_spec(spec, conn, opts) do
+    spec
+    |> DeclarativeCheckSpec.merge_spec(conn, opts)
+    |> seamless_session_auth(conn, opts)
   end
 
   @doc false

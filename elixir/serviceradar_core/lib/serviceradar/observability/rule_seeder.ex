@@ -288,6 +288,25 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "alert" => false
         }
       },
+      # An agent that stops checking in is marked `disconnected` after the
+      # stale-agent timeout and nothing else reports it: its host device goes to
+      # `unknown`, which raises no availability event. Promote agent transitions
+      # so the stateful rule below can page on them.
+      %{
+        name: "agent_health_state_change_events",
+        enabled: true,
+        priority: 50,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.internal.health",
+          "attribute_equals" => %{"health.entity_type" => "agent"}
+        },
+        event: %{
+          "log_name" => "health.agent.state_change",
+          "alert" => false
+        }
+      },
       %{
         name: "waf_findings_to_security_events",
         enabled: true,
@@ -390,6 +409,40 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         },
         alert: %{
           "title" => "Anomaly pipeline check unhealthy",
+          "severity" => "critical"
+        }
+      },
+      %{
+        name: "agent_disconnected",
+        managed: true,
+        template_version: 1,
+        description:
+          "Open one critical incident per agent when it stops checking in and is marked disconnected, and clear it when the agent reconnects or is superseded or retired.",
+        priority: 30,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "health.agent.state_change",
+          "attribute_equals" => %{"health.new_state" => "disconnected"},
+          "recovery" => %{
+            "subject_prefix" => "health.agent.state_change",
+            "attribute_equals" => %{
+              "health.new_state" => ["connected", "superseded", "unavailable"]
+            }
+          }
+        },
+        group_by: ["health.entity_id"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.health.agent_disconnected",
+          "message" => "Agent {health.entity_id} is disconnected"
+        },
+        alert: %{
+          "title" => "Agent disconnected",
           "severity" => "critical"
         }
       },

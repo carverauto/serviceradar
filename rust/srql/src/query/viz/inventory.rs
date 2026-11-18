@@ -453,6 +453,46 @@ pub(super) fn composite_results() -> VizMeta {
     }
 }
 
+pub(super) fn declarative_check_results() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_slug", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("check_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("state", ColumnType::Text, None),
+            col("target_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("target_kind", ColumnType::Text, None),
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "service_target_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col("verdict", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col("summary", ColumnType::Text, None),
+            col("node_snapshots", ColumnType::Jsonb, None),
+            col(
+                "evaluated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "changed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn gateways() -> VizMeta {
     VizMeta {
         columns: vec![

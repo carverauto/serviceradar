@@ -13,6 +13,6 @@ defmodule ServiceRadar.Credentials.CredentialUsage.Consumer do
           kind: atom(),
           id: String.t(),
           label: String.t(),
-          slot: atom() | nil
+          slot: atom() | String.t() | nil
         }
 end

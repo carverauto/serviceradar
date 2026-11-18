@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
 
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Dashboards.PackagesTest
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.PluginStorageTestClient
@@ -139,6 +140,26 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
     assert package.wasm_object_key == Storage.object_key_for(package)
     assert Storage.blob_exists?(package.wasm_object_key)
     assert {:ok, {:binary, @renderer}} = Storage.fetch_blob(package.wasm_object_key)
+  end
+
+  test "idempotent publish repairs a blob missing after the first write fails" do
+    PluginStorageTestClient.fail_next_put(:bucket_unavailable)
+
+    assert {:error, :bucket_unavailable} =
+             Packages.publish(manifest_json(), @renderer, actor: system_actor())
+
+    assert {:ok, %DashboardPackage{wasm_object_key: nil} = incomplete} =
+             Dashboards.get_package_by_manifest_id_or_id("com.test.imported-github-dashboard")
+
+    object_key = Storage.object_key_for(incomplete)
+    assert {:error, :not_found} = Storage.fetch_blob(object_key)
+
+    assert {:ok, %{package: repaired, result: :idempotent_noop}} =
+             Packages.publish(manifest_json(), @renderer, actor: system_actor())
+
+    assert repaired.id == incomplete.id
+    assert repaired.wasm_object_key == object_key
+    assert {:ok, {:binary, @renderer}} = Storage.fetch_blob(object_key)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

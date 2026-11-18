@@ -1849,6 +1849,47 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    %{
+      id: :declarative_checks,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
+      title: "Declarative Checks",
+      description: "Author secret-free DAG service, synthetic journey, SRQL, and Solution Pack posture checks.",
+      icon: "hero-squares-plus",
+      route: "/settings/declarative-checks",
+      live_view: ServiceRadarWebNGWeb.Settings.DeclarativeCheckLive.Index,
+      permission: [
+        "declarative_checks.view",
+        "declarative_checks.manage",
+        "declarative_checks.evaluate"
+      ],
+      order: 63,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "declarative",
+        "checks",
+        "dag",
+        "pipeline",
+        "synthetic",
+        "journey",
+        "http",
+        "tls",
+        "dns",
+        "tcp",
+        "posture",
+        "entitlement",
+        "solution pack",
+        "srql",
+        "decision table",
+        "test run"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
     # === Network Services · Services =========================================
     %{

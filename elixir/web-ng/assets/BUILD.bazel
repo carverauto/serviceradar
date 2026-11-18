@@ -454,6 +454,24 @@ vitest_bin.vitest_test(
     tags = ["unit_test"],
 )
 
+vitest_bin.vitest_test(
+    name = "declarative_check_builder_canvas_test",
+    args = [
+        "run",
+        "component/test/DeclarativeCheckBuilderCanvas.test.jsx",
+    ],
+    chdir = package_name(),
+    data = [
+        "component/src/DeclarativeCheckBuilderCanvas.jsx",
+        "component/src/declarativeCheckModel.js",
+        "component/test/DeclarativeCheckBuilderCanvas.test.jsx",
+        "css/app.css",
+        "css/blueprint_bp6_scoped.css",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
 js_binary(
     name = "browser_fixture_bundler",
     data = [":node_modules/esbuild"],

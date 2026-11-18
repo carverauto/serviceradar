@@ -121,6 +121,109 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
     end
   end
 
+  describe "with_declarative_checks/2 and declarative_check_results" do
+    test "adds declarative.<slug> and declarative.<slug>.status fields to devices" do
+      entities =
+        Catalog.with_declarative_checks(Catalog.entities(), [
+          check("edge-tls-expiry", ["cert_valid", "cert_expiring_soon", "cert_expired"])
+        ])
+
+      dev = devices(entities)
+      assert "declarative.edge-tls-expiry" in dev.filter_fields
+      assert "declarative.edge-tls-expiry.status" in dev.filter_fields
+
+      assert dev.known_values["declarative.edge-tls-expiry"] == [
+               "cert_valid",
+               "cert_expiring_soon",
+               "cert_expired"
+             ]
+
+      assert dev.known_values["declarative.edge-tls-expiry.status"] == [
+               "healthy",
+               "degraded",
+               "down",
+               "unknown"
+             ]
+    end
+
+    test "extracts verdicts from alert_output verdict_map and decision_table rules" do
+      mapped_check = %{
+        slug: "storage-cap",
+        nodes: [
+          %{
+            "id" => "out_1",
+            "kind" => "alert_output",
+            "config" => %{
+              "verdict_map" => %{
+                "healthy" => "within_cap",
+                "degraded" => "approaching_cap",
+                "down" => "cap_exceeded",
+                "unknown" => "unconfigured"
+              }
+            }
+          }
+        ]
+      }
+
+      assert Catalog.declarative_check_verdicts(mapped_check) == [
+               "approaching_cap",
+               "cap_exceeded",
+               "unconfigured",
+               "within_cap"
+             ]
+
+      table_check = %{
+        slug: "multi-vantage",
+        nodes: [
+          %{
+            "id" => "dt_1",
+            "kind" => "decision_table",
+            "config" => %{
+              "rules" => [
+                %{"match" => %{"a" => "healthy"}, "verdict" => "reachable_verified"},
+                %{"match" => %{"a" => "*"}, "verdict" => "unreachable"}
+              ]
+            }
+          },
+          %{"id" => "out_1", "kind" => "alert_output", "config" => %{}}
+        ]
+      }
+
+      assert Catalog.declarative_check_verdicts(table_check) == [
+               "reachable_verified",
+               "unreachable"
+             ]
+    end
+
+    test "registers declarative_check_results entity and aliases" do
+      entity = Enum.find(Catalog.entities(), &(&1.id == "declarative_check_results"))
+      assert %{id: "declarative_check_results", default_sort_field: "evaluated_at"} = entity
+
+      for field <- [
+            "check_slug",
+            "slug",
+            "check_id",
+            "target_key",
+            "device_uid",
+            "verdict",
+            "status",
+            "state",
+            "evaluated_at",
+            "changed_at"
+          ] do
+        assert field in entity.filter_fields
+      end
+
+      assert entity.known_values["status"] == ["healthy", "degraded", "down", "unknown"]
+      assert entity.known_values["state"] == ["draft", "enabled", "disabled"]
+      assert "status" in entity.stats_fields
+      assert "verdict" in entity.stats_fields
+      assert "check_slug" in entity.stats_fields
+      assert Catalog.entity("declarative_results").id == "declarative_check_results"
+      assert Catalog.entity("declarative_verdicts").id == "declarative_check_results"
+    end
+  end
+
   describe "flows entity catalog registration" do
     test "includes proto in flows and attributed_flows filter and numeric fields" do
       flows = Enum.find(Catalog.entities(), &(&1.id == "flows"))

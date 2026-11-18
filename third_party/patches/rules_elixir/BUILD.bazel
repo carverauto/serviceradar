@@ -1,4 +1,5 @@
 exports_files([
     "ex_unit_erl_libs.patch",
     "ex_unit_parallel_require.patch",
+    "mix_app_warnings_as_errors.patch",
 ])

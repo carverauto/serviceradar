@@ -1,14 +1,15 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_statuses, advisory_coordinates, agents,
     alerts, bmp_events, build_query_plan, camera_sources, capacity_forecasts, composite_results,
-    dashboard_service_views, dashboards, device_availability_history, device_graph,
-    device_sweep_overlap, devices, downsample, endpoint_inventory_scans, endpoint_package_catalog,
-    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql,
-    identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
-    otel_metric_points, otel_metrics, otel_services, public_endpoints, security_events, services,
-    source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
-    sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
-    traces, virtualization, viz, vulnerability_advisories, wifi_map,
+    dashboard_service_views, dashboards, declarative_check_results, device_availability_history,
+    device_graph, device_sweep_overlap, devices, downsample, endpoint_inventory_scans,
+    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
+    field_survey, gateways, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs,
+    mtr_hops, mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints,
+    security_events, services, source_fact_disagreements, starrocks, sweep_coverage,
+    sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
+    timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
+    wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -93,6 +94,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,
+            Entity::DeclarativeCheckResults => declarative_check_results::to_sql_and_params(&plan)?,
             Entity::FieldSurveySessions
             | Entity::FieldSurveyRasters
             | Entity::FieldSurveyArtifacts

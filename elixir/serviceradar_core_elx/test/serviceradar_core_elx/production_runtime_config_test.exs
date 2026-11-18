@@ -543,6 +543,77 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
+  # The list above is kept by hand, so a key nobody adds to it is not checked.
+  # This compares the two files directly: every key core's runtime.exs sets
+  # under :serviceradar_core must be set here too. Plain keys count as well as
+  # module blocks. A key core sets only inside a branch the stubbed environment
+  # does not take is not visible here; the list above covers those.
+
+  # This release sets the key, but in a branch the stubbed environment skips.
+  @set_conditionally_here [ServiceRadar.NATS.Connection]
+
+  test "prod config sets every serviceradar_core key that core's runtime.exs sets" do
+    core_keys =
+      @core_runtime_config
+      |> Config.Reader.read!(env: :prod)
+      |> Keyword.get(:serviceradar_core, [])
+      |> Keyword.keys()
+
+    release_keys = Keyword.keys(read_prod_config()[:serviceradar_core])
+    missing = core_keys -- (release_keys ++ @set_conditionally_here)
+
+    assert core_keys != [],
+           "core's runtime.exs set no :serviceradar_core keys; nothing was compared"
+
+    assert missing == [],
+           "set in serviceradar_core/config/runtime.exs but not in this release's " <>
+             "runtime.exs, so their env vars are inert in production: #{inspect(missing)}"
+  end
+
+  test "prod config applies the Helm-rendered Ansible, add-on and prefix-tag settings" do
+    with_env("ANSIBLE_CATALOG_BASE_DIR", "/var/lib/serviceradar/ansible_catalog")
+    with_env("ANSIBLE_RETENTION_RUN_DETAIL_DAYS", "14")
+    with_env("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", "")
+    with_env("AWX_RUN_WATCHDOG_INTERVAL_SECONDS", "5")
+
+    with_env(
+      "SERVICERADAR_ENDPOINT_INVENTORY_ADDON_ARTIFACTS",
+      ~s({"linux/amd64":"registry.example.com/addon@sha256:abc"})
+    )
+
+    with_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_REF", "registry.example.com/addon:1.2.3")
+    with_env("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", "true")
+    with_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "true")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:ansible_catalog_base_dir] == "/var/lib/serviceradar/ansible_catalog"
+    assert core_config[:ansible_retention_run_detail_days] == 14
+    # Helm renders an empty string for "keep run summaries forever".
+    assert core_config[:ansible_retention_run_summary_days] == nil
+    # Below the 30-second floor the watchdog would hammer the controller.
+    assert core_config[:awx_run_watchdog_interval_seconds] == 30
+    assert core_config[:prefix_tag_enrichment_enabled] == true
+    assert core_config[:remote_access_desktop_rdp_enabled] == true
+
+    assert Enum.sort(core_config[:endpoint_inventory_native_addon_package]) == [
+             artifacts: %{"linux/amd64" => "registry.example.com/addon@sha256:abc"},
+             source_oci_ref: "registry.example.com/addon:1.2.3"
+           ]
+
+    # An add-on with nothing configured stays staged: no artifacts, no pins.
+    assert core_config[:netprobe_native_addon_package] == [artifacts: %{}]
+  end
+
+  test "prod config computes no temp-directory default for the Ansible catalog" do
+    # The migrations Job evaluates this file with a read-only root filesystem and
+    # no /tmp, and does not set this variable. A default built from
+    # System.tmp_dir!/0 here raised and failed every upgrade's migrations.
+    with_env("ANSIBLE_CATALOG_BASE_DIR", nil)
+
+    assert read_prod_config()[:serviceradar_core][:ansible_catalog_base_dir] == nil
+  end
+
   test "prod config enables automated MTR by default" do
     core_config = read_prod_config()[:serviceradar_core]
 

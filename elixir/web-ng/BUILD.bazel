@@ -351,6 +351,7 @@ WEB_NG_DEV_DEPS = [
 # mix.exs sets elixirc_paths(:test) => ["lib", "test/support"].
 mix_app(
     name = "erlang_app",
+    warnings_as_errors = True,
     srcs = WEB_NG_SRCS,
     app_name = "serviceradar_web_ng",
     extra_config = WEB_NG_EXTRA_CONFIG,
@@ -365,6 +366,7 @@ mix_app(
 # image. Pulls the :prod build of serviceradar_core for the same reason.
 mix_app(
     name = "erlang_app_prod",
+    warnings_as_errors = True,
     srcs = WEB_NG_SRCS,
     app_name = "serviceradar_web_ng",
     extra_config = WEB_NG_EXTRA_CONFIG,

@@ -486,7 +486,8 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   # Version-overwrite enforcement: same (dashboard_id, version) re-push.
   # Returns {:ok, decision} where decision is one of:
   #   {:fresh}                      — no existing row; proceed normally.
-  #   {:idempotent, package}        — existing row, same content_hash. Skip blob write.
+  #   {:idempotent, package}        — existing row, same content_hash. Skip the package
+  #                                   upsert; repair the blob when its key is missing.
   #   {:reset, package, attrs}      — existing row is :disabled with different bytes;
   #                                   allow but force verification_status: "pending".
   # Returns {:error, {:version_already_published, ...}} when an enabled or verified
@@ -591,14 +592,16 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
          {:idempotent, %DashboardPackage{} = package},
          _manifest,
          _attrs,
-         _wasm,
+         wasm,
          route_slug,
          enable_route?,
          ash_opts
        ) do
-    # Nothing to write on the package side — blob is already there with matching SHA.
-    # The slug binding may or may not exist; honor the route opt either way.
-    with {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
+    # A prior publish may have written the DB row but failed before storing the
+    # WASM object (e.g. blob store unavailable), leaving wasm_object_key nil.
+    # Repair that before returning so the renderer is actually downloadable.
+    with {:ok, package} <- maybe_repair_missing_blob(package, wasm, ash_opts),
+         {:ok, instance} <- maybe_bind_route(package, route_slug, enable_route?, ash_opts) do
       {:ok, %{package: package, instance: instance, result: :idempotent_noop}}
     end
   end
@@ -609,6 +612,14 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   defp finalize_publish({:reset, attrs}, _manifest, _orig_attrs, wasm, route_slug, enable_route?, ash_opts) do
     do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts)
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{wasm_object_key: nil} = package, wasm, ash_opts) do
+    store_wasm_blob(package, wasm, package.content_hash, ash_opts)
+  end
+
+  defp maybe_repair_missing_blob(%DashboardPackage{} = package, _wasm, _ash_opts) do
+    {:ok, package}
   end
 
   defp do_publish_write(attrs, wasm, route_slug, enable_route?, ash_opts) do

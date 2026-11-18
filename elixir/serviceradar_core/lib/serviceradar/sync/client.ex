@@ -23,6 +23,7 @@ defmodule ServiceRadar.Sync.Client do
   """
 
   alias Monitoring.AgentGatewayService.Stub
+  alias ServiceRadar.Otel.GRPCClientInterceptor
 
   require Logger
 
@@ -53,9 +54,10 @@ defmodule ServiceRadar.Sync.Client do
 
     endpoint = "#{host}:#{port}"
 
-    cred_opts = if ssl, do: GRPC.Credential.new([]), else: []
+    cred_opts = if ssl, do: [cred: GRPC.Credential.new([])], else: []
+    connect_opts = [{:interceptors, [GRPCClientInterceptor]} | cred_opts]
 
-    case GRPC.Stub.connect(endpoint, cred_opts) do
+    case GRPC.Stub.connect(endpoint, connect_opts) do
       {:ok, channel} ->
         Logger.debug("Connected to sync service at #{endpoint}")
         {:ok, channel}

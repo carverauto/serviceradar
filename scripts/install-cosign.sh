@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-version="${COSIGN_VERSION:-v3.0.3}"
+version="${COSIGN_VERSION:-v3.1.4}"
 install_root="${RUNNER_TEMP:-${HOME}/.local}/bin"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
@@ -11,11 +11,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-download-integrity
 case "$(uname -m)" in
   x86_64|amd64)
     asset="cosign-linux-amd64"
-    expected_sha256="${COSIGN_SHA256:-052363a0e23e2e7ed53641351b8b420918e7e08f9c1d8a42a3dd3877a78a2e10}"
+    expected_sha256="${COSIGN_SHA256:-424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa}"
     ;;
   aarch64|arm64)
     asset="cosign-linux-arm64"
-    expected_sha256="${COSIGN_SHA256:-81398231362031e3c7afd6a7508c57049460cd7e02736f1ebe89a452102253e5}"
+    expected_sha256="${COSIGN_SHA256:-ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2}"
     ;;
   *)
     echo "Unsupported architecture: $(uname -m)" >&2
@@ -23,7 +23,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-if [[ "$version" != "v3.0.3" && -z "${COSIGN_SHA256:-}" ]]; then
+if [[ "$version" != "v3.1.4" && -z "${COSIGN_SHA256:-}" ]]; then
   expected_sha256=""
 fi
 

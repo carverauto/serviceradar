@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Observability.ServiceStatusPubSub
+  alias ServiceRadarWebNG.DeclarativeChecks
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ServiceLive.Display
   alias ServiceRadarWebNGWeb.ServiceLive.Service
   alias ServiceRadarWebNGWeb.ServiceLive.Show.History
@@ -111,6 +113,44 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
       end
 
     {:noreply, assign(socket, :history_page, page)}
+  end
+
+  def handle_event("clone_as_declarative_check", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    cond do
+      not RBAC.can?(scope, "declarative_checks.manage") ->
+        {:noreply, put_flash(socket, :error, "You do not have permission to manage declarative checks.")}
+
+      not is_map(socket.assigns.service) ->
+        {:noreply, put_flash(socket, :error, "No service check selected to clone.")}
+
+      true ->
+        service = socket.assigns.service
+        service_name = Service.name(service) || "Imported Service Check"
+        service_type = Service.type(service) || "http"
+
+        legacy_spec = %{
+          name: service_name,
+          check_type: service_type,
+          target: Map.get(service, "target") || "https://example.com",
+          agent_uid: Map.get(service, "agent_id"),
+          device_uid: Map.get(service, "device_uid")
+        }
+
+        mod = Application.get_env(:serviceradar_web_ng, :declarative_checks, DeclarativeChecks)
+
+        case mod.clone_service_check(legacy_spec, scope: scope) do
+          {:ok, created} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Cloned service check as draft declarative check #{created["slug"]}")
+             |> push_navigate(to: ~p"/settings/declarative-checks/#{created["slug"]}")}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to clone service check.")}
+        end
+    end
   end
 
   @impl true

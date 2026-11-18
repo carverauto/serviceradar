@@ -263,8 +263,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       if max_in_flight <= 1 do
         Enum.map(indexed, load)
       else
+        # Each load task starts with an empty trace context; attaching the caller's makes each
+        # load's span a child of the caller's span, as a single-chunk load in the caller is.
+        trace_ctx = OpenTelemetry.Ctx.get_current()
+
         indexed
-        |> Task.async_stream(load,
+        |> Task.async_stream(
+          fn chunk ->
+            OpenTelemetry.Ctx.attach(trace_ctx)
+            load.(chunk)
+          end,
           max_concurrency: max_in_flight,
           ordered: true,
           timeout: :infinity

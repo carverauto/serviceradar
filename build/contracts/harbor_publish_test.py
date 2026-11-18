@@ -702,8 +702,11 @@ class PublicationVerificationTest(unittest.TestCase):
         scripts.mkdir()
         # Use the actual declared scripts, isolated from any checkout's fallback public key.
         for name in ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh",
-                     "cosign_common.sh", "oci_registry.sh", "wasm-plugin-publish-context.sh"):
+                     "cosign_common.sh", "cosign_receipt.py", "oci_registry.sh", "wasm-plugin-publish-context.sh"):
             shutil.copy2(REPO / "scripts" / name, scripts / name)
+        # The signer reused the digest's existing (receipt-less) signature in this run.
+        self.ledger = self.root / "signing-ledger.jsonl"
+        self.ledger.write_text(json.dumps({"event": "reused", "digest": "sha256:" + "a" * 64}) + "\n")
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.parent.mkdir(parents=True)
         inventory.write_text('PUBLISHABLE_IMAGES = [{"repository":"registry.example/serviceradar/example"}]\n\n')
@@ -721,7 +724,7 @@ class PublicationVerificationTest(unittest.TestCase):
                         BAZEL_BIN_DIR=str(self.root), METADATA_DIR=str(metadata),
                         WASM_PLUGIN_METADATA_DIR=str(metadata),
                         WASM_PLUGIN_UPLOAD_SIGNATURE_TOOL=str(self.bin / "internal-signature"),
-                        CALL_LOG=str(self.calls))
+                        SERVICERADAR_SIGNING_LEDGER=str(self.ledger), CALL_LOG=str(self.calls))
         self.fake("internal-signature", "assert sys.argv[1] == 'verify'\n")
         self.fake("bazel", "if sys.argv[1] == 'cquery': print(pathlib.Path(__file__).parent / 'internal-signature')\n"
                   "elif sys.argv[1] != 'build': raise SystemExit(9)\n")

@@ -161,7 +161,7 @@ config:
     warmup_timeout_secs: 300
     # KEEP IN STEP with the LargeIngestionGate container_image in //buildbuddy.yaml.
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.7
     oci:
       dns: "10.43.0.10"
       mounts:

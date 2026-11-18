@@ -26,7 +26,8 @@ if [[ ! -s "${payload_file}" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-public_key_file="${SCRIPT_DIR}/../docs/cosign.pub"
+REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+public_key_file="${REPO_ROOT}/docs/cosign.pub"
 if [[ ! -s "${public_key_file}" ]]; then
   echo "error: release public key not found: ${public_key_file}" >&2
   exit 1
@@ -57,7 +58,11 @@ stdout_file="$(mktemp)"
 cosign_register_temp_file "${signature_file}"
 cosign_register_temp_file "${stdout_file}"
 
-# Same transparency-log default as the image and add-on signers.
+# The checksum keeps the protobuf Sigstore bundle, logged through the TUF signing config.
+# Like every release-key signature it is recorded in the signing ledger before upload, so
+# the transparency-log monitor can account for its entry.
+ledger_subject="$(basename "${payload_file}")"
+cosign_receipt ledger-sign "${ledger_subject}" "${payload_file}"
 cosign_sign_blob_to_files \
   "${payload_file}" \
   "${bundle_file}" \
@@ -69,6 +74,7 @@ if [[ ! -s "${bundle_file}" ]]; then
   echo "error: cosign wrote an empty bundle for ${payload_file}" >&2
   exit 1
 fi
+cosign_receipt ledger-logged "${ledger_subject}" "${payload_file}" "${bundle_file}"
 
 # Verify the way a user will: the committed public key and the bundle. A key
 # other than the published one, or a bundle that does not verify, stops here.

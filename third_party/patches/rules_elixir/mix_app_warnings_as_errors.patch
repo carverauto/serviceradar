@@ -1,0 +1,39 @@
+mix_app: optionally fail a package's compile on its own warnings.
+
+`mix compile --warnings-as-errors` is how a project is held warning-free, and
+the only place it ran for this repository was a nightly job outside Bazel that
+compiles without the native libraries Bazel already builds. The attribute lets
+a first-party target opt in, so the check runs with every build, where the
+native code exists. Mix applies the flag to the project being compiled only.
+
+--- a/private/mix_app.bzl
++++ b/private/mix_app.bzl
+@@ -1100,7 +1100,7 @@
+ # two of them happen well before this line.
+ export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} ${{ELIXIR_ERL_OPTIONS:-}}"
+ 
+-"${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check
++"${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check{mix_compile_flags}
+ 
+ # Do not assume _build/$MIX_ENV/lib/<app>: a project with
+ # `build_per_environment: false` in its mix.exs (db_connection is one) builds
+@@ -1158,6 +1158,7 @@
+         elf_arch_assertion = _elf_arch_assertion(ctx),
+         undefined_cxx_assertion = _undefined_cxx_assertion(ctx),
+         mix_env = ctx.attr.mix_env,
++        mix_compile_flags = " --warnings-as-errors" if ctx.attr.warnings_as_errors else "",
+         lock_commands = lock_commands,
+         extra_config_commands = extra_config_commands,
+         native_lib_commands = "\n".join([
+@@ -1279,6 +1280,11 @@
+         # different OpenSSL without editing this rule. See //third_party/openssl.
+         # Precompiled elixir_make artefacts for BOTH architectures, and separately just the
+         # target's. Only _HOST_NIF_APPS stage either. See //third_party/precompiled_nifs.
++        # Fail the compile on a warning in THIS package. Mix scopes the flag to the project
++        # being compiled, and every dependency is its own mix_app action, so a dependency's
++        # warnings never fail a package that sets this. Off by default: Hex packages are
++        # compiled by this rule too, and their warnings are not ours to fix.
++        "warnings_as_errors": attr.bool(default = False),
+         "mix_env": attr.string(default = "prod"),
+         "deps": attr.label_list(providers = [ErlangAppInfo]),
+         # The static C++ runtime archives for this configuration, linked into any Bundlex

@@ -18,6 +18,8 @@
 /* Mapbox GL JS styles (used for netflow flow details map). */
 @import "../node_modules/mapbox-gl/dist/mapbox-gl.css";
 @import "../node_modules/gridstack/dist/gridstack.min.css";
+@import "../node_modules/@xyflow/react/dist/style.css";
+@import "./blueprint_bp6_scoped.css";
 
 /* Force Mapbox popups to use dark text — the default white background
    inherits the page's light text color in dark mode themes. */

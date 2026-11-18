@@ -290,6 +290,60 @@ diesel::joinable!(device_composite_check_results -> composite_checks (check_id))
 diesel::allow_tables_to_appear_in_same_query!(device_composite_check_results, composite_checks);
 
 diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    declarative_checks (id) {
+        id -> Uuid,
+        schema_version -> Int8,
+        slug -> Text,
+        name -> Text,
+        description -> Nullable<Text>,
+        state -> Text,
+        schedule -> Jsonb,
+        target_binding -> Jsonb,
+        inputs -> Array<Jsonb>,
+        credential_slots -> Array<Jsonb>,
+        nodes -> Array<Jsonb>,
+        edges -> Array<Jsonb>,
+        alert_policy -> Jsonb,
+        ui_layout -> Nullable<Jsonb>,
+        pack_id -> Nullable<Text>,
+        pack_version -> Nullable<Text>,
+        managed -> Bool,
+        template_fingerprint -> Text,
+        parameter_overrides -> Jsonb,
+        last_evaluated_at -> Nullable<Timestamptz>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    declarative_check_instances (id) {
+        id -> Uuid,
+        check_id -> Uuid,
+        target_key -> Text,
+        target_kind -> Text,
+        device_uid -> Nullable<Text>,
+        service_target_id -> Nullable<Text>,
+        verdict -> Text,
+        status -> Text,
+        summary -> Nullable<Text>,
+        node_snapshots -> Jsonb,
+        evaluated_at -> Timestamptz,
+        changed_at -> Timestamptz,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::joinable!(declarative_check_instances -> declarative_checks (check_id));
+diesel::allow_tables_to_appear_in_same_query!(declarative_check_instances, declarative_checks);
+
+diesel::table! {
     use diesel::sql_types::*;
 
     gateways (gateway_id) {
