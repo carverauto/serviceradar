@@ -9,7 +9,11 @@ import {
   patchXMLHttpRequest,
   shouldPropagateTrace,
 } from "./serviceradar_trace.js"
-import {buildBeaconUrl, initServiceRadarBoomerang} from "./boomerang_init.js"
+import {
+  buildBeaconUrl,
+  ensureServiceRadarBoomerangInit,
+  initServiceRadarBoomerang,
+} from "./boomerang_init.js"
 
 const BUNDLE_CANDIDATES = [
   path.resolve("static/assets/rum/boomerang-sr.min.js"),
@@ -118,6 +122,11 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     await fakeWin.fetch("/api/custom", {headers: {Traceparent: callerTp}})
     expect(calls[4].init.headers.Traceparent).toBe(callerTp)
     expect(calls[4].init.headers.traceparent).toBeUndefined()
+
+    // 6. URL instance input gets traceparent when origin is allowlisted
+    await fakeWin.fetch(new URL("https://api.example.com/v1/url-object"))
+    expect(calls[5].input).toBeInstanceOf(URL)
+    expect(calls[5].init.headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
   })
 
   test("patchXMLHttpRequest injects traceparent only on allowed origins and preserves explicit headers", () => {
@@ -219,18 +228,62 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     expect(initServiceRadarBoomerang(droppedWin)).toBe(false)
     expect(droppedInit).not.toHaveBeenCalled()
     expect(droppedWin.BOOMR_config.ServiceRadar.sampledOut).toBe(true)
+
+    // Late BOOMR_config.ServiceRadar initialization via DOMContentLoaded/load retry
+    const docListeners = new Map()
+    const winListeners = new Map()
+    const lateAddVar = vi.fn()
+    const lateInit = vi.fn()
+    const lateWin = {
+      location: {origin: "https://portal.example.com"},
+      crypto: window.crypto,
+      document: {
+        readyState: "loading",
+        addEventListener(type, fn) {
+          docListeners.set(type, fn)
+        },
+        removeEventListener(type) {
+          docListeners.delete(type)
+        },
+      },
+      addEventListener(type, fn) {
+        winListeners.set(type, fn)
+      },
+      removeEventListener(type) {
+        winListeners.delete(type)
+      },
+      BOOMR: {addVar: lateAddVar, init: lateInit, subscribe: vi.fn(), plugins: {}},
+    }
+
+    expect(ensureServiceRadarBoomerangInit(lateWin)).toBe(false)
+    expect(lateInit).not.toHaveBeenCalled()
+
+    lateWin.BOOMR_config = {
+      ServiceRadar: {
+        siteKey: "sr_rum_late_key",
+        beaconUrl: "/rum/v1/beacon",
+      },
+    }
+    docListeners.get("DOMContentLoaded")?.()
+    expect(lateInit).toHaveBeenCalledTimes(1)
+    expect(lateInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        beacon_url: "/rum/v1/beacon?key=sr_rum_late_key",
+      }),
+    )
+
+    // Subsequent load firing does not double-initialize BOOMR
+    winListeners.get("load")?.()
+    expect(lateInit).toHaveBeenCalledTimes(1)
   })
 
-  test("built boomerang-sr.min.js executes cleanly in a VM context and normalizes CWV + trace vars", () => {
-    const bundlePath = BUNDLE_CANDIDATES.find((p) => fs.existsSync(p))
-    expect(bundlePath).toBeDefined()
-
-    const bundleSource = fs.readFileSync(bundlePath, "utf8")
-    expect(bundleSource).not.toContain("%boomerang_version%")
-    expect(bundleSource).not.toContain("BEGIN_DEBUG")
-
+  function createVmContext({withConfig = true} = {}) {
     const beaconCalls = []
     const fetchCalls = []
+    const consoleLogs = []
+    const windowListeners = new Map()
+    const documentListeners = new Map()
+
     const context = {
       window: null,
       document: {
@@ -246,9 +299,13 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         getElementById: () => null,
         querySelector: () => null,
         querySelectorAll: () => [],
-        createElement: () => ({style: {}}),
+        createElement: () => ({style: {}, setAttribute: () => {}}),
         getElementsByTagName: () => [{parentNode: {insertBefore: () => {}}}],
-        addEventListener: () => {},
+        addEventListener: (type, fn) => {
+          const list = documentListeners.get(type) || []
+          list.push(fn)
+          documentListeners.set(type, list)
+        },
         removeEventListener: () => {},
       },
       navigator: {
@@ -257,6 +314,8 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
           return true
         },
         userAgent: "ServiceRadarTest/1.0",
+        platform: "MacIntel",
+        vendor: "ServiceRadar",
       },
       location: {
         href: "https://portal.example.com/overview",
@@ -265,6 +324,13 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         hostname: "portal.example.com",
         pathname: "/overview",
         search: "",
+      },
+      history: {
+        pushState: () => {},
+        replaceState: () => {},
+        go: () => {},
+        back: () => {},
+        forward: () => {},
       },
       performance: {
         now: () => 42,
@@ -297,11 +363,37 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
         fetchCalls.push({url, init})
         return {ok: true, status: 200}
       },
+      Image: function MockImage() {},
+      Blob,
       crypto: window.crypto,
       Headers: window.Headers,
       Request: window.Request,
-      XMLHttpRequest: window.XMLHttpRequest,
-      MutationObserver: window.MutationObserver,
+      XMLHttpRequest: class MockXMLHttpRequest {
+        constructor() {
+          this._headers = {}
+          this.readyState = 0
+          this.status = 200
+        }
+        open(_method, _url) {
+          this._headers = {}
+          this.readyState = 1
+        }
+        setRequestHeader(k, v) {
+          this._headers[k] = v
+        }
+        addEventListener() {}
+        removeEventListener() {}
+        send(_body) {
+          this.readyState = 4
+        }
+      },
+      MutationObserver: class MockMutationObserver {
+        observe() {}
+        disconnect() {}
+        takeRecords() {
+          return []
+        }
+      },
       URL,
       URLSearchParams,
       Uint8Array,
@@ -309,6 +401,7 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
       Date,
       RegExp,
       Set,
+      Map,
       JSON,
       Object,
       Array,
@@ -316,15 +409,37 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
       Number,
       Boolean,
       Error,
+      TypeError,
+      SyntaxError,
+      ReferenceError,
       Promise,
-      console,
+      encodeURIComponent,
+      decodeURIComponent,
+      isNaN,
+      isFinite,
+      parseInt,
+      parseFloat,
+      requestAnimationFrame: () => 1,
+      cancelAnimationFrame: () => {},
+      console: {
+        log: (...args) => consoleLogs.push(args.join(" ")),
+        warn: (...args) => consoleLogs.push(args.join(" ")),
+        error: (...args) => consoleLogs.push(args.join(" ")),
+      },
       setTimeout,
       clearTimeout,
       setInterval,
       clearInterval,
-      addEventListener: () => {},
+      addEventListener: (type, fn) => {
+        const list = windowListeners.get(type) || []
+        list.push(fn)
+        windowListeners.set(type, list)
+      },
       removeEventListener: () => {},
-      BOOMR_config: {
+    }
+
+    if (withConfig) {
+      context.BOOMR_config = {
         ServiceRadar: {
           siteKey: "sr_rum_vm_test",
           beaconUrl: "/rum/v1/beacon",
@@ -332,48 +447,155 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
           tracePropagateOrigins: ["https://api.example.com"],
           autorun: false,
         },
-      },
+      }
     }
+
     context.window = context
     context.self = context
     context.globalThis = context
 
-    vm.runInNewContext(bundleSource, context, {filename: "boomerang-sr.min.js"})
+    return {context, beaconCalls, fetchCalls, consoleLogs, windowListeners, documentListeners}
+  }
+
+  test("built boomerang-sr.min.js evaluates cleanly in strict mode with zero debugLog ReferenceErrors", () => {
+    const bundlePath = BUNDLE_CANDIDATES.find((p) => fs.existsSync(p))
+    expect(bundlePath).toBeDefined()
+
+    const bundleSource = fs.readFileSync(bundlePath, "utf8")
+    expect(bundleSource).not.toContain("%boomerang_version%")
+    expect(bundleSource).not.toContain("BEGIN_DEBUG")
+
+    const {context, consoleLogs, windowListeners} = createVmContext()
+
+    // Must parse and execute under strict mode without SyntaxError or ReferenceError
+    vm.runInNewContext(`"use strict";\n${bundleSource}`, context, {
+      filename: "boomerang-sr.min.js",
+    })
 
     expect(context.BOOMR).toBeDefined()
     expect(context.BOOMR.version).toBe("1.815.1")
     expect(context.BOOMR.plugins.ServiceRadarTrace).toBeDefined()
     expect(context.BOOMR.plugins.RT).toBeDefined()
     expect(context.BOOMR.plugins.AutoXHR).toBeDefined()
+    expect(context.BOOMR.plugins.SPA).toBeDefined()
+    expect(context.BOOMR.plugins.History).toBeDefined()
+    expect(context.BOOMR.plugins.BFCache).toBeDefined()
     expect(context.BOOMR.plugins.Continuity).toBeDefined()
     expect(context.BOOMR.plugins.Errors).toBeDefined()
+
+    // Exercise SPA.hook, History, AutoXHR, and BFCache pageshow paths that call debugLog
+    expect(() => context.BOOMR.plugins.SPA.hook(false, {})).not.toThrow()
+    const pageshowHandlers = windowListeners.get("pageshow") || []
+    for (const fn of pageshowHandlers) {
+      expect(() => fn({persisted: true, timeStamp: 100})).not.toThrow()
+    }
+    const xhr = new context.window.XMLHttpRequest()
+    xhr.open("GET", "/api/autoxhr-check")
+
+    const caughtErrors = consoleLogs.filter(
+      (line) => line.includes("Boomerang caught error") || line.includes("ReferenceError"),
+    )
+    expect(caughtErrors).toEqual([])
+  })
+
+  test("built boomerang-sr.min.js overrides restiming servertiming array, isolates singleBeacon vars, and handles late config", () => {
+    const bundlePath = BUNDLE_CANDIDATES.find((p) => fs.existsSync(p))
+    expect(bundlePath).toBeDefined()
+    const bundleSource = fs.readFileSync(bundlePath, "utf8")
+
+    const {context, fetchCalls} = createVmContext({withConfig: true})
+    vm.runInNewContext(`"use strict";\n${bundleSource}`, context, {
+      filename: "boomerang-sr.min.js",
+    })
 
     // Trigger traceparent via fetch
     context.window.fetch("https://api.example.com/v1/checkout", {method: "GET"})
     expect(fetchCalls).toHaveLength(1)
     expect(fetchCalls[0].init.headers.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
 
-    // Exercise before_beacon normalization hook directly with native Boomerang vars
-    const vars = {
-      u: "https://portal.example.com/overview",
-      "sr.key": "sr_rum_vm_test",
-      "pt.lcp": 1850,
-      "pt.fcp": 910,
-      "et.inp": 132,
-      "c.cls": 0.05,
-      "c.c.r": 2,
-      "http.errno": 503,
+    // Capture full beacon payloads sent via real_sendBeacon across two sequential beacons
+    const sentPayloads = []
+    context.BOOMR.subscribe("beacon", (data) => {
+      sentPayloads.push({...data})
+    })
+    // Ensure all plugins report complete for direct real_sendBeacon invocation in VM
+    for (const pluginName of Object.keys(context.BOOMR.plugins)) {
+      context.BOOMR.plugins[pluginName].is_complete = () => true
     }
-    context.BOOMR.fireEvent("before_beacon", vars)
 
-    expect(vars["c.lcp"]).toBe(1850)
-    expect(vars["c.fcp"]).toBe(910)
-    expect(vars["c.inp"]).toBe(132)
-    expect(vars["c.e.rage"]).toBe(2)
-    expect(vars["http.status_code"]).toBe(503)
-    expect(vars.st).toContain('cdn-cache;dur=0;desc="HIT"')
-    expect(vars.st).toContain("edge;dur=18")
-    expect(vars.st).toContain("origin;dur=112")
-    expect(vars.st).toContain('ak_p;dur=0;desc="iad"')
+    // Beacon 1: Page load with CWV, HTTP 503, and restiming JSON lookup array in servertiming
+    context.BOOMR.addVar(
+      {
+        u: "https://portal.example.com/overview",
+        "pt.lcp": 1850,
+        "pt.fcp": 910,
+        "et.inp": 132,
+        "c.cls": 0.05,
+        "http.errno": 503,
+        servertiming: '[["cdn-cache","HIT"],["edge",""]]',
+        "rt.tstart": 1_700_000_000_000,
+      },
+      true,
+    )
+    context.BOOMR.sendBeacon()
+    context.BOOMR.real_sendBeacon()
+
+    expect(sentPayloads).toHaveLength(1)
+    expect(sentPayloads[0]["c.lcp"]).toBe(1850)
+    expect(sentPayloads[0]["c.fcp"]).toBe(910)
+    expect(sentPayloads[0]["c.inp"]).toBe(132)
+    expect(sentPayloads[0]["http.status_code"]).toBe(503)
+    expect(sentPayloads[0].st).toContain('cdn-cache;dur=0;desc="HIT"')
+    expect(sentPayloads[0].st).toContain("edge;dur=18")
+    expect(sentPayloads[0].servertiming).toContain('cdn-cache;dur=0;desc="HIT"')
+    expect(sentPayloads[0].servertiming.startsWith("[")).toBe(false)
+
+    // Beacon 2: Subsequent XHR beacon must NOT inherit beacon 1's normalized single-beacon vars
+    context.BOOMR.addVar(
+      {
+        u: "https://portal.example.com/api/ok",
+        "http.initiator": "xhr",
+        "rt.tstart": 1_700_000_005_000,
+      },
+      true,
+    )
+    context.BOOMR.sendBeacon()
+    context.BOOMR.real_sendBeacon()
+
+    expect(sentPayloads).toHaveLength(2)
+    expect(sentPayloads[1].u).toBe("https://portal.example.com/api/ok")
+    expect(sentPayloads[1]["http.status_code"]).toBeUndefined()
+    expect(sentPayloads[1]["c.lcp"]).toBeUndefined()
+    expect(sentPayloads[1]["c.fcp"]).toBeUndefined()
+    expect(sentPayloads[1]["c.inp"]).toBeUndefined()
+    expect(sentPayloads[1]["c.e.rage"]).toBeUndefined()
+    expect(sentPayloads[1].st).toBeUndefined()
+    expect(sentPayloads[1].servertiming).toBeUndefined()
+
+    // Exercise c.c.r -> c.e.rage mapping directly (Continuity clears c.c.r when 0 DOM rage clicks occurred)
+    const directVars = {"c.c.r": 2}
+    context.BOOMR.fireEvent("before_beacon", directVars)
+    expect(directVars["c.e.rage"]).toBe(2)
+
+    // Late config initialization when bundle executes before BOOMR_config.ServiceRadar
+    const lateSetup = createVmContext({withConfig: false})
+    vm.runInNewContext(`"use strict";\n${bundleSource}`, lateSetup.context, {
+      filename: "boomerang-sr.min.js",
+    })
+    lateSetup.context.BOOMR_config = {
+      ServiceRadar: {
+        siteKey: "sr_rum_late_vm",
+        beaconUrl: "/rum/v1/beacon",
+        tracePropagateOrigins: ["https://api.example.com"],
+        autorun: false,
+      },
+    }
+    const domReadyHandlers = lateSetup.documentListeners.get("DOMContentLoaded") || []
+    for (const fn of domReadyHandlers) fn()
+    lateSetup.context.window.fetch("https://api.example.com/v1/late", {method: "GET"})
+    expect(lateSetup.fetchCalls).toHaveLength(1)
+    expect(lateSetup.fetchCalls[0].init.headers.traceparent).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+    )
   })
 })

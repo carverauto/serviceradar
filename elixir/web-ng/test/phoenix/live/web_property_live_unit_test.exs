@@ -248,6 +248,10 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
     assert boomerang_text =~ "tracePropagateOrigins"
     assert boomerang_text =~ "https://api.example.com"
 
+    {config_idx, _} = :binary.match(boomerang_text, "window.BOOMR_config")
+    {script_idx, _} = :binary.match(boomerang_text, ~s(src="/assets/rum/boomerang-sr.min.js"))
+    assert config_idx < script_idx
+
     mpulse_text = doc |> LazyHTML.query("#rum-mpulse-tee-snippet") |> LazyHTML.text()
     assert mpulse_text =~ ~s(BOOMR.subscribe("beacon")
     assert mpulse_text =~ "navigator.sendBeacon"

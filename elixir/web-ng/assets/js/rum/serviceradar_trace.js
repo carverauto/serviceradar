@@ -195,7 +195,11 @@ export function patchFetch(win, state) {
           ? input
           : input && typeof input.url === "string"
             ? input.url
-            : "";
+            : input &&
+                ((typeof win.URL === "function" && input instanceof win.URL) ||
+                  (typeof URL === "function" && input instanceof URL))
+              ? input.href
+              : "";
 
       const pageOrigin = win.location && win.location.origin;
       if (
@@ -320,36 +324,59 @@ function formatNavigationServerTiming(win) {
   }
 }
 
-function normalizeBoomerangVarsOnBeacon(vars, win) {
+function setSingleBeaconVar(win, vars, state, key, value) {
+  vars[key] = value;
+  if (state && state.normalizedKeys) {
+    state.normalizedKeys.add(key);
+  }
+  if (win && win.BOOMR && typeof win.BOOMR.addVar === "function") {
+    win.BOOMR.addVar(key, value, true);
+  }
+}
+
+function normalizeBoomerangVarsOnBeacon(vars, win, state) {
   if (!vars || typeof vars !== "object") return;
 
   if (vars["c.lcp"] == null && vars["pt.lcp"] != null) {
-    vars["c.lcp"] = vars["pt.lcp"];
+    setSingleBeaconVar(win, vars, state, "c.lcp", vars["pt.lcp"]);
   }
   if (vars["c.fcp"] == null && vars["pt.fcp"] != null) {
-    vars["c.fcp"] = vars["pt.fcp"];
+    setSingleBeaconVar(win, vars, state, "c.fcp", vars["pt.fcp"]);
   }
   if (vars["c.inp"] == null) {
     if (vars["et.inp"] != null) {
-      vars["c.inp"] = vars["et.inp"];
+      setSingleBeaconVar(win, vars, state, "c.inp", vars["et.inp"]);
     } else if (vars["et.inp.inc"] != null) {
-      vars["c.inp"] = vars["et.inp.inc"];
+      setSingleBeaconVar(win, vars, state, "c.inp", vars["et.inp.inc"]);
     }
   }
   if (vars["c.e.rage"] == null && vars["c.c.r"] != null) {
-    vars["c.e.rage"] = vars["c.c.r"];
+    setSingleBeaconVar(win, vars, state, "c.e.rage", vars["c.c.r"]);
   }
   if (vars["http.status_code"] == null && vars["http.errno"] != null) {
     const numericStatus = Number(vars["http.errno"]);
     if (Number.isFinite(numericStatus) && numericStatus >= 100) {
-      vars["http.status_code"] = numericStatus;
+      setSingleBeaconVar(win, vars, state, "http.status_code", numericStatus);
     }
   }
-  if (vars.servertiming == null && vars.st == null) {
-    const navServerTiming = formatNavigationServerTiming(win);
+
+  const rawServerTiming = vars.servertiming;
+  const isBoomerangLookupArray =
+    Array.isArray(rawServerTiming) ||
+    (typeof rawServerTiming === "string" && rawServerTiming.trim().startsWith("["));
+  const isInitialNav =
+    vars["http.initiator"] == null || vars["http.initiator"] === "spa_hard";
+
+  if (vars.st == null && (rawServerTiming == null || isBoomerangLookupArray)) {
+    const navServerTiming = isInitialNav ? formatNavigationServerTiming(win) : "";
     if (navServerTiming) {
-      vars.st = navServerTiming;
+      setSingleBeaconVar(win, vars, state, "st", navServerTiming);
+      if (isBoomerangLookupArray || rawServerTiming == null) {
+        setSingleBeaconVar(win, vars, state, "servertiming", navServerTiming);
+      }
     }
+  } else if (isBoomerangLookupArray && typeof vars.st === "string" && vars.st.trim() !== "") {
+    setSingleBeaconVar(win, vars, state, "servertiming", vars.st);
   }
 }
 
@@ -368,6 +395,7 @@ export function registerServiceRadarTrace(win) {
     beaconUrl: DEFAULT_BEACON_PATH,
     lastTrace: null,
     subscribedBeacon: false,
+    normalizedKeys: new Set(),
   };
 
   const plugin = {
@@ -394,7 +422,13 @@ export function registerServiceRadarTrace(win) {
       if (!state.subscribedBeacon && win.BOOMR && typeof win.BOOMR.subscribe === "function") {
         state.subscribedBeacon = true;
         win.BOOMR.subscribe("before_beacon", function onBeforeBeacon(vars) {
-          normalizeBoomerangVarsOnBeacon(vars, win);
+          normalizeBoomerangVarsOnBeacon(vars, win, state);
+        });
+        win.BOOMR.subscribe("beacon", function onBeacon() {
+          if (state.normalizedKeys.size > 0 && win.BOOMR && typeof win.BOOMR.removeVar === "function") {
+            win.BOOMR.removeVar(Array.from(state.normalizedKeys));
+          }
+          state.normalizedKeys.clear();
         });
       }
 

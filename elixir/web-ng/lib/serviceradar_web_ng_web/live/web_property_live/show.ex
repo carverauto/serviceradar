@@ -1050,7 +1050,6 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
 
   defp rum_snippet_text(%WebProperty{} = wp) do
     String.trim("""
-    <script src="/assets/rum/boomerang-sr.min.js" async crossorigin="anonymous"></script>
     <script>
       window.BOOMR_config = window.BOOMR_config || {};
       window.BOOMR_config.ServiceRadar = {
@@ -1060,6 +1059,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
         tracePropagateOrigins: #{Jason.encode!(wp.trace_propagate_origins || [])}
       };
     </script>
+    <script src="/assets/rum/boomerang-sr.min.js" async crossorigin="anonymous"></script>
     """)
   end
 

@@ -348,6 +348,7 @@
  * @class BOOMR.plugins.AutoXHR
  */
 (function() {
+  function debugLog() {}
   var w, d, handler, a, impl,
       readyStateMap = ["uninitialized", "open", "responseStart", "domInteractive", "responseEnd"];
 

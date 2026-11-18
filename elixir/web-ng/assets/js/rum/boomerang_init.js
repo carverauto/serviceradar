@@ -26,10 +26,17 @@ export function normalizeSampleRate(raw) {
   return parsed;
 }
 
+const initializedBoomerangInstances = new WeakSet();
+const pendingLateInitWindows = new WeakSet();
+
 export function initServiceRadarBoomerang(win) {
   if (!win || !win.BOOMR) return false;
 
   const boomr = win.BOOMR;
+  if (initializedBoomerangInstances.has(boomr)) {
+    return true;
+  }
+
   const srConfig = win.BOOMR_config && win.BOOMR_config.ServiceRadar;
   if (!srConfig || !srConfig.siteKey) {
     return false;
@@ -73,9 +80,60 @@ export function initServiceRadarBoomerang(win) {
     });
   }
 
+  initializedBoomerangInstances.add(boomr);
   return true;
 }
 
+export function ensureServiceRadarBoomerangInit(win) {
+  if (!win || !win.BOOMR) return false;
+  if (initServiceRadarBoomerang(win)) return true;
+
+  const srConfig = win.BOOMR_config && win.BOOMR_config.ServiceRadar;
+  if (srConfig && srConfig.sampledOut) return false;
+  if (pendingLateInitWindows.has(win)) return false;
+  pendingLateInitWindows.add(win);
+
+  const doc = win.document;
+  let timerId = null;
+
+  const cleanup = () => {
+    pendingLateInitWindows.delete(win);
+    if (doc && typeof doc.removeEventListener === "function") {
+      doc.removeEventListener("DOMContentLoaded", retryInit);
+    }
+    if (typeof win.removeEventListener === "function") {
+      win.removeEventListener("load", retryInit);
+    }
+    if (timerId !== null && typeof win.clearTimeout === "function") {
+      win.clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  function retryInit() {
+    if (initServiceRadarBoomerang(win)) {
+      cleanup();
+      return;
+    }
+    const cfg = win.BOOMR_config && win.BOOMR_config.ServiceRadar;
+    if (cfg && cfg.sampledOut) {
+      cleanup();
+    }
+  }
+
+  if (doc && typeof doc.addEventListener === "function") {
+    doc.addEventListener("DOMContentLoaded", retryInit);
+  }
+  if (typeof win.addEventListener === "function") {
+    win.addEventListener("load", retryInit);
+  }
+  if (doc && doc.readyState === "complete" && typeof win.setTimeout === "function") {
+    timerId = win.setTimeout(retryInit, 0);
+  }
+
+  return false;
+}
+
 if (typeof window !== "undefined" && window.BOOMR) {
-  initServiceRadarBoomerang(window);
+  ensureServiceRadarBoomerangInit(window);
 }

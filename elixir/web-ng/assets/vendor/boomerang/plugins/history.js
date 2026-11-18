@@ -40,6 +40,7 @@
  * @class BOOMR.plugins.History
  */
 (function() {
+  function debugLog() {}
   var impl = {
     // if monitorHistory is false then the History object will not be hooked
     monitorHistory: true,

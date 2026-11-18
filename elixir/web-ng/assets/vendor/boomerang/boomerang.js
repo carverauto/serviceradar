@@ -82,7 +82,7 @@
  * time.  We also declare it without `var` so that we can later
  * `delete` it.  This is the only way that works on Internet Explorer.
  */
-BOOMR_start = new Date().getTime();
+window.BOOMR_start = new Date().getTime();
 
 /**
  * @function
@@ -219,7 +219,8 @@ BOOMR_check_doc_domain();
     w.BOOMR = {};
   }
 
-  BOOMR = w.BOOMR;
+  window.BOOMR = w.BOOMR;
+  var BOOMR = w.BOOMR;
 
   // don't allow this code to be included twice
   if (BOOMR.version) {
@@ -1131,7 +1132,7 @@ BOOMR_check_doc_domain();
      *
      * @memberof BOOMR
      */
-    t_start: BOOMR_start,
+    t_start: window.BOOMR_start,
 
     /**
      * When the Boomerang plugins have all run.
@@ -4839,7 +4840,7 @@ BOOMR_check_doc_domain();
     boomr.url = a.href;
   }
 
-  delete BOOMR_start;
+  delete window.BOOMR_start;
 
   /**
    * @global
@@ -4852,7 +4853,7 @@ BOOMR_check_doc_domain();
    * Time the loader script started fetching boomerang.js (if the asynchronous
    * loader snippet is used).
    */
-  if (typeof BOOMR_lstart === "number") {
+  if (typeof window.BOOMR_lstart === "number") {
     /**
      * Time the loader script started fetching boomerang.js (if using the
      * asynchronous loader snippet) (`BOOMR_lstart`)
@@ -4860,8 +4861,8 @@ BOOMR_check_doc_domain();
      *
      * @memberof BOOMR
      */
-    boomr.t_lstart = BOOMR_lstart;
-    delete BOOMR_lstart;
+    boomr.t_lstart = window.BOOMR_lstart;
+    delete window.BOOMR_lstart;
   }
   else if (typeof BOOMR.window.BOOMR_lstart === "number") {
     boomr.t_lstart = BOOMR.window.BOOMR_lstart;

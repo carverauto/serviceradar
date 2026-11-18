@@ -25,6 +25,7 @@
  */
 
 (function() {
+  function debugLog() {}
   BOOMR = window.BOOMR || {};
   BOOMR.plugins = BOOMR.plugins || {};
 

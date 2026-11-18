@@ -26,6 +26,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogRumTest do
     assert "asn" in entity.stats_fields
     assert "as_org" in entity.stats_fields
     assert "canonical_origin" in entity.stats_fields
+    assert "dom_ready_ms" in entity.stats_fields
+    assert "dns_ms" in entity.stats_fields
+    assert "connect_ms" in entity.stats_fields
+    assert "tls_ms" in entity.stats_fields
 
     for alias_name <- ~w(rum rum_beacons rum_beacon) do
       assert Catalog.entity(alias_name).id == "rum"

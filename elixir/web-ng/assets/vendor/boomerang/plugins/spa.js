@@ -106,6 +106,7 @@
  * @class BOOMR.plugins.SPA
  */
 (function() {
+  function debugLog() {}
   var hooked = false,
       initialized = false,
       initialRouteChangeStarted = false,

@@ -9,6 +9,7 @@ import {
 } from "../src/WebRumDashboard.jsx"
 import sampleFrames from "../../../priv/dashboard-packages/web-rum/sample-frames.json"
 import sampleSettings from "../../../priv/dashboard-packages/web-rum/sample-settings.json"
+import {formatUserTime} from "../../js/utils/user_time"
 
 async function flushUi(ticks = 6) {
   for (let i = 0; i < ticks; i += 1) {
@@ -195,6 +196,15 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     // Timestamps rendered via user_time.js in America/Chicago
     const timeEls = root.querySelectorAll("time[data-user-time-zone='America/Chicago']")
     expect(timeEls.length).toBeGreaterThan(0)
+    for (const timeEl of timeEls) {
+      expect(timeEl.textContent?.trim().length).toBeGreaterThan(0)
+    }
+    const expectedTime = formatUserTime("2026-11-18T03:58:00Z", {
+      timeZone: "America/Chicago",
+      style: "compact",
+    })
+    expect(expectedTime?.text).toBeTruthy()
+    expect(Array.from(timeEls).some((el) => el.textContent === expectedTime.text)).toBe(true)
   })
 
   test("syncs .bp6-dark theme and cleans up on destroy()", async () => {
@@ -284,8 +294,16 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     expect(document.body.querySelectorAll(":scope > .bp6-portal")).toHaveLength(0)
 
     expect(drawer?.textContent).toContain("Beacon Recorded User Friction or Errors")
+    expect(drawer?.textContent).toContain("HTTP Status: 502")
     expect(drawer?.textContent).toContain("Timing Waterfall")
     expect(drawer?.textContent).toContain("198.51.100.0")
+
+    const drawerTime = drawer?.querySelector("time[data-user-time-style='full']")
+    expect(drawerTime?.textContent?.trim().length).toBeGreaterThan(0)
+
+    const progressBar = drawer?.querySelector(".bp6-progress-bar")
+    expect(progressBar).not.toBeNull()
+    expect(progressBar?.classList.contains("bp6-intent-danger")).toBe(true)
 
     const traceBtn = Array.from(drawer.querySelectorAll("button")).find((btn) =>
       btn.textContent?.includes("Inspect Backend Trace"),
@@ -324,5 +342,32 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     refreshBtn.click()
     await flushUi()
     expect(root.querySelector(".sr-dashboard-blueprint")).not.toBeNull()
+  })
+
+  test("clears cached recent beacons when a completed query returns zero rows", async () => {
+    const root = createMountRoot()
+    const {host, api, pushFrames} = createHostApi()
+
+    const mounted = await mountWebRum(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    expect(root.textContent).toContain("/cart/:id")
+
+    // During loading, previous rows remain visible
+    const loadingFrames = structuredClone(sampleFrames).map((frame) =>
+      frame.id === "rum_recent_beacons" ? {...frame, status: "loading", results: []} : frame,
+    )
+    pushFrames(loadingFrames)
+    await flushUi()
+    expect(root.textContent).toContain("/cart/:id")
+
+    // Once status is no longer loading (e.g. "ok" with 0 rows), stale cache is cleared
+    const emptyOkFrames = structuredClone(sampleFrames).map((frame) =>
+      frame.id === "rum_recent_beacons" ? {...frame, status: "ok", results: []} : frame,
+    )
+    pushFrames(emptyOkFrames)
+    await flushUi()
+    expect(root.textContent).toContain("No matching RUM beacons")
   })
 })

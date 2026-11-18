@@ -336,18 +336,26 @@ export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
 }
 
 function UserTimeLabel({value, timeZone, style = "compact"}) {
-  const canonical = canonicalUtcInstant(value)
-  if (!canonical) return <span>—</span>
+  if (!value) return <span>—</span>
+  const raw = String(value)
+  const canonical = canonicalUtcInstant(raw)
+  if (!canonical) return <span>{raw}</span>
+  const displayZone = timeZone || DEFAULT_TIME_ZONE
+  const formatted = formatUserTime(canonical, {timeZone: displayZone, style})
+  const text = formatted?.text || canonical
+  const offsetNote = formatted && !text.includes(formatted.offset) ? `; ${formatted.offset}` : ""
+  const title = `${canonical} (UTC); display zone ${displayZone}`
+  const ariaLabel = `${text}${offsetNote}; display zone ${displayZone}; canonical UTC ${canonical}`
 
-  const formatted = formatUserTime(canonical, timeZone, style)
   return (
     <time
       dateTime={canonical}
-      data-user-time-zone={timeZone}
+      data-user-time-zone={displayZone}
       data-user-time-style={style}
-      title={canonical}
+      title={title}
+      aria-label={ariaLabel}
     >
-      {formatted}
+      {text}
     </time>
   )
 }
@@ -403,8 +411,10 @@ export function WebRumDashboard() {
   const [cachedCwvSummary, setCachedCwvSummary] = useState(null)
 
   useEffect(() => {
-    if (recentBeaconsFrame?.status !== "loading" || recentBeaconsRows.length > 0) {
-      if (recentBeaconsRows.length > 0) setCachedRecentBeacons(recentBeaconsRows)
+    if (recentBeaconsFrame?.status !== "loading") {
+      setCachedRecentBeacons(recentBeaconsRows)
+    } else if (recentBeaconsRows.length > 0) {
+      setCachedRecentBeacons(recentBeaconsRows)
     }
   }, [recentBeaconsFrame?.status, recentBeaconsRows])
 
@@ -500,7 +510,12 @@ export function WebRumDashboard() {
     [api, canNavigate, navigation],
   )
 
-  const activeBeacons = recentBeaconsRows.length > 0 ? recentBeaconsRows : cachedRecentBeacons
+  const activeBeacons =
+    recentBeaconsRows.length > 0
+      ? recentBeaconsRows
+      : recentBeaconsFrame?.status === "loading"
+        ? cachedRecentBeacons
+        : []
   const summaryRow = cwvSummaryRows[0] || cachedCwvSummary || {}
 
   const propertyOptions = useMemo(() => {
@@ -622,6 +637,15 @@ export function WebRumDashboard() {
   const clsEval = evaluateCwvThreshold(summaryRow.p75_cls, thresholds.clsGood, thresholds.clsPoor)
   const fcpEval = evaluateCwvThreshold(summaryRow.p75_fcp_ms, 1800, 3000)
   const ttfbEval = evaluateCwvThreshold(summaryRow.p75_ttfb_ms, 800, 1800)
+
+  const selectedBeaconLcpEval = selectedBeacon
+    ? evaluateCwvThreshold(selectedBeacon.lcp_ms, thresholds.lcpGood, thresholds.lcpPoor)
+    : {label: "No Data", intent: "none"}
+  const selectedBeaconLcpMs = selectedBeacon ? numericValue(selectedBeacon.lcp_ms) : null
+  const selectedBeaconLcpProgress =
+    selectedBeaconLcpMs !== null && thresholds.lcpPoor > 0
+      ? Math.min(1, Math.max(0, selectedBeaconLcpMs / thresholds.lcpPoor))
+      : 0
 
   const latencyStackTotal =
     (latestLatency.edgeRttMs ?? 0) +
@@ -1162,7 +1186,9 @@ export function WebRumDashboard() {
                       <div className="sr-rum-tag-row">
                         {hasErrors ? (
                           <Tag minimal intent="danger" icon={<ErrorIcon size={12} />}>
-                            {beacon.http_status >= 400 ? `HTTP ${beacon.http_status}` : "Error"}
+                            {(numericValue(beacon.http_status) ?? 0) >= 400
+                              ? `HTTP ${numericValue(beacon.http_status)}`
+                              : "Error"}
                           </Tag>
                         ) : (
                           <Tag minimal intent="success" icon={<TickCircleIcon size={12} />}>
@@ -1214,7 +1240,7 @@ export function WebRumDashboard() {
               >
                 JS Errors: {numericValue(selectedBeacon.js_errors) ?? 0} · Rage Clicks:{" "}
                 {numericValue(selectedBeacon.rage_clicks) ?? 0} · HTTP Status:{" "}
-                {selectedBeacon.http_status || "—"}
+                {numericValue(selectedBeacon.http_status) ?? "—"}
               </Callout>
             ) : null}
 
@@ -1302,8 +1328,10 @@ export function WebRumDashboard() {
               <ProgressBar
                 stripes={false}
                 animate={false}
-                intent={lcpEval.intent === "none" ? "primary" : lcpEval.intent}
-                value={Math.min(1, (numericValue(selectedBeacon.lcp_ms) ?? 0) / thresholds.lcpPoor)}
+                intent={
+                  selectedBeaconLcpEval.intent === "none" ? "primary" : selectedBeaconLcpEval.intent
+                }
+                value={selectedBeaconLcpProgress}
               />
             </Card>
 
