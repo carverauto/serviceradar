@@ -70,4 +70,6 @@ jobs:
           name: rekor-signing-monitor-state
           path: ${{ runner.temp }}/rekor-monitor-state/state.json
           if-no-files-found: error
-          retention-days: 30
+          # As long as the signing ledgers: the checkpoint carries every entry's decision, and
+          # each successful run replaces it, so it expires only if the monitor stops for 90 days.
+          retention-days: 90
