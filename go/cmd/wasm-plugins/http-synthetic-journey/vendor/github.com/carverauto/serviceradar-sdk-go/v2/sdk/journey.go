@@ -1243,6 +1243,29 @@ func jsonValuesEqual(actual, expected any) bool {
 		return actual == nil
 	}
 	switch exp := expected.(type) {
+	case map[string]any:
+		act, ok := actual.(map[string]any)
+		if !ok || len(act) != len(exp) {
+			return false
+		}
+		for k, expVal := range exp {
+			actVal, exists := act[k]
+			if !exists || !jsonValuesEqual(actVal, expVal) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		act, ok := actual.([]any)
+		if !ok || len(act) != len(exp) {
+			return false
+		}
+		for i, expVal := range exp {
+			if !jsonValuesEqual(act[i], expVal) {
+				return false
+			}
+		}
+		return true
 	case string:
 		act, ok := actual.(string)
 		return ok && act == exp
