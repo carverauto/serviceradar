@@ -736,6 +736,22 @@ nightly on staging at 07:30 UTC, and on demand with `ExecuteWorkflow` and
 `action_names: ["WorldWorkerScale"]`. `LargeIngestionGate` runs on every staging push and
 nightly at 02:00 UTC.
 
+`RustPropertyExploration` runs the Hegel properties with 2,000,000 random cases each, nightly
+at 06:40 UTC. A failing property prints a `#[hegel::reproduce_failure("...")]` line in the
+test log; paste it above the failing test to replay it.
+
+Nothing waits on a scheduled job, so the `Scheduled Job Watch` GitHub workflow
+(`.github/workflows/scheduled-job-watch.yml`, daily at 12:00 UTC, after the last nightly)
+reads the commit status each scheduled BuildBuddy job posts on staging and sends one Discord
+message naming every job that failed, errored (a timeout or a lost runner), has been pending
+for more than 6 hours, or posted no status in 26 hours. The webhook is the GitHub Actions
+secret `CI_FAILURE_DISCORD_WEBHOOK_URL`. If the report cannot be delivered the workflow run
+fails, and GitHub reports that. To check the webhook, run the workflow by hand with
+`self_test` set: `gh workflow run scheduled-job-watch.yml -f self_test=true`; a message in
+the channel is the pass. The watched jobs are listed in `build/ci/scheduled_job_watch.py`,
+and `//build/ci:scheduled_job_watch_test` fails when a scheduled action in `buildbuddy.yaml`
+is missing from that list.
+
 **BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
 `origin/staging` into the branch before building, but the workflow steps come from the
 branch's own `buildbuddy.yaml`. So a branch that predates a lifecycle change runs the OLD

@@ -1,0 +1,45 @@
+name: Scheduled Job Watch
+
+# The scheduled BuildBuddy jobs in //:buildbuddy.yaml gate nothing, so nobody sees one fail.
+# This reads the commit status each of them posts on staging and reports the ones that
+# failed, stalled or did not run to Discord. See build/ci/scheduled_job_watch.py.
+on:
+  schedule:
+    # After the last nightly (WorldWorkerScale, 07:30 UTC) has had time to finish.
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      self_test:
+        description: "Post a test message instead of reading statuses, to prove the webhook."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  statuses: read
+
+jobs:
+  watch:
+    runs-on: arc-runner-set
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Report scheduled jobs that need attention
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_FAILURE_DISCORD_WEBHOOK_URL: ${{ secrets.CI_FAILURE_DISCORD_WEBHOOK_URL }}
+          SELF_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.self_test || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$SELF_TEST" = "true" ]; then
+            python3 build/ci/scheduled_job_watch.py --self-test
+          else
+            python3 build/ci/scheduled_job_watch.py
+          fi

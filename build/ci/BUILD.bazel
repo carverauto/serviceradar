@@ -69,6 +69,24 @@ py_test(
     ],
 )
 
+# Run by .github/workflows/scheduled-job-watch.yml, directly: it needs only the standard
+# library.
+py_library(
+    name = "scheduled_job_watch",
+    srcs = ["scheduled_job_watch.py"],
+)
+
+py_test(
+    name = "scheduled_job_watch_test",
+    size = "small",
+    srcs = ["scheduled_job_watch_test.py"],
+    data = ["//:buildbuddy.yaml"],
+    deps = [
+        ":scheduled_job_watch",
+        "@pyyaml//:yaml",
+    ],
+)
+
 py_library(
     name = "git_metadata",
     srcs = ["git_metadata.py"],
