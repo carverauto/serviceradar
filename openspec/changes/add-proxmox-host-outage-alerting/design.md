@@ -83,12 +83,17 @@ not establish OOM as the cause.
 - **Recover through the existing condition scope, not plugin memory.** The
   WASM plugin is re-instantiated on every check and has no state between
   polls, so it cannot compare with a previous poll or know that it emitted an
-  event before. On every complete poll it emits the active paused-guest and
-  storage conditions and lists their keys in a scope-complete marker. The
-  agent's condition debounce already forwards one event per level change and
-  synthesizes the clearing level for a key the marker no longer lists. A poll
-  that cannot read runtime state or storage emits no marker, which the agent
-  treats as a partial view and clears nothing.
+  event before. Each read unit gets its own condition scope: for runtime
+  state the guest list if one list call returns it, otherwise each guest; for
+  storage each node, since storage is already fetched per node. A unit read
+  fully emits its active conditions and a scope-complete marker listing their
+  keys, with an empty list when nothing is active, which is what clears its
+  last key. The agent's condition debounce already forwards a condition on
+  first sight, on a level change and at its unchanged-level refresh interval,
+  and synthesizes the clearing level for a key its scope's marker no longer
+  lists. A unit that could not be read fully emits no marker, which the agent
+  treats as a partial view of that scope only, so an unread guest or node
+  neither clears its own keys nor blocks clears for the others.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 

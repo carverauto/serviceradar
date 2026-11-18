@@ -62,32 +62,39 @@ of the plugin work in sections 2-5.
       called, add it to the agent's Proxmox path allowlist.
 - [ ] 4a.2 Report a `running` guest whose runtime state is not `running` as
       not available, in the inventory result and in the running-guest count.
-- [ ] 4a.3 On every complete poll, emit
-      `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
+- [ ] 4a.3 For each read unit of runtime state (the guest list if it
+      returns the runtime state, otherwise each guest) read fully in a poll,
+      emit `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
       non-running runtime state, carrying the guest's canonical DeviceID, the
-      node and the runtime state, and list its condition key in the
-      scope-complete marker. Keep no state between polls.
+      node and the runtime state, and emit the unit's scope-complete marker
+      listing those keys, empty when none is paused. Emit no marker for a
+      unit not read fully. Keep no state between polls.
 - [ ] 4a.4 Unit test the plugin output for a single invented observation: a
       guest in `io-error` emits the condition, is marked not available and
-      its key is listed; a running guest emits no condition and its key is
-      absent; an unreadable runtime state emits no scope-complete marker.
+      its key is listed; a running guest emits no condition and its unit's
+      marker has an empty key list; an unreadable unit emits no marker while
+      a fully read sibling unit still emits its marker.
 
 ## 4b. Proxmox plugin: node storage capacity
 
-- [ ] 4b.1 On every complete poll, emit
-      `com.carverauto.proxmox.node_storage_capacity` for each node datastore
-      in the critical band, carrying node, datastore, used and total bytes but
-      no ratio or threshold fields, and list its condition key in the
-      scope-complete marker. Keep no state between polls.
+- [ ] 4b.1 For each node whose storage is read fully in a poll, emit
+      `com.carverauto.proxmox.node_storage_capacity` for each datastore in
+      the critical band, carrying node, datastore, used and total bytes but
+      no ratio or threshold fields, and emit that node's scope-complete marker
+      listing those keys, empty when none is critical. Emit no marker for a
+      node whose storage was not read fully. Keep no state between polls.
 - [ ] 4b.2 Unit test the plugin output for a single invented observation: a
       datastore at or above the critical threshold emits the condition and its
-      key is listed; one below it emits no condition and its key is absent;
-      unreadable node storage emits no scope-complete marker.
+      key is listed; a node with no critical datastore emits a marker with an
+      empty key list; a node with unreadable storage emits no marker while a
+      fully read sibling node still emits its marker.
 - [ ] 4b.3 Confirm the event remains separate from the periodic
       ok/warning/critical pressure summaries, which keep their behaviour.
-- [ ] 4b.4 Agent-level test with invented markers for both condition scopes:
-      listing a key and then omitting it from the next marker forwards exactly
-      one open and one clearing event; a run without a marker clears nothing.
+- [ ] 4b.4 Agent-level test with invented markers for both condition scopes,
+      with both runs inside the agent's refresh interval: listing a key and
+      then omitting it from the next marker of the same scope forwards one
+      open and one clearing event; a run without that scope's marker clears
+      none of its keys, and a marker for a different scope does not clear it.
 
 ## 5. Manifest wiring
 
@@ -106,8 +113,8 @@ of the plugin work in sections 2-5.
 - [ ] 6.1 Enable the rules through the existing alert-rules UI in a
       disposable test environment.
 - [ ] 6.1a Pause a disposable guest and confirm it shows as not available,
-      its alert opens once, and the alert clears when a later complete poll
-      no longer lists the guest after it resumes. Fill a disposable datastore
+      its alert opens once, and the alert clears when a later poll that
+      reads its unit fully no longer lists the guest after it resumes. Fill a disposable datastore
       past the critical threshold and confirm the same for the storage rule.
 - [ ] 6.2 Stop a disposable guest and separately simulate a host OOM kill;
       confirm each alert reaches the selected notification route within the

@@ -23,87 +23,105 @@ periodic ok/warning/critical resource-pressure summaries it already emits.
 ### Requirement: Guest Paused By The Hypervisor
 The Proxmox plugin SHALL read the hypervisor runtime state of every QEMU guest
 whose status is `running` and SHALL report a guest whose runtime state is not
-`running` as not available. The plugin keeps no state between polls: on every
-complete poll it SHALL emit a `com.carverauto.proxmox.guest_runtime_paused`
-condition event for each such guest and SHALL list the condition key of each
-such guest in the scope-complete marker of its condition scope. The agent's
-condition debounce forwards one event per level change and synthesizes the
-clearing level when a previously listed key is no longer listed.
+`running` as not available. The plugin keeps no state between polls. Each
+read unit of runtime state has its own condition scope: the guest list when
+the list returns the runtime state, otherwise each guest. For every unit it
+read fully in a poll, the plugin SHALL emit a
+`com.carverauto.proxmox.guest_runtime_paused` condition event for each guest
+of that unit in a non-running runtime state and SHALL emit that unit's
+scope-complete marker listing the condition keys of those guests, with an
+empty key list when none is paused. The agent's condition debounce forwards a
+listed condition on its first observation, on a level change and at its
+unchanged-level refresh interval, and synthesizes the clearing level when a
+unit's marker no longer lists a key it forwarded at a non-ok level.
 
 #### Scenario: Guest is paused on an I/O error
 - **GIVEN** a QEMU guest whose status is `running`
-- **WHEN** a complete poll observes its runtime state is `io-error`
+- **WHEN** a poll reads its unit fully and observes its runtime state is
+  `io-error`
 - **THEN** the plugin SHALL report the guest as not available
 - **AND** SHALL emit a `com.carverauto.proxmox.guest_runtime_paused` condition
-  event at a non-ok level, in the guest-runtime condition scope, referencing
-  the guest's canonical DeviceID, its Proxmox node and the runtime state
-- **AND** SHALL list that guest's condition key in the scope-complete marker
+  event at a non-ok level, in that unit's condition scope, referencing the
+  guest's canonical DeviceID, its Proxmox node and the runtime state
+- **AND** SHALL list that guest's condition key in the unit's scope-complete
+  marker
 
 #### Scenario: Guest stays paused across polls
-- **WHEN** consecutive complete polls observe the same guest in the same
-  non-running runtime state
+- **WHEN** consecutive polls read the guest's unit fully and observe the guest
+  in the same non-running runtime state
 - **THEN** the plugin SHALL emit the condition event and list its key on each
   of those polls
-- **AND** the agent SHALL forward the condition only on its first observation
-  and on a level change
+- **AND** the agent SHALL forward the condition on its first observation, on
+  a level change, and again at its unchanged-level refresh interval, and
+  SHALL NOT clear it while its key stays listed
 
 #### Scenario: Paused guest resumes
-- **GIVEN** a guest whose condition key was listed in the previous
+- **GIVEN** a guest whose condition key was listed in its unit's previous
   scope-complete marker
-- **WHEN** a complete poll observes its runtime state is `running`
+- **WHEN** a poll reads that unit fully and observes the guest's runtime state
+  is `running`
 - **THEN** the plugin SHALL report the guest as available
-- **AND** SHALL NOT list that guest's condition key in the scope-complete
-  marker
+- **AND** SHALL emit the unit's scope-complete marker without that guest's
+  condition key, with an empty key list when no guest of the unit is paused
 - **AND** the agent SHALL forward exactly one clearing event for that key
 
 #### Scenario: Runtime state cannot be read
-- **WHEN** the runtime state of any running guest cannot be read
-- **THEN** the plugin SHALL keep the availability derived from that guest's
-  status
-- **AND** SHALL NOT emit the scope-complete marker for that poll, so no key is
-  dropped from the scope and no open alert is cleared by the incomplete poll
+- **WHEN** a unit's runtime state cannot be read fully
+- **THEN** the plugin SHALL keep the availability derived from the status of
+  each guest in that unit
+- **AND** SHALL NOT emit that unit's scope-complete marker, so no key of that
+  unit is cleared by the incomplete read
+- **AND** SHALL still emit the scope-complete marker of every other unit it
+  read fully, so their keys clear as usual
 
 ### Requirement: Node Storage Capacity Event
 The Proxmox plugin SHALL emit a condition event, distinct from the periodic
 resource-pressure summaries, for each node datastore in the critical capacity
-band. The plugin keeps no state between polls: on every complete poll it SHALL
-emit a `com.carverauto.proxmox.node_storage_capacity` condition event for each
-datastore at or above the critical threshold and SHALL list the condition key
-of each such datastore in the scope-complete marker of its condition scope.
-The plugin's band classification decides membership, so the event SHALL NOT
-carry the ratio and threshold fields the agent uses for hysteresis.
+band. The plugin keeps no state between polls. Storage is read per node, and
+each node has its own node-storage condition scope. For every node whose
+storage it read fully in a poll, the plugin SHALL emit a
+`com.carverauto.proxmox.node_storage_capacity` condition event for each
+datastore at or above the critical threshold and SHALL emit that node's
+scope-complete marker listing the condition keys of those datastores, with an
+empty key list when none is critical. The plugin's band classification decides
+membership, so the event SHALL NOT carry the ratio and threshold fields the
+agent uses for hysteresis.
 
 #### Scenario: Datastore is at critical capacity
-- **WHEN** a complete poll observes a node datastore at or above the critical
-  capacity threshold
+- **WHEN** a poll reads a node's storage fully and observes a datastore at or
+  above the critical capacity threshold
 - **THEN** the plugin SHALL emit a
   `com.carverauto.proxmox.node_storage_capacity` condition event at the
-  critical level, in the node-storage condition scope, carrying the node, the
+  critical level, in that node's condition scope, carrying the node, the
   datastore name and the used and total bytes
-- **AND** SHALL list that datastore's condition key in the scope-complete
-  marker
+- **AND** SHALL list that datastore's condition key in the node's
+  scope-complete marker
 
 #### Scenario: Datastore stays critical across polls
-- **WHEN** consecutive complete polls observe the same datastore at or above
-  the critical threshold
+- **WHEN** consecutive polls read the node's storage fully and observe the
+  same datastore at or above the critical threshold
 - **THEN** the plugin SHALL emit the condition event and list its key on each
   of those polls
-- **AND** the agent SHALL forward the condition only on its first observation
-  and on a level change
+- **AND** the agent SHALL forward the condition on its first observation, on
+  a level change, and again at its unchanged-level refresh interval, and
+  SHALL NOT clear it while its key stays listed
 
 #### Scenario: Datastore recovers
-- **GIVEN** a datastore whose condition key was listed in the previous
+- **GIVEN** a datastore whose condition key was listed in its node's previous
   scope-complete marker
-- **WHEN** a complete poll observes it below the critical threshold
-- **THEN** the plugin SHALL NOT list that datastore's condition key in the
-  scope-complete marker
+- **WHEN** a poll reads that node's storage fully and observes the datastore
+  below the critical threshold
+- **THEN** the plugin SHALL emit the node's scope-complete marker without
+  that datastore's condition key, with an empty key list when no datastore of
+  the node is critical
 - **AND** the agent SHALL forward exactly one clearing event for that key
 
 #### Scenario: Node storage cannot be read
-- **WHEN** the storage of any polled node cannot be read
-- **THEN** the plugin SHALL NOT emit the scope-complete marker for that poll,
-  so no key is dropped from the scope and no open alert is cleared by the
-  incomplete poll
+- **WHEN** the storage of a polled node cannot be read fully
+- **THEN** the plugin SHALL NOT emit that node's scope-complete marker, so no
+  key of that node is cleared by the incomplete read
+- **AND** SHALL still emit the scope-complete marker of every other node whose
+  storage it read fully, so their keys clear as usual
 
 ### Requirement: Host OOM-Kill Detection
 The Proxmox plugin SHALL detect Linux OOM-killer activity on each polled
@@ -143,8 +161,8 @@ event the agent synthesizes when the condition key is no longer listed.
 #### Scenario: Storage alert clears when the datastore recovers
 - **GIVEN** the `plugin:proxmox:node-storage-capacity` rule is enabled and has
   an open alert for a datastore
-- **WHEN** a complete poll no longer lists that datastore's condition key and
-  the agent forwards the clearing event
+- **WHEN** the node's next scope-complete marker no longer lists that
+  datastore's condition key and the agent forwards the clearing event
 - **THEN** the alert SHALL resolve and no new alert SHALL open
 
 #### Scenario: Operator enables a materialized rule
