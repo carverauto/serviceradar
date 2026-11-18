@@ -120,7 +120,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.ingress.allowSameNamespace` | Allow ingress from pods in the release namespace when NetworkPolicy is enabled | `true` |
 | `networkPolicy.ingress.allowedNamespaces` | Additional namespace names allowed to initiate ingress | `[]` |
 | `networkPolicy.ingress.allowedCIDRs` | Additional ingress CIDR allow list | `[]` |
-| `networkPolicy.ingress.allowedPorts` | Application ingress ports allowed from same-namespace / allowed namespace / allowed CIDR peers | ServiceRadar defaults excluding ERTS |
+| `networkPolicy.ingress.allowedPorts` | Application ingress ports allowed from same-namespace / allowed namespace / allowed CIDR peers. When the log collector's TCP listener is enabled, the chart also admits its port (`logCollector.tcpCollector.service.ports.syslog.targetPort`), so it need not be listed here | ServiceRadar defaults excluding ERTS |
 | `networkPolicy.ingress.erts.enabled` | Render a separate EPMD / Erlang distribution ingress rule scoped to cluster-member pods | `true` |
 | `networkPolicy.ingress.agentGatewayExternal.allowedCIDRs` | External CIDR allow list for the agent-gateway LoadBalancer ports | `["0.0.0.0/0"]` |
 | `networkPolicy.ingress.flowCollectorExternal.allowedCIDRs` | External CIDR allow list for enabled non-ClusterIP NetFlow/IPFIX/sFlow collector ports | `["0.0.0.0/0"]` |

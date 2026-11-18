@@ -5,6 +5,23 @@
 {{- $ingressAllowedNamespaces := default (list) $ingress.allowedNamespaces -}}
 {{- $ingressAllowedCIDRs := default (list) $ingress.allowedCIDRs -}}
 {{- $ingressAllowedPorts := default (list) $ingress.allowedPorts -}}
+{{- /* TCP syslog reaches the log collector on a port the operator can move, so the static
+     list above cannot name it. Without this entry the policy admits UDP syslog and silently
+     drops TCP syslog from the same namespace and from every allowed namespace. */ -}}
+{{- $logCollectorForSyslog := default (dict) .Values.logCollector -}}
+{{- $logCollectorGate := or (not (hasKey $logCollectorForSyslog "enabled")) $logCollectorForSyslog.enabled -}}
+{{- if and $logCollectorGate (default false (default (dict) $logCollectorForSyslog.tcpCollector).enabled) -}}
+  {{- $syslogTcpPort := include "serviceradar.logCollectorSyslogTcpTargetPort" . | int -}}
+  {{- $syslogTcpListed := false -}}
+  {{- range $port := $ingressAllowedPorts -}}
+    {{- if and (eq (default "TCP" $port.protocol) "TCP") (eq (int $port.port) $syslogTcpPort) -}}
+      {{- $syslogTcpListed = true -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if not $syslogTcpListed -}}
+    {{- $ingressAllowedPorts = append $ingressAllowedPorts (dict "protocol" "TCP" "port" $syslogTcpPort) -}}
+  {{- end -}}
+{{- end -}}
 {{- $ingressErlangDist := default (dict) $ingress.erts -}}
 {{- $ingressErlangDistEnabled := include "serviceradar.boolDefaultTrue" (list $ingressErlangDist "enabled") | eq "true" -}}
 {{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}

@@ -126,6 +126,20 @@ Render a Kubernetes NetworkPolicy ports list from values entries shaped as:
     port: 50052
     endPort: 50060 # optional
 */}}
+{{/*
+The port the log collector's TCP syslog listener binds in the pod. The Deployment, the
+compatibility Service and the namespace NetworkPolicy must all agree on it.
+*/}}
+{{- define "serviceradar.logCollectorSyslogTcpTargetPort" -}}
+{{- $tcpCollector := default (dict) (default (dict) .Values.logCollector).tcpCollector -}}
+{{- $syslog := default (dict) (default (dict) (default (dict) $tcpCollector.service).ports).syslog -}}
+{{- if hasKey $syslog "targetPort" -}}
+{{- $syslog.targetPort -}}
+{{- else -}}
+514
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.networkPolicyPorts" -}}
 {{- range . }}
 - protocol: {{ default "TCP" .protocol }}
