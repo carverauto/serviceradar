@@ -16,7 +16,12 @@
       enrichment without a hostname) < passive census sighting with an
       observed hostname < automation inventory (AWX) name < SNMP `sysName` <
       hypervisor platform inventory name; `hostname` is gated by the same
-      tiers and accepted or rejected together with `name`
+      tiers and accepted or rejected together with `name`;
+      `HypervisorEnrichmentIngestor`'s repeating existing-device host and
+      guest update carries the inventory record's name as the strongest-tier
+      name / hostname pair when the record has one (a `provider_ref` or an
+      address is not that name; an update with no name stays address
+      fallback)
 - [ ] 2.2 Test: a `sysName` survives a hostname-less census update, in one
       batch and across batches
 - [ ] 2.3 Test: a hostname-less sighting of a rejected address, including an
@@ -103,13 +108,13 @@
       keyed on fingerprint OS / software names in `vendor_name` must move to
       the OS / software fields
 - [ ] 6.2 Verify on a deployment with existing inventory: config version of an
-      affected agent changes at most once at the first census pass after
-      rollout (a census name carrying an observed hostname, or an OUI vendor,
-      replaces a value with no recorded strength; a hostname-less census name
-      is the address fallback and never replaces a populated name without
-      recorded strength or any stronger name) and at most once at the first
-      mapper run (a stronger value replaces it); a legacy platform type or
-      name may change once when the first above-weakest value is recorded
-      and once more when the platform inventory records the strongest tier;
-      only then does it stay constant across further census passes, mapper
-      runs, automation-inventory cycles and hypervisor-enrichment cycles
+      affected agent changes at most once per strictly stronger tier first
+      recorded for each attribute (name / hostname, `vendor_name`, `type` /
+      `type_id`, `integration_type`), then stays constant across further
+      census passes, mapper runs, automation-inventory cycles and
+      hypervisor-enrichment cycles. Example name ladder on a hypervisor node:
+      census hostname, then AWX name, then mapper `sysName`, then hypervisor
+      inventory name. Example type ladder: fingerprint, then SNMP, then
+      platform. A hostname-less census name is the address fallback and never
+      replaces a populated name without recorded strength or any stronger
+      name

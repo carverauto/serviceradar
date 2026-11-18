@@ -17,7 +17,11 @@ a passive census sighting; a name reported by an automation inventory (such as
 AWX); an SNMP sysName; a name reported by the hypervisor platform inventory. A
 name derived from an address SHALL use the address the device keeps after the
 address rank guard. The hostname SHALL be gated by the same tiers and SHALL be
-accepted or rejected together with the name as one value.
+accepted or rejected together with the name as one value. The repeating
+hypervisor-enrichment update for an existing host or guest SHALL carry the
+inventory record's name as the strongest-tier name and hostname pair when the
+record has one; a provider reference or an address is not that name, and an
+update that still has no name stays an address fallback.
 
 Vendor strength, weakest first: a name that names SNMP agent software (such as
 Net-SNMP), from device, integration or metadata evidence; the IEEE OUI

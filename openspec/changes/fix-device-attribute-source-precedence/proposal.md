@@ -93,10 +93,12 @@ inventory state rather than of nondeterministic compilation.
   strength alone decides.
   - `name`, weakest to strongest, no two sources sharing a tier: address
     fallback (the update has no hostname, so the name is an address, as from
-    the passive census or hypervisor enrichment) < passive census sighting
-    with an observed hostname < automation inventory (AWX) name < SNMP
-    `sysName` < hypervisor platform inventory name. `hostname` is gated by the
-    same tiers and decided together with `name` as one value, so plugin
+    the passive census or a hypervisor-enrichment update whose record has no
+    name) < passive census sighting with an observed hostname < automation
+    inventory (AWX) name < SNMP `sysName` < hypervisor platform inventory
+    name, which the repeating hypervisor-enrichment update for an existing
+    host or guest carries from the inventory record. `hostname` is gated by
+    the same tiers and decided together with `name` as one value, so plugin
     inputs, which prefer `hostname`, stop flipping. An address fallback is the address the device keeps after
     the existing address rank guard, never an address the guard rejected, so
     an NDP or link-local (`fe80::`) sighting never renames a device.
@@ -161,9 +163,13 @@ On rows written before rollout, the first census pass replaces a stored
 agent-software, OS or software vendor with no recorded strength by the OUI
 vendor, so exact-OUI credential rules match that device again after that
 pass. That first census pass may also change any other vendor stored before
-rollout once, to the OUI vendor, and a name stored before rollout once, to a
-census name that carries an observed hostname, until the mapper records a
-stronger value. A hostname-less census name is the address fallback, the
+rollout once, to the OUI vendor. Each attribute (name / hostname,
+`vendor_name`, `type` / `type_id`, `integration_type`) changes at most once per
+strictly stronger tier first recorded, then stays constant: a name stored
+before rollout may move to a census hostname, then an automation-inventory
+name, then the mapper `sysName`, and on a hypervisor node finally to the
+hypervisor platform inventory name, which is the final name there rather than
+the `sysName`. A hostname-less census name is the address fallback, the
 weakest tier, and never replaces a populated name without recorded strength
 or any stronger name.
 

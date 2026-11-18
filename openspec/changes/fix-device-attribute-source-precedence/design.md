@@ -23,7 +23,11 @@ address rank, #3905) and manual `type` ownership.
    5. a name reported by the hypervisor platform inventory.
    The `hostname` column is gated by the same tiers and is accepted or
    rejected together with `name` as one value, because plugin inputs prefer
-   `hostname` over `name`.
+   `hostname` over `name`. `HypervisorEnrichmentIngestor`'s repeating
+   existing-device host and guest update carries the inventory record's name
+   as the tier 5 name / hostname pair when the record has one; a
+   `provider_ref` or an address is not that name, and an update that still
+   has no name is a tier 1 address fallback.
 3. Strength order for `vendor_name`, weakest first:
    1. a name that names SNMP agent software (Net-SNMP and similar), from
       device, integration or metadata evidence;
