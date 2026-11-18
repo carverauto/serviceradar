@@ -45,6 +45,8 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
       html = render_component(&Index.render/1, socket.assigns)
       assert html =~ "Websites"
       assert html =~ "new-website-button"
+      assert html =~ "open-web-rum-dashboard-button"
+      assert html =~ "/dashboards/web-rum"
     after
       if prev do
         Application.put_env(:serviceradar_web_ng, :srql_module, prev)
@@ -212,6 +214,45 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
       Show.apply_property_state(non_editing_socket, wp_posture_updated, [], [], [])
 
     assert refreshed_when_not_editing.assigns.edit_form.params["name"] == "Posture Updated"
+  end
+
+  test "WebPropertyLive.Show renders Boomerang snippet with tracePropagateOrigins, mPulse tee, and RUM link" do
+    wp = %WebProperty{
+      id: Ash.UUID.generate(),
+      name: "Portal",
+      canonical_origin: "https://portal.example.com",
+      environment: :production,
+      rum_site_key: "sr_rum_unit_test_key",
+      rum_enabled: true,
+      rum_sample_rate: 0.25,
+      anonymize_client_ip: true,
+      allowed_origins: ["https://portal.example.com"],
+      allowed_query_keys: [],
+      trace_propagate_origins: ["https://api.example.com"]
+    }
+
+    {:ok, show_socket} = Show.mount(%{}, %{}, manager_socket())
+    show_socket = Show.apply_property_state(show_socket, wp, [], [], [])
+
+    html = render_component(&Show.render/1, show_socket.assigns)
+    doc = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.query(doc, "#open-web-rum-dashboard-button") != []
+    assert html =~ "/dashboards/web-rum"
+
+    boomerang_text = doc |> LazyHTML.query("#rum-boomerang-snippet") |> LazyHTML.text()
+    assert boomerang_text =~ ~s(src="/assets/rum/boomerang-sr.min.js")
+    assert boomerang_text =~ ~s(crossorigin="anonymous")
+    assert boomerang_text =~ "sr_rum_unit_test_key"
+    assert boomerang_text =~ "0.25"
+    assert boomerang_text =~ "tracePropagateOrigins"
+    assert boomerang_text =~ "https://api.example.com"
+
+    mpulse_text = doc |> LazyHTML.query("#rum-mpulse-tee-snippet") |> LazyHTML.text()
+    assert mpulse_text =~ ~s(BOOMR.subscribe("beacon")
+    assert mpulse_text =~ "navigator.sendBeacon"
+    assert mpulse_text =~ "/rum/v1/beacon?key=sr_rum_unit_test_key"
+    assert LazyHTML.query(doc, "#copy-rum-mpulse-snippet-button") != []
   end
 
   defp manager_socket do

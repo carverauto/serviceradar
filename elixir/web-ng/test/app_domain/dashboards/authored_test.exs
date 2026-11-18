@@ -514,6 +514,7 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
           "security-findings",
           "endpoint-inventory",
           "network-performance",
+          "web-rum",
           "new-devices"
         ] do
       assert {:error, {:reserved_dashboard_slug, ^slug}} =

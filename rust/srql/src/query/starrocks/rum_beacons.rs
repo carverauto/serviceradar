@@ -436,4 +436,36 @@ mod tests {
         );
         assert!(stats.sql.contains("COUNT(*) AS `beacons`"));
     }
+
+    #[test]
+    fn rum_starrocks_compiles_p75_stats_and_grouped_queries() {
+        let summary = compile(
+            "in:rum time:last_24h stats:\"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, sum(has_error) as error_beacons\" limit:1",
+        );
+        assert!(
+            summary
+                .sql
+                .contains("percentile_cont(`lcp_ms`, 0.75) AS `p75_lcp_ms`")
+        );
+        assert!(
+            summary
+                .sql
+                .contains("percentile_cont(`inp_ms`, 0.75) AS `p75_inp_ms`")
+        );
+        assert!(
+            summary
+                .sql
+                .contains("SUM(CAST(`has_error` AS INT)) AS `error_beacons`")
+        );
+
+        let grouped = compile(
+            "in:rum time:last_24h stats:\"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms by prefix_tag, asn, as_org\" sort:beacons:desc limit:100",
+        );
+        assert!(
+            grouped
+                .sql
+                .contains("GROUP BY `prefix_tag`, `asn`, `as_org`")
+        );
+        assert!(grouped.sql.contains("ORDER BY COUNT(*) DESC"));
+    }
 }

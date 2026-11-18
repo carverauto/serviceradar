@@ -15,12 +15,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogRumTest do
   test "catalog exposes rum entity with expected route, defaults, and aliases" do
     entity = Catalog.entity("rum")
     assert entity.id == "rum"
-    assert entity.route == "/websites"
+    assert entity.route == "/dashboards/web-rum"
     assert entity.default_sort_field == "observed_at"
     assert entity.default_sort_dir == "desc"
     assert "has_error" in entity.boolean_fields
     assert "lcp_ms" in entity.filter_fields
     assert "prefix_tag" in entity.filter_fields
+    assert "cdn_pop" in entity.stats_fields
+    assert "cdn_provider" in entity.stats_fields
+    assert "asn" in entity.stats_fields
+    assert "as_org" in entity.stats_fields
+    assert "canonical_origin" in entity.stats_fields
 
     for alias_name <- ~w(rum rum_beacons rum_beacon) do
       assert Catalog.entity(alias_name).id == "rum"
@@ -31,8 +36,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogRumTest do
              "in:rum time:last_24h sort:observed_at:desc limit:50"
   end
 
-  test "page routing resolves in:rum to /websites" do
-    assert Page.route_target_for_query("in:rum has_error:true", "/devices") == {"/websites", %{}}
+  test "page routing resolves in:rum to /dashboards/web-rum" do
+    assert Page.route_target_for_query("in:rum has_error:true", "/devices") ==
+             {"/dashboards/web-rum", %{}}
   end
 
   test "Rust translator builds both CNPG and StarRocks queries for in:rum" do

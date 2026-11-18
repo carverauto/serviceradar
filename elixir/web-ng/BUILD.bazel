@@ -98,6 +98,15 @@ js_library(
     visibility = ["//elixir/web-ng/assets:__pkg__"],
 )
 
+js_library(
+    name = "web_rum_sample_fixtures",
+    srcs = [
+        "priv/dashboard-packages/web-rum/sample-frames.json",
+        "priv/dashboard-packages/web-rum/sample-settings.json",
+    ],
+    visibility = ["//elixir/web-ng/assets:__pkg__"],
+)
+
 # Standalone HEEx templates scanned at runtime by TimestampFormatterInventoryTest.
 # Keep this a named input so a broad unit-test data-glob refactor cannot silently
 # remove production templates from the audit.
@@ -482,6 +491,7 @@ ex_unit_tests(
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
+        "//elixir/web-ng/assets:rum_bundle",
         # TimestampFormatterInventoryTest scans production JavaScript at runtime.
         # assets/ is a separate package, so these sources must be explicit runfiles.
         "//elixir/web-ng/assets:timestamp_formatter_audit_js_srcs",

@@ -1114,4 +1114,34 @@ mod tests {
             build_query_plan(config.as_ref(), &bad_req, parse(&bad_req.query).unwrap()).is_err()
         );
     }
+
+    #[test]
+    fn rum_compiles_p75_stats_for_cwv_and_cdn_breakdowns() {
+        let summary = plan_for(
+            "in:rum time:last_24h stats:\"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(fcp_ms) as p75_fcp_ms, p75(ttfb_ms) as p75_ttfb_ms, sum(has_error) as error_beacons\" limit:1",
+        );
+        let (summary_sql, _) = to_sql_and_params(&summary).expect("p75 summary compiles");
+        assert!(
+            summary_sql.contains("percentile_cont(0.75) WITHIN GROUP (ORDER BY lcp_ms)"),
+            "{summary_sql}"
+        );
+        assert!(
+            summary_sql.contains("percentile_cont(0.75) WITHIN GROUP (ORDER BY inp_ms)"),
+            "{summary_sql}"
+        );
+        assert!(summary_sql.contains("SUM(has_error::int)"), "{summary_sql}");
+
+        let grouped = plan_for(
+            "in:rum time:last_24h stats:\"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms by prefix_tag, asn, as_org\" sort:beacons:desc limit:100",
+        );
+        let (grouped_sql, _) = to_sql_and_params(&grouped).expect("p75 grouped compiles");
+        assert!(
+            grouped_sql.contains("GROUP BY prefix_tag, asn, as_org"),
+            "{grouped_sql}"
+        );
+        assert!(
+            grouped_sql.contains("ORDER BY COUNT(*) DESC"),
+            "{grouped_sql}"
+        );
+    }
 }

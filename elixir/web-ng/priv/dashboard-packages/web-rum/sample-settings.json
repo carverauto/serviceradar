@@ -1,0 +1,11 @@
+{
+  "defaultWindow": "last_24h",
+  "lcpGoodThresholdMs": 2500,
+  "lcpPoorThresholdMs": 4000,
+  "inpGoodThresholdMs": 200,
+  "inpPoorThresholdMs": 500,
+  "clsGoodThreshold": 0.1,
+  "clsPoorThreshold": 0.25,
+  "selectedWebPropertyId": "",
+  "preferences": {}
+}

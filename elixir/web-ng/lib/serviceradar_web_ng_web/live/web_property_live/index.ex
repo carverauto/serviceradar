@@ -324,15 +324,25 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Index do
               L7 Web Property inventory, Boomerang RUM policies, CDN/TLS posture, and origin bindings.
             </p>
           </div>
-          <.ui_button
-            :if={@can_manage}
-            id="new-website-button"
-            variant="primary"
-            size="sm"
-            phx-click="open_create_modal"
-          >
-            <.icon name="hero-plus" class="size-4" /> Add Web Property
-          </.ui_button>
+          <div class="flex flex-wrap items-center gap-2">
+            <.ui_button
+              id="open-web-rum-dashboard-button"
+              navigate={~p"/dashboards/web-rum"}
+              variant="outline"
+              size="sm"
+            >
+              Web RUM Dashboard
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage}
+              id="new-website-button"
+              variant="primary"
+              size="sm"
+              phx-click="open_create_modal"
+            >
+              <.icon name="hero-plus" class="size-4" /> Add Web Property
+            </.ui_button>
+          </div>
         </div>
 
         <.ui_panel id="websites-panel">

@@ -520,6 +520,14 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
               Back to Websites
             </.ui_button>
             <.ui_button
+              id="open-web-rum-dashboard-button"
+              navigate={~p"/dashboards/web-rum"}
+              variant="outline"
+              size="sm"
+            >
+              Web RUM Dashboard
+            </.ui_button>
+            <.ui_button
               :if={@web_property && @can_manage}
               id="edit-website-button"
               variant="outline"
@@ -772,25 +780,43 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
             </.ui_panel>
           </div>
 
-          <%!-- Onboarding Snippet Placeholder (finalized in M4.3) --%>
           <.ui_panel id="website-rum-snippet-panel">
             <:header>
               <span class="text-sm font-semibold text-sr-ink">RUM Onboarding Snippets</span>
-              <.ui_button
-                id="copy-rum-snippet-button"
-                variant="ghost"
-                size="xs"
-                phx-click="copy_value"
-                phx-value-value={rum_snippet_text(@web_property)}
-              >
-                Copy Snippet
-              </.ui_button>
+              <div class="flex flex-wrap items-center gap-2">
+                <.ui_button
+                  id="copy-rum-snippet-button"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="copy_value"
+                  phx-value-value={rum_snippet_text(@web_property)}
+                >
+                  Copy Snippet
+                </.ui_button>
+                <.ui_button
+                  id="copy-rum-mpulse-snippet-button"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="copy_value"
+                  phx-value-value={rum_mpulse_tee_snippet_text(@web_property)}
+                >
+                  Copy mPulse Tee
+                </.ui_button>
+              </div>
             </:header>
-            <div class="space-y-3">
-              <p class="text-xs text-sr-muted">
-                Embed the ServiceRadar Boomerang RUM bundle or forward beacons from an existing Akamai mPulse tag using this property's site key.
-              </p>
-              <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-boomerang-snippet" phx-no-curly-interpolation><%= rum_snippet_text(@web_property) %></code></pre>
+            <div class="space-y-4">
+              <div class="space-y-2">
+                <p class="text-xs text-sr-muted">
+                  Embed the first-party ServiceRadar Boomerang RUM bundle with optional W3C traceparent propagation.
+                </p>
+                <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-boomerang-snippet" phx-no-curly-interpolation><%= rum_snippet_text(@web_property) %></code></pre>
+              </div>
+              <div class="space-y-2 border-t border-sr-line pt-3">
+                <p class="text-xs text-sr-muted">
+                  Or tee beacons from an existing Akamai mPulse Boomerang tag without changing your CDN tag deployment.
+                </p>
+                <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-mpulse-tee-snippet" phx-no-curly-interpolation><%= rum_mpulse_tee_snippet_text(@web_property) %></code></pre>
+              </div>
             </div>
           </.ui_panel>
 
@@ -1024,14 +1050,30 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
 
   defp rum_snippet_text(%WebProperty{} = wp) do
     String.trim("""
-    <script src="/assets/rum/boomerang-sr.min.js" async></script>
+    <script src="/assets/rum/boomerang-sr.min.js" async crossorigin="anonymous"></script>
     <script>
       window.BOOMR_config = window.BOOMR_config || {};
       window.BOOMR_config.ServiceRadar = {
-        siteKey: "#{wp.rum_site_key}",
+        siteKey: #{Jason.encode!(wp.rum_site_key || "")},
         beaconUrl: "/rum/v1/beacon",
-        sampleRate: #{wp.rum_sample_rate}
+        sampleRate: #{wp.rum_sample_rate},
+        tracePropagateOrigins: #{Jason.encode!(wp.trace_propagate_origins || [])}
       };
+    </script>
+    """)
+  end
+
+  defp rum_mpulse_tee_snippet_text(%WebProperty{} = wp) do
+    site_key = wp.rum_site_key || ""
+    encoded_key = URI.encode_www_form(site_key)
+
+    String.trim("""
+    <script>
+      window.BOOMR && BOOMR.subscribe("beacon", function(vars) {
+        if (!vars || vars["sr.key"]) return;
+        var p = new URLSearchParams({ "sr.key": #{Jason.encode!(site_key)}, u: vars.u || location.href, "c.lcp": vars["pt.lcp"] || vars["c.lcp"] || "", "c.inp": vars["et.inp"] || vars["c.inp"] || "", "c.cls": vars["c.cls"] || "", "c.fcp": vars["pt.fcp"] || vars["c.fcp"] || "", "c.ttfb": vars.t_resp || vars["c.ttfb"] || "", t_done: vars.t_done || "", servertiming: vars.servertiming || "" });
+        navigator.sendBeacon("/rum/v1/beacon?key=#{encoded_key}", p);
+      });
     </script>
     """)
   end

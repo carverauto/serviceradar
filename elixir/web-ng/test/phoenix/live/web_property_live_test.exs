@@ -54,6 +54,9 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveTest do
 
     assert has_element?(show_view, "#rum-site-key-value")
     assert has_element?(show_view, "#rum-boomerang-snippet")
+    assert has_element?(show_view, "#rum-mpulse-tee-snippet")
+    assert has_element?(show_view, "#copy-rum-mpulse-snippet-button")
+    assert has_element?(show_view, "#open-web-rum-dashboard-button")
 
     {:ok, wp} = WebProperty.get_by_canonical_origin(origin, actor: sys)
     assert has_element?(show_view, "#rum-site-key-value", wp.rum_site_key)
@@ -76,7 +79,8 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveTest do
         name: "Shop Renamed #{unique}",
         canonical_origin: origin,
         environment: "staging",
-        rum_sample_rate: "0.75"
+        rum_sample_rate: "0.75",
+        trace_propagate_origins: "https://api-#{unique}.example.com"
       }
     })
     |> render_submit()
@@ -84,6 +88,8 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveTest do
     {:ok, updated} = WebProperty.get_by_id(wp.id, actor: sys)
     assert updated.name == "Shop Renamed #{unique}"
     assert updated.environment == :staging
+    assert updated.trace_propagate_origins == ["https://api-#{unique}.example.com"]
+    assert has_element?(show_view, "#rum-boomerang-snippet", "https://api-#{unique}.example.com")
 
     # Add and remove OTel service binding
     show_view
