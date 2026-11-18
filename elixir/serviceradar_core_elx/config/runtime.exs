@@ -900,6 +900,7 @@ if config_env() == :prod do
     System.get_env("SERVICERADAR_CLUSTER_COORDINATOR", "true") in ~w(true 1 yes)
 
   plugin_storage_defaults = Application.get_env(:serviceradar_core, :plugin_storage, [])
+
   # Core mints the agent-facing plugin download URLs, so it honours the same
   # AGENT_PLUGIN_STORAGE_PUBLIC_URL override as web-ng and the agent gateway.
   agent_plugin_storage_public_url =
@@ -951,9 +952,9 @@ if config_env() == :prod do
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
+    # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-  # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
   config :serviceradar_core_elx, :metrics,
     enabled: System.get_env("SERVICERADAR_CORE_METRICS_ENABLED", "true") in ~w(true 1 yes),
     ip: {0, 0, 0, 0},
@@ -1492,8 +1493,8 @@ if config_env() == :prod do
       "SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS" |> parse_int_env.(2) |> max(1),
     timeseries_metrics_chunk_interval_hours:
       "SERVICERADAR_TIMESERIES_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(4) |> max(1),
-    hourly_rollup_retention_days: "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1),
     # DataRetentionWorker floors this at 7 days, clear of the rollups' 5-day refresh window.
+    hourly_rollup_retention_days: "SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS" |> parse_int_env.(395) |> max(1),
     sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
@@ -1551,6 +1552,7 @@ if config_env() == :prod do
     retention_days: "SECURITY_EVENTS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
+
   # Milliseconds between ingestion lane metric frames (one timeseries_metrics row per
   # lane metric per core node each frame).
   config :serviceradar_core, ServiceRadar.Ingestion.RuntimeMetrics,
@@ -1641,9 +1643,9 @@ if config_env() == :prod do
       tls: nats_tls_config
   end
 
+  # EventWriter configuration (NATS JetStream → CNPG consumer)
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
-  # EventWriter configuration (NATS JetStream → CNPG consumer)
   host_slice_subscriber_enabled =
     System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
 
@@ -1868,8 +1870,8 @@ if config_env() == :prod do
       # per-stream custom values are not clobbered by release defaults.
       flow_streams: Config.default_flow_streams()
 
+    # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
     if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
-      # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
       config :serviceradar_core, ServiceRadar.EventWriter, flow_consumer_pull_batch_size: String.to_integer(v)
     end
 
