@@ -86,6 +86,19 @@ not establish OOM as the cause.
   `subject_prefix` against `log_name` and `attribute_equals` against
   unmapped fields; the synthesized clear copies that `log_name` with level
   `ok`, which is what the recovery match selects.
+- **Condition wire fields.** These are the fields the agent's condition
+  debounce (`go/pkg/agent/plugin_condition_debounce.go`) already reads; the
+  paused and capacity conditions use exactly these. A condition event sets
+  `log_name` to its subject, `unmapped.condition_key` to its condition key,
+  `unmapped.level` to its level and, for a scoped condition,
+  `unmapped.condition_scope` to its scope id. A scope-complete marker is a
+  separate record that sets `unmapped.condition_scope_complete` to that scope
+  id and `unmapped.active_condition_keys` to a JSON array of key strings
+  (empty when nothing is active); it carries neither `condition_key` nor
+  `level`, because a record with both is read as a condition event and never
+  as a marker. The key a marker lists is the same string the event carried
+  as `condition_key`; a guest's DeviceID and a datastore's byte counts are
+  event detail, never the key.
 - **Recover through the existing condition scope, not plugin memory.** The
   WASM plugin is re-instantiated on every check and has no state between
   polls, so it cannot compare with a previous poll or know that it emitted an

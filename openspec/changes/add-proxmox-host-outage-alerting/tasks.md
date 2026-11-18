@@ -78,8 +78,12 @@ of the plugin work in sections 2-5.
       DeviceID, the node and the runtime state, with `log_name`
       `com.carverauto.proxmox.guest_runtime_paused` (not the SDK default
       `events.ocsf.processed`) and `unmapped.level` `warning` or `critical`,
-      and emit the node's
-      guest-runtime scope-complete marker listing those keys plus the keys of
+      setting `unmapped.condition_key` and `unmapped.condition_scope` per the
+      design's condition wire fields, and emit the node's guest-runtime
+      scope-complete marker as a separate record with
+      `unmapped.condition_scope_complete` and a JSON array
+      `unmapped.active_condition_keys` (no condition key or level) listing
+      those keys plus the keys of
       running QEMU guests whose runtime state could not be read, which get no
       event. Build the scope id from the target discriminator, the scope name
       `guest-runtime` and the node, and
@@ -87,8 +91,12 @@ of the plugin work in sections 2-5.
       no marker for a node whose guest list was not read fully. Keep no state
       between polls.
 - [ ] 4a.4 Unit test the plugin output for a single invented observation: a
-      running QEMU guest in `io-error` emits the condition, is marked not
-      available and its key is listed; a running guest, a stopped guest, a
+      running QEMU guest in `io-error` emits the condition with the expected
+      `log_name`, `unmapped.level`, `unmapped.condition_key` and
+      `unmapped.condition_scope`, is marked not available, and that same key
+      string is in the marker's `unmapped.active_condition_keys`, whose
+      `unmapped.condition_scope_complete` equals the event's scope and which
+      has no condition key or level; a running guest, a stopped guest, a
       container and a guest absent from the list emit no condition and their
       keys are absent; a running QEMU guest with an unreadable runtime state
       keeps its status-derived availability, emits no condition and its key
@@ -104,14 +112,22 @@ of the plugin work in sections 2-5.
       node, datastore, used and total bytes but no ratio or threshold fields,
       with `log_name` `com.carverauto.proxmox.node_storage_capacity` (not the
       SDK default `events.ocsf.processed`) and `unmapped.level` `critical`,
-      and emit the node's node-storage scope-complete marker listing those
-      keys, empty when none is critical. Build the scope id from the target
+      setting `unmapped.condition_key` and `unmapped.condition_scope` per the
+      design's condition wire fields, and emit the node's node-storage
+      scope-complete marker as a separate record with
+      `unmapped.condition_scope_complete` and a JSON array
+      `unmapped.active_condition_keys` (no condition key or level) listing
+      those keys, empty when none is critical. Build the scope id from the target
       discriminator, the scope name `node-storage` and the node, and the key from the target discriminator, node
       and datastore name only. Emit no marker for a node whose storage was not
       read fully. Keep no state between polls.
 - [ ] 4b.2 Unit test the plugin output for a single invented observation: a
-      datastore at or above the critical threshold emits the condition and its
-      key is listed; the key does not change with used bytes; a node with no
+      datastore at or above the critical threshold emits the condition with the
+      expected `log_name`, `unmapped.level`, `unmapped.condition_key` and
+      `unmapped.condition_scope`, and that same key string is in the marker's
+      `unmapped.active_condition_keys`, whose
+      `unmapped.condition_scope_complete` equals the event's scope and which
+      has no condition key or level; the key does not change with used bytes; a node with no
       critical datastore emits a marker with an empty key list; a node with
       unreadable storage emits no marker while a fully read sibling node still
       emits its marker.

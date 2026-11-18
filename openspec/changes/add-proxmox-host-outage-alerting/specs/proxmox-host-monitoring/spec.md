@@ -46,8 +46,15 @@ guest-runtime scope-complete marker of that node. The marker SHALL list the
 condition keys of those guests and of every QEMU guest the list shows as
 `running` whose runtime state could not be read, and SHALL omit every other
 guest, including a guest the list shows as not running and a guest absent
-from the list. The marker's key list is empty when no key qualifies. Clearing
-follows the Scoped Condition Recovery requirement.
+from the list. The marker's key list is empty when no key qualifies.
+Each condition event and each scope-complete marker SHALL use exactly the
+fields listed under "Condition wire fields" in this change's design.md: the
+event sets `unmapped.condition_key` to the condition key defined here,
+`unmapped.condition_scope` to the scope id defined here and `unmapped.level`;
+the marker is a separate record whose `unmapped.condition_scope_complete` is
+that scope id and whose `unmapped.active_condition_keys` is a JSON array of
+those same key strings, and it carries no condition key or level of its own.
+Clearing follows the Scoped Condition Recovery requirement.
 
 #### Scenario: Guest is paused on an I/O error
 - **GIVEN** a QEMU guest whose status is `running`
@@ -55,12 +62,15 @@ follows the Scoped Condition Recovery requirement.
   runtime state is `io-error`
 - **THEN** the plugin SHALL report the guest as not available
 - **AND** SHALL emit a `com.carverauto.proxmox.guest_runtime_paused` condition
-  event at a non-ok level, in that node's guest-runtime scope, referencing the
-  guest's canonical DeviceID, its Proxmox node and the runtime state
+  event whose `unmapped.condition_scope` is that node's guest-runtime scope
+  id and whose `unmapped.condition_key` is the guest's key (target
+  discriminator, node, guest type and VMID), carrying the guest's canonical
+  DeviceID, its Proxmox node and the runtime state as event detail
 - **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.guest_runtime_paused`, not the SDK default
   `events.ocsf.processed` the pressure summaries use, and its
   `unmapped.level` SHALL be `warning` or `critical`
-- **AND** SHALL list that guest's condition key in the node's guest-runtime
+- **AND** SHALL include that same key string in the
+  `unmapped.active_condition_keys` array of the node's guest-runtime
   scope-complete marker
 
 #### Scenario: Guest stays paused across polls
@@ -139,20 +149,30 @@ SHALL emit the node-storage scope-complete marker of that node listing the
 condition keys of those datastores, with an empty key list when none is
 critical. The plugin's band classification decides membership, so the event
 SHALL NOT carry the ratio and threshold fields the agent uses for hysteresis.
+Each condition event and each scope-complete marker SHALL use exactly the
+fields listed under "Condition wire fields" in this change's design.md: the
+event sets `unmapped.condition_key` to the condition key defined here,
+`unmapped.condition_scope` to the scope id defined here and `unmapped.level`;
+the marker is a separate record whose `unmapped.condition_scope_complete` is
+that scope id and whose `unmapped.active_condition_keys` is a JSON array of
+those same key strings, and it carries no condition key or level of its own.
 Clearing follows the Scoped Condition Recovery requirement.
 
 #### Scenario: Datastore is at critical capacity
 - **WHEN** a poll reads a node's storage fully and observes a datastore at or
   above the critical capacity threshold
 - **THEN** the plugin SHALL emit a
-  `com.carverauto.proxmox.node_storage_capacity` condition event at the
-  critical level, in that node's node-storage scope, carrying the node, the
-  datastore name and the used and total bytes
+  `com.carverauto.proxmox.node_storage_capacity` condition event whose
+  `unmapped.condition_scope` is that node's node-storage scope id and whose
+  `unmapped.condition_key` is the datastore's key (target discriminator, node
+  and datastore name), carrying the node, the datastore name and the used and
+  total bytes as event detail
 - **AND** the event's `log_name` SHALL be `com.carverauto.proxmox.node_storage_capacity`, not the SDK default
   `events.ocsf.processed` the pressure summaries use, and its
   `unmapped.level` SHALL be `critical`
-- **AND** SHALL list that datastore's condition key in the node's
-  node-storage scope-complete marker
+- **AND** SHALL include that same key string in the
+  `unmapped.active_condition_keys` array of the node's node-storage
+  scope-complete marker
 
 #### Scenario: Datastore stays critical across polls
 - **WHEN** consecutive polls read the node's storage fully and observe the
