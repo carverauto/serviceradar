@@ -135,7 +135,8 @@
       stay stored (a role-only write keeps `type` / `type_id`; a vendor
       without a model keeps `model`)
 - [ ] 6.7 Test: an SNMP-polled camera keeps the camera inventory name,
-      vendor, model and type across mapper and census passes; a same-tier
+      vendor, model, type and `management_device_id` (including a recorded
+      clear) across mapper and census passes; a same-tier
       mapper hardware vendor keeps the first recorded camera vendor; an agent
       check-in leaves a guest's type and name unchanged; a defaulted WiFi-map
       vendor does not write `vendor_name`; and the agent
@@ -153,19 +154,26 @@
       and the camera and succession primary-IP paths follow the same rule;
       `GuestAddress.primary/1` keeps skipping host-internal addresses (for
       example a docker bridge), and no chooser promotes an address it rejects
-- [ ] 7.4 Census decoder: an NDP / IPv6 sighting of a device with a usable
+- [ ] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
+      `primary_interface_ip`, `management_ip_score`,
+      `routable_management_ip?`) and the `DeviceDiscoveryIngestor` guest
+      address fallback submit the best chooser-accepted IPv4 among every
+      address on the host or guest, prefer it over any IPv6, and never submit
+      a link-local (`fe80::/10`, `169.254/16`) as primary
+- [ ] 7.5 Find any other primary-IP chooser and apply the same rule
+- [ ] 7.6 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is neither alias, primary nor name
-- [ ] 7.5 Alias recording: every aliasable address the device owns
+- [ ] 7.7 Alias recording: every aliasable address the device owns
       (`AliasPolicy.valid_alias_ip?/1`: global, private, ULA, in both
       families) stays a live `device_alias_states` row, including a displaced
       or never-promoted address; link-local addresses never become aliases
-- [ ] 7.6 Alias expiry: a confirmed re-attribution expires the previous
+- [ ] 7.8 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
-- [ ] 7.7 `SweepCompiler` attributes each target only to the current live
+- [ ] 7.9 `SweepCompiler` attributes each target only to the current live
       holder
-- [ ] 7.8 Test: dual-stack census keeps the IPv4 primary and records the
+- [ ] 7.10 Test: dual-stack census keeps the IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local
       sighting records no alias, primary or name; a guest host-internal
       bridge address never becomes primary; an IPv6-only device that

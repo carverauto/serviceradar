@@ -285,9 +285,12 @@ bridge address a guest chooser skips. A link-local address (fe80::/10 or
 169.254/16) SHALL NOT become an alias, the primary ip or the name. An IPv6 SHALL be primary only on an IPv6-only device,
 and a usable IPv4 that device later gains SHALL take over. A change between two
 usable IPv4s SHALL replace the primary, and the never-downgrade address rank
-SHALL still apply within a family. Every primary-IP chooser (the upsert guard,
-the Elixir address ranking, hypervisor guest primary-IP selection, and the
-camera and succession paths) SHALL follow this rule. The address-fallback name
+SHALL still apply within a family. Every primary-IP chooser SHALL follow this
+rule, including the upsert guard, the Elixir address ranking, hypervisor guest
+primary-IP selection, hypervisor host primary-IP selection, the discovery
+ingestor's guest address fallback, and the camera and succession paths: each
+SHALL submit the best chooser-accepted IPv4 among every address on the host or
+guest when one exists, and SHALL NOT submit a link-local address as primary. The address-fallback name
 SHALL follow the primary ip, so the name and hostname SHALL NOT take an IPv6
 literal when the device has an IPv4.
 

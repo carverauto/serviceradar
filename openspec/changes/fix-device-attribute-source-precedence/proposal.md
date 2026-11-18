@@ -183,10 +183,12 @@ inventory state rather than of nondeterministic compilation.
   that `GuestAddress.primary/1` skips). An IPv6 is primary only on an IPv6-only device, and
   an IPv4 it later gains takes over. A change between two usable IPv4s is a
   real re-IP and replaces the primary; the #3905 never-downgrade rank still
-  applies within a family. Every primary-IP chooser follows this rule: the
-  SQL upsert guard, `Identity.Address.best/1` and its rank (kept in step by
-  the existing parity test), the hypervisor guest primary-IP NIC selection,
-  and the camera and succession paths.
+  applies within a family. Every primary-IP chooser follows this rule,
+  including the SQL upsert guard, `Identity.Address.best/1` and its rank
+  (kept in step by the existing parity test), the hypervisor guest and host
+  primary-IP selection (`primary_ip_by_guest`, `primary_ip_by_host/1`), the
+  discovery ingestor's guest address fallback, and the camera and
+  succession paths; none submits a link-local as primary.
 - Every aliasable address a device owns (global, private or ULA, in both
   families) stays a live alias, so the sweep targets both families.
   Link-local addresses (`fe80::/10`, `169.254/16`) never become aliases,

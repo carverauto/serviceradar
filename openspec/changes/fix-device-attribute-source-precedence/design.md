@@ -188,11 +188,17 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     device; if that device later gains a usable IPv4, the IPv4 takes over. A
     change between two usable IPv4s is a real re-IP and replaces the
     primary, and the #3905 never-downgrade rank still applies within a
-    family. The rule holds in every primary-IP chooser: the SQL upsert guard
-    in `DeviceWrites`, `Identity.Address.best/1` and its rank (kept in step
-    by the existing parity test, extended to the family rule), the
-    hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`), and
-    the camera and succession paths. The address-fallback name (decision 7)
+    family. The rule holds in every primary-IP chooser, including: the SQL
+    upsert guard in `DeviceWrites`, `Identity.Address.best/1` and its rank
+    (kept in step by the existing parity test, extended to the family rule),
+    the hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`),
+    the hypervisor host selection (`primary_ip_by_host/1` with
+    `primary_interface_ip`, `management_ip_score` and
+    `routable_management_ip?`), the `DeviceDiscoveryIngestor` guest address
+    fallback, and the camera and succession paths. Each submits the best
+    chooser-accepted IPv4 among every address on the host or guest when one
+    exists, and never submits a link-local (`fe80::/10`, `169.254/16`) as
+    primary. The address-fallback name (decision 7)
     follows this primary, so it never takes an IPv6 literal when the device
     has an IPv4.
 15. Every aliasable address a device owns (global, private or ULA, in both
