@@ -16,26 +16,23 @@ enrichment of existing devices); a hostname from a passive census sighting; an
 SNMP sysName or a name reported by an integration. A name derived from an
 address SHALL use the address the device keeps after the address rank guard.
 
-Vendor strength SHALL follow the vendor derived for the update, never the
-evidence channel or the sysObjectID enterprise alone. Weakest first: a derived
-vendor that names SNMP agent software (such as Net-SNMP), whether it came from
-a sysObjectID under an agent-software enterprise (such as enterprise 8072),
-sysDescr inference or a classification rule; the IEEE OUI registrant of the
-MAC address, or an explicit metadata vendor on an update that is not from an
-integration; a hardware vendor, from a sysObjectID hardware enterprise, a
-hardware vendor from sysDescr or a classification rule, or a hardware vendor
-reported by an integration. A sysObjectID under enterprise 8072 with a hardware
-vendor from sysDescr or a classification rule therefore ranks in the strongest
-tier. An OS or software product name from a passive fingerprint or
-classification rule, and an integration's own platform name reported as a
-device's vendor, are not vendor evidence and SHALL NOT be written to the
-vendor.
+Vendor strength SHALL follow the vendor name derived for the update, never the
+evidence channel or the sysObjectID enterprise alone. Weakest first: a name
+that names SNMP agent software (such as Net-SNMP), from any source; the IEEE
+OUI registrant of the MAC address; a hardware vendor name, from any source (a
+sysObjectID hardware enterprise, sysDescr inference, a classification rule, an
+integration report, or explicit metadata). A sysObjectID under enterprise 8072
+with a hardware vendor from sysDescr or a classification rule therefore ranks
+in the strongest tier. An OS, software or platform name (such as Linux,
+Microsoft, NGINX, or an automation platform's own product name) is not vendor
+evidence and SHALL NOT be written to the vendor, from any source.
 
 Type strength, weakest first: a generic type set without device evidence (such
-as host from an automation inventory); a type inferred from a fingerprint or
-classification rule; a type reported by the inventory that owns the device's
-platform role, or derived from SNMP. Manual type ownership SHALL keep
-precedence. Integration type strength, weakest first: a generic automation
+as host from an automation inventory); a type inferred from a passive
+fingerprint or classification rule; a type derived from SNMP (such as Router
+from ip_forwarding); a type reported by the inventory that owns the device's
+platform role (such as Hypervisor from the hypervisor inventory). Manual type
+ownership SHALL keep precedence. Integration type strength, weakest first: a generic automation
 inventory; the inventory that discovers the device as its own platform object.
 
 The same rule SHALL apply when two updates for one device are merged inside one
@@ -89,6 +86,16 @@ ingestion batch.
 - **WHEN** an SNMP update whose sysObjectID is under the Net-SNMP enterprise (8072) and whose sysDescr or classification rule yields a hardware vendor is ingested
 - **THEN** the stored vendor SHALL become that hardware vendor
 
+#### Scenario: A metadata agent-software vendor does not outrank the OUI vendor
+- **GIVEN** a device whose vendor was recorded from the MAC OUI
+- **WHEN** an update whose explicit metadata vendor is Net-SNMP is ingested
+- **THEN** the stored vendor SHALL remain the OUI vendor
+
+#### Scenario: A metadata hardware vendor outranks the OUI vendor
+- **GIVEN** a device whose vendor was recorded from the MAC OUI
+- **WHEN** an update whose explicit metadata vendor is a hardware vendor is ingested
+- **THEN** the stored vendor SHALL become that hardware vendor
+
 #### Scenario: A fingerprint classification naming an OS does not change the vendor
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
 - **WHEN** a passive fingerprint update whose classification names an operating system such as Linux is ingested
@@ -105,6 +112,11 @@ ingestion batch.
 - **WHEN** an automation inventory update reporting the node as a generic host is ingested
 - **THEN** the device type SHALL remain Hypervisor
 - **AND** the device integration type SHALL remain hypervisor
+
+#### Scenario: A routing hypervisor node keeps its platform type
+- **GIVEN** a hypervisor node whose type Hypervisor was recorded from the hypervisor inventory
+- **WHEN** a mapper update reports ip_forwarding enabled for the node
+- **THEN** the device type SHALL remain Hypervisor
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets are selected and named from device attributes

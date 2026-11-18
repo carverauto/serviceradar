@@ -95,24 +95,26 @@ inventory state rather than of nondeterministic compilation.
     integration. An address fallback is the address the device keeps after
     the existing address rank guard, never an address the guard rejected, so
     an NDP or link-local (`fe80::`) sighting never renames a device.
-  - `vendor_name`, by the vendor derived for the update rather than the
-    evidence channel or enterprise alone, weakest to strongest: a derived
-    vendor that names SNMP agent software such as Net-SNMP (from a
-    `sysObjectID` under an agent-software enterprise such as 8072, `sysDescr`
-    or a classification rule) < IEEE OUI registrant
-    (`metadata.mac_vendor_source = "ieee_oui"`) or an explicit metadata vendor
-    from a non-integration update < a hardware vendor (from a `sysObjectID`
-    hardware enterprise, a hardware vendor from `sysDescr` or a classification
-    rule, including under enterprise 8072, or an integration-reported
-    hardware vendor). The OUI provenance keys follow the value that is kept.
-  - Not vendor evidence, and never written to `vendor_name`: an OS or
-    software product name from a passive fingerprint or classification rule
-    (it belongs in the OS / software fields), and an integration's own
-    platform name reported as a device's vendor.
-  - `type` and `integration_type` follow the same rule with the tiers in
-    design.md, so the automation inventory's generic `host` / `awx` no longer
-    replaces the hypervisor inventory's `Hypervisor` / `Virtual` /
-    `hypervisor`.
+  - `vendor_name`, by the vendor name derived for the update rather than the
+    evidence channel or enterprise alone, weakest to strongest: a name that
+    names SNMP agent software such as Net-SNMP, from any source < IEEE OUI
+    registrant (`metadata.mac_vendor_source = "ieee_oui"`) < a hardware vendor
+    name, from any source (`sysObjectID` hardware enterprise, `sysDescr`,
+    a classification rule including under enterprise 8072, an integration
+    report, or explicit metadata). The OUI provenance keys follow the value
+    that is kept.
+  - Not vendor evidence, and never written to `vendor_name` from any source:
+    an OS, software or platform name (`Linux`, `NGINX`, an automation
+    platform's own product name, ...); OS and software names belong in the
+    OS / software fields.
+  - `type`, weakest to strongest: generic `host` < passive fingerprint type <
+    SNMP-derived type (for example `Router` from `ip_forwarding`) <
+    platform-inventory type (for example `Hypervisor` from the hypervisor
+    inventory). `integration_type` follows the tiers in design.md. The
+    automation inventory's generic `host` / `awx` no longer replaces the
+    hypervisor inventory's `Hypervisor` / `Virtual` / `hypervisor`, and a
+    mapper `Router` no longer replaces `Hypervisor` on a node that routes VM
+    traffic.
   - The same rule applies inside one ingestion batch (`merge_records_by_uid`)
     as across batches (the upsert), so batch composition cannot change the
     outcome.
@@ -137,9 +139,10 @@ vendor. A credential rule written against the OUI spelling
 spelling differs, and the rule's SNMPv3 credential no longer applies; the
 profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
-was stored. A device whose only other vendor evidence names agent software
-(for example Net-SNMP), or an OS or software product from a fingerprint,
-keeps its OUI vendor, so rules keyed on the OUI spelling keep matching it.
+was stored. Every device that does not derive a hardware vendor keeps its OUI
+vendor, including a device whose only vendor evidence is the OUI and a device
+whose other evidence names agent software (for example Net-SNMP) or an OS,
+software or platform; rules keyed on the OUI spelling keep matching it.
 Fingerprint OS and software names no longer appear in `vendor_name`; rules
 keyed on them (for example `vendor_name:"Linux"`) must move to the OS /
 software fields.

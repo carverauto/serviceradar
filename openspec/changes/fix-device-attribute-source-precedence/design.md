@@ -19,34 +19,32 @@ address rank, #3905) and manual `type` ownership.
    2. passive census sighting with an observed hostname;
    3. SNMP `sysName` from the mapper, or a name reported by an integration.
 3. Strength order for `vendor_name`, weakest first. The tier follows the
-   vendor derived for the update, never the evidence channel or the
+   vendor name derived for the update, never the evidence channel or the
    `sysObjectID` enterprise alone:
-   1. a derived vendor that names SNMP agent software (Net-SNMP and similar),
-      whether from a `sysObjectID` under an agent-software enterprise (such as
-      8072), `sysDescr` inference or a classification rule;
-   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`),
-      or an explicit metadata vendor on an update that is not from an
-      integration (equal to the OUI);
-   3. a hardware vendor: from a `sysObjectID` hardware enterprise, a hardware
-      vendor from `sysDescr` or a classification rule, or a hardware vendor
-      reported by an integration.
+   1. a name that names SNMP agent software (Net-SNMP and similar), from any
+      source;
+   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`);
+   3. a hardware vendor name, from any source: a `sysObjectID` hardware
+      enterprise, `sysDescr` inference, a classification rule, an integration
+      report, or explicit metadata.
    The agent-software enterprises are a fixed, named list kept next to the
    enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
    A `sysObjectID` under enterprise 8072 with a hardware vendor from
    `sysDescr` or a classification rule is tier 3; a `sysDescr` or
    classification result that names agent software is tier 1.
-   Not vendor evidence, and never written to `vendor_name`: an OS or software
-   product name from a passive fingerprint or classification rule (`Linux`,
-   `Microsoft`, `NGINX`, `Apache`, `Caddy`, ...), which is written to the OS /
-   software fields instead; and an integration's own platform name reported
-   as the vendor of the devices it manages.
+   Not vendor evidence, and never written to `vendor_name` from any source: an
+   OS, software or platform name (`Linux`, `Microsoft`, `NGINX`, `Apache`,
+   `Caddy`, an automation platform's own product name, ...). OS and software
+   names are written to the OS / software fields instead.
 4. Strength order for `type`, weakest first:
    1. a generic type set without device evidence (`host` from an automation
       inventory, or a default);
    2. a type inferred from a passive fingerprint or classification rule;
-   3. a type reported by the inventory that owns the device's platform role
-      (hypervisor inventory `Hypervisor` / `Virtual`) or derived from SNMP.
-   Manual `type` ownership keeps precedence over all three.
+   3. a type derived from SNMP (for example `Router` from `ip_forwarding`);
+   4. a type reported by the inventory that owns the device's platform role
+      (hypervisor inventory `Hypervisor` / `Virtual`), strictly above SNMP so
+      a hypervisor node that routes VM traffic keeps `Hypervisor`.
+   Manual `type` ownership keeps precedence over all four.
 5. Strength order for `integration_type`, weakest first:
    1. a generic automation inventory that lists the device as a host;
    2. the inventory that discovers the device as its own platform object

@@ -24,19 +24,18 @@
 
 ## 3. Vendor precedence
 
-- [ ] 3.1 Writers tag vendors by the vendor derived for the update: derived
-      vendor naming agent software (any channel) < IEEE OUI / non-integration
-      metadata vendor < hardware vendor (`sysObjectID` hardware enterprise,
-      hardware vendor from `sysDescr` or a classification rule including under
-      enterprise 8072, integration-reported hardware vendor); a weakest-tier
+- [ ] 3.1 Writers tag vendors by the vendor name derived for the update: a
+      name naming agent software (any source) < IEEE OUI < hardware vendor
+      name (any source: `sysObjectID` hardware enterprise, `sysDescr`, a
+      classification rule including under enterprise 8072, an integration
+      report, or explicit metadata); a weakest-tier
       vendor never replaces a populated value without recorded strength or any
       stronger value; provenance keys follow the kept value
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table
-- [ ] 3.3 Stop writing OS / software product names from fingerprint or
-      classification rules to `vendor_name` (write them to the OS / software
-      fields), and stop writing an integration's own platform name as a
-      device's vendor
+- [ ] 3.3 Stop writing OS, software or platform names to `vendor_name` from
+      any source (fingerprint, classification rule, integration, metadata);
+      write OS / software names to the OS / software fields
 - [ ] 3.4 Test: a hardware-enterprise vendor with recorded strength survives
       an OUI update; an OUI vendor survives an update whose derived vendor
       names agent software (Net-SNMP); a hardware vendor from `sysDescr` or a
@@ -46,17 +45,19 @@
       survives an OUI-only update
 - [ ] 3.6 Test: a fingerprint classification naming an OS leaves
       `vendor_name` unchanged; an automation inventory reporting its own
-      platform name leaves `vendor_name` unchanged
+      platform name leaves `vendor_name` unchanged; a metadata `Net-SNMP`
+      leaves an OUI vendor in place and a metadata hardware vendor replaces it
 
 ## 4. Type and integration type precedence
 
 - [ ] 4.1 Writers tag `type`: generic `host` / default < fingerprint or
-      classification-rule type < platform-inventory or SNMP-derived type;
+      classification-rule type < SNMP-derived type < platform-inventory type;
       manual ownership keeps precedence
 - [ ] 4.2 Writers tag `integration_type`: generic automation inventory <
       platform inventory that discovers the device as its own object
 - [ ] 4.3 Test: alternating automation-inventory and hypervisor writes leave
-      `type` and `integration_type` at the hypervisor values
+      `type` and `integration_type` at the hypervisor values; a mapper
+      `ip_forwarding` update leaves a hypervisor node's type `Hypervisor`
 
 ## 5. Integration identifiers and plugin inputs
 
@@ -76,8 +77,9 @@
       stop matching devices whose SNMP evidence derives a hardware vendor
       (hardware `sysObjectID` enterprise, or a hardware vendor from
       `sysDescr` or a classification rule even when the `sysObjectID` is under
-      enterprise 8072); only devices whose other vendor evidence names agent
-      software or an OS / software product keep the OUI vendor; legacy rows
+      enterprise 8072); the OUI spelling remains for every device that does
+      not derive a hardware vendor, including devices whose only vendor
+      evidence is the OUI; legacy rows
       whose stored vendor was agent software, an OS or a software product
       start matching once the first census pass records the OUI vendor; rules
       keyed on fingerprint OS / software names in `vendor_name` must move to
