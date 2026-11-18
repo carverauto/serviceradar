@@ -103,14 +103,39 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
     assert archive_conn.status == 200
     assert get_resp_header(archive_conn, "cache-control") == ["no-store"]
     refute archive_conn.resp_body =~ ctx.secret_access_key
-    refute archive_conn.resp_body =~ "SYNTHETICWORKERKEY"
     refute archive_conn.resp_body =~ @media_worker_token
 
     archive_body = Jason.decode!(archive_conn.resp_body)
+    assert archive_body["backing"] == "archive"
     assert archive_body["source"] == "archive"
     assert archive_body["init_sha256"] == ctx.init_sha
     assert archive_body["grant"]["role"] == "reader"
     assert Enum.sort(archive_body["grant"]["allowed_methods"]) == ["GET", "HEAD"]
+    refute Map.has_key?(archive_body["credential"], "access_key_id")
+    refute Map.has_key?(archive_body["credential"], "secret_access_key")
+    refute Map.has_key?(archive_body["credential"], "session_token")
+
+    init_presigned = archive_body["archive"]["init_presigned_url"]
+    media_presigned = archive_body["archive"]["media_presigned_url"]
+    assert is_binary(init_presigned)
+    assert is_binary(media_presigned)
+    assert archive_body["init"]["presigned_url"] == init_presigned
+    assert archive_body["media"]["presigned_url"] == media_presigned
+
+    init_q = init_presigned |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    assert init_q["X-Amz-Algorithm"] == "AWS4-HMAC-SHA256"
+    assert init_q["X-Amz-SignedHeaders"] == "host"
+    assert init_q["X-Amz-Expires"] == "300"
+    assert init_q["versionId"] == "synth-init-v1"
+    assert init_q["X-Amz-Signature"] =~ ~r/\A[0-9a-f]{64}\z/
+
+    media_q = media_presigned |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    assert media_q["X-Amz-Algorithm"] == "AWS4-HMAC-SHA256"
+    assert media_q["X-Amz-SignedHeaders"] == "host"
+    assert media_q["X-Amz-Expires"] == "300"
+    assert media_q["versionId"] == "synth-media-v1"
+    assert media_q["X-Amz-Signature"] =~ ~r/\A[0-9a-f]{64}\z/
+
     assert [%{"sha256" => frag_sha}] = archive_body["fragments"]
     assert frag_sha == ctx.frag_sha
     assert is_list(archive_body["coalesced_ranges"])

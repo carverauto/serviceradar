@@ -1,7 +1,7 @@
 //! Bounded byte-range coalescing (`<= 4 MiB`), `longshore_s3` archive reads,
 //! NVR `analysis_read` HTTP reads, and mandatory SHA-256 verification (`2.3`).
 
-use crate::credentials::EphemeralS3Credentials;
+use crate::credentials::{EphemeralS3Credentials, RedactedPresignedUrl};
 use crate::errors::{IntegrityError, MediaWorkerError};
 use crate::grants::{
     ArchiveGrantTarget, BackingSource, BrokerGrantScope, CoalescedRange, FragmentSlicePlan,
@@ -343,18 +343,6 @@ impl LongshoreArchiveReader {
         })?;
         scope.validate_reader_only()?;
 
-        let creds = plan
-            .credential()
-            .filter(|c| c.has_key_material())
-            .or(self.fallback_credentials.as_ref())
-            .filter(|c| c.has_key_material())
-            .cloned()
-            .ok_or_else(|| {
-                MediaWorkerError::storage_transport(
-                    "archive read grant contains no ephemeral reader credential key material",
-                )
-            })?;
-
         let coalesced = if plan.coalesced_ranges().is_empty() {
             coalesce_fragment_ranges(plan.fragments())?
         } else {
@@ -368,6 +356,43 @@ impl LongshoreArchiveReader {
                 IntegrityError::range_too_large(init_len, MAX_INIT_SEGMENT_BYTES),
             ));
         }
+
+        if let Some((init_presigned, media_presigned)) = plan.resolve_presigned_urls()? {
+            let plan_clone = plan.clone();
+            let archive_clone = archive.clone();
+            let scope_clone = scope.clone();
+            let timeout = self.timeout;
+
+            return tokio::task::spawn_blocking(move || {
+                execute_presigned_ranged_reads(
+                    &plan_clone,
+                    &archive_clone,
+                    &scope_clone,
+                    &init_presigned,
+                    &media_presigned,
+                    &coalesced,
+                    timeout,
+                )
+            })
+            .await
+            .map_err(|err| {
+                MediaWorkerError::storage_transport(format!(
+                    "pre-signed archive reader task panicked: {err}"
+                ))
+            })?;
+        }
+
+        let creds = plan
+            .credential()
+            .filter(|c| c.has_key_material())
+            .or(self.fallback_credentials.as_ref())
+            .filter(|c| c.has_key_material())
+            .cloned()
+            .ok_or_else(|| {
+                MediaWorkerError::storage_transport(
+                    "archive read grant contains neither pre-signed URLs nor fallback reader credentials",
+                )
+            })?;
 
         let plan_clone = plan.clone();
         let archive_clone = archive.clone();
@@ -673,6 +698,439 @@ fn execute_longshore_ranged_reads(
         init_bytes,
         fragments: verified_fragments,
     })
+}
+
+fn execute_presigned_ranged_reads(
+    plan: &ReadGrantPlan,
+    archive: &ArchiveGrantTarget,
+    scope: &BrokerGrantScope,
+    init_presigned: &RedactedPresignedUrl,
+    media_presigned: &RedactedPresignedUrl,
+    coalesced: &[CoalescedRange],
+    timeout: Duration,
+) -> Result<VerifiedKeyframeBlock, MediaWorkerError> {
+    let init_key = plan.init().key().unwrap_or_else(|| archive.init_key());
+    let media_key = plan
+        .media()
+        .map(|m| m.key())
+        .unwrap_or_else(|| archive.media_key());
+
+    let parsed_endpoint = parse_and_verify_endpoint(
+        archive.endpoint(),
+        archive.bucket(),
+        &[init_key, media_key],
+        scope,
+    )?;
+
+    verify_presigned_object_url(
+        init_presigned,
+        &parsed_endpoint,
+        archive.bucket(),
+        init_key,
+        plan.init().version_id(),
+        scope,
+    )?;
+    verify_presigned_object_url(
+        media_presigned,
+        &parsed_endpoint,
+        archive.bucket(),
+        media_key,
+        plan.media().and_then(|m| m.version_id()),
+        scope,
+    )?;
+
+    let agent = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .timeout_global(Some(timeout))
+        .build()
+        .new_agent();
+
+    let init_etag = plan.init().etag().or_else(|| archive.init_etag());
+    let init_bytes = fetch_presigned_range_slice(
+        &agent,
+        init_presigned,
+        0,
+        plan.init().length() - 1,
+        init_etag,
+    )?;
+    // Mandatory SHA-256 check on `init.mp4` BEFORE reading/decoding media fragments.
+    verify_sha256_hex(&init_bytes, plan.init_sha256(), "init.mp4")?;
+
+    let media_etag = plan
+        .media()
+        .and_then(|m| m.etag())
+        .or_else(|| archive.media_etag());
+    let mut verified_fragments = Vec::with_capacity(plan.fragments().len());
+
+    for range in coalesced {
+        let chunk_bytes = fetch_presigned_range_slice(
+            &agent,
+            media_presigned,
+            range.first(),
+            range.last(),
+            media_etag,
+        )?;
+        let mut verified_slices = extract_and_verify_slices(&chunk_bytes, range)?;
+        verified_fragments.append(&mut verified_slices);
+    }
+    verified_fragments.sort_by_key(VerifiedFragmentBytes::sequence);
+
+    Ok(VerifiedKeyframeBlock {
+        init_bytes,
+        fragments: verified_fragments,
+    })
+}
+
+fn verify_presigned_object_url(
+    presigned: &RedactedPresignedUrl,
+    expected_endpoint: &ParsedEndpoint,
+    bucket: &str,
+    expected_key: &str,
+    expected_version_id: Option<&str>,
+    scope: &BrokerGrantScope,
+) -> Result<(), MediaWorkerError> {
+    let raw = presigned.as_str();
+    if raw.bytes().any(|b| b <= b' ' || b == 0x7f) || raw.contains('#') {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed archive URL contains forbidden control or fragment characters",
+            ),
+        ));
+    }
+
+    let (scheme, after_scheme) = raw.split_once("://").ok_or_else(|| {
+        MediaWorkerError::integrity(IntegrityError::grant_scope_violation(
+            "pre-signed archive URL missing scheme",
+        ))
+    })?;
+
+    let tls = match scheme.to_ascii_lowercase().as_str() {
+        "https" => true,
+        "http" => false,
+        other => {
+            return Err(MediaWorkerError::integrity(
+                IntegrityError::grant_scope_violation(format!(
+                    "unsupported pre-signed URL scheme '{other}'"
+                )),
+            ));
+        }
+    };
+
+    let (authority_and_path, query) = after_scheme.split_once('?').ok_or_else(|| {
+        MediaWorkerError::integrity(IntegrityError::grant_scope_violation(
+            "pre-signed archive URL missing AWS SigV4 query parameters",
+        ))
+    })?;
+
+    let (authority, rel_path) = authority_and_path.split_once('/').ok_or_else(|| {
+        MediaWorkerError::integrity(IntegrityError::grant_scope_violation(
+            "pre-signed archive URL missing object path",
+        ))
+    })?;
+
+    if authority.is_empty() || authority.contains('@') {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed archive URL contains invalid or userinfo-bearing authority",
+            ),
+        ));
+    }
+
+    let (host, port) = split_host_port(authority, if tls { 443 } else { 80 })?;
+    let ip_addr = host.parse::<IpAddr>().ok();
+
+    if !tls && !ip_addr.is_some_and(|ip| ip.is_loopback()) {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "plaintext HTTP pre-signed URL host '{host}' is forbidden outside loopback"
+            )),
+        ));
+    }
+
+    if scope.allowed_schemes().is_empty()
+        || !scope
+            .allowed_schemes()
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(scheme))
+    {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "pre-signed URL scheme '{scheme}' not permitted by grant allowed_schemes"
+            )),
+        ));
+    }
+
+    if scope.allowed_hosts().is_empty()
+        || !scope
+            .allowed_hosts()
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case(&host))
+    {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "pre-signed URL host '{host}' not permitted by grant allowed_hosts"
+            )),
+        ));
+    }
+
+    if scope.allowed_ports().is_empty() || !scope.allowed_ports().contains(&port) {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "pre-signed URL port {port} not permitted by grant allowed_ports"
+            )),
+        ));
+    }
+
+    if tls != expected_endpoint.tls
+        || !host.eq_ignore_ascii_case(&expected_endpoint.host)
+        || port != expected_endpoint.port
+    {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL authority disagrees with archive binding endpoint",
+            ),
+        ));
+    }
+
+    let raw_path = format!("/{rel_path}");
+    let decoded_path = percent_decode_str(&raw_path)?;
+    if decoded_path.split('/').any(|seg| seg == "." || seg == "..") {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL path contains dot-segment traversal",
+            ),
+        ));
+    }
+
+    let expected_path = format!(
+        "/{}/{}",
+        bucket.trim_matches('/'),
+        expected_key.trim_start_matches('/')
+    );
+    if decoded_path != expected_path {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "pre-signed URL path '{decoded_path}' does not match expected '{expected_path}'"
+            )),
+        ));
+    }
+
+    let path_matched = !scope.allowed_paths().is_empty()
+        && scope.allowed_paths().iter().any(|pattern| {
+            let prefix = pattern.trim_end_matches('*');
+            decoded_path.starts_with(prefix)
+        });
+    if !path_matched {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(format!(
+                "pre-signed URL path '{decoded_path}' outside grant allowed_paths"
+            )),
+        ));
+    }
+
+    verify_sigv4_query_params(query, expected_version_id)
+}
+
+fn verify_sigv4_query_params(
+    query: &str,
+    expected_version_id: Option<&str>,
+) -> Result<(), MediaWorkerError> {
+    let mut algorithm: Option<String> = None;
+    let mut credential: Option<String> = None;
+    let mut amz_date: Option<String> = None;
+    let mut expires: Option<String> = None;
+    let mut signed_headers: Option<String> = None;
+    let mut signature: Option<String> = None;
+    let mut version_id: Option<String> = None;
+
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (k_raw, v_raw) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = percent_decode_str(k_raw)?;
+        let val = percent_decode_str(v_raw)?;
+        match key.as_str() {
+            "X-Amz-Algorithm" => algorithm = Some(val),
+            "X-Amz-Credential" => credential = Some(val),
+            "X-Amz-Date" => amz_date = Some(val),
+            "X-Amz-Expires" => expires = Some(val),
+            "X-Amz-SignedHeaders" => signed_headers = Some(val),
+            "X-Amz-Signature" => signature = Some(val),
+            "versionId" => version_id = Some(val),
+            _ => {}
+        }
+    }
+
+    if algorithm.as_deref() != Some("AWS4-HMAC-SHA256") {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL missing X-Amz-Algorithm=AWS4-HMAC-SHA256",
+            ),
+        ));
+    }
+    if credential.as_deref().is_none_or(|c| c.trim().is_empty()) {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation("pre-signed URL missing X-Amz-Credential"),
+        ));
+    }
+    if amz_date.as_deref().is_none_or(|d| d.trim().is_empty()) {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation("pre-signed URL missing X-Amz-Date"),
+        ));
+    }
+    let ttl = expires
+        .as_deref()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| (1..=900).contains(&v))
+        .ok_or_else(|| {
+            MediaWorkerError::integrity(IntegrityError::grant_scope_violation(
+                "pre-signed URL X-Amz-Expires must be between 1 and 900 seconds",
+            ))
+        })?;
+    let _ = ttl;
+
+    let has_host_hdr = signed_headers.as_deref().is_some_and(|hdrs| {
+        hdrs.split(';')
+            .any(|h| h.trim().eq_ignore_ascii_case("host"))
+    });
+    if !has_host_hdr {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL X-Amz-SignedHeaders must include 'host'",
+            ),
+        ));
+    }
+
+    let valid_sig = signature
+        .as_deref()
+        .is_some_and(|sig| sig.len() == 64 && sig.bytes().all(|b| b.is_ascii_hexdigit()));
+    if !valid_sig {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL missing valid 64-hex X-Amz-Signature",
+            ),
+        ));
+    }
+
+    let normalized_expected_vid = expected_version_id
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && *v != "null");
+    if version_id.as_deref() != normalized_expected_vid {
+        return Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation(
+                "pre-signed URL versionId query parameter disagrees with archive receipt version_id",
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+fn percent_decode_str(input: &str) -> Result<String, MediaWorkerError> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut idx = 0;
+    while idx < bytes.len() {
+        if bytes[idx] == b'%' {
+            if idx + 2 >= bytes.len() {
+                return Err(MediaWorkerError::integrity(
+                    IntegrityError::grant_scope_violation(
+                        "truncated percent-encoding in pre-signed URL",
+                    ),
+                ));
+            }
+            let hi = hex_nibble(bytes[idx + 1])?;
+            let lo = hex_nibble(bytes[idx + 2])?;
+            let decoded = (hi << 4) | lo;
+            if decoded == 0 {
+                return Err(MediaWorkerError::integrity(
+                    IntegrityError::grant_scope_violation("null byte forbidden in pre-signed URL"),
+                ));
+            }
+            out.push(decoded);
+            idx += 3;
+        } else {
+            out.push(bytes[idx]);
+            idx += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| {
+        MediaWorkerError::integrity(IntegrityError::grant_scope_violation(
+            "non-UTF8 percent-encoding in pre-signed URL",
+        ))
+    })
+}
+
+fn hex_nibble(byte: u8) -> Result<u8, MediaWorkerError> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(MediaWorkerError::integrity(
+            IntegrityError::grant_scope_violation("invalid percent-encoding hex digit"),
+        )),
+    }
+}
+
+fn fetch_presigned_range_slice(
+    agent: &ureq::Agent,
+    presigned: &RedactedPresignedUrl,
+    first: u64,
+    last: u64,
+    etag: Option<&str>,
+) -> Result<Vec<u8>, MediaWorkerError> {
+    let expected_len = usize::try_from(last - first + 1)
+        .map_err(|_| MediaWorkerError::storage_transport("range length overflow"))?;
+    let redacted_label = presigned.redacted_target();
+    let mut req = agent
+        .get(presigned.as_str())
+        .header("Range", &format!("bytes={first}-{last}"))
+        .header("Accept-Encoding", "identity");
+    if let Some(tag) = etag.map(str::trim).filter(|t| !t.is_empty()) {
+        req = req.header("If-Match", tag);
+    }
+    let mut resp = req.call().map_err(|err| {
+        let clean = redact_query_from_error(&err.to_string(), presigned.as_str());
+        MediaWorkerError::storage_transport(format!(
+            "pre-signed S3 GET '{redacted_label}' failed: {clean}"
+        ))
+    })?;
+    let status = resp.status().as_u16();
+    if status != 206 && !(status == 200 && first == 0) {
+        return Err(MediaWorkerError::storage_transport(format!(
+            "pre-signed S3 GET '{redacted_label}' returned HTTP {status}"
+        )));
+    }
+    let mut buf = Vec::new();
+    resp.body_mut()
+        .as_reader()
+        .take((expected_len + 1) as u64)
+        .read_to_end(&mut buf)
+        .map_err(|err| {
+            let clean = redact_query_from_error(&err.to_string(), presigned.as_str());
+            MediaWorkerError::storage_transport(format!(
+                "failed reading pre-signed S3 response '{redacted_label}': {clean}"
+            ))
+        })?;
+    if buf.len() != expected_len {
+        return Err(MediaWorkerError::storage_transport(format!(
+            "pre-signed S3 response length {} != expected {expected_len}",
+            buf.len()
+        )));
+    }
+    Ok(buf)
+}
+
+fn redact_query_from_error(err_msg: &str, raw_url: &str) -> String {
+    let mut sanitized = err_msg.replace(raw_url, "[REDACTED_PRESIGNED_URL]");
+    if let Some((_, query)) = raw_url.split_once('?')
+        && !query.is_empty()
+    {
+        sanitized = sanitized.replace(query, "[REDACTED]");
+    }
+    sanitized
 }
 
 #[cfg(not(target_os = "linux"))]

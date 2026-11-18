@@ -5,7 +5,7 @@
 //! `ServiceRadarWebNGWeb.Plugs.ControlPlaneMediaWorkerGrants`, and
 //! `ServiceRadar.Camera.VisualWorkerReadGrants`.
 
-use crate::credentials::{EphemeralS3Credentials, WorkerAuthCredentials};
+use crate::credentials::{EphemeralS3Credentials, RedactedPresignedUrl, WorkerAuthCredentials};
 use crate::errors::{IntegrityError, MediaWorkerError};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -90,6 +90,8 @@ pub struct InitSlicePlan {
     version_id: Option<String>,
     #[serde(default)]
     path: Option<String>,
+    #[serde(default)]
+    presigned_url: Option<RedactedPresignedUrl>,
 }
 
 fn default_init_name() -> String {
@@ -109,6 +111,7 @@ impl InitSlicePlan {
             etag: None,
             version_id: None,
             path: None,
+            presigned_url: None,
         }
     }
 
@@ -121,6 +124,11 @@ impl InitSlicePlan {
         self.key = Some(key.into());
         self.etag = etag;
         self.version_id = version_id;
+        self
+    }
+
+    pub fn with_presigned_url(mut self, url: impl Into<String>) -> Self {
+        self.presigned_url = Some(RedactedPresignedUrl::new(url));
         self
     }
 
@@ -156,6 +164,19 @@ impl InitSlicePlan {
     pub fn path(&self) -> Option<&str> {
         self.path.as_deref()
     }
+
+    pub fn presigned_url(&self) -> Option<&str> {
+        self.presigned_url
+            .as_ref()
+            .map(RedactedPresignedUrl::as_str)
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn redacted_presigned_url(&self) -> Option<&RedactedPresignedUrl> {
+        self.presigned_url
+            .as_ref()
+            .filter(|u| !u.as_str().trim().is_empty())
+    }
 }
 
 /// Archived `media.m4s` object metadata from `NVRArchiveReceipt`.
@@ -170,6 +191,8 @@ pub struct ArchiveMediaObjectPlan {
     etag: Option<String>,
     #[serde(default)]
     version_id: Option<String>,
+    #[serde(default)]
+    presigned_url: Option<RedactedPresignedUrl>,
 }
 
 fn default_media_name() -> String {
@@ -191,7 +214,13 @@ impl ArchiveMediaObjectPlan {
             sha256: sha256.into(),
             etag,
             version_id,
+            presigned_url: None,
         }
+    }
+
+    pub fn with_presigned_url(mut self, url: impl Into<String>) -> Self {
+        self.presigned_url = Some(RedactedPresignedUrl::new(url));
+        self
     }
 
     pub fn object_name(&self) -> &str {
@@ -216,6 +245,19 @@ impl ArchiveMediaObjectPlan {
 
     pub fn version_id(&self) -> Option<&str> {
         self.version_id.as_deref()
+    }
+
+    pub fn presigned_url(&self) -> Option<&str> {
+        self.presigned_url
+            .as_ref()
+            .map(RedactedPresignedUrl::as_str)
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn redacted_presigned_url(&self) -> Option<&RedactedPresignedUrl> {
+        self.presigned_url
+            .as_ref()
+            .filter(|u| !u.as_str().trim().is_empty())
     }
 }
 
@@ -423,9 +465,13 @@ pub struct ArchiveGrantTarget {
     init_key: String,
     #[serde(default)]
     init_etag: Option<String>,
+    #[serde(default)]
+    init_presigned_url: Option<RedactedPresignedUrl>,
     media_key: String,
     #[serde(default)]
     media_etag: Option<String>,
+    #[serde(default)]
+    media_presigned_url: Option<RedactedPresignedUrl>,
 }
 
 impl ArchiveGrantTarget {
@@ -446,14 +492,26 @@ impl ArchiveGrantTarget {
             destination_sha256: None,
             init_key: init_key.into(),
             init_etag: None,
+            init_presigned_url: None,
             media_key: media_key.into(),
             media_etag: None,
+            media_presigned_url: None,
         }
     }
 
     pub fn with_etags(mut self, init_etag: Option<String>, media_etag: Option<String>) -> Self {
         self.init_etag = init_etag;
         self.media_etag = media_etag;
+        self
+    }
+
+    pub fn with_presigned_urls(
+        mut self,
+        init_presigned_url: impl Into<String>,
+        media_presigned_url: impl Into<String>,
+    ) -> Self {
+        self.init_presigned_url = Some(RedactedPresignedUrl::new(init_presigned_url));
+        self.media_presigned_url = Some(RedactedPresignedUrl::new(media_presigned_url));
         self
     }
 
@@ -477,12 +535,38 @@ impl ArchiveGrantTarget {
         self.init_etag.as_deref()
     }
 
+    pub fn init_presigned_url(&self) -> Option<&str> {
+        self.init_presigned_url
+            .as_ref()
+            .map(RedactedPresignedUrl::as_str)
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn redacted_init_presigned_url(&self) -> Option<&RedactedPresignedUrl> {
+        self.init_presigned_url
+            .as_ref()
+            .filter(|u| !u.as_str().trim().is_empty())
+    }
+
     pub fn media_key(&self) -> &str {
         &self.media_key
     }
 
     pub fn media_etag(&self) -> Option<&str> {
         self.media_etag.as_deref()
+    }
+
+    pub fn media_presigned_url(&self) -> Option<&str> {
+        self.media_presigned_url
+            .as_ref()
+            .map(RedactedPresignedUrl::as_str)
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    pub fn redacted_media_presigned_url(&self) -> Option<&RedactedPresignedUrl> {
+        self.media_presigned_url
+            .as_ref()
+            .filter(|u| !u.as_str().trim().is_empty())
     }
 }
 
@@ -661,11 +745,10 @@ impl LocalGrantTarget {
 }
 
 /// Execution-time read grant plan returned by `POST /v1/media/workers/read-grants`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReadGrantPlan {
     #[serde(default = "default_schema_v1")]
     schema_version: u32,
-    #[serde(alias = "backing")]
     source: BackingSource,
     job_id: String,
     catalog_entry_id: String,
@@ -695,6 +778,85 @@ pub struct ReadGrantPlan {
     nvr_member: Option<String>,
     #[serde(default)]
     read_pool: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawReadGrantPlan {
+    #[serde(default = "default_schema_v1")]
+    schema_version: u32,
+    #[serde(default)]
+    source: Option<BackingSource>,
+    #[serde(default)]
+    backing: Option<BackingSource>,
+    job_id: String,
+    catalog_entry_id: String,
+    camera_source_id: String,
+    stream_profile_id: String,
+    storage_id: String,
+    block_key: String,
+    descriptor_sha256: String,
+    init_sha256: String,
+    #[serde(default = "default_ttl_secs")]
+    ttl_seconds: u64,
+    init: InitSlicePlan,
+    #[serde(default)]
+    media: Option<ArchiveMediaObjectPlan>,
+    fragments: Vec<FragmentSlicePlan>,
+    #[serde(default)]
+    coalesced_ranges: Vec<CoalescedRange>,
+    #[serde(default)]
+    archive: Option<ArchiveGrantTarget>,
+    #[serde(default)]
+    grant: Option<BrokerGrantScope>,
+    #[serde(default)]
+    credential: Option<EphemeralS3Credentials>,
+    #[serde(default)]
+    local: Option<LocalGrantTarget>,
+    #[serde(default)]
+    nvr_member: Option<String>,
+    #[serde(default)]
+    read_pool: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ReadGrantPlan {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let raw = RawReadGrantPlan::deserialize(deserializer)?;
+        let source = match (raw.source, raw.backing) {
+            (Some(src), Some(bck)) if src != bck => {
+                return Err(serde::de::Error::custom(
+                    "read grant source disagrees with backing",
+                ));
+            }
+            (Some(src), _) | (None, Some(src)) => src,
+            (None, None) => return Err(serde::de::Error::missing_field("source")),
+        };
+        Ok(Self {
+            schema_version: raw.schema_version,
+            source,
+            job_id: raw.job_id,
+            catalog_entry_id: raw.catalog_entry_id,
+            camera_source_id: raw.camera_source_id,
+            stream_profile_id: raw.stream_profile_id,
+            storage_id: raw.storage_id,
+            block_key: raw.block_key,
+            descriptor_sha256: raw.descriptor_sha256,
+            init_sha256: raw.init_sha256,
+            ttl_seconds: raw.ttl_seconds,
+            init: raw.init,
+            media: raw.media,
+            fragments: raw.fragments,
+            coalesced_ranges: raw.coalesced_ranges,
+            archive: raw.archive,
+            grant: raw.grant,
+            credential: raw.credential,
+            local: raw.local,
+            nvr_member: raw.nvr_member,
+            read_pool: raw.read_pool,
+        })
+    }
 }
 
 fn default_schema_v1() -> u32 {
@@ -871,6 +1033,52 @@ impl ReadGrantPlan {
             .or(self.nvr_member.as_deref())
     }
 
+    /// Resolves and consistency-checks the optional `(init_presigned_url, media_presigned_url)` pair.
+    pub fn resolve_presigned_urls(
+        &self,
+    ) -> Result<Option<(RedactedPresignedUrl, RedactedPresignedUrl)>, IntegrityError> {
+        let init_direct = self.init.redacted_presigned_url();
+        let init_archive = self
+            .archive
+            .as_ref()
+            .and_then(ArchiveGrantTarget::redacted_init_presigned_url);
+        let init_url = match (init_direct, init_archive) {
+            (Some(a), Some(b)) if a != b => {
+                return Err(IntegrityError::grant_scope_violation(
+                    "archive read grant init.presigned_url disagrees with archive.init_presigned_url",
+                ));
+            }
+            (Some(u), _) | (None, Some(u)) => Some(u.clone()),
+            (None, None) => None,
+        };
+
+        let media_direct = self
+            .media
+            .as_ref()
+            .and_then(ArchiveMediaObjectPlan::redacted_presigned_url);
+        let media_archive = self
+            .archive
+            .as_ref()
+            .and_then(ArchiveGrantTarget::redacted_media_presigned_url);
+        let media_url = match (media_direct, media_archive) {
+            (Some(a), Some(b)) if a != b => {
+                return Err(IntegrityError::grant_scope_violation(
+                    "archive read grant media.presigned_url disagrees with archive.media_presigned_url",
+                ));
+            }
+            (Some(u), _) | (None, Some(u)) => Some(u.clone()),
+            (None, None) => None,
+        };
+
+        match (init_url, media_url) {
+            (Some(i), Some(m)) => Ok(Some((i, m))),
+            (None, None) => Ok(None),
+            _ => Err(IntegrityError::grant_scope_violation(
+                "archive read grant must supply both init and media pre-signed URLs",
+            )),
+        }
+    }
+
     pub fn validate_for_request(&self, req: &ReadGrantRequest) -> Result<(), IntegrityError> {
         if self.schema_version != 1 {
             return Err(IntegrityError::grant_scope_violation(format!(
@@ -920,7 +1128,8 @@ impl ReadGrantPlan {
                     return Err(IntegrityError::grant_scope_violation(
                         "archive read grant missing archive destination target",
                     ));
-                }
+                };
+                self.resolve_presigned_urls()?;
             }
             BackingSource::Local => {
                 if let Some(pool) = self

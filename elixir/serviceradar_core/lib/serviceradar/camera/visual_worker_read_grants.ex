@@ -16,11 +16,14 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     frozen descriptor.
   - Backs reads either by:
     - `:archive` (`archive_state == :verified`): `ArchiveBinding` destination,
-      `NVRArchiveReceipt` `init.mp4` and `media.m4s` keys/ETags/versions, and a
-      short-lived `:reader`-only (`["HEAD", "GET"]`) `CredentialBrokerGrant`
-      resolved via `ArchiveCredentialResolver` from `platform.network_credential_secrets`
-      with `%RedactedCredential{}` redacting secrets on both `Inspect` and
-      `Jason.Encoder`; OR
+      `NVRArchiveReceipt` `init.mp4` and `media.m4s` keys/ETags/versions, two
+      short-lived (`ttl_seconds`, default `300`, max `900`) AWS SigV4 pre-signed
+      `GET` URLs (`X-Amz-SignedHeaders=host`, `UNSIGNED-PAYLOAD`, plus `versionId`
+      when present) signed inside Core, and a `:reader`-only (`["HEAD", "GET"]`)
+      `CredentialBrokerGrant` resolved via `ArchiveCredentialResolver` from
+      `platform.network_credential_secrets` with `%RedactedCredential{}` redacting
+      secrets on both `Inspect` and `Jason.Encoder` so S3 secret keys never cross
+      the wire; OR
     - `:local` (`local_state == :present`): owning NVR member target and
       `analysis_read` pool descriptor plan.
   """
@@ -30,6 +33,7 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveCredentialResolver
+  alias ServiceRadar.Camera.ArchiveStorageHTTP
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
@@ -525,7 +529,16 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
          {:ok, init_obj, media_obj} <-
            verify_archive_objects(entry, binding, receipt, init_slice, fragments),
          {:ok, broker_grant, redacted_cred} <-
-           resolve_archive_reader_grant(binding, ttl_seconds, now, opts, loaders) do
+           resolve_archive_reader_grant(binding, ttl_seconds, now, opts, loaders),
+         {:ok, init_presigned_url, media_presigned_url} <-
+           presign_archive_object_urls(
+             binding,
+             init_obj,
+             media_obj,
+             redacted_cred,
+             ttl_seconds,
+             now
+           ) do
       {:ok,
        %{
          schema_version: 1,
@@ -545,7 +558,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
            Map.merge(init_slice, %{
              "key" => init_obj["key"],
              "etag" => init_obj["etag"],
-             "version_id" => Map.get(init_obj, "version_id")
+             "version_id" => Map.get(init_obj, "version_id"),
+             "presigned_url" => init_presigned_url
            }),
          media: %{
            "object_name" => "media.m4s",
@@ -553,7 +567,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
            "length" => media_obj["length"],
            "sha256" => media_obj["sha256"],
            "etag" => media_obj["etag"],
-           "version_id" => Map.get(media_obj, "version_id")
+           "version_id" => Map.get(media_obj, "version_id"),
+           "presigned_url" => media_presigned_url
          },
          fragments: Enum.map(fragments, &serialize_fragment/1),
          coalesced_ranges: coalesced,
@@ -568,12 +583,47 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
            "destination_sha256" => fetch_val(binding, :destination_sha256),
            "init_key" => init_obj["key"],
            "init_etag" => init_obj["etag"],
+           "init_presigned_url" => init_presigned_url,
            "media_key" => media_obj["key"],
-           "media_etag" => media_obj["etag"]
+           "media_etag" => media_obj["etag"],
+           "media_presigned_url" => media_presigned_url
          },
          grant: broker_grant,
          credential: redacted_cred
        }}
+    end
+  end
+
+  defp presign_archive_object_urls(
+         binding,
+         init_obj,
+         media_obj,
+         %RedactedCredential{} = redacted_cred,
+         ttl_seconds,
+         now
+       ) do
+    provider = %{
+      credential: redacted_cred,
+      destination: %{
+        endpoint: fetch_val(binding, :endpoint),
+        region: fetch_val(binding, :region),
+        bucket: fetch_val(binding, :bucket)
+      }
+    }
+
+    with {:ok, init_url} <-
+           ArchiveStorageHTTP.presign_get_url(provider, init_obj["key"],
+             expires: ttl_seconds,
+             datetime: now,
+             version_id: Map.get(init_obj, "version_id")
+           ),
+         {:ok, media_url} <-
+           ArchiveStorageHTTP.presign_get_url(provider, media_obj["key"],
+             expires: ttl_seconds,
+             datetime: now,
+             version_id: Map.get(media_obj, "version_id")
+           ) do
+      {:ok, init_url, media_url}
     end
   end
 

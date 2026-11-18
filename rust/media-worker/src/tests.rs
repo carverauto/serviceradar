@@ -406,6 +406,351 @@ async fn read_grant_client_redacts_secrets_enforces_reader_only_and_handles_410_
 }
 
 #[tokio::test]
+async fn presigned_wire_json_grant_fetches_coalesced_fragments_with_zero_s3_secrets_and_enforces_scope()
+ {
+    let block = generate_synthetic_cmaf_block(
+        160,
+        120,
+        90_000,
+        &[
+            SyntheticFragmentSpec::new(
+                0,
+                0,
+                2_000_000_000,
+                [42, 46, 52],
+                vec![SyntheticObjectSpec::new(
+                    ObjectClass::Person,
+                    SyntheticColor::Red,
+                    [0.15, 0.15, 0.45, 0.85],
+                )],
+            ),
+            SyntheticFragmentSpec::new(
+                1,
+                2_000_000_000,
+                2_000_000_000,
+                [42, 46, 52],
+                vec![SyntheticObjectSpec::new(
+                    ObjectClass::Vehicle,
+                    SyntheticColor::White,
+                    [0.50, 0.35, 0.90, 0.80],
+                )],
+            ),
+        ],
+    )
+    .expect("generate synthetic block");
+
+    let coalesced = coalesce_fragment_ranges(block.fragment_plans()).expect("coalesce");
+    assert_eq!(coalesced.len(), 1);
+
+    let init_sig = "1a".repeat(32);
+    let media_sig = "2b".repeat(32);
+    let init_etag = "\"etag-presign-init-1\"";
+    let media_etag = "\"etag-presign-media-1\"";
+
+    struct ObservedPresignedRequest {
+        _path: String,
+        _query: String,
+        _range: Option<String>,
+        _if_match: Option<String>,
+    }
+
+    // Loopback S3 object server that enforces pre-signed query signature, Range, If-Match,
+    // versionId, and zero Authorization header.
+    let s3_listener = TcpListener::bind("127.0.0.1:0").expect("bind presigned S3 peer");
+    let s3_addr = s3_listener.local_addr().expect("s3 local_addr");
+    let observed_s3_reqs: Arc<Mutex<Vec<ObservedPresignedRequest>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let observed_sink = Arc::clone(&observed_s3_reqs);
+    let init_payload = block.init_mp4().to_vec();
+    let media_payload = block.media_m4s().to_vec();
+    let expected_init_sig = init_sig.clone();
+    let expected_media_sig = media_sig.clone();
+
+    let s3_thread = std::thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut sock, _) = s3_listener.accept().expect("accept presigned GET");
+            let mut reader = BufReader::new(sock.try_clone().expect("clone"));
+            let mut req_line = String::new();
+            reader.read_line(&mut req_line).expect("read req line");
+            let parts: Vec<&str> = req_line.split_whitespace().collect();
+            assert_eq!(parts.first().copied(), Some("GET"));
+            let target = parts[1];
+            let (path, query) = target.split_once('?').expect("query string required");
+
+            let mut hdrs = HashMap::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("read hdr");
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = trimmed.split_once(':') {
+                    hdrs.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
+                }
+            }
+
+            assert!(
+                !hdrs.contains_key("authorization"),
+                "pre-signed GET must not send Authorization header"
+            );
+            assert!(query.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"));
+            assert!(query.contains("X-Amz-SignedHeaders=host"));
+            assert!(query.contains("X-Amz-Expires=300"));
+
+            let range_hdr = hdrs.get("range").cloned();
+            let if_match_hdr = hdrs.get("if-match").cloned();
+            observed_sink.lock().push(ObservedPresignedRequest {
+                _path: path.to_string(),
+                _query: query.to_string(),
+                _range: range_hdr.clone(),
+                _if_match: if_match_hdr.clone(),
+            });
+
+            let (full_bytes, expected_etag, expected_sig, expected_ver) =
+                if path.ends_with("/init.mp4") {
+                    (
+                        &init_payload,
+                        init_etag,
+                        expected_init_sig.as_str(),
+                        "ver-init-1",
+                    )
+                } else {
+                    (
+                        &media_payload,
+                        media_etag,
+                        expected_media_sig.as_str(),
+                        "ver-media-1",
+                    )
+                };
+
+            assert!(
+                query.contains(&format!("X-Amz-Signature={expected_sig}")),
+                "missing expected X-Amz-Signature in {query}"
+            );
+            assert!(
+                query.contains(&format!("versionId={expected_ver}")),
+                "missing expected versionId in {query}"
+            );
+            assert_eq!(if_match_hdr.as_deref(), Some(expected_etag));
+
+            let spec = range_hdr
+                .as_deref()
+                .and_then(|r| r.strip_prefix("bytes="))
+                .expect("Range header required");
+            let (f_str, l_str) = spec.split_once('-').expect("first-last");
+            let first: usize = f_str.parse().expect("first");
+            let last: usize = l_str.parse().expect("last");
+            let slice = &full_bytes[first..=last];
+            let resp = format!(
+                "HTTP/1.1 206 Partial Content\r\nETag: {expected_etag}\r\nContent-Range: bytes {first}-{last}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                full_bytes.len(),
+                slice.len()
+            );
+            sock.write_all(resp.as_bytes()).expect("write 206 headers");
+            sock.write_all(slice).expect("write 206 body");
+        }
+    });
+
+    let init_presigned_url = format!(
+        "http://{s3_addr}/synthetic-archive/recordings/v1/st-1/blk-1/init.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test-reader-id%2F20261117%2Fexample-1%2Fs3%2Faws4_request&X-Amz-Date=20261117T120000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&versionId=ver-init-1&X-Amz-Signature={init_sig}"
+    );
+    let media_presigned_url = format!(
+        "http://{s3_addr}/synthetic-archive/recordings/v1/st-1/blk-1/media.m4s?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test-reader-id%2F20261117%2Fexample-1%2Fs3%2Faws4_request&X-Amz-Date=20261117T120000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&versionId=ver-media-1&X-Amz-Signature={media_sig}"
+    );
+
+    let job_id = "00000000-0000-7000-8000-000000000811";
+    let entry_id = "00000000-0000-7000-8000-000000000611";
+    let wire_json = serde_json::json!({
+        "schema_version": 1,
+        "backing": "archive",
+        "source": "archive",
+        "job_id": job_id,
+        "catalog_entry_id": entry_id,
+        "camera_source_id": "00000000-0000-4000-8000-000000000101",
+        "stream_profile_id": "00000000-0000-4000-8000-000000000201",
+        "storage_id": "st-1",
+        "block_key": "blk-1",
+        "descriptor_sha256": block.descriptor_sha256(),
+        "init_sha256": block.init_plan().sha256(),
+        "ttl_seconds": 300,
+        "expires_at": "2026-11-17T12:05:00Z",
+        "init": {
+            "object_name": "init.mp4",
+            "offset": 0,
+            "first": 0,
+            "last": block.init_mp4().len() - 1,
+            "length": block.init_mp4().len(),
+            "sha256": block.init_plan().sha256(),
+            "key": "recordings/v1/st-1/blk-1/init.mp4",
+            "etag": init_etag,
+            "version_id": "ver-init-1",
+            "presigned_url": init_presigned_url
+        },
+        "media": {
+            "object_name": "media.m4s",
+            "key": "recordings/v1/st-1/blk-1/media.m4s",
+            "length": block.media_m4s().len(),
+            "sha256": block.media_sha256(),
+            "etag": media_etag,
+            "version_id": "ver-media-1",
+            "presigned_url": media_presigned_url
+        },
+        "fragments": block.fragment_plans(),
+        "coalesced_ranges": coalesced,
+        "archive": {
+            "binding_id": "00000000-0000-4000-8000-000000000401",
+            "provider": "s3_compatible",
+            "endpoint": format!("http://{s3_addr}"),
+            "region": "example-1",
+            "bucket": "synthetic-archive",
+            "namespace": "recordings/v1",
+            "required_encryption": "sse_s3_aes256",
+            "init_key": "recordings/v1/st-1/blk-1/init.mp4",
+            "init_etag": init_etag,
+            "init_presigned_url": init_presigned_url,
+            "media_key": "recordings/v1/st-1/blk-1/media.m4s",
+            "media_etag": media_etag,
+            "media_presigned_url": media_presigned_url
+        },
+        "grant": {
+            "grant_id": "00000000-0000-4000-8000-000000000701",
+            "grant_type": "camera_archive_credential",
+            "role": "reader",
+            "purpose": "camera_archive_read",
+            "secret_ref": "secret:network_credential:00000000-0000-4000-8000-000000000501",
+            "allowed_schemes": ["http"],
+            "allowed_hosts": ["127.0.0.1"],
+            "allowed_ports": [s3_addr.port()],
+            "allowed_paths": ["/synthetic-archive/recordings/v1/*"],
+            "allowed_methods": ["HEAD", "GET"],
+            "expires_at": "2026-11-17T12:05:00Z"
+        },
+        "credential": {
+            "reference": "secret:network_credential:00000000-0000-4000-8000-000000000501",
+            "generation": 1,
+            "role": "reader",
+            "secret_id": "00000000-0000-4000-8000-000000000501"
+        }
+    });
+    let wire_bytes = serde_json::to_vec(&wire_json).expect("serialize wire json");
+
+    // Serve exact wire JSON over loopback POST /v1/media/workers/read-grants.
+    let cp_listener = TcpListener::bind("127.0.0.1:0").expect("bind mock CP");
+    let cp_addr = cp_listener.local_addr().expect("cp addr");
+    let cp_thread = std::thread::spawn(move || {
+        let (mut sock, _) = cp_listener.accept().expect("accept CP");
+        let mut reader = BufReader::new(sock.try_clone().expect("clone"));
+        let mut content_len = 0usize;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("hdr");
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+            if let Some((k, v)) = trimmed.split_once(':')
+                && k.trim().eq_ignore_ascii_case("content-length")
+            {
+                content_len = v.trim().parse().unwrap_or(0);
+            }
+        }
+        let mut req_body = vec![0u8; content_len];
+        reader.read_exact(&mut req_body).expect("read body");
+
+        let http_resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            wire_bytes.len()
+        );
+        sock.write_all(http_resp.as_bytes()).expect("write CP hdrs");
+        sock.write_all(&wire_bytes).expect("write CP json");
+    });
+
+    let grant_client = HttpControlPlaneGrantClient::new(
+        format!("http://{cp_addr}"),
+        WorkerAuthCredentials::new(
+            "synthetic-media-worker-bearer-token-32bytes-0002",
+            "00000000-0000-4000-8000-000000000001",
+            "1",
+        ),
+        Duration::from_secs(5),
+    );
+    let grant_req = ReadGrantRequest::new(job_id, entry_id, block.descriptor_sha256());
+    let GrantResolution::Admitted(plan) = grant_client
+        .acquire_read_grant(&grant_req)
+        .await
+        .expect("wire JSON with both backing and source must deserialize cleanly")
+    else {
+        panic!("expected Admitted grant resolution");
+    };
+    cp_thread.join().expect("join CP server");
+
+    // Confirm zero S3 secret key material exists on the deserialized plan AND pre-signed URLs
+    // are redacted in both Debug and Serialize!
+    assert!(
+        !plan
+            .credential()
+            .expect("redacted credential")
+            .has_key_material()
+    );
+    assert!(plan.credential().unwrap().access_key_id().is_none());
+    assert!(plan.credential().unwrap().secret_access_key().is_none());
+
+    let plan_debug = format!("{plan:?}");
+    let plan_serialized = serde_json::to_string(&plan).expect("serialize plan");
+    for sensitive in [&init_sig, &media_sig, "test-reader-id", "X-Amz-Signature"] {
+        assert!(
+            !plan_debug.contains(sensitive),
+            "Debug leaked pre-signed signature material '{sensitive}': {plan_debug}"
+        );
+        assert!(
+            !plan_serialized.contains(sensitive),
+            "Serialize leaked pre-signed signature material '{sensitive}': {plan_serialized}"
+        );
+    }
+
+    // Fetch and SHA-256-verify coalesced CMAF fragments using zero S3 credentials!
+    let reader = LongshoreArchiveReader::new(2, Duration::from_secs(10));
+    let verified = reader
+        .fetch_archive_plan(&plan)
+        .await
+        .expect("pre-signed zero-secret ranged GET + SHA-256 verification must succeed");
+    s3_thread.join().expect("join presigned S3 peer");
+
+    assert_eq!(verified.init_bytes(), block.init_mp4());
+    assert_eq!(verified.fragments().len(), 2);
+    assert_eq!(
+        observed_s3_reqs.lock().len(),
+        2,
+        "expected 1 init GET + 1 coalesced media GET"
+    );
+
+    // Scope enforcement: pre-signed URL pointing outside allowed_hosts / allowed_paths must fail closed!
+    let mut bad_host_json = wire_json.clone();
+    let rogue_url = format!(
+        "https://untrusted.example.invalid/synthetic-archive/recordings/v1/st-1/blk-1/init.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test-reader-id%2F20261117%2Fexample-1%2Fs3%2Faws4_request&X-Amz-Date=20261117T120000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&versionId=ver-init-1&X-Amz-Signature={init_sig}"
+    );
+    bad_host_json["init"]["presigned_url"] = serde_json::Value::String(rogue_url.clone());
+    bad_host_json["archive"]["init_presigned_url"] = serde_json::Value::String(rogue_url);
+    let bad_host_plan: ReadGrantPlan =
+        serde_json::from_value(bad_host_json).expect("deserialize rogue plan");
+    let host_err = reader
+        .fetch_archive_plan(&bad_host_plan)
+        .await
+        .expect_err("rogue pre-signed host outside BrokerGrantScope must fail closed");
+    assert!(matches!(
+        host_err.kind(),
+        MediaWorkerErrorKind::Integrity(err)
+            if matches!(err.kind(), IntegrityErrorKind::GrantScopeViolation(_))
+    ));
+
+    // Disagreement between `backing` and `source` must fail deserialization!
+    let mut mismatched_source = wire_json;
+    mismatched_source["backing"] = serde_json::Value::String("local".to_string());
+    assert!(serde_json::from_value::<ReadGrantPlan>(mismatched_source).is_err());
+}
+
+#[tokio::test]
 async fn range_coalescing_caps_at_4_mib_and_longshore_s3_verifies_sha256_before_parse() {
     // 1. Verify range coalescing bounds (`<= 4 MiB` per GET, `<= 256 KiB` gap).
     let two_mib = 2 * 1024 * 1024;

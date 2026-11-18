@@ -28,7 +28,7 @@ pub use cmaf::{
     render_synthetic_pattern_frame,
 };
 pub use config::{CliArgs, ExecutionProvider, GpuSharingMode, ModelPinConfig, WorkerConfig};
-pub use credentials::{EphemeralS3Credentials, WorkerAuthCredentials};
+pub use credentials::{EphemeralS3Credentials, RedactedPresignedUrl, WorkerAuthCredentials};
 pub use errors::{
     CapabilityError, CapabilityErrorKind, IntegrityError, IntegrityErrorKind, MediaWorkerError,
     MediaWorkerErrorKind,

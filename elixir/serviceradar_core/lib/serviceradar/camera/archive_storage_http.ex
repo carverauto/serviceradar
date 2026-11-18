@@ -11,6 +11,7 @@ defmodule ServiceRadar.Camera.ArchiveStorageHTTP do
   alias ServiceRadar.HTTP.EgressClient
 
   @header_limit 16_384
+  @max_presign_expires_seconds 900
 
   def sign(provider, method, url, headers, body, digest \\ nil) do
     uri = URI.parse(url)
@@ -44,6 +45,152 @@ defmodule ServiceRadar.Camera.ArchiveStorageHTTP do
       body_digest: digest || :sha256 |> :crypto.hash(body || "") |> Base.encode16(case: :lower)
     )
   end
+
+  @doc """
+  Signs a short-lived AWS SigV4 query-string pre-signed `GET` URL (`UNSIGNED-PAYLOAD`,
+  `X-Amz-SignedHeaders=host`) for a single S3-compatible archive object.
+
+  Signing only the `host` header allows bounded `Range` and `If-Match` headers on the
+  resulting `GET` across AWS S3, MinIO, RustFS, Ceph RGW, Cloudflare R2, and Backblaze B2
+  while the object store enforces single-object `GET`-only access, optional `versionId`,
+  and `X-Amz-Expires` (`1..900` seconds).
+  """
+  @spec presign_get_url(map(), String.t(), keyword()) :: {:ok, String.t()} | {:error, atom()}
+  def presign_get_url(provider, key, opts \\ [])
+
+  def presign_get_url(provider, key, opts)
+      when is_map(provider) and is_binary(key) and is_list(opts) do
+    credential = fetch_field(provider, :credential)
+    destination = fetch_field(provider, :destination)
+    expires = Keyword.get(opts, :expires, 300)
+    datetime = Keyword.get(opts, :datetime, DateTime.utc_now())
+    version_id = Keyword.get(opts, :version_id)
+
+    with {:ok, access_key_id} <- require_non_empty_string(fetch_field(credential, :access_key_id)),
+         {:ok, secret_access_key} <-
+           require_non_empty_string(fetch_field(credential, :secret_access_key)),
+         {:ok, region} <- require_non_empty_string(fetch_field(destination, :region)),
+         {:ok, bucket} <- require_clean_bucket(fetch_field(destination, :bucket)),
+         {:ok, object_uri} <-
+           build_presign_object_uri(fetch_field(destination, :endpoint), bucket, key),
+         :ok <- validate_presign_expires(expires),
+         %DateTime{} <- datetime do
+      session_token = normalize_optional_string(fetch_field(credential, :session_token))
+      clean_version_id = normalize_optional_version_id(version_id)
+
+      query =
+        []
+        |> maybe_append_query("X-Amz-Security-Token", session_token)
+        |> maybe_append_query("versionId", clean_version_id)
+
+      presigned_uri =
+        Req.Utils.aws_sigv4_url(
+          access_key_id: access_key_id,
+          secret_access_key: secret_access_key,
+          region: region,
+          service: "s3",
+          datetime: datetime,
+          method: :get,
+          url: object_uri,
+          expires: expires,
+          headers: [],
+          query: query
+        )
+
+      {:ok, URI.to_string(presigned_uri)}
+    else
+      {:error, _} = err -> err
+      _ -> {:error, :invalid_presign_parameters}
+    end
+  end
+
+  def presign_get_url(_, _, _), do: {:error, :invalid_presign_parameters}
+
+  defp build_presign_object_uri(endpoint, bucket, key) when is_binary(endpoint) do
+    uri = endpoint |> String.trim() |> URI.parse()
+
+    key_segments =
+      key
+      |> String.trim_leading("/")
+      |> String.split("/", trim: true)
+
+    cond do
+      uri.scheme not in ["https", "http"] ->
+        {:error, :invalid_archive_endpoint}
+
+      not is_binary(uri.host) or uri.host == "" or not is_nil(uri.userinfo) ->
+        {:error, :invalid_archive_endpoint}
+
+      uri.query not in [nil, ""] or not is_nil(uri.fragment) ->
+        {:error, :invalid_archive_endpoint}
+
+      key_segments == [] or "." in key_segments or ".." in key_segments ->
+        {:error, :invalid_archive_object_key}
+
+      true ->
+        base_segments = String.split(uri.path || "", "/", trim: true)
+
+        encoded_path =
+          "/" <>
+            Enum.map_join(base_segments ++ [bucket | key_segments], "/", fn segment ->
+              URI.encode(segment, &URI.char_unreserved?/1)
+            end)
+
+        {:ok, %{uri | path: encoded_path, query: nil, fragment: nil}}
+    end
+  end
+
+  defp build_presign_object_uri(_, _, _), do: {:error, :invalid_archive_endpoint}
+
+  defp validate_presign_expires(expires)
+       when is_integer(expires) and expires in 1..@max_presign_expires_seconds, do: :ok
+
+  defp validate_presign_expires(_), do: {:error, :invalid_presign_expires}
+
+  defp require_non_empty_string(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "", do: {:error, :invalid_presign_parameters}, else: {:ok, trimmed}
+  end
+
+  defp require_non_empty_string(_), do: {:error, :invalid_presign_parameters}
+
+  defp require_clean_bucket(val) when is_binary(val) do
+    trimmed = val |> String.trim() |> String.trim("/")
+
+    if trimmed == "" or String.contains?(trimmed, "/") do
+      {:error, :invalid_archive_bucket}
+    else
+      {:ok, trimmed}
+    end
+  end
+
+  defp require_clean_bucket(_), do: {:error, :invalid_archive_bucket}
+
+  defp normalize_optional_string(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_string(_), do: nil
+
+  defp normalize_optional_version_id(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "" or trimmed == "null", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_version_id(_), do: nil
+
+  defp maybe_append_query(acc, _key, nil), do: acc
+  defp maybe_append_query(acc, key, val), do: acc ++ [{key, val}]
+
+  defp fetch_field(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, val} -> val
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp fetch_field(_, _), do: nil
 
   # This one-shot process owns its sockets. Killing it bounds connect, upload,
   # headers and progressing reads together, including a stalled TLS send.

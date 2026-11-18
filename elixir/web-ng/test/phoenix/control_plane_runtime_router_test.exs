@@ -1026,6 +1026,170 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert decoded_doc["job_id"] == job_id
     end
 
+    test "issues real VisualWorkerReadGrants 200 response with AWS SigV4 pre-signed URLs and zero S3 secret leakage" do
+      Application.delete_env(:serviceradar_web_ng, :control_plane_media_worker_grants_issuer)
+
+      job_id = "00000000-0000-4000-8000-000000000911"
+      entry_id = "00000000-0000-4000-8000-000000000912"
+      block_id = "00000000-0000-4000-8000-000000000913"
+      binding_id = "00000000-0000-4000-8000-000000000914"
+      storage_id = "00000000-0000-4000-8000-000000000915"
+      cam_id = "00000000-0000-4000-8000-000000000916"
+      prof_id = "00000000-0000-4000-8000-000000000917"
+      secret_id = "00000000-0000-4000-8000-000000000918"
+      block_key = String.duplicate("ab", 32)
+      desc_sha = String.duplicate("cd", 32)
+      init_sha = String.duplicate("11", 32)
+      frag_sha = String.duplicate("22", 32)
+      secret_marker = "test-never-serialize-s3-secret-key"
+
+      descriptor = %{
+        "init" => %{"length" => 512, "sha256" => init_sha},
+        "media" => %{"length" => 4096, "sha256" => frag_sha},
+        "fragments" => [
+          %{
+            "sequence" => 0,
+            "offset" => 0,
+            "length" => 4096,
+            "start_ns" => 0,
+            "duration_ns" => 2_000_000_000,
+            "sha256" => frag_sha
+          }
+        ]
+      }
+
+      loaders = %{
+        entry_loader: fn _ ->
+          {:ok,
+           %{
+             id: entry_id,
+             recording_block_id: block_id,
+             camera_source_id: cam_id,
+             stream_profile_id: prof_id,
+             storage_id: storage_id,
+             block_key: block_key,
+             descriptor_sha256: desc_sha,
+             local_state: :reclaimed,
+             archive_state: :verified,
+             archive_binding_id: binding_id,
+             quarantine_reason: nil,
+             frozen_descriptor: descriptor
+           }}
+        end,
+        job_loader: fn _ ->
+          {:ok,
+           %{
+             id: job_id,
+             catalog_entry_id: entry_id,
+             state: :dispatched,
+             descriptor_sha256: desc_sha,
+             sampled_fragments: [%{"sequence" => 0}]
+           }}
+        end,
+        binding_loader: fn _ ->
+          {:ok,
+           %{
+             id: binding_id,
+             schema_version: 2,
+             provisioning_ref: "operator:primary",
+             generation: 1,
+             purpose: "recording",
+             provider: "s3_compatible",
+             endpoint: "https://objects.example.com",
+             region: "example-1",
+             bucket: "synthetic-worker-archive",
+             namespace: "recordings/v1",
+             addressing_style: :path,
+             archive_format_version: 1,
+             required_encryption: "sse_s3_aes256",
+             destination_sha256: nil
+           }}
+        end,
+        receipt_loader: fn _ ->
+          {:ok,
+           %{
+             objects: [
+               %{
+                 "name" => "init.mp4",
+                 "key" => "recordings/v1/#{storage_id}/#{block_key}/init.mp4",
+                 "length" => 512,
+                 "sha256" => init_sha,
+                 "etag" => "\"init-etag-1\"",
+                 "version_id" => "ver-init-1"
+               },
+               %{
+                 "name" => "media.m4s",
+                 "key" => "recordings/v1/#{storage_id}/#{block_key}/media.m4s",
+                 "length" => 4096,
+                 "sha256" => frag_sha,
+                 "etag" => "\"media-etag-1\"",
+                 "version_id" => "ver-media-1"
+               }
+             ]
+           }}
+        end,
+        credential_resolver: fn _binding, :reader, _ttl ->
+          {:ok,
+           %{
+             "secret_id" => secret_id,
+             "reference" => "secret:network_credential:#{secret_id}",
+             "generation" => 1,
+             "access_key_id" => "test-worker-reader-id",
+             "secret_access_key" => secret_marker
+           }}
+        end
+      }
+
+      payload =
+        Jason.encode!(%{
+          "schema_version" => 1,
+          "job_id" => job_id,
+          "catalog_entry_id" => entry_id,
+          "descriptor_sha256" => desc_sha
+        })
+
+      conn =
+        :post
+        |> conn("/v1/media/workers/read-grants", payload)
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header(@authorization_header, "Bearer " <> @media_worker_token)
+        |> put_req_header(@deployment_header, @deployment_ref)
+        |> put_req_header(@media_worker_generation_header, "1")
+        |> put_private(:control_plane_media_worker_grant_opts,
+          loaders: loaders,
+          now: ~U[2026-11-17 12:00:00Z],
+          ttl_seconds: 300
+        )
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 200
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      refute conn.resp_body =~ secret_marker
+      refute conn.resp_body =~ @media_worker_token
+
+      body = json_response(conn)
+      assert body["backing"] == "archive"
+      assert body["source"] == "archive"
+
+      assert body["credential"] == %{
+               "reference" => "secret:network_credential:#{secret_id}",
+               "generation" => 1,
+               "role" => "reader",
+               "secret_id" => secret_id
+             }
+
+      init_url = body["archive"]["init_presigned_url"]
+      media_url = body["archive"]["media_presigned_url"]
+      assert body["init"]["presigned_url"] == init_url
+      assert body["media"]["presigned_url"] == media_url
+      assert init_url =~ "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+      assert init_url =~ "X-Amz-SignedHeaders=host"
+      assert init_url =~ "X-Amz-Expires=300"
+      assert init_url =~ "versionId=ver-init-1"
+      assert media_url =~ "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+      assert media_url =~ "versionId=ver-media-1"
+    end
+
     test "maps deleted/quarantined entries to 410 Gone, conflicts to 409, bad requests to 400, and bounds body <= 8192 bytes" do
       Application.put_env(
         :serviceradar_web_ng,

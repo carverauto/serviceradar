@@ -389,6 +389,13 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
     assert {:ok, plan} = VisualWorkerReadGrants.issue_read_grant(installation, req)
     assert plan.backing == :archive
     assert Enum.sort(plan.grant["allowed_methods"]) == ["GET", "HEAD"]
+    assert is_binary(plan.init["presigned_url"])
+    assert is_binary(plan.media["presigned_url"])
+    assert plan.archive["init_presigned_url"] == plan.init["presigned_url"]
+    assert plan.archive["media_presigned_url"] == plan.media["presigned_url"]
+    assert plan.init["presigned_url"] =~ "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+    assert plan.init["presigned_url"] =~ "X-Amz-SignedHeaders=host"
+    assert plan.init["presigned_url"] =~ "versionId=v1"
     refute inspect(plan) =~ synthetic_secret
     refute Jason.encode!(plan) =~ synthetic_secret
     assert plan.credential.secret_access_key == synthetic_secret
