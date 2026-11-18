@@ -703,3 +703,182 @@ func TestUDP100PercentUploadLossReportsZeroBitsPerSecond(t *testing.T) {
 		require.InDelta(t, 100.0, res.Primary.LossPercent, 1e-9)
 	})
 }
+
+func startUDPFilterProxy(t *testing.T, responderPort uint32, dropFromSender, dropFromResponder uint8) uint32 {
+	t.Helper()
+
+	proxyConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	require.NoError(t, err)
+
+	responderAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(responderPort)}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var senderAddr *net.UDPAddr
+		buf := make([]byte, 65536)
+		for {
+			n, srcAddr, readErr := proxyConn.ReadFromUDP(buf)
+			if readErr != nil {
+				return
+			}
+			pkt := buf[:n]
+			if srcAddr.Port == responderAddr.Port && srcAddr.IP.Equal(responderAddr.IP) {
+				if senderAddr != nil {
+					flags, _, _, _, ok := ParseUDPHeader(pkt)
+					if ok && dropFromResponder != 0 && flags&dropFromResponder != 0 {
+						continue
+					}
+					_, _ = proxyConn.WriteToUDP(pkt, senderAddr)
+				}
+				continue
+			}
+			senderAddr = srcAddr
+			flags, _, _, _, ok := ParseUDPHeader(pkt)
+			if ok && dropFromSender != 0 && flags&dropFromSender != 0 {
+				continue
+			}
+			_, _ = proxyConn.WriteToUDP(pkt, responderAddr)
+		}
+	}()
+	t.Cleanup(func() {
+		_ = proxyConn.Close()
+		<-done
+	})
+	return uint32(proxyConn.LocalAddr().(*net.UDPAddr).Port)
+}
+
+func TestSenderUDPDownloadHelloBlockedFailsAndReleasesSession(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name              string
+		dir               netperfpb.NetperfDirection
+		dropFromSender    uint8
+		dropFromResponder uint8
+		wantErr           bool
+		wantAvailable     bool
+		wantLossPercent   float64
+	}{
+		{
+			name:              "download_hello_blocked",
+			dir:               netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+			dropFromSender:    UDPFlagHello,
+			dropFromResponder: 0,
+			wantErr:           true,
+			wantAvailable:     false,
+		},
+		{
+			name:              "bidirectional_hello_blocked",
+			dir:               netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+			dropFromSender:    UDPFlagHello,
+			dropFromResponder: 0,
+			wantErr:           true,
+			wantAvailable:     false,
+		},
+		{
+			name:              "download_data_blocked_with_hello_allowed",
+			dir:               netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+			dropFromSender:    0,
+			dropFromResponder: UDPFlagData | UDPFlagEnd,
+			wantErr:           false,
+			wantAvailable:     true,
+			wantLossPercent:   100.0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pki := newTestPKI(t)
+			hubSec := pki.agentSecurity(t, "agent-hub-01", 410)
+			spokeSec := pki.agentSecurity(t, "agent-spoke-01", 411)
+
+			seed := bytes.Repeat([]byte{0xab}, ed25519.SeedSize)
+			priv := ed25519.NewKeyFromSeed(seed)
+			pub := priv.Public().(ed25519.PublicKey)
+			keyID := []byte("0123456789abcdef")
+
+			snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+			resp, err := NewResponder(ResponderConfig{
+				AgentID:               "agent-hub-01",
+				PartitionID:           "default",
+				ListenAddress:         "127.0.0.1",
+				AllowEphemeralPort:    true,
+				UDPEnabled:            true,
+				MaxConcurrentSessions: 4,
+				MaxTotalBandwidthBps:  100_000_000,
+				MinAuthorityEpoch:     1,
+				Security:              hubSec,
+				KeyResolver:           TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }},
+				Logger:                logger.NewTestLogger(),
+			})
+			require.NoError(t, err)
+			require.NoError(t, resp.Start(context.Background()))
+			t.Cleanup(func() { _ = resp.Close() })
+
+			proxyPort := startUDPFilterProxy(t, resp.UDPPort(), tc.dropFromSender, tc.dropFromResponder)
+
+			creds, owned, err := buildServerTransportCredentials(hubSec, nil, nil, logger.NewTestLogger())
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				if owned != nil {
+					_ = owned.Close()
+				}
+			})
+
+			lis := bufconn.Listen(1 << 20)
+			srv := grpc.NewServer(grpc.Creds(creds))
+			netperfpb.RegisterNetworkPerfPeerServiceServer(srv, &udpBlackholePeerWrapper{
+				NetworkPerfPeerServiceServer: resp,
+				blackholePort:                proxyPort,
+			})
+			go func() { _ = srv.Serve(lis) }()
+			t.Cleanup(srv.Stop)
+
+			sender, err := NewSender(SenderConfig{
+				AgentID:     "agent-spoke-01",
+				PartitionID: "default",
+				Security:    spokeSec,
+				Logger:      logger.NewTestLogger(),
+				DialContext: func(ctx context.Context, _ string) (net.Conn, error) {
+					return lis.DialContext(ctx)
+				},
+			})
+			require.NoError(t, err)
+
+			permit := makeLoopbackPermit(t, priv, keyID)
+			res, err := sender.RunTest(context.Background(), TestRequest{
+				TargetAddress:    "127.0.0.1",
+				TargetPort:       5199,
+				ResponderAgentID: "agent-hub-01",
+				ResponderLabel:   "hub-01",
+				PolicyID:         "policy-loopback-1",
+				ProfileID:        "profile-udp-hello-filter",
+				Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+				Direction:        tc.dir,
+				BandwidthBps:     1_000_000,
+				DurationSec:      1,
+				OmitSec:          0,
+				Parallel:         1,
+				PacketLength:     1200,
+				ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_ON_DEMAND,
+				Permit:           permit,
+			})
+
+			require.NotNil(t, res)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.False(t, res.Available)
+			} else {
+				require.NoError(t, err)
+				require.True(t, res.Available)
+				require.NotNil(t, res.Download)
+				require.Positive(t, res.Download.PacketsSent)
+				require.Equal(t, uint64(0), res.Download.PacketsReceived)
+				require.InDelta(t, tc.wantLossPercent, res.Download.LossPercent, 1e-9)
+				require.Equal(t, 0.0, res.Download.BitsPerSecond)
+			}
+			require.Equal(t, uint64(0), resp.SnapshotMetrics().ActiveSessions)
+		})
+	}
+}

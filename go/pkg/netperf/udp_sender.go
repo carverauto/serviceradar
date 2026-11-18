@@ -19,6 +19,7 @@ package netperf
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -311,6 +312,10 @@ func (s *Sender) runUDPDownload(
 			}
 		}
 	}()
+	defer func() {
+		cancel()
+		<-streamDone
+	}()
 
 	stopRead := context.AfterFunc(ctx, func() {
 		_ = conn.SetReadDeadline(time.Now())
@@ -353,13 +358,18 @@ func (s *Sender) runUDPDownload(
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 
+	streamCompleted := false
 	select {
 	case <-streamDone:
+		streamCompleted = true
 	case <-time.After(500 * time.Millisecond):
 	case <-ctx.Done():
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if !streamCompleted {
+		return nil, fmt.Errorf("netperf: UDP download stream did not complete (HELLO or END missing): %w", context.DeadlineExceeded)
 	}
 	streamMu.Lock()
 	sErr := streamErr
