@@ -111,10 +111,10 @@
   artifact; each entry's decision (explained with its reason, or
   reported) and the first checkpoint's integrated time kept in the checkpoint state; the
   checkpoint artifact retained 90 days, as long as the ledgers, and replaced by every successful
-  run, so it expires only if the monitor stops for 90 days; an entry is explained by a matching
-  ledger, a current listing in the acknowledged-entries file (re-checked every run, so a retracted
+  run, so it expires only if the monitor stops for 90 days; an entry is explained by a `sign` line
+  in a ledger of a release-key signing run active at its integrated time, a current listing in the acknowledged-entries file (re-checked every run, so a retracted
   acknowledgement restores detection), or a ledger-match decision already in the checkpoint state;
-  ledger matching against every release-key signing workflow, with entries left pending (no alert)
+  ledgers of every release-key signing workflow, with entries left pending (no alert)
   while a run active at their integrated time is still in progress;
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
@@ -142,7 +142,7 @@
   that reports `transit/sign/cosign-release` requests not explained by a `sign` line in a ledger of a release-key signing run active at the
   request's time, with the
   monitor's pending rule (a request is pending while a release-key signing run active at its time is
-  in progress, then decided: explained by that run's ledger or alerted) and a position in its own
+  in progress, then decided: explained only by a `sign` line, not a reused line, in that run's ledger, or alerted) and a position in its own
   state that advances only past decided records, so a sign call decided while its ledger was
   retained is never re-examined after the ledger ages out (design.md, Decision 10). Agents do not enable the audit device.
 - [ ] 5b.3 Operator check, recorded in `docs/sigstore/README.md`: `bao read

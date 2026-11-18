@@ -82,9 +82,9 @@ Rekor, so no installation depends on that log being up.
   under the pinned key, requires the previous checkpoint to be a prefix of the log (except on the manual bootstrap
   dispatch that seeds the first checkpoint while none exists; any other run that finds a non-prefix
   checkpoint fails, alerts and keeps the stored one), and selects the entries signed by the
-  release key. It alerts on any entry that does not match a payload
-  recorded by one of the repository's release-key signing runs, is not currently acknowledged, and was not
-  already recorded as explained by a ledger match in the monitor's checkpoint state, within about one scan interval
+  release key. It alerts on any entry that is not explained by a `sign` line in a ledger of a
+  release-key signing run active at the entry's integrated time, a current acknowledgement, or a
+  stored ledger-match decision for that same entry in the monitor's checkpoint state, within about one scan interval
   after the entry becomes decidable (every release-key signing run active at its integrated time
   has ended; a few hours at worst for an entry overlapping a long `release.yml` run), and
   on its own failure or blindness. The blindness canary alerts on a ledgered entry still unseen two
@@ -104,8 +104,8 @@ Rekor, so no installation depends on that log being up.
 - **Second line: the OpenBao audit log.** The self-hosted Rekor signs with an OpenBao Transit key
   in the same OpenBao as `cosign-release`, so someone who can use both keys could forge a receipt
   without logging anything. An OpenBao audit device and a watch that reports every
-  `transit/sign/cosign-release` call not explained by a ledger of a release-key signing run active
-  at its time close that gap (design.md,
+  `transit/sign/cosign-release` call not explained by a `sign` line in a ledger of a release-key signing run active at
+  its time close that gap (design.md,
   Decision 10). This change specifies them; the operator enables the audit device.
 - **Operator precondition.** `bao read transit/keys/cosign-release` must show `exportable=false`
   and `allow_plaintext_backup=false` (design.md, Decision 11). Recorded as an operator check.

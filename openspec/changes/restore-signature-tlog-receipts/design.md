@@ -334,10 +334,10 @@ but Rekor's OpenAPI marks it deprecated, experimental and "may be incomplete". A
 silently miss entries does not meet the AGENTS.md rule that a verification must be able to fail.
 
 **What counts as expected.** Every signing run writes a signing ledger: one JSON line per
-signature, written **before** `cosign sign-blob` is called. The line holds the payload SHA-256, the
+created signature, written **before** `cosign sign-blob` is called; this is the `sign` line. It holds the payload SHA-256, the
 subject `repo@digest` (or the file name for `SHA256SUMS`), the workflow, the run ID and attempt, and
 the time. After signing, a second line adds the returned `logIndex` and entry UUID. A digest whose
-existing signature is reused gets one line marking it reused instead, so the ledger records for
+existing signature is reused gets one reused line instead, which is not a `sign` line, so the ledger records for
 every digest whether its signature was created or reused in the run. The ledger is
 uploaded with `if: always()` as a workflow artifact named per run attempt, retained 90 days, and
 for tag runs it is also attached to the GitHub release.
@@ -349,8 +349,8 @@ the ledger.
 
 A Rekor entry is pending while a run of any release-key signing workflow that was active at the
 entry's `integratedTime` (started before it, and still running or ended after it) is in progress.
-It is explained when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
-published ledger of one of those runs, when the acknowledged-entries file lists it, or when the
+It is explained when it is a `hashedrekord` whose `data.hash` equals the payload SHA-256 of a
+`sign` line in a published ledger of one of those runs, when the acknowledged-entries file lists it, or when the
 monitor's checkpoint state already records it as explained by a ledger match an earlier run
 found. An acknowledgement explains an entry only while the file lists it, so a retracted
 acknowledgement restores detection. Because the
@@ -415,7 +415,7 @@ existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_wat
 
 **Historical entries.** Every run, the bootstrap run included, reads and judges every release-key
 entry in the whole log, including entries integrated before the first checkpoint. Each needs a
-ledger match, a current entry in `docs/sigstore/rekor-acknowledged-entries.json`, or a ledger-match
+`sign` line in a ledger of a release-key signing run active at its `integratedTime`, a current entry in `docs/sigstore/rekor-acknowledged-entries.json`, or a ledger-match
 decision already recorded in the monitor's checkpoint state, and alerts otherwise once no release-key
 signing run active at its `integratedTime` is still in progress (the pending rule above).
 Release-key entries made before the ledger existed (the manual signings in Context) have no ledger,
@@ -492,7 +492,8 @@ second line does not depend on the log.
   hash (Transit signs the payload digest) in a ledger of a release-key signing run active at the
   request's time; an older run's ledger does not explain a later call on the same hash. It reuses the monitor's pending rule: a request is pending while a release-key signing
   run active at its time is still in progress; once those runs have ended it is decided (explained
-  if a ledger of one of them holds its input hash, otherwise alerted). The watch keeps a position
+  only if a `sign` line, not a reused line, in a ledger of one of them holds its input hash,
+  otherwise alerted). The watch keeps a position
   in its own state that advances only past decided records, and never re-examines a decided record,
   so a sign call decided while its ledger was retained is not re-examined after the ledger ages
   out. Alerts go where the monitor's alerts go.
@@ -517,7 +518,8 @@ first-party Wasm plugin and native add-on digest not on the frozen allowlist (De
 accepted artifact must have an append-only record in the self-hosted Rekor v1 log, made by the
 holder of the release key. Without a receipt requirement, someone who can sign with the key can
 produce an importable package that leaves no trace. With it they must log the signature, and
-the monitor reports any logged signature that none of our signing runs accounts for within about
+the monitor reports any logged signature not explained by a `sign` line in a ledger of a release-key signing run active at its
+`integratedTime`, a current acknowledgement or a stored ledger-match decision, within about
 one scan interval after the entry becomes decidable, that is, after every release-key signing run
 that was active at its `integratedTime` has ended (Decision 7, pending rule). For an entry outside
 any signing run that is about one scan interval (an hour at the hourly default). For an entry that
