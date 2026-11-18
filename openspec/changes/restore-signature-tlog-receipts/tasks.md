@@ -11,8 +11,10 @@
   `verifySignature`) and `cmd/cosign/cli/verify/common.go`, and confirm design.md, Decisions 1
   and 4 still hold. Record the result in the PR.
 - [ ] 1.3 Add the accepted key set `docs/sigstore/rekor-keys/<logID>.pub` and the signing-log key
-  `docs/sigstore/rekor.pub` from Sigstore's TUF `trusted_root.json`, recording the root version in
-  the commit message. Ship the whole key set in the web-ng image.
+  `docs/sigstore/rekor.pub` from the self-hosted log's `GET /api/v1/log/publicKey`, accepted only
+  after the log's signed tree head verifies under it; record the URL, time, tree ID and size.
+  Keep the public-good key only in `docs/sigstore/pre-cutover-rekor-keys/`. Ship the accepted set
+  (not the pre-cutover one) in the web-ng image.
 - [ ] 1.4 Add `build/contracts` tests: every image Rekor key byte-identical to the committed key
   set; `docs/sigstore/rekor.pub` byte-identical to one member of the set; signer and image cosign
   versions equal.
@@ -21,9 +23,10 @@
 
 - [x] 2.1 Move `attach_legacy_signature` into `scripts/cosign_common.sh` and use it from
   `sign-oci-publish.sh`, `sign-native-addon-publish.sh` and `sign-wasm-plugin-publish.sh`.
-- [x] 2.2 Sign with `--use-signing-config=false --new-bundle-format=false --rekor-url <pinned v1>`.
-  Fail when `rekorBundle.SignedEntryTimestamp` is empty or `logID` is not the pinned log.
-- [x] 2.3 Write `.rekorBundle` as the `dev.sigstore.cosign/bundle` annotation on the
+- [ ] 2.2 Sign with `--use-signing-config=false --new-bundle-format=false --rekor-url
+  https://rekor.serviceradar.cloud`. Fail when the log is unreachable, when
+  `rekorBundle.SignedEntryTimestamp` is empty, or when `logID` is not the pinned log.
+- [ ] 2.3 Write `.rekorBundle` as the `dev.sigstore.cosign/bundle` annotation on the
   `simplesigning` layer.
 - [x] 2.4 Write the signing ledger line before each `sign-blob` call and the log index/UUID line
   after it. Upload the ledger with `if: always()` in every release-key signing workflow
@@ -48,9 +51,13 @@
   that signs a SET over a synthetic entry, plus a synthetic release key. A missing receipt fails, a
   valid SET for a different entry fails, an unknown log ID fails, a created digest without a
   receipt fails, and a digest with no ledger record fails.
-- [x] 3.3 Re-run one image digest's `.sig` through the release gate and through Kyverno-equivalent
-  verification (`cosign verify --new-bundle-format=false --key`, `IgnoreTlog=false`, TUF Rekor keys)
-  before the first release with annotations. Record the output in the PR.
+- [ ] 3.3 Re-run one image digest's `.sig` through the release gate and through Kyverno-equivalent
+  verification (`cosign verify --new-bundle-format=false --key`, `IgnoreTlog=false`, with the
+  amended policy's Rekor key) before the first release with annotations. Record the output in the PR.
+- [ ] 3.4 Release verification accepts a created signature's receipt only from
+  `docs/sigstore/rekor-keys/`, and checks a reused signature's public-good receipt against
+  `docs/sigstore/pre-cutover-rekor-keys/`. Negative tests: a created signature with a public-good
+  receipt fails; a reused one with a public-good receipt verifies offline.
 
 ## 4. Import verifier (web-ng)
 
@@ -76,12 +83,13 @@
   rejects a missing receipt without a network call, allowlisted digests pass key-only, and an
   unknown log ID is rejected. Include one test that runs the real pinned cosign binary against
   synthetic fixtures with networking blocked.
+- [ ] 4.5 Add a test that proves no request reaches a Rekor URL during import verification: a
+  stand-in Rekor that records every request stays untouched while a receipt verifies.
 
 ## 5. Monitor
 
-- [ ] 5.1 Measure the run time and download volume of an hourly `rekor_monitor` fingerprint scan of
-  public Rekor v1 on an `arc-runner-set` runner before enabling the schedule (design.md, Open
-  Question 1).
+- [x] 5.1 Measure the scan cost (design.md, Context and Open Question 1). Public-good Rekor v1
+  cannot be scanned in full; the log moved to the self-hosted Rekor, which can.
 - [ ] 5.2 Add `.github/workflows/rekor-signing-monitor.yml`: `rekor_monitor` built from a pinned
   commit with a verified checksum; checkpoint kept as an artifact; fingerprint of `docs/cosign.pub`;
   ledger matching against every release-key signing workflow, with entries left pending (no alert)
@@ -91,13 +99,29 @@
   missing state.
 - [ ] 5.3 Add the blindness canary (ledger entries from a signing run that ended more than two scan
   intervals ago, two hours at the hourly default, integrated after the monitor's first retained
-  checkpoint, that were never observed) and the daily TUF trusted-root comparison for the pinned Rekor key.
+  checkpoint, that were never observed) and the check that the self-hosted log still serves the
+  pinned key.
 - [ ] 5.4 Add a separate GitHub Actions workflow-run lookup for `rekor-signing-monitor.yml` to the
   scheduled job watch, give `.github/workflows/scheduled-job-watch.yml` `actions: read`, and report
   the monitor when its last successful run is older than three scan intervals (three hours at the
   hourly default). Do not add the monitor to `WATCHED_JOBS`.
 - [ ] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
   the result in the PR.
+
+## 5b. Admission, second line and operations
+
+- [ ] 5b.1 Change `carverauto/gitops` `k8s/kyverno/base/verify-serviceradar-images.yaml` as in
+  design.md, Decision 3: a receipt entry with the pinned self-hosted `rekor.pubkey` and a
+  pre-cutover entry, `count: 1`, no `ignoreTlog: true`. Live before demo runs a cutover-release
+  image. Remove the pre-cutover entry once no admitted demo image carries a pre-cutover signature.
+- [ ] 5b.2 Specify and, once the operator has enabled the OpenBao audit device, implement the watch
+  that reports `transit/sign/cosign-release` requests no signing ledger accounts for (design.md,
+  Decision 10). Agents do not enable the audit device.
+- [ ] 5b.3 Operator check, recorded in `docs/sigstore/README.md`: `bao read
+  transit/keys/cosign-release` shows `exportable=false` and `allow_plaintext_backup=false`
+  (design.md, Decision 11). Agents do not run it.
+- [ ] 5b.4 Back up the self-hosted log's Trillian MySQL database and test a restore, and remint the
+  Rekor OpenBao token (or move Rekor to Kubernetes auth) before it expires (design.md, Risks).
 
 ## 6. Docs
 

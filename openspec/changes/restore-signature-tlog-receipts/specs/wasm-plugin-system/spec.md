@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: First-party import verifies the transparency-log receipt offline
-ServiceRadar SHALL verify the Rekor receipt embedded in a first-party OCI artifact's classic signature, for a Wasm plugin or a native add-on bundle, against the Rekor public key shipped in the web-ng image, without contacting any public Sigstore service.
+ServiceRadar SHALL verify the Rekor receipt embedded in a first-party OCI artifact's classic signature, for a Wasm plugin or a native add-on bundle, against the self-hosted Rekor log's public key shipped in the web-ng image, without contacting any Sigstore service or any Rekor, the self-hosted one included.
 The receipt is accepted only when its SignedEntryTimestamp verifies under a pinned Rekor key for its log ID, and its logged body names the same signature, the configured release public key and the payload hash being verified. The verifier SHALL use receipt-required mode for every first-party Wasm plugin or native add-on digest that is not on the frozen pre-cutover allowlist: the pinned Rekor key selected by the receipt's log ID, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. A missing receipt fails closed in this mode. A digest whose signature carries a receipt is always verified in receipt-required mode and recorded as `verified`, never in key-only mode and never as `absent_allowlisted`. Only a digest on the allowlist whose signature carries no receipt uses key-only mode, the existing flags of "First-party artifact import needs no public Sigstore service" (`--insecure-ignore-tlog=true`, no Rekor key). This does not change the no-network rule of the requirement "First-party artifact import needs no public Sigstore service": the registry holding the artifact remains the only network destination. From the cutover release on, that requirement's air-gap success scenario applies only to an artifact with a valid receipt or an allowlisted digest; a non-allowlisted artifact without a valid receipt fails as this requirement states.
 
 #### Scenario: Artifact with a valid receipt on an air-gapped installation
@@ -28,6 +28,16 @@ The receipt is accepted only when its SignedEntryTimestamp verifies under a pinn
 - **GIVEN** a receipt whose log ID matches no pinned Rekor key
 - **WHEN** the artifact is imported
 - **THEN** verification SHALL fail
+
+#### Scenario: Receipt from the public-good log
+- **GIVEN** a first-party artifact whose receipt names the public-good Rekor log
+- **WHEN** the artifact is imported
+- **THEN** verification SHALL fail, because only the self-hosted log's key is shipped
+
+#### Scenario: No Rekor is contacted during verification
+- **GIVEN** an artifact with a valid receipt from the self-hosted log
+- **WHEN** the artifact is imported
+- **THEN** no request SHALL be sent to any Rekor URL, the self-hosted log included
 
 ### Requirement: Pre-cutover first-party artifacts without a receipt
 ServiceRadar SHALL accept a first-party OCI artifact by release-key verification alone only when its digest is on the frozen pre-cutover allowlist shipped in the web-ng image.

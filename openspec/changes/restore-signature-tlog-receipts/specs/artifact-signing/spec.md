@@ -23,16 +23,33 @@ The annotation value is the legacy Cosign `RekorBundle`: the SignedEntryTimestam
 - **AND** SHALL NOT write or overwrite the `.sig` tag
 
 ### Requirement: Signing uses the pinned transparency log
-The release signer SHALL upload signatures to the pinned public-good Rekor v1 log through Cosign's legacy upload path, and SHALL NOT take the log location from a TUF-delivered signing configuration.
+The release signer SHALL upload signatures to ServiceRadar's self-hosted Rekor v1 log (`https://rekor.serviceradar.cloud`) through Cosign's legacy upload path, and SHALL NOT take the log location from a TUF-delivered signing configuration.
+When that log cannot be reached, rejects the upload, or answers without a SignedEntryTimestamp from the pinned log, signing SHALL fail and the release SHALL stop; the signer SHALL NOT fall back to another log or to signing without a log entry.
 
 #### Scenario: Signing configuration names a different log
-- **GIVEN** the public Sigstore signing configuration lists a transparency log other than the pinned Rekor v1 log
+- **GIVEN** the public Sigstore signing configuration lists a transparency log other than the pinned self-hosted Rekor v1 log
 - **WHEN** the release signer signs an artifact
-- **THEN** the entry SHALL be written to the pinned Rekor v1 log
+- **THEN** the entry SHALL be written to the pinned self-hosted Rekor v1 log
+
+#### Scenario: Self-hosted log unreachable at signing time
+- **GIVEN** the self-hosted Rekor log cannot be reached
+- **WHEN** the release signer signs an artifact
+- **THEN** signing SHALL fail
+- **AND** no `.sig` tag SHALL be written for that digest
 
 ### Requirement: Release verification requires the receipt offline
 The repository release verification for images, native add-ons and Wasm plugins SHALL verify the embedded receipt of every signature created in the run against the pinned Rekor public key without contacting any Sigstore service.
-A missing or invalid receipt on a signature created in the run fails the release before promotion. Release verification SHALL classify each digest from the signer's per-digest record in the signing ledger of whether it created a new signature or reused an existing one, and SHALL NOT classify it by whether a receipt is present. A digest in neither the created set nor the reused set SHALL fail verification. Every signature created in the run, and every reused signature that carries a receipt, SHALL be verified in receipt-required mode: the pinned Rekor key selected by the receipt's log ID from the retained key set, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. A reused signature without a receipt can only predate the cutover release, for an image, a native add-on or a Wasm plugin; it SHALL be exempt from the receipt check and is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist.
+A missing or invalid receipt on a signature created in the run fails the release before promotion. Release verification SHALL classify each digest from the signer's per-digest record in the signing ledger of whether it created a new signature or reused an existing one, and SHALL NOT classify it by whether a receipt is present. A digest in neither the created set nor the reused set SHALL fail verification. Every signature created in the run, and every reused signature that carries a receipt, SHALL be verified in receipt-required mode: the pinned Rekor key selected by the receipt's log ID from the retained key set, passed as `SIGSTORE_REKOR_PUBLIC_KEY`, with `--offline=true` and `--new-bundle-format=false`, and with no `--trusted-root` and no `--insecure-ignore-tlog`. A reused signature without a receipt can only predate the cutover release, for an image, a native add-on or a Wasm plugin; it SHALL be exempt from the receipt check and is verified in key-only mode, with the release key alone (`--insecure-ignore-tlog=true`, no Rekor key). Kyverno remains the admission gate for images, and release verification does not consult the import allowlist. A signature created in the run SHALL carry a receipt from a log in `docs/sigstore/rekor-keys/`. A reused signature whose receipt names the public-good Rekor log SHALL be verified in receipt-required mode against `docs/sigstore/pre-cutover-rekor-keys/`; a receipt naming a log in neither set SHALL fail. Release verification SHALL NOT contact any Rekor, the self-hosted one included.
+
+#### Scenario: Reused signature with a pre-cutover public-good receipt
+- **GIVEN** a digest the signing ledger records as reused, whose signature carries a receipt from the public-good Rekor log made before the cutover
+- **WHEN** release verification runs
+- **THEN** the receipt SHALL be verified offline against the key in `docs/sigstore/pre-cutover-rekor-keys/`
+
+#### Scenario: Created signature with a public-good receipt
+- **GIVEN** a digest the signing ledger records as created in the current run, whose receipt names the public-good Rekor log
+- **WHEN** release verification runs
+- **THEN** verification SHALL fail
 
 #### Scenario: Signature created without a receipt
 - **GIVEN** a signature created in the current release run whose `.sig` layer has no receipt
@@ -70,8 +87,8 @@ A missing or invalid receipt on a signature created in the run fails the release
 - **THEN** verification SHALL fail
 
 ### Requirement: Pinned Rekor public key
-The repository SHALL hold the full set of accepted Rekor v1 public keys in `docs/sigstore/rekor-keys/`, one file per accepted log ID, taken from Sigstore's TUF-signed trusted root, and the key of the log the signer currently writes to in `docs/sigstore/rekor.pub`.
-The web-ng image ships the whole set, byte-identical to the committed files, and a contract test enforces that. A key update adds the new key and keeps every key whose log ID is still accepted; a rotation SHALL NOT drop a key that an accepted receipt names.
+The repository SHALL hold the full set of accepted Rekor v1 public keys in `docs/sigstore/rekor-keys/`, one file per accepted log ID, and the key of the log the signer currently writes to in `docs/sigstore/rekor.pub`; the accepted keys are those of ServiceRadar's self-hosted log.
+A key is read from the self-hosted log's `GET /api/v1/log/publicKey` endpoint and accepted only when the log's current signed tree head verifies under it; the commit records how and when it was fetched. The public-good Rekor key is not accepted: it is kept in `docs/sigstore/pre-cutover-rekor-keys/` for release verification of reused pre-cutover receipts only and is not shipped in the web-ng image. The web-ng image ships the whole accepted set, byte-identical to the committed files, and a contract test enforces that. A key update adds the new key and keeps every key whose log ID is still accepted; a rotation SHALL NOT drop a key that an accepted receipt names.
 
 #### Scenario: Image copy drifts from the committed key
 - **GIVEN** a Rekor key shipped in the web-ng image differs from its file in `docs/sigstore/rekor-keys/`, or a committed key is missing from the image
@@ -84,9 +101,9 @@ The web-ng image ships the whole set, byte-identical to the committed files, and
 - **THEN** the key for that log ID SHALL still be in the shipped key set
 - **AND** the receipt SHALL verify
 
-#### Scenario: Sigstore changes the Rekor v1 key set
-- **GIVEN** the published public-good trusted root adds a Rekor v1 key, removes the pinned key, or sets an end date on the pinned key
-- **WHEN** the daily trusted-root check runs
+#### Scenario: The self-hosted log serves a different key
+- **GIVEN** the self-hosted log's `GET /api/v1/log/publicKey` returns a key other than `docs/sigstore/rekor.pub`
+- **WHEN** the monitor runs
 - **THEN** it SHALL raise a signing-monitor alert naming the change
 
 ### Requirement: Signing ledger
@@ -100,7 +117,7 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 - **AND** it SHALL contain the payload SHA-256 of the logged signature
 
 ### Requirement: Transparency-log monitoring for the release key
-A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new public-good Rekor v1 entry for the release public key's fingerprint at a configured scan interval, verifying log consistency between checkpoints. The scan interval is one hour unless a measured scan cost forces a longer one.
+A scheduled GitHub Actions workflow on `arc-runner-set` SHALL scan every new entry of the self-hosted Rekor v1 log every hour, verifying log consistency between checkpoints, and select the entries signed by the release public key.
 It SHALL alert on every matching entry that is not explained. An entry is pending while a run of any release-key signing workflow that was active at the entry's integrated time is in progress; the monitor SHALL NOT alert on a pending entry and SHALL evaluate it after those runs end. An entry is explained only when it is a `hashedrekord` whose payload hash appears in a published signing ledger of one of those runs, or when it is listed in the committed acknowledged-entries file. Once those runs have ended, an entry that is not explained is unexplained. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue. An unexplained entry is reported within about one scan interval after it becomes decidable, that is, after every release-key signing run active at its integrated time has ended; for an entry that overlaps a long release run the worst case is the remaining run time plus one scan interval. The blindness canary alerts on a ledgered entry still unseen two scan intervals after its signing run ended, and the monitor is reported stale when its last successful run is older than three scan intervals.
 
 #### Scenario: Signature made outside the signing workflows
@@ -158,3 +175,35 @@ The Cosign version installed by the release signer and the Cosign version shippe
 - **GIVEN** `scripts/install-cosign.sh` and the web-ng image Cosign archive name different versions
 - **WHEN** the contract tests run
 - **THEN** the test SHALL fail
+
+### Requirement: Admission trusts the pinned self-hosted log offline
+The demo Kyverno image-verification policy SHALL verify a receipt from the self-hosted log offline against the pinned self-hosted Rekor key (`rekor.pubkey`), and SHALL NOT trust that log through TUF or an online lookup.
+Until no admitted demo image carries a pre-cutover signature, the policy keeps a second entry with today's public-good configuration, and an image passes when either entry verifies (`count: 1`). The policy SHALL NOT use `ignoreTlog: true`. The change is live before demo runs a cutover-release image.
+
+#### Scenario: Cutover-release image at admission
+- **GIVEN** an image whose classic signature carries a receipt from the self-hosted log
+- **WHEN** a demo pod using it is admitted
+- **THEN** Kyverno SHALL verify the receipt offline with the pinned key
+- **AND** SHALL NOT make a Rekor lookup for it
+
+#### Scenario: Image logged nowhere
+- **GIVEN** an image signed with the release key whose signature has no receipt and no public-good log entry
+- **WHEN** a demo pod using it is admitted
+- **THEN** admission SHALL be denied
+
+### Requirement: OpenBao audit log as the second line
+ServiceRadar's OpenBao SHALL have an audit device, enabled by the operator, and a scheduled watch SHALL report every `transit/sign/cosign-release` request that no signing ledger accounts for.
+The self-hosted Rekor signs with a Transit key in the same OpenBao as `cosign-release`, so a receipt can be forged without a log entry; the audit log records the signing call regardless. OpenBao refuses requests when no enabled audit device can write, so the device's sink is monitored for capacity. Agents do not enable the audit device.
+
+#### Scenario: Release-key signing outside the signing runs
+- **GIVEN** an audit record of a `transit/sign/cosign-release` request whose input hash matches no `sign` line in any signing ledger
+- **WHEN** the audit watch runs
+- **THEN** it SHALL raise a signing-monitor alert for that request
+
+### Requirement: Release key cannot leave OpenBao
+The OpenBao Transit key `cosign-release` SHALL have `exportable=false` and `allow_plaintext_backup=false`, verified by an operator with `bao read transit/keys/cosign-release` and recorded in `docs/sigstore/README.md`.
+
+#### Scenario: Key export enabled
+- **GIVEN** `bao read transit/keys/cosign-release` shows `exportable=true` or `allow_plaintext_backup=true`
+- **WHEN** the operator check runs
+- **THEN** the release signing setup SHALL be treated as compromised-capable and signing SHALL stop until the key is replaced
