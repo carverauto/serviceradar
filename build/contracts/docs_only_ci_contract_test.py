@@ -246,7 +246,8 @@ class NoMistakesGateTest(unittest.TestCase):
         self.bazel_log = root / "bazel.log"
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        (bin_dir / "bazel").write_text(f'#!/bin/sh\necho "$@" >> "{self.bazel_log}"\n', encoding="utf-8")
+        for tool in ("bazel", "make"):
+            (bin_dir / tool).write_text(f'#!/bin/sh\necho "{tool} $@" >> "{self.bazel_log}"\n', encoding="utf-8")
         (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
         for stub in bin_dir.iterdir():
             stub.chmod(0o755)
@@ -275,15 +276,21 @@ class NoMistakesGateTest(unittest.TestCase):
                  "commit", "--quiet", "-m", message)
 
     def run_gates(self):
-        self.bazel_log.unlink(missing_ok=True)
+        """Returns the names of the gates whose command reached `bazel` or `make`."""
+        ran = []
         for gate in self.gates:
+            self.bazel_log.unlink(missing_ok=True)
             result = subprocess.run(
                 ["sh", "-c", gate["command"]], cwd=self.repo, env=self.env, capture_output=True, text=True
             )
             self.assertEqual(0, result.returncode, f"{gate['name']}: {result.stdout}{result.stderr}")
-        return self.bazel_log.read_text(encoding="utf-8").splitlines() if self.bazel_log.exists() else []
+            if self.bazel_log.exists():
+                ran.append(gate["name"])
+        return ran
 
     def test_docs_only_diff_skips_every_gate_and_code_diff_runs_them(self):
+        every_gate = [gate["name"] for gate in self.gates]
+
         (self.repo / "CHANGELOG").write_text("v1\n", encoding="utf-8")
         (self.repo / "openspec").mkdir()
         (self.repo / "openspec/proposal.md").write_text("Proposal\n", encoding="utf-8")
@@ -291,10 +298,16 @@ class NoMistakesGateTest(unittest.TestCase):
         self.commit("docs")
         self.assertEqual([], self.run_gates())
 
+        # Go lint runs on the workstation, so a change with no Go in it must not start it.
+        (self.repo / "lib.ex").write_text("defmodule Lib do\nend\n", encoding="utf-8")
+        self.git("add", ".")
+        self.commit("elixir")
+        self.assertEqual([name for name in every_gate if name != "go-lint"], self.run_gates())
+
         (self.repo / "main.go").write_text("package main\n// changed\n", encoding="utf-8")
         self.git("add", ".")
         self.commit("code")
-        self.assertEqual(len(self.gates), len(self.run_gates()))
+        self.assertEqual(every_gate, self.run_gates())
 
 
 if __name__ == "__main__":

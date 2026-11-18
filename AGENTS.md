@@ -118,9 +118,8 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   and a worktree that pushes to Forgejo means the MAIN clone is stale. Second: **verify
   the destination host in the push output**, not just the branch name — `-> <name>` is
   necessary but not sufficient when two remotes carry the same refs.
-- **CI is defined in `.github/workflows/` and `buildbuddy.yaml`.** The retired
-  `.forgejo/workflows/` files do not run and are not evidence that anything is gated.
-  Consult the live definitions for job inventories and trigger conditions.
+- **CI is defined in `.github/workflows/` and `buildbuddy.yaml`.** Consult the live
+  definitions for job inventories and trigger conditions.
 - **After `git worktree add` (or any extra checkout), symlink the gitignored
   Bazel rc files before any `bazel` command.** `.bazelrc` try-imports
   `%workspace%/.bazelrc.remote` and `.bazelrc.local`. Both are gitignored:
