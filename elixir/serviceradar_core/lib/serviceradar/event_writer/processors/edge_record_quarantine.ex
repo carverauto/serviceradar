@@ -3,7 +3,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine do
   Reports each record the gateway published to the edge-record security-quarantine stream
   (`ServiceRadar.EventWriter.Config.edge_record_security_quarantine_stream/0`).
 
-  A record lands there when it is signed by a compromise-revoked production or source key. It is
+  A record lands there when it is signed by a compromise-revoked production or source key, or, on a
+  late-admission session, when its origin principal is not the presenting agent or it names an
+  authority interval that ended with a revoked certificate. It is
   never projected and this processor writes nothing: not a ledger row, not a delivery slot, not a
   domain row. A ledger row would let a compromised record hold an event id that a legitimate
   record must be free to claim.
@@ -95,6 +97,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordQuarantine do
 
         %{
           event_id: hex(record.event_id),
+          # The principal that produced the record. The slot's `authenticated_agent_id` is the one
+          # that presented it, which differs when a successor delivers a revoked or superseded
+          # predecessor's records from a per-principal hold (late admission, design Decision 6).
+          origin_principal_id:
+            record.producer_context && record.producer_context.origin_principal_id,
           record_sha256: hex(:crypto.hash(:sha256, record_bytes)),
           contract_id: contract && contract.contract_id,
           contract_version: contract && contract.contract_version,

@@ -30,13 +30,13 @@ Status: implemented in PR #6692 except where a task says otherwise.
       `produced_at` ahead of the local clock are admissible; only an unloaded
       snapshot or an `UNAVAILABLE` key is retryable. The live
       `ValidateRecordSigned` is unchanged.
-- [ ] 1.3 Extend the Go oracle of the gateway decision. Done:
+- [x] 1.3 Extend the Go oracle of the gateway decision. Done:
       `ValidateLateFrameSigned` accepts a late grant only on a late session,
       binds `produced_at` and epoch, takes the publication from the grant,
       and security-quarantines a foreign origin, a `HISTORICALLY_REVOKED` key
-      or a terminal interval before any grant. Remaining: the live-session
-      `LATE_ADMISSION_REQUIRED` oracle (gated on the lane-open version), which
-      lands with the gateway's emission of that code in task 2.6.
+      or a terminal interval before any grant; and `ValidateLiveFrameSigned`
+      resolves a live session's undeliverable records as
+      `ErrLateAdmissionRequired` from lane-open version 1 (task 2.6c).
 - [x] 1.4 Add late generations and per-principal holds, as built:
       `<root>/late/own/<lane>/<generation>` for the agent's own records, and
       `<root>/late/hold/<origin principal hex>/<lane>/<generation>`, keyed by
@@ -158,10 +158,16 @@ Status: implemented in PR #6692 except where a task says otherwise.
         no other mode over one), with shared Go-cut vectors
         (`delivery_late_admission_cap.bin`,
         `transport_provenance_late_admission.txt`) checked by both runtimes.
-        No gateway emits it yet: the publisher still requires mode 4 on the
-        audit route, which 2.6c and 2.7 change together.
-  - [ ] 2.6c Late sessions, late-grant verification, quarantine ordering,
-        `LATE_ADMISSION_REQUIRED`, and the advertisement code held at 0.
+        Since 2.6c the publisher accepts it on the audit route, but no
+        gateway emits it until the advertisement flips to 1 with 2.7.
+  - [x] 2.6c Late sessions, late-grant verification, quarantine ordering,
+        `LATE_ADMISSION_REQUIRED`, and the advertisement code held at 0. Also
+        per the owner's 2026-11-17 decisions (design Decisions 2 and 7): an
+        unbound scope on a live version-1 session relocates; a late session
+        does not reject on registry epoch and routes quarantine and every
+        AUDIT from the lane; late sessions are per generation, so
+        each carries one scope; and a late session's recovery-coverage lookup
+        is authorized by the record's signed scope.
 
       The full scope of 2.6 as specified: add late sessions (`late_admission = true`), replacing the
       phase 1 refusal, and late-grant verification in

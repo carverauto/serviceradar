@@ -49,6 +49,21 @@ defmodule ServiceRadarAgentGateway.EdgeRecoveryControl do
     end
   end
 
+  @doc """
+  `coverage/5` for a LATE session (openspec add-edge-production-time-admission): the scope is the
+  one the record's verified production capability binds to this agent principal, so the agent
+  owned it when it produced the record, and its current binding is not required -- a deleted
+  assignment takes that binding with it, and the record must still drain. Callers pass only a
+  scope taken from a record they have already authorized.
+  """
+  def coverage_for_verified_scope(scope, prior_spool, route, traffic, %{component_type: :agent, component_id: agent_id})
+      when is_binary(agent_id) and byte_size(agent_id) in 1..256 do
+    EdgeRecoveryRPC.call(RecoveryCoverage, :lookup, [scope, agent_id, prior_spool, route, traffic], 5_000)
+  end
+
+  def coverage_for_verified_scope(_scope, _prior_spool, _route, _traffic, _identity),
+    do: {:error, :permission_denied, "recovery coverage requires an agent identity"}
+
   defp registration(request) do
     case RecoveryOperation.validate(request) do
       {:ok, _} -> :ok

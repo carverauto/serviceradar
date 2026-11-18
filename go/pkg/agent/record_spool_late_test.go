@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -712,6 +713,33 @@ func TestConcurrentLateAdmissionsOfTwoScopesAllLand(t *testing.T) {
 		require.NoError(t, admitErr)
 	}
 	require.Equal(t, uint64(len(scopes)*perScope), sp.LatePending())
+}
+
+// A late session carries one network scope, as the gateway's pipeline lane requires
+// (design Decision 2): late records of two scopes, even interleaved, land in late
+// generations each frozen to one scope, and the sender opens one session per source.
+func TestLateRecordsOfTwoScopesAreDeliveredOnSeparateSessions(t *testing.T) {
+	sp, err := openTestRecordSpool(t, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	trust := lateTrust(t, "valid")
+	sp.SetTrustProvider(func() *edgerecord.TrustSnapshot { return trust })
+
+	base := time.Now().Add(-6 * 24 * time.Hour)
+	first, second := testNetworkScopeID[:], lateTestOtherScope()
+	for i, scope := range [][]byte{first, second, first} {
+		_, err = sp.AdmitLate(daysOldRelayRecordIn(t, base.Add(time.Duration(i)*time.Minute), sysmonEdgeAgentID, scope))
+		require.NoError(t, err)
+	}
+
+	seen := map[string]bool{}
+	for _, source := range sp.LateSources() {
+		scope := source.Identity.Identity.NetworkScopeID
+		require.True(t, bytes.Equal(scope, first) || bytes.Equal(scope, second), "a late source names one of the scopes")
+		seen[string(scope)] = true
+	}
+	require.Len(t, seen, 2, "each scope drains on its own late session")
+	require.Equal(t, uint64(3), sp.LatePending())
 }
 
 // A LATE_ADMISSION_REQUIRED acknowledgement relocates at most one credit window

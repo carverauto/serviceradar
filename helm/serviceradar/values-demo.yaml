@@ -242,11 +242,9 @@ logCollector:
       metallb.universe.tf/address-pool: k3s-lan-pool
     loadBalancerIP: "192.168.6.88"
     externalTrafficPolicy: Local
-  # TCP shares the log-collector workload; replica/stream overrides below are legacy.
+  # TCP is a listener in the log-collector workload, sized by logCollector's own settings.
   tcpCollector:
     enabled: true
-    replicaCount: 3
-    streamReplicas: 3
   data:
     enabled: false
   probes:

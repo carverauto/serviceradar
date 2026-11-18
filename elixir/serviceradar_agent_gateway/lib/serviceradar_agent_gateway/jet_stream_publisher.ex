@@ -81,7 +81,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
     * `:publication` — the authorization decision, `:primary` (default), `:audit` or
       `:security_quarantine`, which selects the route family (`StreamRoute.resolve/1`). An
-      audit publication must carry the `LATE_FENCED_DELIVERY` mode its decision stamped.
+      audit publication must carry the `LATE_FENCED_DELIVERY` or `LATE_ADMISSION` mode its
+      decision stamped.
 
   Returns `{:ok, pub_ack}`; `{:error, error_class}`; or `{:error, {:derivation, reason}}` when the
   route or identity could not be derived, which is a bug or a bad grant rather than something to
@@ -333,12 +334,16 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # from anything on the frame. That is what makes "an agent cannot select the recovery publisher"
   # true at this call site rather than only in PublisherLane's docs: the route profile here is the
   # one the effective grant produced.
-  # EventWriter keeps a record ledger-only by its LATE_FENCED_DELIVERY stamp, so an audit
-  # publication without that stamp would be projected authoritatively from the audit stream.
+  # EventWriter keeps an audit record ledger-only by its non-authoritative stamp -- LATE_FENCED_DELIVERY
+  # for a stale-fence replay, LATE_ADMISSION for core's AUDIT late-admission decision -- so an audit
+  # publication without one would be projected authoritatively from the audit stream.
   defp audit_mode(%{publication: :audit} = publication) do
-    if Map.get(publication, :delivery_mode) == PublicationIdentity.mode_late_fenced(),
-      do: :ok,
-      else: {:error, {:derivation, :audit_delivery_mode}}
+    if Map.get(publication, :delivery_mode) in [
+         PublicationIdentity.mode_late_fenced(),
+         PublicationIdentity.mode_late_admission()
+       ],
+       do: :ok,
+       else: {:error, {:derivation, :audit_delivery_mode}}
   end
 
   defp audit_mode(_publication), do: :ok

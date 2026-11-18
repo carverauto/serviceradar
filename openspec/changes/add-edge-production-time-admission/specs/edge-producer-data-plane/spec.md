@@ -48,6 +48,23 @@ SHALL be retained, accounted and reported as `late_pending_gateway_support`.
 - **THEN** the agent SHALL NOT open a late session
 - **AND** SHALL report the records as `late_pending_gateway_support` with their count, bytes and oldest age
 
+#### Scenario: A late session carries one network scope
+- **GIVEN** a lane key whose late records were produced under two network scopes
+- **WHEN** the agent delivers them
+- **THEN** they SHALL be in two late generations, each frozen to one scope, delivered on separate late sessions
+
+#### Scenario: A retired contract's late record is delivered as audit, not rejected
+- **GIVEN** a late record whose registry epoch is retired or installation-static, and core's AUDIT grant with any reason (for example `fenced_at_production`)
+- **WHEN** the late session delivers it
+- **THEN** the gateway SHALL NOT reject it for its registry epoch
+- **AND** SHALL publish it to the audit route, routed from the late session's route profile, traffic class and network scope
+
+#### Scenario: A late session's recovery check does not need the deleted assignment's scope binding
+- **GIVEN** a late session delivering records of an assignment that was deleted, so its network scope is no longer bound to the agent
+- **WHEN** the gateway checks recovery coverage before publishing
+- **THEN** it SHALL authorize the lookup by the scope in the record's verified production capability, not by the current binding
+- **AND** a live session SHALL keep authorizing the lookup by the current binding
+
 #### Scenario: A gateway never accepts a late grant on a live session
 - **WHEN** a live-session frame carries a late-admission delivery grant
 - **THEN** the gateway SHALL NOT accept the grant and SHALL NOT publish the frame under it
@@ -473,6 +490,12 @@ record's publication.
 - **WHEN** a live-lane record arrives whose fence is missing at the gateway
 - **THEN** the gateway SHALL NOT emit `LATE_ADMISSION_REQUIRED`
 - **AND** SHALL apply today's live disposition for that record
+
+#### Scenario: A record whose scope binding left with its assignment moves to late admission
+- **GIVEN** a live session whose lane open carried `late_admission_protocol_version = 1`, and a live-lane record whose network scope is no longer bound to the agent because its assignment was deleted
+- **WHEN** the sender delivers it on the live session
+- **THEN** the gateway SHALL resolve it with `LATE_ADMISSION_REQUIRED` and SHALL NOT withhold it as `scope_unbound`
+- **AND** a session whose lane open carried no version or 0 SHALL keep withholding it
 
 #### Scenario: The late append precedes the live resolution
 - **GIVEN** a live-lane record the gateway resolved with `LATE_ADMISSION_REQUIRED` on a session whose lane open carried `late_admission_protocol_version = 1`
