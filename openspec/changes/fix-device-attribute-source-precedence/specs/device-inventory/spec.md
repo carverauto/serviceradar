@@ -313,7 +313,14 @@ source that recorded it (that source's full address set for the device, every
 address it reported for that device in the snapshot or window including
 candidates its chooser did not submit, no longer contains it, or it has aged
 out of that source's window); a single-address update from another source
-SHALL NOT count as the stored address being absent. Every source that feeds
+SHALL NOT count as the stored address being absent. An absence SHALL let
+only an address of the same class or a stronger class replace the stored
+primary (a same-family re-IP, such as one usable IPv4 to another, replaces it
+on absence); an address of a weaker class (a usable IPv4 to an IPv6, a routable
+address to a link-local) SHALL replace it only once the stored address has also
+aged out of its recording source's sighting window. A direct writer SHALL
+record itself as the primary's source and its sighting time whenever it sets
+the primary, so it never leaves a primary with no recorded source. Every source that feeds
 the primary SHALL pass its full per-device address set to the batch builder,
 and absence SHALL be computed from that set and the sighting window before the
 per-address write (a census snapshot is applied as a set per device) and

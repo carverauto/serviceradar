@@ -67,6 +67,30 @@ defmodule ServiceRadar.Identity.AliasEventsPerDeviceTest do
              alias_rows(holder.uid, ip, actor)
   end
 
+  test "a device sighted again at an address it lost to a re-attribution revives its row", %{
+    actor: actor
+  } do
+    ip = "203.0.113.12"
+    {:ok, earlier} = create_device(actor, "per-device-returning")
+    {:ok, later} = create_device(actor, "per-device-interim")
+
+    {:ok, held} = create_alias_row(actor, earlier.uid, ip)
+    {:ok, _held} = DeviceAliasState.confirm(held, actor: actor)
+
+    for _ <- 1..3, do: sight(actor, later.uid, ip, 3)
+
+    assert [%DeviceAliasState{state: :stale}] = alias_rows(earlier.uid, ip, actor)
+
+    # The address returns to the earlier device: its own sighting makes it a live
+    # holder again, and the reviving sighting does not expire the interim holder's
+    # confirmed row, so two devices sighted at one address never expire each other in
+    # turn (the live holder is the one sighted last).
+    sight(actor, earlier.uid, ip, 3)
+
+    assert [%DeviceAliasState{state: :confirmed}] = alias_rows(earlier.uid, ip, actor)
+    assert [%DeviceAliasState{state: :confirmed}] = alias_rows(later.uid, ip, actor)
+  end
+
   test "a sighting updates only the sighted device's row", %{actor: actor} do
     ip = "198.51.100.10"
     {:ok, a} = create_device(actor, "per-device-a")

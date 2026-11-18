@@ -5,7 +5,8 @@ defmodule ServiceRadar.Inventory.Changes.ForgetIpProvenance do
   holds. A primary with no recorded source counts as absent from every source's
   sightings (`Sync.DeviceWrites`), so the next source that sights the device at an
   equally strong address records it. A caller that records its source sets both
-  itself (`AgentGatewaySync`).
+  itself (`DeviceWrites.direct_primary_ip_attrs/4`); a source that re-records its own
+  primary at a new address leaves `ip_source` unchanged and sets only a new `ip_seen_at`.
   """
 
   use Ash.Resource.Change
@@ -28,6 +29,7 @@ defmodule ServiceRadar.Inventory.Changes.ForgetIpProvenance do
 
   defp forget?(changeset) do
     Ash.Changeset.changing_attribute?(changeset, :ip) and
-      not Ash.Changeset.changing_attribute?(changeset, :ip_source)
+      not Ash.Changeset.changing_attribute?(changeset, :ip_source) and
+      not Ash.Changeset.changing_attribute?(changeset, :ip_seen_at)
   end
 end

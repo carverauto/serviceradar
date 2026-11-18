@@ -62,9 +62,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # device and a retained tombstone (`Device.retained_reasons/0`).
   @unrevivable_reasons ["merged" | Device.retained_reasons()]
 
-  # The `^absent` and `^resighted` arrays pinned into device_upsert_update_query/1,
-  # bound once per use on top of the rows (ParameterChunking).
-  @upsert_extra_parameters 7
+  # The `^absent` and `^resighted` arrays and the `^cutoff` pinned into
+  # device_upsert_update_query/1, bound once per use on top of the rows (ParameterChunking).
+  @upsert_extra_parameters 10
 
   # An anchorless sweep seed that releases its only address to an identified
   # device (retire_released_seeds/1).
@@ -495,12 +495,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     * the recording source has not sighted it within the primary sighting window
       (`ip_seen_at`); a row with no recorded source has no sighting to keep it.
 
+  An absence lets an address of the same class or a stronger one replace the stored
+  primary (`Address.class_downgrade?/2`); a weaker class (a usable IPv4 to an IPv6,
+  a routable address to a link-local) replaces it only once the stored address has
+  also left the window. `cutoff` is the window's start, and the upsert applies the
+  same class rule against the row it updates.
+
   A record whose recording source re-sighted the stored primary refreshes
   `ip_seen_at` (`resighted`). Another source's update never counts as absence.
   Keys are `uid <> <<31>> <> stored_ip`, so an input never applies to an address the
   row no longer holds.
   """
-  @spec primary_ip_inputs([map()]) :: %{absent: [String.t()], resighted: [String.t()]}
+  @spec primary_ip_inputs([map()]) :: %{
+          absent: [String.t()],
+          resighted: [String.t()],
+          cutoff: DateTime.t()
+        }
   def primary_ip_inputs(records) do
     candidates =
       for %{uid: uid} = record <- records, present_ip?(Map.get(record, :ip)), do: {uid, record}
@@ -508,15 +518,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     stored = load_stored_primaries(Enum.map(candidates, &elem(&1, 0)))
     cutoff = DateTime.shift(DateTime.utc_now(), second: -primary_ip_sighting_window_seconds())
 
-    Enum.reduce(candidates, %{absent: [], resighted: []}, fn {uid, record}, acc ->
+    Enum.reduce(candidates, %{absent: [], resighted: [], cutoff: cutoff}, fn {uid, record}, acc ->
       case Map.get(stored, uid) do
         %{ip: ip} = row when is_binary(ip) and ip != "" ->
           key = uid <> @primary_key_separator <> ip
 
           case stored_primary_sighting(row, Map.get(record, :ip_sightings) || %{}, record, cutoff) do
-            :absent -> %{acc | absent: [key | acc.absent]}
-            :resighted -> %{acc | resighted: [key | acc.resighted]}
-            :present -> acc
+            :absent ->
+              if class_held?(row, record.ip, cutoff),
+                do: acc,
+                else: %{acc | absent: [key | acc.absent]}
+
+            :resighted ->
+              %{acc | resighted: [key | acc.resighted]}
+
+            :present ->
+              acc
           end
 
         _ ->
@@ -524,6 +541,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       end
     end)
   end
+
+  defp class_held?(%{ip: stored, ip_seen_at: seen_at}, incoming, cutoff),
+    do: Address.class_downgrade?(incoming, stored) and not aged_out?(seen_at, cutoff)
 
   defp stored_primary_sighting(%{ip: ip, ip_source: nil}, sightings, record, _cutoff) do
     # No recorded source: the record's own source adopts the address when it sighted
@@ -549,7 +569,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   @doc """
   Whether a writer that sets one device's `ip` directly, outside the bulk upsert (an agent
-  check-in, a camera inventory update), replaces the stored primary with `incoming`.
+  check-in, a camera inventory update, a mapper address move), replaces the stored primary
+  with `incoming`.
 
   The same keep decision as the upsert: `incoming` replaces the stored primary when it is
   strictly stronger (`Address.better?/2`), or when the stored primary is absent from the
@@ -557,24 +578,59 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   device, which is its whole view of it, so a stored primary it recorded (`source`) and
   one no source recorded are absent once it reports another; a primary another source
   recorded is absent only after that source has not sighted it for the window. Another
-  source's equally strong address never displaces it, and an IPv6 never displaces a
-  usable IPv4.
+  source's equally strong address never displaces it, and an absence lets a weaker class
+  (`Address.class_downgrade?/2`) replace the stored primary only once it has also left
+  the window.
   """
   @spec direct_write_takes_primary?(Device.t(), String.t() | nil, String.t() | nil) :: boolean()
   def direct_write_takes_primary?(%Device{ip: stored} = device, incoming, source)
       when is_binary(incoming) do
     cond do
-      not present_ip?(incoming) -> false
-      not present_ip?(stored) -> true
-      incoming == stored -> false
-      Address.better?(incoming, stored) -> true
-      Address.strength(incoming) == 0 -> false
-      device.ip_source in [nil, source] -> true
-      true -> primary_ip_aged_out?(device.ip_seen_at)
+      not present_ip?(incoming) ->
+        false
+
+      not present_ip?(stored) ->
+        true
+
+      incoming == stored ->
+        false
+
+      Address.better?(incoming, stored) ->
+        true
+
+      Address.strength(incoming) == 0 ->
+        false
+
+      device.ip_source in [nil, source] and not Address.class_downgrade?(incoming, stored) ->
+        true
+
+      true ->
+        primary_ip_aged_out?(device.ip_seen_at)
     end
   end
 
   def direct_write_takes_primary?(_device, _incoming, _source), do: false
+
+  @doc """
+  The primary-ip attributes a direct writer (`direct_write_takes_primary?/3`) sets on
+  `device` when `source` reports it at `incoming`, sighted at `seen_at`: the address with
+  its recording source and sighting time when it takes the primary, a refreshed
+  `ip_seen_at` when `source` re-sighted the primary it recorded, otherwise nothing.
+  """
+  @spec direct_primary_ip_attrs(Device.t(), String.t() | nil, String.t(), DateTime.t()) :: map()
+  def direct_primary_ip_attrs(%Device{} = device, incoming, source, seen_at)
+      when is_binary(source) do
+    cond do
+      direct_write_takes_primary?(device, incoming, source) ->
+        %{ip: incoming, ip_source: source, ip_seen_at: seen_at}
+
+      is_binary(incoming) and incoming == device.ip and device.ip_source == source ->
+        %{ip_seen_at: seen_at}
+
+      true ->
+        %{}
+    end
+  end
 
   @doc """
   True when a stored primary's recording source last sighted it (`seen_at`) longer ago
@@ -2068,7 +2124,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # identity transition -- the uid names a live thing again -- so it bumps
   # identity_revision exactly as Device :restore does. The
   # trg_ocsf_devices_revival_audit trigger records the tombstone the revival clears.
-  defp device_upsert_update_query(%{absent: absent, resighted: resighted}) do
+  defp device_upsert_update_query(%{absent: absent, resighted: resighted, cutoff: cutoff}) do
     from(d in Device,
       where:
         is_nil(d.deleted_at) or is_nil(d.deleted_reason) or
@@ -2086,7 +2142,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # family, otherwise the higher rank within the family wins), or the
           # stored address is absent from the sightings of the source that
           # recorded it (`absent`, decided by primary_ip_inputs/1 before the
-          # write; never inferred here from EXCLUDED.ip differing).
+          # write; never inferred here from EXCLUDED.ip differing). An absence
+          # takes an address of a weaker class (strength / 100) only once the
+          # stored address has also left the sighting window (`cutoff`).
           #
           # Comparing ranks alone tied a global IPv6 (50) with a private IPv4
           # (40), so the last writer won and a dual-stack device's primary
@@ -2117,6 +2175,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                   THEN EXCLUDED.ip
                 WHEN (? || chr(31) || ?) = ANY(?::text[])
                      AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
                   THEN EXCLUDED.ip
                 ELSE ?
               END
@@ -2128,6 +2189,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.uid,
               d.ip,
               ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
               d.ip
             ),
           # The source that recorded the primary, and when it last sighted it.
@@ -2148,6 +2213,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                   THEN EXCLUDED.ip_source
                 WHEN (? || chr(31) || ?) = ANY(?::text[])
                      AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
                   THEN EXCLUDED.ip_source
                 WHEN (? || chr(31) || ?) = ANY(?::text[]) THEN COALESCE(?, EXCLUDED.ip_source)
                 ELSE ?
@@ -2160,6 +2228,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.uid,
               d.ip,
               ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
               d.uid,
               d.ip,
               ^resighted,
@@ -2179,6 +2251,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                   THEN EXCLUDED.ip_seen_at
                 WHEN (? || chr(31) || ?) = ANY(?::text[])
                      AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
                   THEN EXCLUDED.ip_seen_at
                 WHEN (? || chr(31) || ?) = ANY(?::text[])
                   THEN GREATEST(?, EXCLUDED.ip_seen_at)
@@ -2192,6 +2267,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.uid,
               d.ip,
               ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
               d.uid,
               d.ip,
               ^resighted,

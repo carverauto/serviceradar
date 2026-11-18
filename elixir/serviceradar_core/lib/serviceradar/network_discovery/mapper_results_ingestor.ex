@@ -55,6 +55,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   @role_score_threshold 50
   # Bound on the values bound into one batched IN (...) lookup.
   @batch_lookup_chunk_size 500
+  @mapper_ip_source "mapper"
   @identity_successor_reads 8
 
   @unifi_interface_metadata_keys ~w(
@@ -2849,12 +2850,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # An existing device keeps its address while that address is still one of its own: the
   # address it was polled at, or one its interfaces report (a router polled at its WAN and
   # LAN addresses is one device, and must not flip between them). A recorded address the
-  # device no longer reports is stale, and the device moves to the address it was polled at.
+  # device no longer reports moves to the address it was polled at only through the shared
+  # keep decision (`DeviceWrites.direct_write_takes_primary?/3`), and the move records the
+  # mapper as its source, so another source's equally strong address is not displaced.
   defp maybe_move_device_address(polled, %Device{} = device, records, observed_at, actor) do
     current = normalize_alias_ip(device.ip)
 
     if current in own_addresses(polled.device_ip, records) or
-         not valid_alias_ip?(polled.device_ip) do
+         not valid_alias_ip?(polled.device_ip) or
+         not DeviceWrites.direct_write_takes_primary?(device, polled.device_ip, @mapper_ip_source) do
       :ok
     else
       move_device_address(device, polled.device_ip, polled.partition, observed_at, actor)
@@ -2938,7 +2942,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp set_device_address(%Device{} = device, ip, actor, opts \\ []) do
     device
-    |> Ash.Changeset.for_update(:update, %{ip: ip})
+    |> Ash.Changeset.for_update(:update, %{
+      ip: ip,
+      ip_source: @mapper_ip_source,
+      ip_seen_at: DateTime.utc_now()
+    })
     |> Ash.update(Keyword.put(opts, :actor, actor))
   end
 

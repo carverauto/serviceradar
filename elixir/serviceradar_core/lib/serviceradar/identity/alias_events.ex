@@ -554,8 +554,9 @@ defmodule ServiceRadar.Identity.AliasEvents do
                actor: actor,
                return_notifications?: true
              ),
+           {:ok, updated, revived} <- AliasGuard.revive_superseded_ip_alias(updated, actor),
            {:ok, expired} <- expire_superseded(existing, updated, actor) do
-        {updated, notifications ++ expired}
+        {updated, notifications ++ revived ++ expired}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -576,7 +577,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
          %{alias_type: :ip, state: :confirmed} = updated,
          actor
        )
-       when previous != :confirmed do
+       when previous not in [:confirmed, :stale] do
     AliasGuard.expire_superseded_ip_aliases(
       updated.alias_value,
       updated.partition,

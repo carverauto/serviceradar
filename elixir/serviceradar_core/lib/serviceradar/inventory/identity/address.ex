@@ -130,6 +130,17 @@ defmodule ServiceRadar.Inventory.Identity.Address do
   def better?(candidate, current), do: strength(candidate) > strength(current)
 
   @doc """
+  True when `candidate` is of a weaker class (`strength_class/1`) than `current`: a
+  usable IPv4 replaced by an IPv6, a routable address replaced by a link-local. An
+  absent primary is replaced by a weaker class only once it has left its recording
+  source's sighting window; a same-class re-IP (one usable IPv4 to another) is not a
+  downgrade. Mirrors `platform.sr_address_strength(text) / 100`.
+  """
+  @spec class_downgrade?(term(), term()) :: boolean()
+  def class_downgrade?(candidate, current),
+    do: div(strength(candidate), 100) < div(strength(current), 100)
+
+  @doc """
   Pick the best primary address from `candidates`, or `nil` when none is usable.
 
   The strongest candidate wins (`strength/1`). Only among candidates of equal

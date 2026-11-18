@@ -212,7 +212,15 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     address it reported for the device in the snapshot or window including
     candidates its chooser did not submit, no longer contains it, or it
     aged out of that source's window); a single-address update from another
-    source never counts as absence. The recording source and last-sighted
+    source never counts as absence. An absence lets only an address of the
+    same class or a stronger class replace the stored primary (a same-family
+    re-IP replaces it); a weaker class (usable IPv4 to IPv6, routable to
+    link-local) replaces it only once the stored address has also aged out of
+    the recording source's window, so a census snapshot that briefly lists only
+    a device's IPv6 (its ARP row aged out, NDP still present) does not move the
+    primary off its IPv4 and back. A direct writer (agent check-in, camera,
+    mapper address move) records itself as the source and its sighting time
+    when it sets the primary. The recording source and last-sighted
     time of the primary are stored (decision 1); every source that feeds
     the primary passes its full per-device address set to the batch
     builder, and absence is computed from that set and window in the

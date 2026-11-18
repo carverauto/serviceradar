@@ -50,6 +50,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   @profile_metadata_keys ~w(
     source width height fps bitrate auth_mode credential_reference_id protocol insecure_skip_verify
   )
+  @camera_ip_source "camera_plugin"
   @source_origin_keys ["source_origin", "sourceOrigin"]
   @source_url_keys ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
   @stream_url_keys ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
@@ -778,14 +779,16 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   end
 
   # The descriptor's address replaces the camera's primary only through the shared keep
-  # decision (`DeviceWrites.direct_write_takes_primary?/3`); otherwise the stored one stays.
-  # A descriptor with no address (or one withheld as contested) still clears it.
+  # decision, which records the camera inventory as its source
+  # (`DeviceWrites.direct_primary_ip_attrs/4`); otherwise the stored one stays. A
+  # descriptor with no address (or one withheld as contested) still clears it.
   defp put_camera_primary_ip(update_attrs, _device, nil), do: Map.put(update_attrs, :ip, nil)
 
   defp put_camera_primary_ip(update_attrs, %Device{} = device, ip) do
-    if DeviceWrites.direct_write_takes_primary?(device, ip, nil),
-      do: Map.put(update_attrs, :ip, ip),
-      else: update_attrs
+    Map.merge(
+      update_attrs,
+      DeviceWrites.direct_primary_ip_attrs(device, ip, @camera_ip_source, DateTime.utc_now())
+    )
   end
 
   defp camera_classified_device?(%Device{} = device) do

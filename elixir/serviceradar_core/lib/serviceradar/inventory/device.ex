@@ -112,6 +112,8 @@ defmodule ServiceRadar.Inventory.Device do
     :name,
     :hostname,
     :ip,
+    :ip_source,
+    :ip_seen_at,
     :mac,
     :gateway_id,
     :agent_id,

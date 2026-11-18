@@ -866,6 +866,63 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       refute MapSet.member?(live_ip_aliases(device.uid), link_local)
     end
 
+    test "a census snapshot listing only the IPv6 keeps the IPv4 until it leaves the window", %{
+      actor: actor
+    } do
+      # The ARP row aged out of the census while NDP still lists the device. The
+      # IPv4 is absent from a complete snapshot, but an absence takes a weaker class
+      # only after the window; otherwise the next full snapshot flips it back.
+      mac = unique_universal_mac()
+      ipv4 = unused_private_ip()
+      ipv6 = unused_address(fn n -> "2001:db8::#{Integer.to_string(n, 16)}" end)
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv4, ipv6]), actor: actor)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == ipv4,
+             "a census snapshot without the ARP row moved a usable IPv4 primary to the IPv6"
+
+      age_primary_sighting!(mac)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == ipv6
+    end
+
+    test "absence takes the same or a stronger class, never a weaker one, in SQL and Elixir" do
+      # {stored, incoming, weaker class?}: classes are usable IPv4, routable IPv6,
+      # link-local; a same-class re-IP is never a downgrade.
+      cases = [
+        {"192.168.0.3", "2001:db8::3", true},
+        {"203.0.113.5", "10.1.0.5", false},
+        {"10.1.0.5", "203.0.113.5", false},
+        {"2001:db8::5", "fd00::5", false},
+        {"2001:db8::5", "fe80::5", true},
+        {"192.0.2.3", "169.254.1.3", true},
+        {"169.254.1.9", "fe80::9", false},
+        {"2001:db8::3", "192.168.0.3", false}
+      ]
+
+      %{rows: rows} =
+        Repo.query!(
+          """
+          SELECT s, i,
+                 platform.sr_address_strength(i) / 100 < platform.sr_address_strength(s) / 100
+          FROM unnest($1::text[], $2::text[]) AS c(s, i)
+          """,
+          [Enum.map(cases, &elem(&1, 0)), Enum.map(cases, &elem(&1, 1))]
+        )
+
+      sql = Map.new(rows, fn [stored, incoming, weaker?] -> {{stored, incoming}, weaker?} end)
+
+      wrong =
+        for {stored, incoming, expected} <- cases,
+            Map.fetch!(sql, {stored, incoming}) != expected or
+              Address.class_downgrade?(incoming, stored) != expected,
+            do: {stored, incoming, expected}
+
+      assert wrong == [], "class downgrade disagrees for #{inspect(wrong)}"
+    end
+
     test "another source reporting a different IPv4 does not move the primary", %{actor: actor} do
       mac = unique_universal_mac()
       census_ip = unused_private_ip()

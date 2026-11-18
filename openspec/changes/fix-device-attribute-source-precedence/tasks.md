@@ -162,7 +162,10 @@
       rank within the same family after the IPv4-mapped unwrap; a
       higher-rank IPv6 never replaces a usable IPv4) or the stored address
       is absent from the sightings of the source that recorded it (another
-      source's single-address update never counts as absence); equal rank
+      source's single-address update never counts as absence; an absence
+      takes only a same-or-stronger-class address, and a weaker class only
+      once the stored address has also aged out of the window; a direct
+      writer records its source and sighting time); equal rank
       never replaces, for two usable IPv4s and for `fe80::` vs `169.254/16`
       on a link-local-only device; every source that feeds the primary
       passes its full per-device address set (including candidates its

@@ -1364,24 +1364,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   @checkin_ip_source "agent_checkin"
 
   # The check-in's source address goes through the same keep decision as every other
-  # primary-ip writer (`DeviceWrites.direct_write_takes_primary?/3`): a check-in from an
+  # primary-ip writer (`DeviceWrites.direct_primary_ip_attrs/4`): a check-in from an
   # IPv6 never moves a dual-stack host off its IPv4, and another source's address is not
   # displaced by an equally strong check-in address. A check-in that re-sights the stored
   # primary it recorded refreshes the sighting time. A restore that keeps the stored
   # address still releases it when another live device holds it
   # (`ReleaseContestedAddress`).
-  defp checkin_primary_attrs(%Device{} = device, source_ip, now) when is_binary(source_ip) do
-    cond do
-      DeviceWrites.direct_write_takes_primary?(device, source_ip, @checkin_ip_source) ->
-        %{ip: source_ip, ip_source: @checkin_ip_source, ip_seen_at: now}
-
-      source_ip == device.ip and device.ip_source == @checkin_ip_source ->
-        %{ip_seen_at: now}
-
-      true ->
-        %{}
-    end
-  end
+  defp checkin_primary_attrs(%Device{} = device, source_ip, now) when is_binary(source_ip),
+    do: DeviceWrites.direct_primary_ip_attrs(device, source_ip, @checkin_ip_source, now)
 
   defp checkin_primary_attrs(_device, _source_ip, _now), do: %{}
 
