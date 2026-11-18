@@ -61,3 +61,15 @@ GHSA-rhv4-8758-jx7v
 # ServiceRadar.Vault (elixir/serviceradar_core/lib/serviceradar/vault.ex:37)
 # configures Cloak.Ciphers.AES.GCM exclusively; Cloak.Ciphers.AES.CTR is unused.
 EEF-CVE-2026-95105
+
+# GHSA-w4f7-4cxr-rv3c / CVE-2026-43966 / cowlib structured-header response splitting
+#
+# False positive for gun. The advisory covers two packages with separate ranges:
+# cowboy < 2.16.0 and gun < 2.4.0. The advisory database mix_audit reads lists
+# both ranges under gun, so every gun below 2.16.0 is reported, including the
+# patched 2.8.0 this project locks. Where this project locks cowboy it is 2.21.0,
+# and cowlib is 2.22.0, so nothing here is in an affected range.
+#
+# Remove this waiver when packages/gun/GHSA-w4f7-4cxr-rv3c.yml in
+# mirego/elixir-security-advisories lists only "< 2.4.0".
+GHSA-w4f7-4cxr-rv3c
