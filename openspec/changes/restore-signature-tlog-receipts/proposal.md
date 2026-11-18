@@ -61,10 +61,12 @@ Rekor, so no installation depends on that log being up.
   the SET must verify, and the logged body must name the same signature, release public key and
   payload hash. Import never makes a network call to a Sigstore service or to any Rekor, the
   self-hosted one included; a test proves it.
-- **Artifacts without a receipt.** The cutover release is the first release whose signer attaches
-  receipts. All first-party `.sig` signatures published before it lack the annotation, and Harbor tag immutability prevents adding it. The product owner
-  decided on a frozen allowlist of every pre-cutover first-party Wasm plugin and native add-on
-  digest, shipped in the web-ng image; those import key-only. From the cutover release on, every
+- **Artifacts without a receipt.** The cutover release is v1.5.8 or later: the first release built
+  from a commit containing the signer change (v1.5.7 was cut without it). All first-party `.sig`
+  signatures published before it lack the annotation, and Harbor tag immutability prevents adding it. The product owner
+  decided on a frozen allowlist of every first-party Wasm plugin and native add-on digest
+  published up to and including v1.5.7, shipped in the web-ng image; those import key-only. Once
+  the allowlist is frozen, no release is cut from a commit without the signer. From the cutover release on, every
   other first-party Wasm plugin or native add-on digest requires a receipt (design.md,
   Decision 9).
 - **Cosign upgrade.** The signer (`scripts/install-cosign.sh`) and the web-ng image
@@ -74,8 +76,10 @@ Rekor, so no installation depends on that log being up.
   change relies on is the pinned-key path (`SIGSTORE_REKOR_PUBLIC_KEY`, no trusted root), which
   binds the receipt to the artifact and is the advisory's own workaround; the upgrade also closes
   the gap in the trusted-root branch.
-- **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` scans every new entry of
-  the self-hosted log (small and fully enumerable), hourly, and selects the entries signed by the
+- **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` runs a project-owned
+  scanner (`build/ci/rekor_signing_monitor.py`) hourly. It reads every entry of the self-hosted log
+  (small and fully enumerable), recomputes the RFC 6962 root against the log's signed tree head
+  under the pinned key, requires the previous checkpoint to be a prefix of the log, and selects the entries signed by the
   release key. It alerts on any entry that does not match a payload
   recorded by one of the repository's release-key signing runs, within about one scan interval
   after the entry becomes decidable (every release-key signing run active at its integrated time
@@ -89,10 +93,11 @@ Rekor, so no installation depends on that log being up.
   reviewed update adds the new key and keeps every key an accepted receipt names.
 - **Kyverno trust configuration.** The demo `verify-serviceradar-images` policy today names no
   Rekor, so Kyverno defaults to public-good Rekor and its TUF keys and would deny an image whose
-  receipt comes from the self-hosted log. The policy gains the pinned self-hosted key so that it
-  verifies the receipt offline, and keeps an entry for pre-cutover images until none is admitted
-  any more (design.md, Decision 3). This is a `carverauto/gitops` change and must be live before
-  demo runs a cutover-release image.
+  receipt comes from the self-hosted log. The policy gains a receipt entry with the pinned
+  self-hosted key and no Rekor URL, so that it verifies the receipt offline, and keeps a
+  transition entry for pre-cutover images until every admitted demo image carries a self-hosted
+  receipt (design.md, Decision 3). This is a `carverauto/gitops` change, drafted with this work
+  and merged and applied by a person; it must be live on demo before the cutover release is cut.
 - **Second line: the OpenBao audit log.** The self-hosted Rekor signs with an OpenBao Transit key
   in the same OpenBao as `cosign-release`, so someone who can use both keys could forge a receipt
   without logging anything. An OpenBao audit device and a watch that reports every

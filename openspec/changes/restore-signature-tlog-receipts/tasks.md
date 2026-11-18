@@ -43,8 +43,10 @@
 - [x] 3.1 Classify each digest in `cosign_verify_legacy_signature` from the signer's ledger record
   (created or reused), never from whether a receipt is present, and fail a digest in neither set.
   Verify created signatures and reused signatures that carry a receipt in the receipt-required form
-  (design.md, Decision 4), selecting the pinned key from `docs/sigstore/rekor-keys/` by the
-  receipt's `logID`. Reused signatures without a receipt, which can only be pre-cutover (including
+  (design.md, Decision 4), selecting the pinned key by the receipt's `logID`: for a created
+  signature only from `docs/sigstore/rekor-keys/`; for a reused signature from
+  `docs/sigstore/rekor-keys/`, or from `docs/sigstore/pre-cutover-rekor-keys/` when the receipt
+  names the public-good log. Reused signatures without a receipt, which can only be pre-cutover (including
   container images), stay key-only and are exempt from the receipt check; the import allowlist is
   not consulted here.
 - [x] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
@@ -69,11 +71,13 @@
   and records `verified`; (b) key-only mode only for allowlisted digests without a receipt, with #6778's
   flags (`--insecure-ignore-tlog=true`, no Rekor key). No TUF, isolated home and cache directories,
   bounded timeout.
-- [ ] 4.2 With the cutover release (the first release whose signer attaches receipts), generate
-  and commit the frozen allowlist from every `serviceradar-wasm-plugin-index.json` and
-  `serviceradar-native-addon-index.json` published before it. Ship that list unchanged with the
-  verifier release, never regenerate it once receipt-bearing releases exist, and add the freeze
-  contract test.
+- [ ] 4.2 With the cutover release (v1.5.8 or later, the first release built from a commit
+  containing the signer change; v1.5.7 was cut without it), generate and commit the frozen
+  allowlist from every `serviceradar-wasm-plugin-index.json` and
+  `serviceradar-native-addon-index.json` published up to and including v1.5.7. Ship that list
+  unchanged with the verifier release, never regenerate it once receipt-bearing releases exist, and
+  add the freeze contract test. Once it is frozen, no release is cut from a commit without the
+  signer.
 - [ ] 4.3 Store `transparency_receipt` (`verified` with log index and integrated time, or
   `absent_allowlisted`) in the import verification metadata on both write paths: web-ng
   `first_party_importer.ex` for Wasm plugins, and for native add-ons web-ng
@@ -90,9 +94,13 @@
 
 - [x] 5.1 Measure the scan cost (design.md, Context and Open Question 1). Public-good Rekor v1
   cannot be scanned in full; the log moved to the self-hosted Rekor, which can.
-- [ ] 5.2 Add `.github/workflows/rekor-signing-monitor.yml`: `rekor_monitor` built from a pinned
-  commit with a verified checksum; checkpoint kept as an artifact; fingerprint of `docs/cosign.pub`;
-  ledger matching against every release-key signing workflow, with entries left pending (no alert)
+- [ ] 5.2 Add `build/ci/rekor_signing_monitor.py`, run hourly by
+  `.github/workflows/rekor-signing-monitor.yml` (not `rekor_monitor` from `sigstore/rekor-monitor`,
+  which verifies checkpoints only through a TUF trusted root that does not list the self-hosted
+  log). Each run reads every entry of the self-hosted log, recomputes the RFC 6962 root and checks
+  it against the signed tree head under `docs/sigstore/rekor.pub`, requires the previous checkpoint
+  (kept as a workflow artifact) to be a prefix of the log, checks the served key, and selects
+  entries whose key is `docs/cosign.pub`; ledger matching against every release-key signing workflow, with entries left pending (no alert)
   while a run active at their integrated time is still in progress;
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
@@ -110,23 +118,29 @@
 
 ## 5b. Admission, second line and operations
 
-- [ ] 5b.1 Change `carverauto/gitops` `k8s/kyverno/base/verify-serviceradar-images.yaml` as in
-  design.md, Decision 3: a receipt entry with the pinned self-hosted `rekor.pubkey` and a
-  pre-cutover entry, `count: 1`, no `ignoreTlog: true`. Live before demo runs a cutover-release
-  image. Remove the pre-cutover entry once no admitted demo image carries a pre-cutover signature.
+- [ ] 5b.1 Draft the `carverauto/gitops` PR changing
+  `k8s/kyverno/base/verify-serviceradar-images.yaml` as in design.md, Decision 3, `count: 1`: a
+  receipt entry (`keys` attestor with the release key, `rekor.pubkey` = `docs/sigstore/rekor.pub`,
+  `ignoreTlog: false`, no `rekor.url`) and the pre-cutover transition entry with today's
+  public-good configuration; no `ignoreTlog: true`. A person merges and applies it, and it SHALL be
+  live on demo before the cutover release is cut.
 - [ ] 5b.2 Specify and, once the operator has enabled the OpenBao audit device, implement the watch
   that reports `transit/sign/cosign-release` requests no signing ledger accounts for (design.md,
   Decision 10). Agents do not enable the audit device.
 - [ ] 5b.3 Operator check, recorded in `docs/sigstore/README.md`: `bao read
   transit/keys/cosign-release` shows `exportable=false` and `allow_plaintext_backup=false`
   (design.md, Decision 11). Agents do not run it.
-- [ ] 5b.4 Back up the self-hosted log's Trillian MySQL database and test a restore, and remint the
-  Rekor OpenBao token (or move Rekor to Kubernetes auth) before it expires (design.md, Risks).
+- [ ] 5b.4 Operator tasks (design.md, Risks): back up the self-hosted log's Trillian MySQL database
+  and test a restore, and remint the Rekor OpenBao token (or move Rekor to Kubernetes auth) before
+  it expires around 2026-12-01. Agents do not run them.
+- [ ] 5b.5 Remove the pre-cutover transition entry from the Kyverno policy once every image admitted
+  in demo carries a self-hosted receipt. Check the running images; do not assume (an unchanged
+  digest such as `serviceradar-cnpg` keeps its pre-cutover signature until rebuilt).
 
 ## 6. Docs
 
 - [ ] 6.1 Update `docs/sigstore/README.md` and `docs/RELEASE_PUBLISHING.md` (receipt in `.sig`,
-  pinned log, ledger, monitor, key update process, history gap before the first monitor run).
+  pinned log, ledger, monitor, key update process, acknowledged pre-ledger entries).
 - [ ] 6.2 Update `docs/docs/wasm-plugins.md` and `docs/docs/native-addons.md` for offline receipt
   verification and the `absent_allowlisted` status.
 - [x] 6.3 Replace the manual demo signing path in `docs/agent-runbooks.md` with the
