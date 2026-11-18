@@ -55,26 +55,20 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
 2. Copy unchanged images from the current demo tag to the new tag:
    - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
    - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
-3. Rebuild the production `web-ng` release locally:
-   - `cd elixir/web-ng`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix assets.deploy`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix release --path /tmp/serviceradar_web_ng_release_<shortsha>`
-4. Package and push the new `web-ng` image directly with `crane`:
-   - `tar --owner=10001 --group=10001 --transform='s,^,app/,' -cf /tmp/serviceradar_web_ng_layer_<shortsha>.tar -C /tmp/serviceradar_web_ng_release_<shortsha> .`
-   - `/tmp/gobin/crane append --platform linux/amd64 -b index.docker.io/hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim -f /tmp/serviceradar_web_ng_layer_<shortsha>.tar -t registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-   - `/tmp/gobin/crane mutate --platform linux/amd64 --tag registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new> --entrypoint /app/bin/serviceradar_web_ng --cmd start --env HOME=/app --env PATH=/app/bin:/usr/local/bin:/usr/bin:/bin --env PHX_SERVER=true --env MIX_ENV=prod --exposed-ports 4000/tcp --user 10001:10001 --workdir /app registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-5. Sign the new `web-ng` tag with the release signer, not a local key:
-   - Port-forward OpenBao if needed: `kubectl port-forward -n vault svc/openbao 18200:8200`
-   - Exchange the Forgejo runner service account token for a Vault token and set `VAULT_ADDR=http://127.0.0.1:18200`
-   - `export COSIGN_KEY_REF=hashivault://cosign-release`
-   - `export COSIGN_YES=true`
-   - `cosign sign --new-bundle-format=false --use-signing-config=false --tlog-upload=true --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng@<digest>`
-   - Images carry only the classic `.sig` signature that demo admission reads; cosign v3's default bundle format is denied.
-6. Patch the Argo app override instead of editing chart values for one-off demo tests:
+3. Build, sign and promote the new `web-ng` image through the publishing workflow, not by hand:
+   - Push the commit to a reviewed branch, then
+     `gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <branch> -f publish_scope=web-stack-commit-only -f expected_commit=<full sha>`.
+   - The workflow signs the digest with the release key, attaches the transparency-log receipt to the
+     classic `.sig` that demo admission reads, records the signature in its signing ledger, and verifies
+     and promotes the image.
+   - Do not sign with `hashivault://cosign-release` from a workstation. Every release-key signature is
+     logged in public Rekor, and a signature that no workflow's signing ledger records is reported by the
+     transparency-log monitor as possible key misuse. If a manual signature is ever unavoidable, record
+     its log entry in `docs/sigstore/rekor-acknowledged-entries.json` in a reviewed PR
+     (`docs/sigstore/README.md`).
+4. Patch the Argo app override instead of editing chart values for one-off demo tests:
    - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
-7. Watch the rollout to completion:
+5. Watch the rollout to completion:
    - `kubectl get application -n argocd serviceradar-demo-prod -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"\n"}'`
    - `kubectl get deploy -n demo serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-tools -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'`
    - Expect temporary `OutOfSync|Healthy|Running` or `Synced|Progressing|Running` while hook jobs such as runtime cert generation or NATS credential generation complete.

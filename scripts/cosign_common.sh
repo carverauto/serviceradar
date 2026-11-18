@@ -4,6 +4,14 @@
 
 COSIGN_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COSIGN_COMMON_REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${COSIGN_COMMON_DIR}/.." && pwd)}"
+# The public-good Rekor v1 log every release signature is written to, and the directory
+# holding its key (rekor.pub) and every accepted Rekor key (rekor-keys/<logID>.pub).
+# release.yml points SERVICERADAR_SIGSTORE_DIR at a copy taken before it checks out an
+# older release, as it does for the current scripts.
+COSIGN_PINNED_REKOR_URL="https://rekor.sigstore.dev"
+COSIGN_SIGSTORE_DIR="${SERVICERADAR_SIGSTORE_DIR:-${COSIGN_COMMON_REPO_ROOT}/docs/sigstore}"
+COSIGN_RECEIPT_TOOL="${COSIGN_COMMON_DIR}/cosign_receipt.py"
+COSIGN_VERIFY_TIMEOUT="60s"
 
 declare -ag COSIGN_TEMP_FILES=()
 
@@ -148,10 +156,13 @@ cosign_export_trust_overrides() {
     export SIGSTORE_CT_LOG_PUBLIC_KEY_FILE="${ctlog_key_file}"
   fi
 
+  # No implicit default: the pinned docs/sigstore/rekor.pub is passed only to the
+  # receipt verification below. Exported globally, it would also replace the TUF trusted
+  # root that a protobuf-bundle verify-blob (the release checksum) requires.
   rekor_key_file="$(cosign_resolve_file \
     "${SIGSTORE_REKOR_PUBLIC_KEY_FILE:-}" \
     "${SIGSTORE_REKOR_PUBLIC_KEY_PEM:-}" \
-    "${COSIGN_COMMON_REPO_ROOT}/docs/sigstore/rekor.pub")"
+    "")"
   if [[ -n "${rekor_key_file}" ]]; then
     export SIGSTORE_REKOR_PUBLIC_KEY="${rekor_key_file}"
   fi
@@ -416,13 +427,6 @@ cosign_init_verify_args() {
   return 0
 }
 
-# Images, native add-ons and Wasm plugins carry one signature format: the classic
-# `.sig` tag, which admission (Kyverno key-based verifyImages) reads. cosign v3
-# otherwise prefers a Sigstore bundle referrer and could pass an artifact that
-# admission rejects. Call after cosign_init_verify_args.
-cosign_verify_legacy_signature() {
-  cosign verify --new-bundle-format=false "${COSIGN_VERIFY_ARGS[@]}" "$1"
-}
 
 cosign_log_has_transient_tlog_error() {
   local log_file="$1"
@@ -475,11 +479,30 @@ cosign_init_tlog_args() {
 }
 
 cosign_sign_blob_to_files() {
+  cosign_init_tlog_args "${5:-true}"
+  cosign_sign_blob_retrying "$1" "$2" "$3" "$4"
+}
+
+# Release signatures for images, native add-ons and Wasm plugins. cosign's legacy upload
+# path writes to the pinned Rekor v1 log, never to a log a TUF-delivered signing config
+# names, and the legacy `--bundle` file carries the receipt (`rekorBundle`): a Rekor v2
+# entry has no SignedEntryTimestamp and cannot be carried in the classic annotation.
+cosign_sign_blob_with_receipt() {
+  declare -g -a COSIGN_TLOG_ARGS=(
+    --use-signing-config=false
+    --new-bundle-format=false
+    --rekor-url "${COSIGN_PINNED_REKOR_URL}"
+    --tlog-upload=true
+  )
+  cosign_sign_blob_retrying "$1" "$2" "$3" "$4"
+}
+
+# Signs with COSIGN_TLOG_ARGS and retries only transient transparency-log errors.
+cosign_sign_blob_retrying() {
   local payload_file="$1"
   local bundle_file="$2"
   local signature_file="$3"
   local stdout_file="$4"
-  local requested_tlog_upload="${5:-true}"
   local stderr_file
   local status=1
   local attempt=1
@@ -496,7 +519,6 @@ cosign_sign_blob_to_files() {
     : >"${bundle_file}"
     : >"${stdout_file}"
 
-    cosign_init_tlog_args "${requested_tlog_upload}"
     if cosign sign-blob \
       --yes \
       "${COSIGN_TLOG_ARGS[@]}" \
@@ -569,3 +591,311 @@ cosign_reconcile_legacy_signature() (
     *) echo "error: invalid legacy reconciliation result" >&2; return 1 ;;
   esac
 )
+
+
+cosign_receipt() {
+  python3 "${COSIGN_RECEIPT_TOOL}" "$@"
+}
+
+# --- Classic `.sig` publication, shared by the image, native add-on and Wasm signers ---
+# Callers set REGISTRY_HOST and run on the publisher host with registry credentials.
+
+resolve_registry_auth() {
+  if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
+    printf '%s|%s\n' "${OCI_USERNAME}" "${OCI_TOKEN}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_ROBOT_USERNAME:-}" && -n "${HARBOR_ROBOT_SECRET:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_ROBOT_USERNAME}" "${HARBOR_ROBOT_SECRET}"
+    return 0
+  fi
+  if [[ -n "${HARBOR_USERNAME:-}" && -n "${HARBOR_PASSWORD:-}" ]]; then
+    printf '%s|%s\n' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}"
+    return 0
+  fi
+
+  local docker_config
+  docker_config="${DOCKER_CONFIG:-${HOME}/.docker}/config.json"
+  if [[ -f "${docker_config}" ]]; then
+    python3 - <<'PY' "${docker_config}" "${REGISTRY_HOST}"
+import base64
+import json
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+registry_host = sys.argv[2]
+config = json.loads(config_path.read_text())
+auths = config.get("auths") or {}
+entry = auths.get(registry_host) or auths.get(f"https://{registry_host}") or {}
+auth = entry.get("auth") or ""
+if auth:
+    decoded = base64.b64decode(auth).decode("utf-8")
+    user, _, password = decoded.partition(":")
+    print(f"{user}|{password}")
+else:
+    print("|")
+PY
+    return 0
+  fi
+
+  printf '|\n'
+}
+
+fetch_registry_token() {
+  local repo_path="$1"
+  local scope_actions="${2:-pull,push}"
+  local auth user pass
+  auth="$(resolve_registry_auth)"
+  IFS='|' read -r user pass <<<"${auth}"
+
+  local token_url="https://${REGISTRY_HOST}/service/token?service=harbor-registry&scope=repository:${repo_path}:${scope_actions}"
+  if [[ -n "${user}" && -n "${pass}" ]]; then
+    curl -fsSL -u "${user}:${pass}" "${token_url}" | jq -r '.token'
+  else
+    curl -fsSL "${token_url}" | jq -r '.token'
+  fi
+}
+
+upload_blob() {
+  local repo_path="$1"
+  local file_path="$2"
+  local token digest status upload_url patch_headers
+
+  token="$(fetch_registry_token "${repo_path}" "pull,push")"
+  [[ -n "${token}" && "${token}" != "null" ]] || {
+    echo "error: registry token lookup failed for ${repo_path}" >&2
+    return 1
+  }
+
+  digest="sha256:$(shasum -a 256 "${file_path}" | awk '{print $1}')"
+  status="$(
+    curl -sS -o /dev/null \
+      -H "Authorization: Bearer ${token}" \
+      -I "https://${REGISTRY_HOST}/v2/${repo_path}/blobs/${digest}" \
+      -w '%{http_code}' || true
+  )"
+  if [[ "${status}" == "200" ]]; then
+    printf '%s\n' "${digest}"
+    return 0
+  fi
+
+  upload_url="$(
+    curl -fsSI -X POST \
+      -H "Authorization: Bearer ${token}" \
+      "https://${REGISTRY_HOST}/v2/${repo_path}/blobs/uploads/" \
+      | awk 'tolower($1)=="location:" {print $2}' \
+      | tr -d '\r'
+  )"
+  [[ -n "${upload_url}" ]] || {
+    echo "error: failed to start blob upload for ${repo_path}" >&2
+    return 1
+  }
+  case "${upload_url}" in
+    http*) ;;
+    /*) upload_url="https://${REGISTRY_HOST}${upload_url}" ;;
+    *) upload_url="https://${REGISTRY_HOST}/${upload_url}" ;;
+  esac
+
+  patch_headers="$(mktemp)"
+  if ! curl -fsS -D "${patch_headers}" -X PATCH \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Content-Type: application/octet-stream' \
+    --data-binary @"${file_path}" \
+    "${upload_url}" >/dev/null; then
+    rm -f "${patch_headers}"
+    return 1
+  fi
+  upload_url="$(awk 'tolower($1)=="location:" {print $2}' "${patch_headers}" | tr -d '\r')"
+  rm -f "${patch_headers}"
+  [[ -n "${upload_url}" ]] || {
+    echo "error: registry did not return upload location for ${repo_path}" >&2
+    return 1
+  }
+  case "${upload_url}" in
+    http*) ;;
+    /*) upload_url="https://${REGISTRY_HOST}${upload_url}" ;;
+    *) upload_url="https://${REGISTRY_HOST}/${upload_url}" ;;
+  esac
+  if [[ "${upload_url}" == *\?* ]]; then
+    upload_url="${upload_url}&digest=${digest}"
+  else
+    upload_url="${upload_url}?digest=${digest}"
+  fi
+
+  curl -fsS -X PUT \
+    -H "Authorization: Bearer ${token}" \
+    "${upload_url}" >/dev/null || return 1
+  printf '%s\n' "${digest}"
+}
+
+put_manifest_tag() {
+  local repo_path="$1"
+  local tag="$2"
+  local manifest_file="$3"
+  local token
+
+  token="$(fetch_registry_token "${repo_path}" "pull,push")"
+  [[ -n "${token}" && "${token}" != "null" ]] || {
+    echo "error: registry token lookup failed for ${repo_path}" >&2
+    return 1
+  }
+
+  curl -fsS -X PUT \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Content-Type: application/vnd.oci.image.manifest.v1+json' \
+    --data-binary @"${manifest_file}" \
+    "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null || return 1
+}
+
+extract_detached_signature() {
+  local signature_file="$1"
+  local stdout_file="$2"
+  local bundle_file="$3"
+  local candidate=""
+
+  if [[ -s "${signature_file}" ]]; then
+    candidate="$(tr -d '\r\n' <"${signature_file}")"
+  fi
+
+  if [[ -z "${candidate}" && -s "${stdout_file}" ]]; then
+    candidate="$(tr -d '\r\n' <"${stdout_file}")"
+  fi
+
+  if [[ ! "${candidate}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] && [[ -s "${bundle_file}" ]]; then
+    candidate="$(
+      jq -r '
+        .messageSignature.signature
+        // .base64Signature
+        // .Base64Signature
+        // .dsseEnvelope.signatures[0].sig
+        // empty
+      ' "${bundle_file}"
+    )"
+  fi
+
+  if [[ ! "${candidate}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "${candidate}"
+}
+
+# Sign one digest with exactly one classic `.sig` signature that carries its Rekor
+# receipt in the `dev.sigstore.cosign/bundle` annotation. A verified existing signature
+# is reused and never replaced: classic tags are content-addressed by digest and Harbor
+# immutability rejects an overwrite. Every signature, created or reused, is recorded in
+# the signing ledger, and a new one is recorded before it is uploaded to the log.
+attach_legacy_signature() {
+  local ref="$1"
+  local repo="${ref%@*}"
+  local repo_path="${repo#"${REGISTRY_HOST}"/}"
+  local signature_ref signature_tag legacy_state temp_file
+  local payload_file signature_file bundle_file stdout_file extracted_signature_file
+  local receipt_file config_file manifest_file payload_digest
+
+  signature_ref="$(cosign triangulate "${ref}")" || return 1
+  signature_tag="${signature_ref##*:}"
+
+  legacy_state="$(cosign_reconcile_legacy_signature "${ref}")" || return 1
+  if [[ "${legacy_state}" == "reused" ]]; then
+    cosign_receipt ledger-reused "${ref}" || return 1
+    echo "verified existing legacy signature for ${ref}; not signing again"
+    return 0
+  fi
+
+  payload_file="$(mktemp)"
+  signature_file="$(mktemp)"
+  bundle_file="$(mktemp)"
+  stdout_file="$(mktemp)"
+  extracted_signature_file="$(mktemp)"
+  receipt_file="$(mktemp)"
+  config_file="$(mktemp)"
+  manifest_file="$(mktemp)"
+  for temp_file in "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" \
+    "${extracted_signature_file}" "${receipt_file}" "${config_file}" "${manifest_file}"; do
+    cosign_register_temp_file "${temp_file}"
+  done
+
+  cosign generate "${ref}" >"${payload_file}" || return 1
+  cosign_receipt ledger-sign "${ref}" "${payload_file}" || return 1
+  cosign_sign_blob_with_receipt "${payload_file}" "${bundle_file}" "${signature_file}" "${stdout_file}" || return 1
+  # No `.sig` tag is written for a signature without its receipt from the pinned log.
+  cosign_receipt receipt "${bundle_file}" "${COSIGN_SIGSTORE_DIR}/rekor.pub" >"${receipt_file}" || return 1
+  cosign_receipt ledger-logged "${ref}" "${payload_file}" "${bundle_file}" || return 1
+
+  if ! extract_detached_signature "${signature_file}" "${stdout_file}" "${bundle_file}" >"${extracted_signature_file}"; then
+    echo "error: detached cosign signature was empty for ${ref}" >&2
+    return 1
+  fi
+
+  payload_digest="sha256:$(shasum -a 256 "${payload_file}" | awk '{print $1}')"
+  cat >"${config_file}" <<EOF
+{"architecture":"","created":"0001-01-01T00:00:00Z","history":[{"created":"0001-01-01T00:00:00Z"}],"os":"","rootfs":{"type":"layers","diff_ids":["${payload_digest}"]},"config":{}}
+EOF
+
+  upload_blob "${repo_path}" "${config_file}" >/dev/null || return 1
+  upload_blob "${repo_path}" "${payload_file}" >/dev/null || return 1
+  cosign_receipt manifest "${config_file}" "${payload_file}" "${extracted_signature_file}" "${receipt_file}" \
+    >"${manifest_file}" || return 1
+  put_manifest_tag "${repo_path}" "${signature_tag}" "${manifest_file}" || return 1
+}
+
+# --- Release verification of classic `.sig` signatures ---
+
+# The release public key passed to `cosign verify`. Call after cosign_init_verify_args.
+cosign_release_verify_key() {
+  local index
+  for ((index = 0; index < ${#COSIGN_VERIFY_ARGS[@]} - 1; index++)); do
+    if [[ "${COSIGN_VERIFY_ARGS[index]}" == "--key" ]]; then
+      printf '%s\n' "${COSIGN_VERIFY_ARGS[index + 1]}"
+      return 0
+    fi
+  done
+  echo "error: release signature verification requires the release public key" >&2
+  return 1
+}
+
+# Verify the classic `.sig` of one digest the way this run's signing ledger says it was
+# produced, never by whether a receipt happens to be present. A digest created in the run
+# must carry a receipt that verifies offline under the pinned key for its log ID. A reused
+# signature is held to its receipt when it carries one and is verified with the release
+# key alone when it does not, which only a pre-cutover signature can be. A digest the
+# ledger does not record fails. Call after cosign_init_verify_args.
+cosign_verify_legacy_signature() {
+  local ref="$1"
+  local digest="${ref##*@}"
+  local class signature_ref log_id release_key key_file
+
+  class="$(cosign_receipt ledger-classify "${digest}")" || return 1
+  if [[ "${class}" == "unrecorded" ]]; then
+    echo "error: ${ref} was neither signed nor reused by this run (no signing-ledger record)" >&2
+    return 1
+  fi
+  release_key="$(cosign_release_verify_key)" || return 1
+  signature_ref="$(cosign triangulate "${ref}")" || return 1
+  if ! log_id="$("${ORAS_BIN:-oras}" manifest fetch "${signature_ref}" | cosign_receipt receipt-log-id)"; then
+    echo "error: cannot read the transparency-log receipt of ${signature_ref}" >&2
+    return 1
+  fi
+
+  if [[ -z "${log_id}" ]]; then
+    if [[ "${class}" == "created" ]]; then
+      echo "error: ${ref} was signed in this run but its signature carries no transparency-log receipt" >&2
+      return 1
+    fi
+    env -u SIGSTORE_REKOR_PUBLIC_KEY \
+      cosign verify --new-bundle-format=false --insecure-ignore-tlog=true \
+      --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}"
+    return
+  fi
+
+  key_file="${COSIGN_SIGSTORE_DIR}/rekor-keys/${log_id}.pub"
+  if [[ ! -f "${key_file}" ]]; then
+    echo "error: ${ref} carries a receipt from log ${log_id}, which is not an accepted Rekor log" >&2
+    return 1
+  fi
+  SIGSTORE_REKOR_PUBLIC_KEY="${key_file}" \
+    cosign verify --new-bundle-format=false --offline=true \
+    --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}"
+}

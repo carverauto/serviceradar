@@ -285,11 +285,12 @@ upload. The script:
 1. Logs in to OpenBao with `scripts/ci/prepare-openbao-cosign-env.sh`. The
    login is inside the script because the publisher is started by `bazel run`
    and the 20-minute token would expire while the packages build.
-2. Signs the file with `cosign sign-blob` through `cosign_sign_blob_to_files`
-   and writes the bundle. The transparency-log setting is the one the image,
-   native add-on and Wasm plugin signers use: `COSIGN_TLOG_UPLOAD`, which
+2. Records the file's SHA-256 in the job's signing ledger, signs the file with
+   `cosign sign-blob` through `cosign_sign_blob_to_files` and writes the bundle,
+   then records the returned log entry in the ledger. `COSIGN_TLOG_UPLOAD`
    defaults to `true`, so the signature is recorded in Rekor and the bundle
-   carries the log entry.
+   carries the log entry. Unlike the image, native add-on and Wasm signatures,
+   this is a protobuf Sigstore bundle, logged through the TUF signing config.
 3. Verifies the bundle with `cosign verify-blob` and the committed
    `docs/cosign.pub`, then unsets the OpenBao token.
 
@@ -426,5 +427,61 @@ closed. An existing signature that no longer verifies under the current key
 requires an explicit trust/key-rotation decision. The signers do not fall back to
 an adjacent stale public key when exporting a configured signing key fails.
 Release retries snapshot this helper with the reviewed signer and Cosign common
-code before checking out an older release; trust material still comes from the
-explicit release checkout.
+code before checking out an older release; the release public key still comes
+from the explicit release checkout, and the pinned Rekor keys come with the
+snapshot (`SERVICERADAR_SIGSTORE_DIR`).
+
+### Transparency-log receipts and the signing ledger
+
+Every new classic `.sig` carries its Rekor receipt. The shared signer
+(`attach_legacy_signature` in `scripts/cosign_common.sh`) signs with
+`cosign sign-blob --use-signing-config=false --new-bundle-format=false
+--rekor-url https://rekor.sigstore.dev --tlog-upload=true`, so the entry is
+written to the pinned public-good Rekor v1 log and never to a log that a
+TUF-delivered signing config names. The legacy bundle's `rekorBundle` (the
+SignedEntryTimestamp and the logged `body`, `integratedTime`, `logIndex` and
+`logID`) becomes the `dev.sigstore.cosign/bundle` annotation on the one
+`simplesigning` layer, next to `dev.cosignproject.cosign/signature`. That is the
+annotation `cosign sign` itself writes. The tag, media types and layer count do
+not change, and Kyverno and promotion read the same `.sig` as before. Signing
+fails, and no `.sig` tag is written, when the upload returns no
+SignedEntryTimestamp or a log ID other than that of `docs/sigstore/rekor.pub`.
+Release signing therefore stops while Rekor v1 is down.
+
+Each signing job writes a signing ledger (`SERVICERADAR_SIGNING_LEDGER`, one JSON
+line per event, written by `scripts/cosign_receipt.py`):
+
+- `sign`: written before a signature is uploaded, with the subject
+  (`repo@digest`, or `SHA256SUMS`), the payload SHA-256, the workflow, job, run
+  ID and attempt, and the time.
+- `logged`: after the upload, adding the log index, integrated time, log ID and
+  entry UUID (the RFC 6962 leaf hash of the logged body).
+- `reused`: an existing verified signature was reused instead of signing.
+
+Every release-key signing workflow (`release.yml`, `publish-oci.yml`,
+`wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml` and
+`publish-dockerfile-image.yml`) uploads its ledger with `if: always()` as the
+artifact `signing-ledger-<workflow>-<job>-<run id>-<attempt>`, retained 90 days.
+Tag runs also attach it to the draft GitHub release
+(`scripts/ci/attach-signing-ledger.sh`).
+
+Release verification (`cosign_verify_legacy_signature`, used by the three
+`verify-*-publish.sh` scripts before and after promotion) classifies each digest
+from the ledger, never from whether a receipt is present:
+
+- Created in this run: the receipt is required. The verifier reads `logID` from
+  the annotation, selects `docs/sigstore/rekor-keys/<logID>.pub`, and runs
+  `cosign verify --new-bundle-format=false --offline=true --key <release key>`
+  with that file as `SIGSTORE_REKOR_PUBLIC_KEY`, and with no `--trusted-root` and
+  no `--insecure-ignore-tlog`. A missing receipt, a log ID outside the key set, a
+  SignedEntryTimestamp that does not verify, or a logged entry that names a
+  different signature, key or payload hash fails the release.
+- Reused with a receipt: verified the same way.
+- Reused without a receipt: only a signature made before the cutover release
+  (the first release whose signer attaches receipts) can be in this state. It is
+  verified with the release key alone (`--insecure-ignore-tlog=true`). Kyverno
+  remains the admission gate for images.
+- Not in the ledger: fails.
+
+`make verify_publish` therefore needs the ledger of the run that signed the
+images (`SIGNING_LEDGER=<downloaded artifact>`).

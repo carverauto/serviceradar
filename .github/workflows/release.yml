@@ -507,6 +507,15 @@ jobs:
       - name: Install ORAS
         run: ./scripts/install-oras.sh
 
+      - name: Start the signing ledger
+        # Every release-key signature this job makes or reuses is recorded here before it
+        # is uploaded to the transparency log (scripts/cosign_receipt.py).
+        run: |
+          set -euo pipefail
+          ledger="${RUNNER_TEMP}/signing-ledger.jsonl"
+          : > "${ledger}"
+          echo "SERVICERADAR_SIGNING_LEDGER=${ledger}" >> "${GITHUB_ENV}"
+
       - name: Prepare scoped Harbor publishing and verified promotion
         env:
           HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
@@ -583,7 +592,16 @@ jobs:
           if [[ -f scripts/cosign_common.sh ]]; then
             cp scripts/cosign_common.sh "${RUNNER_TEMP}/cosign_common.sh"
             cp scripts/reconcile-legacy-signature.py "${RUNNER_TEMP}/reconcile-legacy-signature.py"
+            cp scripts/cosign_receipt.py "${RUNNER_TEMP}/cosign_receipt.py"
+            # The pinned Rekor keys belong with the current signer and verifier, not
+            # with the (possibly older) release commit checked out below.
+            mkdir -p "${RUNNER_TEMP}/sigstore"
+            cp docs/sigstore/rekor.pub "${RUNNER_TEMP}/sigstore/rekor.pub"
+            cp -R docs/sigstore/rekor-keys "${RUNNER_TEMP}/sigstore/rekor-keys"
+            echo "SERVICERADAR_SIGSTORE_DIR=${RUNNER_TEMP}/sigstore" >> "${GITHUB_ENV}"
           fi
+          cp scripts/ci/attach-signing-ledger.sh "${RUNNER_TEMP}/attach-signing-ledger.sh"
+          chmod +x "${RUNNER_TEMP}/attach-signing-ledger.sh"
 
           # Manual retries intentionally execute the current protected workflow
           # while publishing an older immutable tag. Preserve the current signer
@@ -1092,6 +1110,24 @@ jobs:
           fi
           echo "Verified required platform packages, runtimes, checksums, and signed agent manifest."
           printf 'release_id=%s\n' "${release_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Retain signing ledger
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signing-ledger-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SERVICERADAR_SIGNING_LEDGER }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach signing ledger to the release
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' && steps.release.outputs.tag != '' && steps.release.outputs.dry_run != 'true' }}
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          # ARC does not put the reserved GITHUB_TOKEN name in the step env.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          "${RUNNER_TEMP}/attach-signing-ledger.sh" "${SERVICERADAR_SIGNING_LEDGER}" "${RELEASE_TAG}"
 
       - name: Retain Harbor promotion receipts
         if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}

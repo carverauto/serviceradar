@@ -18,11 +18,44 @@ Populate these files from the active Fulcio/Rekor deployment:
 - `trusted-root.json`: preferred Cosign trusted-root document for keyless verification
 - `fulcio-root.pem`: optional out-of-band Fulcio root certificate
 - `ctfe.pub`: optional out-of-band CT log public key
-- `rekor.pub`: optional out-of-band Rekor public key
 
 The release and verification scripts prefer `trusted-root.json` when present.
 The PEM/public-key files are fallback material for environments that are not yet
 using a full trusted-root document.
+
+## Pinned Rekor keys (transparency-log receipts)
+
+Release signatures for images, native add-ons and Wasm plugins are logged in the
+public-good Rekor v1 log, and each classic `.sig` carries that log's receipt
+(see "Transparency-log receipts and the signing ledger" in
+[RELEASE_PUBLISHING.md](../RELEASE_PUBLISHING.md)). Two committed files pin the
+log keys the receipts are checked against:
+
+- `rekor-keys/<logID>.pub`: every accepted Rekor v1 public key, one PEM file per
+  log, named by the log ID (hex SHA-256 of the key's DER encoding). Release
+  verification selects the file by the receipt's `logID` and passes it to cosign
+  as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
+  happens. A receipt whose log ID has no file here fails.
+- `rekor.pub`: the key of the log the signer writes to now, byte-identical to
+  its file in `rekor-keys/`. The signer refuses an upload response whose log ID
+  is not this key's.
+
+`//build/contracts:rekor_key_consistency_test` checks that every file in
+`rekor-keys/` is named by its log ID and that `rekor.pub` is a member of the set.
+
+The initial key is the public-good log `c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d`,
+taken from Sigstore's TUF-signed `trusted_root.json` (the `tlogs` entry with base
+URL `https://rekor.sigstore.dev`), not from a Rekor API response. It was read on
+2026-11-17 from TUF root version 16, targets version 14, with
+`trusted_root.json` SHA-256
+`6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66`.
+
+Updating the keys: when Sigstore adds a Rekor v1 key, sets an end date on the
+pinned one, or removes it, add the new key as `rekor-keys/<logID>.pub` from the
+TUF trusted root in a reviewed PR, keep every key an accepted receipt names, and
+point `rekor.pub` at the log the signer writes to from then on. Never drop a key
+from `rekor-keys/` that a published receipt names: verification of that
+receipt would then fail.
 
 ## Issuer design note
 
