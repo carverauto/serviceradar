@@ -24,10 +24,10 @@
 
 - [x] 2.1 Move `attach_legacy_signature` into `scripts/cosign_common.sh` and use it from
   `sign-oci-publish.sh`, `sign-native-addon-publish.sh` and `sign-wasm-plugin-publish.sh`.
-- [ ] 2.2 Sign with `--use-signing-config=false --new-bundle-format=false --rekor-url
+- [x] 2.2 Sign with `--use-signing-config=false --new-bundle-format=false --rekor-url
   https://rekor.serviceradar.cloud`. Fail when the log is unreachable, when
   `rekorBundle.SignedEntryTimestamp` is empty, or when `logID` is not the pinned log.
-- [ ] 2.3 Write `.rekorBundle` as the `dev.sigstore.cosign/bundle` annotation on the
+- [x] 2.3 Write `.rekorBundle` as the `dev.sigstore.cosign/bundle` annotation on the
   `simplesigning` layer.
 - [x] 2.4 Write the signing ledger line before each `sign-blob` call and the log index/UUID line
   after it. Upload the ledger with `if: always()` in every release-key signing workflow
@@ -50,14 +50,14 @@
   names the public-good log. Reused receipt-less container images stay key-only and are exempt from
   the receipt check; a reused receipt-less Wasm plugin or native add-on digest passes key-only only
   when it is on the frozen pre-cutover allowlist.
-- [ ] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
+- [x] 3.2 Add negative contract tests built from synthetic material: a stand-in "log" ECDSA key
   that signs a SET over a synthetic entry, plus a synthetic release key. A missing receipt fails, a
   valid SET for a different entry fails, an unknown log ID fails, a created digest without a
   receipt fails, and a digest with no ledger record fails.
-- [ ] 3.3 Re-run one image digest's `.sig` through the release gate and through Kyverno-equivalent
+- [x] 3.3 Re-run one image digest's `.sig` through the release gate and through Kyverno-equivalent
   verification (`cosign verify --new-bundle-format=false --key`, `IgnoreTlog=false`, with the
   amended policy's Rekor key) before the first release with annotations. Record the output in the PR.
-- [ ] 3.4 Release verification accepts a created signature's receipt only from
+- [x] 3.4 Release verification accepts a created signature's receipt only from
   `docs/sigstore/rekor-keys/`, and checks a reused signature's public-good receipt against
   `docs/sigstore/pre-cutover-rekor-keys/`. Negative tests: a created signature with a public-good
   receipt fails; a reused one with a public-good receipt whose SET-signed `integratedTime` is before
@@ -139,7 +139,7 @@
 
 ## 5b. Admission, second line and operations
 
-- [ ] 5b.1 Draft the `carverauto/gitops` PR changing
+- [x] 5b.1 Draft the `carverauto/gitops` PR changing
   `k8s/kyverno/base/verify-serviceradar-images.yaml` as in design.md, Decision 3, `count: 1`: a
   receipt entry (`keys` attestor with the release key, `rekor.pubkey` = `docs/sigstore/rekor.pub`,
   `ignoreTlog: false`, no `rekor.url`) and the pre-cutover transition entry with today's
