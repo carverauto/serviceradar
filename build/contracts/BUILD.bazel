@@ -328,8 +328,10 @@ py_test(
     size = "small",
     srcs = ["rekor_key_consistency_test.py"],
     data = [
-        "//docs:sigstore/rekor.pub",
+        "//docker/images:web_ng_sigstore_layer",
+        "//docs:sigstore/pre-cutover-first-party-digests.json",
         "//docs:sigstore/pre-cutover-rekor-keys",
+        "//docs:sigstore/rekor.pub",
         "//docs:sigstore/rekor-keys",
         "//scripts:install-cosign.sh",
         "//scripts:install-download-integrity.sh",

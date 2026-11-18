@@ -102,6 +102,10 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     * `:display_contract_errors` — reasons any bundled contract was refused, recorded
       in `source_metadata`. Default `[]`.
     * `:release_tag` — the source release tag. Default `nil`.
+    * `:transparency_receipt` — the receipt status the caller's Cosign verification
+      recorded (`%{"status" => "verified", "log_index" => ..., "integrated_time" => ...}`
+      or `%{"status" => "absent_allowlisted"}`), stored in `source_metadata`.
+      Default `nil`.
     * `:now` — import timestamp. Default `DateTime.utc_now/0`.
     * `:replace_existing` — when true, an operator-initiated replace may restage
       the existing first-party `addon_id` + `version` onto a later signed
@@ -185,7 +189,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       verified_package_content_matches?(package, attrs) and
         source_provenance_complete?(package) and source_provenance_complete?(attrs) and
           source_bundle_digests_match?(package, attrs) ->
-        {:ok, package, :reused}
+        with {:ok, package} <- record_transparency_receipt(package, attrs, actor) do
+          {:ok, package, :reused}
+        end
 
       release_changed?(package, opts) ->
         {:error, source_conflict(package, attrs, :release_changed)}
@@ -203,6 +209,23 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
           {:ok, updated, :repaired}
         end
+    end
+  end
+
+  defp record_transparency_receipt(%AddonPackage{} = package, attrs, actor) do
+    stored = package.source_metadata || %{}
+    receipt = get_in(attrs, [:source_metadata, "transparency_receipt"])
+
+    if is_map(receipt) and receipt != Map.get(stored, "transparency_receipt") do
+      package
+      |> Ash.Changeset.for_update(
+        :update,
+        %{source_metadata: Map.put(stored, "transparency_receipt", receipt)},
+        actor: actor
+      )
+      |> Ash.update()
+    else
+      {:ok, package}
     end
   end
 
@@ -535,7 +558,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),
          source_metadata:
-           source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
+           source_metadata(
+             entry,
+             Keyword.get(opts, :display_contract_errors) || [],
+             Keyword.get(opts, :transparency_receipt)
+           ),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
          verification_status: "verified",
@@ -570,11 +597,17 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   # on the package rather than dropped on the floor: the contract is not stored
   # (only known-good data reaches the renderer), so this is the only place an
   # operator can learn that a package tried to ship one and why it was refused.
-  defp source_metadata(entry, display_contract_errors) do
+  defp source_metadata(entry, display_contract_errors, transparency_receipt) do
     metadata =
       case string_value(entry, "bundle_digest") do
         nil -> %{}
         bundle_digest -> %{"bundle_digest" => bundle_digest}
+      end
+
+    metadata =
+      case transparency_receipt do
+        receipt when is_map(receipt) -> Map.put(metadata, "transparency_receipt", receipt)
+        nil -> metadata
       end
 
     case display_contract_errors do

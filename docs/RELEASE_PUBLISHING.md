@@ -483,10 +483,9 @@ from the ledger, never from whether a receipt is present:
 - Reused with a receipt: verified the same way. A receipt from the public-good
   log (some images were signed by hand before the cutover) is checked against
   `docs/sigstore/pre-cutover-rekor-keys/`; that key is never accepted for a
-  signature created in the run (nor at import; pending: lands with the
-  import-verifier PR).
+  signature created in the run or at import.
 - Reused without a receipt: only a signature made before the cutover release
-  (the first release whose signer attaches receipts) can be in this state. It is
+  (the first release built with this signer, v1.5.8 or later) can be in this state. It is
   verified with the release key alone (`--insecure-ignore-tlog=true`). Kyverno
   remains the admission gate for images.
 - Not in the ledger: fails.

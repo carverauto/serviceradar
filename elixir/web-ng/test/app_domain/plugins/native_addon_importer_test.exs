@@ -55,9 +55,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defmodule FakeCosignVerifier do
     @moduledoc false
 
-    def verify(%{ref: ref, digest: digest}) do
+    def verify(%{ref: ref, digest: digest, signature_manifest: %{"layers" => [_ | _]}}) do
       Process.put(:native_addon_cosign_verified, {ref, digest})
-      :ok
+      {:ok, %{"status" => "absent_allowlisted"}}
     end
   end
 
@@ -95,6 +95,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           )
 
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
+
+        # The classic `.sig` the importer reads before handing it to the verifier.
+        Regex.match?(~r"/manifests/sha256-[0-9a-f]{64}\.sig$", url) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "layers" => [%{"annotations" => %{"dev.cosignproject.cosign/signature" => "c3ludGhldGlj"}}]
+               })
+           }}
 
         String.contains?(url, "/manifests/") ->
           Process.put(
@@ -214,6 +225,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert package.source_oci_digest == @oci_digest
     assert package.source_release_tag == "v1.0.0"
     assert package.verification_status == "verified"
+    assert package.source_metadata["transparency_receipt"] == %{"status" => "absent_allowlisted"}
 
     artifact = package.artifacts["linux/amd64"]
     assert is_map(artifact)
@@ -237,6 +249,32 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_cosign_verified) == {@oci_ref, @oci_digest}
     assert_received {:uploaded, ^expected_key, size}
     assert size == byte_size(tarball())
+  end
+
+  test "re-importing a stored native add-on records its verified transparency receipt", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    import_attrs = %{
+      "repo_url" => @repo_url,
+      "release_tag" => "v1.0.0",
+      "addon_id" => "sample-addon",
+      "version" => "1.0.0"
+    }
+
+    assert {:ok, created} = NativeAddonImporter.import(import_attrs)
+    pre_receipt_metadata = Map.delete(created.source_metadata, "transparency_receipt")
+    stripped = update_sample_package!(created, %{source_metadata: pre_receipt_metadata})
+    refute Map.has_key?(stripped.source_metadata, "transparency_receipt")
+
+    assert {:ok, reused} = NativeAddonImporter.import(import_attrs)
+    assert reused.id == created.id
+    assert reused.status == created.status
+    assert reused.source_release_tag == "v1.0.0"
+
+    assert reused.source_metadata ==
+             Map.put(pre_receipt_metadata, "transparency_receipt", %{"status" => "absent_allowlisted"})
   end
 
   test "lists native add-ons from recent release indexes", %{private_key: private_key} do

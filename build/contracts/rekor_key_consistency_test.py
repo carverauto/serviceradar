@@ -5,16 +5,25 @@ openspec/changes/restore-signature-tlog-receipts, design.md Decisions 5 and 6.
 
 import base64
 import hashlib
+import json
 import os
 import platform
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SIGSTORE = REPO / "docs/sigstore"
+IMAGE_SIGSTORE = "usr/share/serviceradar/sigstore"
+ALLOWLIST = SIGSTORE / "pre-cutover-first-party-digests.json"
+# The pre-cutover allowlist is frozen (design.md, Decision 9): generated once from every
+# Wasm plugin and native add-on index published before the cutover release (v1.5.8 or later;
+# it covers every index through v1.5.7, which was cut without the receipt signer) and never
+# regenerated or extended. Changing this hash is changing what imports without a receipt.
+FROZEN_ALLOWLIST_SHA256 = "ce0e1d109bbce0f4dbf48a07a7476a25844825e1f5cdf1fe492e4c7291150445"
 # GHSA-whqx-f9j3-ch6m (3.0.4), GHSA-wfqv-66vq-46rm (3.0.5), GHSA-w6c6-c85g-mmv6 (3.0.6),
 # GHSA-fx35-mq7g-6g98 (3.1.3).
 MINIMUM_COSIGN = (3, 1, 3)
@@ -71,6 +80,40 @@ class RekorKeySetTest(unittest.TestCase):
         member = SIGSTORE / "rekor-keys" / (log_id(signing) + ".pub")
         self.assertTrue(member.is_file(), "docs/sigstore/rekor.pub is not in docs/sigstore/rekor-keys")
         self.assertEqual(signing, member.read_bytes())
+
+
+def image_sigstore_files():
+    """Regular files the web-ng image's sigstore layer installs, by path under IMAGE_SIGSTORE."""
+    files = {}
+    with tarfile.open(REPO / "docker/images/web_ng_sigstore_layer.tar") as archive:
+        for member in archive.getmembers():
+            name = member.name.lstrip("./")
+            if member.isfile() and name.startswith(IMAGE_SIGSTORE + "/"):
+                files[name[len(IMAGE_SIGSTORE) + 1:]] = archive.extractfile(member).read()
+    return files
+
+
+class WebNgImageTrustTest(unittest.TestCase):
+    def test_image_ships_exactly_the_committed_rekor_keys_and_allowlist(self):
+        shipped = image_sigstore_files()
+        committed = {f"rekor-keys/{key.name}": key.read_bytes() for key in (SIGSTORE / "rekor-keys").glob("*.pub")}
+        committed["pre-cutover-first-party-digests.json"] = ALLOWLIST.read_bytes()
+        self.assertEqual(sorted(shipped), sorted(committed))
+        for name, content in committed.items():
+            with self.subTest(file=name):
+                self.assertEqual(shipped[name], content)
+
+
+class PreCutoverAllowlistTest(unittest.TestCase):
+    def test_allowlist_is_frozen(self):
+        self.assertEqual(hashlib.sha256(ALLOWLIST.read_bytes()).hexdigest(), FROZEN_ALLOWLIST_SHA256)
+
+    def test_allowlist_holds_only_artifact_digests(self):
+        digests = json.loads(ALLOWLIST.read_text())["digests"]
+        self.assertTrue(digests)
+        self.assertEqual(digests, sorted(set(digests)))
+        for digest in digests:
+            self.assertRegex(digest, r"\Asha256:[0-9a-f]{64}\Z")
 
 
 class CosignVersionTest(unittest.TestCase):

@@ -38,8 +38,8 @@ keys, so no installation depends on the log being up.
   verification selects the file by the receipt's `logID` and passes it to cosign
   as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
   happens. A receipt whose log ID has no file here fails. The web-ng importer
-  will select keys the same way and the web-ng image will ship this directory
-  (pending: lands with the import-verifier PR).
+  selects keys the same way, and the web-ng image ships this directory at
+  `/usr/share/serviceradar/sigstore/rekor-keys`.
 - `rekor.pub`: the key of the log the signer writes to now, byte-identical to
   its file in `rekor-keys/`. The signer refuses an upload response whose log ID
   is not this key's.
@@ -47,14 +47,21 @@ keys, so no installation depends on the log being up.
   (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
   carry public-good receipts, and release verification checks such a receipt
   on a **reused** signature against this key. It is never accepted for a new
-  signature, and it will not be accepted at import or shipped in the web-ng
-  image (pending: lands with the import-verifier PR). The transparency-log
+  signature, and it is not accepted at import or shipped in the web-ng
+  image. The transparency-log
   monitor will watch only the self-hosted log (pending: lands with the monitor
   PR).
 
+- `pre-cutover-first-party-digests.json`: the frozen list of first-party Wasm
+  plugin and native add-on digests published through v1.5.7, before the cutover
+  release. Only these import without a receipt (key-only); the web-ng image
+  ships it at `/usr/share/serviceradar/sigstore/`. It is never regenerated or
+  extended.
+
 `//build/contracts:rekor_key_consistency_test` checks that every file is named by
-its log ID, that the pre-cutover keys are not accepted keys, and that `rekor.pub`
-is a member of the accepted set.
+its log ID, that the pre-cutover keys are not accepted keys, that `rekor.pub`
+is a member of the accepted set, that the web-ng image ships exactly
+`rekor-keys/` and the allowlist, and pins the allowlist's sha256.
 
 The self-hosted key `a8839837a73a6b28ca5102be67a874e8f0aa324a694320fa08fd55f9167b12c9`
 was fetched on 2026-11-18 at 17:04 UTC with
