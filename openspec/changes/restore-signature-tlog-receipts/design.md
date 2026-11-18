@@ -407,7 +407,8 @@ existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_wat
 
 **Historical entries.** Every run, the bootstrap run included, reads and judges every release-key
 entry in the whole log, including entries integrated before the first checkpoint. Each needs a
-ledger match or an entry in `docs/sigstore/rekor-acknowledged-entries.json`, and alerts otherwise.
+ledger match, an entry in `docs/sigstore/rekor-acknowledged-entries.json`, or an explained decision
+already recorded in the monitor's checkpoint state, and alerts otherwise.
 Release-key entries made before the ledger existed (the manual signings in Context) have no ledger,
 so they are listed in the acknowledged-entries file in the PR that enables the monitor, and that
 pre-ledger history is recorded in `docs/sigstore/README.md`. The monitor keeps the integrated time

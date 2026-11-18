@@ -122,6 +122,7 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Signature made outside the signing workflows
 - **GIVEN** a Rekor v1 entry signed by the release key whose payload hash is in no signing ledger and not acknowledged
+- **AND** the entry is not recorded as explained in the monitor's checkpoint state
 - **AND** no release-key signing run that was active at the entry's integrated time is still in progress
 - **WHEN** the monitor scans the log past that entry
 - **THEN** the monitor SHALL open a GitHub issue for the entry UUID
@@ -159,6 +160,7 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Unexplained entry from before the first checkpoint
 - **GIVEN** a release-key entry integrated before the monitor's first checkpoint whose payload hash is in no signing ledger and that is not acknowledged
+- **AND** the entry is not recorded as explained in the monitor's checkpoint state
 - **WHEN** the monitor runs
 - **THEN** the monitor SHALL raise an alert for that entry
 
