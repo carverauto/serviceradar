@@ -164,12 +164,15 @@
       is absent from the sightings of the source that recorded it (another
       source's single-address update never counts as absence); equal rank
       never replaces, for two usable IPv4s and for `fe80::` vs `169.254/16`
-      on a link-local-only device; the census / sync batch builder computes
-      the recording source's snapshot membership and window per device
+      on a link-local-only device; every source that feeds the primary
+      passes its full per-device address set (including candidates its
+      chooser did not submit) to the census / sync batch builder, which
+      computes the recording source's membership and window per device
       before the write and passes it to the upsert, which decides; the
       upsert never infers absence from `EXCLUDED.ip` differing
 - [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
-      `better?/2`'s equal-rank-never-replaces); extend the existing SQL /
+      `better?/2`'s equal-rank-never-replaces; tie-break deterministically:
+      stored primary first, then lowest address); extend the existing SQL /
       Elixir rank parity test to the family rule and the keep-unless-stronger
       rule
 - [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
@@ -185,7 +188,10 @@
       a link-local (`fe80::/10`, `169.254/16`) as primary when a routable
       address (as defined in 7.1, so `fe80::` is never routable even though
       `routable_management_ip?` accepts it) exists; a host whose only
-      addresses are link-local still submits one as its primary
+      addresses are link-local still submits one as its primary; every
+      chooser orders usable IPv4, routable IPv6, then link-local, and within
+      a class puts the stored primary first, then its own order, then the
+      lowest address
 - [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
@@ -203,7 +209,8 @@
       equal-rank link-local, and takes a link-local only when the survivor
       has no primary at all; NetBox `primaryIP`
       (`go/cmd/wasm-plugins/netbox/main.go`) takes `primary_ip4` only when
-      it is a usable IPv4 and otherwise its routable IPv6
+      it is a usable IPv4, otherwise its routable IPv6, otherwise a
+      link-local, so a link-local-only device is not dropped
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
 - [ ] 7.7 Census decoder: an NDP / IPv6 sighting of a device with a usable

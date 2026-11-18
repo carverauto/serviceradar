@@ -175,7 +175,7 @@ inventory state rather than of nondeterministic compilation.
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
-- IPv4 is always the preferred primary address. A routable address is one
+- A usable IPv4 is always the preferred primary address. A routable address is one
   the chooser accepts that is not link-local, a directed broadcast or
   host-internal (a ULA is routable); a usable IPv4 is a routable IPv4
   (`sr_address_rank >= 40`); an IPv6-only device has no usable IPv4 (a
@@ -195,8 +195,10 @@ inventory state rather than of nondeterministic compilation.
   IPv6 replaces a `169.254/16` primary; else a higher rank within the same
   family; a higher-rank IPv6 never replaces a
   usable IPv4) or the stored address is absent from the sightings of the
-  source that recorded it, computed from that source's snapshot membership
-  before the write and recorded with the primary's source; a single-address
+  source that recorded it, computed from that source's full per-device
+  address set (every address it reported for the device, not only the one a
+  chooser submitted) before the write and recorded with the primary's
+  source; a single-address
   update from another source never counts as absence, and equal rank never
   replaces (two usable IPv4s, or `fe80::` vs `169.254/16` on a link-local-only
   device). A real re-IP replaces once the old address leaves the recording
@@ -208,10 +210,12 @@ inventory state rather than of nondeterministic compilation.
   `primaryIP` / `firstUsableIP`, the Armis sync source's address walk in
   `filterDevices` (over its split `IPAddress`, `IPv4Addresses` and
   `IPv6Addresses`), the NetBox plugin's `primaryIP` (its `primary_ip4` only
-  when it is a usable IPv4), and the camera path; each submits a usable IPv4
-  over any IPv6, submits the routable IPv6 when the only IPv4 is a
-  `169.254/16` link-local, keeps its own order among usable IPv4s, and none
-  submits a link-local as primary when a routable address exists. The
+  when it is a usable IPv4), and the camera path; each orders usable IPv4,
+  then routable IPv6, then link-local only if nothing else, so a device
+  whose only addresses are link-local still submits one; within a class the
+  stored primary comes first, then the chooser's own order, then lowest
+  address, so API list order cannot move the primary; none submits a
+  link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
   stored addresses, never replaces a usable IPv4 with an IPv6 or a routable
   address with a link-local or a link-local with an equal-rank link-local,

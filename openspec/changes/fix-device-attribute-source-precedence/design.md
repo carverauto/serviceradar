@@ -184,7 +184,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
 
-14. IPv4 is always the preferred primary address. A routable address is an
+14. A usable IPv4 is always the preferred primary address. A routable address is an
     address the chooser accepts that is not link-local, not a directed
     broadcast (per `AliasPolicy.valid_alias_ip?/2` with the device's known
     CIDRs) and not host-internal; a ULA (rank 30) is routable. A usable IPv4
@@ -208,12 +208,15 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     the same family after the existing IPv4-mapped unwrap, so
     `::ffff:a.b.c.d` is IPv4; a higher-rank IPv6 never replaces a usable
     IPv4) or the stored address is absent from the sightings of the source
-    that recorded it (that source's snapshot no longer contains it, or it
+    that recorded it (that source's full address set for the device, every
+    address it reported for the device in the snapshot or window including
+    candidates its chooser did not submit, no longer contains it, or it
     aged out of that source's window); a single-address update from another
     source never counts as absence. The recording source and last-sighted
-    time of the primary are stored (decision 1); absence is computed from
-    that source's snapshot membership and window in the census / sync batch
-    builder before the per-address write (a census snapshot is applied as a
+    time of the primary are stored (decision 1); every source that feeds
+    the primary passes its full per-device address set to the batch
+    builder, and absence is computed from that set and window in the
+    census / sync batch builder before the per-address write (a census snapshot is applied as a
     set per device) and passed to the upsert as an input. The upsert never
     infers absence from `EXCLUDED.ip` differing from the stored ip. Equal rank never replaces, matching
     `Identity.Address.better?/2`, for two usable IPv4s and for equal-rank
@@ -235,12 +238,19 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     non-link-local IPv6, then a link-local only if nothing else, skipping
     blacklisted addresses; `primaryIP` is left alone), the NetBox plugin's `primaryIP`
     (`go/cmd/wasm-plugins/netbox/main.go`, which takes `primary_ip4` only
-    when it is a usable IPv4 and otherwise its routable IPv6), and the
-    camera path. Each submits a usable IPv4 over any IPv6 among every
-    address on the host or guest when one exists; a link-local IPv4
-    (`169.254/16`) loses to any routable address of either family, so when
-    the only IPv4 is link-local the routable IPv6 is submitted. Each keeps
-    its own order among usable IPv4s
+    when it is a usable IPv4, otherwise its routable IPv6, otherwise a
+    link-local), and the camera path. Each orders its candidates usable
+    IPv4, then routable IPv6, then link-local only if nothing else; a
+    link-local IPv4 (`169.254/16`) loses to any routable address of either
+    family, so when the only IPv4 is link-local the routable IPv6 is
+    submitted if one exists, and a device the source emits whose only
+    addresses are link-local still submits one (never an empty primary that
+    drops the device; Proxmox discovery's existing skip of guests with no
+    routable address is unchanged). Within a class each chooser orders
+    deterministically: the stored primary first if present, then its own
+    order among usable IPv4s, then lowest address, so API list order cannot
+    move the primary; `Identity.Address.best/1` tie-breaks the same way.
+    Each keeps its own order among usable IPv4s
     (configured NIC index, `management_ip_score`), and never submits a
     link-local (`fe80::/10`, `169.254/16`) as primary when a routable
     address exists. The succession hand-over `MergeEngine.take_address?/2`

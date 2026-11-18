@@ -309,12 +309,15 @@ strictly stronger (a usable IPv4 over any IPv6; a routable address of either
 family over a link-local primary of either family, so a routable IPv6 replaces
 a 169.254/16 primary; otherwise a higher rank within the same family, after unwrapping an IPv4-mapped IPv6 such as
 ::ffff:192.0.2.1 to IPv4; a higher-rank IPv6 SHALL NOT replace a usable IPv4), or the stored address is absent from the sightings of the
-source that recorded it (that source's snapshot no longer contains it, or it
-has aged out of that source's window); a single-address update from another
-source SHALL NOT count as the stored address being absent. Absence SHALL be
-computed from the recording source's snapshot membership and sighting window
-before the per-address write (a census snapshot is applied as a set per
-device) and passed to the write as an input; the write SHALL NOT infer absence
+source that recorded it (that source's full address set for the device, every
+address it reported for that device in the snapshot or window including
+candidates its chooser did not submit, no longer contains it, or it has aged
+out of that source's window); a single-address update from another source
+SHALL NOT count as the stored address being absent. Every source that feeds
+the primary SHALL pass its full per-device address set to the batch builder,
+and absence SHALL be computed from that set and the sighting window before the
+per-address write (a census snapshot is applied as a set per device) and
+passed to the write as an input; the write SHALL NOT infer absence
 from the incoming address differing from the stored one. An equal-rank address SHALL NOT replace the stored
 primary, for two usable IPv4s and for equal-rank link-locals (fe80::/10 and
 169.254/16) on a link-local-only device alike. Every primary-IP chooser SHALL follow this
@@ -325,12 +328,17 @@ selection, the Armis sync source's address walk (over the union of its split
 IPAddress, IPv4Addresses and IPv6Addresses, skipping blacklisted addresses:
 usable IPv4 first, then non-link-local IPv6, then a link-local only if nothing
 else), the NetBox plugin's primary-IP selection (its primary IPv4 only when it
-is a usable IPv4), and the camera path: each SHALL submit a usable IPv4 over any
-IPv6 among every address on the host or guest when one exists; a link-local
+is a usable IPv4), and the camera path: each SHALL order its candidates usable
+IPv4, then routable IPv6, then link-local only if nothing else; a link-local
 IPv4 (169.254/16) loses to any routable address of either family, so when the
-only IPv4 is link-local a routable IPv6 SHALL be submitted; each chooser keeps
-its own order among usable IPv4s, and SHALL NOT submit a link-local address as
-primary when a routable address exists. The succession address hand-over
+only IPv4 is link-local a routable IPv6 SHALL be submitted if one exists, and a
+device the source emits whose only addresses are link-local SHALL still submit
+one, never an empty primary. Within a class each chooser SHALL order
+deterministically: the stored primary first if present, then its own order
+among usable IPv4s, then lowest address, so the list order of an API cannot
+move the primary; Identity.Address.best/1 SHALL tie-break the same way. A
+chooser SHALL NOT submit a link-local address as primary when a routable
+address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
 replace a usable IPv4 with an IPv6, SHALL NOT replace a routable address with a
 link-local, SHALL NOT replace a stored link-local primary with an equal-rank
