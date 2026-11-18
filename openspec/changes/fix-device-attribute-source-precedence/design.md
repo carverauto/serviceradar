@@ -11,8 +11,9 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
 ## Decisions
 
 1. Each single-valued attribute (`name`, `vendor_name`, `type`,
-   `integration_type`, `management_device_id`) stores its source and evidence
-   strength alongside the value, so a recorded clear (an empty value with a
+   `integration_type`, `management_device_id`, and the primary `ip` with its
+   last-sighted time) stores its source and evidence strength alongside the
+   value, so a recorded clear (an empty value with a
    recorded strength) is distinguishable from an unset value. Strength is assigned by the writer from the evidence it holds, not
    inferred later from the value.
 2. Strength order for `name`, weakest first. Several sources may share a
@@ -154,7 +155,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     | `type` / `type_id` / `metadata.device_role` | plugin inputs (`target_kind`), `ProxmoxHostAuthority` | ranked (decision 4), one value |
     | `integration_type` | plugin inputs, unmerge | ranked (decision 5) |
     | metadata `integration_id` | (dropped) | provider-scoped identifiers (decision 10) |
-    | `ip` | SNMP compiler, sweep compiler, plugin inputs | IPv4 preferred (decision 14), then the #3905 rank within a family |
+    | `ip` | SNMP compiler, sweep compiler, plugin inputs | kept unless strictly stronger (usable IPv4 over any IPv6, else higher rank within the same family) or absent from its recording source's sightings (decision 14) |
     | `hypervisor_provider_ref`, `proxmox_node`, `proxmox_cluster`, `hypervisor_guest_type`, `hypervisor_vmid`, `proxmox_base_url` | plugin inputs, `ProxmoxHostAuthority` | owner: hypervisor platform inventory |
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
@@ -201,11 +202,18 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     rejects. An IPv6 is primary only on an IPv6-only
     device; if that device later gains a usable IPv4, the IPv4 takes over.
     A stored primary is kept unless the incoming address is strictly
-    stronger (higher rank, or a usable IPv4 over an IPv6) or the stored
-    address is absent from the sightings of the source that recorded it
-    (that source's snapshot no longer contains it, or it aged out of that
-    source's window); a single-address update from another source never
-    counts as absence. Equal rank never replaces, matching
+    stronger (a usable IPv4 over any IPv6; otherwise a higher rank within
+    the same family after the existing IPv4-mapped unwrap, so
+    `::ffff:a.b.c.d` is IPv4; a higher-rank IPv6 never replaces a usable
+    IPv4) or the stored address is absent from the sightings of the source
+    that recorded it (that source's snapshot no longer contains it, or it
+    aged out of that source's window); a single-address update from another
+    source never counts as absence. The recording source and last-sighted
+    time of the primary are stored (decision 1); absence is computed from
+    that source's snapshot membership and window in the census / sync batch
+    builder before the per-address write (a census snapshot is applied as a
+    set per device) and passed to the upsert as an input. The upsert never
+    infers absence from `EXCLUDED.ip` differing from the stored ip. Equal rank never replaces, matching
     `Identity.Address.better?/2`, for two usable IPv4s and for equal-rank
     link-locals (`fe80::` vs `169.254/16`) on a link-local-only device. A
     real re-IP replaces the primary once the old address leaves the
@@ -233,8 +241,10 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     address exists. The succession hand-over `MergeEngine.take_address?/2`
     only compares the successor's stored `ip` with the survivor's; it does
     not scan other addresses, never replaces a usable IPv4 with an IPv6,
-    never replaces a routable address with a link-local, and takes a
-    link-local only when the survivor has no routable address. A device whose only address is link-local
+    never replaces a routable address with a link-local, never replaces a
+    stored link-local primary with an equal-rank link-local, and takes a
+    link-local only when the survivor has no primary at all; otherwise it
+    follows the same keep-unless-strictly-stronger rule. A device whose only address is link-local
     keeps it as its primary under the #3905 rank (the existing sync test
     "a device with only link-local addresses keeps one" stays), without an
     address-fallback name or hostname; any routable address replaces

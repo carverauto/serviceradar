@@ -2,8 +2,8 @@
 
 ### Requirement: Weaker evidence does not overwrite stronger device attributes
 Sync ingestion SHALL record, alongside each stored device name, vendor, type,
-integration type and management_device_id, the source and evidence strength of
-the value, so that a recorded clear is distinguishable from an unset value. A write
+integration type, management_device_id and primary ip (with the primary ip's
+last-sighted time), the source and evidence strength of the value, so that a recorded clear is distinguishable from an unset value. A write
 SHALL replace the recorded value when its strength is strictly greater, or when
 its strength is equal and it comes from the same source that recorded the
 stored value; a write from a different source at the same tier SHALL keep the
@@ -304,12 +304,17 @@ address is link-local SHALL keep that link-local as its primary ip under the
 never-downgrade rank, with no address-fallback name (it keeps a stronger
 recorded name, or none), and any routable address (a usable IPv4, or a
 global or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
-and a usable IPv4 that device later gains SHALL take over. A stored primary ip SHALL be kept unless the incoming address is strictly
-stronger (a higher rank, or a usable IPv4 over an IPv6), or the stored address
-is absent from the sightings of the source that recorded it (that source's
-snapshot no longer contains it, or it has aged out of that source's window); a
-single-address update from another source SHALL NOT count as the stored
-address being absent. An equal-rank address SHALL NOT replace the stored
+and a usable IPv4 that device later gains SHALL take over. A stored primary ip SHALL be kept unless the incoming address is
+strictly stronger (a usable IPv4 over any IPv6; otherwise a higher rank
+within the same family, after unwrapping an IPv4-mapped IPv6 such as
+::ffff:192.0.2.1 to IPv4; a higher-rank IPv6 SHALL NOT replace a usable IPv4), or the stored address is absent from the sightings of the
+source that recorded it (that source's snapshot no longer contains it, or it
+has aged out of that source's window); a single-address update from another
+source SHALL NOT count as the stored address being absent. Absence SHALL be
+computed from the recording source's snapshot membership and sighting window
+before the per-address write (a census snapshot is applied as a set per
+device) and passed to the write as an input; the write SHALL NOT infer absence
+from the incoming address differing from the stored one. An equal-rank address SHALL NOT replace the stored
 primary, for two usable IPv4s and for equal-rank link-locals (fe80::/10 and
 169.254/16) on a link-local-only device alike. Every primary-IP chooser SHALL follow this
 rule, including the upsert guard, the Elixir address ranking, hypervisor guest
@@ -325,19 +330,32 @@ order among accepted IPv4s, and SHALL NOT submit a link-local address as
 primary when a routable address exists. The succession address hand-over
 compares only the successor's stored ip with the survivor's: it SHALL NOT
 replace a usable IPv4 with an IPv6, SHALL NOT replace a routable address with a
-link-local, and MAY take a link-local only when the survivor has no routable
-address, so a link-local-only device keeps its only address. The
+link-local, SHALL NOT replace a stored link-local primary with an equal-rank
+link-local, and MAY take a link-local only when the survivor has no primary at
+all; otherwise it SHALL follow the same keep-unless-strictly-stronger rule, so a
+link-local-only device keeps its only address. The
 address-fallback name SHALL follow the primary ip except that it SHALL NOT be a
 link-local; when the device has a usable IPv4 the name and hostname SHALL NOT
 take an IPv6 literal, and an IPv6-only device's fallback name MAY be its
 routable IPv6.
 
 #### Scenario: A dual-stack census sighting keeps the IPv4 primary
-- **GIVEN** a device whose primary ip is 192.0.2.3
+- **GIVEN** a device whose primary ip 192.0.2.3 was recorded by the passive census and is still in the census window
 - **WHEN** the passive census sights it by NDP as 2001:db8::3
 - **THEN** the primary ip SHALL remain 192.0.2.3
 - **AND** 2001:db8::3 SHALL be recorded as a live alias of the device
 - **AND** the device name and hostname SHALL NOT be an IPv6 literal
+
+#### Scenario: A higher-rank IPv6 does not replace a private IPv4
+- **GIVEN** a device whose primary ip is the private 192.168.0.3 (rank 40), still in its recording source's window
+- **WHEN** a sighting reports the global 2001:db8::3 (rank 50) for the device
+- **THEN** the primary ip SHALL remain 192.168.0.3
+- **AND** 2001:db8::3 SHALL be recorded as a live alias
+
+#### Scenario: Succession does not swap equal-rank link-locals
+- **GIVEN** a link-local-only survivor whose primary ip is fe80::1 and a successor whose stored ip is fe80::2
+- **WHEN** the succession hand-over runs
+- **THEN** the survivor's primary ip SHALL remain fe80::1
 
 #### Scenario: A link-local sighting is not identity
 - **GIVEN** a device whose primary ip is 192.0.2.3

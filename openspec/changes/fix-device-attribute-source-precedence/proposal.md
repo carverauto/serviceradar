@@ -54,8 +54,8 @@ enrichment re-send it every cycle, so the last writer wins.
 The primary address also flips on dual-stack devices. The upsert's
 never-downgrade guard (the `ip` CASE in `DeviceWrites`) compares
 `LEAST(sr_address_rank(new), 40) >= LEAST(sr_address_rank(old), 40)`, so a
-global IPv6 (rank 50) and a private IPv4 (rank 40) tie and the last writer
-wins. The passive census decoder writes `ip` = the observation address for
+global IPv6 (rank 50) ties any usable IPv4 (private rank 40 or global rank 50)
+and the last writer wins. The passive census decoder writes `ip` = the observation address for
 every sighting, so an NDP sighting makes the IPv6 primary and another writer
 puts the IPv4 back; one device went `2001:db8::3` -> `192.0.2.3` ->
 `2001:db8::3` -> `192.0.2.3` within two minutes. While the IPv6 is primary,
@@ -190,8 +190,11 @@ inventory state rather than of nondeterministic compilation.
   that `GuestAddress.primary/1` skips). An IPv6 is primary only on an
   IPv6-only device, and a usable IPv4 it later gains takes over (a
   `169.254/16` address does not). A stored primary is kept unless the
-  incoming address is strictly stronger or the stored address is absent
-  from the sightings of the source that recorded it; a single-address
+  incoming address is strictly stronger (a usable IPv4 over any IPv6, else a
+  higher rank within the same family; a higher-rank IPv6 never replaces a
+  usable IPv4) or the stored address is absent from the sightings of the
+  source that recorded it, computed from that source's snapshot membership
+  before the write and recorded with the primary's source; a single-address
   update from another source never counts as absence, and equal rank never
   replaces (two usable IPv4s, or `fe80::` vs `169.254/16` on a link-local-only
   device). A real re-IP replaces once the old address leaves the recording
@@ -207,8 +210,8 @@ inventory state rather than of nondeterministic compilation.
   submits a link-local as primary when a routable address exists. The
   succession hand-over `MergeEngine.take_address?/2` compares only the two
   stored addresses, never replaces a usable IPv4 with an IPv6 or a routable
-  address with a link-local, and takes a link-local only when the survivor
-  has no routable address. A link-local-only device keeps its link-local primary under
+  address with a link-local or a link-local with an equal-rank link-local,
+  and takes a link-local only when the survivor has no primary at all. A link-local-only device keeps its link-local primary under
   the #3905 rank, without an address-fallback name.
 - Every aliasable address a device owns, in both families, stays a live
   alias, so the sweep targets both families. Aliasable means

@@ -1,7 +1,8 @@
 ## 1. Recorded strength for single-valued attributes
 
 - [ ] 1.1 Store source and evidence strength alongside `name`, `vendor_name`,
-      `type`, `integration_type` and `management_device_id`, so a recorded
+      `type`, `integration_type`, `management_device_id` and the primary `ip`
+      (with its last-sighted time), so a recorded
       clear is distinguishable from an unset value; a populated value with no recorded
       strength is kept against weakest-tier writes; the next write of any
       tier above the weakest replaces it and records its strength
@@ -156,11 +157,16 @@
       IPv6 only on IPv6-only devices (no usable IPv4; a `169.254/16`
       address does not count); the preference ranks only addresses a
       chooser accepts; the stored primary is kept unless the incoming
-      address is strictly stronger or the stored address is absent from the
-      sightings of the source that recorded it (another source's
-      single-address update never counts as absence); equal rank never
-      replaces, for two usable IPv4s and for `fe80::` vs `169.254/16` on a
-      link-local-only device
+      address is strictly stronger (usable IPv4 over any IPv6, else higher
+      rank within the same family after the IPv4-mapped unwrap; a
+      higher-rank IPv6 never replaces a usable IPv4) or the stored address
+      is absent from the sightings of the source that recorded it (another
+      source's single-address update never counts as absence); equal rank
+      never replaces, for two usable IPv4s and for `fe80::` vs `169.254/16`
+      on a link-local-only device; the census / sync batch builder computes
+      the recording source's snapshot membership and window per device
+      before the write and passes it to the upsert, which decides; the
+      upsert never infers absence from `EXCLUDED.ip` differing
 - [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
       `better?/2`'s equal-rank-never-replaces); extend the existing SQL /
       Elixir rank parity test to the family rule and the keep-unless-stronger
@@ -190,9 +196,10 @@
       link-local when a routable address exists; keep each chooser's own
       order among accepted IPv4s; the succession hand-over
       `MergeEngine.take_address?/2` compares only the successor's stored `ip`
-      with the survivor's, never replaces a usable IPv4 with an IPv6 or a
-      routable address with a link-local, and takes a link-local only
-      when the survivor has no routable address; keep NetBox
+      with the survivor's, never replaces a usable IPv4 with an IPv6, a
+      routable address with a link-local, or a link-local with an
+      equal-rank link-local, and takes a link-local only when the survivor
+      has no primary at all; keep NetBox
       `primaryIP`'s existing IPv4-first behaviour and IPv6 fallback
 - [ ] 7.6 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
@@ -266,4 +273,4 @@
       name
 - [ ] 8.3 Verify on a deployment: an affected agent's sweep config version
       stays constant across census passes, and dual-stack devices keep an
-      IPv4 primary
+      IPv4 primary, including a private rank-40 IPv4 against a global IPv6
