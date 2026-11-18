@@ -334,7 +334,7 @@ config:
     # moved the executor to v1.0.25.1 without rebuilding this image, which hosts only the Bazel
     # client. //docker/images/Dockerfile.workflow-runner records the policy.
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.5
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.6
 
     oci:
       # CoreDNS, by its ClusterIP -- reachable only because of task_allowed_private_ips above.
