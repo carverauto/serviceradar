@@ -33,7 +33,8 @@
       vendor never replaces a populated value without recorded strength or any
       stronger value; provenance keys follow the kept value
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
-      next to the enterprise-to-vendor table
+      next to the enterprise-to-vendor table, only to mark table entries whose
+      name is agent software
 - [ ] 3.3 Stop writing OS, software or platform names to `vendor_name` from
       any source (fingerprint, classification rule, integration, metadata);
       write OS / software names to the OS / software fields, and still rank

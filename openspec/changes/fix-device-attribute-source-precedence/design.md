@@ -31,7 +31,8 @@ address rank, #3905) and manual `type` ownership.
    `sysObjectID` enterprise alone, decides whether it is agent software, a
    hardware vendor, or not a vendor.
    The agent-software enterprises are a fixed, named list kept next to the
-   enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
+   enterprise-to-vendor table, only to mark table entries whose name is agent
+   software; the vendor name, not the enterprise number, decides the tier.
    A `sysObjectID` under enterprise 8072 with a hardware vendor from
    `sysDescr` or a classification rule is tier 3; a `sysDescr` or
    classification result that names agent software is tier 1.
