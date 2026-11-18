@@ -162,10 +162,12 @@ again, so nothing looks it up: it is inert history. Integration ids are not sour
 so absence retirement does not touch them, and no migration merges, splits or rewrites a device.
 An operator can find them with OC1.
 
-An update with no stable id, no universally administered MAC and no address would otherwise get a random uid and become a
-new device on every sighting. It is not written; the ingest outcome counts it as unresolved
+An update with no stable id, no MAC of any kind and no address would otherwise get a random uid
+and become a new device on every sighting. It is not written; the ingest outcome counts it as unresolved
 (reason `no_identity_evidence`). This is an interpretation of "then none (resolve by normal
-evidence)" for the case where there is no normal evidence.
+evidence)" for the case where there is no normal evidence. An update whose only evidence is a
+locally administered MAC is still written: that MAC keys no `integration_id`, and the update
+resolves through the uid-seed exception of "Randomized MACs Are Evidence Only".
 
 Rotating MACs: the comment on `prefixed_identifier/2` and the test "prefers hostname over MAC so
 rotating MACs cannot rotate the id" (`device_discovery_ingestor_test.exs:264`) exist because a
@@ -288,7 +290,8 @@ archived. This proposal does not edit them, to keep its diff to its own change d
   Mitigation: each opens exactly one task per device set, and repeats only bump its count.
 - Rotating-MAC plugin devices without a stable id may churn (D6). Mitigation: the plugin
   contract's stable source id.
-- Updates with no evidence at all are dropped and counted rather than written (D6).
+- Updates with no stable id, no MAC of any kind and no address are dropped and counted rather
+  than written (D6).
 - Ambiguous names leave events, findings, readiness transitions, SNMP credential overrides and
   LLDP neighbors unattributed where an arbitrary device used to be chosen. This is the intended
   outcome; the counts are visible in telemetry and unresolved-endpoint records.

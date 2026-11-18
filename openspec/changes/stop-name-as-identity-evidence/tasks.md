@@ -103,14 +103,16 @@ invented uids and names). Unboxed database tests delete every row they create.
 - [ ] 4.1 `DeviceDiscoveryIngestor.prefixed_identifier/2`: remove the hostname/name/host leg,
       and key on a MAC only when it is universally administered and unicast (a locally
       administered MAC keys nothing); rewrite the "Key preference" comment and the moduledoc.
-- [ ] 4.2 Skip an update with no stable id, no universally administered MAC and no address, and count it in the ingest
-      outcome as `no_identity_evidence`.
+- [ ] 4.2 Skip an update with no stable id, no MAC of any kind and no address, and count it in
+      the ingest outcome as `no_identity_evidence`; an update whose only evidence is a locally
+      administered MAC is still written.
 - [ ] 4.3 **Regression**: replace `device_discovery_ingestor_test.exs` "prefers hostname over MAC
       so rotating MACs cannot rotate the id" (line 264) with "does not key on the hostname; falls
       back to the MAC", and state the rotating-MAC trade-off in the test's name or comment.
 - [ ] 4.4 **Regression**: a record with only a hostname and an address derives no
-      `integration_id`; a record with only a hostname is not written as a device; a record whose
-      only MAC is locally administered derives no `integration_id`.
+      `integration_id`; a record with only a hostname and no MAC or address is not written as a
+      device; a record whose only MAC is locally administered derives no `integration_id`, and
+      without an address is still written as a device.
 - [ ] 4.5 **Guard**: a plugin-supplied integration id, serial or hardware id still keys the
       record ahead of the MAC.
 

@@ -327,10 +327,12 @@ AWX `awx:host:<name>` and ingest-minted `<source>:<kind>:<name>` values, SHALL N
 legacy lookup candidates or looked up. Existing rows holding such values SHALL stay where they
 are as inert history, or be archived by a source retirement that already archives them, and
 introducing this rule SHALL NOT merge or split any existing device. An update with no stable
-identifier, no universally administered MAC and no address SHALL NOT be written as a new device, and SHALL be counted as
-unresolved in the ingest outcome. A locally administered (randomized) MAC SHALL NOT key an
-`integration_id` (requirement "Randomized MACs Are Evidence Only"). A source whose MACs rotate and that supplies no stable
-identifier resolves by its other evidence, and MAY produce a new record when its MAC changes.
+identifier, no MAC of any kind and no address SHALL NOT be written as a new device, and SHALL be
+counted as unresolved in the ingest outcome. A locally administered (randomized) MAC SHALL NOT
+key an `integration_id`; an update whose only evidence is such a MAC is still written and
+resolves under requirement "Randomized MACs Are Evidence Only". A source whose MACs rotate and
+that supplies no stable identifier resolves by its other evidence, and MAY produce a new record
+when its MAC changes.
 
 #### Scenario: A serial-less plugin device without a stable id or MAC is not keyed by name
 - **GIVEN** a plugin device-discovery record with hostname `host03.example.com` and address `198.51.100.30`, and no integration id, serial, hardware id or MAC
