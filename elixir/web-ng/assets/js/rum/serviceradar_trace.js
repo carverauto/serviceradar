@@ -421,9 +421,13 @@ export function registerServiceRadarTrace(win) {
 
       const origins = Array.isArray(pluginConfig.tracePropagateOrigins)
         ? pluginConfig.tracePropagateOrigins
-        : Array.isArray(globalConfig.tracePropagateOrigins)
-          ? globalConfig.tracePropagateOrigins
-          : [];
+        : Array.isArray(pluginConfig.trace_propagate_origins)
+          ? pluginConfig.trace_propagate_origins
+          : Array.isArray(globalConfig.tracePropagateOrigins)
+            ? globalConfig.tracePropagateOrigins
+            : Array.isArray(globalConfig.trace_propagate_origins)
+              ? globalConfig.trace_propagate_origins
+              : [];
 
       state.tracePropagateOrigins = origins;
       state.beaconUrl =

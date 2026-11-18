@@ -55,7 +55,9 @@ export function initServiceRadarBoomerang(win) {
 
   const tracePropagateOrigins = Array.isArray(srConfig.tracePropagateOrigins)
     ? srConfig.tracePropagateOrigins
-    : [];
+    : Array.isArray(srConfig.trace_propagate_origins)
+      ? srConfig.trace_propagate_origins
+      : [];
   const beaconUrl = buildBeaconUrl(srConfig.beaconUrl || DEFAULT_BEACON_URL, siteKey);
 
   if (typeof boomr.addVar === "function") {

@@ -7,6 +7,7 @@ import {
   generateTraceparent,
   patchFetch,
   patchXMLHttpRequest,
+  registerServiceRadarTrace,
   shouldPropagateTrace,
 } from "./serviceradar_trace.js"
 import {
@@ -275,6 +276,64 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     // Subsequent load firing does not double-initialize BOOMR
     winListeners.get("load")?.()
     expect(lateInit).toHaveBeenCalledTimes(1)
+  })
+
+  test("accepts snake_case trace_propagate_origins in both boomerang_init and ServiceRadarTrace plugin", async () => {
+    const init = vi.fn()
+    const snakeInitWin = {
+      location: {origin: "https://portal.example.com"},
+      crypto: window.crypto,
+      BOOMR: {addVar: vi.fn(), init, subscribe: vi.fn(), plugins: {}},
+      BOOMR_config: {
+        ServiceRadar: {
+          siteKey: "sr_rum_snake",
+          beaconUrl: "/rum/v1/beacon",
+          trace_propagate_origins: ["https://api.example.com"],
+        },
+      },
+    }
+
+    expect(initServiceRadarBoomerang(snakeInitWin)).toBe(true)
+    expect(init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ServiceRadarTrace: {
+          tracePropagateOrigins: ["https://api.example.com"],
+          beaconUrl: "/rum/v1/beacon?key=sr_rum_snake",
+        },
+      }),
+    )
+
+    const pluginFetchCalls = []
+    const pluginWin = {
+      location: {origin: "https://portal.example.com"},
+      crypto: window.crypto,
+      Headers: window.Headers,
+      Request: window.Request,
+      BOOMR: {
+        addVar: vi.fn(),
+        subscribe: vi.fn(),
+        plugins: {},
+      },
+      fetch: async (input, reqInit) => {
+        pluginFetchCalls.push({input, init: reqInit})
+        return {ok: true, status: 200}
+      },
+    }
+
+    const plugin = registerServiceRadarTrace(pluginWin)
+    plugin.init({
+      ServiceRadarTrace: {
+        trace_propagate_origins: ["https://api.example.com"],
+      },
+    })
+
+    await pluginWin.fetch("https://api.example.com/v1/snake", {method: "GET"})
+    await pluginWin.fetch("https://other.example.com/v1/skip", {method: "GET"})
+    expect(pluginFetchCalls).toHaveLength(2)
+    expect(pluginFetchCalls[0].init.headers.traceparent).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+    )
+    expect(pluginFetchCalls[1].init.headers).toBeUndefined()
   })
 
   const DEFAULT_NAV_SERVER_TIMING = [
