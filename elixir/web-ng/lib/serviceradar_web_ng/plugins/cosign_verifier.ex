@@ -38,7 +38,12 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
   @log_id ~r/\A[0-9a-f]{64}\z/
   @digest ~r/\Asha256:[0-9a-f]{64}\z/
   # Sigstore trust overrides that must not leak in from the server's environment.
-  @trust_overrides ~w(SIGSTORE_REKOR_PUBLIC_KEY SIGSTORE_ROOT_FILE SIGSTORE_CT_LOG_PUBLIC_KEY_FILE SIGSTORE_TSA_CERTIFICATE_FILE)
+  @trust_overrides ~w(
+    SIGSTORE_REKOR_PUBLIC_KEY
+    SIGSTORE_ROOT_FILE
+    SIGSTORE_CT_LOG_PUBLIC_KEY_FILE
+    SIGSTORE_TSA_CERTIFICATE_FILE
+  )
 
   @type artifact :: %{
           required(:ref) => String.t(),

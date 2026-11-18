@@ -52,9 +52,16 @@ keys, so no installation depends on the log being up.
   monitor will watch only the self-hosted log (pending: lands with the monitor
   PR).
 
+- `pre-cutover-first-party-digests.json`: the frozen list of first-party Wasm
+  plugin and native add-on digests published through v1.5.7, before the cutover
+  release. Only these import without a receipt (key-only); the web-ng image
+  ships it at `/usr/share/serviceradar/sigstore/`. It is never regenerated or
+  extended.
+
 `//build/contracts:rekor_key_consistency_test` checks that every file is named by
-its log ID, that the pre-cutover keys are not accepted keys, and that `rekor.pub`
-is a member of the accepted set.
+its log ID, that the pre-cutover keys are not accepted keys, that `rekor.pub`
+is a member of the accepted set, that the web-ng image ships exactly
+`rekor-keys/` and the allowlist, and pins the allowlist's sha256.
 
 The self-hosted key `a8839837a73a6b28ca5102be67a874e8f0aa324a694320fa08fd55f9167b12c9`
 was fetched on 2026-11-18 at 17:04 UTC with
