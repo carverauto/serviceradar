@@ -14,7 +14,7 @@ synthetic stand-ins):
 | Attribute | Stronger writer | Weaker writer | Flip |
 | --- | --- | --- | --- |
 | `name` | mapper (SNMP `sysName`: `ap-01`) | passive census (IP and MAC, no hostname) | `ap-01` <-> `192.0.2.20` |
-| `vendor_name` | mapper (`sysDescr` inference: `Ubiquiti`) | passive census (IEEE OUI: `Ubiquiti Inc`) | every census pass |
+| `vendor_name` | mapper (SNMP `sysObjectID` enterprise: `Ubiquiti`) | passive census (IEEE OUI: `Ubiquiti Inc`) | every census pass |
 | integration id on Proxmox nodes | Proxmox inventory plugin | AWX inventory plugin | every plugin run |
 
 `DeviceRecords` builds `name: update.hostname || update.ip`, so a census update
@@ -51,15 +51,23 @@ inventory state rather than of nondeterministic compilation.
 
 ## What Changes
 
-- A device attribute written by sync ingestion carries the strength of its
-  evidence, and a write never replaces a stored value with weaker evidence:
-  - `name`: an IP placeholder (`name` derived from the address because the
-    update has no hostname) fills an empty name, or replaces a placeholder for
-    the stored address, and never replaces an observed name.
-  - `vendor_name`: an OUI-derived vendor (`metadata.mac_vendor_source =
-    "ieee_oui"`) fills an empty vendor or replaces another OUI-derived vendor,
-    and never replaces a vendor a source reported or inferred from device
-    evidence. The OUI provenance keys follow the value that is kept.
+- Each single-valued attribute written by sync ingestion (`name`,
+  `vendor_name`) records its source and evidence strength alongside the value.
+  A write replaces the stored value only when its strength is equal to or
+  greater than the recorded strength; a weaker write fills the attribute only
+  when it has no stored value. There is no second test (such as "the stored
+  name equals the stored address"): the recorded strength alone decides.
+  - `name`, weakest to strongest: address fallback (the update has no
+    hostname, so the name is an address) < passive census sighting < SNMP
+    `sysName` from the mapper or a name reported by an integration. An address
+    fallback is the address the device keeps after the existing address rank
+    guard, never an address the guard rejected.
+  - `vendor_name`, weakest to strongest: a generic SNMP agent-software vendor
+    (a `sysObjectID` under an agent-software enterprise such as Net-SNMP,
+    enterprise 8072) < IEEE OUI registrant (`metadata.mac_vendor_source =
+    "ieee_oui"`) < a vendor derived from a `sysObjectID` under a hardware
+    vendor's enterprise number, or reported by an integration. The OUI
+    provenance keys follow the value that is kept.
   - The same rule applies inside one ingestion batch (`merge_records_by_uid`)
     as across batches (the upsert), so batch composition cannot change the
     outcome.
@@ -70,18 +78,20 @@ inventory state rather than of nondeterministic compilation.
 - No change to the agent config compilers. Masking the flapping fields there
   would hide the inventory defect and keep the wrong value in the UI.
 
-## Operator impact (needs a decision before rollout)
+## Operator impact
 
-Once `vendor_name` stops flipping it settles on the stronger value. A
-credential rule written against the OUI spelling (`vendor_name:"<OUI org>"`)
-then stops matching devices whose SNMP-derived vendor is spelled differently,
-or whose SNMP agent reports a software vendor such as `Net-SNMP`. On the
-deployment above, the devices that only answer SNMPv3 were polled successfully
-only while the OUI spelling was stored. Release notes must call this out, and
-such rules should select devices by a stable key (uid list, tag, or a
-prefix match) instead of an exact vendor string. Whether an OUI vendor of a
-burned-in MAC should outrank a generic SNMP software vendor such as `Net-SNMP`
-is an open design question in design.md.
+Once `vendor_name` stops flipping it settles on the stronger value. For a
+device whose `sysObjectID` is under a hardware vendor's enterprise number, that
+is the SNMP-derived vendor. A credential rule written against the OUI spelling
+(`vendor_name:"<OUI org>"`) then stops matching such a device when the SNMP
+spelling differs, and the rule's SNMPv3 credential no longer applies; the
+profile's v2c credential is used instead. On the deployment above, the devices
+that only answer SNMPv3 were polled successfully only while the OUI spelling
+was stored. A device whose SNMP agent reports only a generic agent-software
+enterprise (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
+OUI spelling keep matching it. Release notes must call this out, and such
+rules should select devices by a stable key (uid list, tag, or a prefix match)
+instead of an exact vendor string.
 
 ## Impact
 
