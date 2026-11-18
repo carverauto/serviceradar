@@ -1005,7 +1005,7 @@ PY
     echo "sign-oci-publish did not attach the legacy receipt to ${image}'s signature" >&2
     exit 1
   fi
-  for flag in --use-signing-config=false --new-bundle-format=false --rekor-url https://rekor.sigstore.dev --tlog-upload=true; do
+  for flag in --use-signing-config=false --new-bundle-format=false --rekor-url https://rekor.serviceradar.cloud --tlog-upload=true; do
     if ! grep -qx -- "${flag}" "${sign_test_dir}/state-1/sign-blob-args-${image}"; then
       echo "sign-oci-publish did not sign ${image} through the pinned legacy upload path (${flag} missing)" >&2
       exit 1

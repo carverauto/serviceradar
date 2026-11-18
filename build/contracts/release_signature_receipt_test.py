@@ -128,8 +128,10 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         cls.release_key, cls.release_pub = cls.ec_key("release")
         cls.log_key, cls.log_pub = cls.ec_key("log")
         cls.other_log_key, cls.other_log_pub = cls.ec_key("other-log")
+        cls.pre_cutover_log_key, cls.pre_cutover_log_pub = cls.ec_key("pre-cutover-log")
         cls.log_id = cls.receipt_tool("log-id", str(cls.log_pub)).strip()
         cls.other_log_id = cls.receipt_tool("log-id", str(cls.other_log_pub)).strip()
+        cls.pre_cutover_log_id = cls.receipt_tool("log-id", str(cls.pre_cutover_log_pub)).strip()
 
         # The accepted key set holds only the stand-in log; rekor.pub names it as the
         # signing log, as docs/sigstore does for the public-good log.
@@ -137,6 +139,10 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         (cls.sigstore / "rekor-keys").mkdir(parents=True)
         (cls.sigstore / "rekor.pub").write_bytes(cls.log_pub.read_bytes())
         (cls.sigstore / "rekor-keys" / f"{cls.log_id}.pub").write_bytes(cls.log_pub.read_bytes())
+        # Stand-in for the public-good log that only reused pre-cutover receipts may name.
+        (cls.sigstore / "pre-cutover-rekor-keys").mkdir()
+        (cls.sigstore / "pre-cutover-rekor-keys" / f"{cls.pre_cutover_log_id}.pub").write_bytes(
+            cls.pre_cutover_log_pub.read_bytes())
 
     @classmethod
     def tearDownClass(cls):
@@ -287,6 +293,21 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
                                          through_signer_check=False)
         result = self.verify(reference, self.ledger([("reused", digest)]))
         self.assert_rejected(result, "which is not an accepted Rekor log")
+
+    def test_reused_pre_cutover_receipt_verifies_against_the_pre_cutover_key(self):
+        reference, digest = self.publish(
+            receipt=self.receipt(log_key=self.pre_cutover_log_key, log_id=self.pre_cutover_log_id),
+            through_signer_check=False)
+        result = self.verify(reference, self.ledger([("reused", digest)]))
+        self.assert_verified(result)
+        self.assertIn("verified offline", result.stderr)
+
+    def test_created_signature_with_a_pre_cutover_log_receipt_fails(self):
+        reference, digest = self.publish(
+            receipt=self.receipt(log_key=self.pre_cutover_log_key, log_id=self.pre_cutover_log_id),
+            through_signer_check=False)
+        result = self.verify(reference, self.ledger([("sign", digest)]))
+        self.assert_rejected(result, "not an accepted Rekor log for a created signature")
 
     def test_set_not_signed_by_the_named_log_fails(self):
         reference, digest = self.publish(receipt=self.receipt(log_key=self.other_log_key))

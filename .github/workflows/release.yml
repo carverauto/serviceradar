@@ -598,6 +598,7 @@ jobs:
             mkdir -p "${RUNNER_TEMP}/sigstore"
             cp docs/sigstore/rekor.pub "${RUNNER_TEMP}/sigstore/rekor.pub"
             cp -R docs/sigstore/rekor-keys "${RUNNER_TEMP}/sigstore/rekor-keys"
+            cp -R docs/sigstore/pre-cutover-rekor-keys "${RUNNER_TEMP}/sigstore/pre-cutover-rekor-keys"
             echo "SERVICERADAR_SIGSTORE_DIR=${RUNNER_TEMP}/sigstore" >> "${GITHUB_ENV}"
           fi
           cp scripts/ci/attach-signing-ledger.sh "${RUNNER_TEMP}/attach-signing-ledger.sh"

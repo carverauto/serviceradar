@@ -329,6 +329,7 @@ py_test(
     srcs = ["rekor_key_consistency_test.py"],
     data = [
         "//docs:sigstore/rekor.pub",
+        "//docs:sigstore/pre-cutover-rekor-keys",
         "//docs:sigstore/rekor-keys",
         "//scripts:install-cosign.sh",
         "//scripts:install-download-integrity.sh",

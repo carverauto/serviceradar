@@ -62,7 +62,7 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
      classic `.sig` that demo admission reads, records the signature in its signing ledger, and verifies
      and promotes the image.
    - Do not sign with `hashivault://cosign-release` from a workstation. Every release-key signature is
-     logged in public Rekor, and a signature that no workflow's signing ledger records is reported by the
+     logged in the self-hosted Rekor log, and a signature that no workflow's signing ledger records is reported by the
      transparency-log monitor as possible key misuse. If a manual signature is ever unavoidable, record
      its log entry in `docs/sigstore/rekor-acknowledged-entries.json` in a reviewed PR
      (`docs/sigstore/README.md`).

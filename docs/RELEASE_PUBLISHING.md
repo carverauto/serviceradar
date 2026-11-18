@@ -436,8 +436,8 @@ snapshot (`SERVICERADAR_SIGSTORE_DIR`).
 Every new classic `.sig` carries its Rekor receipt. The shared signer
 (`attach_legacy_signature` in `scripts/cosign_common.sh`) signs with
 `cosign sign-blob --use-signing-config=false --new-bundle-format=false
---rekor-url https://rekor.sigstore.dev --tlog-upload=true`, so the entry is
-written to the pinned public-good Rekor v1 log and never to a log that a
+--rekor-url https://rekor.serviceradar.cloud --tlog-upload=true`, so the entry is
+written to ServiceRadar's self-hosted Rekor v1 log and never to a log that a
 TUF-delivered signing config names. The legacy bundle's `rekorBundle` (the
 SignedEntryTimestamp and the logged `body`, `integratedTime`, `logIndex` and
 `logID`) becomes the `dev.sigstore.cosign/bundle` annotation on the one
@@ -446,7 +446,8 @@ annotation `cosign sign` itself writes. The tag, media types and layer count do
 not change, and Kyverno and promotion read the same `.sig` as before. Signing
 fails, and no `.sig` tag is written, when the upload returns no
 SignedEntryTimestamp or a log ID other than that of `docs/sigstore/rekor.pub`.
-Release signing therefore stops while Rekor v1 is down.
+Release signing therefore stops while the self-hosted Rekor (or its OpenBao
+Transit token) is down. Nothing at verification time depends on it.
 
 Each signing job writes a signing ledger (`SERVICERADAR_SIGNING_LEDGER`, one JSON
 line per event, written by `scripts/cosign_receipt.py`):
@@ -476,7 +477,10 @@ from the ledger, never from whether a receipt is present:
   no `--insecure-ignore-tlog`. A missing receipt, a log ID outside the key set, a
   SignedEntryTimestamp that does not verify, or a logged entry that names a
   different signature, key or payload hash fails the release.
-- Reused with a receipt: verified the same way.
+- Reused with a receipt: verified the same way. A receipt from the public-good
+  log (some images were signed by hand before the cutover) is checked against
+  `docs/sigstore/pre-cutover-rekor-keys/`; that key is never accepted for a
+  signature created in the run or at import.
 - Reused without a receipt: only a signature made before the cutover release
   (the first release whose signer attaches receipts) can be in this state. It is
   verified with the release key alone (`--insecure-ignore-tlog=true`). Kyverno

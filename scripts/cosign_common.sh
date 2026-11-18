@@ -4,11 +4,12 @@
 
 COSIGN_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COSIGN_COMMON_REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${COSIGN_COMMON_DIR}/.." && pwd)}"
-# The public-good Rekor v1 log every release signature is written to, and the directory
-# holding its key (rekor.pub) and every accepted Rekor key (rekor-keys/<logID>.pub).
-# release.yml points SERVICERADAR_SIGSTORE_DIR at a copy taken before it checks out an
-# older release, as it does for the current scripts.
-COSIGN_PINNED_REKOR_URL="https://rekor.sigstore.dev"
+# ServiceRadar's self-hosted Rekor v1 log, which every release signature is written to, and
+# the directory holding its key (rekor.pub), every accepted Rekor key (rekor-keys/<logID>.pub)
+# and the public-good key that only reused pre-cutover receipts may name
+# (pre-cutover-rekor-keys/<logID>.pub). release.yml points SERVICERADAR_SIGSTORE_DIR at a copy
+# taken before it checks out an older release, as it does for the current scripts.
+COSIGN_PINNED_REKOR_URL="https://rekor.serviceradar.cloud"
 COSIGN_SIGSTORE_DIR="${SERVICERADAR_SIGSTORE_DIR:-${COSIGN_COMMON_REPO_ROOT}/docs/sigstore}"
 COSIGN_RECEIPT_TOOL="${COSIGN_COMMON_DIR}/cosign_receipt.py"
 COSIGN_VERIFY_TIMEOUT="60s"
@@ -484,9 +485,10 @@ cosign_sign_blob_to_files() {
 }
 
 # Release signatures for images, native add-ons and Wasm plugins. cosign's legacy upload
-# path writes to the pinned Rekor v1 log, never to a log a TUF-delivered signing config
-# names, and the legacy `--bundle` file carries the receipt (`rekorBundle`): a Rekor v2
-# entry has no SignedEntryTimestamp and cannot be carried in the classic annotation.
+# path writes to the pinned self-hosted Rekor v1 log, never to a log a TUF-delivered signing
+# config names, and the legacy `--bundle` file carries the receipt (`rekorBundle`): a Rekor v2
+# entry has no SignedEntryTimestamp and cannot be carried in the classic annotation. When that
+# log is unreachable, cosign fails after its retries and so does the release.
 cosign_sign_blob_with_receipt() {
   declare -g -a COSIGN_TLOG_ARGS=(
     --use-signing-config=false
@@ -858,10 +860,12 @@ cosign_release_verify_key() {
 
 # Verify the classic `.sig` of one digest the way this run's signing ledger says it was
 # produced, never by whether a receipt happens to be present. A digest created in the run
-# must carry a receipt that verifies offline under the pinned key for its log ID. A reused
-# signature is held to its receipt when it carries one and is verified with the release
-# key alone when it does not, which only a pre-cutover signature can be. A digest the
-# ledger does not record fails. Call after cosign_init_verify_args.
+# must carry a receipt from an accepted (self-hosted) log that verifies offline under the
+# pinned key for its log ID. A reused signature is held to its receipt when it carries one,
+# from an accepted log or, for a pre-cutover manual signing, from the public-good log; it is
+# verified with the release key alone when it carries none, which only a pre-cutover
+# signature can. A digest the ledger does not record fails. No Rekor is contacted.
+# Call after cosign_init_verify_args.
 cosign_verify_legacy_signature() {
   local ref="$1"
   local digest="${ref##*@}"
@@ -891,8 +895,11 @@ cosign_verify_legacy_signature() {
   fi
 
   key_file="${COSIGN_SIGSTORE_DIR}/rekor-keys/${log_id}.pub"
+  if [[ ! -f "${key_file}" && "${class}" == "reused" ]]; then
+    key_file="${COSIGN_SIGSTORE_DIR}/pre-cutover-rekor-keys/${log_id}.pub"
+  fi
   if [[ ! -f "${key_file}" ]]; then
-    echo "error: ${ref} carries a receipt from log ${log_id}, which is not an accepted Rekor log" >&2
+    echo "error: ${ref} carries a receipt from log ${log_id}, which is not an accepted Rekor log for a ${class} signature" >&2
     return 1
   fi
   SIGSTORE_REKOR_PUBLIC_KEY="${key_file}" \

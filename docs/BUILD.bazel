@@ -18,6 +18,14 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+# The public-good Rekor key, accepted only by release verification of reused pre-cutover
+# receipts. Never shipped in the web-ng image.
+filegroup(
+    name = "sigstore/pre-cutover-rekor-keys",
+    srcs = glob(["sigstore/pre-cutover-rekor-keys/*.pub"]),
+    visibility = ["//visibility:public"],
+)
+
 sh_test(
     name = "lint",
     srcs = ["lint_placeholder.sh"],

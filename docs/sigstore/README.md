@@ -25,37 +25,70 @@ using a full trusted-root document.
 
 ## Pinned Rekor keys (transparency-log receipts)
 
-Release signatures for images, native add-ons and Wasm plugins are logged in the
-public-good Rekor v1 log, and each classic `.sig` carries that log's receipt
-(see "Transparency-log receipts and the signing ledger" in
-[RELEASE_PUBLISHING.md](../RELEASE_PUBLISHING.md)). Two committed files pin the
-log keys the receipts are checked against:
+Release signatures for images, native add-ons and Wasm plugins are logged in
+ServiceRadar's self-hosted Rekor v1 log, `https://rekor.serviceradar.cloud`
+(`carverauto/gitops` `k8s/sigstore`), and each classic `.sig` carries that log's
+receipt (see "Transparency-log receipts and the signing ledger" in
+[RELEASE_PUBLISHING.md](../RELEASE_PUBLISHING.md)). Verification never contacts
+that log or any other Rekor: receipts are checked offline against these committed
+keys, so no installation depends on the log being up.
 
 - `rekor-keys/<logID>.pub`: every accepted Rekor v1 public key, one PEM file per
   log, named by the log ID (hex SHA-256 of the key's DER encoding). Release
-  verification selects the file by the receipt's `logID` and passes it to cosign
-  as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
-  happens. A receipt whose log ID has no file here fails.
+  verification and the web-ng importer select the file by the receipt's `logID`
+  and pass it to cosign as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no
+  online log lookup happens. A receipt whose log ID has no file here fails. The
+  web-ng image ships this directory.
 - `rekor.pub`: the key of the log the signer writes to now, byte-identical to
   its file in `rekor-keys/`. The signer refuses an upload response whose log ID
   is not this key's.
+- `pre-cutover-rekor-keys/<logID>.pub`: the public-good Rekor key
+  (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
+  carry public-good receipts, and release verification checks such a receipt
+  on a **reused** signature against this key. It is never accepted for a new
+  signature or at import, and it is not shipped in the web-ng image: the
+  monitor watches only the self-hosted log.
 
-`//build/contracts:rekor_key_consistency_test` checks that every file in
-`rekor-keys/` is named by its log ID and that `rekor.pub` is a member of the set.
+`//build/contracts:rekor_key_consistency_test` checks that every file is named by
+its log ID, that the pre-cutover keys are not accepted keys, and that `rekor.pub`
+is a member of the accepted set.
 
-The initial key is the public-good log `c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d`,
-taken from Sigstore's TUF-signed `trusted_root.json` (the `tlogs` entry with base
-URL `https://rekor.sigstore.dev`), not from a Rekor API response. It was read on
-2026-11-17 from TUF root version 16, targets version 14, with
-`trusted_root.json` SHA-256
-`6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66`.
+The self-hosted key `a8839837a73a6b28ca5102be67a874e8f0aa324a694320fa08fd55f9167b12c9`
+was fetched on 2026-11-18 at 17:04 UTC with
+`curl https://rekor.serviceradar.cloud/api/v1/log/publicKey` (the same bytes with
+`?treeID=7401445772329872027`). It was accepted only after the log's signed tree
+head from `GET /api/v1/log` (tree `7401445772329872027`, size 46) verified under it
+with `openssl dgst -sha256 -verify` and named it by key hint (`a8839837`).
 
-Updating the keys: when Sigstore adds a Rekor v1 key, sets an end date on the
-pinned one, or removes it, add the new key as `rekor-keys/<logID>.pub` from the
-TUF trusted root in a reviewed PR, keep every key an accepted receipt names, and
-point `rekor.pub` at the log the signer writes to from then on. Never drop a key
-from `rekor-keys/` that a published receipt names: verification of that
-receipt would then fail.
+Updating the keys: when the self-hosted log's key changes (the monitor alerts when
+`/api/v1/log/publicKey` no longer returns `rekor.pub`), fetch the new key the same
+way, add it as `rekor-keys/<logID>.pub` in a reviewed PR, keep every key an
+accepted receipt names, and point `rekor.pub` at the new key. Never drop a key
+from `rekor-keys/` that a published receipt names: verification of that receipt
+would then fail.
+
+### Operating the self-hosted log
+
+- **Release key precondition (operator check, agents do not run it).**
+  `bao read transit/keys/cosign-release` must show `exportable=false` and
+  `allow_plaintext_backup=false`. Either one set lets the key bytes leave
+  OpenBao, after which no log, monitor or audit record sees a signature. Check
+  it after every change to the key.
+- **Availability.** Release signing fails closed when the self-hosted Rekor or
+  its OpenBao Transit token is unavailable. The Rekor OpenBao token has a
+  32-day maximum TTL; remint it, or move Rekor to Kubernetes auth, before it
+  expires.
+- **Trillian database.** Losing the log's Trillian MySQL database does not break
+  verification of receipts already issued, which is offline. It ends the audit
+  trail, and a new tree is a new log ID and a reviewed key change. Back the
+  database up and test restores.
+- **Shared OpenBao.** The Rekor signing key (`transit/keys/rekor`) and
+  `cosign-release` live in the same OpenBao, so someone who can use both could
+  forge a receipt for an entry that was never logged. The OpenBao audit log is
+  the second line: an audit device, enabled by the operator, records every
+  `transit/sign/cosign-release` request, and a watch reports requests no signing
+  ledger accounts for. OpenBao refuses requests when no enabled audit device
+  can write, so the audit sink needs capacity monitoring.
 
 ## Issuer design note
 

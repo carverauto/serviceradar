@@ -59,6 +59,13 @@ class RekorKeySetTest(unittest.TestCase):
             with self.subTest(key=key.name):
                 self.assertEqual(key.name, log_id(key.read_bytes()) + ".pub")
 
+    def test_pre_cutover_keys_are_named_by_log_id_and_never_accepted(self):
+        accepted = {key.name for key in (SIGSTORE / "rekor-keys").glob("*.pub")}
+        for key in sorted((SIGSTORE / "pre-cutover-rekor-keys").glob("*.pub")):
+            with self.subTest(key=key.name):
+                self.assertEqual(key.name, log_id(key.read_bytes()) + ".pub")
+                self.assertNotIn(key.name, accepted)
+
     def test_signing_log_key_is_a_member_of_the_accepted_set(self):
         signing = (SIGSTORE / "rekor.pub").read_bytes()
         member = SIGSTORE / "rekor-keys" / (log_id(signing) + ".pub")
