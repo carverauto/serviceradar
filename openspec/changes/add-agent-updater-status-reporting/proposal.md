@@ -43,11 +43,12 @@ changes.
   define.
 - **Rollouts exclude stale hosts before dispatch.** An add-on or managed-certificate
   target whose helper is below the release's minimum, or lacks a needed operation, is
-  ineligible up front, and the row names the agent and the package upgrade. It is not
-  attempted, failed and rolled back.
+  ineligible up front, and the row names the agent and the package upgrade. A target whose
+  helper is unavailable is excluded too, with the failed safety check and a package
+  reinstall or repair as its remedy. Neither is attempted, failed and rolled back.
 - **The fleet view names the hosts and the remedy**: a filter and count by helper state,
   a notice while any host needs a package upgrade, and per host the package command for
-  its package family with the target version, plus the fleet-wide route through the
+  its package family with the required helper version, plus the fleet-wide route through the
   agent package playbooks.
 - **The package stays the only writer of the helper.** This is stated as a requirement:
   no control-plane command, agent release or add-on changes the privileged helper.

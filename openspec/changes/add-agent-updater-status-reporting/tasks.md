@@ -11,23 +11,23 @@
 
 ## 3. Agent
 
-- [ ] 3.1 Inspect the helper through self-description; keep the help-text probe only to find the operations of a helper that does not answer it.
-- [ ] 3.2 Classify the helper state and report version, state, reason, operations and observation time in the capability status; keep reporting `addon.systemd.updater.unavailable` for older cores.
+- [ ] 3.1 Inspect the helper through self-description; keep the help-text probe only to find the operations of a helper that does not answer it, which stays `package_upgrade_required` and rollout-ineligible.
+- [ ] 3.2 Classify the helper state and report version (unknown for a helper that does not describe itself), required version, state, reason, operations and observation time in the capability status; keep reporting `addon.systemd.updater.unavailable` for older cores.
 - [ ] 3.3 Gate privileged features on named operations and report a blocked feature with the missing operation instead of a flag error.
 - [ ] 3.4 Report the host's package family (deb or rpm) and installed package version so the remedy can be exact.
 
 ## 4. Core
 
-- [ ] 4.1 Persist per-agent helper status from the capability status; expose it through the agent read actions and SRQL.
+- [ ] 4.1 Persist per-agent helper status from the capability status, including required version, package family and installed package version; expose it through the agent read actions and SRQL.
 - [ ] 4.2 Move add-on and managed-certificate eligibility from the capability string to helper state and required operations; keep the capability string as the fallback for agents that report `unknown`.
-- [ ] 4.3 Record the ineligibility reason with the agent and the package upgrade on the rollout target, replacing the bare `agent_updater_outdated`.
+- [ ] 4.3 Record the ineligibility reason with the agent on the rollout target, replacing the bare `agent_updater_outdated`: the package upgrade and required version for `package_upgrade_required`, the failed safety check and a package reinstall or repair for `unavailable`.
 
 ## 5. Web UI
 
 - [ ] 5.1 Agent detail: helper version, state, reason, operations, last observation.
 - [ ] 5.2 Agents list: helper state column, filter and counts; Edge Ops notice while any agent is `package_upgrade_required` or `unavailable`.
-- [ ] 5.3 Remedy panel: package command for the host's package family with the target version, and the fleet-wide playbook route.
-- [ ] 5.4 Add-on and release rollout views name the agent and the reason for targets excluded for their helper.
+- [ ] 5.3 Remedy panel: for `package_upgrade_required`, the package command built from the host's package family and the required version, and the fleet-wide playbook route; for `unavailable`, the failed safety check and a package reinstall or repair.
+- [ ] 5.4 Add-on and release rollout views name the agent, the reason and the remedy for targets excluded for their helper.
 
 ## 6. Tests
 

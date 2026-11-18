@@ -87,8 +87,7 @@ path to fix it.
   the database and not in Helm values. Rollouts pause on a fixed rule (an owner
   decision).
 - **The bootstrap is stated, not hidden.** Helpers already in the field cannot replace
-  themselves. Those hosts need one package upgrade. The product names each such host, says
-  why, and gives the remedy.
+  themselves. Those hosts need one package upgrade before self-replacement can reach them.
 
 No **BREAKING** change for operators. Two approved statements are amended and called out
 in `design.md`: the documentation line that "baseline updater assets remain package-owned"
@@ -114,5 +113,5 @@ updaters "are upgraded by the OS package, not by an agent self-update"
   change keeps the helper root-owned at the same path. `add-windows-agent-installer`
   records that the updater is systemd-based; Windows and macOS stay out of scope here.
 - Related proposal: `add-awx-playbook-provisioning` supplies the "Install or upgrade the
-  ServiceRadar agent package" automation that is one of the bootstrap remedies. Neither
-  change depends on the other to ship.
+  ServiceRadar agent package" automation that `add-agent-updater-status-reporting` links
+  to as its remedy.

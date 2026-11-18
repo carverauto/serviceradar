@@ -54,15 +54,15 @@
 - [ ] 7.1 Updater unit tests: valid install; add-on signature and manifest signature rejected as updater signatures; tampered binary; wrong kind; wrong platform; equal and lower versions; below floor; oversized input; symlinked input; environment key ignored.
 - [ ] 7.2 Setuid integration tests as a non-root caller: destination, owner and mode are fixed; interrupted replacement before rename leaves the old updater working; stale temporary file is removed; floor heals.
 - [ ] 7.3 Self-test failure prevents the rename.
-- [ ] 7.4 Agent tests: state classification for each of the six states the agent reports; replacement only on command; feature gating by operation.
-- [ ] 7.5 Core tests: read model, including `unknown` recorded for an agent that reports no updater status and never counted as healthy; setting default and override; cohort dispatch, pause by reason class, add-on eligibility transitions.
-- [ ] 7.6 LiveView tests for the remedy panel, filters and rollout rows.
+- [ ] 7.4 Agent tests: classification of `outdated`, `bootstrap_required` and `replacement_failed`; replacement only on command.
+- [ ] 7.5 Core tests: replacement states in the updater status; setting default and override; cohort dispatch, pause by reason class, the `outdated` add-on eligibility transition.
+- [ ] 7.6 LiveView tests for the replacement outcome on rollout rows and the kill-switch setting.
 - [ ] 7.7 Enforcing-SELinux host verification of label preservation and of a privileged operation after replacement; record the result against the specific host and replacement time.
 
 ## 8. Rollout and documentation
 
 - [ ] 8.1 Canary: one cohort, verified by the reported updater version of each host observed after dispatch, with an explicit failure branch for hosts that did not change.
 - [ ] 8.2 Exercise the kill switch and the pause rule during the canary.
-- [ ] 8.3 Update `docs/docs/agent-release-management.md`, `docs/docs/agent-platform-packages.md` and `docs/docs/native-addons.md`, including the amended "package-owned" statement and the bootstrap remedy.
+- [ ] 8.3 Update `docs/docs/agent-release-management.md`, `docs/docs/agent-platform-packages.md` and `docs/docs/native-addons.md`, for the amended "package-owned" statement.
 - [ ] 8.4 Update the flag-contract comment in `go/pkg/agent/updaterflags/flags.go`.
 - [ ] 8.5 Run `openspec validate add-agent-updater-self-update --strict`, the focused Go and Elixir checks, and the required Bazel suite; report every check not run.

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Updater self-description
-The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. The agent SHALL use that document, not usage text, to decide whether a privileged operation is available.
+The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. When the updater answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when the updater does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL remain `package_upgrade_required`.
 
 #### Scenario: Agent reads the updater's operations
 - **GIVEN** an installed updater that supports self-description
@@ -13,10 +13,13 @@ The privileged agent updater SHALL report its version, platform and supported op
 - **GIVEN** an installed updater that does not answer the self-description invocation
 - **WHEN** the agent inspects it
 - **THEN** the agent SHALL classify the updater as `package_upgrade_required`
-- **AND** SHALL still be able to use the operations that updater has
+- **AND** SHALL report the installed updater version as unknown
+- **AND** the reason SHALL name the release's required updater version
+- **AND** SHALL take that updater's operations from its usage text and still be able to use them
+- **AND** operations found that way SHALL NOT make the agent eligible for a privileged add-on or managed certificate rollout
 
 ### Requirement: Agent releases declare the updater they need
-Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses. The agent SHALL classify the installed updater against that declaration and report the result with the updater's version, operations, a reason and the time of observation.
+Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses. The agent SHALL classify the installed updater against that declaration and report the result with the updater's version, the required version, operations, a reason, the host's package family and installed package version, and the time of observation.
 
 #### Scenario: Updater meets the release's requirement
 - **GIVEN** an installed updater at or above the release's minimum version
@@ -68,7 +71,7 @@ The system SHALL identify every agent whose installed updater does not meet its 
 - **GIVEN** an agent classified `package_upgrade_required`
 - **WHEN** an operator views the agent or a rollout that excluded it
 - **THEN** the system SHALL state that a package upgrade is required
-- **AND** SHALL show the package command for the host's package family with the target version
+- **AND** SHALL show the package command built from the host's reported package family and the release's required updater version
 
 #### Scenario: Host is upgraded
 - **WHEN** the upgraded updater answers self-description at or above the required version
@@ -78,10 +81,17 @@ The system SHALL identify every agent whose installed updater does not meet its 
 The control plane SHALL decide whether an agent can receive a privileged add-on or managed certificate from the updater state and operations the agent reports, and SHALL exclude an ineligible agent before dispatch.
 
 #### Scenario: Updater needs a package upgrade
-- **GIVEN** an agent whose updater is `package_upgrade_required` or `unavailable`
+- **GIVEN** an agent whose updater is `package_upgrade_required`
 - **WHEN** a privileged add-on rollout selects its targets
 - **THEN** the agent SHALL be ineligible and SHALL receive no install command
-- **AND** the recorded reason SHALL name the agent and the package upgrade
+- **AND** the recorded reason SHALL name the agent, the package upgrade and the required updater version
+
+#### Scenario: Updater is unavailable
+- **GIVEN** an agent whose updater is `unavailable`
+- **WHEN** a privileged add-on rollout selects its targets
+- **THEN** the agent SHALL be ineligible and SHALL receive no install command
+- **AND** the recorded reason SHALL name the agent and the safety check that failed
+- **AND** SHALL give a package reinstall or repair of the updater as the remedy
 
 #### Scenario: Excluded host does not pause the rollout
 - **GIVEN** a rollout whose scope contains eligible agents and agents excluded for their updater
