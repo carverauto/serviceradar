@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Per-agent updater status read model
-The control plane SHALL persist, for each agent, the privileged updater status the agent reports: version, the agent release's required updater version, state, reason, supported operations, the host's package family and installed package version, and the time of observation. The state SHALL be one of `current`, `package_upgrade_required`, `unavailable`, `not_applicable` or `unknown`, and SHALL be queryable alongside the agent's other attributes.
+The control plane SHALL persist, for each agent, the privileged updater status the agent reports: version, the agent release's required updater version, state, reason, supported operations, the host's package family and installed package version, and the time of observation. The state SHALL be one of `current`, `package_upgrade_recommended`, `package_upgrade_required`, `unavailable`, `not_applicable` or `unknown`, and SHALL be queryable alongside the agent's other attributes.
 
 #### Scenario: Agent reports updater status
 - **GIVEN** an agent that reports its updater status in its capability status
@@ -10,7 +10,7 @@ The control plane SHALL persist, for each agent, the privileged updater status t
 - **AND** the host's package family and installed package version SHALL be stored with them
 
 #### Scenario: Updater version is unknown
-- **GIVEN** an agent that reports `package_upgrade_required` for an updater that does not describe itself
+- **GIVEN** an agent that reports `package_upgrade_recommended` for an updater that does not describe itself
 - **WHEN** the control plane ingests that status
 - **THEN** the installed updater version SHALL be stored as unknown
 - **AND** the required updater version, package family and installed package version SHALL still be stored

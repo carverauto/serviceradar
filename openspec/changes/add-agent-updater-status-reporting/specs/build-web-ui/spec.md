@@ -1,14 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: Agent updater state and remedy
-The web UI SHALL show each agent's updater version, state, reason, supported operations and last observation, SHALL let operators filter and count agents by updater state, SHALL present the package upgrade remedy for every agent that needs one, and SHALL present the package reinstall or repair remedy for every agent whose updater is unavailable.
+The web UI SHALL show each agent's updater version, state, reason, supported operations and last observation, SHALL let operators filter and count agents by updater state, SHALL present the package upgrade remedy for every agent that needs one or is recommended one, and SHALL present the package reinstall or repair remedy for every agent whose updater is unavailable.
 
 #### Scenario: Agent needs a package upgrade
 - **GIVEN** an agent whose updater state is `package_upgrade_required`
 - **WHEN** an operator opens the agent
-- **THEN** the page SHALL state the installed and the required updater version, showing the installed version as unknown when the updater does not report one
+- **THEN** the page SHALL state the installed and the required updater version
 - **AND** SHALL show the package command built from the host's package family and the required updater version
 - **AND** SHALL point to the documented fleet-wide package upgrade
+- **AND** SHALL state that privileged add-on and managed certificate rollouts skip this agent until it is upgraded
+
+#### Scenario: Agent updater cannot report its version
+- **GIVEN** an agent whose updater state is `package_upgrade_recommended`
+- **WHEN** an operator opens the agent
+- **THEN** the page SHALL show the installed updater version as unknown and the required updater version
+- **AND** SHALL state that a package upgrade is recommended and show the package command built from the host's package family and the required updater version
+- **AND** SHALL point to the documented fleet-wide package upgrade
+- **AND** SHALL NOT state that rollouts to the agent are blocked for that state
 
 #### Scenario: Agent updater is unavailable
 - **GIVEN** an agent whose updater state is `unavailable`
@@ -20,7 +29,7 @@ The web UI SHALL show each agent's updater version, state, reason, supported ope
 #### Scenario: Fleet view of updater state
 - **WHEN** an operator opens the agents list
 - **THEN** the list SHALL offer a filter and a count for each updater state
-- **AND** Edge Ops SHALL show a notice while any agent is `package_upgrade_required` or `unavailable`
+- **AND** Edge Ops SHALL show a notice while any agent is `package_upgrade_required`, `package_upgrade_recommended` or `unavailable`
 
 #### Scenario: Agent has no privileged updater
 - **GIVEN** an agent whose updater state is `not_applicable`
@@ -36,8 +45,19 @@ The web UI SHALL show each agent's updater version, state, reason, supported ope
 The release and add-on rollout views SHALL name each agent excluded because of its updater and SHALL state the reason and the remedy on that row.
 
 #### Scenario: Add-on target excluded for its updater
-- **WHEN** an add-on rollout excludes an agent whose updater needs a package upgrade
+- **WHEN** an add-on rollout excludes an agent whose updater state is `package_upgrade_required`
 - **THEN** the row SHALL name the agent and state that a package upgrade is required
+
+#### Scenario: Add-on target excluded for an updater that predates self-description and lacks the operation
+- **GIVEN** an agent whose updater state is `package_upgrade_recommended`
+- **WHEN** an add-on rollout excludes that agent because the operations from its usage text lack an operation the release declares
+- **THEN** the row SHALL name the agent and the missing operation
+- **AND** SHALL give the package upgrade with the required updater version as the remedy
+
+#### Scenario: Add-on target fails on an updater that cannot report its version
+- **GIVEN** an agent whose updater state is `package_upgrade_recommended`
+- **WHEN** an add-on install dispatched to that agent fails
+- **THEN** the row SHALL show the failure together with the updater state and the recommended package upgrade
 
 #### Scenario: Add-on target excluded for an unavailable updater
 - **WHEN** an add-on rollout excludes an agent whose updater is `unavailable`

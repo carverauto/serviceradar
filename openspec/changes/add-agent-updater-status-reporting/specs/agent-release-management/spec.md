@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Updater self-description
-The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. The agent SHALL NOT execute an updater that fails the safety checks, including for self-description, and SHALL treat none of its operations as available. When an updater that passes the safety checks answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when an updater that passes the safety checks does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL remain `package_upgrade_required`.
+The privileged agent updater SHALL report its version, platform and supported operations as a machine-readable document through an invocation that performs no privileged change. The agent SHALL NOT execute an updater that fails the safety checks, including for self-description, and SHALL treat none of its operations as available. When an updater that passes the safety checks answers that invocation, the agent SHALL use the document, not usage text, to decide whether a privileged operation is available. Only when an updater that passes the safety checks does not answer MAY the agent take the operation list from the updater's usage text, and that updater SHALL be classified `package_upgrade_recommended`.
 
 #### Scenario: Agent reads the updater's operations
 - **GIVEN** a platform whose installer provides a privileged updater
@@ -16,14 +16,14 @@ The privileged agent updater SHALL report its version, platform and supported op
 - **AND** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
 - **AND** it does not answer the self-description invocation
 - **WHEN** the agent inspects it
-- **THEN** the agent SHALL classify the updater as `package_upgrade_required`
+- **THEN** the agent SHALL classify the updater as `package_upgrade_recommended`
 - **AND** SHALL report the installed updater version as unknown
 - **AND** the reason SHALL name the release's required updater version
 - **AND** SHALL take that updater's operations from its usage text and still be able to use them
-- **AND** operations found that way SHALL NOT make the agent eligible for a privileged add-on or managed certificate rollout
+- **AND** the operations found that way SHALL decide the agent's rollout eligibility, as the updater capability string did before this change
 
 ### Requirement: Agent releases declare the updater they need
-Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses, and the declared minimum SHALL always be a version whose updater answers self-description. The agent SHALL classify the installed updater in this order: `not_applicable` when the platform's installer provides no privileged updater, without applying the safety checks; otherwise `unavailable` when the updater fails any safety check (it must be present, a regular file, root-owned, not writable by group or others, and setuid), whether or not it answers self-description; otherwise `package_upgrade_required` when it does not answer self-description or is below the release's minimum version; otherwise `current`. The agent SHALL report the result with the updater's version, the required version, operations, a reason, the host's package family and installed package version, and the time of observation.
+Each agent release SHALL declare the minimum updater version it requires and the updater operation each privileged feature uses, and the declared minimum SHALL always be a version whose updater answers self-description. The agent SHALL classify the installed updater in this order: `not_applicable` when the platform's installer provides no privileged updater, without applying the safety checks; otherwise `unavailable` when the updater fails any safety check (it must be present, a regular file, root-owned, not writable by group or others, and setuid), whether or not it answers self-description; otherwise `package_upgrade_recommended` when it does not answer self-description; otherwise `package_upgrade_required` when it answers self-description below the release's minimum version; otherwise `current`. The agent SHALL report the result with the updater's version, the required version, operations, a reason, the host's package family and installed package version, and the time of observation.
 
 #### Scenario: Updater meets the release's requirement
 - **GIVEN** an installed updater that is present, a regular file, root-owned, not writable by group or others, and setuid
@@ -82,13 +82,13 @@ The system SHALL NOT replace, patch or reconfigure the installed privileged upda
 - **THEN** the installed updater SHALL be byte-for-byte unchanged
 
 #### Scenario: Control plane sees an old updater
-- **GIVEN** an agent whose updater state is `package_upgrade_required`
+- **GIVEN** an agent whose updater state is `package_upgrade_required` or `package_upgrade_recommended`
 - **WHEN** the control plane reconciles that agent
 - **THEN** it SHALL dispatch no command that writes the updater path
 - **AND** SHALL report the package upgrade as the remedy
 
 ### Requirement: Hosts needing a package upgrade are identified
-The system SHALL identify every agent whose installed updater does not meet its agent release's requirement, SHALL report why, and SHALL present the exact remedy for that host.
+The system SHALL identify every agent whose installed updater does not meet its agent release's requirement or cannot report its version, SHALL report why, and SHALL present the exact remedy for that host.
 
 #### Scenario: Host needs a package upgrade
 - **GIVEN** an agent classified `package_upgrade_required`
@@ -96,12 +96,37 @@ The system SHALL identify every agent whose installed updater does not meet its 
 - **THEN** the system SHALL state that a package upgrade is required
 - **AND** SHALL show the package command built from the host's reported package family and the release's required updater version
 
+#### Scenario: Host has an updater that cannot report its version
+- **GIVEN** an agent classified `package_upgrade_recommended`
+- **WHEN** an operator views the agent
+- **THEN** the system SHALL state that the updater predates version reporting and that a package upgrade is recommended
+- **AND** SHALL show the package command built from the host's reported package family and the release's required updater version
+- **AND** SHALL NOT state that rollouts to the agent are blocked for that state
+
 #### Scenario: Host is upgraded
 - **WHEN** the upgraded updater is present, a regular file, root-owned, not writable by group or others, and setuid, and answers self-description at or above the required version
 - **THEN** the agent's updater state SHALL become `current` without operator action in ServiceRadar
 
 ### Requirement: Rollout eligibility follows updater state
 The control plane SHALL decide whether an agent can receive a privileged add-on or managed certificate from the updater state and operations the agent reports, and SHALL exclude an ineligible agent before dispatch.
+
+#### Scenario: Updater predates self-description and has the operation
+- **GIVEN** an agent whose updater is `package_upgrade_recommended`
+- **AND** the operations taken from its usage text include the operation the release declares for the rollout's feature
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
+- **THEN** the agent SHALL be eligible and SHALL NOT be excluded for its updater state
+
+#### Scenario: Updater predates self-description and lacks the operation
+- **GIVEN** an agent whose updater is `package_upgrade_recommended`
+- **AND** the operations taken from its usage text do not include the operation the release declares for the rollout's feature
+- **WHEN** a privileged add-on or managed certificate rollout selects its targets
+- **THEN** the agent SHALL be ineligible and SHALL receive no install command
+- **AND** the recorded reason SHALL name the agent, the missing operation and the package upgrade with the required updater version
+
+#### Scenario: Rollout fails on a host whose updater cannot report its version
+- **GIVEN** an agent whose updater is `package_upgrade_recommended`
+- **WHEN** a privileged add-on or managed certificate install dispatched to it fails
+- **THEN** the failure recorded on the rollout target SHALL name the updater state and the recommended package upgrade
 
 #### Scenario: Updater needs a package upgrade
 - **GIVEN** an agent whose updater is `package_upgrade_required`

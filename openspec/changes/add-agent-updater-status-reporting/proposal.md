@@ -37,21 +37,32 @@ changes.
   matters to the agent, so an ordinary agent release does not ask for a package upgrade.
   It is never below the first helper version that answers self-description, so the
   package upgrade it names installs a helper that can be reported `current`.
-- **The agent reports a helper state**: `current`, `package_upgrade_required`,
-  `unavailable` or `not_applicable`, with the version, operations, reason and observation
-  time. Core records `unknown` for an agent that reports nothing.
+- **The agent reports a helper state**: `current`, `package_upgrade_recommended`,
+  `package_upgrade_required`, `unavailable` or `not_applicable`, with the version,
+  operations, reason and observation time. Core records `unknown` for an agent that
+  reports nothing.
+- **Enforcement is phased so shipping this does not lock out the fleet.** No helper in
+  the field can report its version when this change ships, including one installed from
+  the newest package. A safe helper that does not answer self-description is therefore
+  `package_upgrade_recommended`: it is shown, counted and given the package command, and
+  its rollout eligibility is decided as it is today, by the operations its usage text
+  lists. Only a helper that answers and reports a version below the release's minimum is
+  `package_upgrade_required` and excluded. Excluding silent helpers outright is left to a
+  later change, after fleets have had a release in which to upgrade.
 - **Privileged features are gated by named operation**, so the agent reports a blocked
   feature with the missing operation, and never calls the helper with a flag it does not
   define.
 - **Rollouts exclude stale hosts before dispatch.** An add-on or managed-certificate
-  target whose helper is below the release's minimum is ineligible up front, and the row
-  names the agent and the package upgrade. A target whose helper is unavailable is
+  target whose helper reports a version below the release's minimum is ineligible up
+  front, and the row names the agent and the package upgrade. A failure on a host whose
+  helper cannot report its version names that state and the recommended upgrade on the
+  row. A target whose helper is unavailable is
   excluded too, with the failed safety check and a package reinstall or repair as its
   remedy. A target whose helper meets the minimum but lacks a needed operation is
   excluded with `updater lacks operation <name>` and a package reinstall as its remedy.
   None is attempted, failed and rolled back.
 - **The fleet view names the hosts and the remedy**: a filter and count by helper state,
-  a notice while any host needs a package upgrade, and per host the package command for
+  a notice while any host needs or is recommended a package upgrade, and per host the package command for
   its package family with the required helper version, plus the fleet-wide route through the
   agent package playbooks.
 - **The package stays the only writer of the helper.** This is stated as a requirement:
@@ -73,13 +84,15 @@ the version floor, and the package payload layout. Those remain in the parked
   platform package and Ansible documentation.
 - Hosts already in the field: a helper installed before this change that passes the
   safety checks does not answer the self-description invocation, so it is reported
-  `package_upgrade_required` until its package is upgraded once. That is the intended
-  result, and it is the same package upgrade those hosts need today. A pre-change helper
+  `package_upgrade_recommended` until its package is upgraded once. It keeps receiving
+  rollouts on the same terms as today; the product now says which hosts these are and
+  how to upgrade them. A pre-change helper
   that fails the safety checks is reported `unavailable` and is never executed; its remedy
   is a package reinstall or repair, not an upgrade.
 - Related changes: `add-agent-updater-self-update` (parked; its status, self-description,
   operation gating, eligibility and remedy requirements moved here),
   `add-awx-playbook-provisioning` (supplies the "install or upgrade the agent package"
   automation the remedy links to; neither change depends on the other),
-  `fix-stuck-addon-rollouts` (names the evidence on a paused rollout; this change keeps
-  a stale-helper host from entering the rollout at all).
+  `fix-stuck-addon-rollouts` (names the evidence on a paused rollout; this change names
+  the helper state on that evidence and keeps a host whose helper reports too old a
+  version from entering the rollout at all).
