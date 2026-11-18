@@ -83,8 +83,9 @@ inventory state rather than of nondeterministic compilation.
 ## What Changes
 
 - Each single-valued attribute written by sync ingestion (`name`,
-  `vendor_name`, `type`, `integration_type`) records its source and evidence
-  strength alongside the value. A write replaces the recorded value when its
+  `vendor_name`, `type`, `integration_type`, `management_device_id`) records
+  its source and evidence strength alongside the value, so a recorded clear
+  is distinguishable from an unset value. A write replaces the recorded value when its
   strength is strictly greater, or equal and from the same source that
   recorded it; a different source at the same tier keeps the stored value. A
   weaker write fills the attribute only when no strength has been recorded,
@@ -165,13 +166,15 @@ inventory state rather than of nondeterministic compilation.
 ## Operator impact
 
 Once `vendor_name` stops flipping it settles on the strongest vendor evidence.
-For a device whose SNMP evidence derives a hardware vendor (a hardware
-`sysObjectID` enterprise, or a hardware vendor from `sysDescr` or a
-classification rule even when the `sysObjectID` is under a generic
-agent-software enterprise such as Net-SNMP 8072), that is the SNMP-derived
-vendor. A credential rule written against the OUI spelling
-(`vendor_name:"<OUI org>"`) then stops matching such a device when the SNMP
-spelling differs, and the rule's SNMPv3 credential no longer applies; the
+For a device with a recorded hardware vendor, the settled spelling is the one
+from the first source recorded at the hardware tier: either the SNMP-derived
+vendor (a hardware `sysObjectID` enterprise, or a hardware vendor from
+`sysDescr` or a classification rule even when the `sysObjectID` is under a
+generic agent-software enterprise such as Net-SNMP 8072) or a platform
+inventory's vendor (such as the camera inventory's), whichever was recorded
+first; the same-source tie-break keeps it. A credential rule written against
+the OUI spelling (`vendor_name:"<OUI org>"`) then stops matching any device
+with a recorded hardware vendor whose spelling differs, and the rule's SNMPv3 credential no longer applies; the
 profile's v2c credential is used instead. On the deployment above, the devices
 that only answer SNMPv3 were polled successfully only while the OUI spelling
 was stored. Every device that does not derive a hardware vendor keeps its OUI
@@ -186,7 +189,8 @@ On rows written before rollout, the first census pass replaces a stored
 agent-software, OS or software vendor with no recorded strength by the OUI
 vendor, so exact-OUI credential rules match that device again after that
 pass. That first census pass may also change any other vendor stored before
-rollout once, to the OUI vendor. Each attribute (name / hostname,
+rollout once, to the OUI vendor; the first hardware-tier writer after it,
+SNMP or a platform inventory, then becomes the owner of the vendor spelling. Each attribute (name / hostname,
 `vendor_name` / `model`, `type` / `type_id` / `device_role`,
 `integration_type`) changes at most once per
 strictly stronger tier first recorded, then stays constant: a name stored

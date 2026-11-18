@@ -1,7 +1,8 @@
 ## 1. Recorded strength for single-valued attributes
 
 - [ ] 1.1 Store source and evidence strength alongside `name`, `vendor_name`,
-      `type` and `integration_type`; a populated value with no recorded
+      `type`, `integration_type` and `management_device_id`, so a recorded
+      clear is distinguishable from an unset value; a populated value with no recorded
       strength is kept against weakest-tier writes; the next write of any
       tier above the weakest replaces it and records its strength
 - [ ] 1.2 Upsert: record the source with the strength; a write replaces the
@@ -12,6 +13,8 @@
 - [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
 - [ ] 1.4 Derive an address fallback name from the address kept after the
       address rank guard
+- [ ] 1.5 An address-fallback write carries the kept address in both `name`
+      and `hostname`
 
 ## 2. Name precedence
 
@@ -141,10 +144,13 @@
 ## 7. Rollout
 
 - [ ] 7.1 Release note: credential rules keyed on an exact OUI vendor string
-      stop matching devices whose SNMP evidence derives a hardware vendor
-      (hardware `sysObjectID` enterprise, or a hardware vendor from
-      `sysDescr` or a classification rule even when the `sysObjectID` is under
-      enterprise 8072); the OUI spelling remains for every device that does
+      stop matching any device with a recorded hardware vendor whose spelling
+      differs; the settled spelling comes from the first source recorded at
+      the hardware tier, SNMP (hardware `sysObjectID` enterprise, or a
+      hardware vendor from `sysDescr` or a classification rule even when the
+      `sysObjectID` is under enterprise 8072) or a platform inventory such as
+      the camera inventory, and on pre-rollout rows from the first
+      hardware-tier writer after the census OUI pass; the OUI spelling remains for every device that does
       not derive a hardware vendor, including devices whose only vendor
       evidence is the OUI; legacy rows
       whose stored vendor was agent software, an OS or a software product

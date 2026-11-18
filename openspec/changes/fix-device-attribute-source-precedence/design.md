@@ -10,8 +10,9 @@ address rank, #3905) and manual `type` ownership.
 ## Decisions
 
 1. Each single-valued attribute (`name`, `vendor_name`, `type`,
-   `integration_type`) stores its source and evidence strength alongside the
-   value. Strength is assigned by the writer from the evidence it holds, not
+   `integration_type`, `management_device_id`) stores its source and evidence
+   strength alongside the value, so a recorded clear (an empty value with a
+   recorded strength) is distinguishable from an unset value. Strength is assigned by the writer from the evidence it holds, not
    inferred later from the value.
 2. Strength order for `name`, weakest first. Several sources may share a
    tier; the same-source tie-break (decision 6) decides between them:
@@ -101,7 +102,11 @@ address rank, #3905) and manual `type` ownership.
 7. An address fallback name is derived from the address the device keeps after
    the address rank guard, never from an update address the guard rejected, so
    an NDP or link-local (`fe80::`) sighting cannot rename a device. A recorded
-   address-fallback name follows the address the device keeps.
+   address-fallback name follows the address the device keeps. An
+   address-fallback write carries the kept address in both `name` and
+   `hostname`, so the same source rewriting its own value moves the pair;
+   the rule that a field a write does not carry stays stored (decision 8)
+   applies to writers that omit a field, not to this derivation.
 8. The upsert compares strength with the stored row inside the `ON CONFLICT`
    update, the same place the `ip` rank guard lives, so concurrent writers
    cannot race a read-then-write in Elixir. The decision accepts or rejects

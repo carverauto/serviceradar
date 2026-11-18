@@ -1,8 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Weaker evidence does not overwrite stronger device attributes
-Sync ingestion SHALL record, alongside each stored device name, vendor, type
-and integration type, the source and evidence strength of the value. A write
+Sync ingestion SHALL record, alongside each stored device name, vendor, type,
+integration type and management_device_id, the source and evidence strength of
+the value, so that a recorded clear is distinguishable from an unset value. A write
 SHALL replace the recorded value when its strength is strictly greater, or when
 its strength is equal and it comes from the same source that recorded the
 stored value; a write from a different source at the same tier SHALL keep the
@@ -43,7 +44,9 @@ a passive census sighting; a name reported by an automation inventory (such as
 AWX); an SNMP sysName; a name reported by a platform inventory (such as the
 hypervisor or camera inventory). A
 name derived from an address SHALL use the address the device keeps after the
-address rank guard. The hostname SHALL be gated by the same tiers and SHALL be
+address rank guard, and an address-fallback write SHALL carry that address in
+both the name and the hostname, so the same source rewriting its own value
+moves the pair together. The hostname SHALL be gated by the same tiers and SHALL be
 accepted or rejected together with the name as one value. Every
 hypervisor-enrichment update for a host or guest, both the repeating update for
 an existing device and the placeholder update that creates one, SHALL carry the
