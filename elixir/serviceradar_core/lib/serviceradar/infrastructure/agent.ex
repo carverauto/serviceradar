@@ -462,6 +462,11 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
 
+      # A check-in from a disconnected agent comes back through this upsert, so
+      # it has to record the transition: the `agent_disconnected` alert clears
+      # on it.
+      change {PublishStateChange, entity_type: :agent, new_state: :connected}
+
       change EnsureStateMonitor
     end
 

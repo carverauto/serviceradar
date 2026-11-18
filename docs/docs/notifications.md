@@ -325,6 +325,16 @@ The probe is two steps, in this order: `--fire-test` publishes
 Clearing before the page is delivered resolves the alert while its dispatch
 job is still queued, and the dispatcher then sends nothing.
 
+### Agent disconnected
+
+The seeded rule `agent_disconnected` opens one critical incident per agent when
+the state monitor marks it `disconnected`, which happens after the agent has not
+checked in for the stale-agent timeout (5 minutes by default), so a short restart
+does not page. The incident clears when the agent checks in again (`connected`)
+or is superseded or retired (`unavailable`). Route it with a match on
+`alert.metadata.incident_rule_name` equal to `agent_disconnected`, as above.
+Gateway and checker transitions appear on the health timeline but raise no alert.
+
 ### The match expression grammar
 
 Routes and silences share **one** predicate grammar, because they ask the same

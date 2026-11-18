@@ -47,6 +47,42 @@ defmodule ServiceRadar.Events.HealthStateChangePipelineTest do
     assert open_alert_count(entity_id) == 1
   end
 
+  test "a disconnected agent alerts once and a reconnect resolves it" do
+    agent_id = "pipeline-agent-#{System.unique_integer([:positive])}"
+
+    assert :ok = HealthWriter.write(agent_transition(agent_id, :connected, :disconnected))
+    TestSupport.complete_alert_effects!()
+    assert agent_alert_statuses(agent_id) == ["pending"]
+
+    # A transition that is neither the outage nor its recovery changes nothing.
+    assert :ok = HealthWriter.write(agent_transition(agent_id, :disconnected, :connecting))
+    TestSupport.complete_alert_effects!()
+    assert agent_alert_statuses(agent_id) == ["pending"]
+
+    assert :ok = HealthWriter.write(agent_transition(agent_id, :disconnected, :connected))
+    TestSupport.complete_alert_effects!()
+    assert agent_alert_statuses(agent_id) == ["resolved"]
+  end
+
+  test "disconnected agents are separate incidents" do
+    first = "pipeline-agent-a-#{System.unique_integer([:positive])}"
+    second = "pipeline-agent-b-#{System.unique_integer([:positive])}"
+
+    assert :ok = HealthWriter.write(agent_transition(first, :connected, :disconnected))
+    assert :ok = HealthWriter.write(agent_transition(second, :degraded, :disconnected))
+    TestSupport.complete_alert_effects!()
+
+    assert agent_alert_statuses(first) == ["pending"]
+    assert agent_alert_statuses(second) == ["pending"]
+
+    # One agent being retired clears its own incident and leaves the other open.
+    assert :ok = HealthWriter.write(agent_transition(first, :disconnected, :unavailable))
+    TestSupport.complete_alert_effects!()
+
+    assert agent_alert_statuses(first) == ["resolved"]
+    assert agent_alert_statuses(second) == ["pending"]
+  end
+
   test "a transition of a non-core entity is not promoted" do
     entity_id = "pipeline-gateway-#{System.unique_integer([:positive])}"
 
@@ -95,6 +131,25 @@ defmodule ServiceRadar.Events.HealthStateChangePipelineTest do
       metadata: %{},
       recorded_at: DateTime.utc_now()
     }
+  end
+
+  defp agent_transition(agent_id, old_state, new_state) do
+    %{transition(agent_id, old_state, new_state) | entity_type: :agent}
+  end
+
+  defp agent_alert_statuses(agent_id) do
+    List.flatten(
+      Repo.query!(
+        """
+        SELECT status
+        FROM platform.alerts
+        WHERE metadata->>'incident_rule_name' = 'agent_disconnected'
+          AND metadata #>> '{incident_group_values,health.entity_id}' = $1
+        ORDER BY created_at
+        """,
+        [agent_id]
+      ).rows
+    )
   end
 
   defp promoted_event_count(entity_id) do

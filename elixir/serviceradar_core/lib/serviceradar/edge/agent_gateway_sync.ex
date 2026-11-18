@@ -1934,6 +1934,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> compact_attrs()
 
     Agent
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_context(%{previous_state: agent.status})
     |> Ash.Changeset.for_create(:register_connected, attrs)
     |> Ash.create(actor: actor)
     |> case do
