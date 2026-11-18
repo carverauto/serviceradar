@@ -492,6 +492,101 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     assert html =~ "Last relay status: Failed"
   end
 
+  for {failure_class, sentence} <- [
+        {"agent_upgrade_required",
+         "The agent assigned to this camera must be upgraded before it can open camera streams."},
+        {"source_resolver_missing", "No camera plugin has reported this camera since the upgrade"}
+      ] do
+    test "describes the #{failure_class} relay failure to the operator on topology", %{conn: conn} do
+      failure_class = unquote(failure_class)
+      sentence = unquote(sentence)
+      previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
+      previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)
+      previous_fetcher = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetcher)
+      previous_fetch_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result)
+      previous_poll_interval = Application.get_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms)
+
+      Application.put_env(:serviceradar_web_ng, :camera_relay_session_manager, CameraRelaySessionManagerStub)
+      Application.put_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result, {:error, failure_class})
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetcher,
+        fn _relay_session_id, _opts ->
+          Application.get_env(:serviceradar_web_ng, :camera_relay_session_fetch_result, {:ok, nil})
+        end
+      )
+
+      Application.put_env(:serviceradar_web_ng, :camera_relay_poll_interval_ms, 30_000)
+
+      on_exit(fn ->
+        restore_env(:camera_relay_session_manager, previous_manager)
+        restore_env(:camera_relay_session_manager_open_result, previous_open_result)
+        restore_env(:camera_relay_session_fetcher, previous_fetcher)
+        restore_env(:camera_relay_session_fetch_result, previous_fetch_result)
+        restore_env(:camera_relay_poll_interval_ms, previous_poll_interval)
+      end)
+
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      {:ok, view, _html} = live(conn, ~p"/topology")
+
+      render_hook(view, "god_view_open_camera_relay", %{
+        "camera_source_id" => camera_source_id,
+        "stream_profile_id" => stream_profile_id,
+        "camera_label" => "Gate Camera"
+      })
+
+      assert render(view) =~ sentence
+      refute render(view) =~ failure_class
+
+      relay_session_id = Ecto.UUID.generate()
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_manager_open_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: camera_source_id,
+           stream_profile_id: stream_profile_id,
+           agent_id: "agent-topology-camera-3",
+           gateway_id: "gateway-topology-camera-3",
+           status: :opening
+         }}
+      )
+
+      render_hook(view, "god_view_open_camera_relay", %{
+        "camera_source_id" => camera_source_id,
+        "stream_profile_id" => stream_profile_id,
+        "camera_label" => "Gate Camera"
+      })
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_relay_session_fetch_result,
+        {:ok,
+         %{
+           id: relay_session_id,
+           camera_source_id: camera_source_id,
+           stream_profile_id: stream_profile_id,
+           agent_id: "agent-topology-camera-3",
+           gateway_id: "gateway-topology-camera-3",
+           status: :failed,
+           termination_kind: "failure",
+           failure_reason: failure_class
+         }}
+      )
+
+      send(view.pid, {:refresh_camera_relay_session, relay_session_id})
+      html = render(view)
+
+      assert html =~ "Failure reason: " <> sentence
+      refute html =~ failure_class
+    end
+  end
+
   test "opens a bounded topology camera tile set from clustered camera payloads", %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager)
     previous_open_result = Application.get_env(:serviceradar_web_ng, :camera_relay_session_manager_open_result)

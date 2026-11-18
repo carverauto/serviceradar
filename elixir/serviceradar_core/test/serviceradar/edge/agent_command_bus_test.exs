@@ -20,6 +20,11 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
   @moduletag :integration
 
+  # Invented camera inventory ids for the relay dispatch tests.
+  @relay_source_id "0b8e7a5c-3d2f-4a61-8c9b-1e2f3a4b5c01"
+  @relay_profile_id "0b8e7a5c-3d2f-4a61-8c9b-1e2f3a4b5c02"
+  @relay_assignment_id "0b8e7a5c-3d2f-4a61-8c9b-1e2f3a4b5c03"
+
   defmodule TestControlSession do
     @moduledoc false
     use GenServer
@@ -1362,57 +1367,83 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   describe "camera relay dispatch" do
-    test "sends the stream URL to the agent but never stores it in the command row", %{
-      agent_id: agent_id,
-      actor: actor
-    } do
+    test "sends the discovering assignment to the agent, never a stream address, and stores neither",
+         %{agent_id: agent_id, actor: actor} do
+      advertise_capabilities!(agent_id, ["camera_source_resolution"])
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
-      # Invented credentials: userinfo, an alias token in the path, a query token.
-      source_url =
-        "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz?sig=0123abcd"
 
       assert {:ok, command_id} =
-               AgentCommandBus.start_camera_relay(agent_id, %{
-                 relay_session_id: "relay-1",
-                 camera_source_id: "camera-1",
-                 stream_profile_id: "main",
-                 lease_token: "lease-1",
-                 source_url: source_url,
-                 rtsp_transport: "tcp",
-                 codec_hint: "h264"
-               })
+               AgentCommandBus.start_camera_relay(
+                 agent_id,
+                 # A caller-supplied address is never forwarded. Invented credentials.
+                 "relay-1"
+                 |> start_payload()
+                 |> Map.put(
+                   :source_url,
+                   "rtsps://viewer:hunter2@camera01.example.com:7441/AbCdEf0123TokenXyz"
+                 ),
+                 camera_profile_fetcher: profile_fetcher(@relay_source_id, @relay_profile_id)
+               )
 
       assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
       assert command.command_type == "camera.open_relay"
 
       payload = Jason.decode!(command.payload_json)
 
+      assert payload["source_resolver"] == %{
+               "plugin_assignment_id" => @relay_assignment_id,
+               "vendor_camera_id" => "invented-cam-01",
+               "vendor_profile_id" => "high"
+             }
+
+      refute Map.has_key?(payload, "source_url")
+      refute Map.has_key?(payload, "plugin_assignment_id")
       assert payload["relay_session_id"] == "relay-1"
-      assert payload["camera_source_id"] == "camera-1"
-      assert payload["stream_profile_id"] == "main"
-      assert payload["lease_token"] == "lease-1"
-      assert payload["source_url"] == source_url
+      assert payload["lease_token"] == "lease-relay-1"
       assert payload["rtsp_transport"] == "tcp"
       assert payload["codec_hint"] == "h264"
+      refute Map.has_key?(payload, "insecure_skip_verify")
 
       assert context.relay_session_id == "relay-1"
-      assert context.camera_source_id == "camera-1"
-      assert context.stream_profile_id == "main"
-      refute inspect(context) =~ "camera01.example.com"
+      assert context.camera_source_id == @relay_source_id
+      assert context.stream_profile_id == @relay_profile_id
 
       stored = wait_for_status(command_id, :sent, actor)
-
-      assert stored.payload["source_url"] == "rtsps://camera01.example.com:7441/[redacted]"
+      assert stored.payload["source_resolver"] == payload["source_resolver"]
       assert stored.payload["lease_token"] == "REDACTED"
-      assert stored.payload["relay_session_id"] == "relay-1"
-      refute inspect(stored.context) =~ "camera01.example.com"
 
-      for secret <- ["viewer", "hunter2", "AbCdEf0123TokenXyz", "0123abcd", "lease-1"] do
+      for secret <- ["viewer", "hunter2", "AbCdEf0123TokenXyz", "camera01.example.com"] do
+        refute command.payload_json =~ secret
         refute inspect({stored.payload, stored.context}) =~ secret
       end
     end
 
+    test "does not dispatch to an agent that does not advertise camera_source_resolution", %{
+      agent_id: agent_id
+    } do
+      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
+
+      for capabilities <- [nil, ["credential_broker_resolve_by_binding"]] do
+        if capabilities, do: advertise_capabilities!(agent_id, capabilities)
+
+        assert {:error, "agent_upgrade_required"} =
+                 AgentCommandBus.start_camera_relay(agent_id, start_payload("relay-old-agent"),
+                   camera_profile_fetcher: profile_fetcher(@relay_source_id, @relay_profile_id)
+                 )
+      end
+
+      refute_received {:send_command, _command, _context}
+
+      assert %{rows: [[0]]} =
+               ServiceRadar.Repo.query!(
+                 "SELECT count(*) FROM platform.agent_commands WHERE agent_id = $1",
+                 [agent_id]
+               )
+    end
+
     test "prefers the assigned gateway control stream", %{agent_id: agent_id} do
+      advertise_capabilities!(agent_id, ["camera_source_resolution"])
+
       start_control_session(
         agent_id,
         self(),
@@ -1430,16 +1461,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       )
 
       assert {:ok, _command_id} =
-               AgentCommandBus.start_camera_relay(
-                 agent_id,
-                 %{
-                   relay_session_id: "relay-gateway",
-                   camera_source_id: "camera-gateway",
-                   stream_profile_id: "low",
-                   lease_token: "lease-gateway",
-                   source_url: "rtsp://camera.local/stream/low"
-                 },
-                 required_gateway_node: "gateway-b"
+               AgentCommandBus.start_camera_relay(agent_id, start_payload("relay-gateway"),
+                 required_gateway_node: "gateway-b",
+                 camera_profile_fetcher: profile_fetcher(@relay_source_id, @relay_profile_id)
                )
 
       assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command,
@@ -1451,6 +1475,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
 
     test "does not fall back to another gateway when a route is required", %{agent_id: agent_id} do
+      advertise_capabilities!(agent_id, ["camera_source_resolution"])
+
       start_control_session(
         agent_id,
         self(),
@@ -1462,96 +1488,12 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert {:error, {:agent_offline, ^agent_id}} =
                AgentCommandBus.start_camera_relay(
                  agent_id,
-                 %{
-                   relay_session_id: "relay-required-gateway",
-                   camera_source_id: "camera-required-gateway",
-                   stream_profile_id: "low",
-                   lease_token: "lease-required-gateway",
-                   source_url: "rtsp://camera.local/stream/low"
-                 },
-                 required_gateway_node: "gateway-b"
+                 start_payload("relay-required-gateway"),
+                 required_gateway_node: "gateway-b",
+                 camera_profile_fetcher: profile_fetcher(@relay_source_id, @relay_profile_id)
                )
 
       refute_received {:send_command, :gateway_a, _, _}
-    end
-
-    test "resolves source_url from camera inventory before dispatch", %{agent_id: agent_id} do
-      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
-      camera_source_id = Ecto.UUID.generate()
-      stream_profile_id = Ecto.UUID.generate()
-
-      fetcher = fn ^camera_source_id, ^stream_profile_id ->
-        {:ok,
-         %{
-           source_url_override: nil,
-           rtsp_transport: "tcp",
-           codec_hint: "h264",
-           container_hint: "annexb",
-           camera_source: %{source_url: "rtsp://camera.local/inventory/main"}
-         }}
-      end
-
-      assert {:ok, _command_id} =
-               AgentCommandBus.start_camera_relay(
-                 agent_id,
-                 %{
-                   relay_session_id: "relay-2",
-                   camera_source_id: camera_source_id,
-                   stream_profile_id: stream_profile_id,
-                   lease_token: "lease-2"
-                 },
-                 camera_profile_fetcher: fetcher
-               )
-
-      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
-      payload = Jason.decode!(command.payload_json)
-
-      assert payload["source_url"] == "rtsp://camera.local/inventory/main"
-      assert payload["rtsp_transport"] == "tcp"
-      assert payload["codec_hint"] == "h264"
-      assert payload["container_hint"] == "annexb"
-      refute Map.has_key?(context, :source_url)
-    end
-
-    test "keeps TLS verification enabled for Protect relays without explicit opt-in", %{
-      agent_id: agent_id
-    } do
-      {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
-      camera_source_id = Ecto.UUID.generate()
-      stream_profile_id = Ecto.UUID.generate()
-
-      fetcher = fn ^camera_source_id, ^stream_profile_id ->
-        {:ok,
-         %{
-           source_url_override: "rtsps://host01.example.com:7441/main?enableSrtp",
-           rtsp_transport: "tcp",
-           metadata: %{"source" => "protect-bootstrap", "insecure_skip_verify" => false},
-           camera_source: %{
-             source_url: "rtsps://host01.example.com:7441/main",
-             metadata: %{"plugin_id" => "unifi-protect-camera"}
-           }
-         }}
-      end
-
-      assert {:ok, _command_id} =
-               AgentCommandBus.start_camera_relay(
-                 agent_id,
-                 %{
-                   relay_session_id: "relay-protect",
-                   camera_source_id: camera_source_id,
-                   stream_profile_id: stream_profile_id,
-                   lease_token: "lease-protect"
-                 },
-                 camera_profile_fetcher: fetcher
-               )
-
-      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
-      payload = Jason.decode!(command.payload_json)
-
-      assert payload["source_url"] == "rtsps://host01.example.com:7441/main"
-      assert payload["rtsp_transport"] == "tcp"
-      refute Map.has_key?(payload, "insecure_skip_verify")
-      refute Map.has_key?(context, :source_url)
     end
 
     test "sends a typed camera close relay command", %{agent_id: agent_id} do
@@ -1721,6 +1663,42 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         {:ok, command} = AgentCommand.mark_sent(command, [partition_id: "default"], actor: actor)
         {:ok, command} = AgentCommand.acknowledge(command, [message: "ack"], actor: actor)
         command
+    end
+  end
+
+  # The capability list the agent advertised, as Core persists it on the agent.
+  defp advertise_capabilities!(agent_id, capabilities) do
+    ServiceRadar.Repo.query!(
+      """
+      INSERT INTO platform.ocsf_agents (uid, capabilities) VALUES ($1, $2)
+      ON CONFLICT (uid) DO UPDATE SET capabilities = EXCLUDED.capabilities
+      """,
+      [agent_id, capabilities]
+    )
+  end
+
+  defp start_payload(relay_session_id) do
+    %{
+      relay_session_id: relay_session_id,
+      camera_source_id: @relay_source_id,
+      stream_profile_id: @relay_profile_id,
+      lease_token: "lease-#{relay_session_id}"
+    }
+  end
+
+  defp profile_fetcher(camera_source_id, stream_profile_id) do
+    fn ^camera_source_id, ^stream_profile_id ->
+      {:ok,
+       %{
+         vendor_profile_id: "high",
+         rtsp_transport: "tcp",
+         codec_hint: "h264",
+         metadata: %{"source" => "protect-bootstrap", "insecure_skip_verify" => false},
+         camera_source: %{
+           vendor_camera_id: "invented-cam-01",
+           discovery_assignment_id: @relay_assignment_id
+         }
+       }}
     end
   end
 

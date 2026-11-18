@@ -209,6 +209,12 @@ defmodule ServiceRadarWebNGWeb.Channels.CameraRelayStreamHandlerTest do
           {"authentication_failed: describe rtsp stream: bad status code: 401 (Unauthorized)",
            "The camera refused the stream: authentication failed (describe rtsp stream: bad status code: 401 (Unauthorized))."},
           {"unsupported_codec", "The camera's video codec is not supported; the relay requires H.264."},
+          # Core refuses before dispatch; the agent reports resolver failures.
+          {"agent_upgrade_required",
+           "The agent assigned to this camera must be upgraded before it can open camera streams."},
+          {"source_not_found: camera invented-cam-01 has no rtsps stream for quality high",
+           "The camera controller has no such camera or stream, or RTSP is turned off for it " <>
+             "(camera invented-cam-01 has no rtsps stream for quality high)."},
           # Core's own failures are free text: the viewer keeps showing them as-is.
           {"relay session failed", nil}
         ] do

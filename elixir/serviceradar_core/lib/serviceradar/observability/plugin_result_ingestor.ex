@@ -16,17 +16,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   and its status with `ServiceRadar.Camera.StreamAddressReduction`, and build
   everything they persist or pass on (status and state rows, the reported payload
   digest, every handler's input, logs) from the reduced values only, so no camera
-  stream address or URL userinfo is stored from a plugin result. The one
-  exception is the relay address extract
-  (`ServiceRadar.Camera.RelayAddressExtract`), taken from the unreduced result
-  and handed to `ServiceRadar.Camera.InventoryIngestor` alone, which writes the
-  two relay columns from it.
+  stream address or URL userinfo is stored from a plugin result.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.EventIngestor
   alias ServiceRadar.Camera.InventoryIngestor
-  alias ServiceRadar.Camera.RelayAddressExtract
   alias ServiceRadar.Camera.StreamAddressReduction
   alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.EventWriter.FieldParser
@@ -87,7 +82,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   def ingest_durable(payload, status, opts \\ [])
 
   def ingest_durable(payload, status, opts) when is_map(payload) do
-    relay_addresses = RelayAddressExtract.from_result(payload)
     payload = StreamAddressReduction.reduce(payload)
     status = StreamAddressReduction.reduce(status)
     actor = SystemActor.system(:plugin_result_ingestor)
@@ -97,7 +91,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
     defer_cleanup? = Keyword.get(opts, :defer_artifact_cleanup, true)
-    handler_context = %{defer_cleanup?: defer_cleanup?, relay_addresses: relay_addresses}
+    handler_context = %{defer_cleanup?: defer_cleanup?}
     persistence = Keyword.get(opts, :persistence, %{})
     handlers = Keyword.get_lazy(opts, :handlers, fn -> plugin_result_handlers() end)
 
@@ -172,10 +166,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) do
-    relay_addresses = RelayAddressExtract.from_result(payload)
     payload = StreamAddressReduction.reduce(payload)
     status = StreamAddressReduction.reduce(status)
-    handler_context = %{defer_cleanup?: false, relay_addresses: relay_addresses}
+    handler_context = %{defer_cleanup?: false}
     actor = SystemActor.system(:plugin_result_ingestor)
     created_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
     observed_at = resolve_observed_at(payload, status)
@@ -2296,7 +2289,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     handler.ingest(
       payload,
       status,
-      handler_opts(handler, [], observed_at, handler_context, actor)
+      handler_opts([], observed_at, handler_context, actor)
     )
   rescue
     e ->
@@ -2311,7 +2304,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     handler.ingest(
       payload,
       status,
-      handler_opts(handler, opts, observed_at, handler_context, actor)
+      handler_opts(opts, observed_at, handler_context, actor)
     )
   rescue
     e ->
@@ -2325,18 +2318,11 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     {:error, {:invalid_handler, handler}}
   end
 
-  # The relay address extract reaches InventoryIngestor and no other handler.
-  defp handler_opts(handler, opts, observed_at, handler_context, actor) do
+  defp handler_opts(opts, observed_at, handler_context, actor) do
     opts
     |> Keyword.put_new(:defer_artifact_cleanup, handler_context.defer_cleanup?)
     |> Keyword.merge(actor: actor, observed_at: observed_at)
-    |> put_relay_addresses(handler, handler_context)
   end
-
-  defp put_relay_addresses(opts, InventoryIngestor, %{relay_addresses: relay_addresses}),
-    do: Keyword.put(opts, :relay_addresses, relay_addresses)
-
-  defp put_relay_addresses(opts, _handler, _handler_context), do: opts
 
   defp ingest_proxmox(payload, status, observed_at, handler_context, actor, opts) do
     case proxmox_source_scope_resolver().resolve(payload, status, actor: actor) do

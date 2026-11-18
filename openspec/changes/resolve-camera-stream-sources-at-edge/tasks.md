@@ -82,23 +82,23 @@
 
 ## 3. Core cutover (Stage 3)
 
-- [ ] 3.1 Remove both attributes from the resources; add `source_origin` and
+- [x] 3.1 Remove both attributes from the resources; add `source_origin` and
       `discovery_assignment_id` (migration); the ingestor records provenance `assignment_id`.
-- [ ] 3.2 `RelaySourceResolver` builds `source_resolver`; the capability gate produces
+- [x] 3.2 `RelaySourceResolver` builds `source_resolver`; the capability gate produces
       `agent_upgrade_required`; `source_resolver_missing`.
-- [ ] 3.3 Delete the D2 Stage 1 ingest rule (`RelayAddressExtract`,
+- [x] 3.3 Delete the D2 Stage 1 ingest rule (`RelayAddressExtract`,
       `InventoryIngestor.put_relay_addresses/2`) so D2 applies alone; set `source_origin` as D2
       states.
-- [ ] 3.3a `AgentConfigGenerator.build_plugin_assignment_config/2` delivers the D8 key to
+- [x] 3.3a `AgentConfigGenerator.build_plugin_assignment_config/2` delivers the D8 key to
       `camera_inventory` assignments; tests for the three cutover combinations in the
       camera-streaming spec delta.
-- [ ] 3.4 A migration enqueues the D7 stage 3 scrub job (a new job, not the stage 1 job); bump
+- [x] 3.4 A migration enqueues the D7 stage 3 scrub job (a new job, not the stage 1 job); bump
       `expectedVersion`; extend the 1.7 test with a path in `source_url_override`, a verbatim
       URL in `source_origin` and a non-null `source_url` (each pending, clean after one pass),
       and assert `at_rest_until_stage_3` is absent; add a scrub worker test for the
       camera-streaming scenario of a concurrent inventory upsert during a stage 3 pass.
-- [ ] 3.5 Web-ng operator sentences for the D5 classes.
-- [ ] 3.6 DB-backed tests in the Core Integration lanes; every unboxed test deletes its rows.
+- [x] 3.5 Web-ng operator sentences for the D5 classes.
+- [x] 3.6 DB-backed tests in the Core Integration lanes; every unboxed test deletes its rows.
 
 ## 4. Contract (Stage 4, next release)
 

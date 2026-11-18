@@ -33,17 +33,20 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
     scrub_until_complete!()
     suffix = System.unique_integer([:positive])
     device_uid = "sr:camera-invented-#{suffix}"
+    assignment_id = insert_plugin_assignment!(suffix)
 
     %{
       device_uid: device_uid,
       camera_id: "invented-camera-#{suffix}",
+      assignment_id: assignment_id,
       status: %{
         source: "plugin-result",
         agent_id: "invented-agent-#{suffix}",
         gateway_id: "invented-gateway-#{suffix}",
         partition: "default",
         service_type: "plugin",
-        service_name: "invented-camera-inventory-#{suffix}"
+        service_name: "invented-camera-inventory-#{suffix}",
+        plugin_provenance: %{"assignment_id" => assignment_id}
       },
       handlers: [
         {InventoryIngestor, resolve_device_uid: fn _descriptor, _status, _actor -> device_uid end}
@@ -51,7 +54,8 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
     }
   end
 
-  test "after a zero scrub pass, a report keeps every copy reduced and only the relay columns hold the address",
+  # The camera-streaming scenario "Old plugin and Core after cutover".
+  test "an address from a plugin that predates resolution is stored nowhere; its origin and discovering assignment are",
        ctx do
     assert in_scope_zero?()
 
@@ -62,24 +66,25 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
 
     assert in_scope_zero?()
 
-    %{"source_url" => source_url, "metadata" => source_metadata} = source = source(ctx)
-    assert source_url == @alias_url
+    source = source(ctx)
+    assert source["source_url"] == nil
+    assert source["discovery_assignment_id"] == ctx.assignment_id
 
     for column <- ["last_event_message", "last_event_type", "availability_reason"] do
       assert source[column] == "stream #{@origin} moved"
     end
 
-    assert source_metadata == %{"controller_host" => "192.0.2.10", "stream" => @origin}
+    assert source["metadata"] == %{"controller_host" => "192.0.2.10", "stream" => @origin}
 
-    assert %{
-             "source_url_override" => @alias_url,
+    assert profile(ctx, "High") == %{
+             "source_url_override" => nil,
+             "source_origin" => @origin,
              "metadata" => %{"source" => "protect-bootstrap", "width" => 1920}
-           } =
-             profile(ctx, "High")
+           }
 
     device_metadata = device_metadata(ctx)
     refute Map.has_key?(device_metadata, "camera_source_url")
-    assert device_metadata["camera_metadata"] == source_metadata
+    assert device_metadata["camera_metadata"] == source["metadata"]
 
     for text <- stored_plugin_texts(ctx) do
       refute text =~ @alias
@@ -87,6 +92,54 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
     end
 
     assert Enum.any?(stored_plugin_texts(ctx), &(&1 =~ @origin))
+  end
+
+  # The camera-streaming scenario "New plugin and Core after cutover": the plugin saw
+  # the cutover key and reports only an origin.
+  test "an origin-only report sets the profile origin, and a later report without provenance keeps the assignment",
+       ctx do
+    origin_only = %{
+      "status" => "OK",
+      "summary" => "1 camera discovered",
+      "camera_descriptors" => [
+        %{
+          "device_uid" => ctx.device_uid,
+          "vendor" => "ubiquiti",
+          "camera_id" => ctx.camera_id,
+          "display_name" => "Invented Lobby",
+          # A payload cannot name its own assignment; only the host stamp counts.
+          "discovery_assignment_id" => Ecto.UUID.generate(),
+          "stream_profiles" => [
+            %{
+              "profile_name" => "High",
+              "vendor_profile_id" => "high",
+              "source_origin" => @origin,
+              "rtsp_transport" => "tcp"
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             PluginResultIngestor.ingest_durable(
+               Map.put(origin_only, "observed_at", DateTime.to_iso8601(observed_at())),
+               ctx.status,
+               handlers: ctx.handlers
+             )
+
+    assert %{"source_origin" => @origin, "source_url_override" => nil} = profile(ctx, "High")
+    assert source(ctx)["discovery_assignment_id"] == ctx.assignment_id
+
+    assert :ok =
+             PluginResultIngestor.ingest_durable(
+               Map.put(origin_only, "observed_at", DateTime.to_iso8601(DateTime.utc_now())),
+               Map.delete(ctx.status, :plugin_provenance),
+               handlers: ctx.handlers
+             )
+
+    assert source(ctx)["discovery_assignment_id"] == ctx.assignment_id
+    assert in_scope_zero?()
   end
 
   test "a result stored before reduction and then scrubbed is matched, not duplicated, when redelivered",
@@ -199,7 +252,7 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
   end
 
   defp scrub_until_complete!(attempts \\ 4) do
-    case StreamSecretScrubWorker.run_pass(1, 0, @solo) do
+    case StreamSecretScrubWorker.run_pass(3, 0, @solo) do
       :ok -> :ok
       {:snooze, _seconds} when attempts > 1 -> scrub_until_complete!(attempts - 1)
       other -> flunk("the sandbox did not scrub clean: #{inspect(other)}")
@@ -250,7 +303,8 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
   defp source(ctx) do
     one!(
       """
-      SELECT source_url, metadata, last_event_message, last_event_type, availability_reason
+      SELECT source_url, discovery_assignment_id::text AS discovery_assignment_id, metadata,
+             last_event_message, last_event_type, availability_reason
       FROM platform.camera_sources WHERE vendor = 'ubiquiti' AND vendor_camera_id = $1
       """,
       [ctx.camera_id]
@@ -260,13 +314,44 @@ defmodule ServiceRadar.Camera.StreamAddressIngestTest do
   defp profile(ctx, profile_name) do
     one!(
       """
-      SELECT p.source_url_override, p.metadata
+      SELECT p.source_url_override, p.source_origin, p.metadata
       FROM platform.camera_stream_profiles p
       JOIN platform.camera_sources s ON s.id = p.camera_source_id
       WHERE s.vendor = 'ubiquiti' AND s.vendor_camera_id = $1 AND p.profile_name = $2
       """,
       [ctx.camera_id, profile_name]
     )
+  end
+
+  # The discovering assignment the host stamps on the result; invented package. The
+  # package is named like the status's service, which provenance resolves it to.
+  defp insert_plugin_assignment!(suffix) do
+    plugin_id = "invented-camera-plugin-#{suffix}"
+    package_name = "invented-camera-inventory-#{suffix}"
+
+    Repo.query!("INSERT INTO platform.plugins (plugin_id, name) VALUES ($1, $1)", [plugin_id])
+
+    %{rows: [[package_id]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.plugin_packages (plugin_id, name, version, entrypoint, outputs)
+        VALUES ($1, $2, '1.0.0', 'run_check', 'serviceradar.plugin_result.v1')
+        RETURNING id
+        """,
+        [plugin_id, package_name]
+      )
+
+    %{rows: [[assignment_id]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.plugin_assignments (agent_uid, plugin_package_id, plugin_id, partition_id)
+        VALUES ($1, $2, $3, 'default')
+        RETURNING id::text
+        """,
+        ["invented-agent-#{suffix}", package_id, plugin_id]
+      )
+
+    assignment_id
   end
 
   defp device_metadata(ctx) do

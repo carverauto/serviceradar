@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   import Phoenix.LiveView, only: [clear_flash: 2, put_flash: 3]
 
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadarWebNG.RBAC
 
   require Logger
@@ -214,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
   defp format_camera_relay_error(:forbidden), do: "You are not authorized for camera relay access"
   defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
-  defp format_camera_relay_error(reason) when is_binary(reason), do: reason
+  defp format_camera_relay_error(reason) when is_binary(reason), do: RelaySourceFailure.describe(reason) || reason
   defp format_camera_relay_error(reason), do: inspect(reason)
 
   defp viewer_state_from_session(%{status: status} = session) when status in [:failed, "failed"] do
@@ -252,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelay do
   end
 
   defp viewer_state_from_error(reason) when is_binary(reason) do
-    normalized_reason = String.trim(reason)
+    normalized_reason = String.trim(RelaySourceFailure.describe(reason) || reason)
     classification = classify_camera_relay_issue(normalized_reason)
 
     case classification do

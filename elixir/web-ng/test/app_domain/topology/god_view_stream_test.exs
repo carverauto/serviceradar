@@ -9310,7 +9310,6 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           vendor: "axis",
           vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
           display_name: "Cluster Camera",
-          source_url: "rtsp://camera.local/stream",
           assigned_agent_id: "agent-camera-cluster",
           assigned_gateway_id: "gateway-camera-cluster"
         },

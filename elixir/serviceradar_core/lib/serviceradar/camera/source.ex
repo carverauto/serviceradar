@@ -15,7 +15,7 @@ defmodule ServiceRadar.Camera.Source do
   @mutable_fields [
     :device_uid,
     :display_name,
-    :source_url,
+    :discovery_assignment_id,
     :assigned_agent_id,
     :assigned_gateway_id,
     :availability_status,
@@ -62,7 +62,7 @@ defmodule ServiceRadar.Camera.Source do
         :vendor,
         :vendor_camera_id,
         :display_name,
-        :source_url,
+        :discovery_assignment_id,
         :assigned_agent_id,
         :assigned_gateway_id,
         :availability_status,
@@ -88,7 +88,7 @@ defmodule ServiceRadar.Camera.Source do
         :vendor,
         :vendor_camera_id,
         :display_name,
-        :source_url,
+        :discovery_assignment_id,
         :assigned_agent_id,
         :assigned_gateway_id,
         :availability_status,
@@ -135,14 +135,12 @@ defmodule ServiceRadar.Camera.Source do
       public? true
     end
 
-    # The camera's stream address, which can carry a path alias or userinfo. Only the
-    # relay resolver selects it (`ServiceRadar.Camera.RelaySourceResolver`), and inventory
-    # ingest sets it only through `InventoryIngestor.put_relay_addresses/2`. Stage 3 of the
-    # resolve-camera-stream-sources-at-edge change removes it.
-    attribute :source_url, :string do
-      public? false
-      sensitive? true
-      select_by_default? false
+    # The plugin assignment whose host-stamped result last reported this camera
+    # (`PluginResultProvenance`, never the plugin's own payload). A relay names it
+    # so the agent can have that assignment resolve the stream address; Core holds
+    # no address. The database clears it when the assignment is deleted.
+    attribute :discovery_assignment_id, :uuid do
+      public? true
     end
 
     attribute :assigned_agent_id, :string do

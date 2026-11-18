@@ -5,7 +5,10 @@ defmodule ServiceRadar.Camera.RelaySourceFailure do
 
   The agent reports it as `CloseRelaySessionRequest.failure_reason`, formatted
   `"<class>"` or `"<class>: <detail>"`; the class set is owned by the agent
-  (`go/pkg/agent/camera_relay_failure.go`). The agent strips URLs, userinfo and
+  (`go/pkg/agent/camera_relay_failure.go`). Core stores two classes of its own,
+  in the same format, when it refuses to dispatch a relay the agent could not
+  resolve (`agent_upgrade_required`, `source_resolver_missing`; design D5 of
+  `resolve-camera-stream-sources-at-edge`). The agent strips URLs, userinfo and
   query strings at the source, but this is edge input, so `normalize/1` checks
   the shape and sanitizes the detail again before it is stored, with
   `ServiceRadar.Credentials.SecretTextScrubber` (a URL keeps only its origin)
@@ -52,6 +55,17 @@ defmodule ServiceRadar.Camera.RelaySourceFailure do
     "upstream_closed" => "The camera closed the connection",
     "start_deadline_exceeded" =>
       "The camera stream did not start before the agent's start deadline",
+    "agent_upgrade_required" =>
+      "The agent assigned to this camera must be upgraded before it can open camera streams",
+    "source_resolver_missing" =>
+      "No camera plugin has reported this camera since the upgrade, so the agent cannot " <>
+        "look up its stream; it can open once the next camera inventory run reports it",
+    "source_resolver_unavailable" =>
+      "The camera plugin that discovered this camera is not running on the agent",
+    "source_resolver_unsupported" =>
+      "The camera plugin on the agent cannot look up stream addresses; upgrade the plugin",
+    "source_not_found" =>
+      "The camera controller has no such camera or stream, or RTSP is turned off for it",
     "unknown" => "The camera stream failed"
   }
 

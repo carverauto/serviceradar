@@ -29,6 +29,10 @@ defmodule ServiceRadar.Camera.StreamAddressReduction do
   for rows stored before that.
 
   Structs (such as `DateTime`) are left as they are.
+
+  `origin/1` is the rule's origin function: the `scheme://host[:port]` of one URL,
+  whatever its scheme. Camera inventory keeps only that
+  (`camera_stream_profiles.source_origin`).
   """
 
   @max_json_depth 4
@@ -37,10 +41,33 @@ defmodule ServiceRadar.Camera.StreamAddressReduction do
   @origin_schemes ~w(rtsp rtsps)
   @escape_pattern ~r/\\(?:\/|[uU]002[fF]|[uU]003[aA]|[uU]0040)/
   @url_pattern ~r/[A-Za-z][A-Za-z0-9+.\-]*:\/\/[^\s"'<>\\]+/
+  @single_url_pattern ~r/\A[A-Za-z][A-Za-z0-9+.\-]*:\/\/[^\s"'<>\\]+\z/
 
   @doc "The value that replaces a string still JSON-encoded beyond the nesting depth."
   @spec depth_marker() :: String.t()
   def depth_marker, do: @depth_marker
+
+  @doc """
+  The origin (`scheme://host[:port]`) of `value` when it is one URL, with its
+  userinfo, path, query and fragment dropped, or nil for anything else. JSON
+  solidus escapes are read as in `reduce/1`.
+  """
+  @spec origin(term()) :: String.t() | nil
+  def origin(value) when is_binary(value) do
+    url = Regex.replace(@escape_pattern, String.trim(value), &unescape/1)
+
+    if Regex.match?(@single_url_pattern, url) do
+      [scheme, rest] = String.split(url, "://", parts: 2)
+      {authority, _tail} = split_authority(rest)
+
+      case authority |> String.split("@") |> List.last() do
+        "" -> nil
+        host -> scheme <> "://" <> host
+      end
+    end
+  end
+
+  def origin(_value), do: nil
 
   @doc "Reduces `term` by the stream address rule. See the module documentation."
   @spec reduce(term()) :: term()

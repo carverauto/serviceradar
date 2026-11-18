@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
 
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySourceFailure
   alias ServiceRadar.Camera.Source, as: CameraSource
 
   require Ash.Query
@@ -144,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.CameraMultiview do
   def format_error({:agent_offline, _agent_id}), do: "Assigned agent is offline"
   def format_error(:forbidden), do: "Not authorized for camera relay access"
   def format_error(:invalid_uuid), do: "Invalid camera relay request"
-  def format_error(reason) when is_binary(reason), do: reason
+  def format_error(reason) when is_binary(reason), do: RelaySourceFailure.describe(reason) || reason
   def format_error(reason), do: inspect(reason)
 
   defp open_tile(candidate, scope) do
