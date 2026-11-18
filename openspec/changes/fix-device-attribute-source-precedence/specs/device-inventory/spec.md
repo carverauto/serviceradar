@@ -9,12 +9,15 @@ without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
 and record its strength.
 
-Name strength, weakest first: a name derived from an address because the update
-carries no hostname (as sent by the passive census, which re-emits every
-binding seen in the last 15 minutes every 120 seconds, and by hypervisor
-enrichment of existing devices); a hostname from a passive census sighting; an
-SNMP sysName or a name reported by an integration. A name derived from an
-address SHALL use the address the device keeps after the address rank guard.
+Name strength, weakest first, with no two sources sharing a tier: a name
+derived from an address because the update carries no hostname (as sent by the
+passive census, which re-emits every binding seen in the last 15 minutes every
+120 seconds, and by hypervisor enrichment of existing devices); a hostname from
+a passive census sighting; a name reported by an automation inventory (such as
+AWX); an SNMP sysName; a name reported by the hypervisor platform inventory. A
+name derived from an address SHALL use the address the device keeps after the
+address rank guard. The hostname SHALL be gated by the same tiers and SHALL be
+accepted or rejected together with the name as one value.
 
 Vendor strength, weakest first: a name that names SNMP agent software (such as
 Net-SNMP), from device, integration or metadata evidence; the IEEE OUI
@@ -56,7 +59,7 @@ ingestion batch.
 - **THEN** the device name SHALL be the sysName
 
 #### Scenario: A hypervisor-enrichment update without a hostname keeps the node name
-- **GIVEN** a hypervisor node whose name hv-node-01 was recorded from an integration
+- **GIVEN** a hypervisor node whose name hv-node-01 was recorded from the automation inventory
 - **WHEN** a hypervisor-enrichment update for the node at 192.0.2.30 with no hostname is ingested
 - **THEN** the device name SHALL remain hv-node-01
 
@@ -137,10 +140,16 @@ ingestion batch.
 - **THEN** the device type SHALL remain Hypervisor
 - **AND** the device type_id SHALL remain the Hypervisor type_id
 
+#### Scenario: A hypervisor node settles on its platform inventory name
+- **GIVEN** a hypervisor node reported by an automation inventory as hv-node-01, by the mapper with sysName pve-a, and by the hypervisor inventory as pve-node-a
+- **WHEN** automation-inventory, mapper and hypervisor-inventory writes alternate, in one batch in either order or across batches
+- **THEN** the device name and hostname SHALL both be pve-node-a
+- **AND** the Proxmox plugin assignment inputs SHALL NOT change
+
 #### Scenario: Alternating sources leave the agent config unchanged
-- **GIVEN** an agent whose SNMP targets are selected and named from device attributes
-- **AND** the name and vendor of those devices already have recorded strengths
-- **WHEN** a mapper pass and a passive census pass alternate with no change on the network
+- **GIVEN** an agent whose SNMP targets and plugin assignments are selected and named from device attributes
+- **AND** the name, hostname, vendor, type and integration type of those devices already have recorded strengths
+- **WHEN** mapper passes, passive census passes, automation-inventory cycles and hypervisor-enrichment cycles alternate with no change on the network
 - **THEN** the compiled agent config version SHALL NOT change
 
 ### Requirement: Integration identifiers are kept per integration

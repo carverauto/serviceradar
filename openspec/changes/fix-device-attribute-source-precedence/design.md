@@ -13,11 +13,17 @@ address rank, #3905) and manual `type` ownership.
    `integration_type`) stores its source and evidence strength alongside the
    value. Strength is assigned by the writer from the evidence it holds, not
    inferred later from the value.
-2. Strength order for `name`, weakest first:
+2. Strength order for `name`, weakest first, with no two sources sharing a
+   tier:
    1. address fallback: the update has no hostname, so the name is an address
       (the passive census and hypervisor enrichment both produce these);
    2. passive census sighting with an observed hostname;
-   3. SNMP `sysName` from the mapper, or a name reported by an integration.
+   3. a name reported by an automation inventory (such as AWX);
+   4. SNMP `sysName` from the mapper;
+   5. a name reported by the hypervisor platform inventory.
+   The `hostname` column is gated by the same tiers and is accepted or
+   rejected together with `name` as one value, because plugin inputs prefer
+   `hostname` over `name`.
 3. Strength order for `vendor_name`, weakest first:
    1. a name that names SNMP agent software (Net-SNMP and similar), from
       device, integration or metadata evidence;
@@ -73,13 +79,19 @@ address rank, #3905) and manual `type` ownership.
    address-fallback name follows the address the device keeps.
 8. The upsert compares strength with the stored row inside the `ON CONFLICT`
    update, the same place the `ip` rank guard lives, so concurrent writers
-   cannot race a read-then-write in Elixir.
+   cannot race a read-then-write in Elixir. `name` and `hostname` are decided
+   there as one value, as are `type` and `type_id`.
 9. In-batch merging (`merge_records_by_uid`) applies the same order and the
    same equal-or-stronger rule to the updates it combines, so two updates for
    one device in one batch resolve the same way as in two batches.
 10. The denormalized metadata `integration_id` slot is dropped. Integration
     membership already lives per provider in `device_identifiers`; readers of
-    the slot move to the provider-scoped identifier. A per-provider key in
+    the slot move to the provider-scoped identifier: plugin inputs and
+    `ProxmoxHostAuthority.target_ids`, `IdentityProjections.binding_keys`
+    (unmerge), `ArmisNorthboundPopulation`, and the `SourceIdentityDrift`
+    repair reread. The `ResultProcessor` writer that copies a snapshot
+    `integration_id` into update metadata stops, or writes the
+    provider-scoped identifier instead. A per-provider key in
     metadata was considered and rejected as a second copy of
     `device_identifiers`.
 11. `PluginInputPayloadBuilder.normalize_device_row` copies an integration
@@ -90,7 +102,9 @@ address rank, #3905) and manual `type` ownership.
 
 ## Open questions
 
-- None that block implementation.
+- A name reported by an integration other than the automation inventory and
+  the hypervisor inventory is not ranked by this change; it is not part of the
+  observed loop. Rank it before it shares a device with another name source.
 
 ## Rejected alternatives
 

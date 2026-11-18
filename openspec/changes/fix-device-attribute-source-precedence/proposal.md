@@ -63,8 +63,11 @@ These attributes are inputs to agent config compilation:
 - `PluginInputPayloadBuilder.normalize_device_row` copies metadata
   `integration_id`, the vendor and `hostname || name` into every
   device-backed plugin input item, and policy-generated Proxmox plugin
-  assignments embed those items in their `inputs`. The only consumer of
-  `integration_id` is `ProxmoxHostAuthority.target_ids`.
+  assignments embed those items in their `inputs`. The plugin consumer of
+  `integration_id` is `ProxmoxHostAuthority.target_ids`; the slot is also read
+  by `IdentityProjections.binding_keys` (unmerge), `ArmisNorthboundPopulation`
+  and the `SourceIdentityDrift` repair reread, and `ResultProcessor` copies a
+  snapshot `integration_id` into update metadata.
 
 Every flip therefore re-versions the agent config. On the agent, a new SNMP
 section restarted every collector (fixed separately in the agent), a new mapper
@@ -88,11 +91,13 @@ inventory state rather than of nondeterministic compilation.
   records its strength, and never by a weakest-tier write. There is no second
   test (such as "the stored name equals the stored address"): the recorded
   strength alone decides.
-  - `name`, weakest to strongest: address fallback (the update has no
-    hostname, so the name is an address, as from the passive census or
-    hypervisor enrichment) < passive census sighting with an observed
-    hostname < SNMP `sysName` from the mapper or a name reported by an
-    integration. An address fallback is the address the device keeps after
+  - `name`, weakest to strongest, no two sources sharing a tier: address
+    fallback (the update has no hostname, so the name is an address, as from
+    the passive census or hypervisor enrichment) < passive census sighting
+    with an observed hostname < automation inventory (AWX) name < SNMP
+    `sysName` < hypervisor platform inventory name. `hostname` is gated by the
+    same tiers and decided together with `name` as one value, so plugin
+    inputs, which prefer `hostname`, stop flipping. An address fallback is the address the device keeps after
     the existing address rank guard, never an address the guard rejected, so
     an NDP or link-local (`fe80::`) sighting never renames a device.
   - `vendor_name`, weakest to strongest: a name that names SNMP agent
@@ -175,4 +180,9 @@ string.
   in sync enrichment and the fingerprint classification rules, the
   automation-inventory and hypervisor integration writers,
   `ServiceRadar.Plugins.PluginInputPayloadBuilder`,
-  `ServiceRadar.Plugins.ProxmoxHostAuthority`.
+  `ServiceRadar.Plugins.ProxmoxHostAuthority`, and the other readers and
+  writer of metadata `integration_id`:
+  `ServiceRadar.Inventory.Identity.IdentityProjections`,
+  `ServiceRadar.Integrations.ArmisNorthboundPopulation`,
+  `ServiceRadar.Inventory.SourceIdentityDrift`, and the result processor in
+  `ServiceRadar.Core`.

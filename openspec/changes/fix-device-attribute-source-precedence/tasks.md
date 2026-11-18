@@ -14,13 +14,19 @@
 
 - [ ] 2.1 Writers tag names: address fallback (passive census or hypervisor
       enrichment without a hostname) < passive census sighting with an
-      observed hostname < SNMP `sysName` / integration-reported
+      observed hostname < automation inventory (AWX) name < SNMP `sysName` <
+      hypervisor platform inventory name; `hostname` is gated by the same
+      tiers and accepted or rejected together with `name`
 - [ ] 2.2 Test: a `sysName` survives a hostname-less census update, in one
       batch and across batches
 - [ ] 2.3 Test: a hostname-less sighting of a rejected address, including an
       NDP / `fe80::` sighting, does not rename the device
 - [ ] 2.4 Test: a hypervisor-enrichment update without a hostname keeps the
       node name reported by the automation inventory
+- [ ] 2.5 Test: on a hypervisor node, alternating automation-inventory, mapper
+      `sysName` and hypervisor-inventory writes leave `name` and `hostname` at
+      the hypervisor inventory value in either batch order, and Proxmox plugin
+      assignment inputs do not change
 
 ## 3. Vendor precedence
 
@@ -70,7 +76,11 @@
 ## 5. Integration identifiers and plugin inputs
 
 - [ ] 5.1 Drop the metadata `integration_id` slot from the upsert and move its
-      readers to the provider-scoped identifiers in `device_identifiers`
+      readers to the provider-scoped identifiers in `device_identifiers`:
+      `IdentityProjections.binding_keys` (unmerge), `ArmisNorthboundPopulation`,
+      and the `SourceIdentityDrift` repair reread; stop the `ResultProcessor`
+      writer that copies a snapshot `integration_id` into update metadata, or
+      move it to the provider-scoped identifier
 - [ ] 5.2 `PluginInputPayloadBuilder.normalize_device_row`: copy an
       integration identifier only into input items for the plugin whose
       provider owns it
@@ -98,6 +108,8 @@
       replaces a value with no recorded strength; a hostname-less census name
       is the address fallback and never replaces a populated name without
       recorded strength or any stronger name) and at most once at the first
-      mapper run (a stronger value replaces it), then stays constant across
-      further census passes, mapper runs, automation-inventory cycles and
-      hypervisor-enrichment cycles
+      mapper run (a stronger value replaces it); a legacy platform type or
+      name may change once when the first above-weakest value is recorded
+      and once more when the platform inventory records the strongest tier;
+      only then does it stay constant across further census passes, mapper
+      runs, automation-inventory cycles and hypervisor-enrichment cycles
