@@ -120,15 +120,15 @@ defmodule ServiceRadar.Catalog.InstalledSolutionPackCredentialBinding do
     references do
       reference :installed_pack,
         on_delete: :delete,
-        name: "installed_solution_pack_credential_bindings_installed_pack_id_fkey"
+        name: "installed_solution_pack_bindings_installed_pack_fkey"
 
       reference :credential_secret,
         on_delete: :restrict,
-        name: "installed_solution_pack_credential_bindings_credential_secret_id_fkey"
+        name: "installed_solution_pack_bindings_credential_secret_fkey"
 
       reference :credential_rule,
         on_delete: :restrict,
-        name: "installed_solution_pack_credential_bindings_credential_rule_id_fkey"
+        name: "installed_solution_pack_bindings_credential_rule_fkey"
     end
 
     check_constraints do

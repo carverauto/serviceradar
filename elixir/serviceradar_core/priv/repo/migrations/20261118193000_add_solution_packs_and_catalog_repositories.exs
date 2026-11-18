@@ -233,7 +233,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
         :credential_secret_id,
         references(:network_credential_secrets,
           column: :id,
-          name: "installed_solution_pack_credential_bindings_credential_secret_id_fkey",
+          name: "installed_solution_pack_bindings_credential_secret_fkey",
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
@@ -244,7 +244,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
         :credential_rule_id,
         references(:network_credential_rules,
           column: :id,
-          name: "installed_solution_pack_credential_bindings_credential_rule_id_fkey",
+          name: "installed_solution_pack_bindings_credential_rule_fkey",
           type: :uuid,
           prefix: "platform",
           on_delete: :restrict
@@ -273,7 +273,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
         :installed_pack_id,
         references(:installed_solution_packs,
           column: :id,
-          name: "installed_solution_pack_credential_bindings_installed_pack_id_fkey",
+          name: "installed_solution_pack_bindings_installed_pack_fkey",
           type: :uuid,
           on_delete: :delete_all
         )
@@ -485,7 +485,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
     drop(
       constraint(
         :installed_solution_pack_credential_bindings,
-        "installed_solution_pack_credential_bindings_credential_rule_id_fkey",
+        "installed_solution_pack_bindings_credential_rule_fkey",
         prefix: "platform"
       )
     )
@@ -493,7 +493,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
     drop(
       constraint(
         :installed_solution_pack_credential_bindings,
-        "installed_solution_pack_credential_bindings_credential_secret_id_fkey",
+        "installed_solution_pack_bindings_credential_secret_fkey",
         prefix: "platform"
       )
     )
@@ -501,7 +501,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSolutionPacksAndCatalogRepositories do
     drop(
       constraint(
         :installed_solution_pack_credential_bindings,
-        "installed_solution_pack_credential_bindings_installed_pack_id_fkey",
+        "installed_solution_pack_bindings_installed_pack_fkey",
         prefix: "platform"
       )
     )
