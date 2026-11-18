@@ -182,7 +182,7 @@ signature created in the current run, accept only `docs/sigstore/rekor-keys/` (t
 log); a created signature whose receipt names any other log fails. A **reused** signature whose
 receipt names the public-good log is verified in receipt-required mode against
 `docs/sigstore/pre-cutover-rekor-keys/` and accepted only when its SET-signed `integratedTime` is
-before the cutover time pinned in `docs/sigstore/` (the v1.5.8 tag time, pinned by the implementation PR from the real tag); a later public-good receipt fails. That set is never shipped and never accepted at import. A
+before the cutover time pinned in `docs/sigstore/cutover.json` (the v1.5.8 tag time, pinned by the implementation PR from the real tag); a later public-good receipt fails. That set is never shipped and never accepted at import. A
 reused signature whose receipt names a log in neither set fails. A verifier never calls a Rekor:
 both modes run offline, and a test proves that no request reaches a Rekor URL during verification.
 
