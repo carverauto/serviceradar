@@ -274,6 +274,8 @@ spec:
           set -eu
           exec /app/bin/serviceradar_core_elx start
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -282,6 +284,8 @@ spec:
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
