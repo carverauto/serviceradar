@@ -396,20 +396,90 @@
         "catalog_repositories"
       ],
       "code?": false,
-      "down": "DELETE FROM platform.catalog_repositories\nWHERE builtin = true\n  AND repo_url = 'https://github.com/carverauto/serviceradar';\n",
+      "down": "-- serviceradar:allow-startup-maintenance: rollback-only bounded delete of the single seeded builtin catalog_repositories row before table drop; never runs on startup.\nDELETE FROM platform.catalog_repositories\nWHERE builtin = true\n  AND repo_url = 'https://github.com/carverauto/serviceradar';\n",
       "global?": false,
       "name": "seed_official_serviceradar_catalog",
-      "up": "INSERT INTO platform.catalog_repositories\n  (id, name, mode, provider_type, repo_url, branch, base_path, push_strategy,\n   index_asset_name, signing_key_id, signing_public_key, enabled, auto_reconcile,\n   builtin, is_default, last_sync_summary, inserted_at, updated_at)\nVALUES\n  (uuid_generate_v7(), 'ServiceRadar Official Solution Packs', 'release_catalog',\n   'github', 'https://github.com/carverauto/serviceradar', 'main', 'packs',\n   'pull_request', 'serviceradar-pack-index.json', 'serviceradar-first-party-v2',\n   '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', true, false, true, true,\n   '{}'::jsonb, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'))\nON CONFLICT (mode, repo_url, branch, base_path) DO NOTHING;\n\nDO $$\nDECLARE\n  defaults integer;\nBEGIN\n  SELECT count(*) INTO defaults\n  FROM platform.catalog_repositories\n  WHERE is_default;\n\n  IF defaults <> 1 THEN\n    RAISE EXCEPTION\n      'catalog_repositories seed left % default row(s), expected exactly 1', defaults;\n  END IF;\nEND\n$$;\n"
+      "up": "DO $$\nDECLARE\n  defaults integer;\nBEGIN\n  INSERT INTO platform.catalog_repositories\n    (id, name, mode, provider_type, repo_url, branch, base_path, push_strategy,\n     index_asset_name, signing_key_id, signing_public_key, enabled, auto_reconcile,\n     builtin, is_default, last_sync_summary, inserted_at, updated_at)\n  VALUES\n    (uuid_generate_v7(), 'ServiceRadar Official Solution Packs', 'release_catalog',\n     'github', 'https://github.com/carverauto/serviceradar', 'main', 'packs',\n     'pull_request', 'serviceradar-pack-index.json', 'serviceradar-first-party-v2',\n     '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', true, false, true, true,\n     '{}'::jsonb, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'))\n  ON CONFLICT (mode, repo_url, branch, base_path) DO NOTHING;\n\n  SELECT count(*) INTO defaults\n  FROM platform.catalog_repositories\n  WHERE is_default;\n\n  IF defaults <> 1 THEN\n    RAISE EXCEPTION\n      'catalog_repositories seed left % default row(s), expected exactly 1', defaults;\n  END IF;\nEND\n$$;\n"
     },
     {
       "after_tables": [
         "catalog_repositories"
       ],
       "code?": false,
-      "down": "DROP INDEX IF EXISTS platform.authored_dashboards_pack_id_idx;\nALTER TABLE platform.authored_dashboards\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.zen_rules_pack_id_idx;\nALTER TABLE platform.zen_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.event_rules_pack_id_idx;\nALTER TABLE platform.event_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n\nDROP INDEX IF EXISTS platform.stateful_alert_rules_pack_id_idx;\nALTER TABLE platform.stateful_alert_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
+      "down": "ALTER TABLE platform.stateful_alert_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
       "global?": false,
-      "name": "extend_observability_and_dashboard_pack_provenance",
-      "up": "ALTER TABLE platform.stateful_alert_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS stateful_alert_rules_pack_id_idx\n  ON platform.stateful_alert_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.event_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS event_rules_pack_id_idx\n  ON platform.event_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.zen_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS zen_rules_pack_id_idx\n  ON platform.zen_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n\nALTER TABLE platform.authored_dashboards\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n\nCREATE INDEX IF NOT EXISTS authored_dashboards_pack_id_idx\n  ON platform.authored_dashboards (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
+      "name": "stateful_alert_rules_pack_provenance_columns",
+      "up": "ALTER TABLE platform.stateful_alert_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.stateful_alert_rules_pack_id_idx;\n",
+      "global?": false,
+      "name": "stateful_alert_rules_pack_id_idx",
+      "up": "CREATE INDEX IF NOT EXISTS stateful_alert_rules_pack_id_idx\n  ON platform.stateful_alert_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "ALTER TABLE platform.event_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
+      "global?": false,
+      "name": "event_rules_pack_provenance_columns",
+      "up": "ALTER TABLE platform.event_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.event_rules_pack_id_idx;\n",
+      "global?": false,
+      "name": "event_rules_pack_id_idx",
+      "up": "CREATE INDEX IF NOT EXISTS event_rules_pack_id_idx\n  ON platform.event_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "ALTER TABLE platform.zen_rules\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
+      "global?": false,
+      "name": "zen_rules_pack_provenance_columns",
+      "up": "ALTER TABLE platform.zen_rules\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.zen_rules_pack_id_idx;\n",
+      "global?": false,
+      "name": "zen_rules_pack_id_idx",
+      "up": "CREATE INDEX IF NOT EXISTS zen_rules_pack_id_idx\n  ON platform.zen_rules (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "ALTER TABLE platform.authored_dashboards\n  DROP COLUMN IF EXISTS parameter_overrides,\n  DROP COLUMN IF EXISTS template_fingerprint,\n  DROP COLUMN IF EXISTS managed,\n  DROP COLUMN IF EXISTS pack_version,\n  DROP COLUMN IF EXISTS pack_id;\n",
+      "global?": false,
+      "name": "authored_dashboards_pack_provenance_columns",
+      "up": "ALTER TABLE platform.authored_dashboards\n  ADD COLUMN IF NOT EXISTS pack_id text,\n  ADD COLUMN IF NOT EXISTS pack_version text,\n  ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,\n  ADD COLUMN IF NOT EXISTS template_fingerprint text,\n  ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;\n"
+    },
+    {
+      "after_tables": [
+        "catalog_repositories"
+      ],
+      "code?": false,
+      "down": "DROP INDEX IF EXISTS platform.authored_dashboards_pack_id_idx;\n",
+      "global?": false,
+      "name": "authored_dashboards_pack_id_idx",
+      "up": "CREATE INDEX IF NOT EXISTS authored_dashboards_pack_id_idx\n  ON platform.authored_dashboards (pack_id)\n  WHERE pack_id IS NOT NULL;\n"
     }
   ],
   "has_create_action": true,

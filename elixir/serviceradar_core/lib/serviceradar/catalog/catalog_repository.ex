@@ -403,22 +403,22 @@ defmodule ServiceRadar.Catalog.CatalogRepository do
         after_tables ["catalog_repositories"]
 
         up """
-        INSERT INTO platform.catalog_repositories
-          (id, name, mode, provider_type, repo_url, branch, base_path, push_strategy,
-           index_asset_name, signing_key_id, signing_public_key, enabled, auto_reconcile,
-           builtin, is_default, last_sync_summary, inserted_at, updated_at)
-        VALUES
-          (uuid_generate_v7(), 'ServiceRadar Official Solution Packs', 'release_catalog',
-           'github', 'https://github.com/carverauto/serviceradar', 'main', 'packs',
-           'pull_request', 'serviceradar-pack-index.json', 'serviceradar-first-party-v2',
-           '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', true, false, true, true,
-           '{}'::jsonb, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'))
-        ON CONFLICT (mode, repo_url, branch, base_path) DO NOTHING;
-
         DO $$
         DECLARE
           defaults integer;
         BEGIN
+          INSERT INTO platform.catalog_repositories
+            (id, name, mode, provider_type, repo_url, branch, base_path, push_strategy,
+             index_asset_name, signing_key_id, signing_public_key, enabled, auto_reconcile,
+             builtin, is_default, last_sync_summary, inserted_at, updated_at)
+          VALUES
+            (uuid_generate_v7(), 'ServiceRadar Official Solution Packs', 'release_catalog',
+             'github', 'https://github.com/carverauto/serviceradar', 'main', 'packs',
+             'pull_request', 'serviceradar-pack-index.json', 'serviceradar-first-party-v2',
+             '2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=', true, false, true, true,
+             '{}'::jsonb, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc'))
+          ON CONFLICT (mode, repo_url, branch, base_path) DO NOTHING;
+
           SELECT count(*) INTO defaults
           FROM platform.catalog_repositories
           WHERE is_default;
@@ -432,13 +432,14 @@ defmodule ServiceRadar.Catalog.CatalogRepository do
         """
 
         down """
+        -- serviceradar:allow-startup-maintenance: rollback-only bounded delete of the single seeded builtin catalog_repositories row before table drop; never runs on startup.
         DELETE FROM platform.catalog_repositories
         WHERE builtin = true
           AND repo_url = 'https://github.com/carverauto/serviceradar';
         """
       end
 
-      statement :extend_observability_and_dashboard_pack_provenance do
+      statement :stateful_alert_rules_pack_provenance_columns do
         after_tables ["catalog_repositories"]
 
         up """
@@ -446,40 +447,128 @@ defmodule ServiceRadar.Catalog.CatalogRepository do
           ADD COLUMN IF NOT EXISTS pack_id text,
           ADD COLUMN IF NOT EXISTS pack_version text,
           ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """
 
+        down """
+        ALTER TABLE platform.stateful_alert_rules
+          DROP COLUMN IF EXISTS parameter_overrides,
+          DROP COLUMN IF EXISTS pack_version,
+          DROP COLUMN IF EXISTS pack_id;
+        """
+      end
+
+      statement :stateful_alert_rules_pack_id_idx do
+        after_tables ["catalog_repositories"]
+
+        up """
         CREATE INDEX IF NOT EXISTS stateful_alert_rules_pack_id_idx
           ON platform.stateful_alert_rules (pack_id)
           WHERE pack_id IS NOT NULL;
+        """
 
+        down """
+        DROP INDEX IF EXISTS platform.stateful_alert_rules_pack_id_idx;
+        """
+      end
+
+      statement :event_rules_pack_provenance_columns do
+        after_tables ["catalog_repositories"]
+
+        up """
         ALTER TABLE platform.event_rules
           ADD COLUMN IF NOT EXISTS pack_id text,
           ADD COLUMN IF NOT EXISTS pack_version text,
           ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,
           ADD COLUMN IF NOT EXISTS template_fingerprint text,
           ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """
 
+        down """
+        ALTER TABLE platform.event_rules
+          DROP COLUMN IF EXISTS parameter_overrides,
+          DROP COLUMN IF EXISTS template_fingerprint,
+          DROP COLUMN IF EXISTS managed,
+          DROP COLUMN IF EXISTS pack_version,
+          DROP COLUMN IF EXISTS pack_id;
+        """
+      end
+
+      statement :event_rules_pack_id_idx do
+        after_tables ["catalog_repositories"]
+
+        up """
         CREATE INDEX IF NOT EXISTS event_rules_pack_id_idx
           ON platform.event_rules (pack_id)
           WHERE pack_id IS NOT NULL;
+        """
 
+        down """
+        DROP INDEX IF EXISTS platform.event_rules_pack_id_idx;
+        """
+      end
+
+      statement :zen_rules_pack_provenance_columns do
+        after_tables ["catalog_repositories"]
+
+        up """
         ALTER TABLE platform.zen_rules
           ADD COLUMN IF NOT EXISTS pack_id text,
           ADD COLUMN IF NOT EXISTS pack_version text,
           ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,
           ADD COLUMN IF NOT EXISTS template_fingerprint text,
           ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """
 
+        down """
+        ALTER TABLE platform.zen_rules
+          DROP COLUMN IF EXISTS parameter_overrides,
+          DROP COLUMN IF EXISTS template_fingerprint,
+          DROP COLUMN IF EXISTS managed,
+          DROP COLUMN IF EXISTS pack_version,
+          DROP COLUMN IF EXISTS pack_id;
+        """
+      end
+
+      statement :zen_rules_pack_id_idx do
+        after_tables ["catalog_repositories"]
+
+        up """
         CREATE INDEX IF NOT EXISTS zen_rules_pack_id_idx
           ON platform.zen_rules (pack_id)
           WHERE pack_id IS NOT NULL;
+        """
 
+        down """
+        DROP INDEX IF EXISTS platform.zen_rules_pack_id_idx;
+        """
+      end
+
+      statement :authored_dashboards_pack_provenance_columns do
+        after_tables ["catalog_repositories"]
+
+        up """
         ALTER TABLE platform.authored_dashboards
           ADD COLUMN IF NOT EXISTS pack_id text,
           ADD COLUMN IF NOT EXISTS pack_version text,
           ADD COLUMN IF NOT EXISTS managed boolean NOT NULL DEFAULT false,
           ADD COLUMN IF NOT EXISTS template_fingerprint text,
           ADD COLUMN IF NOT EXISTS parameter_overrides jsonb NOT NULL DEFAULT '{}'::jsonb;
+        """
 
+        down """
+        ALTER TABLE platform.authored_dashboards
+          DROP COLUMN IF EXISTS parameter_overrides,
+          DROP COLUMN IF EXISTS template_fingerprint,
+          DROP COLUMN IF EXISTS managed,
+          DROP COLUMN IF EXISTS pack_version,
+          DROP COLUMN IF EXISTS pack_id;
+        """
+      end
+
+      statement :authored_dashboards_pack_id_idx do
+        after_tables ["catalog_repositories"]
+
+        up """
         CREATE INDEX IF NOT EXISTS authored_dashboards_pack_id_idx
           ON platform.authored_dashboards (pack_id)
           WHERE pack_id IS NOT NULL;
@@ -487,34 +576,6 @@ defmodule ServiceRadar.Catalog.CatalogRepository do
 
         down """
         DROP INDEX IF EXISTS platform.authored_dashboards_pack_id_idx;
-        ALTER TABLE platform.authored_dashboards
-          DROP COLUMN IF EXISTS parameter_overrides,
-          DROP COLUMN IF EXISTS template_fingerprint,
-          DROP COLUMN IF EXISTS managed,
-          DROP COLUMN IF EXISTS pack_version,
-          DROP COLUMN IF EXISTS pack_id;
-
-        DROP INDEX IF EXISTS platform.zen_rules_pack_id_idx;
-        ALTER TABLE platform.zen_rules
-          DROP COLUMN IF EXISTS parameter_overrides,
-          DROP COLUMN IF EXISTS template_fingerprint,
-          DROP COLUMN IF EXISTS managed,
-          DROP COLUMN IF EXISTS pack_version,
-          DROP COLUMN IF EXISTS pack_id;
-
-        DROP INDEX IF EXISTS platform.event_rules_pack_id_idx;
-        ALTER TABLE platform.event_rules
-          DROP COLUMN IF EXISTS parameter_overrides,
-          DROP COLUMN IF EXISTS template_fingerprint,
-          DROP COLUMN IF EXISTS managed,
-          DROP COLUMN IF EXISTS pack_version,
-          DROP COLUMN IF EXISTS pack_id;
-
-        DROP INDEX IF EXISTS platform.stateful_alert_rules_pack_id_idx;
-        ALTER TABLE platform.stateful_alert_rules
-          DROP COLUMN IF EXISTS parameter_overrides,
-          DROP COLUMN IF EXISTS pack_version,
-          DROP COLUMN IF EXISTS pack_id;
         """
       end
     end
