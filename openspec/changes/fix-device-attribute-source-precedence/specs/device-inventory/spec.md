@@ -339,7 +339,12 @@ one, never an empty primary. Each chooser and Identity.Address.best/1 SHALL pick
 the highest-strength candidate (usable IPv4, then routable IPv6, then
 link-local, then higher rank within the family); only among candidates of equal
 class and equal rank SHALL they tie-break deterministically, the stored primary
-first if present among them, then the lowest address, never across ranks; a
+first if present among them, then the lowest address, never across ranks,
+except that the hypervisor host selection SHALL order equally strong host
+addresses by its management score (a gateway, a private address, a Linux bridge)
+before the lowest address, and the hypervisor guest selection SHALL order equally
+strong guest addresses by the guest's NIC preference order (hypervisor-attached
+NICs by configured index, then report order); a
 stored 10.1.0.5 (rank 40) is therefore replaced when the same source reports
 203.0.113.5 (rank 50). Identity.Address.best/1 SHALL take the stored primary as
 an optional input used only for that equal-rank tie-break. A

@@ -180,8 +180,11 @@
 - [x] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
       and the camera and succession primary-IP paths follow the same rule;
       `GuestAddress.primary/1` keeps skipping host-internal addresses (for
-      example a docker bridge), and no chooser promotes an address it rejects
-- [ ] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
+      example a docker bridge), and no chooser promotes an address it rejects;
+      among equally strong guest addresses the guest's NIC preference order
+      (hypervisor-attached NICs by configured index, then report order) is the
+      tie-break, not the lowest address
+- [x] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
       `primary_interface_ip`, `management_ip_score`,
       `routable_management_ip?`) and the `DeviceDiscoveryIngestor` guest
       address fallback submit the best usable IPv4 among every address on the
@@ -194,7 +197,9 @@
       chooser picks the highest-strength candidate (usable IPv4, routable
       IPv6, link-local, then higher rank within the family) and only among
       equal-class equal-rank candidates puts the stored primary first, then
-      the lowest address
+      the lowest address; the hypervisor host selection breaks a tie between
+      equally strong host addresses by `management_ip_score` (gateway, private
+      address, Linux bridge) before the lowest address
 - [x] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`

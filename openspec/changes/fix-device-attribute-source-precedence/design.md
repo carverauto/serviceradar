@@ -255,7 +255,11 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     IPv4, then routable IPv6, then link-local, then higher rank within the
     family); only among candidates of equal class and equal rank do they
     tie-break deterministically, the stored primary first if present among
-    them, then the lowest address, never across ranks, so a stored
+    them, then the lowest address, never across ranks (two documented
+    exceptions order equally strong candidates first: the hypervisor host
+    selection by `management_ip_score`, a gateway, a private address or a
+    Linux bridge, and `GuestAddress` by the guest's NIC preference order,
+    hypervisor-attached NICs by configured index, then report order), so a stored
     `10.1.0.5` (rank 40) yields to `203.0.113.5` (rank 50) and a stored ULA
     to a global IPv6 on an IPv6-only device. `best/1` takes the stored
     primary as an optional input used only for that tie-break. No chooser
