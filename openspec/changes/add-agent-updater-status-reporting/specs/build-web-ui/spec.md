@@ -48,5 +48,5 @@ The release and add-on rollout views SHALL name each agent excluded because of i
 - **GIVEN** an agent whose updater state is `package_upgrade_required` or `unavailable`
 - **AND** its operation list lacks an operation the release declares
 - **WHEN** an add-on rollout excludes that agent or an operator opens it
-- **THEN** the row and the page SHALL show the reason and remedy of that state
-- **AND** SHALL NOT show `updater lacks operation <name>` or a reinstall in its place
+- **THEN** the row and the page SHALL show the reason and remedy of that state: a package upgrade for `package_upgrade_required`, a package reinstall or repair for `unavailable`
+- **AND** SHALL NOT substitute `updater lacks operation <name>` or the missing-operation remedy for them
