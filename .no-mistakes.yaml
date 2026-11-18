@@ -155,12 +155,39 @@ gates:
   # Test-routing contracts that otherwise fail only in BazelCI: every new
   # serviceradar_core test file needs a row in INTEGRATION_SOURCE_DISPOSITIONS.tsv,
   # and DB-backed ones must also appear in build/integration_test_dispositions.bzl.
+  # The web-ng contracts and the chart's expectedVersion test are the same kind
+  # of check: a hand-kept list or value that a new test file or migration must
+  # move with. Each cost a BazelCI fix round when it ran only there.
   - name: test-registration
     after: lint
-    command: python3 build/ci/detect_docs_only.py --check --base-branch staging || bazel test --config=remote //build/contracts:ci_heavy_gate_contract_test
+    command: >-
+      python3 build/ci/detect_docs_only.py --check --base-branch staging ||
+      bazel test --config=remote
+      //build/contracts:ci_heavy_gate_contract_test
+      //build/contracts:web_ng_db_runner_contract_test
+      //build/contracts:web_ng_test_lane_routing_contract_test
+      //helm/serviceradar:migrations_expected_version_test
   # Same checks as CI's "Elixir Quality (<project>)" jobs: mix format
   # --check-formatted and mix credo --strict for every linted Elixir project,
   # hermetic on RBE. A failure parks the run for a decision before push.
+  # The formatter runs first because `commands.format` runs only in the push
+  # step, after this gate: without it, a review or document round that leaves a
+  # Styler diff always fails here and costs a fix round.
   - name: elixir-quality
     after: lint
-    command: python3 build/ci/detect_docs_only.py --check --base-branch staging || bazel test --config=remote //build/elixir_quality:quality_check
+    command: >-
+      python3 build/ci/detect_docs_only.py --check --base-branch staging ||
+      { bazel run --config=remote //build/elixir_quality:format &&
+      bazel test --config=remote //build/elixir_quality:quality_check; }
+  # The same golangci-lint run as the GitHub `lint` workflow, only when the
+  # branch changes Go. It is the one approved exception to the remote-only
+  # rule: there is no Bazel target for it, and finding these in CI cost about
+  # one fix round per Go change. If the comparison with staging cannot be made,
+  # the lint runs.
+  - name: go-lint
+    after: lint
+    command: >-
+      python3 build/ci/detect_docs_only.py --check --base-branch staging ||
+      { base=$(git merge-base HEAD origin/staging 2>/dev/null || git merge-base HEAD staging 2>/dev/null) &&
+      git diff --quiet "$base" HEAD -- '*.go'; } ||
+      make lint-go

@@ -2676,6 +2676,18 @@ print(open(sys.argv[2]).read().strip())
             self.assertEqual("serial", row["mode"], row)
             self.assertEqual("data_case", row["case_kind"], row)
 
+    def test_no_core_lane_pins_an_exact_test_count(self):
+        # Per-lane selected-test counts failed BazelCI on every added test case
+        # and were removed in #5171. Module counts, which partition the lanes,
+        # are a different table and stay.
+        sources = (INTEGRATION_DISPOSITIONS_BZL, ROOT / "build/integration_shards.bzl")
+        pinned = [
+            str(path.relative_to(ROOT))
+            for path in sources
+            if "SELECTED_TEST_COUNTS" in path.read_text()
+        ]
+        self.assertEqual([], pinned, "A lane must not pin how many tests it selects.")
+
     def test_starlark_lane_projection_exactly_matches_the_inventory(self):
         rows = integration_dispositions()
         async_sources = tuple(

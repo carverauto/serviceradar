@@ -277,6 +277,23 @@ class WebNgTestLaneRoutingContractTest(unittest.TestCase):
                 "%s needs a non-empty reason for being unrouted" % source,
             )
 
+    def test_no_db_lane_helper_pins_an_exact_test_count(self):
+        # The pin failed BazelCI on every added test. It was removed (#5171) and
+        # removed again (#5697) after a long-lived branch restored it.
+        helpers = sorted((WEB_NG / "test/db").glob("*_helper.exs"))
+        self.assertTrue(helpers, "no web-ng DB lane helpers found; the check saw nothing")
+        pinned = [
+            str(path.relative_to(ROOT))
+            for path in helpers
+            if "expected_selected_tests" in path.read_text()
+        ]
+        self.assertEqual(
+            [],
+            pinned,
+            "A DB lane must not pin how many tests it selects; guard against an "
+            "empty selection instead.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

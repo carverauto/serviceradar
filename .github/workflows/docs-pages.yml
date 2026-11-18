@@ -9,21 +9,27 @@ on:
       - ".github/workflows/docs-pages.yml"
       - "scripts/ci/install-sfw.sh"
       - "docs/**"
+  # A pull request builds the site and stops. A broken link otherwise fails only
+  # after merge, and every later staging commit then fails to publish.
+  pull_request:
+    branches:
+      - staging
+    paths:
+      - ".github/workflows/docs-pages.yml"
+      - "scripts/ci/install-sfw.sh"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: github-pages
-  cancel-in-progress: false
 
 jobs:
   build:
     name: Build Docusaurus
     runs-on: ubuntu-24.04
+    concurrency:
+      group: docs-build-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -51,17 +57,26 @@ jobs:
         run: sfw npm run build
 
       - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v6
 
       - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
           path: docs/build
 
   deploy:
     name: Deploy GitHub Pages
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

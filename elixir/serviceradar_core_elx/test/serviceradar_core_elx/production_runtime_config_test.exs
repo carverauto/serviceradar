@@ -543,6 +543,66 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
+  # The list above is kept by hand, so a key nobody adds to it is not checked.
+  # This compares the two files directly: every key core's runtime.exs sets
+  # under :serviceradar_core must be set here too. Plain keys count as well as
+  # module blocks. A key core sets only inside a branch the stubbed environment
+  # does not take is not visible here; the list above covers those.
+
+  # This release sets the key, but in a branch the stubbed environment skips.
+  @set_conditionally_here [ServiceRadar.NATS.Connection]
+
+  # Drift the first run of this test found: core's runtime.exs reads an
+  # environment variable for each key and this release does not, so the
+  # variable does nothing in production and the code default applies. The chart
+  # renders several of them on the core pod. Mirror a key into runtime.exs and
+  # delete it here; never add to this list.
+  @known_inert_in_release [
+    :ansible_catalog_base_dir,
+    :ansible_retention_interval_seconds,
+    :ansible_retention_run_detail_days,
+    :ansible_retention_run_summary_days,
+    :awx_controller_health_interval_seconds,
+    :awx_run_watchdog_interval_seconds,
+    :awx_schedule_evaluator_interval_seconds,
+    :device_enrichment_rules_dir,
+    :endpoint_inventory_native_addon_package,
+    :geo_tag_derivation_enabled,
+    :netprobe_native_addon_package,
+    :otel_collector_native_addon_package,
+    :prefix_tag_enrichment_enabled,
+    :prefix_tag_provider_trie_enabled,
+    :prefix_tags_loader_enabled,
+    :remote_access_desktop_rdp_enabled,
+    :sweep_srql_page_limit,
+    :threat_intel_engine_match_enabled,
+    :topology_endpoint_identity_promotion_enabled,
+    :topology_v2_contract_consumption_enabled,
+    :workload_identity_native_addon_package
+  ]
+
+  test "prod config sets every serviceradar_core key that core's runtime.exs sets" do
+    core_keys =
+      @core_runtime_config
+      |> Config.Reader.read!(env: :prod)
+      |> Keyword.get(:serviceradar_core, [])
+      |> Keyword.keys()
+
+    release_keys = Keyword.keys(read_prod_config()[:serviceradar_core])
+    missing = core_keys -- (release_keys ++ @set_conditionally_here ++ @known_inert_in_release)
+
+    assert core_keys != [],
+           "core's runtime.exs set no :serviceradar_core keys; nothing was compared"
+
+    assert missing == [],
+           "set in serviceradar_core/config/runtime.exs but not in this release's " <>
+             "runtime.exs, so their env vars are inert in production: #{inspect(missing)}"
+
+    # A listed key that is now mirrored, or that core no longer sets, must leave the list.
+    stale = Enum.filter(@known_inert_in_release, &(&1 in release_keys or &1 not in core_keys))
+    assert stale == [], "no longer drift; delete from @known_inert_in_release: #{inspect(stale)}"
+  end
+
   test "prod config enables automated MTR by default" do
     core_config = read_prod_config()[:serviceradar_core]
 
