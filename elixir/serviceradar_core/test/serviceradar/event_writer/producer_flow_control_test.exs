@@ -357,6 +357,8 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       {[message], _state} = push_msg(state, "live", "signals.analytics.predictions.test")
 
       assert message.metadata.max_deliver == 3
+      # The bounded destination name traces carry, not the per-series subject.
+      assert message.metadata.destination_template == "signals.analytics.predictions.>"
     end
 
     test "max_deliver subject filter tail wildcard requires a trailing token" do

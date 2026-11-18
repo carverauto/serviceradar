@@ -11,6 +11,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
+  alias ServiceRadar.Otel.Propagation
   alias ServiceRadarAgentGateway.EdgeRecordIngestServer
   alias ServiceRadarAgentGateway.EdgeRecordTrust
   alias ServiceRadarAgentGateway.JetStreamPublisher
@@ -237,6 +238,31 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
 
     # The session's lane ends with the stream rather than holding one of the pipeline's lanes.
     assert %{lanes: 0, inflight: 0, queued: 0} = PublishPipeline.stats(pipeline)
+  end
+
+  test "stamps the ingest RPC's trace context on the published record's JetStream headers" do
+    old_injector = :opentelemetry.get_text_map_injector()
+    old_extractor = :opentelemetry.get_text_map_extractor()
+    :opentelemetry.set_text_map_propagator(:otel_propagator_trace_context)
+
+    on_exit(fn ->
+      :opentelemetry.set_text_map_injector(old_injector)
+      :opentelemetry.set_text_map_extractor(old_extractor)
+    end)
+
+    # The context GRPCTraceInterceptor makes current for the stream handler (synthetic ids).
+    traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    Propagation.extract_context([{"traceparent", traceparent}, {"tracestate", "vendor1=opaque"}])
+
+    messages = [client({:lane_open, lane_open()}), client({:delivery_frame, frame(1, record())})]
+    assert :ok = EdgeRecordIngestServer.stream(messages, stream())
+
+    # The publication reaches a pipeline worker, which has no context of its own: the headers it
+    # publishes with must still name the handler's trace.
+    assert_receive {:edge_record_published, publication}
+    assert {:ok, %{headers: headers}} = JetStreamPublisher.plan(publication)
+    assert {"traceparent", traceparent} in headers
+    assert {"tracestate", "vendor1=opaque"} in headers
   end
 
   test "replies through a real GRPC.Server.Stream, not only the test_pid shortcut" do

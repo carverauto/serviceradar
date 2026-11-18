@@ -45,6 +45,7 @@ defmodule ServiceRadar.DataService.Client do
 
   alias GRPC.Client.Adapters.Gun
   alias Proto.KVService.Stub
+  alias ServiceRadar.Otel.GRPCClientInterceptor
 
   require Logger
 
@@ -451,7 +452,8 @@ defmodule ServiceRadar.DataService.Client do
         port: config.port,
         scheme: direct_channel_scheme(config),
         cred: Keyword.get(cred_opts, :cred),
-        adapter: Gun
+        adapter: Gun,
+        interceptors: [{GRPCClientInterceptor, GRPCClientInterceptor.init([])}]
       }
 
       Gun.connect(

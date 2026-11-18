@@ -25,6 +25,7 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   """
 
   alias ServiceRadar.Analytics.StarRocks.LoadHealth
+  alias ServiceRadar.Otel
 
   require Logger
 
@@ -55,10 +56,34 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
   def persist(table, rows, opts \\ []) when is_binary(table) and is_list(rows) do
     body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
 
-    ServiceRadar.Analytics.StarRocks.LoadAdmission.run(byte_size(body), fn ->
-      persist_admitted(table, rows, Keyword.put(opts, :body, body))
-    end)
+    # A child of the caller's span (an EventWriter batch), never a root: telemetry batches
+    # deliberately run without a span, and a root here would trace the storing of telemetry.
+    Otel.child_span(
+      "starrocks.stream_load",
+      %{
+        kind: :client,
+        attributes: %{
+          "db.system" => "starrocks",
+          "db.operation.name" => "stream_load",
+          "db.collection.name" => table,
+          "db.operation.batch.size" => length(rows)
+        }
+      },
+      fn ->
+        ServiceRadar.Analytics.StarRocks.LoadAdmission.run(byte_size(body), fn ->
+          persist_admitted(table, rows, Keyword.put(opts, :body, body))
+        end)
+      end,
+      &load_status/1
+    )
   end
+
+  # A quarantined load stored none of its rows, so it is a failed load for the span even where
+  # the caller reports it and carries on.
+  defp load_status({:ok, _result}), do: :ok
+  defp load_status({:quarantine, reason}), do: {:error, {:quarantine, reason}}
+  defp load_status({:error, reason}), do: {:error, reason}
+  defp load_status(other), do: {:error, other}
 
   defp persist_admitted(table, rows, opts) do
     http = Keyword.get(opts, :http, &default_http/1)

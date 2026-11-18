@@ -8,6 +8,9 @@ defmodule ServiceRadarAgentGateway.Endpoint do
 
   use GRPC.Endpoint
 
+  # Declared first so it is the outermost interceptor: the request log line and everything after
+  # it run inside the SERVER span.
+  intercept(ServiceRadarAgentGateway.GRPCTraceInterceptor)
   intercept(ServiceRadarAgentGateway.GRPCSafeLoggerInterceptor)
 
   run(ServiceRadarAgentGateway.AgentGatewayServer)

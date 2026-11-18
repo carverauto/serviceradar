@@ -183,6 +183,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   alias Serviceradar.Edge.V1.EdgeRecordDisposition
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
   alias Serviceradar.Edge.V1.EdgeRecordServerMessage
+  alias ServiceRadar.Otel.Propagation
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.EdgeContractRegistry
   alias ServiceRadarAgentGateway.EdgeRecordAuthorization
@@ -654,7 +655,11 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
           record_sha256: frame.record_sha256,
           semantic_envelope_sha256: record.semantic_envelope_sha256,
           recovery_coverage_deadline: deadline,
-          contract: contract
+          contract: contract,
+          # Captured here because the publish runs in a pipeline worker, which has no trace
+          # context of its own: this is the stream's SERVER span (GRPCTraceInterceptor), so the
+          # EventWriter batch that consumes the record links back to the agent's delivery.
+          trace_context: Propagation.trace_context_headers()
         },
         decision
       )

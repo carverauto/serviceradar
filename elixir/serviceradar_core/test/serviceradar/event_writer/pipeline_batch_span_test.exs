@@ -1,10 +1,11 @@
 defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
-  # async: false — sets the global text-map propagator and restarts the
-  # OpenTelemetry SDK with a pid exporter to capture finished spans.
+  # async: false — OtelSpanCapture sets the global text-map propagator and
+  # restarts the OpenTelemetry SDK with a pid exporter to capture finished spans.
   use ExUnit.Case, async: false
 
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.Otel
+  alias ServiceRadar.TestSupport.OtelSpanCapture
 
   require Record
 
@@ -28,62 +29,27 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
   @traceparent_b "00-1af7651916cd43dd8448eb211c80319c-c7ad6b7169203331-01"
 
   setup do
-    old_injector = :opentelemetry.get_text_map_injector()
-    old_extractor = :opentelemetry.get_text_map_extractor()
+    OtelSpanCapture.start!()
 
-    old_otel_env =
-      Map.new([:traces_exporter, :processors, :sampler], fn key ->
-        {key, Application.fetch_env(:opentelemetry, key)}
-      end)
-
-    :opentelemetry.set_text_map_propagator(:otel_propagator_trace_context)
-
-    # Ensure the application-scoped tracer cache contains the pre-restart
-    # provider. The SDK does not invalidate this cache when it restarts.
+    # Ensure the application-scoped tracer cache holds a tracer from before the
+    # next restart. The SDK does not invalidate this cache when it restarts, so
+    # the pipeline must not use it.
     _stale_tracer = :opentelemetry.get_application_tracer(Pipeline)
-
-    # Restart the SDK with a synchronous pid exporter so finished spans are
-    # delivered to the test process as {:span, span_record} messages.
-    restart_otel_with_pid_exporter(self())
-
-    on_exit(fn ->
-      Application.stop(:opentelemetry)
-
-      Enum.each(old_otel_env, fn {key, value} ->
-        restore_application_env(key, value)
-      end)
-
-      {:ok, _} = Application.ensure_all_started(:opentelemetry)
-
-      # A tracer cached while the pid-exporter SDK ran still names its simple
-      # processor, which no longer exists; a later span in another test would
-      # exit on it. Drop the cache so tracers are re-fetched from the restored SDK.
-      drop_cached_tracers()
-
-      :opentelemetry.set_text_map_injector(old_injector)
-      :opentelemetry.set_text_map_extractor(old_extractor)
-    end)
-
-    :ok
-  end
-
-  defp restore_application_env(key, {:ok, value}),
-    do: Application.put_env(:opentelemetry, key, value)
-
-  defp restore_application_env(key, :error), do: Application.delete_env(:opentelemetry, key)
-
-  defp drop_cached_tracers do
-    for {{:opentelemetry, _provider, :tracer, _name} = key, _tracer} <- :persistent_term.get() do
-      :persistent_term.erase(key)
-    end
+    OtelSpanCapture.restart!(self())
   end
 
   defp message(headers) do
-    %{metadata: %{subject: "events.poller.status", headers: headers}}
+    %{
+      metadata: %{
+        subject: "events.poller.status",
+        destination_template: "events.>",
+        headers: headers
+      }
+    }
   end
 
   defp message_without_headers do
-    %{metadata: %{subject: "events.poller.status"}}
+    %{metadata: %{subject: "events.poller.status", destination_template: "events.>"}}
   end
 
   describe "telemetry_subject?/1" do
@@ -173,8 +139,30 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
       attributes = :otel_attributes.map(attrs)
       assert attributes["messaging.system"] == "nats"
       assert attributes["messaging.operation.name"] == "process"
-      assert attributes["messaging.destination.name"] == "events.poller.status"
+      assert attributes["messaging.destination.name"] == "events.>"
       assert attributes["messaging.batch.message_count"] == 3
+    end
+
+    test "names the stream's filter subject, never a delivered subject that embeds a series key" do
+      # Synthetic per-series subject; the hex token stands in for an encoded device identity.
+      subject =
+        "signals.analytics.predictions.v2|partition=64656661756c74|identity=3139322e302e322e31"
+
+      message = %{
+        metadata: %{subject: subject, destination_template: "signals.analytics.predictions.>"}
+      }
+
+      Pipeline.with_batch_span(subject, [message], fn -> :batch_done end)
+
+      assert_receive {:span, span(name: "event_writer.process_batch", attributes: attrs)}, 1_000
+      attributes = :otel_attributes.map(attrs)
+
+      assert attributes["messaging.destination.name"] == "signals.analytics.predictions.>"
+
+      refute Enum.any?(
+               Map.values(attributes),
+               &(is_binary(&1) and String.contains?(&1, "identity="))
+             )
     end
 
     test "creates no span for telemetry subjects" do
@@ -216,7 +204,7 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
 
       assert_receive {:span, span(name: "event_writer.process_batch")}, 1_000
 
-      restart_otel_with_pid_exporter(self(), :always_off)
+      OtelSpanCapture.restart!(self(), :always_off)
       always_off_provider = Otel.provider_identity()
       assert is_pid(always_off_provider)
       refute always_off_provider == first_provider
@@ -230,7 +218,7 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
       # still export through the re-registered global simple processor.
       refute_receive {:span, span(name: "event_writer.process_batch")}, 200
 
-      restart_otel_with_pid_exporter(self(), :always_on)
+      OtelSpanCapture.restart!(self(), :always_on)
       always_on_provider = Otel.provider_identity()
       assert is_pid(always_on_provider)
       refute always_on_provider == always_off_provider
@@ -315,14 +303,5 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
       assert exception_attributes[:"exception.type"] =~ "RuntimeError"
       assert exception_attributes[:"exception.stacktrace"] =~ "pipeline_batch_span_test.exs"
     end
-  end
-
-  defp restart_otel_with_pid_exporter(owner, sampler \\ :always_on) do
-    Application.stop(:opentelemetry)
-    Application.put_env(:opentelemetry, :traces_exporter, :none)
-    Application.put_env(:opentelemetry, :processors, [{:otel_simple_processor, %{}}])
-    Application.put_env(:opentelemetry, :sampler, sampler)
-    {:ok, _} = Application.ensure_all_started(:opentelemetry)
-    :otel_simple_processor.set_exporter(:otel_exporter_pid, owner)
   end
 end

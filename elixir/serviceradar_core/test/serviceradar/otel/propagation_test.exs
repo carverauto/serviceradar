@@ -67,6 +67,43 @@ defmodule ServiceRadar.Otel.PropagationTest do
     end
   end
 
+  describe "trace_context_headers/0" do
+    setup do
+      # Both default propagators, so baggage is offered and must not pass.
+      :opentelemetry.set_text_map_propagator(
+        :otel_propagator_text_map_composite.create([:trace_context, :baggage])
+      )
+
+      :ok
+    end
+
+    test "is empty without an active span context" do
+      assert Propagation.trace_context_headers() == []
+    end
+
+    test "carries traceparent and tracestate and never baggage" do
+      Propagation.extract_context([
+        {"traceparent", @traceparent},
+        {"tracestate", "vendor1=opaque"},
+        {"baggage", "tenant=example"}
+      ])
+
+      assert Enum.sort(Propagation.trace_context_headers()) == [
+               {"traceparent", @traceparent},
+               {"tracestate", "vendor1=opaque"}
+             ]
+    end
+
+    test "drops a tracestate longer than 512 bytes and keeps the traceparent" do
+      long_state = Enum.map_join(1..20, ",", &"vendor#{&1}=#{String.duplicate("a", 40)}")
+      assert byte_size(long_state) > 512
+
+      Propagation.extract_context([{"traceparent", @traceparent}, {"tracestate", long_state}])
+
+      assert Propagation.trace_context_headers() == [{"traceparent", @traceparent}]
+    end
+  end
+
   describe "extract_context/1" do
     test "attaches the remote parent from a header list" do
       assert OpenTelemetry.Tracer.current_span_ctx() == :undefined

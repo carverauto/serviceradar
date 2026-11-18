@@ -34,7 +34,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   Each message delivered to Broadway has:
   - `data` - The message payload (binary)
-  - `metadata` - Map containing `:subject`, `:reply_to`, `:headers`
+  - `metadata` - Map containing `:subject`, `:destination_template`, `:reply_to`, `:headers`
   - `ack_data` - Data needed for acknowledgment
 
   ## Acknowledgment
@@ -395,6 +395,9 @@ defmodule ServiceRadar.EventWriter.Producer do
         # The subject the broker delivered on. Headers are publisher-supplied
         # and never change it: broker permissions are enforced on this subject.
         subject: subject,
+        # The configured filter subject that delivered it: a bounded name for the destination,
+        # where a delivered subject can embed a series key or a device address.
+        destination_template: destination_template(stream),
         reply_to: reply_to,
         headers: headers,
         jetstream_ack: jetstream_ack,
@@ -1269,6 +1272,9 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp configured_stream(%Config{} = config, jetstream_ack, subject) do
     Enum.find(config.streams, &stream_matches_message?(&1, jetstream_ack, subject))
   end
+
+  defp destination_template(%{subject: filter}) when is_binary(filter), do: filter
+  defp destination_template(_stream), do: nil
 
   defp max_deliver_for(%Config{} = config, stream) do
     case stream do
