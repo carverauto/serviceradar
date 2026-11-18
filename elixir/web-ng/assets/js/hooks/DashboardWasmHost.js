@@ -298,6 +298,22 @@ function lngLatToWorld(longitude, latitude, zoom = 0) {
   }
 }
 
+function stableHostValue(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableHostValue).join(",")}]`
+  const keys = Object.keys(value).sort()
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableHostValue(value[key])}`).join(",")}}`
+}
+
+function hostRuntimeContextChanged(currentHost, nextHost) {
+  return (
+    stableHostValue(currentHost?.instance?.settings ?? null) !== stableHostValue(nextHost?.instance?.settings ?? null) ||
+    stableHostValue(currentHost?.settings ?? null) !== stableHostValue(nextHost?.settings ?? null) ||
+    stableHostValue(currentHost?.package?.capabilities ?? null) !== stableHostValue(nextHost?.package?.capabilities ?? null) ||
+    stableHostValue(currentHost?.permissions ?? null) !== stableHostValue(nextHost?.permissions ?? null)
+  )
+}
+
 const DashboardWasmHost = {
   mounted() {
     this.cancelled = false
@@ -388,6 +404,10 @@ const DashboardWasmHost = {
       return false
     }
 
+    if (hostRuntimeContextChanged(this._host, nextHost)) {
+      return false
+    }
+
     const currentStreamToken = this._host?.data_provider?.stream_token || ""
     const currentStreamTopic = this._host?.data_provider?.stream_topic || ""
     const nextStreamToken = nextHost?.data_provider?.stream_token || ""
@@ -397,7 +417,70 @@ const DashboardWasmHost = {
 
     const currentFrames = Array.isArray(this._host.package?.frames) ? this._host.package.frames : []
     const nextFrames = Array.isArray(nextHost.package?.frames) ? nextHost.package.frames : []
-    currentFrames.splice(0, currentFrames.length, ...nextFrames)
+    const previousById = new Map(currentFrames.map((frame) => [String(frame?.id), frame]))
+    const nextIds = new Set(nextFrames.map((frame) => String(frame?.id)))
+    const hasPendingLoadingFrame = nextFrames.some((frame) => frame?.status === "loading")
+
+    const mergedFrames = nextFrames.map((frame) => {
+      const previous = previousById.get(String(frame?.id))
+      if (!previous) return frame
+
+      const isEmptyPendingFrame =
+        frame?.status === "loading" &&
+        (!Array.isArray(frame?.results) || frame.results.length === 0) &&
+        frame?.payload == null &&
+        typeof frame?.payload_base64 !== "string"
+
+      if (!isEmptyPendingFrame) return frame
+
+      const prevHasResults = Array.isArray(previous?.results) && previous.results.length > 0
+      const prevHasPayload = previous?.payload != null || typeof previous?.payload_base64 === "string"
+      if (!prevHasResults && !prevHasPayload) return frame
+
+      return {
+        ...previous,
+        ...frame,
+        ...(prevHasResults ? {results: previous.results} : {}),
+        ...(prevHasPayload && !prevHasResults && previous?.encoding
+          ? {
+              encoding: previous.encoding,
+              ...(previous?.payload_transport !== undefined ? {payload_transport: previous.payload_transport} : {}),
+            }
+          : {}),
+        ...(previous?.payload !== undefined
+          ? {
+              payload: previous.payload,
+              ...(previous?.payload_encoding !== undefined ? {payload_encoding: previous.payload_encoding} : {}),
+            }
+          : {}),
+        ...(previous?.payload_base64 !== undefined && frame?.payload_base64 === undefined
+          ? {payload_base64: previous.payload_base64}
+          : {}),
+        ...(previous?.row_count !== undefined && frame?.row_count === undefined
+          ? {row_count: previous.row_count}
+          : {}),
+        ...(previous?.truncated !== undefined && frame?.truncated === undefined
+          ? {truncated: previous.truncated}
+          : {}),
+        ...(previous?.refreshed_at !== undefined && frame?.refreshed_at === undefined
+          ? {refreshed_at: previous.refreshed_at}
+          : {}),
+        ...(previous?.generated_at !== undefined && frame?.generated_at === undefined
+          ? {generated_at: previous.generated_at}
+          : {}),
+      }
+    })
+
+    if (hasPendingLoadingFrame) {
+      for (const previous of currentFrames) {
+        const id = String(previous?.id)
+        if (!nextIds.has(id)) {
+          mergedFrames.push(previous)
+        }
+      }
+    }
+
+    currentFrames.splice(0, currentFrames.length, ...mergedFrames)
 
     this._host = {
       ...this._host,

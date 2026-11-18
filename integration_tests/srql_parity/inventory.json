@@ -350,7 +350,7 @@
     },
     {
       "id": "metrics.rperf.throughput_by_agent",
-      "query": "in:rperf_metrics {window_main} metric_name:rperf.jitter_ms stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+      "query": "in:rperf_metrics {window_main} metric_name:rperf.bandwidth_bps stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
       "sources": [
         "elixir/web-ng/priv/dashboard-packages/network-performance/manifest.json"
       ]

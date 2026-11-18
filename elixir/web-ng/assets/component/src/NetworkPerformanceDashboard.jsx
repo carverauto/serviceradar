@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from "react"
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react"
 import {
   Button,
   Callout,
@@ -280,7 +280,9 @@ export function parseTags(rawTags) {
 }
 
 function numericValue(value) {
-  if (value === null || value === undefined || value === "") return null
+  if (value === null || value === undefined) return null
+  if (typeof value === "boolean" || Array.isArray(value)) return null
+  if (typeof value === "string" && value.trim() === "") return null
   const num = Number(value)
   return Number.isFinite(num) ? num : null
 }
@@ -389,6 +391,9 @@ function SparklineSvg({points, color, unitLabel}) {
           strokeLinecap="round"
           points={coords.join(" ")}
         />
+        {points.length === 1 ? (
+          <circle cx={width / 2} cy={height / 2} r="3" fill={color} />
+        ) : null}
       </svg>
       <div className="sr-netperf-kpi-meta">
         <span>min {DECIMAL_FORMATTER.format(minVal)}</span>
@@ -399,7 +404,20 @@ function SparklineSvg({points, color, unitLabel}) {
   )
 }
 
-function buildLinksFromSamples(samples, spokeSummaryRows, agentById) {
+function rowMatchesFilters(row, direction = "all", protocol = "all") {
+  if (!row || typeof row !== "object") return false
+  const metricName = String(row.metric_name || "")
+  if (metricName.startsWith("rperf.responder_")) return false
+  if (direction === "all" && protocol === "all") return true
+  const tags = parseTags(row.tags)
+  const rowDir = tags.direction ? String(tags.direction).toLowerCase() : null
+  const rowProto = tags.protocol ? String(tags.protocol).toLowerCase() : null
+  if (direction !== "all" && rowDir !== direction) return false
+  if (protocol !== "all" && rowProto !== protocol) return false
+  return true
+}
+
+function buildLinksFromSamples(samples, spokeSummaryRows, agentById, {allowSummaryFallback = true} = {}) {
   const byPair = new Map()
 
   const sortedSamples = [...samples].sort((left, right) =>
@@ -487,7 +505,7 @@ function buildLinksFromSamples(samples, spokeSummaryRows, agentById) {
   }
 
   // Fallback for summary-only frames when recent_samples is empty
-  if (byPair.size === 0 && Array.isArray(spokeSummaryRows) && spokeSummaryRows.length > 0) {
+  if (allowSummaryFallback && byPair.size === 0 && Array.isArray(spokeSummaryRows) && spokeSummaryRows.length > 0) {
     for (const summary of spokeSummaryRows) {
       const spokeId = String(summary?.agent_id || "").trim()
       if (!spokeId) continue
@@ -592,6 +610,15 @@ export function NetworkPerformanceDashboard() {
   const canExecuteSrql = useDashboardCapability("srql.execute")
   const canNavigate = useDashboardCapability("navigation.open")
 
+  const containerRef = useRef(null)
+  const [domTimeZone, setDomTimeZone] = useState(null)
+
+  useLayoutEffect(() => {
+    const resolved = containerRef.current?.closest?.("[data-timezone]")?.dataset?.timezone || null
+    if (resolved) setDomTimeZone(resolved)
+  }, [])
+
+  const spokeHistoryFrame = useDashboardFrame("spoke_history")
   const recentSamplesFrame = useDashboardFrame("netperf_recent_samples")
   const recentSamples = useFrameRows("netperf_recent_samples", {decode: "auto"})
   const metricTrends = useFrameRows("netperf_metric_trends", {decode: "auto"})
@@ -613,10 +640,19 @@ export function NetworkPerformanceDashboard() {
 
   const [sortBy, setSortBy] = useState({field: "throughputBps", dir: "desc"})
   const [selectedLinkKey, setSelectedLinkKey] = useState(null)
+  const [selectedLinkSnapshot, setSelectedLinkSnapshot] = useState(null)
+  const [lastAllLinks, setLastAllLinks] = useState([])
+  const [lastActiveLinks, setLastActiveLinks] = useState([])
 
-  const timeZone = host?.el?.dataset?.timezone || host?.instance?.timezone || DEFAULT_TIME_ZONE
+  const timeZone =
+    host?.el?.dataset?.timezone ||
+    host?.instance?.timezone ||
+    domTimeZone ||
+    DEFAULT_TIME_ZONE
   const lossThresholdPct = numericValue(settings?.lossAlertThresholdPct) ?? DEFAULT_LOSS_THRESHOLD_PCT
   const jitterThresholdMs = numericValue(settings?.jitterAlertThresholdMs) ?? DEFAULT_JITTER_THRESHOLD_MS
+  const isSamplesLoading = recentSamplesFrame?.status === "loading"
+  const isHistoryLoading = spokeHistoryFrame?.status === "loading"
 
   const agentById = useMemo(() => {
     const map = new Map()
@@ -628,14 +664,46 @@ export function NetworkPerformanceDashboard() {
     return map
   }, [agents])
 
-  const links = useMemo(
-    () => buildLinksFromSamples(recentSamples, spokeSummary, agentById),
+  const rawAllLinks = useMemo(
+    () =>
+      buildLinksFromSamples(recentSamples, spokeSummary, agentById, {
+        allowSummaryFallback: recentSamples.length === 0,
+      }),
     [recentSamples, spokeSummary, agentById],
   )
 
+  const filteredSamples = useMemo(() => {
+    const dir = filters.state.direction
+    const proto = filters.state.protocol
+    if (dir === "all" && proto === "all") return recentSamples
+    return recentSamples.filter((row) => rowMatchesFilters(row, dir, proto))
+  }, [recentSamples, filters.state.direction, filters.state.protocol])
+
+  const rawActiveLinks = useMemo(() => {
+    if (filters.state.direction === "all" && filters.state.protocol === "all") {
+      return rawAllLinks
+    }
+    return buildLinksFromSamples(filteredSamples, [], agentById, {allowSummaryFallback: false})
+  }, [filters.state.direction, filters.state.protocol, rawAllLinks, filteredSamples, agentById])
+
+  useEffect(() => {
+    if (rawAllLinks.length > 0 || !isSamplesLoading) {
+      setLastAllLinks(rawAllLinks)
+    }
+  }, [rawAllLinks, isSamplesLoading])
+
+  useEffect(() => {
+    if (rawActiveLinks.length > 0 || !isSamplesLoading) {
+      setLastActiveLinks(rawActiveLinks)
+    }
+  }, [rawActiveLinks, isSamplesLoading])
+
+  const allLinks = rawAllLinks.length === 0 && isSamplesLoading ? lastAllLinks : rawAllLinks
+  const links = rawActiveLinks.length === 0 && isSamplesLoading ? lastActiveLinks : rawActiveLinks
+
   const responders = useMemo(
-    () => buildResponders(responderCapacity, links, agentById),
-    [responderCapacity, links, agentById],
+    () => buildResponders(responderCapacity, allLinks, agentById),
+    [responderCapacity, allLinks, agentById],
   )
 
   const responderFilterItems = useMemo(
@@ -650,14 +718,10 @@ export function NetworkPerformanceDashboard() {
 
   const filteredLinks = useMemo(() => {
     const search = filters.debouncedState.search.trim().toLowerCase()
-    const dir = filters.state.direction
-    const proto = filters.state.protocol
     const responderId = filters.state.responder
 
     return links.filter((link) => {
       if (responderId !== "all" && link.responderId !== responderId) return false
-      if (dir !== "all" && !link.directions.has(dir)) return false
-      if (proto !== "all" && !link.protocols.has(proto)) return false
       if (!search) return true
 
       return [
@@ -671,13 +735,7 @@ export function NetworkPerformanceDashboard() {
         ...link.policiesList,
       ].some((candidate) => String(candidate ?? "").toLowerCase().includes(search))
     })
-  }, [
-    links,
-    filters.debouncedState.search,
-    filters.state.direction,
-    filters.state.protocol,
-    filters.state.responder,
-  ])
+  }, [links, filters.debouncedState.search, filters.state.responder])
 
   const sortedLinks = useMemo(() => {
     const copy = [...filteredLinks]
@@ -705,10 +763,24 @@ export function NetworkPerformanceDashboard() {
     return copy
   }, [filteredLinks, sortBy])
 
-  const selectedLink = useMemo(
-    () => links.find((link) => link.key === selectedLinkKey) || null,
-    [links, selectedLinkKey],
+  const liveSelectedLink = useMemo(
+    () =>
+      links.find((link) => link.key === selectedLinkKey) ||
+      (isSamplesLoading || isHistoryLoading
+        ? allLinks.find((link) => link.key === selectedLinkKey) || null
+        : null),
+    [links, allLinks, selectedLinkKey, isSamplesLoading, isHistoryLoading],
   )
+
+  useEffect(() => {
+    if (liveSelectedLink) {
+      setSelectedLinkSnapshot(liveSelectedLink)
+    }
+  }, [liveSelectedLink])
+
+  const selectedLink =
+    liveSelectedLink ||
+    ((isSamplesLoading || isHistoryLoading) && selectedLinkKey ? selectedLinkSnapshot : null)
 
   const kpis = useMemo(() => {
     const activeHubs = responders.filter((r) => r.hasCapacityMetrics || r.spokeCount > 0)
@@ -731,24 +803,28 @@ export function NetworkPerformanceDashboard() {
       else if (dir === "download") downloadBps.push(val)
     }
 
-    const medianUpload = medianOf(uploadBps.length > 0 ? uploadBps : allBps)
+    const hasUploadSamples = uploadBps.length > 0
+    const medianUpload = medianOf(uploadBps)
+    const medianAll = medianOf(allBps)
     const medianDownload = medianOf(downloadBps)
-    const maxBps = Math.max(1, ...links.map((l) => l.throughputBps ?? 0))
+    const maxBps = Math.max(1, ...allLinks.map((l) => l.throughputBps ?? 0))
 
-    const worstLoss = links.reduce((max, l) => (l.lossPct !== null && l.lossPct > max ? l.lossPct : max), 0)
-    const worstJitter = links.reduce((max, l) => (l.jitterMs !== null && l.jitterMs > max ? l.jitterMs : max), 0)
-    const unavailableLinks = links.filter((l) => l.available !== null && l.available <= 0)
-    const highLossLinks = links.filter((l) => l.lossPct !== null && l.lossPct >= lossThresholdPct)
-    const highJitterLinks = links.filter((l) => l.jitterMs !== null && l.jitterMs >= jitterThresholdMs)
+    const worstLoss = allLinks.reduce((max, l) => (l.lossPct !== null && l.lossPct > max ? l.lossPct : max), 0)
+    const worstJitter = allLinks.reduce((max, l) => (l.jitterMs !== null && l.jitterMs > max ? l.jitterMs : max), 0)
+    const unavailableLinks = allLinks.filter((l) => l.available !== null && l.available <= 0)
+    const highLossLinks = allLinks.filter((l) => l.lossPct !== null && l.lossPct >= lossThresholdPct)
+    const highJitterLinks = allLinks.filter((l) => l.jitterMs !== null && l.jitterMs >= jitterThresholdMs)
     const busyHubs = responders.filter((r) => r.busyRejections > 0)
-    const legacyLinks = links.filter((l) => l.responderIsLegacy)
+    const legacyLinks = allLinks.filter((l) => l.responderIsLegacy)
 
     return {
       activeHubCount: activeHubs.length,
       activeSessions,
       totalSessions,
       busyRejections,
+      hasUploadSamples,
       medianUpload,
+      medianAll,
       medianDownload,
       maxBps,
       worstLoss,
@@ -759,7 +835,7 @@ export function NetworkPerformanceDashboard() {
       busyHubs,
       legacyLinks,
     }
-  }, [responders, recentSamples, links, lossThresholdPct, jitterThresholdMs])
+  }, [responders, recentSamples, allLinks, lossThresholdPct, jitterThresholdMs])
 
   const toggleSort = useCallback((field) => {
     setSortBy((prev) =>
@@ -772,48 +848,113 @@ export function NetworkPerformanceDashboard() {
   const handleRowSelect = useCallback(
     (link) => {
       setSelectedLinkKey(link.key)
-      if (canExecuteSrql && typeof srql?.update === "function") {
+      setSelectedLinkSnapshot(link)
+      const updateSrql =
+        typeof api?.srql?.update === "function"
+          ? api.srql.update.bind(api.srql)
+          : typeof api?.setSrqlQuery === "function"
+            ? api.setSrqlQuery.bind(api)
+            : typeof srql?.update === "function"
+              ? srql.update
+              : null
+
+      if (canExecuteSrql && typeof updateSrql === "function") {
         const escapedAgent = srql.escapeValue ? srql.escapeValue(link.spokeId) : JSON.stringify(link.spokeId)
         const historyQuery = `in:rperf_metrics agent_id:${escapedAgent} time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200`
-        srql.update("", {spoke_history: historyQuery})
+        try {
+          Promise.resolve(updateSrql("", {spoke_history: historyQuery})).catch(() => {})
+        } catch (_error) {}
       }
     },
-    [canExecuteSrql, srql],
+    [api, canExecuteSrql, srql],
   )
 
+  const handleRefreshFrames = useCallback(() => {
+    if (typeof api?.refreshFrames !== "function") return
+    try {
+      Promise.resolve(api.refreshFrames()).catch(() => {})
+    } catch (_error) {}
+  }, [api])
+
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedLinkKey(null)
+    setSelectedLinkSnapshot(null)
+  }, [])
+
   const drawerHistory = useMemo(() => {
-    if (!selectedLink) return {throughput: [], loss: [], jitter: []}
+    if (!selectedLink) {
+      return {throughput: [], loss: [], jitter: [], isFleetThroughputFallback: false}
+    }
 
-    const candidateRows = spokeHistoryRows.length > 0 ? spokeHistoryRows : recentSamples
-    const matching = candidateRows.filter((row) => {
+    const dirFilter = filters.state.direction
+    const protoFilter = filters.state.protocol
+
+    const matchesLink = (row) => {
       if (!row || typeof row !== "object") return false
-      const spoke = String(row.agent_id || "").trim()
-      if (spoke !== selectedLink.spokeId) return false
+      const metricName = String(row.metric_name || "")
+      if (metricName.startsWith("rperf.responder_")) return false
       const tags = parseTags(row.tags)
+      const spoke = String(row.agent_id || tags.agent_id || "").trim()
+      if (spoke !== selectedLink.spokeId) return false
       const responder = String(tags.responder_agent_id || tags.target || row.target_device_ip || "").trim()
-      return !responder || responder === selectedLink.responderId || selectedLink.responderIsLegacy
-    })
+      if (responder && responder !== selectedLink.responderId && !selectedLink.responderIsLegacy) {
+        return false
+      }
+      if (dirFilter !== "all") {
+        const rowDir = tags.direction ? String(tags.direction).toLowerCase() : null
+        if (rowDir !== dirFilter) return false
+      }
+      if (protoFilter !== "all") {
+        const rowProto = tags.protocol ? String(tags.protocol).toLowerCase() : null
+        if (rowProto !== protoFilter) return false
+      }
+      return true
+    }
 
-    const collectSeries = (metricNames) =>
-      matching
+    const collectSeries = (rows, metricNames) =>
+      rows
         .filter((row) => metricNames.includes(String(row.metric_name || "")) && numericValue(row.value) !== null)
         .sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || "")))
-        .map((row) => ({timestamp: row.timestamp, value: Number(row.value)}))
+        .map((row) => ({timestamp: row.timestamp, value: numericValue(row.value)}))
 
-    const throughput = collectSeries(["rperf.bits_per_second", "rperf.bandwidth_bps"])
-    const loss = collectSeries(["rperf.loss_percent"])
-    const jitter = collectSeries(["rperf.jitter_ms"])
+    const matchingHistory = spokeHistoryRows.filter(matchesLink)
+    const matchingRecent = recentSamples.filter(matchesLink)
+
+    const pickSeries = (metricNames) => {
+      const fromHistory = collectSeries(matchingHistory, metricNames)
+      if (fromHistory.length > 0) return fromHistory
+      return collectSeries(matchingRecent, metricNames)
+    }
+
+    const throughput = pickSeries(["rperf.bits_per_second", "rperf.bandwidth_bps"])
+    const loss = pickSeries(["rperf.loss_percent"])
+    const jitter = pickSeries(["rperf.jitter_ms"])
 
     if (throughput.length === 0 && metricTrends.length > 0) {
       const fallbackTrends = metricTrends
-        .filter((row) => String(row.series || row.metric_name) === "rperf.bits_per_second" && numericValue(row.value) !== null)
+        .filter((row) => {
+          const name = String(row?.series || row?.metric_name || "")
+          return (name === "rperf.bits_per_second" || name === "rperf.bandwidth_bps") && numericValue(row?.value) !== null
+        })
         .sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || "")))
-        .map((row) => ({timestamp: row.timestamp, value: Number(row.value)}))
-      return {throughput: fallbackTrends, loss, jitter}
+        .map((row) => ({timestamp: row.timestamp, value: numericValue(row.value)}))
+      return {
+        throughput: fallbackTrends,
+        loss,
+        jitter,
+        isFleetThroughputFallback: fallbackTrends.length > 0,
+      }
     }
 
-    return {throughput, loss, jitter}
-  }, [selectedLink, spokeHistoryRows, recentSamples, metricTrends])
+    return {throughput, loss, jitter, isFleetThroughputFallback: false}
+  }, [
+    selectedLink,
+    spokeHistoryRows,
+    recentSamples,
+    metricTrends,
+    filters.state.direction,
+    filters.state.protocol,
+  ])
 
   const renderSortIcon = (field) => {
     if (sortBy.field !== field) return null
@@ -824,7 +965,7 @@ export function NetworkPerformanceDashboard() {
   const lastFrameTime = recentSamplesFrame?.refreshed_at || recentSamplesFrame?.generated_at
 
   return (
-    <div className="sr-netperf-shell" data-theme={theme}>
+    <div ref={containerRef} className="sr-netperf-shell" data-theme={theme}>
       <Card compact>
         <div className="sr-netperf-header">
           <div className="sr-netperf-title-group">
@@ -849,7 +990,7 @@ export function NetworkPerformanceDashboard() {
               icon={<RefreshIcon size={14} />}
               disabled={refreshDisabled}
               text="Refresh"
-              onClick={() => api.refreshFrames()}
+              onClick={handleRefreshFrames}
             />
             <Button
               intent="primary"
@@ -871,7 +1012,7 @@ export function NetworkPerformanceDashboard() {
           </div>
           <div className="sr-netperf-kpi-value">{INT_FORMATTER.format(kpis.activeHubCount)}</div>
           <div className="sr-netperf-kpi-meta">
-            <span>{INT_FORMATTER.format(links.length)} spoke links</span>
+            <span>{INT_FORMATTER.format(allLinks.length)} spoke links</span>
             <Tag minimal intent={kpis.busyRejections > 0 ? "danger" : "success"}>
               {kpis.busyRejections > 0 ? `${kpis.busyRejections} busy rejects` : "healthy"}
             </Tag>
@@ -903,9 +1044,11 @@ export function NetworkPerformanceDashboard() {
             <span>Fleet Median Throughput</span>
             <ArrowUpIcon size={14} intent="success" />
           </div>
-          <div className="sr-netperf-kpi-value">{formatBps(kpis.medianUpload)}</div>
+          <div className="sr-netperf-kpi-value">
+            {formatBps(kpis.hasUploadSamples ? kpis.medianUpload : kpis.medianAll)}
+          </div>
           <div className="sr-netperf-kpi-meta">
-            <span>Uplink median</span>
+            <span>{kpis.hasUploadSamples ? "Uplink median" : "Median throughput"}</span>
             <span>
               <ArrowDownIcon size={11} /> Downlink {formatBps(kpis.medianDownload)}
             </span>
@@ -1248,7 +1391,7 @@ export function NetworkPerformanceDashboard() {
 
       <Drawer
         isOpen={Boolean(selectedLink)}
-        onClose={() => setSelectedLinkKey(null)}
+        onClose={handleCloseDrawer}
         title={
           selectedLink
             ? `${selectedLink.spokeLabel} → ${selectedLink.responderLabel}`
@@ -1284,15 +1427,28 @@ export function NetworkPerformanceDashboard() {
 
             <Card compact className="sr-netperf-spark-card">
               <div className="sr-netperf-spark-head">
-                <span>Throughput (bps)</span>
-                <Tag minimal intent="primary">
-                  {formatBps(selectedLink.throughputBps)}
-                </Tag>
+                <span>
+                  {drawerHistory.isFleetThroughputFallback
+                    ? "Fleet-Wide Throughput Baseline"
+                    : "Throughput (bps)"}
+                </span>
+                <div className="sr-netperf-tag-row">
+                  {drawerHistory.isFleetThroughputFallback ? (
+                    <Tag minimal intent="none">
+                      Fleet-wide fallback
+                    </Tag>
+                  ) : null}
+                  <Tag minimal intent="primary">
+                    {formatBps(selectedLink.throughputBps)}
+                  </Tag>
+                </div>
               </div>
               <SparklineSvg
                 points={drawerHistory.throughput}
                 color="#2d72d2"
-                unitLabel="Throughput"
+                unitLabel={
+                  drawerHistory.isFleetThroughputFallback ? "Fleet-wide throughput" : "Throughput"
+                }
               />
             </Card>
 

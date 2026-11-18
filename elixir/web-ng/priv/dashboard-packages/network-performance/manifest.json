@@ -147,6 +147,6 @@
     "artifact": "network-performance",
     "trust": "first_party",
     "entrypoint": "network_performance",
-    "sha256": "378cb59df1162b9e6fd0c4fbfa61d3ad39ce398f93a7930f011c20e3e188ed0a"
+    "sha256": "48150e10c3f6a0bd4365d4a67ca48020b1c2dbd6dc1f232cc44837229f107583"
   }
 }

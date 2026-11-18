@@ -704,6 +704,181 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook.updateBrowserModuleHost(mismatchedEntrypointHost, "built-in-v3")).toEqual(false)
   })
 
+  test("preserves loaded frames and optional frames across pending_frames host updates", () => {
+    const arrowPayload = new Uint8Array([9, 8, 7])
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        encoding: "json_rows",
+        status: "ok",
+        row_count: 1,
+        truncated: false,
+        refreshed_at: "2026-11-18T04:00:00Z",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000}],
+      },
+      {
+        id: "netperf_arrow_summary",
+        query: "in:rperf_metrics limit:10",
+        encoding: "arrow_ipc",
+        payload_transport: "channel_binary",
+        payload: arrowPayload,
+        payload_encoding: "arraybuffer",
+        status: "ok",
+        row_count: 4,
+        truncated: true,
+      },
+      {
+        id: "netperf_responder_capacity",
+        required: false,
+        status: "ok",
+        results: [{agent_id: "agent-hub-east-01", metric_name: "rperf.responder_active_sessions", value: 2}],
+      },
+      {
+        id: "netperf_agents",
+        required: false,
+        status: "ok",
+        results: [{uid: "agent-hub-east-01", name: "hub-east-01"}],
+      },
+      {
+        id: "spoke_history",
+        required: false,
+        status: "ok",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 910_000_000}],
+      },
+    ]
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const pendingHost = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v2",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        // LiveView push_patch sends only required frames in loading state and omits optional frames
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            encoding: "json_rows",
+            required: true,
+            status: "loading",
+            results: [],
+          },
+          {
+            id: "netperf_arrow_summary",
+            query: "in:rperf_metrics limit:10",
+            encoding: "json_rows",
+            required: true,
+            status: "loading",
+            results: [],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(pendingHost, "built-in-v2")).toEqual(true)
+    expect(notified).toHaveLength(1)
+    expect(hook.disconnectFrameStream).toHaveBeenCalledTimes(1)
+    expect(hook.connectFrameStream).toHaveBeenCalledWith(hook._host)
+
+    const updatedFrames = hook._host.package.frames
+    expect(updatedFrames.map((f) => f.id)).toEqual([
+      "netperf_recent_samples",
+      "netperf_arrow_summary",
+      "netperf_responder_capacity",
+      "netperf_agents",
+      "spoke_history",
+    ])
+    const samplesFrame = updatedFrames.find((f) => f.id === "netperf_recent_samples")
+    expect(samplesFrame.status).toBe("loading")
+    expect(samplesFrame.results).toEqual([
+      {agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000},
+    ])
+    expect(samplesFrame.row_count).toBe(1)
+    expect(samplesFrame.truncated).toBe(false)
+
+    const arrowFrame = updatedFrames.find((f) => f.id === "netperf_arrow_summary")
+    expect(arrowFrame.encoding).toBe("arrow_ipc")
+    expect(arrowFrame.payload).toBe(arrowPayload)
+    expect(arrowFrame.row_count).toBe(4)
+    expect(arrowFrame.truncated).toBe(true)
+  })
+
+  test("reboots built-in and browser-module hosts when settings, capabilities, or permissions change", () => {
+    const baseBuiltIn = () =>
+      baseHost({
+        instance: {
+          settings: {lossAlertThresholdPct: 1.0},
+        },
+        permissions: {actions_invoke: false},
+        package: {
+          name: "Network Performance",
+          source_type: "first_party",
+          capabilities: ["srql.execute"],
+          renderer: {
+            kind: "built_in",
+            interface_version: "dashboard-built-in-v1",
+            trust: "first_party",
+            artifact: "network-performance",
+            entrypoint: "network_performance",
+          },
+          frames: [{id: "netperf_recent_samples", status: "ok", results: []}],
+        },
+      })
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseBuiltIn()
+    hook._hostPayloadSignature = "v1"
+
+    const changedSettings = baseBuiltIn()
+    changedSettings.instance.settings = {lossAlertThresholdPct: 2.5}
+    expect(hook.updateBrowserModuleHost(changedSettings, "v2")).toBe(false)
+
+    const changedCapabilities = baseBuiltIn()
+    changedCapabilities.package.capabilities = ["srql.execute", "navigation.open"]
+    expect(hook.updateBrowserModuleHost(changedCapabilities, "v3")).toBe(false)
+
+    const changedPermissions = baseBuiltIn()
+    changedPermissions.permissions = {actions_invoke: true}
+    expect(hook.updateBrowserModuleHost(changedPermissions, "v4")).toBe(false)
+  })
+
   test("mounts trusted browser modules with the bounded host API", async () => {
     const hook = hookContext()
     const rendererUrl = new URL("./__fixtures__/trusted_dashboard_module.js", import.meta.url).href

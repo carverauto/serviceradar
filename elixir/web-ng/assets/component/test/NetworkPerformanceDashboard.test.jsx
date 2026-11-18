@@ -16,7 +16,8 @@ function createHostApi({
   settings = structuredClone(sampleSettings),
   capabilities = ["srql.execute", "dashboard.preferences.read", "dashboard.preferences.write", "navigation.open"],
   initialTheme = "light",
-  timezone = "America/Chicago",
+  srqlUpdateImpl = null,
+  refreshFramesImpl = null,
 } = {}) {
   let theme = initialTheme
   const themeListeners = new Set()
@@ -37,6 +38,10 @@ function createHostApi({
       escapeValue: (val) => JSON.stringify(String(val ?? "")),
       update: (q, frameQueries) => {
         srqlUpdates.push({q, frameQueries})
+        if (typeof srqlUpdateImpl === "function") {
+          return srqlUpdateImpl(q, frameQueries)
+        }
+        return undefined
       },
     },
     navigate: (target) => {
@@ -44,6 +49,9 @@ function createHostApi({
     },
     refreshFrames: () => {
       refreshes.push(true)
+      if (typeof refreshFramesImpl === "function") {
+        return refreshFramesImpl()
+      }
       return Promise.resolve({refreshed: true})
     },
     onFrameUpdate: (cb) => {
@@ -59,7 +67,6 @@ function createHostApi({
   const host = {
     instance: {
       route_slug: "network-performance",
-      timezone,
       settings,
     },
     package: {
@@ -337,5 +344,264 @@ describe("cloud.serviceradar.network-performance Blueprint dashboard", () => {
 
     firstRowText = root.querySelector("tbody tr")?.textContent || ""
     expect(firstRowText).toContain("Branch 02 Spoke")
+  })
+
+  test("propagates root.dataset.timezone without host.instance.timezone and defaults to Etc/UTC when unset", async () => {
+    const rootWithTz = createMountRoot("America/Chicago")
+    const {host: host1, api: api1} = createHostApi()
+    expect(host1.instance.timezone).toBeUndefined()
+
+    const mounted1 = await mountNetworkPerformance(rootWithTz, host1, api1)
+    activeMounts.push({mounted: mounted1, root: rootWithTz})
+    await flushUi()
+
+    expect(rootWithTz.querySelectorAll("time[data-user-time-zone='America/Chicago']").length).toBeGreaterThan(0)
+    expect(rootWithTz.querySelectorAll("time[data-user-time-zone='Etc/UTC']").length).toBe(0)
+
+    const rootNoTz = document.createElement("div")
+    document.body.appendChild(rootNoTz)
+    const {host: host2, api: api2} = createHostApi()
+    const mounted2 = await mountNetworkPerformance(rootNoTz, host2, api2)
+    activeMounts.push({mounted: mounted2, root: rootNoTz})
+    await flushUi()
+
+    expect(rootNoTz.querySelectorAll("time[data-user-time-zone='Etc/UTC']").length).toBeGreaterThan(0)
+  })
+
+  test("applies direction and protocol filters before collapsing multi-policy links", async () => {
+    const root = createMountRoot()
+    const {host, api} = createHostApi()
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    // Initially All Dir / All Proto -> Branch 01 Spoke shows newest TCP upload (942 Mbps / 1.4 ms)
+    const branch01All = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("Branch 01 Spoke"),
+    )
+    expect(branch01All?.textContent).toContain("942 Mbps")
+    expect(branch01All?.textContent).toContain("1.4 ms")
+
+    // Select UDP -> Branch 01 Spoke must show UDP sample (415 Mbps / 3.2 ms), NOT 942 Mbps / 1.4 ms
+    const udpBtn = Array.from(root.querySelectorAll("button")).find((btn) => btn.textContent === "UDP")
+    udpBtn.click()
+    await flushUi()
+
+    const branch01Udp = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("Branch 01 Spoke"),
+    )
+    expect(branch01Udp).toBeDefined()
+    expect(branch01Udp?.textContent).toContain("415 Mbps")
+    expect(branch01Udp?.textContent).toContain("3.2 ms")
+    expect(branch01Udp?.textContent).not.toContain("942 Mbps")
+    expect(branch01Udp?.textContent).not.toContain("1.4 ms")
+
+    // Reset to All Proto and select Download -> Branch 01 Spoke must also show 415 Mbps / 3.2 ms
+    const allProtoBtn = Array.from(root.querySelectorAll("button")).find((btn) => btn.textContent === "All Proto")
+    allProtoBtn.click()
+    const downloadBtn = Array.from(root.querySelectorAll("button")).find((btn) => btn.textContent === "Download")
+    downloadBtn.click()
+    await flushUi()
+
+    const branch01Down = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("Branch 01 Spoke"),
+    )
+    expect(branch01Down).toBeDefined()
+    expect(branch01Down?.textContent).toContain("415 Mbps")
+    expect(branch01Down?.textContent).toContain("3.2 ms")
+    expect(branch01Down?.textContent).not.toContain("942 Mbps")
+  })
+
+  test("keeps Drawer open and table populated when frames transition to pending loading state", async () => {
+    const root = createMountRoot()
+    const {host, api, pushFrames} = createHostApi()
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const branch01Row = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("Branch 01 Spoke"),
+    )
+    branch01Row.click()
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+    expect(portalRoot?.querySelector(".bp6-drawer")).not.toBeNull()
+
+    // Simulate pending_frames with empty results & status: "loading"
+    pushFrames([
+      {id: "netperf_recent_samples", status: "loading", results: []},
+      {id: "netperf_metric_trends", status: "loading", results: []},
+      {id: "netperf_spoke_summary", status: "loading", results: []},
+      {id: "spoke_history", status: "loading", results: []},
+    ])
+    await flushUi()
+
+    expect(portalRoot?.querySelector(".bp6-drawer")).not.toBeNull()
+    expect(root.querySelector("tbody")?.textContent).toContain("Branch 01 Spoke")
+  })
+
+  test("guards srql.update rejections/sync throws and api.refreshFrames() rejections cleanly", async () => {
+    const unhandled = []
+    const onUnhandled = (reason) => unhandled.push(reason)
+    process.on("unhandledRejection", onUnhandled)
+
+    try {
+      const rootAsync = createMountRoot()
+      const asyncSetup = createHostApi({
+        srqlUpdateImpl: () => Promise.reject(new Error("SRQL forbidden")),
+        refreshFramesImpl: () => Promise.reject(new Error("channel not_connected")),
+      })
+
+      const mountedAsync = await mountNetworkPerformance(rootAsync, asyncSetup.host, asyncSetup.api)
+      activeMounts.push({mounted: mountedAsync, root: rootAsync})
+      await flushUi()
+
+      const refreshBtn = Array.from(rootAsync.querySelectorAll("button")).find(
+        (btn) => btn.textContent === "Refresh",
+      )
+      expect(refreshBtn).toBeDefined()
+      refreshBtn.click()
+
+      const rowAsync = rootAsync.querySelector("tbody tr")
+      rowAsync.click()
+      await flushUi()
+
+      expect(rootAsync.querySelector(".bp6-drawer")).not.toBeNull()
+      expect(unhandled).toHaveLength(0)
+
+      // Synchronous throw from srql.update must not crash click handler
+      const rootSync = createMountRoot()
+      const syncSetup = createHostApi({
+        srqlUpdateImpl: () => {
+          throw new Error("SRQL sync explosion")
+        },
+      })
+      const mountedSync = await mountNetworkPerformance(rootSync, syncSetup.host, syncSetup.api)
+      activeMounts.push({mounted: mountedSync, root: rootSync})
+      await flushUi()
+
+      const rowSync = rootSync.querySelector("tbody tr")
+      expect(() => rowSync.click()).not.toThrow()
+      await flushUi()
+      expect(rootSync.querySelector(".bp6-drawer")).not.toBeNull()
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+    }
+  })
+
+  test("treats whitespace, booleans, and arrays in numericValue as missing ('—') and avoids misleading Uplink label", async () => {
+    const root = createMountRoot()
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        status: "ok",
+        results: [
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-blank",
+            metric_name: "rperf.bits_per_second",
+            value: "   ",
+            target_device_ip: "192.0.2.77",
+            tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+          },
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-blank",
+            metric_name: "rperf.loss_percent",
+            value: false,
+            target_device_ip: "192.0.2.77",
+            tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+          },
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-blank",
+            metric_name: "rperf.jitter_ms",
+            value: [],
+            target_device_ip: "192.0.2.77",
+            tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+          },
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-down-only",
+            metric_name: "rperf.bits_per_second",
+            value: 320000000,
+            target_device_ip: "192.0.2.78",
+            tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+          },
+        ],
+      },
+      {id: "netperf_metric_trends", status: "ok", results: []},
+      {id: "netperf_spoke_summary", status: "ok", results: []},
+      {id: "netperf_responder_capacity", status: "ok", results: []},
+      {id: "netperf_agents", status: "ok", results: []},
+      {id: "spoke_history", status: "ok", results: []},
+    ]
+    const {host, api} = createHostApi({frames})
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const blankRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("agent-spoke-blank"),
+    )
+    expect(blankRow).toBeDefined()
+    expect(blankRow?.textContent).not.toContain("0 bps")
+    expect(blankRow?.textContent).not.toContain("0%")
+    expect(blankRow?.textContent).not.toContain("0 ms")
+
+    // When there are zero upload samples, KPI must not label the median as "Uplink median"
+    expect(root.textContent).not.toContain("Uplink median")
+    expect(root.textContent).toContain("Median throughput")
+  })
+
+  test("uses recentSamples for Legacy 01 Spoke drawerHistory before fleet-wide metricTrends fallback", async () => {
+    const root = createMountRoot()
+    const {host, api} = createHostApi()
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const legacyRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("Legacy 01 Spoke"),
+    )
+    expect(legacyRow).toBeDefined()
+    legacyRow.click()
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+    const drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("284,000,000")
+    expect(drawerText).not.toContain("510,000,000")
+    expect(drawerText).not.toContain("530,000,000")
+    expect(drawerText).not.toContain("Fleet-wide fallback")
+  })
+
+  test("labels fleet-wide metricTrends fallback clearly when spoke has no per-spoke history", async () => {
+    const root = createMountRoot()
+    const frames = structuredClone(sampleFrames)
+    // Empty recentSamples + spoke_history so summary-only link falls back to metricTrends
+    frames[0].results = []
+    frames[5].results = []
+    const {host, api} = createHostApi({frames})
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const firstRow = root.querySelector("tbody tr")
+    expect(firstRow).not.toBeNull()
+    firstRow.click()
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+    const drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("Fleet-wide fallback")
+    expect(drawerText).toContain("Fleet-Wide Throughput Baseline")
   })
 })
