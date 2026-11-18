@@ -20,9 +20,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       # removal criteria for each advisory.
       hex: [
         ignore_advisories: [
-          "EEF-CVE-2026-43966",
-          "EEF-CVE-2026-95105",
-          "GHSA-w4f7-4cxr-rv3c"
+          "EEF-CVE-2026-95105"
         ]
       ]
     ]

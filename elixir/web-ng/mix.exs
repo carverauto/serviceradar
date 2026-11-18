@@ -37,9 +37,7 @@ defmodule ServiceRadarWebNG.MixProject do
           "EEF-CVE-2026-86696",
           # Response names pass an atom-safe allowlist before xmerl; see .deps_audit_ignore.
           "EEF-CVE-2026-105270",
-          "EEF-CVE-2026-43966",
-          "EEF-CVE-2026-95105",
-          "GHSA-w4f7-4cxr-rv3c"
+          "EEF-CVE-2026-95105"
         ]
       ]
     ]
