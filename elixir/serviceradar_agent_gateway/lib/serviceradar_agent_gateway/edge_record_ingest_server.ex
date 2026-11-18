@@ -68,7 +68,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   ACCEPTED_AUDIT_ONLY on its audit-stream PubAck and which EventWriter keeps ledger-only; and a
   SECURITY-QUARANTINE publication (a compromise-revoked key), which resolves ACCEPTED_QUARANTINE on
   its security-quarantine stream PubAck and which no projector reads. Neither non-authoritative
-  publication can reach the primary stream.
+  publication can reach the primary stream. A LATE session (`late_admission = true`) publishes
+  under core's late-admission grant instead, stamped `LATE_ADMISSION`; its decisions are owned by
+  `EdgeRecordAuthorization.authorize_late_frame/5` ("Late admission" in that module's docs).
 
   ## Frames are OFFERED, and acks follow the pipeline
 

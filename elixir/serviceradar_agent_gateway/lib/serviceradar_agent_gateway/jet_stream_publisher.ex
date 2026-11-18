@@ -81,7 +81,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
     * `:publication` — the authorization decision, `:primary` (default), `:audit` or
       `:security_quarantine`, which selects the route family (`StreamRoute.resolve/1`). An
-      audit publication must carry the `LATE_FENCED_DELIVERY` mode its decision stamped.
+      audit publication must carry the `LATE_FENCED_DELIVERY` or `LATE_ADMISSION` mode its
+      decision stamped.
 
   Returns `{:ok, pub_ack}`; `{:error, error_class}`; or `{:error, {:derivation, reason}}` when the
   route or identity could not be derived, which is a bug or a bad grant rather than something to
