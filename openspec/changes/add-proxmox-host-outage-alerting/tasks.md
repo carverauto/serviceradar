@@ -62,24 +62,32 @@ of the plugin work in sections 2-5.
       called, add it to the agent's Proxmox path allowlist.
 - [ ] 4a.2 Report a `running` guest whose runtime state is not `running` as
       not available, in the inventory result and in the running-guest count.
-- [ ] 4a.3 Emit `com.carverauto.proxmox.guest_runtime_paused` on entry to a
+- [ ] 4a.3 On every complete poll, emit
+      `com.carverauto.proxmox.guest_runtime_paused` for each guest in a
       non-running runtime state, carrying the guest's canonical DeviceID, the
-      node and the runtime state, and emit the recovery on resume.
-- [ ] 4a.4 Unit test with invented guest observations: running then
-      `io-error` emits exactly one event and marks the guest not available;
-      remaining `io-error` emits none; returning to running emits the
-      recovery; an unreadable runtime state changes nothing.
+      node and the runtime state, and list its condition key in the
+      scope-complete marker. Keep no state between polls.
+- [ ] 4a.4 Unit test the plugin output for a single invented observation: a
+      guest in `io-error` emits the condition, is marked not available and
+      its key is listed; a running guest emits no condition and its key is
+      absent; an unreadable runtime state emits no scope-complete marker.
 
 ## 4b. Proxmox plugin: node storage capacity
 
-- [ ] 4b.1 Emit `com.carverauto.proxmox.node_storage_capacity` when a node
-      datastore enters the critical band, carrying node, datastore, used and
-      total bytes, and emit the recovery when it leaves the band.
-- [ ] 4b.2 Unit test with invented storage observations: crossing the
-      threshold emits exactly one event; staying above emits none; dropping
-      below emits the recovery.
+- [ ] 4b.1 On every complete poll, emit
+      `com.carverauto.proxmox.node_storage_capacity` for each node datastore
+      in the critical band, carrying node, datastore, used and total bytes but
+      no ratio or threshold fields, and list its condition key in the
+      scope-complete marker. Keep no state between polls.
+- [ ] 4b.2 Unit test the plugin output for a single invented observation: a
+      datastore at or above the critical threshold emits the condition and its
+      key is listed; one below it emits no condition and its key is absent;
+      unreadable node storage emits no scope-complete marker.
 - [ ] 4b.3 Confirm the event remains separate from the periodic
       ok/warning/critical pressure summaries, which keep their behaviour.
+- [ ] 4b.4 Agent-level test with invented markers for both condition scopes:
+      listing a key and then omitting it from the next marker forwards exactly
+      one open and one clearing event; a run without a marker clears nothing.
 
 ## 5. Manifest wiring
 
@@ -88,7 +96,8 @@ of the plugin work in sections 2-5.
       `guest-availability-changed`, `guest-runtime-paused`,
       `node-storage-capacity` and `node-oom-kill`, matching the schema
       defined by `add-plugin-alert-rules`; do not set `enabled` or `priority`.
-      The paused-guest and storage rules declare their recovery.
+      The paused-guest and storage rules declare as their recovery the
+      clearing event the agent synthesizes from the condition scope.
 - [ ] 5.2 Ship a new plugin package version and verify approval materializes
       all four rules disabled and namespaced `plugin:proxmox:<name>`.
 
@@ -97,9 +106,9 @@ of the plugin work in sections 2-5.
 - [ ] 6.1 Enable the rules through the existing alert-rules UI in a
       disposable test environment.
 - [ ] 6.1a Pause a disposable guest and confirm it shows as not available,
-      its alert opens, and the alert clears when the guest resumes. Fill a
-      disposable datastore past the critical threshold and confirm the same
-      for the storage rule.
+      its alert opens once, and the alert clears when a later complete poll
+      no longer lists the guest after it resumes. Fill a disposable datastore
+      past the critical threshold and confirm the same for the storage rule.
 - [ ] 6.2 Stop a disposable guest and separately simulate a host OOM kill;
       confirm each alert reaches the selected notification route within the
       configured rule window. Do not commit captured logs or test-environment

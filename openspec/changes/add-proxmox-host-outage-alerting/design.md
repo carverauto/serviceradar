@@ -76,7 +76,19 @@ not establish OOM as the cause.
 - **Give capacity its own event with a recovery.** The pressure summary is
   band-classified and de-duplicated, and a return to `ok` is the absence of
   further events. An alert needs an explicit recovery to close, so the
-  critical band gets a separate event pair and the summaries are left alone.
+  critical band gets a separate scoped condition and the summaries are left
+  alone. The event omits the ratio and threshold fields, so the plugin's band
+  decides membership and the agent's hysteresis does not hold the alert open
+  below the critical threshold.
+- **Recover through the existing condition scope, not plugin memory.** The
+  WASM plugin is re-instantiated on every check and has no state between
+  polls, so it cannot compare with a previous poll or know that it emitted an
+  event before. On every complete poll it emits the active paused-guest and
+  storage conditions and lists their keys in a scope-complete marker. The
+  agent's condition debounce already forwards one event per level change and
+  synthesizes the clearing level for a key the marker no longer lists. A poll
+  that cannot read runtime state or storage emits no marker, which the agent
+  treats as a partial view and clears nothing.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 
@@ -110,7 +122,10 @@ not establish OOM as the cause.
 - Does the guest list return the runtime state, or does each running guest
   need its own status call? A per-guest call adds one request per running
   guest per poll and a new entry in the agent's Proxmox path allowlist.
-
+- The guest-availability and OOM-kill requirements are also worded as
+  cross-poll comparisons ("previous poll", "since the last successful poll"),
+  which the stateless plugin cannot evaluate. Before implementation they need
+  the same condition-scope treatment or an explicit state source.
 - Which Proxmox API log endpoint and permissions provide the required kernel
   entries? If unavailable, can the existing SSH console-access path supply
   them within the plugin execution and credential contracts?

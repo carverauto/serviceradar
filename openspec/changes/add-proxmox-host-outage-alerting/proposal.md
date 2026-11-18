@@ -57,12 +57,19 @@ Repository context:
 - **Guests paused by the hypervisor:** read the QEMU runtime state
   (`qmpstatus`) for a guest whose `status` is `running`. A guest that is
   paused, or paused on an I/O error or lack of space, is reported not
-  available and emits `com.carverauto.proxmox.guest_runtime_paused` with the
-  hypervisor's reason; resuming emits the recovery.
-- **Node storage capacity:** emit `com.carverauto.proxmox.node_storage_capacity`
-  when a node datastore enters the critical band the plugin already computes,
-  and a recovery when it leaves it. The existing pressure summary carries no
-  recovery, so an alert opened on it could never clear.
+  available and, on every complete poll, emits
+  `com.carverauto.proxmox.guest_runtime_paused` with the hypervisor's reason
+  and lists its condition key in the condition scope.
+- **Node storage capacity:** on every complete poll, emit
+  `com.carverauto.proxmox.node_storage_capacity` for each node datastore in
+  the critical band the plugin already computes, and list its condition key in
+  the condition scope. The existing pressure summary carries no recovery, so
+  an alert opened on it could never clear.
+- **Recovery through the condition scope:** the plugin keeps no state between
+  polls. The agent's condition debounce forwards one event per level change
+  and synthesizes the clearing event when a complete poll no longer lists a
+  key. A poll that cannot read runtime state or storage emits no
+  scope-complete marker, so it cannot clear an alert.
 - **Manifest alert catalog:** declare `guest-availability-changed`,
   `guest-runtime-paused`, `node-storage-capacity` and `node-oom-kill` under
   `alert_rules:` so package approval provisions disabled rules that an
