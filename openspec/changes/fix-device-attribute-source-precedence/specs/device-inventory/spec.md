@@ -14,10 +14,14 @@ carries no hostname; a hostname from a passive census sighting; an SNMP
 sysName or a name reported by an integration. A name derived from an address
 SHALL use the address the device keeps after the address rank guard.
 
-Vendor strength, weakest first: a vendor derived from a sysObjectID under a
-generic SNMP agent-software enterprise (such as Net-SNMP, enterprise 8072); the
-IEEE OUI registrant of the MAC address; a vendor derived from a sysObjectID
-under a hardware vendor's enterprise number, or reported by an integration.
+Vendor strength, weakest first: a vendor that names SNMP agent software, either
+derived from a sysObjectID under a generic SNMP agent-software enterprise (such
+as Net-SNMP, enterprise 8072) or inferred from device-reported evidence that
+names agent software; the IEEE OUI registrant of the MAC address, or an
+explicit metadata vendor on an update that is not from an integration; a
+vendor derived from a sysObjectID under a hardware vendor's enterprise number,
+a vendor inferred from other device-reported evidence (sysDescr inference or a
+classification rule), or a vendor reported by an integration.
 
 The same rule SHALL apply when two updates for one device are merged inside one
 ingestion batch.
@@ -40,6 +44,13 @@ ingestion batch.
 
 #### Scenario: A hardware-enterprise sysObjectID vendor outranks the OUI vendor
 - **GIVEN** a device whose vendor was derived from a sysObjectID under a hardware vendor's enterprise number
+- **AND** the vendor's strength is recorded as that strongest tier
+- **WHEN** an update whose only vendor evidence is the MAC OUI is ingested
+- **THEN** the stored vendor and its provenance SHALL be unchanged
+
+#### Scenario: A sysDescr-inferred hardware vendor outranks the OUI vendor
+- **GIVEN** a device whose vendor was inferred from sysDescr and names a hardware vendor
+- **AND** the vendor's strength is recorded as the strongest tier
 - **WHEN** an update whose only vendor evidence is the MAC OUI is ingested
 - **THEN** the stored vendor and its provenance SHALL be unchanged
 

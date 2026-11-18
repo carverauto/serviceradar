@@ -55,7 +55,10 @@ inventory state rather than of nondeterministic compilation.
   `vendor_name`) records its source and evidence strength alongside the value.
   A write replaces the stored value only when its strength is equal to or
   greater than the recorded strength; a weaker write fills the attribute only
-  when it has no stored value. There is no second test (such as "the stored
+  when it has no stored value. A populated value with no recorded strength
+  (written before rollout) may be replaced once by a middle- or strongest-tier
+  write, which records its strength, and never by a weakest-tier write. There
+  is no second test (such as "the stored
   name equals the stored address"): the recorded strength alone decides.
   - `name`, weakest to strongest: address fallback (the update has no
     hostname, so the name is an address) < passive census sighting < SNMP
@@ -64,9 +67,12 @@ inventory state rather than of nondeterministic compilation.
     guard, never an address the guard rejected.
   - `vendor_name`, weakest to strongest: a generic SNMP agent-software vendor
     (a `sysObjectID` under an agent-software enterprise such as Net-SNMP,
-    enterprise 8072) < IEEE OUI registrant (`metadata.mac_vendor_source =
-    "ieee_oui"`) < a vendor derived from a `sysObjectID` under a hardware
-    vendor's enterprise number, or reported by an integration. The OUI
+    enterprise 8072, or device evidence naming agent software) < IEEE OUI
+    registrant (`metadata.mac_vendor_source = "ieee_oui"`) or an explicit
+    metadata vendor from a non-integration update < a vendor derived from a
+    `sysObjectID` under a hardware vendor's enterprise number, inferred from
+    other device evidence (`sysDescr` or a classification rule), or reported
+    by an integration. The OUI
     provenance keys follow the value that is kept.
   - The same rule applies inside one ingestion batch (`merge_records_by_uid`)
     as across batches (the upsert), so batch composition cannot change the
@@ -92,9 +98,11 @@ enterprise (for example Net-SNMP) keeps its OUI vendor, so rules keyed on the
 OUI spelling keep matching it. On rows written before rollout, the first
 census pass replaces a stored agent-software vendor with no recorded strength
 by the OUI vendor, so exact-OUI credential rules match that device again after
-that pass. That first census pass may also change any other vendor or name
-stored before rollout once, to the census value, until the mapper records a
-stronger one. Release notes must call this out, and such rules should select
+that pass. That first census pass may also change any other vendor stored
+before rollout once, to the OUI vendor, and a name stored before rollout once,
+to a census name that carries an observed hostname, until the mapper records a
+stronger value. A hostname-less census name is the address fallback, the
+weakest tier, and never replaces any populated name, recorded or not. Release notes must call this out, and such rules should select
 devices by a stable key (uid list, tag, or a prefix match) instead of an exact
 vendor string.
 

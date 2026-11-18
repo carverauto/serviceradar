@@ -21,13 +21,18 @@
 
 ## 3. Vendor precedence
 
-- [ ] 3.1 Writers tag vendors: agent-software `sysObjectID` enterprise < IEEE
-      OUI < hardware-enterprise `sysObjectID` / integration-reported;
-      provenance keys follow the kept value
+- [ ] 3.1 Writers tag vendors: agent-software `sysObjectID` enterprise or
+      agent-software device evidence < IEEE OUI / non-integration metadata
+      vendor < hardware-enterprise `sysObjectID` / other `sysDescr` or
+      classification-rule inference / integration-reported; provenance keys
+      follow the kept value
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table
-- [ ] 3.3 Test: a hardware-enterprise vendor survives an OUI update; an OUI
-      vendor survives a Net-SNMP agent vendor; OUI replaces OUI
+- [ ] 3.3 Test: a hardware-enterprise vendor with recorded strength survives
+      an OUI update; an OUI vendor survives a Net-SNMP agent vendor; OUI
+      replaces OUI
+- [ ] 3.4 Test: a `sysDescr`-inferred hardware vendor with recorded strength
+      survives an OUI-only update
 
 ## 4. Per-integration identifiers
 
@@ -43,7 +48,8 @@
       vendor once the first census pass records the OUI vendor
 - [ ] 5.2 Verify on a deployment with existing inventory: config version of an
       affected agent changes at most once at the first census pass after
-      rollout (a census name or OUI vendor replaces a value with no recorded
-      strength) and at most once at the first mapper run (a stronger value
+      rollout (a census name carrying an observed hostname, or an OUI vendor,
+      replaces a value with no recorded strength; a hostname-less census name
+      is the address fallback and never replaces a populated name) and at most once at the first mapper run (a stronger value
       replaces it), then stays constant across further census passes and
       mapper runs

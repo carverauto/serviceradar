@@ -18,10 +18,16 @@ last write wins, except for `ip` (never-downgrade address rank, #3905) and
 3. Strength order for `vendor_name`, weakest first:
    1. a generic SNMP agent-software vendor: a `sysObjectID` under an
       enterprise number that names agent software rather than hardware
-      (Net-SNMP, enterprise 8072, and similar agent-software enterprises);
-   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`);
+      (Net-SNMP, enterprise 8072, and similar agent-software enterprises), or
+      a vendor inferred from device-reported evidence that names such agent
+      software;
+   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`),
+      or an explicit metadata vendor on an update that is not from an
+      integration (equal to the OUI);
    3. a vendor derived from a `sysObjectID` under a hardware vendor's
-      enterprise number, or a vendor reported by an integration.
+      enterprise number, a vendor inferred from other device-reported
+      evidence (`sysDescr` inference or a classification rule), or a vendor
+      reported by an integration.
    The agent-software enterprises are a fixed, named list kept next to the
    enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
 4. A write replaces the stored value when its strength is equal to or greater
