@@ -86,7 +86,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
               value={@virtualization_summary.max_guest_cpu_pct}
             />
             <.virtualization_pressure_row
-              label="Datastore"
+              label="Fullest datastore"
+              detail={@virtualization_summary.max_datastore_label}
+              testid="virtualization-fullest-datastore"
               value={@virtualization_summary.max_datastore_pct}
             />
           </div>
@@ -129,6 +131,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
 
   attr(:label, :string, required: true)
   attr(:value, :any, required: true)
+  attr(:detail, :string, default: nil)
+  attr(:testid, :string, default: nil)
 
   defp virtualization_pressure_row(assigns) do
     value = clamp_percent(assigns.value)
@@ -141,9 +145,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
       |> assign(:tone_class, virtualization_pressure_class(value))
 
     ~H"""
-    <div class={["sr-ops-virt-pressure-row", @tone_class]}>
+    <div class={["sr-ops-virt-pressure-row", @tone_class]} data-testid={@testid}>
       <div>
-        <span>{@label}</span>
+        <span>{if @detail, do: "#{@label}: #{@detail}", else: @label}</span>
         <strong>{@value_label}</strong>
       </div>
       <i><b style={@bar_style}></b></i>

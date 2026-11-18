@@ -544,6 +544,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       |> Ash.Changeset.for_create(:create, guest_attrs)
       |> Ash.create(actor: system_actor())
 
+    # Created before the fuller one, so taking the first row would name the
+    # wrong datastore.
+    {:ok, _roomy_datastore} =
+      VirtualizationDatastore
+      |> Ash.Changeset.for_create(:create, %{
+        provider: "proxmox",
+        provider_ref: "proxmox:datastore:dashboard-pve-#{unique}:archive-dir",
+        host_id: host.id,
+        name: "archive-dir",
+        storage_type: "dir",
+        used_bytes: 10,
+        total_bytes: 1000,
+        observed_at: observed_at
+      })
+      |> Ash.create(actor: system_actor())
+
     {:ok, _datastore} =
       VirtualizationDatastore
       |> Ash.Changeset.for_create(:create, %{
@@ -583,6 +599,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert html =~ "dashboard-pve-#{unique}"
     assert html =~ "local-zfs"
     assert html =~ "1 storage warnings"
+
+    # The datastore bar is the fullest datastore, not usage across both, and it
+    # names the one it describes.
+    fullest = view |> element("[data-testid='virtualization-fullest-datastore']") |> render()
+    assert fullest =~ "Fullest datastore: local-zfs"
+    assert fullest =~ "92.0%"
+    refute fullest =~ "archive-dir"
 
     # Summary tiles (except Pressure, which expands in-card sources) deep-link to
     # filtered device inventory queries.
