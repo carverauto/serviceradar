@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -38,7 +39,7 @@ import (
 	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
 
-func setupLoopbackPair(t *testing.T, maxSessions uint32, maxBw uint64) (*Responder, *Sender, ed25519.PrivateKey, []byte) {
+func setupLoopbackPair(t *testing.T, maxSessions uint32) (*Responder, *Sender, ed25519.PrivateKey, []byte) {
 	t.Helper()
 
 	pki := newTestPKI(t)
@@ -60,7 +61,7 @@ func setupLoopbackPair(t *testing.T, maxSessions uint32, maxBw uint64) (*Respond
 		AllowEphemeralPort:    true,
 		UDPEnabled:            true,
 		MaxConcurrentSessions: maxSessions,
-		MaxTotalBandwidthBps:  maxBw,
+		MaxTotalBandwidthBps:  1_000_000_000,
 		MinAuthorityEpoch:     1,
 		Security:              hubSec,
 		KeyResolver:           resolver,
@@ -115,7 +116,7 @@ func makeLoopbackPermit(t *testing.T, priv ed25519.PrivateKey, keyID []byte) *ne
 func TestSenderAndResponderTCPModes(t *testing.T) {
 	t.Parallel()
 
-	resp, sender, priv, keyID := setupLoopbackPair(t, 4, 1_000_000_000)
+	resp, sender, priv, keyID := setupLoopbackPair(t, 4)
 	host, port := testHostPort(t, resp.ListenAddr())
 	permit := makeLoopbackPermit(t, priv, keyID)
 
@@ -176,7 +177,7 @@ func TestSenderAndResponderTCPModes(t *testing.T) {
 func TestSenderAndResponderUDPModesAndOmitWindow(t *testing.T) {
 	t.Parallel()
 
-	resp, sender, priv, keyID := setupLoopbackPair(t, 4, 1_000_000_000)
+	resp, sender, priv, keyID := setupLoopbackPair(t, 4)
 	host, port := testHostPort(t, resp.ListenAddr())
 	permit := makeLoopbackPermit(t, priv, keyID)
 
@@ -345,4 +346,198 @@ func TestSenderBusyExhaustedSetsRetryAfterWithoutFalseFailure(t *testing.T) {
 	require.True(t, res.BusyExhausted)
 	require.GreaterOrEqual(t, res.RetryAfterMs, uint32(400))
 	require.Equal(t, int32(2), stub.calls.Load())
+}
+
+func TestSenderUDPDownloadContextCancelAndResponderClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ctx_cancel_at_200ms", func(t *testing.T) {
+		t.Parallel()
+
+		resp, sender, priv, keyID := setupLoopbackPair(t, 4)
+		host, port := testHostPort(t, resp.ListenAddr())
+		permit := makeLoopbackPermit(t, priv, keyID)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(200*time.Millisecond, cancel)
+
+		start := time.Now()
+		res, err := sender.RunTest(ctx, TestRequest{
+			TargetAddress:    host,
+			TargetPort:       port,
+			ResponderAgentID: "agent-hub-01",
+			PolicyID:         "policy-loopback-1",
+			Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+			Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+			BandwidthBps:     2_000_000,
+			DurationSec:      5,
+			Parallel:         1,
+			PacketLength:     1200,
+			Permit:           permit,
+		})
+		elapsed := time.Since(start)
+
+		require.Error(t, err)
+		require.True(t, errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled, "unexpected error: %v", err)
+		require.NotNil(t, res)
+		require.False(t, res.Available)
+		require.Less(t, elapsed, 2*time.Second, "UDP download cancel must unblock promptly")
+		require.Eventually(t, func() bool {
+			return resp.SnapshotMetrics().ActiveSessions == 0
+		}, 2*time.Second, 20*time.Millisecond)
+	})
+
+	t.Run("responder_close_mid_stream", func(t *testing.T) {
+		t.Parallel()
+
+		resp, sender, priv, keyID := setupLoopbackPair(t, 4)
+		host, port := testHostPort(t, resp.ListenAddr())
+		permit := makeLoopbackPermit(t, priv, keyID)
+
+		time.AfterFunc(200*time.Millisecond, func() { _ = resp.Close() })
+
+		start := time.Now()
+		res, err := sender.RunTest(context.Background(), TestRequest{
+			TargetAddress:    host,
+			TargetPort:       port,
+			ResponderAgentID: "agent-hub-01",
+			PolicyID:         "policy-loopback-1",
+			Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+			Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+			BandwidthBps:     2_000_000,
+			DurationSec:      5,
+			Parallel:         1,
+			PacketLength:     1200,
+			Permit:           permit,
+		})
+		elapsed := time.Since(start)
+
+		require.Error(t, err)
+		require.NotNil(t, res)
+		require.False(t, res.Available)
+		require.Less(t, elapsed, 2*time.Second, "UDP download must unblock promptly when responder closes mid-stream")
+	})
+}
+
+func TestSenderShortContextTimeoutFailsAndNotAvailable(t *testing.T) {
+	t.Parallel()
+
+	resp, sender, priv, keyID := setupLoopbackPair(t, 8)
+	host, port := testHostPort(t, resp.ListenAddr())
+	permit := makeLoopbackPermit(t, priv, keyID)
+
+	for _, tc := range []struct {
+		name  string
+		proto netperfpb.NetperfProtocol
+		dir   netperfpb.NetperfDirection
+	}{
+		{"tcp_upload", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP, netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD},
+		{"tcp_download", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP, netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD},
+		{"udp_upload", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP, netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD},
+		{"udp_download", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP, netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+
+			start := time.Now()
+			res, err := sender.RunTest(ctx, TestRequest{
+				TargetAddress:    host,
+				TargetPort:       port,
+				ResponderAgentID: "agent-hub-01",
+				PolicyID:         "policy-loopback-1",
+				Protocol:         tc.proto,
+				Direction:        tc.dir,
+				BandwidthBps:     4_000_000,
+				DurationSec:      5,
+				Parallel:         1,
+				PacketLength:     1200,
+				Permit:           permit,
+			})
+			elapsed := time.Since(start)
+
+			require.Error(t, err)
+			require.NotNil(t, res)
+			require.False(t, res.Available, "premature context timeout must never report Available: true")
+			require.Less(t, elapsed, 2*time.Second)
+		})
+	}
+
+	require.Eventually(t, func() bool {
+		return resp.SnapshotMetrics().ActiveSessions == 0
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestBidirectionalSummaryComputesLossPercent(t *testing.T) {
+	t.Parallel()
+
+	combined := combineBidirectionalSummaries(
+		&netperfpb.TestSummary{
+			DurationSeconds:   1.0,
+			DurationNs:        1_000_000_000,
+			BytesSent:         120_000,
+			BytesReceived:     108_000,
+			PacketsSent:       100,
+			PacketsReceived:   90,
+			PacketsLost:       10,
+			OutOfOrderPackets: 1,
+			LossPercent:       10.0,
+			JitterMs:          1.2,
+		},
+		&netperfpb.TestSummary{
+			DurationSeconds:   1.0,
+			DurationNs:        1_000_000_000,
+			BytesSent:         120_000,
+			BytesReceived:     114_000,
+			PacketsSent:       100,
+			PacketsReceived:   95,
+			PacketsLost:       5,
+			OutOfOrderPackets: 2,
+			LossPercent:       5.0,
+			JitterMs:          2.4,
+		},
+	)
+	require.NotNil(t, combined)
+	require.Equal(t, uint64(200), combined.GetPacketsSent())
+	require.Equal(t, uint64(15), combined.GetPacketsLost())
+	require.InDelta(t, 7.5, combined.GetLossPercent(), 1e-6)
+	require.InDelta(t, 2.4, combined.GetJitterMs(), 1e-6)
+
+	res := &TestResult{}
+	mergeCloseSessionResult(
+		res,
+		netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+		&PhaseResult{
+			Direction:   netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+			PacketsSent: 100,
+		},
+		&PhaseResult{
+			Direction:       netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+			PacketsReceived: 95,
+			BytesReceived:   114_000,
+			DurationSeconds: 1.0,
+			DurationNs:      1_000_000_000,
+		},
+		&netperfpb.CloseSessionResponse{
+			UploadSummary: &netperfpb.TestSummary{
+				DurationSeconds: 1.0,
+				DurationNs:      1_000_000_000,
+				BytesReceived:   108_000,
+				PacketsSent:     100,
+				PacketsReceived: 90,
+				PacketsLost:     10,
+				LossPercent:     10.0,
+				JitterMs:        1.2,
+			},
+			DownloadSummary: &netperfpb.TestSummary{
+				DurationSeconds: 1.0,
+				DurationNs:      1_000_000_000,
+				BytesSent:       120_000,
+				PacketsSent:     100,
+			},
+		},
+	)
+	require.Equal(t, uint64(200), res.Primary.PacketsSent)
+	require.Equal(t, uint64(15), res.Primary.PacketsLost)
+	require.InDelta(t, 7.5, res.Primary.LossPercent, 1e-6)
 }

@@ -527,10 +527,15 @@ func (s *Sender) runTCPUpload(
 			var seq uint64
 			for s.nowFn().Before(testEnd) {
 				if err := limiter.WaitN(paceCtx, len(buf)); err != nil {
-					if isRateDeadlineError(paceCtx, err) || !s.nowFn().Before(testEnd) {
+					if phaseDone, fatalErr := classifyRateWaitError(ctx, nil, paceCtx, testEnd, s.nowFn(), err); phaseDone {
 						break
+					} else {
+						setErr(fatalErr)
+						return
 					}
-					setErr(err)
+				}
+				if ctx.Err() != nil {
+					setErr(ctx.Err())
 					return
 				}
 				if !s.nowFn().Before(testEnd) {
@@ -549,6 +554,11 @@ func (s *Sender) runTCPUpload(
 					return
 				}
 				stats.record(len(buf), omitDuration, s.nowFn())
+			}
+
+			if ctx.Err() != nil {
+				setErr(ctx.Err())
+				return
 			}
 
 			if err := stream.Send(&netperfpb.TestStreamChunk{
@@ -802,6 +812,12 @@ func mergeCloseSessionResult(
 		if totalDur > 0 {
 			bps = (float64(result.Upload.BytesReceived+result.Download.BytesReceived) * 8.0) / totalDur
 		}
+		packetsSent := result.Upload.PacketsSent + result.Download.PacketsSent
+		packetsLost := result.Upload.PacketsLost + result.Download.PacketsLost
+		var lossPercent float64
+		if packetsSent > 0 {
+			lossPercent = (float64(packetsLost) * 100.0) / float64(packetsSent)
+		}
 		result.Primary = PhaseResult{
 			Direction:         netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
 			DurationSeconds:   totalDur,
@@ -809,10 +825,11 @@ func mergeCloseSessionResult(
 			BytesSent:         result.Upload.BytesSent + result.Download.BytesSent,
 			BytesReceived:     result.Upload.BytesReceived + result.Download.BytesReceived,
 			BitsPerSecond:     bps,
-			PacketsSent:       result.Upload.PacketsSent + result.Download.PacketsSent,
+			PacketsSent:       packetsSent,
 			PacketsReceived:   result.Upload.PacketsReceived + result.Download.PacketsReceived,
-			PacketsLost:       result.Upload.PacketsLost + result.Download.PacketsLost,
+			PacketsLost:       packetsLost,
 			OutOfOrderPackets: result.Upload.OutOfOrderPackets + result.Download.OutOfOrderPackets,
+			LossPercent:       lossPercent,
 			JitterMs:          max(result.Upload.JitterMs, result.Download.JitterMs),
 		}
 	case netperfpb.NetperfDirection_NETPERF_DIRECTION_UNSPECIFIED:

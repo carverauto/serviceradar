@@ -26,6 +26,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
@@ -119,6 +120,44 @@ func isRateDeadlineError(ctx context.Context, err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), "would exceed context deadline")
+}
+
+// classifyRateWaitError distinguishes genuine phase testEnd completion from
+// premature parent/abort context cancellation or deadline expiration.
+func classifyRateWaitError(
+	parentCtx context.Context,
+	abortCtx context.Context,
+	paceCtx context.Context,
+	testEnd time.Time,
+	now time.Time,
+	err error,
+) (phaseDone bool, fatalErr error) {
+	if err == nil {
+		return false, nil
+	}
+	if abortCtx != nil && abortCtx.Err() != nil {
+		return false, abortCtx.Err()
+	}
+	if parentCtx != nil && parentCtx.Err() != nil {
+		return false, parentCtx.Err()
+	}
+	if !now.Before(testEnd) {
+		return true, nil
+	}
+	if isRateDeadlineError(paceCtx, err) {
+		if parentCtx != nil {
+			if parentDeadline, hasParent := parentCtx.Deadline(); hasParent && parentDeadline.Before(testEnd) {
+				return false, context.DeadlineExceeded
+			}
+		}
+		if abortCtx != nil {
+			if abortDeadline, hasAbort := abortCtx.Deadline(); hasAbort && abortDeadline.Before(testEnd) {
+				return false, context.DeadlineExceeded
+			}
+		}
+		return true, nil
+	}
+	return false, err
 }
 
 func tcpChunkSizeForBandwidth(bandwidthBps uint64) int {

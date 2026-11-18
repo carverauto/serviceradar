@@ -1756,8 +1756,8 @@ func (p *PushLoop) handleNetperfRun(ctx context.Context, cmd *proto.CommandReque
 		_ = sender.Send(commandResult(cmd, false, "command deadline exceeded", nil))
 		return
 	}
-	if runTimeout > defaultNetperfOnDemandDeadline {
-		runTimeout = defaultNetperfOnDemandDeadline
+	if runTimeout > maxNetperfOnDemandDeadline {
+		runTimeout = maxNetperfOnDemandDeadline
 	}
 
 	svc := p.ensureNetperfService()

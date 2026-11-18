@@ -179,10 +179,17 @@ func (r *Responder) runUDPDownload(streamCtx context.Context, sess *responderSes
 			break
 		}
 		if err := limiter.WaitN(paceCtx, pktLen); err != nil {
-			if isRateDeadlineError(paceCtx, err) || !r.nowFn().Before(testEnd) {
+			if phaseDone, fatalErr := classifyRateWaitError(streamCtx, sess.ctx, paceCtx, testEnd, r.nowFn(), err); phaseDone {
 				break
+			} else {
+				return status.FromContextError(fatalErr).Err()
 			}
-			return status.Error(codes.Canceled, err.Error())
+		}
+		if err := streamCtx.Err(); err != nil {
+			return status.FromContextError(err).Err()
+		}
+		if err := sess.ctx.Err(); err != nil {
+			return status.Error(codes.DeadlineExceeded, err.Error())
 		}
 		now = r.nowFn()
 		if !now.Before(testEnd) {
@@ -217,6 +224,13 @@ func (r *Responder) runUDPDownload(streamCtx context.Context, sess *responderSes
 		} else {
 			r.admission.addBytes(uint64(pktLen))
 		}
+	}
+
+	if err := streamCtx.Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	if err := sess.ctx.Err(); err != nil {
+		return status.Error(codes.DeadlineExceeded, err.Error())
 	}
 
 	// Transmit 3 END markers so the Spoke receiver terminates promptly.

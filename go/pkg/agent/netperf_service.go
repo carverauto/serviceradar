@@ -34,10 +34,15 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/netperf"
 	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
 	defaultNetperfOnDemandDeadline = 75 * time.Second
+	maxNetperfOnDemandDeadline     = 120 * time.Second
+	defaultNetperfResponderRetry   = 5 * time.Second
 	maxPendingNetperfSamples       = 1024
 	maxScheduledNetperfBusyRetries = 3
 	netperfSchedYieldDelay         = 5 * time.Second
@@ -109,33 +114,44 @@ type scheduledNetperfTarget struct {
 	busyRetries int
 }
 
+type dueNetperfTarget struct {
+	key        string
+	req        netperf.TestRequest
+	permitID   string
+	targetAddr string
+}
+
 // NetperfService manages the opt-in Hub Responder listener, deterministic
 // hash-spread scheduled Spoke tests, and preempting on-demand netperf.run tests.
 type NetperfService struct {
-	mu           sync.Mutex
-	agentID      string
-	partitionID  string
-	logger       logger.Logger
-	trustFn      func() *edgerecord.TrustSnapshot
-	securityFn   func() *models.SecurityConfig
-	mtlsFn       func() *srgrpc.MTLSProvider
-	nowFn        func() time.Time
-	runSenderFn  func(ctx context.Context, req netperf.TestRequest) (*netperf.TestResult, error)
-	startRespFn  func(ctx context.Context, cfg netperf.ResponderConfig) (*netperf.Responder, error)
-	responder    *netperf.Responder
-	activeSpec   activeNetperfResponderSpec
-	targets      []*scheduledNetperfTarget
-	schedulerCtx context.Context
-	schedCancel  context.CancelFunc
-	schedRunning bool
-	schedWake    chan struct{}
-	schedDone    chan struct{}
+	mu             sync.Mutex
+	agentID        string
+	partitionID    string
+	logger         logger.Logger
+	trustFn        func() *edgerecord.TrustSnapshot
+	securityFn     func() *models.SecurityConfig
+	mtlsFn         func() *srgrpc.MTLSProvider
+	nowFn          func() time.Time
+	runSenderFn    func(ctx context.Context, req netperf.TestRequest) (*netperf.TestResult, error)
+	startRespFn    func(ctx context.Context, cfg netperf.ResponderConfig) (*netperf.Responder, error)
+	responder      *netperf.Responder
+	activeSpec     activeNetperfResponderSpec
+	desiredResp    *netperfpb.NetperfResponderConfig
+	respRetryAt    time.Time
+	respRetryDelay time.Duration
+	targets        []*scheduledNetperfTarget
+	schedulerCtx   context.Context
+	schedCancel    context.CancelFunc
+	schedRunning   bool
+	schedWake      chan struct{}
+	schedDone      chan struct{}
 
 	// Single-flight sender guard shared between scheduled and on-demand runs.
-	senderMu          sync.Mutex
-	onDemandActive    atomic.Bool
-	activeSchedMu     sync.Mutex
-	activeSchedCancel context.CancelFunc
+	senderMu           sync.Mutex
+	onDemandActive     atomic.Bool
+	activeSchedMu      sync.Mutex
+	activeSchedCancel  context.CancelFunc
+	activeSchedPreempt *atomic.Bool
 
 	pendingMu      sync.Mutex
 	pendingSamples []netperfSample
@@ -152,16 +168,17 @@ func NewNetperfService(cfg NetperfServiceConfig) *NetperfService {
 		nowFn = time.Now
 	}
 	svc := &NetperfService{
-		agentID:     cfg.AgentID,
-		partitionID: cfg.PartitionID,
-		logger:      log,
-		trustFn:     cfg.TrustSnapshot,
-		securityFn:  cfg.SecurityConfig,
-		mtlsFn:      cfg.MTLSProvider,
-		nowFn:       nowFn,
-		runSenderFn: cfg.RunSender,
-		startRespFn: cfg.StartResponder,
-		schedWake:   make(chan struct{}, 1),
+		agentID:        cfg.AgentID,
+		partitionID:    cfg.PartitionID,
+		logger:         log,
+		trustFn:        cfg.TrustSnapshot,
+		securityFn:     cfg.SecurityConfig,
+		mtlsFn:         cfg.MTLSProvider,
+		nowFn:          nowFn,
+		runSenderFn:    cfg.RunSender,
+		startRespFn:    cfg.StartResponder,
+		respRetryDelay: defaultNetperfResponderRetry,
+		schedWake:      make(chan struct{}, 1),
 	}
 	return svc
 }
@@ -205,6 +222,8 @@ func (s *NetperfService) Stop(ctx context.Context) error {
 	resp := s.responder
 	s.responder = nil
 	s.activeSpec = activeNetperfResponderSpec{}
+	s.desiredResp = nil
+	s.respRetryAt = time.Time{}
 	s.targets = nil
 	s.schedCancel = nil
 	s.schedRunning = false
@@ -244,13 +263,58 @@ func (s *NetperfService) ApplyConfig(ctx context.Context, cfg *netperfpb.Netperf
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.reconcileResponderLocked(ctx, cfg.GetResponder())
+	s.desiredResp = gproto.CloneOf(cfg.GetResponder())
+	s.reconcileResponderLocked(ctx, s.desiredResp)
 	s.reconcileTargetsLocked(cfg.GetTargets())
 	s.wakeScheduler()
 }
 
+// ReconcileResponder retries starting the Hub Responder when desired state is
+// enabled and an earlier startup attempt failed transiently.
+func (s *NetperfService) ReconcileResponder(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.desiredResp == nil || !s.desiredResp.GetEnabled() {
+		return
+	}
+	if s.responder != nil && s.activeSpec.enabled {
+		return
+	}
+	s.reconcileResponderLocked(ctx, s.desiredResp)
+}
+
+func (s *NetperfService) reconcileResponderIfDue(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.desiredResp == nil || !s.desiredResp.GetEnabled() {
+		return
+	}
+	if s.responder != nil && s.activeSpec.enabled {
+		return
+	}
+	if !s.respRetryAt.IsZero() && s.nowFn().Before(s.respRetryAt) {
+		return
+	}
+	s.reconcileResponderLocked(ctx, s.desiredResp)
+}
+
+func (s *NetperfService) effectiveResponderRetryDelay() time.Duration {
+	if s.respRetryDelay > 0 {
+		return s.respRetryDelay
+	}
+	return defaultNetperfResponderRetry
+}
+
 func (s *NetperfService) reconcileResponderLocked(ctx context.Context, cfg *netperfpb.NetperfResponderConfig) {
 	if cfg == nil || !cfg.GetEnabled() {
+		s.respRetryAt = time.Time{}
 		if s.responder != nil {
 			if err := s.responder.Close(); err != nil {
 				s.logger.Warn().Err(err).Msg("Failed to stop netperf responder")
@@ -267,6 +331,7 @@ func (s *NetperfService) reconcileResponderLocked(ctx context.Context, cfg *netp
 		s.activeSpec.enabled &&
 		s.activeSpec.listenPort == want.listenPort &&
 		s.activeSpec.udpEnabled == want.udpEnabled {
+		s.respRetryAt = time.Time{}
 		if s.activeSpec.maxConcurrentSessions != want.maxConcurrentSessions ||
 			s.activeSpec.maxTotalBandwidthBps != want.maxTotalBandwidthBps ||
 			s.activeSpec.minAuthorityEpoch != want.minAuthorityEpoch {
@@ -315,6 +380,7 @@ func (s *NetperfService) reconcileResponderLocked(ctx context.Context, cfg *netp
 
 	resp, err := s.startResponderInstance(ctx, respCfg)
 	if err != nil {
+		s.respRetryAt = s.nowFn().Add(s.effectiveResponderRetryDelay())
 		s.logger.Error().
 			Err(err).
 			Uint32("listen_port", want.listenPort).
@@ -325,6 +391,7 @@ func (s *NetperfService) reconcileResponderLocked(ctx context.Context, cfg *netp
 
 	s.responder = resp
 	s.activeSpec = want
+	s.respRetryAt = time.Time{}
 	s.logger.Info().
 		Uint32("listen_port", want.listenPort).
 		Bool("udp_enabled", want.udpEnabled).
@@ -449,6 +516,7 @@ func (s *NetperfService) runScheduler(ctx context.Context, done chan struct{}) {
 	defer close(done)
 
 	for {
+		s.reconcileResponderIfDue(ctx)
 		due, waitDur := s.nextDueTarget()
 		if due == nil {
 			var timer *time.Timer
@@ -478,20 +546,23 @@ func (s *NetperfService) runScheduler(ctx context.Context, done chan struct{}) {
 		}
 
 		s.senderMu.Lock()
+		budget := testExecutionBudget(due.req.Direction, due.req.DurationSec, due.req.OmitSec)
+		schedCtx, schedCancel := context.WithTimeout(ctx, budget)
+		preempted := &atomic.Bool{}
+		s.setActiveSched(schedCancel, preempted)
 		if s.onDemandActive.Load() {
+			s.clearActiveSched(schedCancel)
+			schedCancel()
 			s.senderMu.Unlock()
 			s.deferTarget(due.key, netperfSchedYieldDelay)
 			continue
 		}
 
-		req, permitID, targetAddr := assignmentToTestRequest(due.assignment)
-		budget := testExecutionBudget(req.Direction, req.DurationSec, req.OmitSec)
-		schedCtx, schedCancel := context.WithTimeout(ctx, budget)
-		s.setActiveSchedCancel(schedCancel)
+		res, runErr := s.executeSender(schedCtx, due.req)
 
-		res, runErr := s.executeSender(schedCtx, req)
-
-		s.clearActiveSchedCancel(schedCancel)
+		wasPreempted := preempted.Load()
+		schedCanceled := errors.Is(schedCtx.Err(), context.Canceled)
+		s.clearActiveSched(schedCancel)
 		schedCancel()
 		s.senderMu.Unlock()
 
@@ -499,7 +570,7 @@ func (s *NetperfService) runScheduler(ctx context.Context, done chan struct{}) {
 		if ctx.Err() != nil {
 			return
 		}
-		if s.onDemandActive.Load() && errors.Is(runErr, context.Canceled) {
+		if wasPreempted && runErr != nil && (errors.Is(runErr, context.Canceled) || status.Code(runErr) == codes.Canceled || schedCanceled) {
 			s.deferTarget(due.key, netperfSchedYieldDelay)
 			continue
 		}
@@ -514,20 +585,27 @@ func (s *NetperfService) runScheduler(ctx context.Context, done chan struct{}) {
 			Kind:          netperfSampleTest,
 			Timestamp:     s.nowFn().UnixNano(),
 			Result:        res,
-			PermitID:      permitID,
-			TargetAddress: targetAddr,
+			PermitID:      due.permitID,
+			TargetAddress: due.targetAddr,
 		})
 	}
 }
 
-func (s *NetperfService) nextDueTarget() (*scheduledNetperfTarget, time.Duration) {
+func (s *NetperfService) nextDueTarget() (*dueNetperfTarget, time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.targets) == 0 {
-		return nil, 0
-	}
 	now := s.nowFn()
+	var respWait time.Duration
+	if s.desiredResp != nil && s.desiredResp.GetEnabled() && (s.responder == nil || !s.activeSpec.enabled) {
+		if !s.respRetryAt.IsZero() && s.respRetryAt.After(now) {
+			respWait = s.respRetryAt.Sub(now)
+		}
+	}
+
+	if len(s.targets) == 0 {
+		return nil, respWait
+	}
 	var earliest *scheduledNetperfTarget
 	for _, t := range s.targets {
 		if earliest == nil || t.nextRun.Before(earliest.nextRun) {
@@ -535,12 +613,22 @@ func (s *NetperfService) nextDueTarget() (*scheduledNetperfTarget, time.Duration
 		}
 	}
 	if earliest == nil {
-		return nil, 0
+		return nil, respWait
 	}
 	if !earliest.nextRun.After(now) {
-		return earliest, 0
+		req, permitID, targetAddr := assignmentToTestRequest(earliest.assignment)
+		return &dueNetperfTarget{
+			key:        earliest.key,
+			req:        req,
+			permitID:   permitID,
+			targetAddr: targetAddr,
+		}, 0
 	}
-	return nil, earliest.nextRun.Sub(now)
+	waitDur := earliest.nextRun.Sub(now)
+	if respWait > 0 && respWait < waitDur {
+		waitDur = respWait
+	}
+	return nil, waitDur
 }
 
 func (s *NetperfService) deferTarget(key string, delay time.Duration) {
@@ -596,22 +684,28 @@ func (s *NetperfService) advanceTargetNextSlot(key string) {
 	}
 }
 
-func (s *NetperfService) setActiveSchedCancel(cancel context.CancelFunc) {
+func (s *NetperfService) setActiveSched(cancel context.CancelFunc, preempted *atomic.Bool) {
 	s.activeSchedMu.Lock()
 	s.activeSchedCancel = cancel
+	s.activeSchedPreempt = preempted
 	s.activeSchedMu.Unlock()
 }
 
-func (s *NetperfService) clearActiveSchedCancel(_ context.CancelFunc) {
+func (s *NetperfService) clearActiveSched(_ context.CancelFunc) {
 	s.activeSchedMu.Lock()
 	s.activeSchedCancel = nil
+	s.activeSchedPreempt = nil
 	s.activeSchedMu.Unlock()
 }
 
 func (s *NetperfService) cancelActiveScheduled() {
 	s.activeSchedMu.Lock()
 	cancel := s.activeSchedCancel
+	preempted := s.activeSchedPreempt
 	s.activeSchedMu.Unlock()
+	if preempted != nil {
+		preempted.Store(true)
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -785,7 +879,7 @@ func assignmentToTestRequest(t *netperfpb.NetperfTargetAssignment) (netperf.Test
 		Parallel:         parallel,
 		PacketLength:     pktLen,
 		ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_SCHEDULED_POLICY,
-		Permit:           t.GetPermit(),
+		Permit:           gproto.CloneOf(t.GetPermit()),
 	}
 	return req, t.GetPermit().GetPermitId(), t.GetTargetAddress()
 }
@@ -825,7 +919,7 @@ func parseNetperfProtocolAndDirection(protoStr, dirStr string) (netperfpb.Netper
 
 func buildOnDemandNetperfSummary(payload netperfRunPayload, req netperf.TestRequest, res *netperf.TestResult) map[string]any {
 	out := map[string]any{
-		"permit_id":          payload.PermitID,
+		"permit_id":          firstMetricNonEmpty(payload.PermitID, req.Permit.GetPermitId()),
 		"responder_agent_id": req.ResponderAgentID,
 		"target_address":     req.TargetAddress,
 		"target_port":        req.TargetPort,

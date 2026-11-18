@@ -27,7 +27,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -41,11 +43,15 @@ import (
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/netperf"
 	"github.com/carverauto/serviceradar/proto"
 	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
+
+var errTransientBindFailure = errors.New("transient bind failure")
 
 func TestAgentCapabilitiesAdvertiseNetperf(t *testing.T) {
 	t.Parallel()
@@ -127,7 +133,7 @@ func TestNetperfConfigHotApplyLifecycleAndNotModifiedTrustRetention(t *testing.T
 
 	sp := openTestEdgeSpool(t)
 	loop, _ := sysmonEdgeLoop(t, sp)
-	loop.server.config.Partition = "default"
+	loop.server.config.Partition = defaultPartition
 	loop.server.config.GatewaySecurity = &models.SecurityConfig{
 		Mode: models.SecurityModeMTLS,
 		TLS: models.TLSConfig{
@@ -330,7 +336,7 @@ func TestControlStreamNetperfRunPreemptsSpoolsBeforeResultAndRejectsConcurrent(t
 	permit := &netperfpb.NetperfPermitV1{
 		PermitVersion:    1,
 		PermitId:         "permit-ondemand-1",
-		PartitionId:      "default",
+		PartitionId:      defaultPartition,
 		SenderAgentId:    sysmonEdgeAgentID,
 		ResponderAgentId: "agent-hub-01",
 		PolicyId:         "on_demand:cmd-1",
@@ -465,4 +471,548 @@ func TestNetperfScheduledBusyReschedulesWithoutFalseFailureSample(t *testing.T) 
 		return svc.targets[0].busyRetries == 1 && svc.targets[0].nextRun.After(time.Now())
 	}, 2*time.Second, 20*time.Millisecond)
 	require.Empty(t, svc.DrainSamples(), "BusyExhausted must not emit false rperf.available=0")
+}
+
+func TestNetperfConcurrentApplyConfigAndSchedulerNoRace(t *testing.T) {
+	t.Parallel()
+
+	sp := openTestEdgeSpool(t)
+	loop, _ := sysmonEdgeLoop(t, sp)
+	svc := loop.ensureNetperfService()
+
+	var runs atomic.Int32
+	svc.runSenderFn = func(_ context.Context, req netperf.TestRequest) (*netperf.TestResult, error) {
+		runs.Add(1)
+		return &netperf.TestResult{
+			Available:        true,
+			Target:           req.TargetAddress + ":5199",
+			ResponderAgentID: req.ResponderAgentID,
+			PolicyID:         req.PolicyID,
+			Protocol:         req.Protocol,
+			Direction:        req.Direction,
+			Parallel:         req.Parallel,
+			ExecutionSource:  req.ExecutionSource,
+			Primary: netperf.PhaseResult{
+				Direction:       req.Direction,
+				DurationSeconds: 1.0,
+				BytesSent:       100_000,
+				BytesReceived:   100_000,
+				BitsPerSecond:   800_000,
+			},
+		}, nil
+	}
+
+	require.NoError(t, svc.Start(context.Background()))
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+	makeCfg := func(bw uint64) *netperfpb.NetperfConfig {
+		return &netperfpb.NetperfConfig{
+			Targets: []*netperfpb.NetperfTargetAssignment{{
+				PolicyId:         "pol-race",
+				ProfileId:        "prof-race",
+				ResponderAgentId: "agent-hub-01",
+				TargetAddress:    "192.0.2.10",
+				TargetPort:       5199,
+				Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+				Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+				BandwidthBps:     bw,
+				DurationSec:      1,
+				Parallel:         1,
+				IntervalSeconds:  60,
+				Permit: &netperfpb.NetperfPermitV1{
+					PermitId:         "permit-race-1",
+					ResponderAgentId: "agent-hub-01",
+					SenderAgentId:    sysmonEdgeAgentID,
+				},
+			}},
+		}
+	}
+
+	// Seed immediately due target, then concurrently mutate via ApplyConfig while scheduler executes.
+	svc.ApplyConfig(context.Background(), makeCfg(1_000_000))
+	svc.mu.Lock()
+	svc.targets[0].nextRun = time.Now().Add(-time.Second)
+	svc.mu.Unlock()
+	svc.wakeScheduler()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range 200 {
+			if ctx.Err() != nil {
+				return
+			}
+			svc.ApplyConfig(context.Background(), makeCfg(uint64(1_000_000+i*1000)))
+			svc.mu.Lock()
+			if len(svc.targets) > 0 {
+				svc.targets[0].nextRun = time.Now().Add(-time.Millisecond)
+			}
+			svc.mu.Unlock()
+			svc.wakeScheduler()
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	wg.Wait()
+	require.GreaterOrEqual(t, runs.Load(), int32(1))
+}
+
+func makeNetperfAgentPKI(t *testing.T, agentID string, serial int64, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, caFile, dir string) *models.SecurityConfig {
+	t.Helper()
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	dns := agentID + ".default.serviceradar"
+	spiffe, err := url.Parse("spiffe://serviceradar.local/agent/default/" + agentID)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(serial),
+		Subject:      pkix.Name{CommonName: dns},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(12 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{dns},
+		URIs:         []*url.URL{spiffe},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	require.NoError(t, err)
+	certFile := filepath.Join(dir, agentID+".pem")
+	keyFile := filepath.Join(dir, agentID+"-key.pem")
+	require.NoError(t, os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644))
+	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), 0o600))
+	return &models.SecurityConfig{
+		Mode: models.SecurityModeMTLS,
+		TLS: models.TLSConfig{
+			CertFile: certFile,
+			KeyFile:  keyFile,
+			CAFile:   caFile,
+		},
+	}
+}
+
+func TestNetperfRealSenderResponderPreemption(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		proto    netperfpb.NetperfProtocol
+		protoStr string
+	}{
+		{"tcp_download_preemption", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP, "tcp"},
+		{"udp_download_preemption", netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP, "udp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			require.NoError(t, err)
+			now := time.Now().UTC()
+			caTpl := &x509.Certificate{
+				SerialNumber:          big.NewInt(1),
+				Subject:               pkix.Name{CommonName: "Synthetic Netperf Preemption CA"},
+				NotBefore:             now.Add(-time.Hour),
+				NotAfter:              now.Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+				BasicConstraintsValid: true,
+				IsCA:                  true,
+			}
+			caDER, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, &caKey.PublicKey, caKey)
+			require.NoError(t, err)
+			caCert, err := x509.ParseCertificate(caDER)
+			require.NoError(t, err)
+			caFile := filepath.Join(dir, "root.pem")
+			require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644))
+
+			hubSec := makeNetperfAgentPKI(t, "agent-hub-01", 10, caCert, caKey, caFile, dir)
+			spokeSec := makeNetperfAgentPKI(t, sysmonEdgeAgentID, 11, caCert, caKey, caFile, dir)
+
+			_, priv, err := ed25519.GenerateKey(nil)
+			require.NoError(t, err)
+			pub := priv.Public().(ed25519.PublicKey)
+			keyID := []byte("0123456789abcdef")
+
+			trustRaw, err := json.Marshal(map[string]any{
+				"clock_tolerance_nano": int64(300_000_000_000),
+				"keys": []map[string]any{{
+					"issuer_id":     []byte("serviceradar-core"),
+					"issuer_key_id": keyID,
+					"public_key":    pub,
+					"purposes":      []string{"production"},
+					"status":        "valid",
+				}},
+				"fences":             []any{},
+				"scopes":             []any{},
+				"terminal_intervals": []any{},
+			})
+			require.NoError(t, err)
+			snap, err := edgerecord.ParseTrustDocument(trustRaw, []byte("agent-hub-01"), 1)
+			require.NoError(t, err)
+
+			resp, err := netperf.NewResponder(netperf.ResponderConfig{
+				AgentID:               "agent-hub-01",
+				PartitionID:           "default",
+				ListenAddress:         "127.0.0.1",
+				AllowEphemeralPort:    true,
+				UDPEnabled:            true,
+				MaxConcurrentSessions: 4,
+				MaxTotalBandwidthBps:  100_000_000,
+				MinAuthorityEpoch:     1,
+				Security:              hubSec,
+				KeyResolver:           netperf.TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }},
+				Logger:                logger.NewTestLogger(),
+			})
+			require.NoError(t, err)
+			require.NoError(t, resp.Start(context.Background()))
+			t.Cleanup(func() { _ = resp.Close() })
+
+			host, portStr, err := net.SplitHostPort(resp.ListenAddr())
+			require.NoError(t, err)
+			port64, err := strconv.ParseUint(portStr, 10, 32)
+			require.NoError(t, err)
+			port := uint32(port64)
+
+			sp := openTestEdgeSpool(t)
+			loop, _ := sysmonEdgeLoop(t, sp)
+			loop.server.config.Partition = defaultPartition
+			loop.server.config.GatewaySecurity = spokeSec
+			installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+			svc := loop.ensureNetperfService()
+			require.NoError(t, svc.Start(context.Background()))
+			t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+			signPermit := func(id string, maxDur uint32) *netperfpb.NetperfPermitV1 {
+				p := &netperfpb.NetperfPermitV1{
+					PermitVersion:    1,
+					PermitId:         id,
+					PartitionId:      defaultPartition,
+					SenderAgentId:    sysmonEdgeAgentID,
+					ResponderAgentId: "agent-hub-01",
+					PolicyId:         "pol-preempt",
+					MaxBandwidthBps:  20_000_000,
+					MaxDurationSec:   maxDur,
+					MaxParallel:      2,
+					AllowedProtocols: []netperfpb.NetperfProtocol{
+						netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+						netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+					},
+					AllowedDirections: []netperfpb.NetperfDirection{
+						netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+						netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+					},
+					IssuedAtUnix:   now.Unix() - 60,
+					ExpiresAtUnix:  now.Unix() + 600,
+					AuthorityEpoch: 1,
+					IssuerId:       "serviceradar-core",
+					IssuerKeyId:    keyID,
+					Algorithm:      "ed25519",
+				}
+				p.Signature = ed25519.Sign(priv, netperf.CanonicalPermitPreimage(p))
+				return p
+			}
+
+			// Start a 10s scheduled download with the real netperf.Sender.
+			svc.mu.Lock()
+			svc.targets = []*scheduledNetperfTarget{{
+				key:      "sched-real",
+				interval: 60 * time.Second,
+				nextRun:  time.Now().Add(-time.Second),
+				assignment: &netperfpb.NetperfTargetAssignment{
+					PolicyId:         "pol-preempt",
+					ProfileId:        "prof-preempt",
+					ResponderAgentId: "agent-hub-01",
+					TargetAddress:    host,
+					TargetPort:       port,
+					Protocol:         tc.proto,
+					Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+					BandwidthBps:     4_000_000,
+					DurationSec:      10,
+					Parallel:         1,
+					IntervalSeconds:  60,
+					Permit:           signPermit("permit-sched-real", 10),
+				},
+			}}
+			svc.mu.Unlock()
+			svc.wakeScheduler()
+
+			require.Eventually(t, func() bool {
+				return resp.SnapshotMetrics().ActiveSessions == 1
+			}, 3*time.Second, 10*time.Millisecond)
+
+			// Trigger on-demand netperf.run (1s upload) and assert <1s preemption + zero false rperf.available=0!
+			odPermitBytes, err := gproto.Marshal(signPermit("permit-od-real", 5))
+			require.NoError(t, err)
+			payloadBytes, err := json.Marshal(netperfRunPayload{
+				PermitID:         "permit-od-real",
+				ResponderAgentID: "agent-hub-01",
+				TargetAddress:    host,
+				TargetPort:       port,
+				Protocol:         tc.protoStr,
+				Direction:        "upload",
+				BandwidthBps:     4_000_000,
+				DurationSec:      1,
+				Parallel:         1,
+				ExecutionSource:  "on_demand",
+				PermitB64:        base64.StdEncoding.EncodeToString(odPermitBytes),
+			})
+			require.NoError(t, err)
+
+			fakeStream := &fakeControlStreamClient{}
+			preemptStart := time.Now()
+			var odWG sync.WaitGroup
+			odWG.Add(1)
+			go func() {
+				defer odWG.Done()
+				loop.handleNetperfRun(context.Background(), &proto.CommandRequest{
+					CommandId:   "cmd-real-preempt",
+					CommandType: commandTypeNetperfRun,
+					PayloadJson: payloadBytes,
+					CreatedAt:   time.Now().Unix(),
+					TtlSeconds:  60,
+				}, &controlStreamSender{stream: fakeStream})
+			}()
+
+			// On-demand session must open within < 1s (proving scheduled download preempted immediately).
+			require.Eventually(t, func() bool {
+				return resp.SnapshotMetrics().SessionsTotal >= 2
+			}, time.Second, 10*time.Millisecond, "scheduled %s test did not preempt within 1s", tc.name)
+			preemptDelay := time.Since(preemptStart)
+			require.Less(t, preemptDelay, time.Second)
+
+			odWG.Wait()
+
+			var cmdRes *proto.CommandResult
+			for _, msg := range fakeStream.sent {
+				if r := msg.GetCommandResult(); r != nil {
+					cmdRes = r
+				}
+			}
+			require.NotNil(t, cmdRes)
+			require.True(t, cmdRes.GetSuccess(), "on-demand failed: %s", cmdRes.GetMessage())
+
+			// Wait for both sessions to close and the preempted scheduler run to defer its target.
+			require.Eventually(t, func() bool {
+				if resp.SnapshotMetrics().ActiveSessions != 0 {
+					return false
+				}
+				svc.mu.Lock()
+				defer svc.mu.Unlock()
+				return len(svc.targets) == 1 && svc.targets[0].nextRun.After(time.Now())
+			}, 2*time.Second, 15*time.Millisecond)
+
+			// Flush any remaining scheduler samples and verify zero rperf.available=0 batches!
+			loop.pushNetperfMetrics()
+			batches := spooledMetricBatches(t, sp)
+			require.NotEmpty(t, batches)
+			for _, batch := range batches {
+				for _, m := range batch.GetMetrics() {
+					if m.GetName() == "rperf.available" {
+						for _, pt := range m.GetPoints() {
+							require.InDelta(t, 1.0, pt.GetValue(), 1e-6, "preempted scheduled test must not emit rperf.available=0")
+						}
+					}
+				}
+			}
+			require.Empty(t, svc.DrainSamples())
+		})
+	}
+}
+
+func TestNetperfResponderStartupRetryAcrossNotModifiedAndScheduler(t *testing.T) {
+	t.Parallel()
+
+	newFakeStartResp := func(t *testing.T, failFirst bool) (func(context.Context, netperf.ResponderConfig) (*netperf.Responder, error), *atomic.Int32) {
+		t.Helper()
+		dir := t.TempDir()
+		caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		now := time.Now().UTC()
+		caTpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(1),
+			Subject:               pkix.Name{CommonName: "Synthetic Netperf Retry CA"},
+			NotBefore:             now.Add(-time.Hour),
+			NotAfter:              now.Add(24 * time.Hour),
+			KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+			BasicConstraintsValid: true,
+			IsCA:                  true,
+		}
+		caDER, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, &caKey.PublicKey, caKey)
+		require.NoError(t, err)
+		caCert, err := x509.ParseCertificate(caDER)
+		require.NoError(t, err)
+		caFile := filepath.Join(dir, "root.pem")
+		require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644))
+		sec := makeNetperfAgentPKI(t, sysmonEdgeAgentID, 10, caCert, caKey, caFile, dir)
+
+		var attempts atomic.Int32
+		fn := func(ctx context.Context, cfg netperf.ResponderConfig) (*netperf.Responder, error) {
+			n := attempts.Add(1)
+			if failFirst && n == 1 {
+				return nil, errTransientBindFailure
+			}
+			cfg.ListenAddress = "127.0.0.1"
+			cfg.ListenPort = 0
+			cfg.AllowEphemeralPort = true
+			cfg.Security = sec
+			r, err := netperf.NewResponder(cfg)
+			if err != nil {
+				return nil, err
+			}
+			if err := r.Start(ctx); err != nil {
+				return nil, err
+			}
+			return r, nil
+		}
+		return fn, &attempts
+	}
+
+	t.Run("not_modified_poll_retries_failed_responder", func(t *testing.T) {
+		t.Parallel()
+
+		sp := openTestEdgeSpool(t)
+		loop, _ := sysmonEdgeLoop(t, sp)
+		svc := loop.ensureNetperfService()
+		t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+		startFn, attempts := newFakeStartResp(t, true)
+		svc.startRespFn = startFn
+
+		// Initial v1 fails transiently -> responder remains nil, config still commits.
+		require.True(t, loop.applyConfigResponseWithSequence(context.Background(), &proto.AgentConfigResponse{
+			ConfigVersion: "v1",
+			NetperfConfig: &netperfpb.NetperfConfig{
+				Responder: &netperfpb.NetperfResponderConfig{
+					Enabled:    true,
+					ListenPort: 5199,
+				},
+			},
+		}, "control_stream", loop.nextConfigSequence()))
+		require.Equal(t, int32(1), attempts.Load())
+		require.Nil(t, svc.responder)
+
+		// Subsequent NotModified poll retries startup and succeeds!
+		require.True(t, loop.applyConfigResponseWithSequence(context.Background(), &proto.AgentConfigResponse{
+			ConfigVersion: "v1",
+			NotModified:   true,
+		}, "poll", loop.nextConfigSequence()))
+		require.Equal(t, int32(2), attempts.Load())
+		require.NotNil(t, svc.responder)
+	})
+
+	t.Run("scheduler_autonomously_retries_with_zero_targets", func(t *testing.T) {
+		t.Parallel()
+
+		sp := openTestEdgeSpool(t)
+		loop, _ := sysmonEdgeLoop(t, sp)
+		svc := loop.ensureNetperfService()
+		svc.respRetryDelay = 25 * time.Millisecond
+
+		startFn, attempts := newFakeStartResp(t, true)
+		svc.startRespFn = startFn
+
+		require.NoError(t, svc.Start(context.Background()))
+		t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+		svc.ApplyConfig(context.Background(), &netperfpb.NetperfConfig{
+			Responder: &netperfpb.NetperfResponderConfig{
+				Enabled:    true,
+				ListenPort: 5199,
+			},
+		})
+		require.Eventually(t, func() bool {
+			svc.mu.Lock()
+			defer svc.mu.Unlock()
+			return svc.responder != nil && attempts.Load() >= 2
+		}, 2*time.Second, 15*time.Millisecond)
+	})
+}
+
+func TestControlStreamNetperfRunRespectsHigherTTLCeilingAndPermitIDFallback(t *testing.T) {
+	t.Parallel()
+
+	sp := openTestEdgeSpool(t)
+	loop, _ := sysmonEdgeLoop(t, sp)
+	installTestEdgeGrants(t, loop, sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	svc := loop.ensureNetperfService()
+	var observedRemaining time.Duration
+	svc.runSenderFn = func(ctx context.Context, req netperf.TestRequest) (*netperf.TestResult, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		observedRemaining = time.Until(deadline)
+		return &netperf.TestResult{
+			Available:        true,
+			Target:           req.TargetAddress + ":5199",
+			ResponderAgentID: req.ResponderAgentID,
+			PolicyID:         req.PolicyID,
+			Protocol:         req.Protocol,
+			Direction:        req.Direction,
+			Parallel:         req.Parallel,
+			ExecutionSource:  req.ExecutionSource,
+			Primary: netperf.PhaseResult{
+				Direction:       req.Direction,
+				DurationSeconds: 1.0,
+				BytesReceived:   100_000,
+				BitsPerSecond:   800_000,
+			},
+		}, nil
+	}
+
+	permit := &netperfpb.NetperfPermitV1{
+		PermitVersion:    1,
+		PermitId:         "permit-fallback-1",
+		PartitionId:      defaultPartition,
+		SenderAgentId:    sysmonEdgeAgentID,
+		ResponderAgentId: "agent-hub-01",
+		PolicyId:         "on_demand:cmd-ttl",
+	}
+	permitBytes, err := gproto.Marshal(permit)
+	require.NoError(t, err)
+
+	// Omit permit_id from JSON payload to exercise permit.GetPermitId() fallback.
+	payloadBytes, err := json.Marshal(netperfRunPayload{
+		ResponderAgentID: "agent-hub-01",
+		TargetAddress:    "192.0.2.10",
+		TargetPort:       5199,
+		Protocol:         "tcp",
+		Direction:        "bidirectional",
+		BandwidthBps:     10_000_000,
+		DurationSec:      30,
+		OmitSec:          5,
+		Parallel:         1,
+		ExecutionSource:  "on_demand",
+		PermitB64:        base64.StdEncoding.EncodeToString(permitBytes),
+	})
+	require.NoError(t, err)
+
+	fakeStream := &fakeControlStreamClient{}
+	loop.handleNetperfRun(context.Background(), &proto.CommandRequest{
+		CommandId:   "cmd-ttl",
+		CommandType: commandTypeNetperfRun,
+		PayloadJson: payloadBytes,
+		CreatedAt:   time.Now().Unix(),
+		TtlSeconds:  120,
+	}, &controlStreamSender{stream: fakeStream})
+
+	require.Greater(t, observedRemaining, 80*time.Second, "120s TTL must not be clamped to 75s")
+
+	var cmdRes *proto.CommandResult
+	for _, msg := range fakeStream.sent {
+		if r := msg.GetCommandResult(); r != nil {
+			cmdRes = r
+		}
+	}
+	require.NotNil(t, cmdRes)
+	require.True(t, cmdRes.GetSuccess())
+
+	var summary map[string]any
+	require.NoError(t, json.Unmarshal(cmdRes.GetPayloadJson(), &summary))
+	require.Equal(t, "permit-fallback-1", summary["permit_id"])
 }

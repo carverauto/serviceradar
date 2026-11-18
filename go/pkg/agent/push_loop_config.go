@@ -205,6 +205,7 @@ func (p *PushLoop) applyConfigResponseWithSequence(
 	v := configResp.GetConfigVersion()
 	sameVersion := v != "" && v == p.getConfigVersion()
 	if configResp.NotModified || sameVersion {
+		p.reconcileNetperfResponder(ctx)
 		if p.hasRetryableConfigSectionFailure() {
 			if p.retryFailedFromRetained(ctx) {
 				return true
@@ -1308,6 +1309,12 @@ func (p *PushLoop) applyCheckConfigs(checks []*proto.AgentCheckConfig) {
 func (p *PushLoop) applyNetperfConfig(ctx context.Context, cfg *netperfpb.NetperfConfig) {
 	if svc := p.ensureNetperfService(); svc != nil {
 		svc.ApplyConfig(ctx, cfg)
+	}
+}
+
+func (p *PushLoop) reconcileNetperfResponder(ctx context.Context) {
+	if svc := p.netperfService(); svc != nil {
+		svc.ReconcileResponder(ctx)
 	}
 }
 

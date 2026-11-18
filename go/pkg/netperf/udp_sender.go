@@ -171,10 +171,15 @@ func (s *Sender) runUDPUpload(
 					return
 				}
 				if err := limiter.WaitN(paceCtx, pktLen); err != nil {
-					if isRateDeadlineError(paceCtx, err) || !s.nowFn().Before(testEnd) {
+					if phaseDone, fatalErr := classifyRateWaitError(ctx, nil, paceCtx, testEnd, s.nowFn(), err); phaseDone {
+						return
+					} else {
+						setErr(fatalErr)
 						return
 					}
-					setErr(err)
+				}
+				if ctx.Err() != nil {
+					setErr(ctx.Err())
 					return
 				}
 				now = s.nowFn()
@@ -214,6 +219,9 @@ func (s *Sender) runUDPUpload(
 	wg.Wait()
 	if firstErr != nil {
 		return nil, firstErr
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	endBuf := make([]byte, UDPHeaderSize)
@@ -271,29 +279,46 @@ func (s *Sender) runUDPDownload(
 		return nil, err
 	}
 
-	streamDone := make(chan error, 1)
+	readDeadline := s.nowFn().Add(duration + 750*time.Millisecond)
+	_ = conn.SetReadDeadline(readDeadline)
+
+	var (
+		streamMu  sync.Mutex
+		streamErr error
+	)
+	streamDone := make(chan struct{})
 	go func() {
+		defer close(streamDone)
 		for {
 			chunk, recvErr := stream.Recv()
 			if errors.Is(recvErr, io.EOF) {
-				streamDone <- nil
+				streamMu.Lock()
+				streamErr = io.ErrUnexpectedEOF
+				streamMu.Unlock()
+				_ = conn.SetReadDeadline(time.Now())
 				return
 			}
 			if recvErr != nil {
-				streamDone <- recvErr
+				streamMu.Lock()
+				streamErr = recvErr
+				streamMu.Unlock()
+				_ = conn.SetReadDeadline(time.Now())
 				return
 			}
 			if chunk.GetEndOfPhase() {
-				streamDone <- nil
+				_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 				return
 			}
 		}
 	}()
 
+	stopRead := context.AfterFunc(ctx, func() {
+		_ = conn.SetReadDeadline(time.Now())
+	})
+	defer stopRead()
+
 	var tracker RFC3550Tracker
 	var firstSteady, lastSteady time.Time
-	readDeadline := s.nowFn().Add(duration + 750*time.Millisecond)
-	_ = conn.SetReadDeadline(readDeadline)
 
 	buf := make([]byte, 65536)
 	for ctx.Err() == nil {
@@ -328,15 +353,19 @@ func (s *Sender) runUDPDownload(
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 
-	var streamErr error
 	select {
-	case streamErr = <-streamDone:
+	case <-streamDone:
 	case <-time.After(500 * time.Millisecond):
 	case <-ctx.Done():
-		streamErr = ctx.Err()
 	}
-	if streamErr != nil && !errors.Is(streamErr, context.Canceled) {
-		return nil, streamErr
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	streamMu.Lock()
+	sErr := streamErr
+	streamMu.Unlock()
+	if sErr != nil {
+		return nil, sErr
 	}
 
 	stats := tracker.Snapshot(0)

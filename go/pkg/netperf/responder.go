@@ -352,7 +352,9 @@ func (r *Responder) Close() error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
-		close(r.stopCh)
+		if r.stopCh != nil {
+			close(r.stopCh)
+		}
 		if r.udpConn != nil {
 			_ = r.udpConn.Close()
 		}
@@ -587,23 +589,48 @@ func (r *Responder) handleStreamUpload(
 		return nil
 	}
 
+	type uploadRecvResult struct {
+		chunk *netperfpb.TestStreamChunk
+		err   error
+	}
+	recvCh := make(chan uploadRecvResult, 1)
+	stopRecv := make(chan struct{})
+	defer close(stopRecv)
+	go func() {
+		for {
+			chunk, recvErr := stream.Recv()
+			select {
+			case recvCh <- uploadRecvResult{chunk: chunk, err: recvErr}:
+			case <-stopRecv:
+				return
+			}
+			if recvErr != nil {
+				return
+			}
+		}
+	}()
+
 	for {
 		if err := sess.ctx.Err(); err != nil {
 			return status.Error(codes.DeadlineExceeded, err.Error())
 		}
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		done, err := processChunk(chunk)
-		if err != nil {
-			return err
-		}
-		if done {
-			return nil
+		select {
+		case <-sess.ctx.Done():
+			return status.Error(codes.DeadlineExceeded, sess.ctx.Err().Error())
+		case res := <-recvCh:
+			if errors.Is(res.err, io.EOF) {
+				return nil
+			}
+			if res.err != nil {
+				return res.err
+			}
+			done, err := processChunk(res.chunk)
+			if err != nil {
+				return err
+			}
+			if done {
+				return nil
+			}
 		}
 	}
 }
@@ -657,10 +684,17 @@ func (r *Responder) handleStreamDownload(
 	var seq uint64
 	for r.nowFn().Before(sess.downloadEnd) {
 		if err := sess.downloadLimiter.WaitN(streamCtx, len(buf)); err != nil {
-			if isRateDeadlineError(streamCtx, err) || !r.nowFn().Before(sess.downloadEnd) {
+			if phaseDone, fatalErr := classifyRateWaitError(stream.Context(), sess.ctx, streamCtx, sess.downloadEnd, r.nowFn(), err); phaseDone {
 				break
+			} else {
+				return status.FromContextError(fatalErr).Err()
 			}
-			return status.Error(codes.Canceled, err.Error())
+		}
+		if err := stream.Context().Err(); err != nil {
+			return status.FromContextError(err).Err()
+		}
+		if err := sess.ctx.Err(); err != nil {
+			return status.Error(codes.DeadlineExceeded, err.Error())
 		}
 		if !r.nowFn().Before(sess.downloadEnd) {
 			break
@@ -678,6 +712,13 @@ func (r *Responder) handleStreamDownload(
 		}
 		r.admission.addBytes(uint64(len(buf)))
 		sess.downloadPhase.record(len(buf), sess.omitDuration, r.nowFn())
+	}
+
+	if err := stream.Context().Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	if err := sess.ctx.Err(); err != nil {
+		return status.Error(codes.DeadlineExceeded, err.Error())
 	}
 
 	return stream.Send(&netperfpb.TestStreamChunk{
@@ -805,16 +846,23 @@ func combineBidirectionalSummaries(up, down *netperfpb.TestSummary) *netperfpb.T
 	if totalSec > 0 {
 		bps = (float64(bytesSent+bytesRecv) * 8.0) / totalSec
 	}
+	packetsSent := up.GetPacketsSent() + down.GetPacketsSent()
+	packetsLost := up.GetPacketsLost() + down.GetPacketsLost()
+	var lossPercent float64
+	if packetsSent > 0 {
+		lossPercent = (float64(packetsLost) * 100.0) / float64(packetsSent)
+	}
 	return &netperfpb.TestSummary{
 		DurationSeconds:   totalSec,
 		DurationNs:        totalNs,
 		BytesSent:         bytesSent,
 		BytesReceived:     bytesRecv,
 		BitsPerSecond:     bps,
-		PacketsSent:       up.GetPacketsSent() + down.GetPacketsSent(),
+		PacketsSent:       packetsSent,
 		PacketsReceived:   up.GetPacketsReceived() + down.GetPacketsReceived(),
-		PacketsLost:       up.GetPacketsLost() + down.GetPacketsLost(),
+		PacketsLost:       packetsLost,
 		OutOfOrderPackets: up.GetOutOfOrderPackets() + down.GetOutOfOrderPackets(),
+		LossPercent:       lossPercent,
 		JitterMs:          max(up.GetJitterMs(), down.GetJitterMs()),
 	}
 }

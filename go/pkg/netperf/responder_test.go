@@ -26,12 +26,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -320,4 +322,127 @@ func TestResponderAdmissionControlEpochUpdateAndReaper(t *testing.T) {
 	defer cancelShort()
 	_, err = plainClient.OpenSession(ctxShort, &netperfpb.OpenSessionRequest{})
 	require.Error(t, err)
+}
+
+func TestResponderHandleStreamUploadUnblocksOnSessionExpiration(t *testing.T) {
+	t.Parallel()
+
+	pki := newTestPKI(t)
+	hubSec := pki.agentSecurity(t, "agent-hub-01", 120)
+	spokeSec := pki.agentSecurity(t, "agent-spoke-01", 121)
+
+	seed := bytes.Repeat([]byte{0x66}, ed25519.SeedSize)
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := priv.Public().(ed25519.PublicKey)
+	keyID := []byte("0123456789abcdef")
+
+	snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+	resolver := TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }}
+
+	var clockOffsetNs atomic.Int64
+	nowFn := func() time.Time {
+		return time.Now().Add(time.Duration(clockOffsetNs.Load()))
+	}
+
+	resp, err := NewResponder(ResponderConfig{
+		AgentID:               "agent-hub-01",
+		PartitionID:           "default",
+		ListenAddress:         "127.0.0.1",
+		AllowEphemeralPort:    true,
+		MaxConcurrentSessions: 1,
+		MaxTotalBandwidthBps:  10_000_000,
+		MinAuthorityEpoch:     1,
+		Security:              hubSec,
+		KeyResolver:           resolver,
+		Logger:                logger.NewTestLogger(),
+		Now:                   nowFn,
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Start(context.Background()))
+	t.Cleanup(func() { _ = resp.Close() })
+
+	creds, owned, err := buildClientTransportCredentials(spokeSec, nil, nil, "agent-hub-01", "default", logger.NewTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if owned != nil {
+			_ = owned.Close()
+		}
+	})
+
+	conn, err := grpc.NewClient(resp.ListenAddr(), grpc.WithTransportCredentials(creds))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := netperfpb.NewNetworkPerfPeerServiceClient(conn)
+	now := time.Now()
+	permit := signTestPermit(t, priv, &netperfpb.NetperfPermitV1{
+		PermitVersion:    1,
+		PermitId:         "permit-upload-expire-1",
+		PartitionId:      "default",
+		SenderAgentId:    "agent-spoke-01",
+		ResponderAgentId: "agent-hub-01",
+		PolicyId:         "policy-expire",
+		MaxBandwidthBps:  10_000_000,
+		MaxDurationSec:   1,
+		MaxParallel:      1,
+		AllowedProtocols: []netperfpb.NetperfProtocol{netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP},
+		AllowedDirections: []netperfpb.NetperfDirection{
+			netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		},
+		IssuedAtUnix:   now.Unix() - 60,
+		ExpiresAtUnix:  now.Unix() + 600,
+		AuthorityEpoch: 1,
+		IssuerId:       "serviceradar-core",
+		IssuerKeyId:    keyID,
+		Algorithm:      "ed25519",
+	})
+
+	openResp, err := client.OpenSession(context.Background(), &netperfpb.OpenSessionRequest{
+		Permit:       permit,
+		Protocol:     netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+		Direction:    netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		BandwidthBps: 5_000_000,
+		DurationSec:  1,
+		Parallel:     1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), resp.SnapshotMetrics().ActiveSessions)
+
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer streamCancel()
+	stream, err := client.StreamTest(streamCtx)
+	require.NoError(t, err)
+
+	// Send one initial chunk without EndOfPhase and leave the send stream open/stalled.
+	require.NoError(t, stream.Send(&netperfpb.TestStreamChunk{
+		SessionId:   openResp.GetSessionId(),
+		StreamIndex: 0,
+		Phase:       netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		Data:        make([]byte, 1024),
+		Sequence:    1,
+	}))
+
+	// Advance responder clock past session deadline (1s + 20s grace = 21s) so reapLoop
+	// cancels sess.ctx while handleStreamUpload is blocked in stream.Recv().
+	clockOffsetNs.Store((30 * time.Second).Nanoseconds())
+
+	recvDone := make(chan error, 1)
+	go func() {
+		_, recvErr := stream.Recv()
+		if recvErr == nil {
+			recvErr = io.EOF
+		}
+		recvDone <- recvErr
+	}()
+
+	select {
+	case recvErr := <-recvDone:
+		require.Equal(t, codes.DeadlineExceeded, status.Code(recvErr), "expected DeadlineExceeded on expired upload stream, got: %v", recvErr)
+	case <-time.After(3 * time.Second):
+		t.Fatal("handleStreamUpload remained blocked in stream.Recv() past sess.ctx expiration")
+	}
+
+	require.Eventually(t, func() bool {
+		return resp.SnapshotMetrics().ActiveSessions == 0
+	}, 2*time.Second, 20*time.Millisecond)
 }
