@@ -8,7 +8,7 @@ and posts one Discord message naming every watched job whose newest status is
 
   * failure or error (a failed step, a timeout, a lost runner),
   * pending for longer than STALLED_AFTER, or
-  * absent or older than EXPECTED_WITHIN (the job did not run).
+  * absent, or a success older than EXPECTED_WITHIN (the job did not run).
 
 It runs from .github/workflows/scheduled-job-watch.yml, after the last nightly.
 
@@ -52,15 +52,16 @@ TIMEOUT_SECONDS = 30
 PAGE_LIMIT = 20
 
 QUERY = """
-query($owner: String!, $name: String!, $ref: String!, $since: GitTimestamp!, $after: String) {
+query($owner: String!, $name: String!, $ref: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     ref(qualifiedName: $ref) {
       target {
         ... on Commit {
-          history(first: 100, since: $since, after: $after) {
+          history(first: 100, after: $after) {
             pageInfo { hasNextPage endCursor }
             nodes {
               oid
+              committedDate
               status { contexts { context state createdAt targetUrl description } }
             }
           }
@@ -89,8 +90,13 @@ def parse_time(text):
 
 
 def newest_statuses(graphql_url, token, repository, now):
-    """The newest status of each context on recent commits of the branch."""
+    """The newest status of each context on recent commits of the branch.
+
+    The walk reads from the tip through the first commit older than LOOKBACK, so the
+    tip and the commit a recent status may sit on are read however old they are.
+    """
     owner, name = repository.split("/", 1)
+    cutoff = now - LOOKBACK
     newest = {}
     after = None
     for _ in range(PAGE_LIMIT):
@@ -102,7 +108,6 @@ def newest_statuses(graphql_url, token, repository, now):
                     "owner": owner,
                     "name": name,
                     "ref": f"refs/heads/{BRANCH}",
-                    "since": (now - LOOKBACK).isoformat(),
                     "after": after,
                 },
             },
@@ -123,6 +128,8 @@ def newest_statuses(graphql_url, token, repository, now):
                 held = newest.get(status["context"])
                 if held is None or seen["at"] > held["at"]:
                     newest[status["context"]] = seen
+            if parse_time(commit["committedDate"]) < cutoff:
+                return newest
         if not history["pageInfo"]["hasNextPage"]:
             return newest
         after = history["pageInfo"]["endCursor"]
@@ -134,17 +141,18 @@ def problems(newest, now):
     lines = []
     for job in WATCHED_JOBS:
         status = newest.get(job)
-        if status is None or now - status["at"] > EXPECTED_WITHIN:
-            last = f"last status {status['at']:%Y-%m-%d %H:%M} UTC" if status else "no status found"
-            lines.append(f"**{job}** did not run in the last {hours(EXPECTED_WITHIN)} hours ({last}).")
-        elif status["state"] in ("failure", "error"):
+        state = status["state"] if status else None
+        if state in ("failure", "error"):
             detail = f": {status['description']}" if status["description"] else ""
-            lines.append(f"**{job}** {status['state']}{detail} at `{status['commit'][:10]}`\n{status['url']}")
-        elif status["state"] == "pending" and now - status["at"] > STALLED_AFTER:
+            lines.append(f"**{job}** {state}{detail} at `{status['commit'][:10]}`\n{status['url']}")
+        elif state == "pending" and now - status["at"] > STALLED_AFTER:
             lines.append(
                 f"**{job}** has been pending for more than {hours(STALLED_AFTER)} hours "
                 f"at `{status['commit'][:10]}`\n{status['url']}"
             )
+        elif status is None or now - status["at"] > EXPECTED_WITHIN:
+            last = f"last status {status['at']:%Y-%m-%d %H:%M} UTC" if status else "no status found"
+            lines.append(f"**{job}** did not run in the last {hours(EXPECTED_WITHIN)} hours ({last}).")
     return lines
 
 
