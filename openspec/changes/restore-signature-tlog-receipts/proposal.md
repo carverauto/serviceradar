@@ -79,7 +79,8 @@ Rekor, so no installation depends on that log being up.
 - **Monitoring.** A scheduled GitHub Actions workflow on `arc-runner-set` runs a project-owned
   scanner (`build/ci/rekor_signing_monitor.py`) hourly. It reads every entry of the self-hosted log
   (small and fully enumerable), recomputes the RFC 6962 root against the log's signed tree head
-  under the pinned key, requires the previous checkpoint to be a prefix of the log, and selects the entries signed by the
+  under the pinned key, requires the previous checkpoint to be a prefix of the log (except on the manual bootstrap
+  dispatch that seeds the first checkpoint), and selects the entries signed by the
   release key. It alerts on any entry that does not match a payload
   recorded by one of the repository's release-key signing runs, within about one scan interval
   after the entry becomes decidable (every release-key signing run active at its integrated time

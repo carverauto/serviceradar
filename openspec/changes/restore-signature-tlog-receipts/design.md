@@ -307,10 +307,15 @@ project-owned scanner, `build/ci/rekor_signing_monitor.py`. `rekor_monitor` from
 which does not list the self-hosted log. Each run:
 
 - reads every entry of the self-hosted log, recomputes the RFC 6962 Merkle root, and checks it
-  against the log's signed tree head, which must verify under `docs/sigstore/rekor.pub`;
-- requires the previous checkpoint, kept as a workflow artifact with retention longer than the
-  scan interval, to be a prefix of the log (same leaves up to its size, same root); a scheduled
-  run that finds no checkpoint artifact, or a checkpoint that is not a prefix, fails and alerts;
+  against the log's signed tree head, which must verify under `docs/sigstore/rekor.pub`; a tree
+  head that does not verify, or a recomputed root that does not match it, fails the run and
+  alerts;
+- except on the bootstrap dispatch, requires the previous checkpoint to be a prefix of the log
+  (same leaves up to its size, same root); a scheduled run that finds no checkpoint artifact, or a
+  checkpoint that is not a prefix, fails and alerts. The checkpoint artifact is retained 90 days,
+  as long as the signing ledgers, and every successful run replaces it, carrying forward the
+  per-entry decisions and the first checkpoint's integrated time; it expires only if the monitor
+  stops for 90 days;
 - checks that `GET /api/v1/log/publicKey` still serves `docs/sigstore/rekor.pub` (Decision 5);
 - selects every release-key entry (public key `docs/cosign.pub`) in the whole log, including
   entries integrated before the first checkpoint, and judges each as below.
@@ -375,12 +380,12 @@ time, payload hash and a link to the entry. Every scan re-checks the open `signi
 issues, and when a later scan finds an entry explained (its ledger became visible, or it was
 acknowledged) the monitor closes that entry's issue with a comment naming the explaining run or
 acknowledgement. The workflow also posts to Discord through the
-existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_watch.py` does. Open
-Question 2 asks whether security alerts should have their own channel.
+existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_watch.py` does.
 
 **The monitor must be able to fail.**
 
-- A run that fails (log inconsistency, Rekor unreachable, checkpoint artifact missing or not a
+- A run that fails (a tree head that does not verify under the pinned key or a recomputed root
+  that does not match it, Rekor unreachable, checkpoint artifact missing or not a
   prefix of the log on a scheduled run, bad config) fails the workflow, opens an issue and posts to Discord.
 - The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
   reports the monitor when its last successful run is older than three scan intervals (three hours
@@ -390,7 +395,8 @@ Question 2 asks whether security alerts should have their own channel.
   API and finds the last successful one; `scheduled-job-watch.yml` gains `actions: read` for it. A
   monitor that stopped running is then noticed even if no run is left to report on itself.
 - *Blindness canary:* every ledger line with a `logIndex` from a signing run that ended more than
-  two scan intervals ago (two hours at the hourly default), whose entry was integrated after the monitor's first retained checkpoint, must
+  two scan intervals ago (two hours at the hourly default), whose entry was integrated after the first checkpoint's integrated time recorded once in
+  monitor state, must
   have been seen by the monitor as a matching entry. The canary does not check ledger lines whose
   entry was integrated before that checkpoint; this lower bound applies only to the canary, and
   those entries are still read and judged on every run like any other. A ledger entry the monitor
@@ -471,8 +477,7 @@ second line does not depend on the log.
   capacity monitoring and alerting as a database volume.
 - **Watch.** A scheduled job reads the audit log and reports every `transit/sign/cosign-release`
   request whose input hash (Transit signs the payload digest) matches no `sign` line in any signing
-  ledger, and every such request from an identity other than the signing runner's role. Alerts go
-  where the monitor's alerts go (Open Question 2).
+  ledger. Alerts go where the monitor's alerts go.
 - **Scope.** This change specifies the device and the watch; the watch is implemented once the
   device exists. Until then the audit log is not available and the forged-receipt case is
   undetected.

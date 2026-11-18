@@ -117,7 +117,7 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 - **AND** it SHALL contain the payload SHA-256 of the logged signature
 
 ### Requirement: Transparency-log monitoring for the release key
-A scheduled GitHub Actions workflow on `arc-runner-set` SHALL run the project-owned scanner `build/ci/rekor_signing_monitor.py` every hour; each run SHALL read every entry of the self-hosted Rekor v1 log, recompute the RFC 6962 root and check it against the log's signed tree head verified under `docs/sigstore/rekor.pub`, require the previous checkpoint (kept as a workflow artifact) to be a prefix of the log, check the served key, and select and judge every entry in the whole log signed by the release public key, including entries integrated before the first checkpoint. The first checkpoint SHALL be seeded only by an explicit manual `workflow_dispatch` with input `bootstrap=true`, reviewed by a person; the bootstrap run verifies the signed tree head under the pinned key, judges the whole log and writes the checkpoint. A scheduled run that finds no checkpoint artifact, or a checkpoint that is not a prefix of the log, SHALL fail and alert. The monitor SHALL keep each entry's decision (explained with its reason, or reported) in its checkpoint state, so an entry explained by a ledger stays explained after that run and its ledger artifact age out.
+A scheduled GitHub Actions workflow on `arc-runner-set` SHALL run the project-owned scanner `build/ci/rekor_signing_monitor.py` every hour; each run SHALL read every entry of the self-hosted Rekor v1 log, recompute the RFC 6962 root and check it against the log's signed tree head verified under `docs/sigstore/rekor.pub`, and, except on the manual `bootstrap=true` dispatch, require the previous checkpoint (kept as a workflow artifact) to be a prefix of the log, check the served key, and select and judge every entry in the whole log signed by the release public key, including entries integrated before the first checkpoint. The first checkpoint SHALL be seeded only by an explicit manual `workflow_dispatch` with input `bootstrap=true`, reviewed by a person; the bootstrap run verifies the signed tree head under the pinned key, judges the whole log and writes the checkpoint. A run whose signed tree head does not verify under `docs/sigstore/rekor.pub`, or whose recomputed root does not match it, SHALL fail and alert. A scheduled run that finds no checkpoint artifact, or a checkpoint that is not a prefix of the log, SHALL fail and alert. The monitor SHALL keep each entry's decision (explained with its reason, or reported) and the first checkpoint's integrated time in its checkpoint state. The checkpoint artifact SHALL be retained 90 days, as long as the signing ledgers, and every successful run SHALL replace it, carrying that state forward, so it expires only if the monitor stops for 90 days and an entry explained by a ledger stays explained after that run and its ledger artifact age out.
 It SHALL alert on every matching entry that is not explained. An entry is pending while a run of any release-key signing workflow that was active at the entry's integrated time is in progress; the monitor SHALL NOT alert on a pending entry and SHALL evaluate it after those runs end. An entry is explained only when it is a `hashedrekord` whose payload hash appears in a published signing ledger of one of those runs, or when it is listed in the committed acknowledged-entries file. Once those runs have ended, an entry that is not explained is unexplained. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue. An unexplained entry is reported within about one scan interval after it becomes decidable, that is, after every release-key signing run active at its integrated time has ended; for an entry that overlaps a long release run the worst case is the remaining run time plus one scan interval. The blindness canary alerts on a ledgered entry still unseen two scan intervals after its signing run ended, and the monitor is reported stale when its last successful run is older than three scan intervals.
 
 #### Scenario: Signature made outside the signing workflows
@@ -145,7 +145,8 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 - **AND** no alert SHALL be raised
 
 #### Scenario: Monitor run fails
-- **GIVEN** a scheduled monitor run that cannot reach the log, finds a stored checkpoint that is not a prefix of the log, or finds no checkpoint artifact
+- **GIVEN** a monitor run that cannot reach the log, gets a signed tree head that does not verify under `docs/sigstore/rekor.pub`, or recomputes a root that does not match it
+- **OR** a scheduled monitor run that finds a stored checkpoint that is not a prefix of the log, or finds no checkpoint artifact
 - **WHEN** the run ends
 - **THEN** the workflow SHALL fail
 - **AND** an alert SHALL be raised
@@ -175,13 +176,13 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 
 #### Scenario: Monitor is blind to its own signatures
 - **GIVEN** a ledger line with a log index from a signing run that ended more than two scan intervals ago (two hours at the hourly default)
-- **AND** the entry was integrated after the monitor's first retained checkpoint
+- **AND** the entry was integrated after the first checkpoint's integrated time recorded in monitor state
 - **AND** the monitor has not observed that entry as a match
 - **WHEN** the monitor runs
 - **THEN** it SHALL raise an alert that the monitor or the receipt is broken
 
 #### Scenario: Ledgered entry from before the monitor's first checkpoint
-- **GIVEN** a ledger line whose entry was integrated before the monitor's first retained checkpoint
+- **GIVEN** a ledger line whose entry was integrated before the first checkpoint's integrated time recorded in monitor state
 - **WHEN** the monitor runs
 - **THEN** the blindness canary SHALL NOT raise an alert for that line
 
