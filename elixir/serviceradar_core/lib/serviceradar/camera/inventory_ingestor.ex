@@ -816,7 +816,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
     provenance =
       %{
-        "name" => if(not blank?(name), do: :platform_inventory),
+        "name" => if(not blank?(name) or not blank?(attrs.hostname), do: :platform_inventory),
         "vendor" => if(not blank?(vendor_name) or not blank?(model), do: :hardware),
         "type" => :platform_inventory,
         "management_device_id" => :platform_inventory

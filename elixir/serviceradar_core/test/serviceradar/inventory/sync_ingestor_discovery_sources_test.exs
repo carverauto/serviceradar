@@ -364,7 +364,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert updated_camera.type == "camera"
     end
 
-    test "a camera created without a reported name or vendor yields both to later sources", %{
+    test "an unnamed camera keeps its reported hostname and never takes its uid as name", %{
       actor: actor
     } do
       camera_uid = "sr:camera-unnamed-#{System.unique_integer([:positive])}"
@@ -405,7 +405,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       assert :ok = SyncIngestor.ingest_updates([mapper_update], actor: actor)
       assert {:ok, updated} = Device.get_by_uid(camera_uid, false, actor: actor)
 
-      assert %{name: "lobby-cam-01", hostname: "lobby-cam-01"} =
+      assert %{name: nil, hostname: "cam-lobby.example"} =
                Map.take(updated, [:name, :hostname])
     end
 
