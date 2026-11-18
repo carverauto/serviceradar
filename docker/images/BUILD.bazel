@@ -125,11 +125,20 @@ pkg_tar(
 )
 
 pkg_tar(
-    name = "web_ng_sigstore_layer",
+    name = "web_ng_sigstore_rekor_keys_layer",
     srcs = ["//docs:sigstore/rekor-keys"],
     mode = "0644",
     package_dir = "/usr/share/serviceradar/sigstore/rekor-keys",
-    deps = [":web_ng_sigstore_allowlist_layer"],
+)
+
+# One image layer; each part keeps its own package_dir (a dep is re-rooted under the
+# outer package_dir, so the outer tar stays at /).
+pkg_tar(
+    name = "web_ng_sigstore_layer",
+    deps = [
+        ":web_ng_sigstore_allowlist_layer",
+        ":web_ng_sigstore_rekor_keys_layer",
+    ],
 )
 
 file_layer_amd64(

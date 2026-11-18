@@ -449,7 +449,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
       key = :public_key.generate_key({:namedCurve, :secp256r1})
       {:ECPrivateKey, _version, _private, parameters, public, _attributes} = key
       entry = :public_key.pem_entry_encode(:SubjectPublicKeyInfo, {{:ECPoint, public}, parameters})
-      {key, :public_key.pem_encode([entry])}
+      # One PEM block with one trailing newline, as cosign writes public keys.
+      {key, String.trim_trailing(:public_key.pem_encode([entry])) <> "\n"}
     end
 
     defp spki_der(pem) do
