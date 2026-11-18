@@ -50,7 +50,7 @@ until an operator selects it:
 
 - **Selectable.** Operators choose which agents (or cohorts) run which add-ons in the
   Edge Ops UI - no rebuild, no redeploy of the base agent.
-- **Signed.** Add-on OCI bundles are Cosign-signed (Rekor transparency log), and
+- **Signed.** Add-on OCI bundles are Cosign-signed with the release key, and
   each per-architecture pushed artifact carries an ed25519 signature from the agent
   release key; the agent verifies before activation.
 - **Out-of-process by default.** The `agent-sidecar` model runs add-ons as

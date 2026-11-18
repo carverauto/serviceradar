@@ -92,8 +92,8 @@ The AWX integration runs as a WASM plugin that exposes two manifests:
 - A scheduled `inventory_sync` entrypoint that emits `DeviceDiscovery` records.
 
 ServiceRadar ships the `awx` plugin as a signed, ready-to-import package. Import
-it through ServiceRadar's plugin staging flow — the platform requires Rekor /
-cosign verification for plugin imports; see the [WASM Plugins](./wasm-plugins.md)
+it through ServiceRadar's plugin staging flow — the platform requires cosign
+verification against the release key for plugin imports; see the [WASM Plugins](./wasm-plugins.md)
 guide for the publishing flow. Then assign both plugin manifests to the agent(s)
 that reach your AWX network. The `inventory_sync` assignment is what drives the
 `Device.ansible_managed` flag — without it, no devices flip to ansible-managed.
