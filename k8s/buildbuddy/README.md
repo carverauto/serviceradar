@@ -275,21 +275,18 @@ from `docker/images/Dockerfile.workflow-runner`) is versioned on its own `v1.0.2
 it is NOT re-tagged in lockstep with the action image above (see the Dockerfile header for why
 the lockstep rule was retired). After changing `docker/images/Dockerfile.workflow-runner`:
 
-1. Set `TAG` to a new immutable version, then build and promote:
+1. Merge the Dockerfile change, then publish it under a new immutable tag from CI:
    ```bash
-   python3 "$HARBOR_PUBLISH_TOOL" build docker buildx build \
-     --platform linux/amd64 --provenance=false --sbom=false \
-     -f docker/images/Dockerfile.workflow-runner \
-     -t "registry.carverauto.dev/serviceradar-builds/buildbuddy-workflow-runner:${TAG}" \
-     --push docker/images/
-   python3 "$HARBOR_PUBLISH_TOOL" promote --repositories buildbuddy-workflow-runner --tag "$TAG"
+   gh workflow run publish-dockerfile-image.yml --ref staging \
+     -f image=buildbuddy-workflow-runner -f tag=v1.0.24.6
    ```
-   Never re-push over an existing tag: the executors warm this image, so a moved tag means some
-   executors hold the old layers and others the new, with nothing in git showing a change -- and
-   Harbor holds this repository immutable anyway, so a bad tag can only be abandoned, not fixed
-   (v1.0.24.4 was pushed with buildx's default attestation index and is deliberately unreferenced;
-   keep `--provenance=false --sbom=false` so the tag is a plain single manifest like every
-   earlier one).
+   The workflow (`.github/workflows/publish-dockerfile-image.yml`) refuses a tag that already
+   exists, builds on a GitHub-hosted runner with the build robot only, then signs and promotes
+   the reported digest on the in-cluster signing runner. Its summary and its retained receipt
+   give the protected digest. Do not run the build by hand: promotion requires the image's
+   Cosign signature, which only the signing runner can make, and a hand-pushed tag cannot be
+   repaired because Harbor holds this repository immutable (v1.0.24.4 was pushed with buildx's
+   default attestation index and is deliberately unreferenced).
 2. Pin the protected receipt digest in the three places that reference it: every `container_image` in `buildbuddy.yaml`
    (`grep 'buildbuddy-workflow-runner:' buildbuddy.yaml` re-derives the list),
    `warmup_additional_images` in `k8s/buildbuddy/values-workflows.yaml`, and the pinned image

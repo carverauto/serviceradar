@@ -1,0 +1,241 @@
+name: Publish Dockerfile Image
+
+# Builds, signs and promotes one of the infrastructure images that come from a Dockerfile
+# rather than from Bazel (DOCKERFILE_IMAGES in //docker/images/image_inventory.bzl), under a
+# new immutable tag. Dispatch it from staging after the Dockerfile change has merged:
+#
+#   gh workflow run publish-dockerfile-image.yml --ref staging \
+#     -f image=buildbuddy-workflow-runner -f tag=v1.0.24.6
+#
+# Three jobs, because no one runner can do all of it. The in-cluster runners hold the
+# promotion credentials and reach the signing key, but have no Docker daemon. A GitHub-hosted
+# runner has Docker, and is given only the build robot, which can write nothing but the
+# unprotected build project. The image is promoted by the digest the build reported.
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Repository name of an image listed in DOCKERFILE_IMAGES"
+        required: true
+        type: choice
+        options:
+          - buildbuddy-workflow-runner
+      tag:
+        description: "New immutable tag, e.g. v1.0.24.6. An existing tag is refused."
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  OCI_REGISTRY: registry.carverauto.dev
+  IMAGE: ${{ inputs.image }}
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  # Before anything is uploaded: the registry has room, and the tag is new in both projects.
+  # A tag is never pushed twice. The executors warm these images, so a moved tag would leave
+  # some of them on the old layers with nothing in git showing a change.
+  preflight:
+    if: ${{ github.ref == 'refs/heads/staging' }}
+    runs-on: serviceradar-signing
+    environment: release
+    outputs:
+      dockerfile: ${{ steps.image.outputs.dockerfile }}
+      context: ${{ steps.image.outputs.context }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the image from the inventory
+        id: image
+        run: |
+          set -euo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+(\.[0-9]+){2,3}$ ]]; then
+            echo "tag must look like v1.0.24.6, got '${TAG}'" >&2
+            exit 1
+          fi
+          python3 - >> "${GITHUB_OUTPUT}" <<'PY'
+          import ast, os, pathlib, re
+
+          text = pathlib.Path("docker/images/image_inventory.bzl").read_text()
+          declared = ast.literal_eval(re.search(r"DOCKERFILE_IMAGES\s*=\s*(\[[\s\S]*?\])\n", text).group(1))
+          entry = next(entry for entry in declared if entry["repository"] == os.environ["IMAGE"])
+          for key in ("dockerfile", "context"):
+              assert pathlib.Path(entry[key]).exists(), entry[key]
+              print(f"{key}={entry[key]}")
+          PY
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Prepare scoped Harbor publishing and check registry capacity
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
+      - name: Refuse a tag that already exists
+        run: |
+          set -euo pipefail
+          for role in build protected; do
+            project="serviceradar-builds"
+            [[ "${role}" == "protected" ]] && project="serviceradar"
+            reference="${OCI_REGISTRY}/${project}/${IMAGE}:${TAG}"
+            if python3 "${HARBOR_PUBLISH_TOOL}" "${role}" oras resolve "${reference}" >/dev/null 2>"${RUNNER_TEMP}/resolve.err"; then
+              echo "${reference} already exists; choose a new tag" >&2
+              exit 1
+            fi
+            # Only "not found" proves the tag is free; a refused login proves nothing.
+            if ! grep -qi 'not found' "${RUNNER_TEMP}/resolve.err"; then
+              echo "could not tell whether ${reference} exists:" >&2
+              cat "${RUNNER_TEMP}/resolve.err" >&2
+              exit 1
+            fi
+          done
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup
+
+  build:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    environment: release
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Build and push to the build project
+        id: build
+        env:
+          DOCKERFILE: ${{ needs.preflight.outputs.dockerfile }}
+          CONTEXT: ${{ needs.preflight.outputs.context }}
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker-build"
+          mkdir -m 700 "${DOCKER_CONFIG}"
+          trap 'rm -rf "${DOCKER_CONFIG}"' EXIT
+          printf '%s' "${HARBOR_BUILD_ROBOT_SECRET}" \
+            | docker login "${OCI_REGISTRY}" --username "${HARBOR_BUILD_ROBOT_USERNAME}" --password-stdin
+          # --provenance=false --sbom=false keeps the tag a single manifest, like every earlier
+          # one. Without them buildx wraps the image in an index with an attestation manifest,
+          # and an immutable tag pushed that way can only be abandoned.
+          docker buildx build \
+            --platform linux/amd64 --provenance=false --sbom=false \
+            -f "${DOCKERFILE}" \
+            -t "${OCI_REGISTRY}/serviceradar-builds/${IMAGE}:${TAG}" \
+            --push "${CONTEXT}"
+          # What the registry now holds under the tag, not what the builder says it sent.
+          digest="$(docker buildx imagetools inspect \
+            "${OCI_REGISTRY}/serviceradar-builds/${IMAGE}:${TAG}" --format '{{.Manifest.Digest}}')"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+  promote:
+    needs: build
+    runs-on: serviceradar-signing
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DIGEST: ${{ needs.build.outputs.digest }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
+      - name: Sign and promote the digest the build reported
+        env:
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          build_reference="${OCI_REGISTRY}/serviceradar-builds/${IMAGE}:${TAG}"
+          pushed="$(python3 "${HARBOR_PUBLISH_TOOL}" build oras resolve "${build_reference}")"
+          if [[ "${pushed}" != "${DIGEST}" ]]; then
+            echo "${build_reference} is ${pushed}, but the build reported ${DIGEST}" >&2
+            exit 1
+          fi
+
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          SERVICERADAR_DOCKERFILE_IMAGE="${IMAGE}" SERVICERADAR_SIGN_REGISTRY_TAG="${TAG}" \
+            python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+
+          python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories "${IMAGE}" --tag "${TAG}"
+
+          protected_reference="${OCI_REGISTRY}/serviceradar/${IMAGE}:${TAG}"
+          promoted="$(python3 "${HARBOR_PUBLISH_TOOL}" protected oras resolve "${protected_reference}")"
+          if [[ "${promoted}" != "${DIGEST}" ]]; then
+            echo "${protected_reference} is ${promoted}, expected ${DIGEST}" >&2
+            exit 1
+          fi
+          {
+            printf '### %s\n\n' "${IMAGE}"
+            printf -- '- `%s`\n' "${protected_reference}"
+            printf -- '- digest `%s`\n' "${DIGEST}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Retain Harbor promotion receipts
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: harbor-promotion-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HARBOR_LIFECYCLE_DIR }}/receipts/*.json
+          if-no-files-found: error
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

@@ -27,6 +27,14 @@ PUBLISHABLE_IMAGES = [
     },
 ]
 
+# Infrastructure images built from a Dockerfile, not by Bazel: their contents are apt packages,
+# which would be a long list of pre-fetched .debs for an image that changes rarely. Each is
+# published one at a time by //.github/workflows/publish-dockerfile-image.yml, never by a
+# release, and only an image listed here can be built, signed and promoted that way.
+DOCKERFILE_IMAGES = [
+    {"repository": "buildbuddy-workflow-runner", "dockerfile": "docker/images/Dockerfile.workflow-runner", "context": "docker/images"},
+]
+
 def publishable_image_labels():
     """Return local labels for the canonical build artifact of each publishable image."""
 
