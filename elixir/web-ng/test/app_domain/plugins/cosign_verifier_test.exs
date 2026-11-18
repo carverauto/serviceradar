@@ -220,7 +220,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
     CosignVerifier.verify(%{ref: @artifact_ref, digest: digest, signature_manifest: signature_manifest})
   end
 
-  defp signature_manifest(nil), do: %{"layers" => [%{"annotations" => %{"dev.cosignproject.cosign/signature" => "c2ln"}}]}
+  defp signature_manifest(nil) do
+    %{"layers" => [%{"annotations" => %{"dev.cosignproject.cosign/signature" => "c2ln"}}]}
+  end
 
   defp signature_manifest(annotation) do
     %{
@@ -504,7 +506,9 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
     defp descriptor(media_type, body),
       do: %{"mediaType" => media_type, "size" => byte_size(body), "digest" => digest(body)}
 
-    defp put(fixture, path, content_type, body), do: Agent.update(fixture.store, &Map.put(&1, path, {content_type, body}))
+    defp put(fixture, path, content_type, body) do
+      Agent.update(fixture.store, &Map.put(&1, path, {content_type, body}))
+    end
 
     defp sign(key, data), do: data |> :public_key.sign(:sha256, key) |> Base.encode64()
 
