@@ -104,6 +104,14 @@ class WebNgImageTrustTest(unittest.TestCase):
                 self.assertEqual(shipped[name], content)
 
 
+class CutoverPinTest(unittest.TestCase):
+    def test_cutover_time_is_the_pinned_tag_time(self):
+        from datetime import datetime
+        cutover = json.loads((SIGSTORE / "cutover.json").read_text())
+        tag_time = datetime.fromisoformat(cutover["tag_time"].replace("Z", "+00:00"))
+        self.assertEqual(cutover["integrated_time_before"], int(tag_time.timestamp()))
+
+
 class PreCutoverAllowlistTest(unittest.TestCase):
     def test_allowlist_is_frozen(self):
         self.assertEqual(hashlib.sha256(ALLOWLIST.read_bytes()).hexdigest(), FROZEN_ALLOWLIST_SHA256)

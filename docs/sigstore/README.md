@@ -47,8 +47,9 @@ keys, so no installation depends on the log being up.
   (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
   carry public-good receipts, and release verification checks such a receipt
   on a **reused** signature against this key. It is never accepted for a new
-  signature, and it is not accepted at import or shipped in the web-ng
-  image. The transparency-log
+  signature, is accepted for a reused one only when the receipt was integrated
+  before the cutover pinned in `cutover.json` (the v1.5.8 tag time), and is not
+  accepted at import or shipped in the web-ng image. The transparency-log
   monitor will watch only the self-hosted log (pending: lands with the monitor
   PR).
 

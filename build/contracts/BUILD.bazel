@@ -329,6 +329,7 @@ py_test(
     srcs = ["rekor_key_consistency_test.py"],
     data = [
         "//docker/images:web_ng_sigstore_layer",
+        "//docs:sigstore/cutover.json",
         "//docs:sigstore/pre-cutover-first-party-digests.json",
         "//docs:sigstore/pre-cutover-rekor-keys",
         "//docs:sigstore/rekor.pub",
