@@ -60,7 +60,9 @@ BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
 # scripts/elixir_quality.sh workspace_projects. PRs gate format + Credo (--lint-only) through
 # the .github/workflows/elixir-quality.yml matrix, which need not list every project here;
-# the rest of the Mix contract runs daily from //buildbuddy.yaml.
+# BazelCI compiles each Bazel-built project with warnings as errors, and the dependency
+# audits, Sobelow and a warnings-as-errors compile of elixir/palisade (which Bazel does not
+# build) run daily from //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
