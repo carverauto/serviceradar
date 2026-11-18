@@ -1,4 +1,8 @@
 import {afterEach, beforeEach, describe, expect, test, vi} from "vitest"
+import React, {useEffect} from "react"
+import {Card} from "@blueprintjs/core"
+import {Window} from "happy-dom"
+import {mountBlueprintDashboard} from "@carverauto/serviceradar-dashboard-sdk/blueprint"
 
 import DashboardWasmHost from "./DashboardWasmHost"
 
@@ -1184,6 +1188,298 @@ describe("DashboardWasmHost async boot/updated/destroyed race hardening", () => 
       expect(hookB.connectFrameStream).not.toHaveBeenCalled()
     } finally {
       delete globalThis.__t5DestroyMount
+    }
+  }, 30_000)
+
+  test("same-renderer updated() mid-mount() with updated frames and rotated/cleared stream_token reboots cleanly", async () => {
+    const d1 = deferred()
+    const d2 = deferred()
+    const entered1 = deferred()
+    const entered2 = deferred()
+    const mountRecords = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5SameRendererUpdate = {
+      async mount(el, host, api) {
+        const callId = host.data_provider?.stream_token ?? "cleared"
+        const record = {
+          callId,
+          initialFrames: api.frames(),
+          receivedUpdates: [],
+          abortedAtMount: Boolean(api.signal?.aborted),
+        }
+        mountRecords.push(record)
+        api.onFrameUpdate?.((upd) => record.receivedUpdates.push(upd))
+
+        if (mountRecords.length === 1) {
+          entered1.resolve()
+          await d1.promise
+        } else {
+          entered2.resolve()
+          await d2.promise
+        }
+
+        const node = {id: `node-${callId}`}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push(callId)
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+
+    const sameRendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5SameRendererUpdate.mount(el, host, api)}"
+
+    try {
+      // host1 omits package.frames and sets initial stream_token: "tok-1"
+      const host1 = baseHost({
+        data_provider: {
+          stream_topic: "dashboards:test",
+          stream_token: "tok-1",
+          refresh_interval_ms: 10_000,
+        },
+        package: {
+          name: "Test Dashboard",
+          capabilities: [],
+          renderer_url: sameRendererUrl,
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+        },
+      })
+
+      hook.el.dataset.host = JSON.stringify(host1)
+      hook.mounted()
+      await entered1.promise
+
+      // host._host must NOT be prematurely assigned while mount() #1 is pending
+      expect(hook._host).toBeUndefined()
+
+      // Same-renderer updated() arrives mid-mount() with frames and rotated stream_token: "tok-2"
+      const host2 = baseHost({
+        data_provider: {
+          stream_topic: "dashboards:test",
+          stream_token: "tok-2",
+          refresh_interval_ms: 10_000,
+        },
+        package: {
+          ...host1.package,
+          frames: [{id: "f1", status: "ok", results: [{v: 42}]}],
+        },
+      })
+      hook.el.dataset.host = JSON.stringify(host2)
+      hook.updated()
+      await entered2.promise
+
+      // Resolve mount #2 first, then let stale mount #1 settle late
+      d2.resolve()
+      await flushMicrotasks()
+      d1.resolve()
+      await flushMicrotasks()
+
+      expect(mountRecords).toHaveLength(2)
+      expect(mountRecords[0].initialFrames).toEqual([])
+      expect(mountRecords[0].receivedUpdates).toEqual([])
+      expect(mountRecords[1].initialFrames).toEqual([{id: "f1", status: "ok", results: [{v: 42}]}])
+      expect(destroyCalls).toEqual(["tok-1"])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+      expect(hook.connectFrameStream.mock.calls[0][0].data_provider.stream_token).toBe("tok-2")
+      expect(hook._host.package.frames).toEqual([{id: "f1", status: "ok", results: [{v: 42}]}])
+
+      // Also verify cleared stream_token mid-mount() prevents connectFrameStream on stale token
+      const d3 = deferred()
+      const d4 = deferred()
+      const entered3 = deferred()
+      const entered4 = deferred()
+      const hookCleared = createLifecycleHookContext()
+      let clearedSeq = 0
+      globalThis.__t5SameRendererUpdate.mount = async (el) => {
+        clearedSeq += 1
+        const seq = clearedSeq
+        if (seq === 1) {
+          entered3.resolve()
+          await d3.promise
+        } else {
+          entered4.resolve()
+          await d4.promise
+        }
+        const node = {id: `cleared-${seq}`}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push(`cleared-${seq}`)
+            el.removeChild(node)
+          },
+        }
+      }
+
+      const hostWithTok = baseHost({
+        data_provider: {stream_topic: "dashboards:test", stream_token: "stale-tok"},
+        package: {...host1.package},
+      })
+      const hostClearedTok = baseHost({
+        data_provider: {stream_topic: "dashboards:test"},
+        package: {...host1.package, frames: [{id: "f2", status: "ok", results: [{v: 99}]}]},
+      })
+
+      hookCleared.el.dataset.host = JSON.stringify(hostWithTok)
+      hookCleared.mounted()
+      await entered3.promise
+
+      hookCleared.el.dataset.host = JSON.stringify(hostClearedTok)
+      hookCleared.updated()
+      await entered4.promise
+
+      d4.resolve()
+      await flushMicrotasks()
+      d3.resolve()
+      await flushMicrotasks()
+
+      expect(hookCleared.connectFrameStream).toHaveBeenCalledTimes(1)
+      expect(hookCleared.connectFrameStream.mock.calls[0][0].data_provider.stream_token).toBeUndefined()
+      expect(hookCleared._host.package.frames).toEqual([{id: "f2", status: "ok", results: [{v: 99}]}])
+
+      hook.destroyed()
+      hookCleared.destroyed()
+    } finally {
+      delete globalThis.__t5SameRendererUpdate
+    }
+  }, 30_000)
+
+  test("withTimeout rejection aborts pending waitForReady mountBlueprintDashboard and leaks zero MutationObservers after destroyed()", async () => {
+    const win = new Window({url: "https://dashboard.serviceradar.test/"})
+    const keys = [
+      "window",
+      "document",
+      "HTMLElement",
+      "HTMLDivElement",
+      "Element",
+      "Node",
+      "Text",
+      "SVGElement",
+      "DocumentFragment",
+      "MutationObserver",
+      "ResizeObserver",
+      "IntersectionObserver",
+      "Event",
+      "CustomEvent",
+      "MouseEvent",
+      "KeyboardEvent",
+      "FocusEvent",
+      "getComputedStyle",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "matchMedia",
+    ]
+    const previous = new Map()
+    for (const key of keys) {
+      previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+      const value = key === "window" ? win : win[key]
+      if (value !== undefined) {
+        Object.defineProperty(globalThis, key, {
+          configurable: true,
+          writable: true,
+          value:
+            typeof value === "function" &&
+            key !== "MutationObserver" &&
+            key !== "ResizeObserver" &&
+            key !== "IntersectionObserver" &&
+            !/^[A-Z]/.test(key)
+              ? value.bind(win)
+              : value,
+        })
+      }
+    }
+
+    const activeObservers = new Set()
+    const NativeMutationObserver = win.MutationObserver
+    globalThis.MutationObserver = class TrackedMutationObserver extends NativeMutationObserver {
+      constructor(cb) {
+        super(cb)
+        this._observing = false
+      }
+      observe(target, opts) {
+        this._observing = true
+        activeObservers.add(this)
+        return super.observe(target, opts)
+      }
+      disconnect() {
+        this._observing = false
+        activeObservers.delete(this)
+        return super.disconnect()
+      }
+    }
+
+    let effectCleanups = 0
+    function NeverReadyDashboard() {
+      useEffect(() => () => {
+        effectCleanups += 1
+      }, [])
+      return React.createElement(Card, null, "never-ready")
+    }
+
+    globalThis.__t5TimeoutBlueprintMount = (el, host, api) =>
+      mountBlueprintDashboard(NeverReadyDashboard, {waitForReady: true})(el, host, api)
+
+    const rendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5TimeoutBlueprintMount(el, host, api)}"
+
+    try {
+      const root = win.document.createElement("div")
+      win.document.body.appendChild(root)
+
+      const hook = {
+        ...DashboardWasmHost,
+        el: root,
+        _frameUpdateCallbacks: [],
+        connectFrameStream: vi.fn(),
+        disconnectFrameStream: vi.fn(),
+        pushEvent: vi.fn(),
+        isDarkMode: vi.fn(() => false),
+      }
+      root.dataset.host = JSON.stringify(
+        baseHost({
+          package: {
+            ...baseHost().package,
+            renderer_url: rendererUrl,
+            renderer: {
+              ...baseHost().package.renderer,
+              timeout_ms: 100,
+            },
+          },
+        }),
+      )
+
+      hook.mounted()
+
+      // Wait for the 100ms timeout to fire and React passive cleanups to run
+      await new Promise((resolve) => setTimeout(resolve, 260))
+      await flushMicrotasks()
+
+      expect(hook.el.innerHTML).toContain("Dashboard renderer failed")
+      expect(hook.el.innerHTML).toContain("dashboard renderer timed out after 100ms")
+      expect(hook._host).toBeUndefined()
+      expect(hook.connectFrameStream).not.toHaveBeenCalled()
+      expect(effectCleanups).toBe(1)
+      // Only hook._themeObserver remains active while the hook is still mounted
+      expect(activeObservers.size).toBe(1)
+
+      hook.destroyed()
+      await flushMicrotasks()
+      expect(activeObservers.size).toBe(0)
+    } finally {
+      delete globalThis.__t5TimeoutBlueprintMount
+      await win.happyDOM.close()
+      for (const [key, desc] of previous.entries()) {
+        if (desc) Object.defineProperty(globalThis, key, desc)
+        else delete globalThis[key]
+      }
     }
   }, 30_000)
 })

@@ -904,20 +904,13 @@ export function NetworkPerformanceDashboard() {
       if (spoke !== selectedLink.spokeId) return false
       const explicitResponder = String(tags.responder_agent_id || "").trim()
       const legacyTarget = String(tags.target || row.target_device_ip || "").trim()
+      const rowLegacyId = legacyTarget || "unassigned-target"
       if (selectedLink.responderIsLegacy) {
-        if (explicitResponder) return false
-        if (
-          legacyTarget &&
-          selectedLink.responderId !== "legacy-target" &&
-          legacyTarget !== selectedLink.responderId
-        ) {
+        if (explicitResponder || rowLegacyId !== selectedLink.responderId) {
           return false
         }
-      } else {
-        const responder = explicitResponder || legacyTarget
-        if (responder && responder !== selectedLink.responderId) {
-          return false
-        }
+      } else if (explicitResponder !== selectedLink.responderId) {
+        return false
       }
       if (dirFilter !== "all") {
         const rowDir = tags.direction ? String(tags.direction).toLowerCase() : null

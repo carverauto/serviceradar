@@ -788,4 +788,148 @@ describe("cloud.serviceradar.network-performance Blueprint dashboard", () => {
     expect(zeroLossCard.textContent).toContain("within SLA")
     expect(zeroLossCard.querySelector(".bp6-tag.bp6-intent-success")).not.toBeNull()
   })
+
+  test("isolates untagged spoke_history rows and literal 'legacy-target' rows from 198.51.100.99 and named Hub Responders", async () => {
+    const root = createMountRoot()
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        status: "ok",
+        results: [
+          {
+            timestamp: "2026-11-18T03:55:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 11_000_000,
+            target_device_ip: "198.51.100.99",
+            tags: {metric_family: "rperf", target: "198.51.100.99"},
+          },
+          {
+            timestamp: "2026-11-18T03:56:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 15_000_000,
+            tags: {metric_family: "rperf", target: "legacy-target"},
+          },
+          {
+            timestamp: "2026-11-18T03:57:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 999_000_000,
+            tags: {metric_family: "rperf", responder_agent_id: "agent-hub-real", direction: "upload", protocol: "tcp"},
+          },
+          {
+            timestamp: "2026-11-18T03:58:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 777_000_000,
+            tags: {metric_family: "rperf"},
+          },
+        ],
+      },
+      {id: "netperf_metric_trends", status: "ok", results: []},
+      {id: "netperf_spoke_summary", status: "ok", results: []},
+      {id: "netperf_responder_capacity", status: "ok", results: []},
+      {id: "netperf_agents", status: "ok", results: []},
+      {
+        id: "spoke_history",
+        status: "ok",
+        results: [
+          {
+            timestamp: "2026-11-18T03:50:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 12_000_000,
+            target_device_ip: "198.51.100.99",
+            tags: {metric_family: "rperf", target: "198.51.100.99"},
+          },
+          {
+            timestamp: "2026-11-18T03:51:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 777_000_000,
+            tags: {metric_family: "rperf"},
+          },
+          {
+            timestamp: "2026-11-18T03:52:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 333_000_000,
+            tags: {metric_family: "rperf", target: "legacy-target"},
+          },
+          {
+            timestamp: "2026-11-18T03:53:00Z",
+            agent_id: "agent-spoke-mix",
+            metric_name: "rperf.bits_per_second",
+            value: 888_000_000,
+            tags: {metric_family: "rperf", responder_agent_id: "agent-hub-real"},
+          },
+        ],
+      },
+    ]
+
+    const {host, api} = createHostApi({frames})
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+
+    // 1. 198.51.100.99 (legacy target) excludes untagged (777M), literal 'legacy-target' (333M/15M), and named hub (888M/999M)
+    const ipRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("198.51.100.99 (legacy target)"),
+    )
+    expect(ipRow).toBeDefined()
+    ipRow.click()
+    await flushUi()
+
+    let drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("12,000,000")
+    expect(drawerText).not.toContain("777,000,000")
+    expect(drawerText).not.toContain("333,000,000")
+    expect(drawerText).not.toContain("888,000,000")
+    expect(drawerText).not.toContain("999,000,000")
+
+    // 2. Named Hub Responder agent-hub-real excludes untagged (777M), 'legacy-target' (333M), and 198.51.100.99 (12M)
+    const hubRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("agent-hub-real"),
+    )
+    expect(hubRow).toBeDefined()
+    hubRow.click()
+    await flushUi()
+
+    drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("888,000,000")
+    expect(drawerText).not.toContain("777,000,000")
+    expect(drawerText).not.toContain("333,000,000")
+    expect(drawerText).not.toContain("12,000,000")
+
+    // 3. Literal 'legacy-target' excludes 198.51.100.99 (12M), untagged (777M), and agent-hub-real (888M)
+    const literalLegacyRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("legacy-target (legacy target)"),
+    )
+    expect(literalLegacyRow).toBeDefined()
+    literalLegacyRow.click()
+    await flushUi()
+
+    drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("333,000,000")
+    expect(drawerText).not.toContain("12,000,000")
+    expect(drawerText).not.toContain("777,000,000")
+    expect(drawerText).not.toContain("888,000,000")
+
+    // 4. Untagged ('unassigned-target') shows only untagged 777M
+    const unassignedRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("unassigned-target (legacy target)"),
+    )
+    expect(unassignedRow).toBeDefined()
+    unassignedRow.click()
+    await flushUi()
+
+    drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("777,000,000")
+    expect(drawerText).not.toContain("12,000,000")
+    expect(drawerText).not.toContain("333,000,000")
+    expect(drawerText).not.toContain("888,000,000")
+  })
 })

@@ -354,6 +354,10 @@ const DashboardWasmHost = {
     if (nextHost && this.updateBrowserModuleHost(nextHost, signature)) return
 
     this._bootGen = (this._bootGen || 0) + 1
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    this._bootAbortController = null
 
     try {
       this._moduleDestroy?.()
@@ -504,6 +508,10 @@ const DashboardWasmHost = {
   destroyed() {
     this._destroyed = true
     this._bootGen = (this._bootGen || 0) + 1
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    this._bootAbortController = null
     window.removeEventListener("resize", this._onResize)
     document.removeEventListener("visibilitychange", this._onVisibilityChange)
 
@@ -540,8 +548,16 @@ const DashboardWasmHost = {
   async boot() {
     const bootGen = (this._bootGen = (this._bootGen || 0) + 1)
     if (this._destroyed) return
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    const bootAbort = typeof AbortController === "function" ? new AbortController() : null
+    this._bootAbortController = bootAbort
     const host = this.readHostPayload()
-    if (!host) return
+    if (!host) {
+      if (this._bootAbortController === bootAbort) this._bootAbortController = null
+      return
+    }
     this._hostPayloadSignature = this.el.dataset.host || ""
 
     this.renderState("loading", "Loading dashboard renderer")
@@ -550,12 +566,12 @@ const DashboardWasmHost = {
       this.validateInterfaceVersion(host)
 
       if (this.rendererKind(host) === "built_in") {
-        await this.bootBuiltInRenderer(host, bootGen)
+        await this.bootBuiltInRenderer(host, bootGen, bootAbort)
         return
       }
 
       if (this.rendererKind(host) === "browser_module") {
-        await this.bootBrowserModule(host, bootGen)
+        await this.bootBrowserModule(host, bootGen, bootAbort)
         return
       }
 
@@ -608,6 +624,10 @@ const DashboardWasmHost = {
       if (this._bootGen === bootGen && !this._destroyed) {
         this.renderState("error", error?.message || String(error))
       }
+    } finally {
+      if (this._bootAbortController === bootAbort) {
+        this._bootAbortController = null
+      }
     }
   },
 
@@ -620,7 +640,87 @@ const DashboardWasmHost = {
     }
   },
 
-  async bootBrowserModule(host, bootGen = this._bootGen ?? 0) {
+  async mountExternalRenderer(host, bootGen, libraries, mount, bootAbort = null) {
+    const effectiveAbort = bootAbort || (typeof AbortController === "function" ? new AbortController() : null)
+    if (!bootAbort && effectiveAbort) {
+      try {
+        this._bootAbortController?.abort()
+      } catch (_error) {}
+      this._bootAbortController = effectiveAbort
+    }
+
+    const api = this.browserModuleApi(host, {
+      signal: effectiveAbort?.signal,
+      libraries,
+    })
+
+    let timedOut = false
+    let destroyedLate = false
+    const destroyStaleMount = (candidate) => {
+      if (destroyedLate) return
+      destroyedLate = true
+      const fn = typeof candidate === "function" ? candidate : candidate?.destroy
+      if (typeof fn === "function") {
+        try {
+          fn()
+        } catch (_error) {}
+      }
+    }
+
+    const mountPromise = Promise.resolve().then(() => mount(this.el, host, api))
+    mountPromise.then(
+      (lateMounted) => {
+        if (timedOut || (this._bootGen ?? 0) !== bootGen || this._destroyed || effectiveAbort?.signal?.aborted) {
+          destroyStaleMount(lateMounted)
+        }
+      },
+      () => {},
+    )
+
+    let mounted
+    try {
+      mounted = await withTimeout(
+        mountPromise,
+        rendererBootTimeoutMs(host),
+        `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
+      )
+    } catch (error) {
+      timedOut = true
+      try {
+        effectiveAbort?.abort()
+      } catch (_abortErr) {}
+      if (this._bootAbortController === effectiveAbort) {
+        this._bootAbortController = null
+      }
+      this.closeCameraSessions()
+      this._eventsApi?.clear()
+      this._eventsApi = null
+      this._actionsApi = null
+      this._frameUpdateCallbacks = []
+      throw error
+    }
+
+    if (this._bootAbortController === effectiveAbort) {
+      this._bootAbortController = null
+    }
+
+    if ((this._bootGen ?? 0) !== bootGen || this._destroyed || effectiveAbort?.signal?.aborted) {
+      timedOut = true
+      try {
+        effectiveAbort?.abort()
+      } catch (_abortErr) {}
+      destroyStaleMount(mounted)
+      return
+    }
+
+    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
+    this._host = host
+    this._dashboardLibraries = libraries
+    this._moduleDestroy = destroyFn
+    this.connectFrameStream(this._host)
+  },
+
+  async bootBrowserModule(host, bootGen = this._bootGen ?? 0, bootAbort = null) {
     const moduleUrl = host?.package?.renderer_url || host?.package?.wasm_url
     if (!moduleUrl) throw new Error("renderer module URL is missing")
     if (host?.package?.renderer?.trust !== "trusted") {
@@ -640,26 +740,10 @@ const DashboardWasmHost = {
 
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-browser-module")
-    this._host = host
-    this._dashboardLibraries = libraries
-
-    const mounted = await withTimeout(
-      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
-      rendererBootTimeoutMs(host),
-      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
-    )
-    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
-    if ((this._bootGen ?? 0) !== bootGen) {
-      try {
-        destroyFn?.()
-      } catch (_error) {}
-      return
-    }
-    this._moduleDestroy = destroyFn
-    this.connectFrameStream(host)
+    await this.mountExternalRenderer(host, bootGen, libraries, mount, bootAbort)
   },
 
-  async bootBuiltInRenderer(host, bootGen = this._bootGen ?? 0) {
+  async bootBuiltInRenderer(host, bootGen = this._bootGen ?? 0, bootAbort = null) {
     const entrypoint = String(host?.package?.renderer?.entrypoint || host?.package?.renderer?.artifact || "")
     const mount = builtInDashboardRenderers[entrypoint]
 
@@ -676,23 +760,7 @@ const DashboardWasmHost = {
 
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-built-in")
-    this._host = host
-    this._dashboardLibraries = libraries
-
-    const mounted = await withTimeout(
-      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
-      rendererBootTimeoutMs(host),
-      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
-    )
-    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
-    if ((this._bootGen ?? 0) !== bootGen) {
-      try {
-        destroyFn?.()
-      } catch (_error) {}
-      return
-    }
-    this._moduleDestroy = destroyFn
-    this.connectFrameStream(host)
+    await this.mountExternalRenderer(host, bootGen, libraries, mount, bootAbort)
   },
 
   actionsApiFor(host, capabilityAllowed) {
@@ -714,7 +782,7 @@ const DashboardWasmHost = {
     return this._eventsApi.publicApi()
   },
 
-  browserModuleApi(host) {
+  browserModuleApi(host, options = {}) {
     const capabilities = new Set(Array.isArray(host?.package?.capabilities) ? host.package.capabilities : [])
     const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
     const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
@@ -836,6 +904,7 @@ const DashboardWasmHost = {
 
     return {
       version: "dashboard-browser-module-host-v1",
+      ...(options.signal ? {signal: options.signal} : {}),
       capabilityAllowed,
       requireCapability: (capability) => {
         if (!capabilityAllowed(capability)) throw new Error(`dashboard capability is not approved: ${capability}`)
@@ -873,7 +942,7 @@ const DashboardWasmHost = {
         },
       },
       mapbox: () => (capabilityAllowed("map.basemap.read") ? host?.mapbox || {} : {}),
-      libraries: this._dashboardLibraries || {loadDependencies: loadMapDependencies},
+      libraries: options.libraries || this._dashboardLibraries || {loadDependencies: loadMapDependencies},
       onThemeChange: (callback) => {
         if (typeof callback !== "function") return () => {}
 

@@ -366,7 +366,7 @@ packages:
     hasBin: true
 
   '@carverauto/serviceradar-dashboard-sdk@file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz':
-    resolution: {integrity: sha512-wXDWnraOeWJmgjrDuRVDMdMw/3y60tkWY06S/zPyrV30YUHXrapSzWZXZLQU7QLAZ3VDxUm5tPJlXWhkvNlWew==, tarball: file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz}
+    resolution: {integrity: sha512-wgTF0maE67lDGszHj3H6w7vnMj/ThZqxdMEBdvwl1glCQ7A1x1hnHohBf44x1cKhiBsIGt/avJCAxwRCKqqMtA==, tarball: file:vendor/carverauto-serviceradar-dashboard-sdk-0.4.1.tgz}
     version: 0.4.1
     peerDependencies:
       '@blueprintjs/core': ^6.16.0
