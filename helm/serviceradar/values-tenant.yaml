@@ -219,11 +219,9 @@ logCollector:
     ports:
       netflow:
         enabled: false
-  # TCP shares the log-collector workload; replica/stream overrides below are legacy.
+  # TCP is a listener in the log-collector workload, sized by logCollector's own settings.
   tcpCollector:
     enabled: true
-    replicaCount: 3
-    streamReplicas: 3
     externalService:
       enabled: false
   otlp:

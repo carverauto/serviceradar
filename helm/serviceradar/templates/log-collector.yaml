@@ -10,10 +10,7 @@
 {{- $tcpCollectorService := default (dict) $tcpCollector.service -}}
 {{- $tcpCollectorServicePorts := default (dict) $tcpCollectorService.ports -}}
 {{- $tcpServicePort := default (dict) $tcpCollectorServicePorts.syslog -}}
-{{- $tcpTargetPort := 514 -}}
-{{- if hasKey $tcpServicePort "targetPort" -}}
-{{- $tcpTargetPort = $tcpServicePort.targetPort -}}
-{{- end -}}
+{{- $tcpTargetPort := include "serviceradar.logCollectorSyslogTcpTargetPort" . -}}
 {{- if and $tcpEnabled (or (not (regexMatch "^[0-9]+$" (toString $tcpTargetPort))) (lt (int $tcpTargetPort) 1) (gt (int $tcpTargetPort) 65535)) -}}
 {{- fail "logCollector.tcpCollector.service.ports.syslog.targetPort must be a numeric listener port between 1 and 65535" -}}
 {{- end -}}
