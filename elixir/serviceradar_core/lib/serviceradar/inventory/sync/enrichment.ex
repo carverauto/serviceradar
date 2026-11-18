@@ -106,17 +106,25 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
         ruled_model
 
       (sys_descr = sys_descr_from_metadata(metadata)) not in [nil, ""] ->
-        parse_model_from_sys_descr(sys_descr) ||
+        sys_descr
+        |> parse_model_from_sys_descr()
+        |> Kernel.||(
           parse_model_from_sys_name(
             Normalize.get_string(metadata, ["sys_name", "snmp_name", "sysName"])
           )
+        )
+        |> reject_not_vendor_evidence()
 
       true ->
-        parse_model_from_sys_name(
-          Normalize.get_string(metadata, ["sys_name", "snmp_name", "sysName"])
-        )
+        metadata
+        |> Normalize.get_string(["sys_name", "snmp_name", "sysName"])
+        |> parse_model_from_sys_name()
+        |> reject_not_vendor_evidence()
     end
   end
+
+  defp reject_not_vendor_evidence(model),
+    do: if(not_vendor_evidence?(model), do: nil, else: model)
 
   def infer_os(metadata, vendor_name, classification) when is_map(metadata) do
     explicit_name =

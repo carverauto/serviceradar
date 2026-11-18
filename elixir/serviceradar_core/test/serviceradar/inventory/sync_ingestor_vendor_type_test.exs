@@ -1735,6 +1735,28 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       assert %{vendor_name: "Juniper", model: "X1"} = stored(device)
     end
 
+    test "a sysDescr naming only an operating system writes no model and no vendor tier", %{
+      actor: actor
+    } do
+      os_only = %{"sys_descr" => "Linux custom network appliance 1.0"}
+      unvendored = new_device!(actor)
+      oui_first = new_device!(actor)
+
+      ingest!(actor, [source_update(unvendored, "mapper", metadata: os_only)])
+      assert %{vendor_name: nil, model: nil} = stored(unvendored)
+
+      ingest!(actor, [census_update(unvendored, mac: oui_mac("1C:B3:C9"))])
+      assert %{vendor_name: "Example NIC Vendor", model: nil} = stored(unvendored)
+
+      ingest!(actor, [census_update(oui_first, mac: oui_mac("1C:B3:C9"))])
+
+      ingest!(actor, [
+        source_update(oui_first, "mapper", mac: oui_mac("1C:B3:C9"), metadata: os_only)
+      ])
+
+      assert %{vendor_name: "Example NIC Vendor", model: nil} = stored(oui_first)
+    end
+
     test "an operating system classification is not a vendor and does not suppress the OUI", %{
       actor: actor
     } do

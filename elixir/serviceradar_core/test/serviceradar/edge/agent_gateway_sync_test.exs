@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -231,6 +232,45 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                Map.take(device, [:name, :hostname, :type, :type_id])
 
       assert device.metadata["device_role"] == "virtual-guest"
+    end
+
+    test "the names and type a check-in creates yield to any later source", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      ip = "10.79.#{rem(unique_id, 200)}.10"
+
+      assert {:ok, device_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "agent-host-01",
+                 source_ip: ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      mapper_update = fn hostname ->
+        then(
+          %{
+            "device_id" => device_uid,
+            "ip" => ip,
+            "partition" => "default",
+            "source" => "mapper",
+            "metadata" => %{"sys_descr" => "Network appliance OS", "ip_forwarding" => "1"}
+          },
+          &if(hostname, do: Map.put(&1, "hostname", hostname), else: &1)
+        )
+      end
+
+      assert :ok = SyncIngestor.ingest_updates([mapper_update.(nil)], actor: actor)
+      assert {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert %{name: ^ip, hostname: "agent-host-01"} = Map.take(device, [:name, :hostname])
+
+      assert :ok = SyncIngestor.ingest_updates([mapper_update.("core-sw-01")], actor: actor)
+      assert {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+
+      assert %{name: "core-sw-01", hostname: "core-sw-01", type: "Router", type_id: 12} =
+               Map.take(device, [:name, :hostname, :type, :type_id])
     end
 
     test "does not downgrade a discovered hypervisor host to server during agent sync", %{
@@ -1503,7 +1543,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                })
 
       assert :ok =
-               ServiceRadar.Inventory.SyncIngestor.ingest_updates(
+               SyncIngestor.ingest_updates(
                  [
                    %{
                      "ip" => ip,

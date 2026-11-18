@@ -162,7 +162,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
     | tags / labels | target queries | merged maps (union), not single-valued |
-    | `name` / `hostname` / `type` / `type_id` / `device_role` from `AgentGatewaySync` | - | non-writer: the agent check-in hostname and type are corroboration, not identity |
+    | `name` / `hostname` / `type` / `type_id` / `device_role` from `AgentGatewaySync` | - | non-writer on an existing device: the agent check-in hostname and type are corroboration, not identity; a device the check-in creates records them at the agent check-in tier below every other tier |
     | defaulted vendor (for example a WiFi-map batch filler when the row has none) | - | non-writer: not vendor evidence |
 
 13. Any integration inventory that reports a device's identity is platform
@@ -180,8 +180,12 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     UniFi Protect), the WiFi-map controller and batch ingestion
     (`WifiMap.BatchIngestor`), and `EndpointInventoryIngestor`.
     `AgentGatewaySync` is not one of them: its check-in hostname and type
-    are corroboration, and it no longer writes `name`, `hostname`, `type`,
-    `type_id` or `device_role`. A defaulted or guessed vendor (such as
+    are corroboration, and on an existing device it no longer writes `name`,
+    `hostname`, `type`, `type_id` or `device_role`. A device the check-in
+    creates takes the check-in hostname as `name` / `hostname` and its host
+    type as `type` / `type_id`, recorded at a dedicated agent check-in tier
+    (strength 0) below every other tier of the `name` and `type` ladders,
+    including the address fallback, so any other source replaces them. A defaulted or guessed vendor (such as
     `WifiMap.BatchIngestor`'s default when the row has none) is not vendor
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).

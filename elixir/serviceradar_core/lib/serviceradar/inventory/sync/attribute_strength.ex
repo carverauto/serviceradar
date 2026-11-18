@@ -13,7 +13,8 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
 
   ## Groups and ladders (weakest first)
 
-    * `name` -- name and hostname, one value: address fallback (the update has
+    * `name` -- name and hostname, one value: agent check-in (only on the
+      device the check-in creates) < address fallback (the update has
       no hostname, so the name is its kept non-link-local address) < observed
       hostname (passive census, mDNS, sweep) < automation inventory (AWX) <
       SNMP `sysName` (mapper) < platform inventory (hypervisor, camera, WiFi
@@ -22,7 +23,8 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
       (Net-SNMP) < IEEE OUI registrant < hardware vendor < manual. OS,
       software and platform names are not vendor evidence at all
       (`Enrichment.not_vendor_evidence?/1`).
-    * `type` -- type, type_id and metadata device_role, one value: generic
+    * `type` -- type, type_id and metadata device_role, one value: agent
+      check-in (only on the device the check-in creates) < generic
       (`host`, or an automation inventory's type) < fingerprint or
       classification rule < SNMP-derived < platform inventory < manual.
     * `integration_type` -- generic (automation inventory and non-inventory
@@ -55,6 +57,7 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
 
   @tiers %{
     "name" => %{
+      agent_check_in: 0,
       address_fallback: 1,
       observed: 2,
       automation_inventory: 3,
@@ -63,7 +66,14 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
       manual: 6
     },
     "vendor" => %{agent_software: 1, oui: 2, hardware: 3, manual: 4},
-    "type" => %{generic: 1, observed: 2, snmp: 3, platform_inventory: 4, manual: 5},
+    "type" => %{
+      agent_check_in: 0,
+      generic: 1,
+      observed: 2,
+      snmp: 3,
+      platform_inventory: 4,
+      manual: 5
+    },
     "integration_type" => %{generic: 1, platform_inventory: 2, manual: 3},
     "management_device_id" => %{mapper: 1, platform_inventory: 2}
   }
@@ -101,7 +111,7 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
   }
 
   @type group :: String.t()
-  @type tag :: %{String.t() => String.t() | pos_integer()}
+  @type tag :: %{String.t() => String.t() | non_neg_integer()}
 
   @doc "The attribute groups, in the order they appear in `attribute_provenance`."
   def groups, do: @groups
@@ -110,7 +120,7 @@ defmodule ServiceRadar.Inventory.Sync.AttributeStrength do
   def owned_metadata_keys, do: @owned_metadata_keys
 
   @doc "The strength of `tier` on `group`'s ladder."
-  @spec strength(group(), atom()) :: pos_integer()
+  @spec strength(group(), atom()) :: non_neg_integer()
   def strength(group, tier), do: @tiers |> Map.fetch!(group) |> Map.fetch!(tier)
 
   @doc "The tag a write of `group` at `tier` from `source` carries."

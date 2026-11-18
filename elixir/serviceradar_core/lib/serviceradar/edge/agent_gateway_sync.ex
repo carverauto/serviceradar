@@ -41,6 +41,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
@@ -856,6 +857,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:os, os_info)
       |> maybe_put(:zone, partition)
       |> compact_attrs()
+      |> Map.put(:attribute_provenance, check_in_provenance(hostname))
 
     # DB connection's search_path determines the schema. The check-in is an
     # identity-bearing observation (DeviceWrites.observed_after?/2), which
@@ -879,6 +881,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           allow_conflict_release?
         )
     end
+  end
+
+  defp check_in_provenance(hostname) do
+    type = %{"type" => AttributeStrength.tag("type", :agent_check_in, "agent")}
+
+    if present_string?(hostname),
+      do: Map.put(type, "name", AttributeStrength.tag("name", :agent_check_in, "agent")),
+      else: type
   end
 
   defp maybe_adopt_existing_active_ip_device(
@@ -1303,7 +1313,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # The check-in's hostname and host type are corroboration, not identity
   # (fix-device-attribute-source-precedence, design decision 13): writing them
   # here replaced the inventory's name and a hypervisor guest's or SNMP device's
-  # type on every check-in. Only a device the check-in creates takes them.
+  # type on every check-in. Only a device the check-in creates takes them, at the
+  # weakest tier, so any other source replaces them.
   defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now) do
     source_ip = agent_source_ip(attrs)
 

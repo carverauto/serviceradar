@@ -27,7 +27,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       # carries the strongest one, and the upsert decides it against the stored
       # vendor's recorded strength. The OUI is looked up only when no hardware
       # vendor is present.
-      %{vendor: inferred_vendor, vendor_class: inferred_class, model: model} =
+      %{vendor: inferred_vendor, vendor_class: inferred_class, model: inferred_model} =
         Enrichment.infer_vendor_and_model(update, classification)
 
       oui_resolved =
@@ -39,6 +39,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
           {_, {org, _prefix}} -> {org, :oui, oui_resolved}
           {class, nil} -> {inferred_vendor, class, nil}
         end
+
+      model = if vendor_class, do: inferred_model
 
       {device_type, device_type_id, type_evidence} =
         Enrichment.infer_device_type(update, classification)
@@ -56,11 +58,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       provenance =
         %{
           "name" => name_tag,
-          "vendor" =>
-            AttributeStrength.vendor_tag(
-              if(vendor_name || model, do: vendor_class || :hardware),
-              update
-            ),
+          "vendor" => AttributeStrength.vendor_tag(vendor_class, update),
           "type" => AttributeStrength.type_tag(device_type, type_evidence, update),
           "integration_type" => AttributeStrength.integration_type_tag(persisted_metadata, update)
         }

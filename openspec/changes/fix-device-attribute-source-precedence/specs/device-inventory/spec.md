@@ -30,8 +30,12 @@ as stated in each ladder. Every writer of these fields, including hypervisor
 enrichment, Proxmox enrichment, camera inventory, WiFi-map ingestion, endpoint
 inventory, SHALL write them through the same strength decision, with no update
 path that bypasses it. The agent gateway check-in's hostname and type are
-corroboration, not identity: it SHALL NOT write name, hostname, type, type_id or
-device_role. A defaulted or guessed vendor (such as a filler vendor an
+corroboration, not identity: on a device that already exists it SHALL NOT write
+name, hostname, type, type_id or device_role. On a device the check-in creates
+it SHALL record its hostname as name and hostname and its host type as type and
+type_id at a dedicated agent check-in tier below every other tier of those
+ladders, including the address fallback, so that any other source replaces
+them. A defaulted or guessed vendor (such as a filler vendor an
 ingestor sets when its source row has none) is not vendor evidence and SHALL
 NOT be written to the vendor.
 
@@ -268,6 +272,12 @@ inventory cleared it.
 - **GIVEN** a virtual guest whose name, hostname, type Virtual and device_role virtual-guest were recorded from the hypervisor inventory
 - **WHEN** an agent gateway check-in reporting hostname guest-host-01 and type Server for that guest is ingested
 - **THEN** the guest name, hostname, type, type_id and device_role SHALL be unchanged
+
+#### Scenario: A source replaces the names and type an agent check-in created
+- **GIVEN** a device created by an agent gateway check-in reporting hostname agent-host-01 and type Server
+- **WHEN** a mapper update for that device reporting sysName core-sw-01 and a router type is ingested
+- **THEN** the device name and hostname SHALL be core-sw-01
+- **AND** the device type SHALL be the type the mapper derived
 
 #### Scenario: A defaulted vendor is not written
 - **GIVEN** a device whose vendor was recorded from the MAC OUI

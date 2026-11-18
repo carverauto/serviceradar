@@ -137,7 +137,9 @@
       controller / batch ingestion, `EndpointInventoryIngestor`) through the
       shared strength decision; remove direct updates that skip it; stop
       `AgentGatewaySync` writing `name`, `hostname`, `type`, `type_id` or
-      `device_role`; stop defaulted vendors (for example the WiFi-map batch
+      `device_role` on an existing device, and record those it writes on a
+      device it creates at the agent check-in tier below every other tier;
+      stop defaulted vendors (for example the WiFi-map batch
       filler) writing `vendor_name`
 - [x] 6.6 Apply a multi-field value as a whole: fields a write does not carry
       stay stored (a role-only write keeps `type` / `type_id`; a vendor
