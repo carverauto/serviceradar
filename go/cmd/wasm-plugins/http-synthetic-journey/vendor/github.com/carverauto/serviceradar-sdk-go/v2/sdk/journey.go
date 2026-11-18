@@ -610,8 +610,8 @@ func (j *Journey) runStep(
 	} else {
 		outcome.DurationMS = float64(resp.Duration.Nanoseconds()) / 1e6
 	}
-	if resp.TLS != nil && (resp.TLS.LeafNotAfterUnix != 0 || resp.TLS.LeafSubjectCN != "" || resp.TLS.Version != "") {
-		days := resp.TLS.LeafDaysRemaining
+	if resp.TLS != nil && resp.TLS.LeafDaysRemaining != nil {
+		days := *resp.TLS.LeafDaysRemaining
 		outcome.TLSCertDays = &days
 	}
 
@@ -1175,7 +1175,7 @@ func mergeCookieHeaders(jarHeader, explicitHeader string) string {
 }
 
 func resolveJSONPath(root any, path string) (any, bool) {
-	if path == "" || path == "/" {
+	if path == "" {
 		return root, true
 	}
 

@@ -46,6 +46,16 @@ func Bool(v bool) *bool {
 	return &v
 }
 
+// Int returns a pointer to v for optional integer fields.
+func Int(v int) *int {
+	return &v
+}
+
+// Int64 returns a pointer to v for optional int64 fields.
+func Int64(v int64) *int64 {
+	return &v
+}
+
 // HTTPHopTrace records phase timings and metadata for one HTTP request hop.
 type HTTPHopTrace struct {
 	URL                    string `json:"url"`
@@ -80,8 +90,8 @@ type HTTPTLSInfo struct {
 	ALPN              string `json:"alpn,omitempty"`
 	LeafSubjectCN     string `json:"leaf_subject_cn,omitempty"`
 	LeafIssuerCN      string `json:"leaf_issuer_cn,omitempty"`
-	LeafNotAfterUnix  int64  `json:"leaf_not_after_unix"`
-	LeafDaysRemaining int    `json:"leaf_days_remaining"`
+	LeafNotAfterUnix  *int64 `json:"leaf_not_after_unix,omitempty"`
+	LeafDaysRemaining *int   `json:"leaf_days_remaining,omitempty"`
 }
 
 // HTTPResponse contains the proxied response data. Headers, SetCookies, Trace,

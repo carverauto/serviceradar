@@ -119,7 +119,7 @@ func TestHTTPSyntheticJourneyMultiStepSSOAndRedaction(t *testing.T) {
 					},
 					TLS: &sdk.HTTPTLSInfo{
 						Version:           "TLS1.3",
-						LeafDaysRemaining: 45,
+						LeafDaysRemaining: sdk.Int(45),
 					},
 				}, nil
 			case "https://app.example.test/api/me":
@@ -607,5 +607,65 @@ func TestHTTPSyntheticJourneyManifestAndSchemaSanity(t *testing.T) {
 		if strings.Contains(string(schemaBytes), `"`+forbidden+`"`) {
 			t.Fatalf("config.schema.json contains forbidden keyword %q", forbidden)
 		}
+	}
+}
+
+func TestHTTPSyntheticJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
+	cfgJSON := `{
+		"journey_name": "adversarial-g2-g4",
+		"min_cert_days_warn": 30,
+		"min_cert_days_crit": 7,
+		"steps": [
+			{
+				"name": "empty-key-and-no-leaf-cert",
+				"method": "GET",
+				"url": "https://app.example.test/edge",
+				"expect_status": [200],
+				"expect_json_fields": [
+					{"pointer": "/", "expected": "empty-key-val"}
+				],
+				"extract_json_fields": [
+					{"pointer": "/", "var": "empty_val"}
+				]
+			}
+		]
+	}`
+
+	capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+		ConfigJSON: []byte(cfgJSON),
+		HTTPHandler: func(_ context.Context, _ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+			return &sdk.HTTPResponse{
+				Status: 200,
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+				Body: []byte(`{"":"empty-key-val","a":"other"}`),
+				TLS: &sdk.HTTPTLSInfo{
+					Version:     "TLS1.3",
+					CipherSuite: "TLS_AES_128_GCM_SHA256",
+					ALPN:        "h2",
+				},
+			}, nil
+		},
+	}, func() error {
+		run_check()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+
+	var res sdk.Result
+	if err := json.Unmarshal(capture.ResultJSON, &res); err != nil {
+		t.Fatalf("decode ResultJSON: %v", err)
+	}
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("status = %s, want OK (summary=%q)", res.Status, res.Summary)
+	}
+	if len(capture.TelemetryJSON) != 1 {
+		t.Fatalf("telemetry batches = %d, want 1", len(capture.TelemetryJSON))
+	}
+	if strings.Contains(string(capture.TelemetryJSON[0]), "tls_cert_days_remaining") {
+		t.Fatalf("unexpected tls_cert_days_remaining emitted without leaf cert")
 	}
 }

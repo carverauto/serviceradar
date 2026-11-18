@@ -490,3 +490,103 @@ func TestHTTPSyntheticJourneyMaxStepsWithinMemoryLimitInWasm(t *testing.T) {
 		t.Fatalf("unexpected journey metrics: steps_completed=%v available=%v", stepsCompleted, journeyAvail)
 	}
 }
+
+func TestHTTPSyntheticJourneyWasmTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
+	wasm := loadBuiltWasm(t, "http_synthetic_journey.wasm")
+
+	cfgJSON := `{
+		"journey_name": "wasm-adversarial-g2-g4",
+		"min_cert_days_warn": 30,
+		"min_cert_days_crit": 7,
+		"steps": [
+			{
+				"name": "edge",
+				"method": "GET",
+				"url": "https://app.example.test/edge",
+				"expect_status": [200],
+				"expect_json_fields": [
+					{"pointer": "/", "expected": "empty-key-val"}
+				]
+			}
+		]
+	}`
+
+	hostNoLeaf := &wasmHost{
+		config: []byte(cfgJSON),
+		httpEnvelope: func(t *testing.T, _ wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+			return wasmHTTPEnvelopeResponse{
+				Status: 200,
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+				Body: []byte(`{"":"empty-key-val","a":"other"}`),
+				Trace: &wasmHTTPTrace{
+					TotalDurationNS:    5_000_000,
+					TTFBDurationNS:     4_000_000,
+					TransferDurationNS: 1_000_000,
+					FinalURL:           "https://app.example.test/edge",
+					Protocol:           "HTTP/2.0",
+				},
+				TLS: &wasmHTTPTLSInfo{
+					Version:     "TLS1.3",
+					CipherSuite: "TLS_AES_128_GCM_SHA256",
+					ALPN:        "h2",
+				},
+			}
+		},
+	}
+
+	hostNoLeaf.run(t, wasm, "run_check")
+	res := hostNoLeaf.results[len(hostNoLeaf.results)-1]
+	if res["status"] != "OK" {
+		t.Fatalf("no-leaf-cert result status = %v, summary = %v", res["status"], res["summary"])
+	}
+	if len(hostNoLeaf.telemetry) != 1 {
+		t.Fatalf("telemetry emissions = %d, want 1", len(hostNoLeaf.telemetry))
+	}
+	var teleNoLeaf struct {
+		Records []struct {
+			Payload string `json:"payload"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(hostNoLeaf.telemetry[0], &teleNoLeaf); err != nil {
+		t.Fatalf("unmarshal telemetry batch: %v", err)
+	}
+	rawNoLeaf, err := base64.StdEncoding.DecodeString(teleNoLeaf.Records[0].Payload)
+	if err != nil {
+		t.Fatalf("decode telemetry payload: %v", err)
+	}
+	var batchNoLeaf metricpb.MetricBatch
+	if err := proto.Unmarshal(rawNoLeaf, &batchNoLeaf); err != nil {
+		t.Fatalf("unmarshal MetricBatch: %v", err)
+	}
+	for _, m := range batchNoLeaf.GetMetrics() {
+		if m.GetName() == "synthetic.step.tls_cert_days_remaining" {
+			t.Fatalf("unexpected metric %s emitted without leaf cert", m.GetName())
+		}
+	}
+
+	// Verify 0 days remaining STILL triggers CRITICAL in compiled TinyGo Wasm when LeafDaysRemaining == 0.
+	zeroDays := 0
+	notAfter := int64(1790553600)
+	hostZeroDays := &wasmHost{
+		config: []byte(cfgJSON),
+		httpEnvelope: func(t *testing.T, _ wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+			return wasmHTTPEnvelopeResponse{
+				Status: 200,
+				Body:   []byte(`{"":"empty-key-val"}`),
+				TLS: &wasmHTTPTLSInfo{
+					Version:           "TLS1.3",
+					LeafNotAfterUnix:  &notAfter,
+					LeafDaysRemaining: &zeroDays,
+				},
+			}
+		},
+	}
+
+	hostZeroDays.run(t, wasm, "run_check")
+	zeroRes := hostZeroDays.results[len(hostZeroDays.results)-1]
+	if zeroRes["status"] != "CRITICAL" {
+		t.Fatalf("zero-day-cert result status = %v, want CRITICAL (summary=%v)", zeroRes["status"], zeroRes["summary"])
+	}
+}

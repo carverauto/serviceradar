@@ -270,6 +270,22 @@ func TestBuildPluginHTTPTLSZeroAndNegativeDaysRemaining(t *testing.T) {
 	assert.Equal(t, "TLS1.2", expiredInfo.Version)
 	require.NotNil(t, expiredInfo.LeafDaysRemaining)
 	assert.Equal(t, -2, *expiredInfo.LeafDaysRemaining)
+
+	// Handshake without PeerCertificates must omit leaf expiry fields rather than serializing 0.
+	noLeafInfo := buildPluginHTTPTLS(&tls.ConnectionState{
+		Version:            tls.VersionTLS13,
+		CipherSuite:        tls.TLS_AES_128_GCM_SHA256,
+		NegotiatedProtocol: "h2",
+	}, now)
+	require.NotNil(t, noLeafInfo)
+	assert.Equal(t, "TLS1.3", noLeafInfo.Version)
+	assert.Nil(t, noLeafInfo.LeafNotAfterUnix)
+	assert.Nil(t, noLeafInfo.LeafDaysRemaining)
+
+	noLeafEncoded, err := json.Marshal(noLeafInfo)
+	require.NoError(t, err)
+	assert.NotContains(t, string(noLeafEncoded), "leaf_not_after_unix")
+	assert.NotContains(t, string(noLeafEncoded), "leaf_days_remaining")
 }
 
 func TestPluginHostHTTPEnvelopeMultiSetCookiePreserved(t *testing.T) {
