@@ -128,6 +128,7 @@ go_test(
     srcs = [
         "awx_runtime_test.go",
         "declarative_check_runner_runtime_test.go",
+        "http_synthetic_journey_runtime_test.go",
         "proxmox_runtime_test.go",
         "tinygo_reflection_runtime_test.go",
         "wasm_runtime_host_test.go",
@@ -135,13 +136,16 @@ go_test(
     data = [
         ":awx_wasm",
         ":declarative_check_runner_wasm",
+        ":http_synthetic_journey_wasm",
         ":proxmox_inventory_wasm",
         ":tinygo_reflection_probe_wasm",
     ],
     deps = [
+        "//proto/metric/v1:metricpb",
         "@com_github_tetratelabs_wazero//:wazero",
         "@com_github_tetratelabs_wazero//api",
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
         "@io_bazel_rules_go//go/runfiles",
+        "@org_golang_google_protobuf//proto",
     ],
 )
