@@ -487,7 +487,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     |> case do
       value when is_binary(value) and value != "" ->
         "Failure reason: #{RelaySourceFailure.describe(value) || value}"
-      _ -> ""
+
+      _ ->
+        ""
     end
   end
 
