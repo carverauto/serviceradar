@@ -309,10 +309,16 @@ which does not list the self-hosted log. Each run:
 - reads every entry of the self-hosted log, recomputes the RFC 6962 Merkle root, and checks it
   against the log's signed tree head, which must verify under `docs/sigstore/rekor.pub`;
 - requires the previous checkpoint, kept as a workflow artifact with retention longer than the
-  scan interval, to be a prefix of the log (same leaves up to its size, same root);
+  scan interval, to be a prefix of the log (same leaves up to its size, same root); a scheduled
+  run that finds no checkpoint artifact, or a checkpoint that is not a prefix, fails and alerts;
 - checks that `GET /api/v1/log/publicKey` still serves `docs/sigstore/rekor.pub` (Decision 5);
-- selects every entry whose public key is the release key (`docs/cosign.pub`) and evaluates it as
-  below.
+- selects every release-key entry (public key `docs/cosign.pub`) in the whole log, including
+  entries integrated before the first checkpoint, and judges each as below.
+
+**Bootstrap.** The first checkpoint is seeded only by an explicit manual `workflow_dispatch` with
+input `bootstrap=true`, started and reviewed by a person, never automatically. The bootstrap run
+verifies the signed tree head under the pinned key, judges the whole log as every run does, and
+writes the checkpoint. Scheduled runs never bootstrap.
 
 The rejected alternative is Rekor's `POST /api/v1/index/retrieve` search by public key. It is cheap,
 but Rekor's OpenAPI marks it deprecated, experimental and "may be incomplete". A monitor that can
@@ -340,8 +346,11 @@ ledger is
 uploaded only when the job ends, the monitor does not decide on an entry while a release-key
 signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
 and no alert is raised. Once every such run has ended, the entry is explained if one of their
-ledgers holds its payload hash, and unexplained otherwise. A pending entry is kept in the
-monitor's state, next to the checkpoint, so later scans re-evaluate it.
+ledgers holds its payload hash, and unexplained otherwise. The monitor keeps each entry's state
+in its checkpoint state: pending, explained with its reason (the ledger run or the
+acknowledgement), or reported. Later scans re-evaluate pending and reported entries; an entry
+explained by a ledger stays explained after that run and its 90-day ledger artifact age out of the
+lookback.
 
 **False positives.**
 
@@ -371,8 +380,8 @@ Question 2 asks whether security alerts should have their own channel.
 
 **The monitor must be able to fail.**
 
-- A run that fails (log inconsistency, Rekor unreachable, checkpoint artifact missing, bad config)
-  fails the workflow, opens an issue and posts to Discord.
+- A run that fails (log inconsistency, Rekor unreachable, checkpoint artifact missing or not a
+  prefix of the log on a scheduled run, bad config) fails the workflow, opens an issue and posts to Discord.
 - The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
   reports the monitor when its last successful run is older than three scan intervals (three hours
   at the hourly default). `build/ci/scheduled_job_watch.py` only reads BuildBuddy commit statuses
@@ -382,16 +391,19 @@ Question 2 asks whether security alerts should have their own channel.
   monitor that stopped running is then noticed even if no run is left to report on itself.
 - *Blindness canary:* every ledger line with a `logIndex` from a signing run that ended more than
   two scan intervals ago (two hours at the hourly default), whose entry was integrated after the monitor's first retained checkpoint, must
-  have been seen by the monitor as a matching entry. Entries integrated before that checkpoint
-  were never in the monitor's scan range (see Historical entries) and are not checked. A ledger entry the monitor
+  have been seen by the monitor as a matching entry. The canary does not check ledger lines whose
+  entry was integrated before that checkpoint; this lower bound applies only to the canary, and
+  those entries are still read and judged on every run like any other. A ledger entry the monitor
   never saw means the monitor is blind (wrong release key, broken scan) or the receipt is bogus.
   Either way it alerts. Each release thereby proves the monitor works.
 
-**Historical entries.** The scanner reads the whole log, so release-key entries made before the
-ledger existed (the manual signings in Context) have no ledger. They are listed in
-`docs/sigstore/rekor-acknowledged-entries.json` in the PR that enables the monitor, and that
+**Historical entries.** Every run, the bootstrap run included, reads and judges every release-key
+entry in the whole log, including entries integrated before the first checkpoint. Each needs a
+ledger match or an entry in `docs/sigstore/rekor-acknowledged-entries.json`, and alerts otherwise.
+Release-key entries made before the ledger existed (the manual signings in Context) have no ledger,
+so they are listed in the acknowledged-entries file in the PR that enables the monitor, and that
 pre-ledger history is recorded in `docs/sigstore/README.md`. The monitor keeps the integrated time
-of its first retained checkpoint in its state, and the blindness canary uses it as its lower bound.
+of its first checkpoint in its state; only the blindness canary uses it, as its lower bound.
 
 ## Decision 8: Record the receipt status on the imported package
 

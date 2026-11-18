@@ -117,7 +117,7 @@ A ledger line holds the payload SHA-256, the subject, the workflow, the run ID a
 - **AND** it SHALL contain the payload SHA-256 of the logged signature
 
 ### Requirement: Transparency-log monitoring for the release key
-A scheduled GitHub Actions workflow on `arc-runner-set` SHALL run the project-owned scanner `build/ci/rekor_signing_monitor.py` every hour; each run SHALL read every entry of the self-hosted Rekor v1 log, recompute the RFC 6962 root and check it against the log's signed tree head verified under `docs/sigstore/rekor.pub`, require the previous checkpoint (kept as a workflow artifact) to be a prefix of the log, check the served key, and select the entries signed by the release public key.
+A scheduled GitHub Actions workflow on `arc-runner-set` SHALL run the project-owned scanner `build/ci/rekor_signing_monitor.py` every hour; each run SHALL read every entry of the self-hosted Rekor v1 log, recompute the RFC 6962 root and check it against the log's signed tree head verified under `docs/sigstore/rekor.pub`, require the previous checkpoint (kept as a workflow artifact) to be a prefix of the log, check the served key, and select and judge every entry in the whole log signed by the release public key, including entries integrated before the first checkpoint. The first checkpoint SHALL be seeded only by an explicit manual `workflow_dispatch` with input `bootstrap=true`, reviewed by a person; the bootstrap run verifies the signed tree head under the pinned key, judges the whole log and writes the checkpoint. A scheduled run that finds no checkpoint artifact, or a checkpoint that is not a prefix of the log, SHALL fail and alert. The monitor SHALL keep each entry's decision (explained with its reason, or reported) in its checkpoint state, so an entry explained by a ledger stays explained after that run and its ledger artifact age out.
 It SHALL alert on every matching entry that is not explained. An entry is pending while a run of any release-key signing workflow that was active at the entry's integrated time is in progress; the monitor SHALL NOT alert on a pending entry and SHALL evaluate it after those runs end. An entry is explained only when it is a `hashedrekord` whose payload hash appears in a published signing ledger of one of those runs, or when it is listed in the committed acknowledged-entries file. Once those runs have ended, an entry that is not explained is unexplained. An alert opens one GitHub issue labelled `security` and `signing-monitor` per entry UUID and posts to the configured Discord webhook. When a later scan finds the entry explained, the monitor SHALL close that issue. An unexplained entry is reported within about one scan interval after it becomes decidable, that is, after every release-key signing run active at its integrated time has ended; for an entry that overlaps a long release run the worst case is the remaining run time plus one scan interval. The blindness canary alerts on a ledgered entry still unseen two scan intervals after its signing run ended, and the monitor is reported stale when its last successful run is older than three scan intervals.
 
 #### Scenario: Signature made outside the signing workflows
@@ -145,10 +145,27 @@ It SHALL alert on every matching entry that is not explained. An entry is pendin
 - **AND** no alert SHALL be raised
 
 #### Scenario: Monitor run fails
-- **GIVEN** a monitor run that cannot reach the log, finds the log inconsistent with its stored checkpoint, or has lost its checkpoint
+- **GIVEN** a scheduled monitor run that cannot reach the log, finds a stored checkpoint that is not a prefix of the log, or finds no checkpoint artifact
 - **WHEN** the run ends
 - **THEN** the workflow SHALL fail
 - **AND** an alert SHALL be raised
+
+#### Scenario: Bootstrap seeds the first checkpoint
+- **GIVEN** no checkpoint artifact exists yet
+- **WHEN** a person dispatches the monitor workflow with `bootstrap=true`
+- **THEN** the run SHALL verify the signed tree head under the pinned key and judge every release-key entry in the whole log
+- **AND** SHALL write the first checkpoint
+
+#### Scenario: Unexplained entry from before the first checkpoint
+- **GIVEN** a release-key entry integrated before the monitor's first checkpoint whose payload hash is in no signing ledger and that is not acknowledged
+- **WHEN** the monitor runs
+- **THEN** the monitor SHALL raise an alert for that entry
+
+#### Scenario: Explaining ledger ages out
+- **GIVEN** an entry the monitor recorded as explained by a signing ledger
+- **WHEN** that run and its ledger artifact age out of the lookback
+- **THEN** the entry SHALL stay explained
+- **AND** no alert SHALL be raised for it
 
 #### Scenario: Monitor stops running
 - **GIVEN** the monitor's last successful GitHub Actions run is older than three scan intervals (three hours at the hourly default)

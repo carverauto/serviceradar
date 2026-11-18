@@ -99,8 +99,12 @@
   which verifies checkpoints only through a TUF trusted root that does not list the self-hosted
   log). Each run reads every entry of the self-hosted log, recomputes the RFC 6962 root and checks
   it against the signed tree head under `docs/sigstore/rekor.pub`, requires the previous checkpoint
-  (kept as a workflow artifact) to be a prefix of the log, checks the served key, and selects
-  entries whose key is `docs/cosign.pub`; ledger matching against every release-key signing workflow, with entries left pending (no alert)
+  (kept as a workflow artifact) to be a prefix of the log, checks the served key, and judges every
+  entry in the whole log whose key is `docs/cosign.pub`, including entries before the first
+  checkpoint; the first checkpoint is seeded only by a manual `workflow_dispatch` with
+  `bootstrap=true` reviewed by a person, and a scheduled run with no checkpoint artifact or a
+  non-prefix checkpoint fails and alerts; each entry's decision (explained with its reason, or
+  reported) kept in the checkpoint state; ledger matching against every release-key signing workflow, with entries left pending (no alert)
   while a run active at their integrated time is still in progress;
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
