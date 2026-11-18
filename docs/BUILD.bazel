@@ -15,6 +15,7 @@ exports_files([
 filegroup(
     name = "sigstore_rekor_keys",
     srcs = glob(["sigstore/rekor-keys/*.pub"]),
+    visibility = ["//visibility:public"],
 )
 
 sh_test(
