@@ -552,35 +552,6 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # This release sets the key, but in a branch the stubbed environment skips.
   @set_conditionally_here [ServiceRadar.NATS.Connection]
 
-  # Drift the first run of this test found: core's runtime.exs reads an
-  # environment variable for each key and this release does not, so the
-  # variable does nothing in production and the code default applies. The chart
-  # renders several of them on the core pod. Mirror a key into runtime.exs and
-  # delete it here; never add to this list.
-  @known_inert_in_release [
-    :ansible_catalog_base_dir,
-    :ansible_retention_interval_seconds,
-    :ansible_retention_run_detail_days,
-    :ansible_retention_run_summary_days,
-    :awx_controller_health_interval_seconds,
-    :awx_run_watchdog_interval_seconds,
-    :awx_schedule_evaluator_interval_seconds,
-    :device_enrichment_rules_dir,
-    :endpoint_inventory_native_addon_package,
-    :geo_tag_derivation_enabled,
-    :netprobe_native_addon_package,
-    :otel_collector_native_addon_package,
-    :prefix_tag_enrichment_enabled,
-    :prefix_tag_provider_trie_enabled,
-    :prefix_tags_loader_enabled,
-    :remote_access_desktop_rdp_enabled,
-    :sweep_srql_page_limit,
-    :threat_intel_engine_match_enabled,
-    :topology_endpoint_identity_promotion_enabled,
-    :topology_v2_contract_consumption_enabled,
-    :workload_identity_native_addon_package
-  ]
-
   test "prod config sets every serviceradar_core key that core's runtime.exs sets" do
     core_keys =
       @core_runtime_config
@@ -589,7 +560,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       |> Keyword.keys()
 
     release_keys = Keyword.keys(read_prod_config()[:serviceradar_core])
-    missing = core_keys -- (release_keys ++ @set_conditionally_here ++ @known_inert_in_release)
+    missing = core_keys -- (release_keys ++ @set_conditionally_here)
 
     assert core_keys != [],
            "core's runtime.exs set no :serviceradar_core keys; nothing was compared"
@@ -597,10 +568,41 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert missing == [],
            "set in serviceradar_core/config/runtime.exs but not in this release's " <>
              "runtime.exs, so their env vars are inert in production: #{inspect(missing)}"
+  end
 
-    # A listed key that is now mirrored, or that core no longer sets, must leave the list.
-    stale = Enum.filter(@known_inert_in_release, &(&1 in release_keys or &1 not in core_keys))
-    assert stale == [], "no longer drift; delete from @known_inert_in_release: #{inspect(stale)}"
+  test "prod config applies the Helm-rendered Ansible, add-on and prefix-tag settings" do
+    with_env("ANSIBLE_CATALOG_BASE_DIR", "/var/lib/serviceradar/ansible_catalog")
+    with_env("ANSIBLE_RETENTION_RUN_DETAIL_DAYS", "14")
+    with_env("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", "")
+    with_env("AWX_RUN_WATCHDOG_INTERVAL_SECONDS", "5")
+
+    with_env(
+      "SERVICERADAR_ENDPOINT_INVENTORY_ADDON_ARTIFACTS",
+      ~s({"linux/amd64":"registry.example.com/addon@sha256:abc"})
+    )
+
+    with_env("SERVICERADAR_ENDPOINT_INVENTORY_ADDON_OCI_REF", "registry.example.com/addon:1.2.3")
+    with_env("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", "true")
+    with_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "true")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:ansible_catalog_base_dir] == "/var/lib/serviceradar/ansible_catalog"
+    assert core_config[:ansible_retention_run_detail_days] == 14
+    # Helm renders an empty string for "keep run summaries forever".
+    assert core_config[:ansible_retention_run_summary_days] == nil
+    # Below the 30-second floor the watchdog would hammer the controller.
+    assert core_config[:awx_run_watchdog_interval_seconds] == 30
+    assert core_config[:prefix_tag_enrichment_enabled] == true
+    assert core_config[:remote_access_desktop_rdp_enabled] == true
+
+    assert Enum.sort(core_config[:endpoint_inventory_native_addon_package]) == [
+             artifacts: %{"linux/amd64" => "registry.example.com/addon@sha256:abc"},
+             source_oci_ref: "registry.example.com/addon:1.2.3"
+           ]
+
+    # An add-on with nothing configured stays staged: no artifacts, no pins.
+    assert core_config[:netprobe_native_addon_package] == [artifacts: %{}]
   end
 
   test "prod config enables automated MTR by default" do
