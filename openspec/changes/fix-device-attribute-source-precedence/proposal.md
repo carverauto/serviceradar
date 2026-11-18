@@ -190,8 +190,10 @@ inventory state rather than of nondeterministic compilation.
   that `GuestAddress.primary/1` skips). An IPv6 is primary only on an
   IPv6-only device, and a usable IPv4 it later gains takes over (a
   `169.254/16` address does not). A stored primary is kept unless the
-  incoming address is strictly stronger (a usable IPv4 over any IPv6, else a
-  higher rank within the same family; a higher-rank IPv6 never replaces a
+  incoming address is strictly stronger (a usable IPv4 over any IPv6; a
+  routable address of either family over a link-local primary, so a routable
+  IPv6 replaces a `169.254/16` primary; else a higher rank within the same
+  family; a higher-rank IPv6 never replaces a
   usable IPv4) or the stored address is absent from the sightings of the
   source that recorded it, computed from that source's snapshot membership
   before the write and recorded with the primary's source; a single-address

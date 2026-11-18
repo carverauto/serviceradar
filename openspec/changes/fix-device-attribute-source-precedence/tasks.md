@@ -157,7 +157,8 @@
       IPv6 only on IPv6-only devices (no usable IPv4; a `169.254/16`
       address does not count); the preference ranks only addresses a
       chooser accepts; the stored primary is kept unless the incoming
-      address is strictly stronger (usable IPv4 over any IPv6, else higher
+      address is strictly stronger (usable IPv4 over any IPv6; routable of
+      either family over a link-local primary of either family; else higher
       rank within the same family after the IPv4-mapped unwrap; a
       higher-rank IPv6 never replaces a usable IPv4) or the stored address
       is absent from the sightings of the source that recorded it (another
@@ -231,7 +232,8 @@
       routable address replaces it (the existing "a device with only
       link-local addresses keeps one" sync test stays); an IPv6-only device
       that gains a usable IPv4 switches primary, and one that gains only a
-      `169.254/16` address keeps its routable IPv6; an IPv4 re-IP replaces
+      `169.254/16` address keeps its routable IPv6, and a device at
+      `169.254.1.5` that gains `2001:db8::5` takes the IPv6 as primary; an IPv4 re-IP replaces
       once the old address leaves the recording source's window; two NICs
       both sighted keep the first primary; another source reporting a
       different IPv4 does not move the primary; fe80 and 169.254 sightings

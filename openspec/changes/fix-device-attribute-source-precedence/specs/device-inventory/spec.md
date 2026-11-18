@@ -305,8 +305,9 @@ never-downgrade rank, with no address-fallback name (it keeps a stronger
 recorded name, or none), and any routable address (a usable IPv4, or a
 global or ULA IPv6 when no usable IPv4 exists) SHALL replace it. An IPv6 SHALL be primary only on an IPv6-only device,
 and a usable IPv4 that device later gains SHALL take over. A stored primary ip SHALL be kept unless the incoming address is
-strictly stronger (a usable IPv4 over any IPv6; otherwise a higher rank
-within the same family, after unwrapping an IPv4-mapped IPv6 such as
+strictly stronger (a usable IPv4 over any IPv6; a routable address of either
+family over a link-local primary of either family, so a routable IPv6 replaces
+a 169.254/16 primary; otherwise a higher rank within the same family, after unwrapping an IPv4-mapped IPv6 such as
 ::ffff:192.0.2.1 to IPv4; a higher-rank IPv6 SHALL NOT replace a usable IPv4), or the stored address is absent from the sightings of the
 source that recorded it (that source's snapshot no longer contains it, or it
 has aged out of that source's window); a single-address update from another
@@ -345,6 +346,11 @@ routable IPv6.
 - **THEN** the primary ip SHALL remain 192.0.2.3
 - **AND** 2001:db8::3 SHALL be recorded as a live alias of the device
 - **AND** the device name and hostname SHALL NOT be an IPv6 literal
+
+#### Scenario: A routable IPv6 replaces an APIPA primary
+- **GIVEN** a device with no usable IPv4 whose primary ip is 169.254.1.5, still in its recording source's window
+- **WHEN** a sighting reports 2001:db8::5 for the device
+- **THEN** the primary ip SHALL become 2001:db8::5
 
 #### Scenario: A higher-rank IPv6 does not replace a private IPv4
 - **GIVEN** a device whose primary ip is the private 192.168.0.3 (rank 40), still in its recording source's window

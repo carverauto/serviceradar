@@ -155,7 +155,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     | `type` / `type_id` / `metadata.device_role` | plugin inputs (`target_kind`), `ProxmoxHostAuthority` | ranked (decision 4), one value |
     | `integration_type` | plugin inputs, unmerge | ranked (decision 5) |
     | metadata `integration_id` | (dropped) | provider-scoped identifiers (decision 10) |
-    | `ip` | SNMP compiler, sweep compiler, plugin inputs | kept unless strictly stronger (usable IPv4 over any IPv6, else higher rank within the same family) or absent from its recording source's sightings (decision 14) |
+    | `ip` | SNMP compiler, sweep compiler, plugin inputs | kept unless strictly stronger (usable IPv4 over any IPv6; routable over a link-local primary; else higher rank within the same family) or absent from its recording source's sightings (decision 14) |
     | `hypervisor_provider_ref`, `proxmox_node`, `proxmox_cluster`, `hypervisor_guest_type`, `hypervisor_vmid`, `proxmox_base_url` | plugin inputs, `ProxmoxHostAuthority` | owner: hypervisor platform inventory |
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
@@ -202,7 +202,9 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     rejects. An IPv6 is primary only on an IPv6-only
     device; if that device later gains a usable IPv4, the IPv4 takes over.
     A stored primary is kept unless the incoming address is strictly
-    stronger (a usable IPv4 over any IPv6; otherwise a higher rank within
+    stronger (a usable IPv4 over any IPv6; a routable address of either
+    family over a link-local primary of either family, so a routable IPv6
+    replaces a `169.254/16` primary; otherwise a higher rank within
     the same family after the existing IPv4-mapped unwrap, so
     `::ffff:a.b.c.d` is IPv4; a higher-rank IPv6 never replaces a usable
     IPv4) or the stored address is absent from the sightings of the source
