@@ -446,3 +446,167 @@ func TestResponderHandleStreamUploadUnblocksOnSessionExpiration(t *testing.T) {
 		return resp.SnapshotMetrics().ActiveSessions == 0
 	}, 2*time.Second, 20*time.Millisecond)
 }
+
+func TestResponderUDPNATTuplePinningIgnoresSpoofedSource(t *testing.T) {
+	t.Parallel()
+
+	pki := newTestPKI(t)
+	hubSec := pki.agentSecurity(t, "agent-hub-01", 210)
+	spokeSec := pki.agentSecurity(t, "agent-spoke-01", 211)
+
+	seed := bytes.Repeat([]byte{0x77}, ed25519.SeedSize)
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := priv.Public().(ed25519.PublicKey)
+	keyID := []byte("0123456789abcdef")
+
+	snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+	resolver := TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }}
+
+	resp, err := NewResponder(ResponderConfig{
+		AgentID:               "agent-hub-01",
+		PartitionID:           "default",
+		ListenAddress:         "127.0.0.1",
+		AllowEphemeralPort:    true,
+		UDPEnabled:            true,
+		MaxConcurrentSessions: 2,
+		MaxTotalBandwidthBps:  50_000_000,
+		MinAuthorityEpoch:     1,
+		Security:              hubSec,
+		KeyResolver:           resolver,
+		Logger:                logger.NewTestLogger(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Start(context.Background()))
+	t.Cleanup(func() { _ = resp.Close() })
+
+	creds, owned, err := buildClientTransportCredentials(spokeSec, nil, nil, "agent-hub-01", "default", logger.NewTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if owned != nil {
+			_ = owned.Close()
+		}
+	})
+
+	conn, err := grpc.NewClient(resp.ListenAddr(), grpc.WithTransportCredentials(creds))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := netperfpb.NewNetworkPerfPeerServiceClient(conn)
+	now := time.Now()
+	permit := signTestPermit(t, priv, &netperfpb.NetperfPermitV1{
+		PermitVersion:    1,
+		PermitId:         "permit-udp-nat-pin-1",
+		PartitionId:      "default",
+		SenderAgentId:    "agent-spoke-01",
+		ResponderAgentId: "agent-hub-01",
+		PolicyId:         "policy-udp-nat-pin",
+		MaxBandwidthBps:  10_000_000,
+		MaxDurationSec:   5,
+		MaxParallel:      1,
+		AllowedProtocols: []netperfpb.NetperfProtocol{netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP},
+		AllowedDirections: []netperfpb.NetperfDirection{
+			netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		},
+		IssuedAtUnix:   now.Unix() - 60,
+		ExpiresAtUnix:  now.Unix() + 600,
+		AuthorityEpoch: 1,
+		IssuerId:       "serviceradar-core",
+		IssuerKeyId:    keyID,
+		Algorithm:      "ed25519",
+	})
+
+	openResp, err := client.OpenSession(context.Background(), &netperfpb.OpenSessionRequest{
+		Permit:       permit,
+		Protocol:     netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+		Direction:    netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		BandwidthBps: 5_000_000,
+		DurationSec:  5,
+		OmitSec:      0,
+		Parallel:     1,
+		PacketLength: DefaultPacketLength,
+	})
+	require.NoError(t, err)
+	require.True(t, openResp.GetAccepted())
+	require.Len(t, openResp.GetSessionId(), UDPSessionSize)
+	require.Len(t, openResp.GetUdpSessionKey(), UDPKeySize)
+
+	var sid [UDPSessionSize]byte
+	copy(sid[:], openResp.GetSessionId())
+	udpKey := openResp.GetUdpSessionKey()
+
+	resp.sessionsMu.Lock()
+	sess := resp.udpSessions[sid]
+	resp.sessionsMu.Unlock()
+	require.NotNil(t, sess)
+
+	targetUDP := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(resp.UDPPort())}
+	connA, err := net.DialUDP("udp", nil, targetUDP)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = connA.Close() })
+
+	connB, err := net.DialUDP("udp", nil, targetUDP)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = connB.Close() })
+	require.NotEqual(t, connA.LocalAddr().String(), connB.LocalAddr().String())
+
+	// Socket A sends valid-HMAC HELLO to pin lockedPeerAddr.
+	helloPkt := make([]byte, UDPHeaderSize)
+	require.NoError(t, EncodeUDPDatagram(helloPkt, udpKey, UDPFlagHello, sid, 0, uint64(time.Now().UnixNano())))
+	_, err = connA.Write(helloPkt)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		sess.udpMu.Lock()
+		defer sess.udpMu.Unlock()
+		return sess.hasLockedPeer
+	}, 2*time.Second, 5*time.Millisecond)
+
+	// Socket B (different source port) sends valid-HMAC DATA and END -> must be ignored.
+	spoofData := make([]byte, DefaultPacketLength)
+	require.NoError(t, EncodeUDPDatagram(spoofData, udpKey, UDPFlagData, sid, 1, uint64(time.Now().UnixNano())))
+	_, err = connB.Write(spoofData)
+	require.NoError(t, err)
+
+	spoofEnd := make([]byte, UDPHeaderSize)
+	require.NoError(t, EncodeUDPDatagram(spoofEnd, udpKey, UDPFlagEnd, sid, 1, uint64(time.Now().UnixNano())))
+	_, err = connB.Write(spoofEnd)
+	require.NoError(t, err)
+
+	_ = connB.SetReadDeadline(time.Now().Add(80 * time.Millisecond))
+	replyBuf := make([]byte, 256)
+	n, readErr := connB.Read(replyBuf)
+	require.Error(t, readErr)
+	require.Zero(t, n)
+
+	require.Equal(t, uint64(0), sess.udpTracker.Snapshot(0).PacketsReceived)
+	select {
+	case <-sess.udpEndCh:
+		t.Fatal("spoofed source END packet must not close pinned UDP session")
+	default:
+	}
+
+	// Socket A's subsequent valid-HMAC DATA and END are accepted.
+	realData := make([]byte, DefaultPacketLength)
+	require.NoError(t, EncodeUDPDatagram(realData, udpKey, UDPFlagData, sid, 1, uint64(time.Now().UnixNano())))
+	_, err = connA.Write(realData)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return sess.udpTracker.Snapshot(1).PacketsReceived == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	realEnd := make([]byte, UDPHeaderSize)
+	require.NoError(t, EncodeUDPDatagram(realEnd, udpKey, UDPFlagEnd, sid, 1, uint64(time.Now().UnixNano())))
+	_, err = connA.Write(realEnd)
+	require.NoError(t, err)
+
+	closeResp, err := client.CloseSession(context.Background(), &netperfpb.CloseSessionRequest{
+		SessionId: openResp.GetSessionId(),
+		SenderSummary: &netperfpb.TestSummary{
+			PacketsSent: 1,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), closeResp.GetResponderSummary().GetPacketsReceived())
+	require.Equal(t, uint64(DefaultPacketLength), closeResp.GetResponderSummary().GetBytesReceived())
+}
