@@ -13,8 +13,8 @@ address rank, #3905) and manual `type` ownership.
    `integration_type`) stores its source and evidence strength alongside the
    value. Strength is assigned by the writer from the evidence it holds, not
    inferred later from the value.
-2. Strength order for `name`, weakest first, with no two sources sharing a
-   tier:
+2. Strength order for `name`, weakest first. Several sources may share a
+   tier; the same-source tie-break (decision 6) decides between them:
    1. address fallback: the update has no hostname, so the name is an address
       (the passive census and hypervisor enrichment both produce these);
    2. passive census sighting with an observed hostname;
@@ -78,8 +78,18 @@ address rank, #3905) and manual `type` ownership.
    1. a generic automation inventory that lists the device as a host;
    2. the inventory that discovers the device as its own platform object
       (hypervisor inventory for a hypervisor node or VM).
-6. An equal-or-stronger write replaces the recorded value. A weaker write
-   fills the attribute only when no value is stored. Nothing else decides:
+6. The stored source is recorded alongside the strength. A write replaces
+   the recorded value when its strength is strictly greater, or when its
+   strength is equal and it comes from the same source that recorded the
+   stored value (the same-source tie-break). A write from a different source
+   at the same tier keeps the stored value until a strictly stronger write
+   arrives. Accepted trade-off: if the owning source is removed or stops
+   reporting, its value stays until something strictly stronger writes. The
+   address-fallback name still follows the device's kept address, because it
+   is the same source rewriting its own value. A weaker write fills the
+   attribute only when no strength has been recorded; a recorded clear (an
+   empty value with a recorded strength, such as a platform inventory's
+   `nil` `management_device_id`) is a stored decision. Nothing else decides:
    there is no test comparing the stored name with the stored address. A
    populated value without a recorded strength (rows written before this
    change) is kept against a weakest-tier write; the next write of any tier
@@ -101,7 +111,7 @@ address rank, #3905) and manual `type` ownership.
    the write, so a role-only mapper write keeps `type` / `type_id` and an
    OUI write without a model keeps the stored `model`.
 9. In-batch merging (`merge_records_by_uid`) applies the same order and the
-   same equal-or-stronger rule to the updates it combines, so two updates for
+   same replace rule (decision 6) to the updates it combines, so two updates for
    one device in one batch resolve the same way as in two batches.
 10. The denormalized metadata `integration_id` slot is dropped. Integration
     membership already lives per provider in `device_identifiers`; readers of
@@ -136,6 +146,8 @@ address rank, #3905) and manual `type` ownership.
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
     | tags / labels | target queries | merged maps (union), not single-valued |
+    | `name` / `hostname` / `type` / `type_id` / `device_role` from `AgentGatewaySync` | - | non-writer: the agent check-in hostname and type are corroboration, not identity |
+    | defaulted vendor (for example a WiFi-map batch filler when the row has none) | - | non-writer: not vendor evidence |
 
 13. Any integration inventory that reports a device's identity is platform
     inventory for those fields, by default, so a new integration needs no new
@@ -150,8 +162,13 @@ address rank, #3905) and manual `type` ownership.
     `HypervisorEnrichmentIngestor`, `ProxmoxEnrichmentIngestor`,
     `Camera.InventoryIngestor` (`camera_device_update_attrs`, for example
     UniFi Protect), the WiFi-map controller and batch ingestion
-    (`WifiMap.BatchIngestor`), `EndpointInventoryIngestor`, and
-    `AgentGatewaySync` where it reports identity.
+    (`WifiMap.BatchIngestor`), and `EndpointInventoryIngestor`.
+    `AgentGatewaySync` is not one of them: its check-in hostname and type
+    are corroboration, and it no longer writes `name`, `hostname`, `type`,
+    `type_id` or `device_role`. A defaulted or guessed vendor (such as
+    `WifiMap.BatchIngestor`'s default when the row has none) is not vendor
+    evidence and never writes `vendor_name`. Writers that share a tier are
+    settled by the same-source tie-break (decision 6).
 
 ## Open questions
 

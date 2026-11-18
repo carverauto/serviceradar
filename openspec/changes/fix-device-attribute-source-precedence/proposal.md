@@ -84,14 +84,17 @@ inventory state rather than of nondeterministic compilation.
 
 - Each single-valued attribute written by sync ingestion (`name`,
   `vendor_name`, `type`, `integration_type`) records its source and evidence
-  strength alongside the value. An equal-or-stronger write replaces the
-  recorded value; a weaker write fills the attribute only when it has no
-  stored value. A populated value with no recorded strength (written before
+  strength alongside the value. A write replaces the recorded value when its
+  strength is strictly greater, or equal and from the same source that
+  recorded it; a different source at the same tier keeps the stored value. A
+  weaker write fills the attribute only when no strength has been recorded,
+  so a recorded clear stays. A populated value with no recorded strength (written before
   rollout) may be replaced once by a write of any tier above the weakest, which
   records its strength, and never by a weakest-tier write. There is no second
   test (such as "the stored name equals the stored address"): the recorded
   strength alone decides.
-  - `name`, weakest to strongest, no two sources sharing a tier: address
+  - `name`, weakest to strongest (sources sharing a tier are settled by the
+    same-source rule): address
     fallback (the update has no hostname, so the name is an address, as from
     the passive census or a hypervisor-enrichment update whose record has no
     name) < passive census sighting with an observed hostname < automation
@@ -149,8 +152,11 @@ inventory state rather than of nondeterministic compilation.
   inventory for those fields by default (top name tier, hardware-vendor
   tier, platform type tier), with the automation inventory as the ranked
   exception. Every such writer (hypervisor and Proxmox enrichment, camera
-  inventory, WiFi-map ingestion, endpoint inventory, agent gateway sync) goes
-  through the same strength decision, with no bypassing update. A write
+  inventory, WiFi-map ingestion, endpoint inventory) goes through the same
+  strength decision, with no bypassing update. The agent gateway check-in's
+  hostname and type are corroboration and no longer write identity fields,
+  and a defaulted vendor (such as a WiFi-map batch filler) never writes
+  `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry
   stays stored.
 - No change to the agent config compilers. Masking the flapping fields there

@@ -4,8 +4,11 @@
       `type` and `integration_type`; a populated value with no recorded
       strength is kept against weakest-tier writes; the next write of any
       tier above the weakest replaces it and records its strength
-- [ ] 1.2 Upsert: an equal-or-stronger write replaces the recorded value; a
-      weaker value fills only an empty attribute
+- [ ] 1.2 Upsert: record the source with the strength; a write replaces the
+      recorded value when strictly stronger, or equal and from the same
+      source; a different source at the same tier keeps the stored value; a
+      weaker value fills only an attribute with no recorded strength (a
+      recorded clear is a stored decision)
 - [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
 - [ ] 1.4 Derive an address fallback name from the address kept after the
       address rank guard
@@ -120,14 +123,19 @@
 - [ ] 6.5 Route every decision 13 platform-inventory writer
       (`HypervisorEnrichmentIngestor`, `ProxmoxEnrichmentIngestor`,
       `Camera.InventoryIngestor` `camera_device_update_attrs`, WiFi-map
-      controller / batch ingestion, `EndpointInventoryIngestor`,
-      `AgentGatewaySync` identity writes) through the shared strength
-      decision; remove direct updates that skip it
+      controller / batch ingestion, `EndpointInventoryIngestor`) through the
+      shared strength decision; remove direct updates that skip it; stop
+      `AgentGatewaySync` writing `name`, `hostname`, `type`, `type_id` or
+      `device_role`; stop defaulted vendors (for example the WiFi-map batch
+      filler) writing `vendor_name`
 - [ ] 6.6 Apply a multi-field value as a whole: fields a write does not carry
       stay stored (a role-only write keeps `type` / `type_id`; a vendor
       without a model keeps `model`)
 - [ ] 6.7 Test: an SNMP-polled camera keeps the camera inventory name,
-      vendor, model and type across mapper and census passes, and the agent
+      vendor, model and type across mapper and census passes; a same-tier
+      mapper hardware vendor keeps the first recorded camera vendor; an agent
+      check-in leaves a guest's type and name unchanged; a defaulted WiFi-map
+      vendor does not write `vendor_name`; and the agent
       config version does not change
 
 ## 7. Rollout

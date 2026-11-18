@@ -2,9 +2,15 @@
 
 ### Requirement: Weaker evidence does not overwrite stronger device attributes
 Sync ingestion SHALL record, alongside each stored device name, vendor, type
-and integration type, the source and evidence strength of the value. An
-equal-or-stronger write SHALL replace the recorded value, and a weaker write
-SHALL only fill an attribute that has no stored value. A populated value
+and integration type, the source and evidence strength of the value. A write
+SHALL replace the recorded value when its strength is strictly greater, or when
+its strength is equal and it comes from the same source that recorded the
+stored value; a write from a different source at the same tier SHALL keep the
+stored value until a strictly stronger write arrives. A weaker write SHALL only
+fill an attribute for which no strength has been recorded; a recorded clear
+(an empty value with a recorded strength, such as a platform inventory's
+cleared management_device_id) is a stored decision and SHALL NOT be filled by
+a weaker write. A populated value
 without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
 and record its strength. For a value made of several fields (name and
@@ -21,10 +27,15 @@ platform-inventory type tier, and its management_device_id the platform tier
 above the mapper. The automation inventory (such as AWX) is ranked below that,
 as stated in each ladder. Every writer of these fields, including hypervisor
 enrichment, Proxmox enrichment, camera inventory, WiFi-map ingestion, endpoint
-inventory and agent gateway sync, SHALL write them through the same strength
-decision, with no update path that bypasses it.
+inventory, SHALL write them through the same strength decision, with no update
+path that bypasses it. The agent gateway check-in's hostname and type are
+corroboration, not identity: it SHALL NOT write name, hostname, type, type_id or
+device_role. A defaulted or guessed vendor (such as a filler vendor an
+ingestor sets when its source row has none) is not vendor evidence and SHALL
+NOT be written to the vendor.
 
-Name strength, weakest first, with no two sources sharing a tier: a name
+Name strength, weakest first (several sources may share a tier, and the
+same-source rule above decides between them): a name
 derived from an address because the update carries no hostname (as sent by the
 passive census, which re-emits every binding seen in the last 15 minutes every
 120 seconds, and by hypervisor enrichment of existing devices); a hostname from
@@ -229,6 +240,23 @@ inventory cleared it.
 - **WHEN** a mapper pass that would fill an empty management_device_id runs
 - **THEN** the management_device_id SHALL remain none
 - **AND** the SNMP polling host compiled for the camera SHALL NOT change
+
+#### Scenario: Two writers at the same tier keep the first recorded value
+- **GIVEN** a camera whose vendor Example Cam Co and model were recorded from the camera inventory at the hardware-vendor tier
+- **WHEN** a mapper update deriving the hardware vendor Example Cam at the same tier is ingested
+- **THEN** the stored vendor and model SHALL remain the camera inventory values
+- **AND WHEN** the camera inventory reports the same camera again
+- **THEN** its write SHALL be accepted as the same source
+
+#### Scenario: An agent check-in does not change a guest's identity
+- **GIVEN** a virtual guest whose name, hostname, type Virtual and device_role virtual-guest were recorded from the hypervisor inventory
+- **WHEN** an agent gateway check-in reporting hostname guest-host-01 and type Server for that guest is ingested
+- **THEN** the guest name, hostname, type, type_id and device_role SHALL be unchanged
+
+#### Scenario: A defaulted vendor is not written
+- **GIVEN** a device whose vendor was recorded from the MAC OUI
+- **WHEN** a WiFi-map batch row with no vendor is ingested and the ingestor supplies a default vendor
+- **THEN** the stored vendor SHALL be unchanged
 
 #### Scenario: An SNMP-polled camera keeps its camera inventory identity
 - **GIVEN** a camera whose name, vendor, model and type were recorded from the camera inventory
