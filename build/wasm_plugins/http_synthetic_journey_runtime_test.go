@@ -252,3 +252,111 @@ func TestHTTPSyntheticJourneyCriticalShortCircuitUnderAgentLifecycle(t *testing.
 		t.Fatalf("expected SKIPPED in result: %s", rawRes)
 	}
 }
+
+func TestHTTPSyntheticJourneyInheritanceAndPrefixScrubbingInWasm(t *testing.T) {
+	wasm := loadBuiltWasm(t, "http_synthetic_journey.wasm")
+
+	t.Run("inherits follow_redirects=false and overrides insecure_skip_verify=true->false", func(t *testing.T) {
+		cfgJSON := `{
+			"journey_name": "wasm-inheritance",
+			"follow_redirects": false,
+			"insecure_skip_verify": true,
+			"steps": [
+				{
+					"name": "inherited",
+					"url": "https://app.example.test/one",
+					"expect_status": [200]
+				},
+				{
+					"name": "override",
+					"url": "https://app.example.test/two",
+					"follow_redirects": true,
+					"insecure_skip_verify": false,
+					"expect_status": [200]
+				}
+			]
+		}`
+
+		var seen []wasmHTTPRequest
+		host := &wasmHost{
+			config: []byte(cfgJSON),
+			httpEnvelope: func(_ *testing.T, req wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+				seen = append(seen, req)
+				return wasmHTTPEnvelopeResponse{
+					Status: 200,
+					Trace: &wasmHTTPTrace{
+						TotalDurationNS: 1_000_000,
+						FinalURL:        req.URL,
+					},
+				}
+			},
+		}
+		host.run(t, wasm, "run_check")
+
+		if len(seen) != 2 {
+			t.Fatalf("http requests = %d, want 2", len(seen))
+		}
+		if seen[0].FollowRedirects == nil || *seen[0].FollowRedirects {
+			t.Fatalf("step 0 follow_redirects = %v, want false", seen[0].FollowRedirects)
+		}
+		if !seen[0].InsecureSkipVerify {
+			t.Fatalf("step 0 insecure_skip_verify = false, want true")
+		}
+		if seen[1].FollowRedirects == nil || !*seen[1].FollowRedirects {
+			t.Fatalf("step 1 follow_redirects = %v, want true", seen[1].FollowRedirects)
+		}
+		if seen[1].InsecureSkipVerify {
+			t.Fatalf("step 1 insecure_skip_verify = true, want false")
+		}
+		res := host.results[len(host.results)-1]
+		if res["status"] != "OK" {
+			t.Fatalf("status = %v, summary = %v", res["status"], res["summary"])
+		}
+	})
+
+	t.Run("scrubs overlapping prefix secrets without leaking suffix", func(t *testing.T) {
+		const (
+			shortToken = "tok-1"
+			longPass   = "tok-1-secret-suffix"
+		)
+
+		cfgJSON := `{
+			"journey_name": "wasm-prefix-scrub",
+			"api_token": "` + shortToken + `",
+			"password": "` + longPass + `",
+			"steps": [
+				{
+					"name": "s1",
+					"url": "https://app.example.test/check",
+					"expect_body_contains": "` + longPass + `"
+				}
+			]
+		}`
+
+		host := &wasmHost{
+			config: []byte(cfgJSON),
+			httpEnvelope: func(_ *testing.T, _ wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+				return wasmHTTPEnvelopeResponse{
+					Status: 200,
+					Body:   []byte("nope"),
+					Trace: &wasmHTTPTrace{
+						TotalDurationNS: 1_000_000,
+						FinalURL:        "https://app.example.test/check",
+					},
+				}
+			},
+		}
+		host.run(t, wasm, "run_check")
+
+		res := host.results[len(host.results)-1]
+		if res["status"] != "CRITICAL" {
+			t.Fatalf("status = %v, want CRITICAL", res["status"])
+		}
+		rawRes, _ := json.Marshal(res)
+		for _, forbidden := range []string{shortToken, longPass, "-secret-suffix", "[REDACTED]-secret-suffix"} {
+			if strings.Contains(string(rawRes), forbidden) {
+				t.Fatalf("wasm result leaked %q: %s", forbidden, rawRes)
+			}
+		}
+	})
+}

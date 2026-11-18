@@ -15,6 +15,7 @@ import (
 const (
 	defaultJourneyName = "http-synthetic-journey"
 	defaultTimeoutMS   = 10000
+	maxJourneySteps    = 64
 	redactedSecret     = "[REDACTED]"
 )
 
@@ -52,7 +53,7 @@ type StepConfig struct {
 	ContentType          string               `json:"content_type,omitempty"`
 	TimeoutMS            int                  `json:"timeout_ms,omitempty"`
 	FollowRedirects      *bool                `json:"follow_redirects,omitempty"`
-	InsecureSkipVerify   bool                 `json:"insecure_skip_verify,omitempty"`
+	InsecureSkipVerify   *bool                `json:"insecure_skip_verify,omitempty"`
 	ExpectStatus         []int                `json:"expect_status,omitempty"`
 	ExpectStatusMin      int                  `json:"expect_status_min,omitempty"`
 	ExpectStatusMax      int                  `json:"expect_status_max,omitempty"`
@@ -246,13 +247,14 @@ func buildJourney(cfg Config) (*sdk.Journey, error) {
 		if method == "" {
 			method = http.MethodGet
 		}
+		insecureSkip := cfg.InsecureSkipVerify
 		steps = []StepConfig{{
 			Name:               "request",
 			Method:             method,
 			URL:                cfg.URL,
 			TimeoutMS:          cfg.TimeoutMS,
 			FollowRedirects:    cfg.FollowRedirects,
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
+			InsecureSkipVerify: &insecureSkip,
 			ExpectStatusMin:    200,
 			ExpectStatusMax:    399,
 		}}
@@ -260,6 +262,9 @@ func buildJourney(cfg Config) (*sdk.Journey, error) {
 
 	if len(steps) == 0 {
 		return nil, fmt.Errorf("either steps or url is required")
+	}
+	if len(steps) > maxJourneySteps {
+		return nil, fmt.Errorf("steps exceeds maximum allowed (%d > %d)", len(steps), maxJourneySteps)
 	}
 
 	journeyName := strings.TrimSpace(cfg.JourneyName)
@@ -319,7 +324,9 @@ func buildJourney(cfg Config) (*sdk.Journey, error) {
 			step.WithFollowRedirects(*cfg.FollowRedirects)
 		}
 
-		if sc.InsecureSkipVerify || cfg.InsecureSkipVerify {
+		if sc.InsecureSkipVerify != nil {
+			step.WithInsecureTLS(*sc.InsecureSkipVerify)
+		} else if !singleURLMode && cfg.InsecureSkipVerify {
 			step.WithInsecureTLS(true)
 		}
 
@@ -605,13 +612,24 @@ func sortedMapKeys(m map[string]string) []string {
 }
 
 func configSecrets(cfg Config) []string {
+	seen := make(map[string]struct{}, 2)
 	var secrets []string
-	if cfg.APIToken != "" {
-		secrets = append(secrets, cfg.APIToken)
+	for _, candidate := range []string{cfg.APIToken, cfg.Password} {
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		secrets = append(secrets, candidate)
 	}
-	if cfg.Password != "" {
-		secrets = append(secrets, cfg.Password)
-	}
+	sort.Slice(secrets, func(i, j int) bool {
+		if len(secrets[i]) != len(secrets[j]) {
+			return len(secrets[i]) > len(secrets[j])
+		}
+		return secrets[i] < secrets[j]
+	})
 	return secrets
 }
 
@@ -666,6 +684,9 @@ func scrubResultSecrets(res *sdk.Result, cfg Config) *sdk.Result {
 	res.Details = scrubText(res.Details, secrets)
 	res.Perfdata = scrubText(res.Perfdata, secrets)
 
+	for k, v := range res.Labels {
+		res.Labels[k] = scrubText(v, secrets)
+	}
 	for i := range res.Events {
 		res.Events[i].Message = scrubText(res.Events[i].Message, secrets)
 		res.Events[i].StatusDetail = scrubText(res.Events[i].StatusDetail, secrets)

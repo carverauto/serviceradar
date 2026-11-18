@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -413,6 +414,160 @@ func TestHTTPSyntheticJourneyScrubsSecretsFromResultSummaryDetailsEvents(t *test
 	}
 	if strings.Contains(string(raw), "tok-leak-1") || strings.Contains(string(raw), "pw-leak-2") {
 		t.Fatalf("scrubbed result still contained secret: %s", raw)
+	}
+}
+
+func TestHTTPSyntheticJourneyScrubsOverlappingPrefixSecretsAndLabels(t *testing.T) {
+	t.Parallel()
+
+	const (
+		shortToken = "tok-1"
+		longPass   = "tok-1-secret-suffix"
+	)
+
+	cfgJSON := fmt.Sprintf(`{
+		"journey_name": "prefix-secret-scrub",
+		"api_token": %q,
+		"password": %q,
+		"steps": [
+			{
+				"name": "s1",
+				"url": "https://app.example.test/check",
+				"expect_body_contains": %q
+			}
+		]
+	}`, shortToken, longPass, longPass)
+
+	capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+		ConfigJSON: []byte(cfgJSON),
+		HTTPHandler: func(_ context.Context, _ sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+			return &sdk.HTTPResponse{
+				Status:   200,
+				Body:     []byte("nope"),
+				Duration: 2 * time.Millisecond,
+			}, nil
+		},
+	}, func() error {
+		run_check()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+
+	raw := string(capture.ResultJSON)
+	for _, forbidden := range []string{shortToken, longPass, "-secret-suffix", "[REDACTED]-secret-suffix"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("ResultJSON leaked %q: %s", forbidden, raw)
+		}
+	}
+
+	res := sdk.Critical("failed "+longPass).WithLabel("leak", longPass)
+	scrubbed := scrubResultSecrets(res, Config{APIToken: shortToken, Password: longPass})
+	if strings.Contains(scrubbed.Labels["leak"], "-secret-suffix") || scrubbed.Labels["leak"] != redactedSecret {
+		t.Fatalf("scrubbed label = %q, want %q", scrubbed.Labels["leak"], redactedSecret)
+	}
+}
+
+func TestHTTPSyntheticJourneyTopLevelRedirectAndTLSInheritance(t *testing.T) {
+	t.Parallel()
+
+	cfgJSON := `{
+		"journey_name": "inherit-flags",
+		"follow_redirects": false,
+		"insecure_skip_verify": true,
+		"steps": [
+			{
+				"name": "inherited",
+				"url": "https://app.example.test/inherited",
+				"expect_status": [200]
+			},
+			{
+				"name": "overridden",
+				"url": "https://app.example.test/overridden",
+				"follow_redirects": true,
+				"insecure_skip_verify": false,
+				"expect_status": [200]
+			}
+		]
+	}`
+
+	var requests []sdk.HTTPRequest
+	capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+		ConfigJSON: []byte(cfgJSON),
+		HTTPHandler: func(_ context.Context, req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+			requests = append(requests, req)
+			return &sdk.HTTPResponse{Status: 200, Duration: time.Millisecond}, nil
+		},
+	}, func() error {
+		run_check()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+
+	var res sdk.Result
+	if err := json.Unmarshal(capture.ResultJSON, &res); err != nil {
+		t.Fatalf("decode ResultJSON: %v", err)
+	}
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("status = %s, summary = %q", res.Status, res.Summary)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(requests))
+	}
+	if requests[0].FollowRedirects == nil || *requests[0].FollowRedirects {
+		t.Fatalf("step 0 follow_redirects = %v, want false (inherited)", requests[0].FollowRedirects)
+	}
+	if !requests[0].InsecureSkipVerify {
+		t.Fatalf("step 0 insecure_skip_verify = false, want true (inherited)")
+	}
+	if requests[1].FollowRedirects == nil || !*requests[1].FollowRedirects {
+		t.Fatalf("step 1 follow_redirects = %v, want true (overridden)", requests[1].FollowRedirects)
+	}
+	if requests[1].InsecureSkipVerify {
+		t.Fatalf("step 1 insecure_skip_verify = true, want false (overridden)")
+	}
+}
+
+func TestHTTPSyntheticJourneyRejectsExcessiveSteps(t *testing.T) {
+	t.Parallel()
+
+	steps := make([]StepConfig, maxJourneySteps+1)
+	for i := range steps {
+		steps[i] = StepConfig{
+			Name: fmt.Sprintf("step-%d", i+1),
+			URL:  "https://app.example.test/ping",
+		}
+	}
+	rawCfg, err := json.Marshal(Config{
+		JourneyName: "too-many-steps",
+		Steps:       steps,
+	})
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+
+	capture, err := sdk.RunLocalHost(sdk.LocalHostOptions{
+		ConfigJSON: rawCfg,
+	}, func() error {
+		run_check()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunLocalHost: %v", err)
+	}
+
+	var res sdk.Result
+	if err := json.Unmarshal(capture.ResultJSON, &res); err != nil {
+		t.Fatalf("decode ResultJSON: %v", err)
+	}
+	if res.Status != sdk.StatusUnknown {
+		t.Fatalf("status = %s, want UNKNOWN (summary=%q)", res.Status, res.Summary)
+	}
+	if !strings.Contains(res.Summary, "exceeds maximum allowed") {
+		t.Fatalf("summary = %q, want max steps message", res.Summary)
 	}
 }
 

@@ -38,8 +38,10 @@ type wasmHTTPRequest struct {
 	BodyBase64          string                   `json:"body_base64,omitempty"`
 	ResponseMode        string                   `json:"response_mode"`
 	FollowRedirects     *bool                    `json:"follow_redirects,omitempty"`
+	InsecureSkipVerify  bool                     `json:"insecure_skip_verify,omitempty"`
 	CredentialInjection *wasmCredentialInjection `json:"credential_injection"`
 }
+
 type wasmHTTPHopTrace struct {
 	URL                    string `json:"url"`
 	Status                 int    `json:"status"`

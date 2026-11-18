@@ -493,7 +493,7 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 			Capabilities: caps,
 			Permissions:  perms,
 			Resources: pluginResources{
-				RequestedMemoryMB:  128,
+				RequestedMemoryMB:  64,
 				MaxOpenConnections: 4,
 			},
 			Timeout: 15 * time.Second,

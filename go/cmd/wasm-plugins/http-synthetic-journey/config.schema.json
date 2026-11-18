@@ -76,15 +76,12 @@
       "type": "string",
       "description": "Credential reference for {{api_token}} header/body substitution",
       "secretRef": true,
-      "credentialKind": "api_token",
-      "x-serviceradar-ui-hidden": true,
-      "x-serviceradar-credential-materialized": true
+      "credentialKind": "api_token"
     },
     "api_token": {
       "type": "string",
       "description": "Materialized API token for {{api_token}} header/body substitution",
-      "x-serviceradar-ui-hidden": true,
-      "x-serviceradar-credential-materialized": true
+      "x-serviceradar-ui-hidden": true
     },
     "username": {
       "type": "string",
@@ -94,19 +91,17 @@
       "type": "string",
       "description": "Credential reference for {{password}} header/body substitution",
       "secretRef": true,
-      "credentialKind": "username_password",
-      "x-serviceradar-ui-hidden": true,
-      "x-serviceradar-credential-materialized": true
+      "credentialKind": "username_password"
     },
     "password": {
       "type": "string",
       "description": "Materialized password for {{password}} header/body substitution",
-      "x-serviceradar-ui-hidden": true,
-      "x-serviceradar-credential-materialized": true
+      "x-serviceradar-ui-hidden": true
     },
     "steps": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 64,
       "description": "Ordered HTTP journey steps executed sequentially with an ephemeral RFC 6265 cookie jar",
       "items": {
         "type": "object",
@@ -147,11 +142,11 @@
           },
           "follow_redirects": {
             "type": "boolean",
-            "default": true
+            "description": "Optional per-step override for redirect behavior (inherits top-level follow_redirects when omitted)"
           },
           "insecure_skip_verify": {
             "type": "boolean",
-            "default": false
+            "description": "Optional per-step override for TLS certificate verification (inherits top-level insecure_skip_verify when omitted)"
           },
           "expect_status": {
             "type": "array",

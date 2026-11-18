@@ -38,6 +38,8 @@ defmodule ServiceRadar.EventWriter.WasmSyntheticJourneyProjectionTest do
   alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Observability.MetricEnvelope
   alias ServiceRadar.Observability.ServiceStatus
+  alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.SweepJobs.ExecutionSlots
 
   @moduletag :db_free
@@ -415,5 +417,51 @@ defmodule ServiceRadar.EventWriter.WasmSyntheticJourneyProjectionTest do
 
     record = %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
     EdgeRecordV1.encode(record)
+  end
+
+  test "http-synthetic-journey config.schema.json preserves omitted step inheritance and exposes secretRef fields" do
+    schema_path =
+      Path.expand(
+        "../../../../../go/cmd/wasm-plugins/http-synthetic-journey/config.schema.json",
+        __DIR__
+      )
+
+    schema = schema_path |> File.read!() |> Jason.decode!()
+    assert :ok = ConfigSchema.validate_schema(schema)
+
+    normalized =
+      ConfigSchema.normalize_params(schema, %{
+        "follow_redirects" => false,
+        "insecure_skip_verify" => true,
+        "steps" => [
+          %{"name" => "s1", "url" => "https://sso.example.test/login"}
+        ]
+      })
+
+    assert normalized["follow_redirects"] == false
+    assert normalized["insecure_skip_verify"] == true
+    assert [step0] = normalized["steps"]
+    refute Map.has_key?(step0, "follow_redirects")
+    refute Map.has_key?(step0, "insecure_skip_verify")
+
+    assert schema["properties"]["steps"]["maxItems"] == 64
+
+    for ref_field <- ["api_token_secret_ref", "password_secret_ref"] do
+      prop = schema["properties"][ref_field]
+      assert prop["secretRef"] == true
+      refute Map.get(prop, "x-serviceradar-ui-hidden", false)
+      refute Map.get(prop, "x-serviceradar-credential-materialized", false)
+    end
+
+    for runtime_field <- ["api_token", "password"] do
+      prop = schema["properties"][runtime_field]
+      assert prop["x-serviceradar-ui-hidden"] == true
+      refute Map.get(prop, "x-serviceradar-credential-materialized", false)
+    end
+
+    assert Enum.sort(SecretRefs.secret_ref_fields(schema)) == [
+             "api_token_secret_ref",
+             "password_secret_ref"
+           ]
   end
 end
