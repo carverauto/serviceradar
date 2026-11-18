@@ -775,7 +775,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <.pack_fork_confirmation_modal
           id="authored-dashboard-fork-modal"
-          open={@dashboard_fork_prompt_open?}
+          open={Map.get(assigns, :dashboard_fork_prompt_open?, false)}
           resource_label="authored dashboard"
           pack_id={@dashboard && Map.get(@dashboard, :pack_id)}
           pack_version={@dashboard && Map.get(@dashboard, :pack_version)}

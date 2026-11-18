@@ -286,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
 
         <.pack_fork_confirmation_modal
           id="zen-rule-fork-modal"
-          open={@fork_prompt_open}
+          open={Map.get(assigns, :fork_prompt_open, false)}
           resource_label="Zen rule"
           pack_id={@rule && Map.get(@rule, :pack_id)}
           pack_version={@rule && Map.get(@rule, :pack_version)}

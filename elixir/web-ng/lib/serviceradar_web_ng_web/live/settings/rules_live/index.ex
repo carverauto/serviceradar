@@ -913,7 +913,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
       <.pack_fork_confirmation_modal
         id="stateful-rule-fork-modal"
-        open={@stateful_rule_fork_prompt_open}
+        open={Map.get(assigns, :stateful_rule_fork_prompt_open, false)}
         resource_label="alert rule"
         pack_id={@editing_stateful_rule && Map.get(@editing_stateful_rule, :pack_id)}
         pack_version={@editing_stateful_rule && Map.get(@editing_stateful_rule, :pack_version)}
