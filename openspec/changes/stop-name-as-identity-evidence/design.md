@@ -158,10 +158,12 @@ administered unicast MAC, then nil. The hostname/name/host leg is removed, and a
 administered MAC no longer keys an id (requirement "Randomized MACs Are Evidence Only"): two
 serial-less sightings that share a randomized MAC must not resolve as one device through it.
 
-Existing rows: an `integration_id` minted from a name stays on its device. Nothing mints it
-again, so nothing looks it up: it is inert history. Integration ids are not source-authoritative,
-so absence retirement does not touch them, and no migration merges, splits or rewrites a device.
-An operator can find them with OC1.
+Existing rows: an ingest-minted `<source>:<kind>:<name>` `integration_id` stays on its device.
+Nothing mints it again, so nothing looks it up: it is inert history. Integration ids are not
+source-authoritative, so absence retirement does not touch them, and nothing merges, splits or
+rewrites a device for them. An operator can find them with OC1. AWX `awx:host:` values are the
+exception: they are archived and their metadata references migrated or archived (D5, task 3.8),
+which also merges or splits no device.
 
 An update with no stable id, no MAC of any kind and no address would otherwise get a random uid
 and become a new device on every sighting. It is not written; the ingest outcome counts it as unresolved
@@ -378,9 +380,10 @@ Run on 2026-11-18 on one deployment (demo), read-only, counts only. The checks s
 other deployment.
 
 - OC1: `awx`/`host` 17 rows (17 live); `proxmox`/`v3` 6 rows (6 live), the cluster-scoped node
-  ids that D8 keeps. No other source's live `integration_id` rows (the only rows the query
-  reads) were keyed on the device's name there. Name-keyed values held only in device metadata
-  or the archive are outside this query; OC2 counts the AWX ones.
+  ids that D8 keeps. No other source appeared among the `integration_id` rows the query reads
+  (live and deleted devices, value suffix equal to the device's current hostname or name).
+  Name-keyed values whose suffix is not a current hostname or name, values in device metadata
+  and values in the archive are outside OC1; OC2 covers the `awx:host:` ones only.
 - OC2: `awx:host:` values 17 live, 32 archived, 60 in device metadata (`integration_id` or
   `legacy_integration_ids`). The A7 cleanup must therefore migrate or archive the metadata
   references as well as the rows (task 3.8).

@@ -75,7 +75,10 @@ record's partition carrying the name; else, for manual device add and CSV import
 device carries the name, the single soft-deleted device in the partition carrying it. That
 decision opens a de-duplication task. When the name matches more than one candidate, no task
 SHALL be opened for it. A name match SHALL NOT restore a soft-deleted device, including the one
-a review names.
+a review names. The review obligation covers ingest, sync, manual device add and CSV import.
+Remediation steps (`agent-links`, `proxmox-dups`, `test-debris`) SHALL drop a name as ownership,
+restore or deletion evidence and SHALL NOT record a `hostname_agreement_not_identity`
+decision.
 In particular, a sync write of a new record holding a source-authoritative or integration
 identifier at an address that a live device with the same name holds SHALL NOT adopt the
 holder's uid and SHALL NOT be refused for lack of other evidence: the record SHALL be written as
@@ -324,9 +327,11 @@ Proxmox node in a v2 or v3 integration identifier, is a provider-scoped identifi
 remain identity. A name without that scope SHALL NOT be minted as, registered as or looked up as
 an identifier (`IntegrationIdentity.ambiguous_name_keyed?/1`). Legacy name-keyed values, such as
 AWX `awx:host:<name>` and ingest-minted `<source>:<kind>:<name>` values, SHALL NOT be emitted as
-legacy lookup candidates or looked up. Existing rows holding such values SHALL stay where they
-are as inert history, or be archived by a source retirement that already archives them, and
-introducing this rule SHALL NOT merge or split any existing device. An update with no stable
+legacy lookup candidates or looked up. Existing ingest-minted `<source>:<kind>:<name>` rows
+SHALL stay where they are as inert history and SHALL NOT be merged, split or rewritten. Existing
+`awx:host:` identifier rows SHALL be archived, and `awx:host:` references in device metadata
+SHALL be migrated or archived, by a one-time cleanup; the AWX source retirement SHALL still
+archive any that remain. Neither step SHALL merge or split a device. An update with no stable
 identifier, no MAC of any kind and no address SHALL NOT be written as a new device, and SHALL be
 counted as unresolved in the ingest outcome. A locally administered (randomized) MAC SHALL NOT
 key an `integration_id`; an update whose only evidence is such a MAC is still written and
@@ -349,7 +354,7 @@ when its MAC changes.
 - **GIVEN** a plugin device-discovery record with hostname `host09.example.com`, address `198.51.100.90` and only the locally administered MAC `02:00:5e:00:53:91`, and no stable id
 - **WHEN** the record is ingested
 - **THEN** no `integration_id` SHALL be derived from the MAC or the hostname
-- **AND** the record SHALL resolve by its address
+- **AND** the record SHALL resolve under requirement "Randomized MACs Are Evidence Only": to the device the MAC is registered to when one is, and otherwise by its address
 
 #### Scenario: A randomized-MAC record with no address is written but not keyed
 - **GIVEN** a plugin device-discovery record with hostname `host10.example.com` and only the locally administered MAC `02:00:5e:00:53:a1`, and no stable id and no address

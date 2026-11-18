@@ -231,8 +231,9 @@ invented uids and names). Unboxed database tests delete every row they create.
 Results from one deployment are in design "Results on one deployment"; run the checks on each
 other deployment before relying on them there.
 - [x] 12.1 Run OC1 and record per-plugin counts; open an issue per plugin that needs a stable
-      source id. One deployment: no plugin besides the AWX legacy path uses the name key, so no
-      issue is needed there.
+      source id. One deployment: no source besides `awx` (and the scoped `proxmox` v3 ids) appeared
+      in the identifier rows OC1 reads, so no issue was opened there; values outside OC1 (names
+      no longer current, metadata, archive) were not checked.
 - [x] 12.2 Run OC2 and record the counts of `awx:host:` values live, archived and in metadata.
       One deployment: 17 live, 32 archived, 60 in metadata; task 3.8 covers the metadata.
 - [ ] 12.3 Run OC3; if `unscoped_node_uid` is non-zero, do task 5.4. One deployment: 0 and 0,
