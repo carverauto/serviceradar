@@ -29,17 +29,29 @@ producer gaps account for the whole demo span mix:
 
 All decisions below were approved as written on 2026-11-17.
 
-### D1. Batch consumer spans keep links and gain one store child span
+### D1. Batch consumer spans keep links; persistence clients record child spans
 
 `event_writer.process_batch` stays a CONSUMER root that links to up to
 `@max_batch_links` upstream contexts. The OTel messaging conventions say a
 batch receive/process span links its producers rather than picking one as
 parent, and the worker already excludes linked consumer roots.
 
-Inside it, the processor's persistence step (`store/2`: warehouse Stream Load
-or CNPG insert) runs as a CLIENT child span `event_writer.store` with
-`db.system` (`starrocks` or `postgresql`), `db.collection.name`, the row count
-and status ERROR on failure. That is one span per batch.
+Processors have no single per-batch store step: the `EdgeRecord` processor
+runs one CNPG transaction per record, and warehouse processors call
+`StarRocks.StreamLoad.persist/3` one or more times per batch. CLIENT spans
+therefore sit at the real persistence clients, and each is created only when a
+span is already active. They never start a root, so telemetry-subject stores,
+which deliberately have no batch span, never trace themselves.
+
+- `starrocks.stream_load`: one per StarRocks Stream Load, with
+  `db.system=starrocks`, `db.collection.name=<table>`, the row count and
+  status ERROR on failure.
+- `edge_record.ingest`: one per edge-record ingest transaction, with
+  `db.system=postgresql`, the output contract and the outcome.
+
+Other CNPG writes stay covered only by the existing opt-in Ecto tracing.
+
+The user approved this amendment on 2026-11-17.
 
 Alternatives rejected:
 
@@ -50,6 +62,8 @@ Alternatives rejected:
   multiplies span volume for no diagnostic gain.
 - Parenting the batch span on the first message's context. That misattributes
   the other N-1 messages and contradicts the messaging conventions.
+- A span wrapping `processor.process_batch/1`. It duplicates the parent's
+  duration and says nothing about where the time goes.
 
 ### D2. Agent gateway: server interceptor plus context on the edge-record publish
 
@@ -68,8 +82,8 @@ one span for the stream's lifetime, which matches the agent's `otelgrpc`
 client span for that stream.
 
 Edge-record publication: the ingest handler captures the active span context
-and carries its encoded `traceparent` on the publication map.
-`JetStreamPublisher.headers_for/2` adds it to the NATS headers. The context is
+and carries its encoded `traceparent` and `tracestate` on the publication map.
+`JetStreamPublisher.headers_for/2` adds both to the NATS headers. The context is
 captured in the handler and does not come from the publisher process's own
 context, because the publish runs in a publisher lane process that has none.
 `batch_links/1` already deduplicates links by trace and span id, so the many
@@ -121,11 +135,10 @@ gateway's new spans carry `rpc.*` attributes only.
 ### D5. RootSpanRatioWorker: unchanged signal, accurate message
 
 The threshold (0.85), window (15 m), floor and linked-consumer exclusion stay
-as they are. The breach warning stops asserting ingest loss. It says roots are
-missing a parent or link, either because producers did not propagate context
-or because ingest dropped it. It also lists the top contributors (service
-name, span kind, root count) from one extra grouped query that runs only on
-breach.
+as they are. The breach warning stops asserting ingest loss. It states that
+the roots carry neither a parent nor a link, without naming a cause, and lists
+the top contributors (service name, span kind, root count) from one extra
+grouped query that runs only on breach.
 
 Alternative considered: measure only "entry" spans (SERVER/CONSUMER without
 parent or link). That signal is more precise, but it narrows what counts and
@@ -138,8 +151,11 @@ known.
   closes. Until then its children and linked consumers reference a span not yet
   stored, and the trace view shows them as orphans. That is acceptable: the
   agent rotates streams, and the waterfall already tolerates missing parents.
-- Span volume roughly doubles, from about 7.1k/h to about 15k/h on demo. Spans
-  are cheap relative to the flows and edge records they describe.
+- Span volume: one extra span per gateway RPC or stream, one per datasvc call,
+  plus the D1 persistence spans (one per Stream Load and one per edge-record
+  transaction). Edge-record transactions follow record volume, so that span
+  scales with the gateway's ingest rate. Spans are cheap relative to the flows
+  and edge records they describe.
 - Sampling: core-elx uses `parent_based(root: ratio)`. Deployments at the
   default 0.05 keep 5% of the new CLIENT roots and all of their children.
   That works as intended.
@@ -152,7 +168,7 @@ The acceptance check runs after the rollout finishes, against spans with
 - The warehouse root ratio over 1 h is below the 0.85 threshold.
 - `serviceradar-agent-gateway` SERVER spans exist, and their `parent_span_id`
   equals an agent CLIENT `span_id` in the same trace.
-- `event_writer.store` children exist, and their parent is a stored
-  `process_batch` span.
+- `starrocks.stream_load` and `edge_record.ingest` children exist, and their
+  parent is a stored `process_batch` span.
 - Edge-record `process_batch` spans carry non-empty `links`.
 - The check fails explicitly when any of these counts is zero.

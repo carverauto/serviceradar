@@ -56,20 +56,20 @@ open, and the demo data shows the propagation work was never finished.
   on the agent-gateway endpoint extracts W3C trace context from request
   metadata and runs each RPC inside a SERVER span. Agent CLIENT spans then
   gain a child on the gateway.
-- **Edge-record publish carries context.** The gateway's JetStream edge-record
-  publish runs inside a per-record span and stamps `traceparent`/`tracestate`
-  on the NATS message, so the EventWriter batch span links back to the
-  agent's delivery.
+- **Edge-record publish carries context.** The gateway stamps the ingest
+  RPC's `traceparent`/`tracestate` on each JetStream edge-record publication,
+  so the EventWriter batch span links back to the agent's delivery.
 - **Elixir gRPC client propagation.** A project-owned gRPC client interceptor
   starts a CLIENT span and injects `traceparent` into outbound metadata for
   the datasvc KV and DataService stubs. The datasvc SERVER span becomes its
   child.
-- **EventWriter batch spans gain a store child.** Inside
-  `event_writer.process_batch`, the processor's persistence step (warehouse
-  Stream Load or CNPG insert) runs as a CLIENT child span carrying
-  `db.system`, the row count and the error status. This is the real nested
-  operation that shows where batch time goes. It costs one span per batch,
-  not one per query, so Ecto and Oban tracing stay opt-in.
+- **EventWriter persistence clients record child spans.** When a span is
+  already active, each StarRocks Stream Load runs as a CLIENT span
+  `starrocks.stream_load` and each edge-record ingest transaction runs as a
+  CLIENT span `edge_record.ingest`. Under `event_writer.process_batch` they
+  show where batch time goes. Neither ever starts a root, so telemetry-subject
+  stores stay untraced. They cost one span per Stream Load or edge-record
+  transaction, not one per query, so Ecto and Oban tracing stay opt-in.
 - **Bounded messaging destination attributes.** NATS spans record a subject
   template (the delivering stream's filter subject), never a concrete
   subject. The analytics-prediction subject embeds a series key that
@@ -95,13 +95,15 @@ spans, and re-enabling Ecto/Oban tracing by default.
     publish headers.
   - `elixir/serviceradar_core`: `Otel` gRPC client and server interceptors,
     `DataService.Client` and `Sync.Client` connections,
-    `EventWriter.Producer` destination template, `EventWriter.Pipeline` store
-    child span and destination attribute,
+    `EventWriter.Producer` destination template, `EventWriter.Pipeline`
+    destination attribute, `Analytics.StarRocks.StreamLoad` and the
+    `EdgeRecord` processor persistence spans,
     `Jobs.RootSpanRatioWorker` warning text and breakdown.
-- Span volume: about one additional span per EventWriter batch, one per
-  gateway RPC or edge record, and one per Elixir datasvc call. Demo's current
-  rate is about 7.1k spans/h, and this change roughly doubles it, which stays
-  well inside the warehouse budget.
+- Span volume: about one additional span per gateway RPC or stream, one per
+  Elixir datasvc call, plus the EventWriter persistence spans (one per Stream
+  Load and one per edge-record transaction). Demo's current rate is about
+  7.1k spans/h. The edge-record span follows ingest record volume, so the new
+  rate is measured after rollout against the warehouse budget.
 - Expected demo outcome, from the measured mix: the ratio falls from 1.0 to
   about 0.2-0.3 because stored spans carry real parent ids and links, with the
   0.85 threshold unchanged.

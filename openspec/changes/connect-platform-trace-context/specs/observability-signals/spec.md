@@ -18,21 +18,36 @@ adopters.
 - **AND** the datasvc SERVER span SHALL be stored with that span as its parent
 
 ### Requirement: Edge-record publications carry trace context
-The agent gateway SHALL stamp W3C `traceparent` on every edge-record JetStream publication, taken from the ingest RPC's span context, so the EventWriter batch span links to the agent's delivery.
+The agent gateway SHALL stamp W3C `traceparent` and `tracestate` on every edge-record JetStream publication, taken from the ingest RPC's span context, so the EventWriter batch span links to the agent's delivery.
 
 #### Scenario: Edge-record batch links to the delivering stream
 - **GIVEN** an agent delivers edge records over `EdgeRecordIngestService/Stream`
 - **WHEN** EventWriter processes a batch of those records
-- **THEN** the `event_writer.process_batch` span SHALL carry a link to the gateway span that published them
+- **THEN** each published message SHALL carry `traceparent` and `tracestate` headers taken from the gateway's ingest span context
+- **AND** the `event_writer.process_batch` span SHALL carry a link to the gateway span that published them
 
-### Requirement: EventWriter batch spans record their store step
-EventWriter SHALL run each traced batch's persistence step as a CLIENT child span of `event_writer.process_batch`, carrying the database system, the target collection, the row count, and status ERROR when the store fails.
+### Requirement: EventWriter persistence clients record child spans
+EventWriter persistence clients SHALL record a CLIENT span for each StarRocks Stream Load and each edge-record ingest transaction when a span is already active, and SHALL NOT create such a span when no span is active.
 
-Telemetry subjects (`otel.>`, `logs.>`, `metrics.>`) remain untraced.
+The `starrocks.stream_load` span carries `db.system=starrocks`, `db.collection.name` set to the target table, the row count, and status ERROR on failure. The `edge_record.ingest` span carries `db.system=postgresql`, the output contract, and the outcome. Other CNPG writes are covered only by the opt-in Ecto tracing. Telemetry subjects (`otel.>`, `logs.>`, `metrics.>`) remain untraced.
 
-#### Scenario: Store child span
-- **WHEN** EventWriter persists a batch from a non-telemetry subject
-- **THEN** an `event_writer.store` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
+#### Scenario: Stream Load child span
+- **GIVEN** an `event_writer.process_batch` span is active
+- **WHEN** the processor persists rows through a StarRocks Stream Load
+- **THEN** a `starrocks.stream_load` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
+- **AND** its `db.collection.name` SHALL name the target table
+- **AND** its status SHALL be ERROR when the Stream Load fails
+
+#### Scenario: Edge-record ingest child span
+- **GIVEN** an `event_writer.process_batch` span is active for an edge-record batch
+- **WHEN** the processor runs an edge-record ingest transaction
+- **THEN** an `edge_record.ingest` span SHALL be stored with `parent_span_id` equal to the batch span's `span_id`
+- **AND** it SHALL carry `db.system=postgresql`, the output contract, and the outcome
+
+#### Scenario: No persistence span without an active span
+- **GIVEN** no span is active
+- **WHEN** a Stream Load or an edge-record ingest transaction runs
+- **THEN** no `starrocks.stream_load` or `edge_record.ingest` span SHALL be created
 
 ### Requirement: Messaging span destinations are bounded
 NATS producer and consumer spans SHALL record `messaging.destination.name` as a subject template drawn from a bounded set (a configured stream filter subject or a fixed subject family), and SHALL NOT record a concrete subject that embeds entity identifiers, series keys, or device addresses.
