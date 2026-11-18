@@ -56,20 +56,6 @@ EEF-CVE-2026-105270
 # accepts Decimal 3.x or the dependency is otherwise removed from this release.
 GHSA-rhv4-8758-jx7v
 
-# Cowlib waiver rationale and removal criteria:
-# ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
-EEF-CVE-2026-43966
-
-# mix hex.audit and mix deps.audit report the cowlib response-splitting defect
-# under different ids, and the mix_audit ignore file matches on the advisory id
-# exactly (MixAudit.CLI.Audit rejects `&1.id in ignored_advisory_ids`), so the
-# GitHub id has to be listed alongside the EEF id above. It is the same defect:
-# the advisory text is verbatim about cowlib, reported here against the
-# dependent package gun. Note that gun cannot be upgraded out of it -- the gun
-# row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
-# gun 2.6.0 still carries that cowboy range, so no current gun release satisfies it.
-GHSA-w4f7-4cxr-rv3c
-
 # EEF-CVE-2026-95105 / CVE-2026-95105 / Cloak AES-CTR lacks ciphertext authentication
 # Shared Cloak waiver rationale: ../serviceradar_core/.deps_audit_ignore.
 # ServiceRadar.Vault (elixir/serviceradar_core/lib/serviceradar/vault.ex:37)
