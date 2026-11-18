@@ -2,8 +2,8 @@
 
 - [ ] 1.1 Store source and evidence strength alongside `name`, `vendor_name`,
       `type` and `integration_type`; a populated value with no recorded
-      strength is kept against weakest-tier writes; the next middle- or
-      strongest-tier write replaces it and records its strength
+      strength is kept against weakest-tier writes; the next write of any
+      tier above the weakest replaces it and records its strength
 - [ ] 1.2 Upsert: an equal-or-stronger write replaces the recorded value; a
       weaker value fills only an empty attribute
 - [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
@@ -24,18 +24,20 @@
 
 ## 3. Vendor precedence
 
-- [ ] 3.1 Writers tag vendors by the vendor name derived for the update: a
-      name naming agent software (any source) < IEEE OUI < hardware vendor
-      name (any source: `sysObjectID` hardware enterprise, `sysDescr`, a
-      classification rule including under enterprise 8072, an integration
-      report, or explicit metadata); a weakest-tier
+- [ ] 3.1 Writers tag vendors: a name naming agent software (device,
+      integration or metadata evidence) < IEEE OUI lookup result (always this
+      tier, whatever the registrant string) < hardware vendor name (device,
+      integration or metadata evidence: `sysObjectID` hardware enterprise,
+      `sysDescr`, a classification rule including under enterprise 8072, an
+      integration report, or explicit metadata); a weakest-tier
       vendor never replaces a populated value without recorded strength or any
       stronger value; provenance keys follow the kept value
 - [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table
 - [ ] 3.3 Stop writing OS, software or platform names to `vendor_name` from
       any source (fingerprint, classification rule, integration, metadata);
-      write OS / software names to the OS / software fields
+      write OS / software names to the OS / software fields, and still rank
+      the same update's OUI or hardware vendor
 - [ ] 3.4 Test: a hardware-enterprise vendor with recorded strength survives
       an OUI update; an OUI vendor survives an update whose derived vendor
       names agent software (Net-SNMP); a hardware vendor from `sysDescr` or a
@@ -46,18 +48,23 @@
 - [ ] 3.6 Test: a fingerprint classification naming an OS leaves
       `vendor_name` unchanged; an automation inventory reporting its own
       platform name leaves `vendor_name` unchanged; a metadata `Net-SNMP`
-      leaves an OUI vendor in place and a metadata hardware vendor replaces it
+      leaves an OUI vendor in place and a metadata hardware vendor replaces it;
+      an update classifying Linux with an OUI fills an empty vendor with the
+      OUI; a census OUI `Ubiquiti Inc` leaves a recorded `sysObjectID`
+      `Ubiquiti` in place
 
 ## 4. Type and integration type precedence
 
 - [ ] 4.1 Writers tag `type`: generic `host` / default < fingerprint or
       classification-rule type < SNMP-derived type < platform-inventory type;
-      manual ownership keeps precedence
+      `type` and `type_id` are accepted or rejected together; manual
+      ownership keeps precedence over both
 - [ ] 4.2 Writers tag `integration_type`: generic automation inventory <
       platform inventory that discovers the device as its own object
 - [ ] 4.3 Test: alternating automation-inventory and hypervisor writes leave
       `type` and `integration_type` at the hypervisor values; a mapper
-      `ip_forwarding` update leaves a hypervisor node's type `Hypervisor`
+      `ip_forwarding` update leaves a hypervisor node's type `Hypervisor` and
+      its `type_id` unchanged
 
 ## 5. Integration identifiers and plugin inputs
 

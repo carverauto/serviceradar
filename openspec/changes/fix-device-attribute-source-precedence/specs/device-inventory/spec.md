@@ -16,24 +16,31 @@ enrichment of existing devices); a hostname from a passive census sighting; an
 SNMP sysName or a name reported by an integration. A name derived from an
 address SHALL use the address the device keeps after the address rank guard.
 
-Vendor strength SHALL follow the vendor name derived for the update, never the
-evidence channel or the sysObjectID enterprise alone. Weakest first: a name
-that names SNMP agent software (such as Net-SNMP), from any source; the IEEE
-OUI registrant of the MAC address; a hardware vendor name, from any source (a
-sysObjectID hardware enterprise, sysDescr inference, a classification rule, an
-integration report, or explicit metadata). A sysObjectID under enterprise 8072
-with a hardware vendor from sysDescr or a classification rule therefore ranks
-in the strongest tier. An OS, software or platform name (such as Linux,
+Vendor strength, weakest first: a name that names SNMP agent software (such as
+Net-SNMP), from device, integration or metadata evidence; the IEEE OUI
+registrant of the MAC address (recorded with mac_vendor_source ieee_oui),
+always this middle tier whatever the registrant string; a hardware vendor name
+from device, integration or metadata evidence (a sysObjectID hardware
+enterprise, sysDescr inference, a classification rule, an integration report,
+or explicit metadata). For a value that is not an OUI lookup, the name, not
+the channel or the sysObjectID enterprise alone, decides whether it is agent
+software, a hardware vendor, or not a vendor: a sysObjectID under enterprise
+8072 with a hardware vendor from sysDescr or a classification rule ranks in
+the strongest tier. An OS, software or platform name (such as Linux,
 Microsoft, NGINX, or an automation platform's own product name) is not vendor
-evidence and SHALL NOT be written to the vendor, from any source.
+evidence and SHALL NOT be written to the vendor, from any source; it is
+ignored for the vendor (an OS or software name goes to the OS / software
+fields) while the same update's OUI or hardware vendor is still ranked.
 
 Type strength, weakest first: a generic type set without device evidence (such
 as host from an automation inventory); a type inferred from a passive
 fingerprint or classification rule; a type derived from SNMP (such as Router
 from ip_forwarding); a type reported by the inventory that owns the device's
-platform role (such as Hypervisor from the hypervisor inventory). Manual type
-ownership SHALL keep precedence. Integration type strength, weakest first: a generic automation
-inventory; the inventory that discovers the device as its own platform object.
+platform role (such as Hypervisor from the hypervisor inventory). Type and
+type_id SHALL be accepted or rejected together as one value. Manual type
+ownership SHALL keep precedence over both. Integration type strength, weakest
+first: a generic automation inventory; the inventory that discovers the device
+as its own platform object.
 
 The same rule SHALL apply when two updates for one device are merged inside one
 ingestion batch.
@@ -102,6 +109,17 @@ ingestion batch.
 - **THEN** the stored vendor SHALL be unchanged
 - **AND** the operating system SHALL be recorded in the OS field, not the vendor
 
+#### Scenario: An OS classification does not suppress the OUI vendor
+- **GIVEN** a device with no stored vendor
+- **WHEN** a passive census update whose fingerprint classification names Linux and whose MAC OUI registrant is Example NIC Vendor is ingested
+- **THEN** the stored vendor SHALL become Example NIC Vendor
+- **AND** Linux SHALL be recorded in the OS field
+
+#### Scenario: An OUI registrant string stays in the OUI tier
+- **GIVEN** a device whose vendor Ubiquiti was derived from a sysObjectID hardware enterprise and recorded as the strongest tier
+- **WHEN** a passive census update whose MAC OUI registrant is Ubiquiti Inc is ingested
+- **THEN** the stored vendor SHALL remain Ubiquiti
+
 #### Scenario: An integration's own platform name is not a device vendor
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
 - **WHEN** an automation inventory update that reports its own platform product name as the vendor is ingested
@@ -117,6 +135,7 @@ ingestion batch.
 - **GIVEN** a hypervisor node whose type Hypervisor was recorded from the hypervisor inventory
 - **WHEN** a mapper update reports ip_forwarding enabled for the node
 - **THEN** the device type SHALL remain Hypervisor
+- **AND** the device type_id SHALL remain the Hypervisor type_id
 
 #### Scenario: Alternating sources leave the agent config unchanged
 - **GIVEN** an agent whose SNMP targets are selected and named from device attributes

@@ -18,15 +18,18 @@ address rank, #3905) and manual `type` ownership.
       (the passive census and hypervisor enrichment both produce these);
    2. passive census sighting with an observed hostname;
    3. SNMP `sysName` from the mapper, or a name reported by an integration.
-3. Strength order for `vendor_name`, weakest first. The tier follows the
-   vendor name derived for the update, never the evidence channel or the
-   `sysObjectID` enterprise alone:
-   1. a name that names SNMP agent software (Net-SNMP and similar), from any
-      source;
-   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`);
-   3. a hardware vendor name, from any source: a `sysObjectID` hardware
-      enterprise, `sysDescr` inference, a classification rule, an integration
-      report, or explicit metadata.
+3. Strength order for `vendor_name`, weakest first:
+   1. a name that names SNMP agent software (Net-SNMP and similar), from
+      device, integration or metadata evidence;
+   2. the IEEE OUI registrant of the MAC (`mac_vendor_source = "ieee_oui"`),
+      always this tier whatever the registrant string, so a census `Ubiquiti
+      Inc` never ties a recorded `sysObjectID` `Ubiquiti`;
+   3. a hardware vendor name from device, integration or metadata evidence: a
+      `sysObjectID` hardware enterprise, `sysDescr` inference, a
+      classification rule, an integration report, or explicit metadata.
+   For a value that is not an OUI lookup, the name, not the channel or the
+   `sysObjectID` enterprise alone, decides whether it is agent software, a
+   hardware vendor, or not a vendor.
    The agent-software enterprises are a fixed, named list kept next to the
    enterprise-to-vendor table; an enterprise not on it is a hardware vendor.
    A `sysObjectID` under enterprise 8072 with a hardware vendor from
@@ -35,7 +38,9 @@ address rank, #3905) and manual `type` ownership.
    Not vendor evidence, and never written to `vendor_name` from any source: an
    OS, software or platform name (`Linux`, `Microsoft`, `NGINX`, `Apache`,
    `Caddy`, an automation platform's own product name, ...). OS and software
-   names are written to the OS / software fields instead.
+   names are written to the OS / software fields instead. Such a name is
+   ignored for `vendor_name`; the same update's OUI or hardware vendor is
+   still ranked normally.
 4. Strength order for `type`, weakest first:
    1. a generic type set without device evidence (`host` from an automation
       inventory, or a default);
@@ -44,7 +49,9 @@ address rank, #3905) and manual `type` ownership.
    4. a type reported by the inventory that owns the device's platform role
       (hypervisor inventory `Hypervisor` / `Virtual`), strictly above SNMP so
       a hypervisor node that routes VM traffic keeps `Hypervisor`.
-   Manual `type` ownership keeps precedence over all four.
+   `type` and `type_id` are accepted or rejected together as one value, so a
+   rejected `Router` cannot leave its `type_id` beside a kept `Hypervisor`.
+   Manual `type` ownership keeps precedence over all four, for both fields.
 5. Strength order for `integration_type`, weakest first:
    1. a generic automation inventory that lists the device as a host;
    2. the inventory that discovers the device as its own platform object
@@ -53,8 +60,8 @@ address rank, #3905) and manual `type` ownership.
    fills the attribute only when no value is stored. Nothing else decides:
    there is no test comparing the stored name with the stored address. A
    populated value without a recorded strength (rows written before this
-   change) is kept against a weakest-tier write; the next write of a middle or
-   strongest tier replaces it and records its strength. A missing strength is
+   change) is kept against a weakest-tier write; the next write of any tier
+   above the weakest replaces it and records its strength. A missing strength is
    never treated as a recorded weak strength. So the first census pass after
    rollout may change an unrecorded spelling once (for example a legacy
    `Net-SNMP`, OS or hardware vendor spelling becomes the OUI spelling), and

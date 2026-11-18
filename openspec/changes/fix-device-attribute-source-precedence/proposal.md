@@ -84,7 +84,7 @@ inventory state rather than of nondeterministic compilation.
   strength alongside the value. An equal-or-stronger write replaces the
   recorded value; a weaker write fills the attribute only when it has no
   stored value. A populated value with no recorded strength (written before
-  rollout) may be replaced once by a middle- or strongest-tier write, which
+  rollout) may be replaced once by a write of any tier above the weakest, which
   records its strength, and never by a weakest-tier write. There is no second
   test (such as "the stored name equals the stored address"): the recorded
   strength alone decides.
@@ -95,22 +95,27 @@ inventory state rather than of nondeterministic compilation.
     integration. An address fallback is the address the device keeps after
     the existing address rank guard, never an address the guard rejected, so
     an NDP or link-local (`fe80::`) sighting never renames a device.
-  - `vendor_name`, by the vendor name derived for the update rather than the
-    evidence channel or enterprise alone, weakest to strongest: a name that
-    names SNMP agent software such as Net-SNMP, from any source < IEEE OUI
-    registrant (`metadata.mac_vendor_source = "ieee_oui"`) < a hardware vendor
-    name, from any source (`sysObjectID` hardware enterprise, `sysDescr`,
-    a classification rule including under enterprise 8072, an integration
-    report, or explicit metadata). The OUI provenance keys follow the value
-    that is kept.
+  - `vendor_name`, weakest to strongest: a name that names SNMP agent
+    software such as Net-SNMP (device, integration or metadata evidence) <
+    IEEE OUI registrant (`metadata.mac_vendor_source = "ieee_oui"`), always
+    this tier whatever the registrant string < a hardware vendor name
+    (device, integration or metadata evidence: `sysObjectID` hardware
+    enterprise, `sysDescr`, a classification rule including under enterprise
+    8072, an integration report, or explicit metadata). For a value that is
+    not an OUI lookup, the name rather than the channel or enterprise alone
+    decides agent software, hardware vendor, or not a vendor. The OUI
+    provenance keys follow the value that is kept.
   - Not vendor evidence, and never written to `vendor_name` from any source:
     an OS, software or platform name (`Linux`, `NGINX`, an automation
     platform's own product name, ...); OS and software names belong in the
-    OS / software fields.
+    OS / software fields. The same update's OUI or hardware vendor is still
+    ranked.
   - `type`, weakest to strongest: generic `host` < passive fingerprint type <
     SNMP-derived type (for example `Router` from `ip_forwarding`) <
     platform-inventory type (for example `Hypervisor` from the hypervisor
-    inventory). `integration_type` follows the tiers in design.md. The
+    inventory). `type` and `type_id` are accepted or rejected together,
+    manual ownership included. `integration_type` follows the tiers in
+    design.md. The
     automation inventory's generic `host` / `awx` no longer replaces the
     hypervisor inventory's `Hypervisor` / `Virtual` / `hypervisor`, and a
     mapper `Router` no longer replaces `Hypervisor` on a node that routes VM
