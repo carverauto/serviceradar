@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadar.Camera.RelayPlayback
+  alias ServiceRadar.Camera.RelaySourceFailure
 
   @default_camera_relay_tile_limit 4
 
@@ -484,7 +485,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     session
     |> Map.get(:failure_reason)
     |> case do
-      value when is_binary(value) and value != "" -> "Failure reason: #{value}"
+      value when is_binary(value) and value != "" ->
+        "Failure reason: #{RelaySourceFailure.describe(value) || value}"
       _ -> ""
     end
   end
