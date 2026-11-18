@@ -251,6 +251,32 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert size == byte_size(tarball())
   end
 
+  test "re-importing a stored native add-on records its verified transparency receipt", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    import_attrs = %{
+      "repo_url" => @repo_url,
+      "release_tag" => "v1.0.0",
+      "addon_id" => "sample-addon",
+      "version" => "1.0.0"
+    }
+
+    assert {:ok, created} = NativeAddonImporter.import(import_attrs)
+    pre_receipt_metadata = Map.delete(created.source_metadata, "transparency_receipt")
+    stripped = update_sample_package!(created, %{source_metadata: pre_receipt_metadata})
+    refute Map.has_key?(stripped.source_metadata, "transparency_receipt")
+
+    assert {:ok, reused} = NativeAddonImporter.import(import_attrs)
+    assert reused.id == created.id
+    assert reused.status == created.status
+    assert reused.source_release_tag == "v1.0.0"
+
+    assert reused.source_metadata ==
+             Map.put(pre_receipt_metadata, "transparency_receipt", %{"status" => "absent_allowlisted"})
+  end
+
   test "lists native add-ons from recent release indexes", %{private_key: private_key} do
     install_fixtures(private_key)
 

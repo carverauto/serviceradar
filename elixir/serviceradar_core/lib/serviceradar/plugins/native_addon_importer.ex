@@ -189,7 +189,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       verified_package_content_matches?(package, attrs) and
         source_provenance_complete?(package) and source_provenance_complete?(attrs) and
           source_bundle_digests_match?(package, attrs) ->
-        {:ok, package, :reused}
+        with {:ok, package} <- record_transparency_receipt(package, attrs, actor) do
+          {:ok, package, :reused}
+        end
 
       release_changed?(package, opts) ->
         {:error, source_conflict(package, attrs, :release_changed)}
@@ -207,6 +209,23 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
           {:ok, updated, :repaired}
         end
+    end
+  end
+
+  defp record_transparency_receipt(%AddonPackage{} = package, attrs, actor) do
+    stored = package.source_metadata || %{}
+    receipt = get_in(attrs, [:source_metadata, "transparency_receipt"])
+
+    if is_map(receipt) and receipt != Map.get(stored, "transparency_receipt") do
+      package
+      |> Ash.Changeset.for_update(
+        :update,
+        %{source_metadata: Map.put(stored, "transparency_receipt", receipt)},
+        actor: actor
+      )
+      |> Ash.update()
+    else
+      {:ok, package}
     end
   end
 
