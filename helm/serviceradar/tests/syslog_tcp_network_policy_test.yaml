@@ -1,0 +1,59 @@
+suite: namespace network policy admits TCP syslog
+templates:
+  - templates/network-policy.yaml
+tests:
+  # UDP syslog is in the static port list. TCP syslog is a listener the operator can move,
+  # so the policy takes its port from the log collector's own settings.
+  - it: admits the log collector's TCP syslog listener from the namespace and allowed namespaces
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.allowedNamespaces: [other-namespace]
+    documentSelector: {path: metadata.name, value: serviceradar-egress}
+    asserts:
+      - contains:
+          path: spec.ingress[0].ports
+          content: {protocol: TCP, port: 514}
+      - contains:
+          path: spec.ingress[0].ports
+          content: {protocol: UDP, port: 514}
+      - equal:
+          path: spec.ingress[1].from[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: other-namespace
+      - contains:
+          path: spec.ingress[1].ports
+          content: {protocol: TCP, port: 514}
+
+  - it: follows a moved TCP listener port
+    set:
+      networkPolicy.enabled: true
+      logCollector.tcpCollector.service.ports.syslog.targetPort: 1514
+    documentSelector: {path: metadata.name, value: serviceradar-egress}
+    asserts:
+      - contains:
+          path: spec.ingress[0].ports
+          content: {protocol: TCP, port: 1514}
+      - notContains:
+          path: spec.ingress[0].ports
+          content: {protocol: TCP, port: 514}
+
+  - it: does not open the port when the TCP listener is off
+    set:
+      networkPolicy.enabled: true
+      logCollector.tcpCollector.enabled: false
+    documentSelector: {path: metadata.name, value: serviceradar-egress}
+    asserts:
+      - notContains:
+          path: spec.ingress[0].ports
+          content: {protocol: TCP, port: 514}
+
+  - it: does not list the port twice when the operator already allows it
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.allowedPorts:
+        - {protocol: TCP, port: 514}
+    documentSelector: {path: metadata.name, value: serviceradar-egress}
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - {protocol: TCP, port: 514}

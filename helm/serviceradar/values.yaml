@@ -1048,7 +1048,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261117223000"
+    expectedVersion: "20261118040100"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -2139,9 +2139,6 @@ logCollector:
   # TCP listener in the same Deployment and process as UDP and OTLP.
   tcpCollector:
     enabled: true
-    # Deprecated workload settings are ignored; use logCollector settings.
-    replicaCount: 3
-    streamReplicas: 3
     listen: "0.0.0.0:514"
     format: "auto"
     framing: "line"
