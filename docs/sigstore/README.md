@@ -35,10 +35,11 @@ keys, so no installation depends on the log being up.
 
 - `rekor-keys/<logID>.pub`: every accepted Rekor v1 public key, one PEM file per
   log, named by the log ID (hex SHA-256 of the key's DER encoding). Release
-  verification and the web-ng importer select the file by the receipt's `logID`
-  and pass it to cosign as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no
-  online log lookup happens. A receipt whose log ID has no file here fails. The
-  web-ng image ships this directory.
+  verification selects the file by the receipt's `logID` and passes it to cosign
+  as `SIGSTORE_REKOR_PUBLIC_KEY`, so no TUF lookup and no online log lookup
+  happens. A receipt whose log ID has no file here fails. The web-ng importer
+  will select keys the same way and the web-ng image will ship this directory
+  (pending: lands with the import-verifier PR).
 - `rekor.pub`: the key of the log the signer writes to now, byte-identical to
   its file in `rekor-keys/`. The signer refuses an upload response whose log ID
   is not this key's.
@@ -46,8 +47,10 @@ keys, so no installation depends on the log being up.
   (`c0d23d6a...801d`). Some image signatures made by hand before the cutover
   carry public-good receipts, and release verification checks such a receipt
   on a **reused** signature against this key. It is never accepted for a new
-  signature or at import, and it is not shipped in the web-ng image: the
-  monitor watches only the self-hosted log.
+  signature, and it will not be accepted at import or shipped in the web-ng
+  image (pending: lands with the import-verifier PR). The transparency-log
+  monitor will watch only the self-hosted log (pending: lands with the monitor
+  PR).
 
 `//build/contracts:rekor_key_consistency_test` checks that every file is named by
 its log ID, that the pre-cutover keys are not accepted keys, and that `rekor.pub`
@@ -60,8 +63,9 @@ was fetched on 2026-11-18 at 17:04 UTC with
 head from `GET /api/v1/log` (tree `7401445772329872027`, size 46) verified under it
 with `openssl dgst -sha256 -verify` and named it by key hint (`a8839837`).
 
-Updating the keys: when the self-hosted log's key changes (the monitor alerts when
-`/api/v1/log/publicKey` no longer returns `rekor.pub`), fetch the new key the same
+Updating the keys: when the self-hosted log's key changes (the monitor will alert
+when `/api/v1/log/publicKey` no longer returns `rekor.pub`; pending: lands with the
+monitor PR), fetch the new key the same
 way, add it as `rekor-keys/<logID>.pub` in a reviewed PR, keep every key an
 accepted receipt names, and point `rekor.pub` at the new key. Never drop a key
 from `rekor-keys/` that a published receipt names: verification of that receipt
