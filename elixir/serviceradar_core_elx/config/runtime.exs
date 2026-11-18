@@ -818,9 +818,11 @@ if config_env() == :prod do
     awx_controller_health_interval_seconds: "AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS" |> parse_int_env.(30) |> max(5),
     awx_run_watchdog_interval_seconds: "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
     awx_schedule_evaluator_interval_seconds: "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
-    ansible_catalog_base_dir:
-      System.get_env("ANSIBLE_CATALOG_BASE_DIR") ||
-        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog"),
+    # Left unset when the environment does not name a directory: the catalog
+    # sync worker picks a temp directory when it runs. Resolving one here would
+    # make every boot of the release need a writable temp directory, and the
+    # migration job has none.
+    ansible_catalog_base_dir: System.get_env("ANSIBLE_CATALOG_BASE_DIR"),
     device_enrichment_rules_dir:
       System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 

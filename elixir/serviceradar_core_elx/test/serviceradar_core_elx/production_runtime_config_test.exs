@@ -605,6 +605,19 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert core_config[:netprobe_native_addon_package] == [artifacts: %{}]
   end
 
+  # The migration job boots this release on a read-only root filesystem with no
+  # writable temp directory and no ANSIBLE_CATALOG_BASE_DIR. Evaluating the
+  # config must not resolve a temp directory for it; the catalog sync worker
+  # does that when it runs.
+  test "prod config resolves no temp directory for an unset Ansible catalog directory" do
+    with_env("ANSIBLE_CATALOG_BASE_DIR", nil)
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert Keyword.has_key?(core_config, :ansible_catalog_base_dir)
+    assert core_config[:ansible_catalog_base_dir] == nil
+  end
+
   test "prod config enables automated MTR by default" do
     core_config = read_prod_config()[:serviceradar_core]
 
