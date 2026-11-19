@@ -11,7 +11,9 @@ stored value until a strictly stronger write arrives. A weaker write SHALL only
 fill an attribute for which no strength has been recorded; a recorded clear
 (an empty value with a recorded strength, such as a platform inventory's
 cleared management_device_id) is a stored decision and SHALL NOT be filled by
-a weaker write. A populated value
+a weaker write. An identity scrub is not a clear: it SHALL reset the
+recorded strengths of the attributes it empties, so any write may refill them.
+A populated value
 without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
 and record its strength. A device-reference attribute (management_device_id)
@@ -39,7 +41,8 @@ name, hostname, type, type_id or device_role. On a device the check-in creates
 it SHALL record its hostname as name and hostname and its host type as type and
 type_id at a dedicated agent check-in tier below every other tier of those
 ladders, including the address fallback, so that any other source replaces
-them. A defaulted or guessed vendor (such as a filler vendor an
+them. Restoring a device whose identity was purged SHALL record the check-in
+hostname as name and hostname at that same agent check-in tier. A defaulted or guessed vendor (such as a filler vendor an
 ingestor sets when its source row has none) is not vendor evidence and SHALL
 NOT be written to the vendor.
 

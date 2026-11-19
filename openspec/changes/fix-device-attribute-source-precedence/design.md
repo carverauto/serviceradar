@@ -96,7 +96,9 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    address, because it is the same source rewriting its own value. A weaker write fills the
    attribute only when no strength has been recorded; a recorded clear (an
    empty value with a recorded strength, such as a platform inventory's
-   `nil` `management_device_id`) is a stored decision. Nothing else decides:
+   `nil` `management_device_id`) is a stored decision. An identity scrub is
+   not a clear: it resets the recorded strengths together with the values it
+   nulls, so any write may refill a scrubbed attribute. Nothing else decides:
    there is no test comparing the stored name with the stored address. A
    populated value without a recorded strength (rows written before this
    change) is kept against a weakest-tier write; the next write of any tier
@@ -185,7 +187,10 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     creates takes the check-in hostname as `name` / `hostname` and its host
     type as `type` / `type_id`, recorded at a dedicated agent check-in tier
     (strength 0) below every other tier of the `name` and `type` ladders,
-    including the address fallback, so any other source replaces them. A defaulted or guessed vendor (such as
+    including the address fallback, so any other source replaces them. The
+    agent-link remediation that restores a device whose identity was purged
+    (`:gateway_restore`) records the check-in hostname as `name` /
+    `hostname` at the same agent check-in tier. A defaulted or guessed vendor (such as
     `WifiMap.BatchIngestor`'s default when the row has none) is not vendor
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
