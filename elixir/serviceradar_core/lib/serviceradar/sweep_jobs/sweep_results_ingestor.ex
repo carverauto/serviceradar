@@ -203,7 +203,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, reason} ->
         {:error, reason}
 
-      :ok ->
+      ready ->
         start_time = System.monotonic_time(:millisecond)
 
         results
@@ -226,8 +226,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
+        |> supersede_after_ingest(ready, reporter_context, execution_id)
     end
   end
+
+  # Superseding locks the group's older running executions. It runs last, after the device
+  # rows, the inventory rollup lock and this execution's own row, because a late batch of an
+  # older execution takes those in that order and only then locks its execution row. Locking
+  # the older row first, while creating this execution, closes a wait cycle with that batch.
+  defp supersede_after_ingest(
+         {:ok, _} = ok,
+         {:created, started_at},
+         reporter_context,
+         execution_id
+       ) do
+    maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
+    ok
+  end
+
+  defp supersede_after_ingest(result, _ready, _reporter_context, _execution_id), do: result
 
   @doc """
   Process a single sweep result.
@@ -476,6 +493,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          ) do
       :ok ->
         :ok
+
+      {:created, _started_at} = created ->
+        created
 
       {:error, :missing_sweep_group_id} ->
         Logger.warning(
@@ -3294,12 +3314,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
              winning_execution,
              reporter_context
            ) do
-      maybe_mark_superseded_executions(
-        reporter_context,
-        execution_id,
-        started_at
-      )
-
       case inserted_count do
         1 ->
           Logger.info(
@@ -3318,11 +3332,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           NotificationQueue.after_commit(fn -> SweepPubSub.broadcast_started(execution) end)
           record_group_execution(reporter_context, actor)
 
-          :ok
+          {:created, started_at}
 
         0 ->
           Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
-          :ok
+          {:created, started_at}
       end
     end
   rescue
