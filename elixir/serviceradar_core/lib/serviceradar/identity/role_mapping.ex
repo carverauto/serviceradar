@@ -57,7 +57,9 @@ defmodule ServiceRadar.Identity.RoleMapping do
   """
   @spec resolve_with_settings(map() | nil, map()) :: resolution()
   def resolve_with_settings(nil, claims) when is_map(claims), do: empty_resolution(@default_role)
-  def resolve_with_settings(settings, claims) when is_map(claims), do: resolve_from_settings(settings, claims)
+
+  def resolve_with_settings(settings, claims) when is_map(claims),
+    do: resolve_from_settings(settings, claims)
 
   defp empty_resolution(role) do
     %{role: role, role_profile_ids: [], user_group_ids: [], matched: []}
