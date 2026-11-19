@@ -84,6 +84,9 @@ base64 = "0.22"
 bb8 = "0.8"
 bgpkit-parser = { version = "0.20", default-features = false }
 bytes = "1"
+candle-core = { version = "0.11", default-features = false }
+candle-nn = { version = "0.11", default-features = false }
+candle-transformers = { version = "0.11", default-features = false }
 capnp = "0.27"
 capnpc = "0.27"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -191,6 +194,7 @@ runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
 rustls-pemfile = "2"
+safetensors = "0.8"
 serde = { version = "1.0", default-features = false, features = ["std"] }
 serde_json = "1.0"
 serial_test = "3.2"

@@ -8,10 +8,14 @@
 //!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
 //!   `embed_query_text`.
 
+use crate::backend::{
+    DeterministicStubBackend, InferenceBackend, InferenceBackendInfo, RawDetection,
+};
 use crate::config::ModelPinConfig;
 use crate::errors::MediaWorkerError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 const MAX_CROPS_PER_FRAME: usize = 8;
 const CROP_CONTEXT_MARGIN: f32 = 0.10;
@@ -266,18 +270,49 @@ impl KeyframeAnalysis {
 }
 
 /// Two-stage keyframe vision pipeline (`Stage 1` subject detector + `Stage 2`
-/// batched vision-language image encoder).
-#[derive(Debug, Clone)]
+/// batched vision-language image encoder) backed by a pluggable `InferenceBackend`.
+#[derive(Clone)]
 pub struct VisionPipeline {
     models: ModelPinConfig,
     skip_unchanged_empty_scenes: bool,
+    backend: Arc<dyn InferenceBackend>,
+}
+
+impl core::fmt::Debug for VisionPipeline {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VisionPipeline")
+            .field("models", &self.models)
+            .field(
+                "skip_unchanged_empty_scenes",
+                &self.skip_unchanged_empty_scenes,
+            )
+            .field("backend_info", &self.backend.info())
+            .finish()
+    }
 }
 
 impl VisionPipeline {
+    /// Constructs a pipeline using the deterministic reference stub backend.
     pub fn new(models: ModelPinConfig, skip_unchanged_empty_scenes: bool) -> Self {
+        let backend: Arc<dyn InferenceBackend> =
+            Arc::new(DeterministicStubBackend::new(models.clone()));
         Self {
             models,
             skip_unchanged_empty_scenes,
+            backend,
+        }
+    }
+
+    /// Constructs a pipeline backed by an explicit `InferenceBackend` (e.g. `CandleBackend`).
+    pub fn with_backend(
+        models: ModelPinConfig,
+        skip_unchanged_empty_scenes: bool,
+        backend: Arc<dyn InferenceBackend>,
+    ) -> Self {
+        Self {
+            models,
+            skip_unchanged_empty_scenes,
+            backend,
         }
     }
 
@@ -289,63 +324,79 @@ impl VisionPipeline {
         self.skip_unchanged_empty_scenes
     }
 
-    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe.
-    pub fn analyze_keyframe(
+    pub fn backend(&self) -> &Arc<dyn InferenceBackend> {
+        &self.backend
+    }
+
+    pub fn backend_info(&self) -> InferenceBackendInfo {
+        self.backend.info()
+    }
+
+    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe,
+    /// propagating any backend inference errors cleanly.
+    pub fn process_keyframe(
         &self,
         frame: &RgbFrame,
         previous_frame: Option<&RgbFrame>,
-    ) -> KeyframeAnalysis {
-        let detections = self.detect_subjects(frame);
+    ) -> Result<KeyframeAnalysis, MediaWorkerError> {
+        let detections = self.detect_subjects_checked(frame)?;
         let scene_suppressed = self.skip_unchanged_empty_scenes
             && detections.is_empty()
             && previous_frame
                 .is_some_and(|prev| frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD);
 
-        let embeddings = self.encode_stage2_batch(frame, &detections, scene_suppressed);
-        KeyframeAnalysis {
+        let embeddings = self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+        Ok(KeyframeAnalysis {
             scene_suppressed,
             detections,
             embeddings,
-        }
+        })
     }
 
-    /// Stage 1: detects foreground subjects, filters noise/low-confidence boxes,
-    /// runs class-aware NMS (`IoU <= 0.50`), and computes `10%` padded crop boxes
-    /// and HSV coarse dominant colors.
-    pub fn detect_subjects(&self, frame: &RgbFrame) -> Vec<DetectedSubject> {
+    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe.
+    ///
+    /// Backwards-compatible infallible wrapper for deterministic/stub callers.
+    pub fn analyze_keyframe(
+        &self,
+        frame: &RgbFrame,
+        previous_frame: Option<&RgbFrame>,
+    ) -> KeyframeAnalysis {
+        self.process_keyframe(frame, previous_frame)
+            .unwrap_or(KeyframeAnalysis {
+                scene_suppressed: false,
+                detections: Vec::new(),
+                embeddings: Vec::new(),
+            })
+    }
+
+    /// Stage 1: detects foreground subjects via the active `InferenceBackend`,
+    /// applies class-aware NMS (`IoU <= 0.50`), computes `10%` padded crop boxes,
+    /// and classifies HSV coarse dominant colors.
+    pub fn detect_subjects_checked(
+        &self,
+        frame: &RgbFrame,
+    ) -> Result<Vec<DetectedSubject>, MediaWorkerError> {
+        let raw_detections = self.backend.detect_objects(frame, DEFAULT_MIN_CONFIDENCE)?;
         let bg = estimate_border_background(frame);
-        let min_box_px = if frame.width() >= 160 && frame.height() >= 120 {
-            24u32
-        } else {
-            8u32
-        };
+        let mut candidates = Vec::with_capacity(raw_detections.len());
 
-        let raw_blobs = extract_foreground_blobs(frame, bg, min_box_px);
-        let mut candidates = Vec::new();
-        let frame_area = (frame.width() as f32) * (frame.height() as f32);
-
-        for blob in raw_blobs {
-            let (class, confidence) = classify_blob_geometry(frame, &blob, bg);
-            if confidence < DEFAULT_MIN_CONFIDENCE {
+        for raw in raw_detections {
+            if raw.confidence() < DEFAULT_MIN_CONFIDENCE {
                 continue;
             }
-            let x1 = (blob.min_x as f32) / (frame.width() as f32);
-            let y1 = (blob.min_y as f32) / (frame.height() as f32);
-            let x2 = ((blob.max_x + 1) as f32) / (frame.width() as f32);
-            let y2 = ((blob.max_y + 1) as f32) / (frame.height() as f32);
-            let bbox_norm = clamp_unit_bbox([x1, y1, x2, y2]);
+            let bbox_norm = clamp_unit_bbox(raw.bbox_norm());
             let padded_crop_bbox_norm = expand_bbox_with_margin(bbox_norm, CROP_CONTEXT_MARGIN);
-
             let inner_crop = frame.crop_normalized(bbox_norm);
             let dominant_colors = classify_dominant_colors(&inner_crop, Some(bg));
-            let area_frac = ((blob.width() * blob.height()) as f32 / frame_area).max(1e-6);
-            let rank_score = confidence * area_frac.sqrt();
+            let area_frac =
+                ((bbox_norm[2] - bbox_norm[0]) * (bbox_norm[3] - bbox_norm[1])).max(1e-6);
+            let rank_score = raw.confidence() * area_frac.sqrt();
 
             candidates.push((
                 rank_score,
                 DetectedSubject {
-                    object_class: class,
-                    confidence,
+                    object_class: raw.object_class(),
+                    confidence: raw.confidence(),
                     bbox_norm,
                     padded_crop_bbox_norm,
                     dominant_colors,
@@ -353,23 +404,57 @@ impl VisionPipeline {
             ));
         }
 
-        apply_class_aware_nms(candidates, NMS_IOU_THRESHOLD, MAX_CROPS_PER_FRAME)
+        Ok(apply_class_aware_nms(
+            candidates,
+            NMS_IOU_THRESHOLD,
+            MAX_CROPS_PER_FRAME,
+        ))
     }
 
-    /// Stage 2: encodes `[scene_frame] ++ subject_crops` into L2-normalized
-    /// unit vectors of width `models.embedding_dim()`.
-    pub fn encode_stage2_batch(
+    /// Infallible Stage 1 helper retained for existing callers.
+    pub fn detect_subjects(&self, frame: &RgbFrame) -> Vec<DetectedSubject> {
+        self.detect_subjects_checked(frame).unwrap_or_default()
+    }
+
+    /// Stage 2: encodes `[scene_frame] ++ subject_crops` via the active `InferenceBackend`
+    /// into L2-normalized unit vectors.
+    pub fn encode_stage2_batch_checked(
         &self,
         frame: &RgbFrame,
         detections: &[DetectedSubject],
         scene_suppressed: bool,
-    ) -> Vec<GeneratedEmbedding> {
-        let dim = self.models.embedding_dim();
-        let mut out = Vec::with_capacity(1 + detections.len());
+    ) -> Result<Vec<GeneratedEmbedding>, MediaWorkerError> {
+        let mut crop_frames: Vec<RgbFrame> = Vec::with_capacity(detections.len());
+        for det in detections {
+            crop_frames.push(frame.crop_normalized(det.padded_crop_bbox_norm()));
+        }
 
+        let mut regions: Vec<(&RgbFrame, Option<ObjectClass>, &[String])> =
+            Vec::with_capacity(usize::from(!scene_suppressed) + detections.len());
         if !scene_suppressed {
-            let scene_colors = classify_dominant_colors(frame, None);
-            let scene_vec = encode_visual_region(frame, None, &scene_colors, &self.models, dim);
+            regions.push((frame, None, &[]));
+        }
+        for (crop_img, det) in crop_frames.iter().zip(detections.iter()) {
+            regions.push((crop_img, Some(det.object_class()), det.dominant_colors()));
+        }
+
+        if regions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let vectors = self.backend.encode_annotated_images(&regions)?;
+        if vectors.len() != regions.len() {
+            return Err(MediaWorkerError::inference_failed(format!(
+                "backend returned {} embeddings for {} visual regions",
+                vectors.len(),
+                regions.len()
+            )));
+        }
+
+        let mut out = Vec::with_capacity(vectors.len());
+        let mut vec_iter = vectors.into_iter();
+
+        if !scene_suppressed && let Some(scene_vec) = vec_iter.next() {
             out.push(GeneratedEmbedding {
                 region_kind: "scene".to_string(),
                 region_index: 0,
@@ -381,15 +466,7 @@ impl VisionPipeline {
             });
         }
 
-        for (idx, det) in detections.iter().enumerate() {
-            let crop_img = frame.crop_normalized(det.padded_crop_bbox_norm());
-            let crop_vec = encode_visual_region(
-                &crop_img,
-                Some(det.object_class()),
-                det.dominant_colors(),
-                &self.models,
-                dim,
-            );
+        for (idx, (det, crop_vec)) in detections.iter().zip(vec_iter).enumerate() {
             out.push(GeneratedEmbedding {
                 region_kind: "crop".to_string(),
                 region_index: (idx + 1) as u32,
@@ -401,8 +478,44 @@ impl VisionPipeline {
             });
         }
 
-        out
+        Ok(out)
     }
+
+    /// Infallible Stage 2 helper retained for existing callers.
+    pub fn encode_stage2_batch(
+        &self,
+        frame: &RgbFrame,
+        detections: &[DetectedSubject],
+        scene_suppressed: bool,
+    ) -> Vec<GeneratedEmbedding> {
+        self.encode_stage2_batch_checked(frame, detections, scene_suppressed)
+            .unwrap_or_default()
+    }
+}
+
+pub(crate) fn detect_stub_objects(frame: &RgbFrame, min_confidence: f32) -> Vec<RawDetection> {
+    let bg = estimate_border_background(frame);
+    let min_box_px = if frame.width() >= 160 && frame.height() >= 120 {
+        24u32
+    } else {
+        8u32
+    };
+
+    let raw_blobs = extract_foreground_blobs(frame, bg, min_box_px);
+    let mut out = Vec::with_capacity(raw_blobs.len());
+    for blob in raw_blobs {
+        let (class, confidence) = classify_blob_geometry(frame, &blob, bg);
+        if confidence < min_confidence {
+            continue;
+        }
+        let x1 = (blob.min_x as f32) / (frame.width() as f32);
+        let y1 = (blob.min_y as f32) / (frame.height() as f32);
+        let x2 = ((blob.max_x + 1) as f32) / (frame.width() as f32);
+        let y2 = ((blob.max_y + 1) as f32) / (frame.height() as f32);
+        let bbox_norm = clamp_unit_bbox([x1, y1, x2, y2]);
+        out.push(RawDetection::new(class, confidence, bbox_norm));
+    }
+    out
 }
 
 // ----------------------------------------------------------------------------
@@ -794,7 +907,7 @@ pub fn embed_query_text(
     Ok(l2_normalize(vec))
 }
 
-fn encode_visual_region(
+pub(crate) fn encode_stub_visual_region(
     region: &RgbFrame,
     object_class: Option<ObjectClass>,
     dominant_colors: &[String],

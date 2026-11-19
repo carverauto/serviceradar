@@ -1,5 +1,6 @@
 //! Configuration types and CLI/environment parsing for `serviceradar-media-worker`.
 
+use crate::backend::{InferenceBackendKind, InferenceDevicePreference};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
 use clap::Parser;
@@ -257,6 +258,9 @@ impl ModelPinConfig {
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     listen_addr: SocketAddr,
+    backend_kind: InferenceBackendKind,
+    model_dir: Option<PathBuf>,
+    device_preference: InferenceDevicePreference,
     execution_provider: ExecutionProvider,
     declared_gpu_sharing_mode: Option<GpuSharingMode>,
     min_gpu_vram_mb: u64,
@@ -286,6 +290,9 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 8096)),
+            backend_kind: InferenceBackendKind::Stub,
+            model_dir: None,
+            device_preference: InferenceDevicePreference::Auto,
             execution_provider: ExecutionProvider::Cuda,
             declared_gpu_sharing_mode: None,
             min_gpu_vram_mb: 1024,
@@ -325,6 +332,21 @@ impl WorkerConfig {
 
     pub fn with_listen_addr(mut self, addr: SocketAddr) -> Self {
         self.listen_addr = addr;
+        self
+    }
+
+    pub fn with_backend_kind(mut self, kind: InferenceBackendKind) -> Self {
+        self.backend_kind = kind;
+        self
+    }
+
+    pub fn with_model_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.model_dir = dir;
+        self
+    }
+
+    pub fn with_device_preference(mut self, pref: InferenceDevicePreference) -> Self {
+        self.device_preference = pref;
         self
     }
 
@@ -392,6 +414,18 @@ impl WorkerConfig {
 
     pub fn listen_addr(&self) -> SocketAddr {
         self.listen_addr
+    }
+
+    pub fn backend_kind(&self) -> InferenceBackendKind {
+        self.backend_kind
+    }
+
+    pub fn model_dir(&self) -> Option<&Path> {
+        self.model_dir.as_deref()
+    }
+
+    pub fn device_preference(&self) -> InferenceDevicePreference {
+        self.device_preference
     }
 
     pub fn execution_provider(&self) -> ExecutionProvider {
@@ -497,6 +531,15 @@ pub struct CliArgs {
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_PORT", default_value_t = 8096)]
     port: u16,
+
+    #[arg(long, env = "MEDIA_WORKER_BACKEND")]
+    backend: Option<String>,
+
+    #[arg(long, env = "MEDIA_WORKER_MODEL_DIR")]
+    model_dir: Option<PathBuf>,
+
+    #[arg(long, env = "MEDIA_WORKER_DEVICE", default_value = "auto")]
+    device: String,
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER")]
     execution_provider: Option<String>,
@@ -679,6 +722,19 @@ impl CliArgs {
             _ => SocketAddr::from(([0, 0, 0, 0], self.port)),
         };
 
+        let model_dir = non_empty_path(self.model_dir);
+        let backend_kind = match non_empty_opt(self.backend) {
+            Some(raw) => InferenceBackendKind::from_str(&raw)?,
+            None => {
+                if model_dir.is_some() {
+                    InferenceBackendKind::Candle
+                } else {
+                    InferenceBackendKind::Stub
+                }
+            }
+        };
+        let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+
         let raw_provider = self
             .execution_provider
             .as_deref()
@@ -727,6 +783,9 @@ impl CliArgs {
 
         Ok(WorkerConfig {
             listen_addr,
+            backend_kind,
+            model_dir,
+            device_preference,
             execution_provider,
             declared_gpu_sharing_mode,
             min_gpu_vram_mb: self.min_gpu_vram_mb,
