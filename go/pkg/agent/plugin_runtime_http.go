@@ -277,21 +277,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		proxmoxBinding,
 	)
 	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
-	if hostCredentialBound || (payload.FollowRedirects != nil && !*payload.FollowRedirects) {
-		// Host-retained credentials are authorized for this one canonical
-		// request. Redirect handling does not re-enter the host credential gate,
-		// so never replay the bearer, including to a same-origin location.
-		// Guests may also explicitly opt out via follow_redirects: false.
-		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
-	if envelopeMode {
-		stopRedirectsAtSetCookie(httpClient)
-	}
-	if trace != nil {
-		trace.wrapCheckRedirect(httpClient)
-	}
+	applyPluginHTTPRedirectPolicy(httpClient, hostCredentialBound, payload.FollowRedirects, envelopeMode, trace)
 	if proxmoxBinding != nil {
 		if err := e.ensureActiveProxmoxAssignment(reqCtx); err != nil {
 			return pluginErrDenied
@@ -315,6 +301,33 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL, trace)
+}
+
+// applyPluginHTTPRedirectPolicy layers the per-request redirect rules on top
+// of the egress and credential-broker guards configurePluginHTTPRedirects
+// installed.
+func applyPluginHTTPRedirectPolicy(
+	httpClient *http.Client,
+	hostCredentialBound bool,
+	followRedirects *bool,
+	envelopeMode bool,
+	trace *pluginHTTPTrace,
+) {
+	if hostCredentialBound || (followRedirects != nil && !*followRedirects) {
+		// Host-retained credentials are authorized for this one canonical
+		// request. Redirect handling does not re-enter the host credential gate,
+		// so never replay the bearer, including to a same-origin location.
+		// Guests may also explicitly opt out via follow_redirects: false.
+		httpClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
+	if envelopeMode {
+		stopRedirectsAtSetCookie(httpClient)
+	}
+	if trace != nil {
+		trace.wrapCheckRedirect(httpClient)
+	}
 }
 
 // applyCredentialBrokerInjectionWithinBudget runs credential injection (which

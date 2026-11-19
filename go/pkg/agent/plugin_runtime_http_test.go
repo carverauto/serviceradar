@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -109,16 +110,16 @@ func TestPluginHostHTTPEnvelopeColdAndReusedKeepAlive(t *testing.T) {
 		URL:          srv.URL + "/health",
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var first httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &first))
 	require.Equal(t, http.StatusOK, first.Status)
 	require.NotNil(t, first.Trace)
 	assert.False(t, first.Trace.ConnectionReused)
-	assert.Greater(t, first.Trace.ConnectDurationNS, int64(0))
-	assert.Greater(t, first.Trace.TLSHandshakeDurationNS, int64(0))
-	assert.Greater(t, first.Trace.TotalDurationNS, int64(0))
+	assert.Positive(t, first.Trace.ConnectDurationNS)
+	assert.Positive(t, first.Trace.TLSHandshakeDurationNS)
+	assert.Positive(t, first.Trace.TotalDurationNS)
 	assert.GreaterOrEqual(t, first.Trace.TTFBDurationNS, int64(0))
 	assert.GreaterOrEqual(t, first.Trace.TransferDurationNS, int64(0))
 	assert.NotEmpty(t, first.Trace.RemoteAddr)
@@ -134,7 +135,7 @@ func TestPluginHostHTTPEnvelopeColdAndReusedKeepAlive(t *testing.T) {
 		URL:          srv.URL + "/health",
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var second httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &second))
@@ -143,7 +144,7 @@ func TestPluginHostHTTPEnvelopeColdAndReusedKeepAlive(t *testing.T) {
 	assert.Equal(t, int64(0), second.Trace.DNSDurationNS)
 	assert.Equal(t, int64(0), second.Trace.ConnectDurationNS)
 	assert.Equal(t, int64(0), second.Trace.TLSHandshakeDurationNS)
-	assert.Greater(t, second.Trace.TotalDurationNS, int64(0))
+	assert.Positive(t, second.Trace.TotalDurationNS)
 }
 
 func TestPluginHostHTTPEnvelopeTLSPostureAndLeafExpiry(t *testing.T) {
@@ -167,7 +168,7 @@ func TestPluginHostHTTPEnvelopeTLSPostureAndLeafExpiry(t *testing.T) {
 		URL:          srv.URL,
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var resp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &resp))
@@ -186,7 +187,7 @@ func TestPluginHostHTTPEnvelopeTLSPostureAndLeafExpiry(t *testing.T) {
 		ResponseMode:       "envelope",
 		InsecureSkipVerify: true,
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 	var respInsecure httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &respInsecure))
 	require.NotNil(t, respInsecure.TLS)
@@ -207,7 +208,7 @@ func TestPluginHostHTTPEnvelopeTLSPostureAndLeafExpiry(t *testing.T) {
 		URL:          plainSrv.URL,
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 	var plainResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &plainResp))
 	assert.Nil(t, plainResp.TLS)
@@ -312,7 +313,7 @@ func TestPluginHostHTTPEnvelopeMultiSetCookiePreserved(t *testing.T) {
 		URL:          srv.URL + "/login",
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var resp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &resp))
@@ -352,7 +353,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(false),
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var noFollowResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &noFollowResp))
@@ -372,7 +373,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var cookieRedirectResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &cookieRedirectResp))
@@ -389,7 +390,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var followResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &followResp))
@@ -438,7 +439,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 			GrantID: "grant-1",
 		},
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 	var credResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &credResp))
 	assert.Equal(t, http.StatusFound, credResp.Status)
@@ -462,7 +463,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 	var deniedHopResp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &deniedHopResp))
 	assert.Equal(t, http.StatusFound, deniedHopResp.Status)
@@ -507,7 +508,7 @@ func TestPluginHostHTTPRedirectQueryScrubbingAndHopCap(t *testing.T) {
 		URL:          startWithUserInfo,
 		ResponseMode: "envelope",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var resp httpResponsePayload
 	require.NoError(t, json.Unmarshal(raw, &resp))
@@ -529,7 +530,7 @@ func TestPluginHostHTTPRedirectQueryScrubbingAndHopCap(t *testing.T) {
 		URL:          srv.URL + "/loop?n=0",
 		ResponseMode: "envelope",
 	})
-	assert.Equal(t, int32(pluginErrInternal), code)
+	assert.Equal(t, pluginErrInternal, code)
 }
 
 func TestPluginHTTPTraceDNSAndHappyEyeballsRace(t *testing.T) {
@@ -571,7 +572,7 @@ func TestPluginHTTPTraceDNSAndHappyEyeballsRace(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	ct.GotFirstResponseByte()
 
-	req, err := http.NewRequest(http.MethodGet, initialURL.String(), nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, initialURL.String(), nil)
 	require.NoError(t, err)
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -581,16 +582,16 @@ func TestPluginHTTPTraceDNSAndHappyEyeballsRace(t *testing.T) {
 
 	built := trace.finishAndBuild(resp, time.Now())
 	require.NotNil(t, built)
-	assert.Greater(t, built.DNSDurationNS, int64(0))
-	assert.Greater(t, built.ConnectDurationNS, int64(0))
-	assert.Greater(t, built.TLSHandshakeDurationNS, int64(0))
-	assert.Greater(t, built.TTFBDurationNS, int64(0))
-	assert.Greater(t, built.TotalDurationNS, int64(0))
+	assert.Positive(t, built.DNSDurationNS)
+	assert.Positive(t, built.ConnectDurationNS)
+	assert.Positive(t, built.TLSHandshakeDurationNS)
+	assert.Positive(t, built.TTFBDurationNS)
+	assert.Positive(t, built.TotalDurationNS)
 	assert.Equal(t, "https://app.example.com/health", built.FinalURL)
 	assert.Equal(t, "HTTP/2.0", built.Protocol)
 	require.Len(t, built.Hops, 1)
 	assert.Equal(t, "https://app.example.com/health", built.Hops[0].URL)
-	assert.Greater(t, built.Hops[0].DNSDurationNS, int64(0))
+	assert.Positive(t, built.Hops[0].DNSDurationNS)
 }
 
 func TestPluginHostHTTPResponseModeCompatibility(t *testing.T) {
@@ -614,7 +615,7 @@ func TestPluginHostHTTPResponseModeCompatibility(t *testing.T) {
 		URL:          srv.URL,
 		ResponseMode: "status_body",
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 	assert.Equal(t, "200\nhello", string(raw))
 
 	// Legacy empty response_mode omits trace, tls, and set_cookies.
@@ -622,11 +623,11 @@ func TestPluginHostHTTPResponseModeCompatibility(t *testing.T) {
 		Method: http.MethodGet,
 		URL:    srv.URL,
 	})
-	require.Greater(t, code, int32(0))
+	require.Positive(t, code)
 
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(raw, &decoded))
-	assert.Equal(t, float64(200), decoded["status"])
+	assert.InDelta(t, 200, decoded["status"], 0)
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("hello")), decoded["body_base64"])
 	_, hasTrace := decoded["trace"]
 	_, hasTLS := decoded["tls"]

@@ -376,23 +376,9 @@ func flushJourneySpoolToIngest(
 	}
 }
 
-func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
-	wasmPath := locateJourneyRunfile(t, "build/wasm_plugins/http_synthetic_journey.wasm")
-	wasm, err := os.ReadFile(wasmPath)
-	require.NoError(t, err)
-	entrypoint, caps := loadJourneyManifestCapabilities(t)
-
-	const (
-		agentID       = "agent-synthetic-e2e"
-		assignmentID  = "assign-http-journey-e2e"
-		webPropertyID = "00000000-0000-4000-8000-000000000772"
-		apiToken      = "tok-pipeline-secret-9012"
-		password      = "pw-pipeline-secret-3456"
-		csrfSecret    = "csrf-pipeline-secret-7890"
-		sidSecret     = "sid-pipeline-secret-1234"
-		querySecret   = "auth-code-secret-6543"
-	)
-
+// newJourneyPipelineTestMux serves the synthetic SSO login, redirect, callback,
+// failure and numbered step endpoints the durable pipeline journeys exercise.
+func newJourneyPipelineTestMux(apiToken, password, csrfSecret, sidSecret, querySecret string) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -439,8 +425,30 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 		stepIdx := r.URL.Query().Get("n")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"step":%s}`, stepIdx)))
+		_, _ = fmt.Fprintf(w, `{"ok":true,"step":%s}`, stepIdx)
 	})
+
+	return mux
+}
+
+func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
+	wasmPath := locateJourneyRunfile(t, "build/wasm_plugins/http_synthetic_journey.wasm")
+	wasm, err := os.ReadFile(wasmPath)
+	require.NoError(t, err)
+	entrypoint, caps := loadJourneyManifestCapabilities(t)
+
+	const (
+		agentID       = "agent-synthetic-e2e"
+		assignmentID  = "assign-http-journey-e2e"
+		webPropertyID = "00000000-0000-4000-8000-000000000772"
+		apiToken      = "tok-pipeline-secret-9012"
+		password      = "pw-pipeline-secret-3456"
+		csrfSecret    = "csrf-pipeline-secret-7890"
+		sidSecret     = "sid-pipeline-secret-1234"
+		querySecret   = "auth-code-secret-6543"
+	)
+
+	mux := newJourneyPipelineTestMux(apiToken, password, csrfSecret, sidSecret, querySecret)
 
 	tlsSrv := httptest.NewTLSServer(mux)
 	defer tlsSrv.Close()
@@ -713,7 +721,7 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 			}
 		}
 		require.NotNil(t, availVal)
-		require.Equal(t, 0.0, *availVal)
+		require.InDelta(t, 0.0, *availVal, 0)
 	})
 
 	t.Run("64-step journey stays within 64 MiB limit and 512 KiB protobuf payload cap", func(t *testing.T) {
@@ -777,6 +785,6 @@ func TestHTTPSyntheticJourneyDurableEdgePipelineE2E(t *testing.T) {
 				stepsCompleted = m.GetPoints()[0].GetValue()
 			}
 		}
-		require.Equal(t, 64.0, stepsCompleted)
+		require.InDelta(t, 64.0, stepsCompleted, 0)
 	})
 }

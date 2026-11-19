@@ -198,7 +198,8 @@ type PushLoop struct {
 	sweepLeaseDir    string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
 	sweepLeaseWake   chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
-	managedLocalNATSRunning atomic.Bool
+	// Read only by managed_local_nats_linux.go; unused on other platforms.
+	managedLocalNATSRunning atomic.Bool //nolint:unused,nolintlint // used on linux only
 
 	hostNetworkVisibilitySupported func() bool
 	systemdUpdaterSupportedFunc    func() (bool, bool)
