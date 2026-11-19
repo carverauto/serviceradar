@@ -18,6 +18,8 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeacons do
 
   require Logger
 
+  @max_signed_int 2_147_483_647
+
   @impl true
   def table_name, do: "rum_beacons"
 
@@ -92,16 +94,16 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeacons do
   end
 
   defp proto_to_row(%RumBeaconV1{} = p) do
-    with true <- non_empty?(p.web_property_id),
-         true <- non_empty?(p.beacon_id),
+    with web_property_id when is_binary(web_property_id) <- key_text(p.web_property_id),
+         beacon_id when is_binary(beacon_id) <- key_text(p.beacon_id),
          true <- is_integer(p.observed_at_unix_ms) and p.observed_at_unix_ms > 0,
          {:ok, observed_at} <- DateTime.from_unix(p.observed_at_unix_ms, :millisecond),
          true <- valid_text?(p.url) and valid_text?(p.canonical_origin) do
       {:ok,
        %{
-         web_property_id: p.web_property_id,
+         web_property_id: web_property_id,
          observed_at: observed_at,
-         beacon_id: p.beacon_id,
+         beacon_id: beacon_id,
          canonical_origin: text(p.canonical_origin),
          environment: text(p.environment),
          url: text(p.url),
@@ -155,9 +157,8 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeacons do
   end
 
   defp map_to_row(m) do
-    with web_property_id when is_binary(web_property_id) and web_property_id != "" <-
-           m["web_property_id"],
-         beacon_id when is_binary(beacon_id) and beacon_id != "" <- m["beacon_id"],
+    with web_property_id when is_binary(web_property_id) <- key_text(m["web_property_id"]),
+         beacon_id when is_binary(beacon_id) <- key_text(m["beacon_id"]),
          {:ok, observed_at} <- parse_observed_at(m) do
       {:ok,
        %{
@@ -249,15 +250,18 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeacons do
     {:ok, count}
   end
 
-  defp non_empty?(v) when is_binary(v), do: String.trim(v) != "" and String.valid?(v)
-  defp non_empty?(_), do: false
+  defp key_text(v) when is_binary(v) do
+    if String.valid?(v), do: text(v)
+  end
+
+  defp key_text(_), do: nil
 
   defp valid_text?(v) when is_binary(v), do: String.valid?(v)
   defp valid_text?(nil), do: true
   defp valid_text?(_), do: false
 
   defp text(v) when is_binary(v) do
-    trimmed = String.trim(v)
+    trimmed = v |> String.replace(<<0>>, "") |> String.trim()
     if trimmed == "", do: nil, else: trimmed
   end
 
@@ -267,10 +271,10 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeacons do
   defp optional_float(v) when is_integer(v), do: v * 1.0
   defp optional_float(_), do: nil
 
-  defp non_neg_int(v) when is_integer(v) and v >= 0, do: v
+  defp non_neg_int(v) when is_integer(v) and v >= 0, do: min(v, @max_signed_int)
   defp non_neg_int(_), do: 0
 
-  defp positive_int(v) when is_integer(v) and v > 0, do: v
+  defp positive_int(v) when is_integer(v) and v > 0 and v <= @max_signed_int, do: v
   defp positive_int(_), do: nil
 
   defp normalize_attrs(%{} = map), do: map

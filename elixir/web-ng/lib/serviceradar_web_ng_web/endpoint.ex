@@ -58,9 +58,6 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     "cache-control" => "public, max-age=300, stale-while-revalidate=86400"
   }
 
-  @doc false
-  def rum_static_headers, do: @rum_static_headers
-
   plug Plug.Static,
     at: "/assets/rum",
     from: {:serviceradar_web_ng, "priv/static/assets/rum"},

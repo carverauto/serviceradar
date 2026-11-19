@@ -28,15 +28,7 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
     refute body =~ "BEGIN_DEBUG"
   end
 
-  test "/assets/rum Plug.Static serves the bundle with CORS, Timing-Allow-Origin, and Cache headers" do
-    headers = ServiceRadarWebNGWeb.Endpoint.rum_static_headers()
-
-    assert headers == %{
-             "access-control-allow-origin" => "*",
-             "timing-allow-origin" => "*",
-             "cache-control" => "public, max-age=300, stale-while-revalidate=86400"
-           }
-
+  test "Endpoint serves /assets/rum bundle with CORS, Timing-Allow-Origin, and Cache headers" do
     # Exercise live ServiceRadarWebNGWeb.Endpoint.call/2 dispatch for static assets.
     app_static_conn =
       :get
@@ -46,31 +38,38 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
     assert app_static_conn.halted
     assert app_static_conn.status == 200
 
-    bundle_path = resolve_bundle_path()
-    rum_dir = Path.dirname(bundle_path)
+    stage_bundle_in_endpoint_static_dir!()
 
-    opts =
-      Plug.Static.init(
-        at: "/assets/rum",
-        from: rum_dir,
-        gzip: false,
-        headers: headers
-      )
-
-    static_conn =
+    rum_conn =
       :get
       |> conn("/assets/rum/boomerang-sr.min.js")
-      |> Plug.Static.call(opts)
+      |> ServiceRadarWebNGWeb.Endpoint.call(ServiceRadarWebNGWeb.Endpoint.init([]))
 
-    assert static_conn.halted
-    assert static_conn.status == 200
-    assert static_conn.resp_body =~ "ServiceRadarTrace"
-    assert Plug.Conn.get_resp_header(static_conn, "access-control-allow-origin") == ["*"]
-    assert Plug.Conn.get_resp_header(static_conn, "timing-allow-origin") == ["*"]
+    assert rum_conn.halted
+    assert rum_conn.status == 200
+    assert rum_conn.resp_body =~ "ServiceRadarTrace"
+    assert Plug.Conn.get_resp_header(rum_conn, "access-control-allow-origin") == ["*"]
+    assert Plug.Conn.get_resp_header(rum_conn, "timing-allow-origin") == ["*"]
 
-    assert Plug.Conn.get_resp_header(static_conn, "cache-control") == [
+    assert Plug.Conn.get_resp_header(rum_conn, "cache-control") == [
              "public, max-age=300, stale-while-revalidate=86400"
            ]
+  end
+
+  defp stage_bundle_in_endpoint_static_dir! do
+    rum_dir = Application.app_dir(:serviceradar_web_ng, "priv/static/assets/rum")
+    target = Path.join(rum_dir, "boomerang-sr.min.js")
+
+    if !File.exists?(target) do
+      created_dir? = not File.dir?(rum_dir)
+      File.mkdir_p!(rum_dir)
+      File.cp!(resolve_bundle_path(), target)
+
+      on_exit(fn ->
+        File.rm(target)
+        if created_dir?, do: File.rmdir(rum_dir)
+      end)
+    end
   end
 
   defp resolve_bundle_path do

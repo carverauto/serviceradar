@@ -18,6 +18,7 @@ use crate::rum_proto::RumBeaconV1;
 const MAX_SERVER_TIMING_RAW_BYTES: usize = 512;
 const MAX_OBSERVED_AT_PAST_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 const MAX_OBSERVED_AT_FUTURE_MS: i64 = 5 * 60 * 1000;
+const MAX_SIGNED_INT_COLUMN: u32 = i32::MAX as u32;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GeoAsnInfo {
@@ -824,7 +825,15 @@ fn bound_beacon_columns(beacon: &mut RumBeaconV1) {
         (&mut beacon.prefix_tag, 256),
     ];
     for (value, max_bytes) in columns {
+        value.retain(|c| c != '\0');
         truncate_at_char_boundary(value, max_bytes);
+    }
+
+    beacon.rage_clicks = beacon.rage_clicks.min(MAX_SIGNED_INT_COLUMN);
+    beacon.js_errors = beacon.js_errors.min(MAX_SIGNED_INT_COLUMN);
+    beacon.http_status = beacon.http_status.min(MAX_SIGNED_INT_COLUMN);
+    if beacon.asn > MAX_SIGNED_INT_COLUMN {
+        beacon.asn = 0;
     }
 }
 
@@ -1353,6 +1362,53 @@ mod tests {
         assert_eq!(short.session_id, "s-1");
         assert_eq!(short.device_type, "mobile");
         assert_eq!(short.initiator, "document");
+    }
+
+    #[test]
+    fn counters_and_asn_fit_signed_int_columns_and_nul_bytes_are_stripped() {
+        let (beacon, _) = build_from_query(
+            "u=https://shop.example.com/ab&sr.beacon_id=b%001&rt.si=s%00x&mob.etype=mob%00ile&c.e.rage=3000000000&js_errors=3000000000&http.status_code=3000000000",
+        );
+        assert_eq!(beacon.rage_clicks, 2_147_483_647);
+        assert_eq!(beacon.js_errors, 2_147_483_647);
+        assert_eq!(beacon.http_status, 2_147_483_647);
+        assert!(beacon.has_error);
+        assert_eq!(beacon.beacon_id, "b1");
+        assert_eq!(beacon.session_id, "sx");
+        assert_eq!(beacon.device_type, "mobile");
+        assert_eq!(beacon.url, "https://shop.example.com/ab");
+
+        let (in_range, _) = build_from_query(
+            "u=https://shop.example.com/&c.e.rage=2147483647&http.status_code=503",
+        );
+        assert_eq!(in_range.rage_clicks, 2_147_483_647);
+        assert_eq!(in_range.http_status, 503);
+
+        let (cache, policy) = test_policy_cache();
+        let trusted = parse_cidr_list(&["10.0.0.0/8".to_string()]);
+        let params = parse_form_urlencoded("u=https://shop.example.com/");
+        for (asnum, expected) in [
+            ("4200000000", 0),
+            ("2147483647", 2_147_483_647),
+            ("64512", 64512),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "akamai-edgescape",
+                HeaderValue::from_str(&format!("country_code=US,asnum={asnum}")).unwrap(),
+            );
+            let (beacon, _) = build_beacon_and_metrics(
+                &params,
+                &headers,
+                Some("10.1.2.3".parse().unwrap()),
+                &trusted,
+                &policy,
+                &cache,
+                None,
+            )
+            .unwrap();
+            assert_eq!(beacon.asn, expected, "asnum={asnum}");
+        }
     }
 
     #[test]

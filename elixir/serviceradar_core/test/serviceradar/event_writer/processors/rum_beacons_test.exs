@@ -54,6 +54,65 @@ defmodule ServiceRadar.EventWriter.Processors.RumBeaconsTest do
     assert row.attributes == %{"custom" => "value"}
   end
 
+  test "rows fit PostgreSQL integer and text columns on protobuf and JSON payloads" do
+    int_max = 2_147_483_647
+
+    proto = %RumBeaconV1{
+      beacon_id: "01JRUMBEACON\0000000000000009",
+      observed_at_unix_ms: 1_760_000_002_000,
+      web_property_id: "01JWEBPROP0000000000000001",
+      url: "https://shop.example/a\0b",
+      session_id: "sess\0ion",
+      rage_clicks: 3_000_000_000,
+      js_errors: 3_000_000_000,
+      http_status: 3_000_000_000,
+      asn: 4_200_000_000
+    }
+
+    json =
+      Jason.encode!(%{
+        "beacon_id" => "01JRUMBEACON\0000000000000010",
+        "observed_at_unix_ms" => 1_760_000_003_000,
+        "web_property_id" => "01JWEBPROP\0000000000000001",
+        "user_agent" => "agent\0x",
+        "rage_clicks" => 9_000_000_000,
+        "js_errors" => 3,
+        "http_status" => 200,
+        "asn" => 9_000_000_000
+      })
+
+    proto_row = RumBeacons.parse_message(%{data: RumBeaconV1.encode(proto), metadata: %{}})
+    json_row = RumBeacons.parse_message(%{data: json, metadata: %{}})
+
+    assert proto_row.beacon_id == "01JRUMBEACON000000000000009"
+    assert proto_row.url == "https://shop.example/ab"
+    assert proto_row.session_id == "session"
+
+    assert {proto_row.rage_clicks, proto_row.js_errors, proto_row.http_status} ==
+             {int_max, int_max, int_max}
+
+    assert is_nil(proto_row.asn)
+
+    assert json_row.beacon_id == "01JRUMBEACON000000000000010"
+    assert json_row.web_property_id == "01JWEBPROP000000000000001"
+    assert json_row.user_agent == "agentx"
+    assert {json_row.rage_clicks, json_row.js_errors, json_row.http_status} == {int_max, 3, 200}
+    assert is_nil(json_row.asn)
+
+    in_range =
+      RumBeacons.parse_message(%{
+        data: RumBeaconV1.encode(%{proto | asn: int_max, rage_clicks: 7}),
+        metadata: %{}
+      })
+
+    assert in_range.asn == int_max
+    assert in_range.rage_clicks == 7
+
+    for row <- [proto_row, json_row], {_key, value} <- row, is_binary(value) do
+      refute String.contains?(value, <<0>>)
+    end
+  end
+
   test "with StarRocks enabled a batch loads :rum_beacons only and never inserts CNPG" do
     parent = self()
 
