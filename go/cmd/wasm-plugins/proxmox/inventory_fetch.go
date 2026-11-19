@@ -72,11 +72,81 @@ func fetchGuests(
 func fetchNodeGuests(cfg Config, target Target, token, node, kind string) ([]proxmoxResource, error) {
 	var envelope proxmoxResourcesResponse
 	path := fmt.Sprintf("/api2/json/nodes/%s/%s", url.PathEscape(node), kind)
+
+	// full=1 adds each QEMU guest's runtime state to the same list read. An
+	// agent older than this plugin refuses any query string, so a refusal
+	// falls back to the plain list and the guests carry no runtime state.
+	if kind == "qemu" {
+		if err := getJSON(cfg, target, token, path+qemuRuntimeStateQuery, &envelope); err == nil {
+			guests := normalizeNodeGuestResources(envelope.Data, node, kind)
+			// A Proxmox release that ignores full=1 answers without the field.
+			markRuntimeStateUnknown(guests)
+
+			return guests, nil
+		}
+		envelope = proxmoxResourcesResponse{}
+	}
+
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
 		return nil, fmt.Errorf("fetch node %s guests: %w", kind, err)
 	}
 
-	return normalizeNodeGuestResources(envelope.Data, node, kind), nil
+	guests := normalizeNodeGuestResources(envelope.Data, node, kind)
+	if kind == "qemu" {
+		markRuntimeStateUnknown(guests)
+	}
+
+	return guests, nil
+}
+
+// markRuntimeStateUnknown records that a running guest's runtime state could
+// not be read. Without it a guest on an older agent looks the same as one known
+// to be running, and a paused guest there would read as healthy with nothing to
+// say the check was blind.
+func markRuntimeStateUnknown(guests []proxmoxResource) {
+	for i := range guests {
+		if strings.EqualFold(guests[i].Status, guestStatusRunning) && guests[i].RuntimeState == "" {
+			guests[i].RuntimeState = guestRuntimeStateUnknown
+		}
+	}
+}
+
+const (
+	qemuRuntimeStateQuery = "?full=1"
+	guestStatusRunning    = "running"
+	guestStatusPaused     = "paused"
+
+	// guestRuntimeStateUnknown is not a QEMU state. It marks a running guest
+	// whose runtime state the plugin was not allowed to read.
+	guestRuntimeStateUnknown = "unknown"
+)
+
+// pausedRuntimeStates are the QEMU runtime states in which the guest's CPUs are
+// stopped and stay stopped until someone acts: an operator pause, an I/O error
+// such as a full datastore, an internal error, a suspend, a guest panic or a
+// watchdog action. States a guest passes through during a start, a migration or
+// a snapshot are left out, so those do not read as an outage.
+var pausedRuntimeStates = map[string]struct{}{
+	"paused":         {},
+	"io-error":       {},
+	"internal-error": {},
+	"suspended":      {},
+	"guest-panicked": {},
+	"watchdog":       {},
+}
+
+// effectiveGuestStatus reports "paused" for a QEMU guest that Proxmox lists as
+// running but whose runtime state says its CPUs are stopped. Every other guest
+// keeps the status Proxmox reported.
+func effectiveGuestStatus(resource proxmoxResource, kind string) string {
+	if kind != "qemu" || !strings.EqualFold(resource.Status, guestStatusRunning) {
+		return resource.Status
+	}
+	if _, paused := pausedRuntimeStates[strings.ToLower(strings.TrimSpace(resource.RuntimeState))]; paused {
+		return guestStatusPaused
+	}
+
+	return resource.Status
 }
 
 func normalizeNodeGuestResources(resources []proxmoxResource, node, kind string) []proxmoxResource {
@@ -91,6 +161,7 @@ func normalizeNodeGuestResources(resources []proxmoxResource, node, kind string)
 		if resource.ID == "" && resource.VMID > 0 {
 			resource.ID = fmt.Sprintf("%s/%d", kind, resource.VMID)
 		}
+		resource.Status = effectiveGuestStatus(resource, kind)
 		out = append(out, resource)
 	}
 

@@ -121,19 +121,20 @@ func parseProxmoxResources(array gjson.Result) []proxmoxResource {
 	out := make([]proxmoxResource, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxResource{
-			ID:      item.Get("id").String(),
-			Node:    item.Get("node").String(),
-			Name:    item.Get("name").String(),
-			Type:    item.Get("type").String(),
-			Status:  item.Get("status").String(),
-			VMID:    int(item.Get("vmid").Int()),
-			CPU:     item.Get("cpu").Float(),
-			MaxCPU:  item.Get("maxcpu").Float(),
-			Mem:     item.Get("mem").Float(),
-			MaxMem:  item.Get("maxmem").Float(),
-			Disk:    item.Get("disk").Float(),
-			MaxDisk: item.Get("maxdisk").Float(),
-			Uptime:  item.Get("uptime").Float(),
+			ID:           item.Get("id").String(),
+			Node:         item.Get("node").String(),
+			Name:         item.Get("name").String(),
+			Type:         item.Get("type").String(),
+			Status:       item.Get("status").String(),
+			RuntimeState: item.Get("qmpstatus").String(),
+			VMID:         int(item.Get("vmid").Int()),
+			CPU:          item.Get("cpu").Float(),
+			MaxCPU:       item.Get("maxcpu").Float(),
+			Mem:          item.Get("mem").Float(),
+			MaxMem:       item.Get("maxmem").Float(),
+			Disk:         item.Get("disk").Float(),
+			MaxDisk:      item.Get("maxdisk").Float(),
+			Uptime:       item.Get("uptime").Float(),
 		})
 	}
 

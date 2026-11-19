@@ -569,6 +569,7 @@ func TestProxmoxInventorySemanticRequestRegistry(t *testing.T) {
 		"/api2/json/nodes/pve01/ceph/status",
 		"/api2/json/nodes/pve01/certificates/info",
 		"/api2/json/nodes/pve01/qemu",
+		"/api2/json/nodes/pve01/qemu?full=1",
 		"/api2/json/nodes/pve01/lxc",
 		"/api2/json/nodes/pve01/qemu/101/config",
 		"/api2/json/nodes/pve01/lxc/102/config",
@@ -596,6 +597,11 @@ func TestProxmoxInventorySemanticRequestRegistry(t *testing.T) {
 		"/api2/json/nodes/pve01/lxc/102/status/current",
 		"/api2/json/version?full=1",
 		"/api2/json/version?",
+		"/api2/json/nodes/pve01/lxc?full=1",
+		"/api2/json/nodes/pve01/qemu?full=0",
+		"/api2/json/nodes/pve01/qemu?full=1&node=pve02",
+		"/api2/json/nodes/pve01/qemu/101/config?full=1",
+		"/api2/json/nodes/pve01/storage?full=1",
 	} {
 		t.Run("deny "+path, func(t *testing.T) {
 			requestURL, err := url.Parse(testProxmoxOrigin + path)

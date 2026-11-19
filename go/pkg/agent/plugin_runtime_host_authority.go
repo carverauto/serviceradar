@@ -958,12 +958,24 @@ func safeCredentialRequestPath(requestURL *url.URL) bool {
 
 func proxmoxInventoryHostAuthorityRequestAllowed(method string, requestURL *url.URL, body []byte) bool {
 	if method != http.MethodGet || len(body) != 0 || !safeCredentialRequestPath(requestURL) ||
-		requestURL.RawQuery != "" || requestURL.ForceQuery {
+		requestURL.ForceQuery {
 		return false
 	}
 
 	segments := strings.Split(strings.TrimPrefix(requestURL.Path, "/"), "/")
+	if requestURL.RawQuery != "" && !proxmoxInventoryQueryAllowed(segments, requestURL.RawQuery) {
+		return false
+	}
+
 	return proxmoxInventoryPathAllowed(segments)
+}
+
+// proxmoxInventoryQueryAllowed permits the one query the inventory plugin
+// sends: full=1 on a node's QEMU guest list, which adds each guest's runtime
+// state (qmpstatus) to the same read. Every other query string is refused.
+func proxmoxInventoryQueryAllowed(segments []string, rawQuery string) bool {
+	return rawQuery == "full=1" && len(segments) == 5 && segments[0] == "api2" &&
+		segments[1] == "json" && segments[2] == "nodes" && segments[4] == proxmoxObjectKindQEMU
 }
 
 func proxmoxInventoryPathAllowed(segments []string) bool {
