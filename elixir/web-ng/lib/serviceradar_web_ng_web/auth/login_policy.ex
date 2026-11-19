@@ -73,26 +73,10 @@ defmodule ServiceRadarWebNGWeb.Auth.LoginPolicy do
   @spec disable_sso?() :: boolean()
   def disable_sso?, do: auth_config(:disable_sso, false) == true
 
-  @doc """
-  Path to send a denied local login toward. In an active SSO mode this is the SSO
-  entry; otherwise it falls back to the main sign-in page.
-  """
-  @spec sso_entry_path(map() | struct() | nil) :: String.t()
-  def sso_entry_path(settings) do
-    if sso_mode?(settings) and not disable_sso?() do
-      "/auth/oidc"
-    else
-      "/users/log-in"
-    end
-  end
-
   # Effective mode is password_only when SSO is disabled OR mode is password_only.
   defp password_only?(%{is_enabled: false}), do: true
   defp password_only?(%{mode: :password_only}), do: true
   defp password_only?(_), do: false
-
-  defp sso_mode?(%{is_enabled: true, mode: mode}) when mode in [:active_sso, :passive_proxy], do: true
-  defp sso_mode?(_), do: false
 
   defp hashed_password(%{hashed_password: hashed_password}), do: hashed_password
   defp hashed_password(_), do: nil

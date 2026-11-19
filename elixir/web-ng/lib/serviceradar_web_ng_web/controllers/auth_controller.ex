@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         # Credentials are valid; the bcrypt verify already ran. Now enforce
         # local-login-vs-SSO server-side (fail closed) before creating a session.
         case enforce_local_login(user) do
-          {:allow, _settings} ->
+          :allow ->
             case record_successful_auth(conn, user, :password, break_glass?: LoginPolicy.force_local_login?()) do
               {:ok, user} ->
                 conn
@@ -78,8 +78,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
                 login_recording_failed(conn, user, reason, ~p"/users/log-in")
             end
 
-          {:deny, settings} ->
-            deny_local_login(conn, user.email, settings)
+          :deny ->
+            deny_local_login(conn, user.email)
         end
 
       {:error, _} ->
@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         # The /auth/local backdoor must honor the same server-side policy as the
         # main login — a valid password is not sufficient when SSO is enforced.
         case enforce_local_login(user) do
-          {:allow, _settings} ->
+          :allow ->
             Logger.info("Successful local admin login for #{email} from IP: #{client_ip}")
 
             case record_successful_auth(conn, user, :password,
@@ -139,10 +139,10 @@ defmodule ServiceRadarWebNGWeb.AuthController do
                 login_recording_failed(conn, user, reason, ~p"/auth/local")
             end
 
-          {:deny, settings} ->
+          :deny ->
             Logger.warning("Local admin login denied by policy (SSO-enforced) for #{email} from IP: #{client_ip}")
 
-            deny_local_login(conn, user.email, settings)
+            deny_local_login(conn, user.email)
         end
 
       {:error, _} ->
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   end
 
   # Resolves AuthSettings (fail closed on error) and applies the server-side
-  # local-login policy. Returns `{:allow, settings}` or `{:deny, settings}`.
+  # local-login policy. Returns `:allow` or `:deny`.
   defp enforce_local_login(user) do
     settings =
       case ConfigCache.get_settings() do
@@ -220,21 +220,20 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         {:error, _} -> nil
       end
 
-    if LoginPolicy.local_login_allowed?(user, settings) do
-      {:allow, settings}
-    else
-      {:deny, settings}
-    end
+    if LoginPolicy.local_login_allowed?(user, settings), do: :allow, else: :deny
   end
 
-  # Generic deny: no session, generic flash (no enumeration oracle), redirect toward
-  # the SSO entry. The bcrypt verify already ran, so timing is uniform.
-  defp deny_local_login(conn, email, settings) do
+  # Generic deny: no session, generic flash (no enumeration oracle), back to the
+  # sign-in page, where the SSO button is a plain link. Redirecting a form POST on
+  # to the identity provider would end the submission on another origin, which the
+  # `form-action 'self'` policy forbids. The bcrypt verify already ran, so timing
+  # is uniform.
+  defp deny_local_login(conn, email) do
     Logger.info("Local login denied by policy (SSO-enforced) for #{email}")
 
     conn
     |> put_flash(:error, @sso_required_flash)
-    |> redirect(to: LoginPolicy.sso_entry_path(settings))
+    |> redirect(to: ~p"/users/log-in")
   end
 
   # Persist the authentication method before creating a browser session. In
