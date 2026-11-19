@@ -61,7 +61,6 @@ HEX_PACKAGES = [
     ("elixlsx", "elixlsx", "0.6.0", "c4766f47afea075a85950a5c6fe981e98b8b8a30cc076382aaacf2bb8dbcd25d"),
     ("equivalex", "equivalex", "1.0.3", "46fa311adb855117d36e461b9c0ad2598f72110ad17ad73d7533c78020e045fc"),
     ("erlex", "erlex", "0.2.9", "8cfffc0ec7159e6d73de2ab28a588064de80f88b2798d5cbe4482cbbc200178b"),
-    ("esaml", "esaml", "4.6.0", "d34d0b259cd8ac8215fd2c333fac9dbbb91b5f5da5a9304508612ff3ac0afa7a"),
     ("esbuild", "esbuild", "0.10.0", "468489cda427b974a7cc9f03ace55368a83e1a7be12fba7e30969af78e5f8c70"),
     ("ets", "ets", "0.9.0", "2861fdfb04bcaeff370f1a5904eec864f0a56dcfebe5921ea9aadf2a481c822b"),
     ("ex_ast", "ex_ast", "0.16.0", "700303b0cb693cb36dbac3a2f66a609282b108114fa20179395f36a13a9043b4"),

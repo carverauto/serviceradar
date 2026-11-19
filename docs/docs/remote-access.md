@@ -52,7 +52,7 @@ ServiceRadar supports several credential paths, but they are not equal.
 This is the enterprise default. The browser SSH console no longer asks operators to
 paste private keys for certificate sessions.
 
-1. The user signs in through ServiceRadar with OIDC or SAML SSO (Authentik in the
+1. The user signs in through ServiceRadar with OIDC SSO (Authentik in the
    demo/lab environment). A local password login is deliberately ineligible for
    SSH certificate issuance, even if the account previously used SSO.
 2. The operator opens **Devices → Remote Access → SSH**. The form defaults to
@@ -382,7 +382,7 @@ platform gitops `k8s/freeipa/README.md` (VM-primary; k8s StatefulSet is lab-only
 
 | System | Role |
 |--------|------|
-| **Authentik** | Human SSO into ServiceRadar (OIDC/SAML). RBAC groups for who may open remote access. Already deployed at `https://auth.carverauto.dev`. Optional LDAP Source from FreeIPA for user/group sync. |
+| **Authentik** | Human SSO into ServiceRadar (OIDC). RBAC groups for who may open remote access. Already deployed at `https://auth.carverauto.dev`. Optional LDAP Source from FreeIPA for user/group sync. |
 | **ServiceRadar SSH CA** | Issues short-lived OpenSSH user certificates bound to opaque principals and certificate policy accounts. |
 | **FreeIPA** | Enterprise Unix identity: POSIX accounts, **sudo rules**, HBAC, host enrollment. Hosts join FreeIPA and resolve `mfreeman` via SSSD. |
 | **Edge agent path** | All interactive traffic still tunnels browser → web-ng → agent-gateway → edge agent → target. FreeIPA does not open a second path around the agent. |

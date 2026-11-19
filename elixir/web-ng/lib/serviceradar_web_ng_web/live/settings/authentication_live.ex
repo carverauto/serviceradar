@@ -5,7 +5,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   Allows administrators to configure:
   - Authentication mode (Password Only, Direct SSO, Gateway Proxy)
   - OIDC provider settings
-  - SAML provider settings (future)
   - Gateway/Proxy JWT settings
   - Claim mappings
   """
@@ -24,13 +23,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   @modes [
     {"Password Only", :password_only, "Users authenticate with email and password."},
-    {"Direct SSO (OIDC/SAML)", :active_sso, "Users are redirected to an identity provider."},
+    {"Direct SSO (OIDC)", :active_sso, "Users are redirected to an OpenID Connect identity provider."},
     {"Gateway Proxy", :passive_proxy, "Authentication is handled by an API gateway."}
-  ]
-
-  @provider_types [
-    {"OpenID Connect (OIDC)", :oidc},
-    {"SAML 2.0", :saml}
   ]
 
   @pkce_modes [
@@ -47,8 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "validate" => :read,
       "reset" => :update,
       "apply_idp_preset" => :read,
-      "test_oidc" => :update,
-      "test_saml" => :update
+      "test_oidc" => :update
     })
   end
 
@@ -214,39 +207,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </.ui_panel>
 
             <%= if to_string(@form[:mode].value) == "active_sso" do %>
-              <.ui_panel>
-                <:header>
-                  <div>
-                    <div class="text-sm font-semibold">Identity Provider Type</div>
-                    <p class="text-xs text-sr-muted">
-                      Select your SSO provider protocol.
-                    </p>
-                  </div>
-                </:header>
-
-                <div class="flex gap-4">
-                  <%= for {label, value} <- @provider_types do %>
-                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
-                      <input
-                        type="radio"
-                        name="settings[provider_type]"
-                        value={value}
-                        checked={to_string(@form[:provider_type].value) == to_string(value)}
-                        class="radio radio-primary"
-                      />
-                      <span>{label}</span>
-                    </label>
-                  <% end %>
-                </div>
-              </.ui_panel>
-
-              <%= if to_string(@form[:provider_type].value) == "oidc" do %>
-                <.oidc_config_panel form={@form} idp_preset={@idp_preset} pkce_modes={@pkce_modes} />
-              <% end %>
-
-              <%= if to_string(@form[:provider_type].value) == "saml" do %>
-                <.saml_config_panel form={@form} />
-              <% end %>
+              <.oidc_config_panel form={@form} idp_preset={@idp_preset} pkce_modes={@pkce_modes} />
 
               <.ui_panel>
                 <:header>
@@ -624,175 +585,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     """
   end
 
-  defp saml_config_panel(assigns) do
-    ~H"""
-    <.ui_panel>
-      <:header>
-        <div>
-          <div class="text-sm font-semibold">SAML Configuration</div>
-          <p class="text-xs text-sr-muted">
-            Configure your SAML 2.0 identity provider.
-          </p>
-        </div>
-      </:header>
-
-      <div class="space-y-4">
-        <%!-- SP Information for IdP Configuration --%>
-        <div class={ui_alert_class("info")}>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-6 h-6"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            >
-            </path>
-          </svg>
-          <div class="space-y-2 text-sm">
-            <div class="font-medium">Configure these values in your Identity Provider:</div>
-            <div class="grid grid-cols-1 gap-2">
-              <div>
-                <span class="font-medium">Entity ID (SP): </span>
-                <code class="bg-sr-control px-1 rounded text-xs">
-                  {ServiceRadarWebNGWeb.Endpoint.url()}
-                </code>
-              </div>
-              <div>
-                <span class="font-medium">ACS URL: </span>
-                <code class="bg-sr-control px-1 rounded text-xs">
-                  {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/consume
-                </code>
-              </div>
-              <div>
-                <span class="font-medium">SP Metadata URL: </span>
-                <a
-                  href={ServiceRadarWebNGWeb.Endpoint.url() <> "/auth/saml/metadata"}
-                  target="_blank"
-                  class="text-sr-brand hover:underline text-xs"
-                >
-                  {ServiceRadarWebNGWeb.Endpoint.url()}/auth/saml/metadata
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">SP Entity ID</span>
-          </label>
-          <input
-            type="text"
-            name="settings[saml_sp_entity_id]"
-            value={@form[:saml_sp_entity_id].value || ServiceRadarWebNGWeb.Endpoint.url()}
-            class={ui_field_class(class: "w-full")}
-            placeholder={ServiceRadarWebNGWeb.Endpoint.url()}
-          />
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">
-              Service Provider entity ID (defaults to base URL)
-            </span>
-          </label>
-        </div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">IdP Metadata URL</span>
-          </label>
-          <input
-            type="url"
-            name="settings[saml_idp_metadata_url]"
-            value={@form[:saml_idp_metadata_url].value}
-            class={ui_field_class(class: "w-full")}
-            placeholder="https://idp.example.com/federationmetadata/2007-06/federationmetadata.xml"
-          />
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">URL to fetch IdP metadata XML (preferred)</span>
-          </label>
-        </div>
-
-        <div class="sr-ui-divider text-xs text-sr-muted">OR</div>
-
-        <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">IdP Metadata XML</span>
-          </label>
-          <textarea
-            name="settings[saml_idp_metadata_xml]"
-            class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
-            placeholder="Paste IdP metadata XML here..."
-          ><%= @form[:saml_idp_metadata_xml].value %></textarea>
-          <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">
-              Alternative: paste the IdP metadata XML directly
-            </span>
-          </label>
-        </div>
-
-        <div class={ui_alert_class("info")}>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-6 h-6"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-            >
-            </path>
-          </svg>
-          <div class="text-sm">
-            <div class="font-medium">Expected SAML Response Format:</div>
-            <ul class="list-disc list-inside text-xs mt-1 space-y-1">
-              <li>NameID format: <code class="bg-sr-control px-1 rounded">emailAddress</code></li>
-              <li>Binding: <code class="bg-sr-control px-1 rounded">HTTP-POST</code></li>
-              <li>Signed assertions required</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-3">
-          <.ui_button
-            type="button"
-            phx-click="test_saml"
-            disabled={
-              (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") &&
-                (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")
-            }
-            size="sm"
-            variant="outline"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            Test Configuration
-          </.ui_button>
-          <span class="text-xs text-sr-muted">Verify the IdP metadata is valid</span>
-        </div>
-      </div>
-    </.ui_panel>
-    """
-  end
-
   defp proxy_config_panel(assigns) do
     ~H"""
     <.ui_panel>
@@ -899,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         <div>
           <div class="text-sm font-semibold">Claim Mappings</div>
           <p class="text-xs text-sr-muted">
-            Map JWT/SAML claims to user attributes.
+            Map OIDC or JWT claims to user attributes.
           </p>
         </div>
       </:header>
@@ -1003,7 +795,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         socket
         |> assign(:loading, true)
         |> assign(:modes, @modes)
-        |> assign(:provider_types, @provider_types)
         |> assign(:pkce_modes, @pkce_modes)
         |> assign(:idp_preset, "generic")
         |> assign(:form, nil)
@@ -1109,58 +900,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     end
   end
 
-  def handle_event("test_saml", _params, socket) do
-    metadata_url = socket.assigns.form.source["saml_idp_metadata_url"]
-    metadata_xml = socket.assigns.form.source["saml_idp_metadata_xml"]
-
-    cond do
-      metadata_url && metadata_url != "" ->
-        case test_saml_metadata_url(metadata_url) do
-          {:ok, entity_id} ->
-            {:noreply, put_flash(socket, :info, "SAML metadata valid. IdP Entity ID: #{entity_id}")}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "SAML metadata test failed: #{reason}")}
-        end
-
-      metadata_xml && metadata_xml != "" ->
-        case test_saml_metadata_xml(metadata_xml) do
-          {:ok, entity_id} ->
-            {:noreply, put_flash(socket, :info, "SAML metadata XML valid. IdP Entity ID: #{entity_id}")}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "SAML metadata XML invalid: #{reason}")}
-        end
-
-      true ->
-        {:noreply, put_flash(socket, :error, "Please enter a metadata URL or paste metadata XML first.")}
-    end
-  end
-
-  # Validate OIDC/SAML configuration before enabling
-  defp validate_before_enable(params, update_params) do
-    is_enabling = update_params[:is_enabled]
-    mode = update_params[:mode]
-    provider_type = update_params[:provider_type]
-
-    cond do
-      # Only validate when enabling SSO
-      not is_enabling ->
-        :ok
-
-      mode != :active_sso ->
-        :ok
-
-      provider_type == :oidc ->
-        validate_oidc_config(params)
-
-      provider_type == :saml ->
-        validate_saml_config(params)
-
-      true ->
-        :ok
-    end
-  end
+  # Validate the OIDC configuration before enabling direct SSO
+  defp validate_before_enable(params, %{is_enabled: true, mode: :active_sso}), do: validate_oidc_config(params)
+  defp validate_before_enable(_params, _update_params), do: :ok
 
   defp validate_oidc_config(params) do
     discovery_url = params["oidc_discovery_url"]
@@ -1182,42 +924,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           {:error, reason} ->
             {:error, "OIDC configuration validation failed: #{reason}. Please verify your settings and try again."}
         end
-    end
-  end
-
-  defp validate_saml_config(params) do
-    metadata_url = params["saml_idp_metadata_url"]
-    metadata_xml = params["saml_idp_metadata_xml"]
-
-    has_url = metadata_url && metadata_url != ""
-    has_xml = metadata_xml && metadata_xml != ""
-
-    case {has_url, has_xml} do
-      {false, false} ->
-        {:error, "SAML IdP metadata (URL or XML) is required to enable SSO."}
-
-      {true, _} ->
-        validate_saml_metadata_url(metadata_url)
-
-      {false, true} ->
-        validate_saml_metadata_xml(metadata_xml)
-    end
-  end
-
-  defp validate_saml_metadata_url(url) do
-    case test_saml_metadata_url(url) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason} ->
-        {:error, "SAML metadata validation failed: #{reason}. Please verify your settings and try again."}
-    end
-  end
-
-  defp validate_saml_metadata_xml(xml) do
-    case test_saml_metadata_xml(xml) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, "SAML metadata XML validation failed: #{reason}"}
     end
   end
 
@@ -1280,78 +986,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     end
   end
 
-  defp test_saml_metadata_url(url) do
-    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
-         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
-      case response do
-        %{status: 200, body: body} when is_binary(body) ->
-          test_saml_metadata_xml(body)
-
-        %{status: status} ->
-          {:error, "HTTP #{status} response"}
-      end
-    else
-      {:error, :disallowed_scheme} ->
-        {:error, "URL must use HTTPS"}
-
-      {:error, :disallowed_host} ->
-        {:error, "URL host is not allowed"}
-
-      {:error, :invalid_url} ->
-        {:error, "URL is invalid"}
-
-      {:error, %{reason: reason}} ->
-        {:error, "Connection failed: #{inspect(reason)}"}
-
-      {:error, reason} ->
-        {:error, "Request failed: #{inspect(reason)}"}
-    end
-  end
-
-  defp test_saml_metadata_xml(xml) do
-    import SweetXml
-
-    # Use safe parser
-    doc = safe_sweetxml_parse(xml)
-
-    # Try to extract entity ID
-    entity_id =
-      xpath(doc, ~x"//md:EntityDescriptor/@entityID"s,
-        namespace_conformant: true,
-        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-      )
-
-    # Fallback without namespace
-    entity_id =
-      if entity_id == "" do
-        xpath(doc, ~x"//EntityDescriptor/@entityID"s)
-      else
-        entity_id
-      end
-
-    if entity_id == "" do
-      {:error, "Could not find EntityDescriptor with entityID"}
-    else
-      {:ok, entity_id}
-    end
-  rescue
-    e ->
-      Logger.error("SAML metadata parse error: #{inspect(e)}")
-      {:error, "Failed to parse XML metadata"}
-  end
-
-  defp safe_sweetxml_parse(xml_string) do
-    options = [
-      quiet: true,
-      xmerl_options: [
-        external_entities: :none,
-        dtd_nodes: :none
-      ]
-    ]
-
-    SweetXml.parse(xml_string, options)
-  end
-
   defp load_or_create_settings(user) do
     case AuthSettings.get_settings(actor: user) do
       {:ok, settings} ->
@@ -1373,17 +1007,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "is_enabled" => sso_enabled?(Map.get(settings, :is_enabled, false), mode),
       "sso_auto_provision" => Map.get(settings, :sso_auto_provision, false),
       "mode" => mode,
-      "provider_type" => Map.get(settings, :provider_type),
       # OIDC settings
       "oidc_discovery_url" => Map.get(settings, :oidc_discovery_url),
       "oidc_client_id" => Map.get(settings, :oidc_client_id),
       "oidc_client_secret" => "",
       "oidc_scopes" => Map.get(settings, :oidc_scopes, "openid profile email"),
       "oidc_pkce_mode" => Map.get(settings, :oidc_pkce_mode, :auto),
-      # SAML settings
-      "saml_sp_entity_id" => Map.get(settings, :saml_sp_entity_id),
-      "saml_idp_metadata_url" => Map.get(settings, :saml_idp_metadata_url),
-      "saml_idp_metadata_xml" => Map.get(settings, :saml_idp_metadata_xml),
       # JWT/Proxy settings
       "jwt_header_name" => Map.get(settings, :jwt_header_name, "Authorization"),
       "jwt_jwks_url" => Map.get(settings, :jwt_jwks_url),
@@ -1420,12 +1049,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       mode: mode
     }
 
-    base =
-      if params["provider_type"] && params["provider_type"] != "" do
-        Map.put(base, :provider_type, String.to_existing_atom(params["provider_type"]))
-      else
-        base
-      end
+    # Direct SSO is OIDC, the only supported identity provider protocol.
+    base = if mode == :active_sso, do: Map.put(base, :provider_type, :oidc), else: base
 
     # OIDC settings
     base =
@@ -1442,13 +1067,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       else
         base
       end
-
-    # SAML settings
-    base =
-      base
-      |> maybe_put(:saml_sp_entity_id, params["saml_sp_entity_id"])
-      |> maybe_put(:saml_idp_metadata_url, params["saml_idp_metadata_url"])
-      |> maybe_put(:saml_idp_metadata_xml, params["saml_idp_metadata_xml"])
 
     # JWT/Proxy settings
     base =
