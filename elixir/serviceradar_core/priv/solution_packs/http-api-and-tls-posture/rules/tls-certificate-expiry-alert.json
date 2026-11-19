@@ -1,7 +1,7 @@
 {
   "alert": {
     "severity": "warning",
-    "summary": "TLS leaf certificate is approaching expiry threshold"
+    "title": "TLS leaf certificate is approaching expiry threshold"
   },
   "bucket_seconds": 60,
   "cooldown_seconds": 600,
@@ -10,13 +10,24 @@
     "log_name": "health.tls_certificate_expiry_warning"
   },
   "group_by": [
-    "check_slug"
+    "check_slug",
+    "target_key"
   ],
   "install_state": "paused",
   "kind": "stateful_alert_rule",
   "match": {
-    "check_slug": "tls-certificate-expiry-posture",
-    "status": "degraded"
+    "attribute_equals": {
+      "check_slug": "tls-certificate-expiry-posture",
+      "to_status": "degraded"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "tls-certificate-expiry-posture",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
   },
   "name": "tls_certificate_expiry_warning",
   "priority": 30,

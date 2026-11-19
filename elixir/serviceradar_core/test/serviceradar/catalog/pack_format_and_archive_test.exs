@@ -10,6 +10,9 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
   alias ServiceRadar.Catalog.SecretFreeValidator
   alias ServiceRadar.Catalog.SvgSanitizer
   alias ServiceRadar.Catalog.UploadSignature
+  alias ServiceRadar.DeclarativeChecks.AlertRuleSync
+  alias ServiceRadar.DeclarativeChecks.VerdictEventWriter
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   @moduletag :db_free
 
@@ -48,6 +51,105 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
       assert {:ok, extracted} = PackArchive.extract(srpack_a)
       assert extracted.files == pack.files
       assert extracted.manifest["id"] == "io.serviceradar.storage-and-nvr-health"
+    end
+  end
+
+  describe "stateful alert rule match keys" do
+    @state_change "declarative_check.health.state_change"
+
+    defp stateful_rule(match) do
+      %{
+        "kind" => "stateful_alert_rule",
+        "name" => "example_rule",
+        "signal" => "event",
+        "threshold" => 1,
+        "window_seconds" => 300,
+        "bucket_seconds" => 60,
+        "match" => match
+      }
+    end
+
+    test "a rule whose match keys the engine does not read is refused, because it would match every event" do
+      unread = %{"check_slug" => "example-check", "status" => "down"}
+
+      # What the refusal prevents: the engine ignores both keys.
+      assert RuleMatcher.event_matches?(%{log_name: "health.agent.state_change"}, unread)
+
+      assert {:error, diags} =
+               PackManifest.validate_rule_doc(
+                 stateful_rule(unread),
+                 "stateful_alert_rule",
+                 "rules/example.json"
+               )
+
+      assert Enum.map(diags, &{&1.code, &1.path}) == [
+               {"unknown_match_key", "$.match.check_slug"},
+               {"unknown_match_key", "$.match.status"}
+             ]
+    end
+
+    test "an unread key inside the recovery clause is refused too" do
+      match = %{"subject_prefix" => @state_change, "recovery" => %{"to_status" => "healthy"}}
+
+      assert {:error, [diag]} =
+               PackManifest.validate_rule_doc(
+                 stateful_rule(match),
+                 "stateful_alert_rule",
+                 "rules/example.json"
+               )
+
+      assert {diag.code, diag.path} == {"unknown_match_key", "$.match.recovery.to_status"}
+    end
+
+    test "every built-in pack rule matches only its own check's transition, and nothing else opens that alert" do
+      expected = %{
+        "storage_entitlement_hard_cap" => {"storage-entitlement-utilization", "down"},
+        "camera_continuous_recording_silence" => {"camera-continuous-recording-silence", "down"},
+        "camera_media_worker_unready" => {"media-worker-readiness", "down"},
+        "camera_visual_index_queue_lag" => {"visual-index-queue-lag", "down"},
+        "http_api_journey_down" => {"http-api-journey-health", "down"},
+        "tls_certificate_expiry_warning" => {"tls-certificate-expiry-posture", "degraded"},
+        "network_segmentation_breach" => {"multi-vantage-segmentation-isolation", "down"},
+        "wan_dns_resolution_degraded" => {"wan-dns-resolution-posture", "degraded"}
+      }
+
+      {:ok, packs} = BuiltinPacks.list_packs()
+
+      checks =
+        for pack <- packs,
+            check <- pack.checks,
+            into: %{},
+            do: {check.normalized["slug"], check.normalized}
+
+      rules =
+        for pack <- packs,
+            rule <- pack.rules,
+            into: %{},
+            do: {rule.normalized["name"], rule.normalized}
+
+      transitions =
+        for {slug, check} <- checks, status <- ~w(healthy degraded down unknown) do
+          {{slug, status}, VerdictEventWriter.event_attrs(check, %{to_status: status})}
+        end
+
+      for {name, {slug, status} = owner} <- expected do
+        match = Map.fetch!(rules, name)["match"]
+
+        matched =
+          for {key, event} <- transitions, RuleMatcher.event_matches?(event, match), do: key
+
+        assert matched == [owner], "#{name} matched #{inspect(matched)}"
+        refute RuleMatcher.event_matches?(%{log_name: "health.agent.state_change"}, match)
+
+        recovery = VerdictEventWriter.event_attrs(checks[slug], %{to_status: "healthy"})
+        assert RuleMatcher.event_matches?(recovery, match["recovery"])
+
+        # The check's automatic rule does not open on the same status, so the
+        # condition raises one alert.
+        automatic = AlertRuleSync.build_rule_attrs(checks[slug])
+        automatic_statuses = List.wrap(automatic.match["attribute_equals"]["to_status"])
+        refute automatic.enabled and status in automatic_statuses
+      end
     end
   end
 

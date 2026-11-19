@@ -212,7 +212,10 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
       "name" => "wan_edge_high_latency",
       "install_state" => rule_install_state,
       "signal" => "event",
-      "match" => %{"check_slug" => "wan-edge-posture"},
+      "match" => %{
+        "subject_prefix" => "declarative_check.health.state_change",
+        "attribute_equals" => %{"check_slug" => "wan-edge-posture", "to_status" => "down"}
+      },
       "group_by" => ["check_slug"],
       "threshold" => 1,
       "window_seconds" => 300,

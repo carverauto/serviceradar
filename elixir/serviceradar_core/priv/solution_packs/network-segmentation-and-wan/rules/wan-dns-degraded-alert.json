@@ -1,7 +1,7 @@
 {
   "alert": {
     "severity": "warning",
-    "summary": "WAN DNS resolution latency exceeded warning threshold"
+    "title": "WAN DNS resolution latency exceeded warning threshold"
   },
   "bucket_seconds": 60,
   "cooldown_seconds": 600,
@@ -10,13 +10,24 @@
     "log_name": "health.wan_dns_resolution_degraded"
   },
   "group_by": [
-    "check_slug"
+    "check_slug",
+    "target_key"
   ],
   "install_state": "paused",
   "kind": "stateful_alert_rule",
   "match": {
-    "check_slug": "wan-dns-resolution-posture",
-    "status": "degraded"
+    "attribute_equals": {
+      "check_slug": "wan-dns-resolution-posture",
+      "to_status": "degraded"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "wan-dns-resolution-posture",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
   },
   "name": "wan_dns_resolution_degraded",
   "priority": 30,

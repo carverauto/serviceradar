@@ -102,7 +102,7 @@
     }
   ],
   "pack_id": "io.serviceradar.http-api-and-tls-posture",
-  "pack_version": "0.1.0",
+  "pack_version": "0.1.1",
   "parameter_overrides": {},
   "schedule": {
     "interval_seconds": 300,

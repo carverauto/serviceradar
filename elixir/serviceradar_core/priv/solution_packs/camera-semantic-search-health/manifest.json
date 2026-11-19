@@ -54,11 +54,11 @@
   "files": {
     "README.md": "a5bf537d168cce9604663592ad1e0c06a14bec8eedb47fcc7e90ded2d93e9437",
     "assets/architecture.svg": "cad76ad3e40ecc1eb66752f0a6ac53fe36d79485dea31c1aeb9881a7a39f2e54",
-    "checks/media-worker-readiness.json": "cefcac0766d5b6dc79b52e5e95135363401aa1bb92f9aa7507149ec4c7c9311a",
-    "checks/visual-index-queue-lag.json": "8ba96e729a46ff72b3f79025d16e976d2ca28edf68095a2b659c03c1f8b56ee3",
+    "checks/media-worker-readiness.json": "e1620e62faa63e2e857b8f1d82cde08bd7bbe368adeaf335a86a760a51ec55f2",
+    "checks/visual-index-queue-lag.json": "38e98e1ba3d002eb06a73839a8e4b0a1e90fc0f6ac01573cfc312e8b118093ec",
     "dashboards/camera-semantic-search-overview.json": "04a26b539dbf1eaba896c6b5846e90a0a95f479892d89fd483983c7623e80a8b",
-    "rules/media-worker-unready-alert.json": "7d2c7c1a265674df29dc54793599d0d6302cea891350674e3ff5a34464bfbef7",
-    "rules/visual-index-backlog-alert.json": "76dccd651f69dfd9bc1c307e1ac95044fa80b02d79d2f09db37e55a31756fd98"
+    "rules/media-worker-unready-alert.json": "ec1789cd6b8be0ff69fb13ebf20f92741b20ea07bd82c893aeca606e8382d95d",
+    "rules/visual-index-backlog-alert.json": "481c44ecdba957bc1ccaa4dc52a1fe93b566b310266f72b240cfb43f3ef954f1"
   },
   "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxjaXJjbGUgY3g9IjIyIiBjeT0iMjIiIHI9IjgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzIyZDNlZSIgc3Ryb2tlLXdpZHRoPSIzIi8+PGxpbmUgeDE9IjI4IiB5MT0iMjgiIHgyPSIzNSIgeTI9IjM1IiBzdHJva2U9IiNmNTllMGIiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+",
   "id": "io.serviceradar.camera-semantic-search-health",
@@ -100,5 +100,5 @@
     ]
   },
   "slug": "camera-semantic-search-health",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
