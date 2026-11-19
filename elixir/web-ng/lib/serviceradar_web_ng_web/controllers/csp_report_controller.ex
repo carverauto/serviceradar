@@ -14,8 +14,11 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
   alias ServiceRadarWebNGWeb.ClientIP
 
   @max_detail_bytes 4_096
+  @max_body_bytes 16_384
 
   def create(conn, params) do
+    {conn, params} = report_params(conn, params)
+
     Events.record(%{
       kind: :csp_violation,
       severity: :info,
@@ -28,6 +31,21 @@ defmodule ServiceRadarWebNGWeb.CspReportController do
     })
 
     send_resp(conn, 204, "")
+  end
+
+  # Browsers post a `report-uri` violation as `application/csp-report`, which the
+  # endpoint's JSON parser does not claim, so the body arrives unread and the
+  # params are empty. Read and decode it here, bounded by @max_body_bytes.
+  defp report_params(conn, params) when map_size(params) > 0, do: {conn, params}
+
+  defp report_params(conn, _params) do
+    with {:ok, body, conn} <- Plug.Conn.read_body(conn, length: @max_body_bytes),
+         {:ok, decoded} when is_map(decoded) <- Jason.decode(body) do
+      {conn, decoded}
+    else
+      {:more, _partial, conn} -> {conn, %{"unreadable" => "report larger than #{@max_body_bytes} bytes"}}
+      _other -> {conn, %{"unreadable" => "report is not a JSON object"}}
+    end
   end
 
   defp extract_report(%{"csp-report" => report}), do: report

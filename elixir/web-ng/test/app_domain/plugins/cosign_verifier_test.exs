@@ -135,6 +135,23 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifierTest do
 
       refute Map.has_key?(env, "SIGSTORE_ROOT_FILE")
     end
+
+    test "keeps registry credentials in a directory and file only this user can read" do
+      configure_cosign_script("""
+      runtime_dir=$(dirname "$DOCKER_CONFIG")
+      test "$(ls -ld "$runtime_dir" | cut -c1-10)" = "drwx------" || exit 20
+      test "$(ls -l "$REGISTRY_AUTH_FILE" | cut -c1-10)" = "-rw-------" || exit 21
+      """)
+
+      config =
+        :serviceradar_web_ng
+        |> Application.get_env(:first_party_plugin_import)
+        |> Keyword.put(:registry_docker_config_json, ~s({"auths":{"registry.example.test":{"auth":"dGVzdDp0ZXN0"}}}))
+
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import, config)
+
+      assert {:ok, %{"status" => "absent_allowlisted"}} = verify(@allowlisted_digest, signature_manifest(nil))
+    end
   end
 
   # The pinned cosign against synthetic keys, a stand-in transparency log and a

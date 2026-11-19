@@ -3016,6 +3016,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   tab's deep link, and merges the view's and tab's keywords.
   """
   @spec palette_index(term()) :: [map()]
+  # `view.id` and `tab.id` come from the compile-time view table, never from a
+  # request.
+  # sobelow_skip ["DOS.BinToAtom"]
   def palette_index(scope) do
     @views
     |> Enum.filter(fn view -> visible_view?(scope, view) end)

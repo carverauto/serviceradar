@@ -304,6 +304,8 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     end
   end
 
+  # `key` is one of the string literals this module passes, never request input.
+  # sobelow_skip ["DOS.StringToAtom"]
   defp filter_string(filters, key) do
     value = Map.get(filters, key) || Map.get(filters, String.to_atom(key))
 

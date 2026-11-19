@@ -4,6 +4,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindow do
   alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
   alias ServiceRadarWebNGWeb.DashboardLive.Window
 
+  # `sql/1` returns one of two constant strings; the window bounds are bound
+  # parameters. The `:query` option is a function, not SQL text.
+  # sobelow_skip ["SQL.Query"]
   def load(window, opts \\ []) do
     bucket_seconds = Window.event_bucket_seconds(window)
     query = Keyword.get(opts, :query, &ServiceRadarWebNG.Repo.query/2)

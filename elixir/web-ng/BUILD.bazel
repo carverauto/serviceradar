@@ -542,6 +542,8 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/auth/jit_provisioning_test.exs",
         "test/phoenix/channels/topology_tile_channel_live_db_test.exs",
         "test/phoenix/controllers/api/api_docs_console_test.exs",
+        "test/phoenix/controllers/authored_dashboard_export_controller_test.exs",
+        "test/phoenix/controllers/csp_report_controller_test.exs",
         "test/phoenix/controllers/api/authorization_settings_controller_test.exs",
         "test/phoenix/controllers/api/bmp_settings_controller_test.exs",
         "test/phoenix/controllers/api/camera_relay_session_controller_test.exs",
