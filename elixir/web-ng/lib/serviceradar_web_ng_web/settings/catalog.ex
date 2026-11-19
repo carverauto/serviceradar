@@ -476,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :sys_security,
       subgroup: "Users & Access",
       title: "Authentication",
-      description: "Configure sign-in: local passwords, SSO with OIDC or SAML, or a gateway proxy.",
+      description: "Configure sign-in: local passwords, SSO with OIDC, or a gateway proxy.",
       icon: "hero-identification",
       route: "/settings/authentication",
       live_view: ServiceRadarWebNGWeb.Settings.AuthenticationLive,
@@ -489,7 +489,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       keywords: [
         "authentication",
         "oidc",
-        "saml",
         "sso",
         "login",
         "password",

@@ -6,7 +6,7 @@
 
 Apache-2.0 licensed. Originally extracted from
 CarverAutomation's CRM + ServiceRadar codebases, which kept
-drifting verbatim copies of the same SSRF / OIDC / SAML
+drifting verbatim copies of the same SSRF / OIDC
 hardening modules. Palisade is the canonical home.
 
 ## Scope
@@ -18,7 +18,7 @@ Palisade currently provides:
   DNS-resolution aware (defeats DNS rebinding).
 - **`Palisade.OutboundURLPolicy`** — HTTPS-only, public-host URL
   validator. Used wherever app code follows an admin-supplied
-  URL (SAML IdP metadata, OIDC discovery, webhook callbacks).
+  URL (OIDC discovery, webhook callbacks).
 - **`Palisade.OutboundFetch`** — HTTP fetch helper that binds
   requests to the resolved IP `OutboundURLPolicy` approved. TLS
   hostname verification + the `Host:` header stay tied to the
@@ -30,8 +30,6 @@ Planned for next versions:
   verify with proper nonce / iss / aud / exp validation.
 - `Palisade.OIDC.ConfigCache` — ETS-backed cache for OIDC
   discovery + JWKS payloads.
-- `Palisade.SAML.CertTrust` / `Palisade.SAML.AssertionValidator`
-  / `Palisade.SAML.XML` — SAML primitives.
 
 ## Installation
 

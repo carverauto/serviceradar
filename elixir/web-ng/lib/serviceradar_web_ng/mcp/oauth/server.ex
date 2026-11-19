@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
   @spec can_issue_refresh?(McpOAuthGrant.t()) :: boolean()
   def can_issue_refresh?(%McpOAuthGrant{auth_method: :password}), do: true
 
-  def can_issue_refresh?(%McpOAuthGrant{auth_method: method} = grant) when method in [:oidc, :saml] do
+  def can_issue_refresh?(%McpOAuthGrant{auth_method: :oidc} = grant) do
     is_binary(grant.idp_refresh_token) and grant.idp_refresh_token != ""
   end
 

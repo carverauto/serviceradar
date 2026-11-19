@@ -238,8 +238,8 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   end
 
   # Persist the authentication method before creating a browser session. In
-  # particular, a password login must immediately replace a historical OIDC or
-  # SAML value so downstream authorization cannot mistake it for the current
+  # particular, a password login must immediately replace a historical OIDC
+  # value so downstream authorization cannot mistake it for the current
   # authentication method. Hooks and audit enrichment remain best-effort async
   # work after that security-relevant write succeeds.
   defp record_successful_auth(conn, user, auth_method, opts) do

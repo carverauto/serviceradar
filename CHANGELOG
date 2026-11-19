@@ -1,3 +1,12 @@
+# ServiceRadar Unreleased
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles.
+
 # ServiceRadar v1.5.8
 
 This release fixes the v1.5.7 upgrade: the Helm migrations Job crashed at boot

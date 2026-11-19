@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: MCP authorization-code login uses existing SSO
-The system SHALL support OAuth 2.0 authorization-code with PKCE (S256) so an MCP client can obtain a Guardian API access token after the user signs in through the same LoginPolicy as the web UI (OIDC, SAML, or local login as configured). The authorization endpoint MUST be on the ServiceRadar origin. The system MUST NOT require a long-lived client secret in the MCP client for this grant. The system MUST NOT accept an identity-provider access token as an `/mcp` bearer in this change.
+The system SHALL support OAuth 2.0 authorization-code with PKCE (S256) so an MCP client can obtain a Guardian API access token after the user signs in through the same LoginPolicy as the web UI (OIDC or local login as configured). The authorization endpoint MUST be on the ServiceRadar origin. The system MUST NOT require a long-lived client secret in the MCP client for this grant. The system MUST NOT accept an identity-provider access token as an `/mcp` bearer in this change.
 
 #### Scenario: Codex-style login completes through SSO
 - **GIVEN** MCP is enabled
@@ -81,7 +81,7 @@ Tokens issued by the authorization-code grant MUST be Guardian API tokens that `
 - **AND** Ash sees that user as actor
 
 #### Scenario: Refresh rotates when the IdP session is still valid
-- **GIVEN** the grant was created via OIDC or SAML
+- **GIVEN** the grant was created via OIDC
 - **AND** the IdP session bound to that grant is still valid
 - **WHEN** a client exchanges a valid refresh token
 - **THEN** a new access token and a new refresh token are issued
@@ -93,7 +93,7 @@ Tokens issued by the authorization-code grant MUST be Guardian API tokens that `
 - **AND** remaining tokens in that family are revoked
 
 ### Requirement: MCP refresh is bound to the IdP session
-When the user authenticated authorize via OIDC or SAML, an MCP refresh token MUST be bound to that identity-provider session (OIDC `sid` and/or SAML SessionIndex, plus an IdP refresh token when the IdP issued one). `grant_type=refresh_token` MUST confirm the IdP session is still valid before issuing a new access token. If the IdP session is expired, logged out, or revoked, refresh MUST fail and the ServiceRadar refresh family MUST be revoked. IdP back-channel logout or SAML SLO for that session MUST revoke matching MCP grants immediately. If SSO was used but the IdP did not provide a session identifier or a checkable credential, the system MUST NOT issue an MCP refresh token (access token only). Local-password-only grants MAY refresh until TTL without an IdP check.
+When the user authenticated authorize via OIDC, an MCP refresh token MUST be bound to that identity-provider session (OIDC `sid`, plus an IdP refresh token when the IdP issued one). `grant_type=refresh_token` MUST confirm the IdP session is still valid before issuing a new access token. If the IdP session is expired, logged out, or revoked, refresh MUST fail and the ServiceRadar refresh family MUST be revoked. IdP back-channel logout for that session MUST revoke matching MCP grants immediately. If SSO was used but the IdP did not provide a session identifier or a checkable credential, the system MUST NOT issue an MCP refresh token (access token only). Local-password-only grants MAY refresh until TTL without an IdP check.
 
 #### Scenario: Authentik logout stops MCP refresh
 - **GIVEN** user U completed MCP OAuth via Authentik
