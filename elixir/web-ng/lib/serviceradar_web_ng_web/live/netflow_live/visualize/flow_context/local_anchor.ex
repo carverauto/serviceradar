@@ -18,8 +18,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor do
   precedence over GeoIP, else GeoIP, else nothing.
   """
 
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.Observability.NetflowLocalCidr
-  alias ServiceRadar.Policies.NetworkAddressPolicy
 
   require Ash.Query
   require Logger
@@ -67,6 +67,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor do
         end)
         |> Enum.sort_by(&anchor_sort_key/1, :desc)
         |> List.first()
+        # --------------------------------------------------------------------------
+        # Internals
+        # --------------------------------------------------------------------------
         |> to_anchor_point()
 
       :error ->
@@ -75,10 +78,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor do
   end
 
   def resolve(_anchors, _ip, _partition), do: nil
-
-  # --------------------------------------------------------------------------
-  # Internals
-  # --------------------------------------------------------------------------
 
   defp extract_results({:ok, %Ash.Page.Keyset{results: results}}) when is_list(results), do: results
   defp extract_results({:ok, results}) when is_list(results), do: results

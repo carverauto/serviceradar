@@ -54,6 +54,8 @@ The catalog covers these areas:
 | **CLI Sessions** | Approving CLI device authorizations; viewing and revoking your own (or any) CLI sessions; managing CLI auth policy. |
 | **Dashboards** | Publishing, enabling, and disabling dashboard packages via the API. |
 | **Field survey** | Opening ingest streams and uploading room artifacts for owned sessions. |
+| **Declarative checks** | Viewing, authoring, importing, exporting, and running ephemeral test evaluations on declarative service and posture check graphs. |
+| **Solution packs & catalog** | Browsing the solution pack catalog, installing/upgrading/exporting packs, managing signed release and GitOps catalog repositories, and running GitOps syncs. |
 
 As a rule of thumb:
 
@@ -170,6 +172,28 @@ the UI or API. The view reports Core and NVR recovery-gate state read-only; gate
 changes remain under deployment control outside CNPG backups and GitOps rollback
 (see [Camera Recording & NVR](./camera-recording.md) and
 [NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md#deployment-recovery-gate)).
+
+### Declarative checks and solution packs
+
+Declarative service and posture checks (`/settings/declarative-checks`) and the
+Solution Packs catalog (`/catalog` and `/settings/catalog`) are governed by
+dedicated permissions in `ServiceRadar.Identity.RBAC.Catalog` (see
+[Solution Packs & Declarative Checks](./solution-packs.md)):
+
+| Permission | Grants | Default roles |
+| --- | --- | --- |
+| `declarative_checks.view` | View declarative service and posture checks, target verdicts, and secret-free canonical JSON exports. | `viewer`, `helpdesk`, `operator`, `admin` |
+| `declarative_checks.manage` | Create, update, import, delete, and bind credentials to declarative service and posture checks. | `operator`, `admin` |
+| `declarative_checks.evaluate` | Execute bounded ephemeral **Test Run** evaluations on declarative check graphs without mutating `ServiceState` or opening incidents. | `operator`, `admin` |
+| `catalog.view` | Browse built-in, signed release, and GitOps solution packs and inspect installed pack status. | `viewer`, `helpdesk`, `operator`, `admin` |
+| `catalog.packs.install` | Install, upgrade, detach, and uninstall solution packs and bind pack `credential_slots`. | `operator`, `admin` |
+| `catalog.packs.export` | Export secret-free `.srpack` archives and directory trees from authored checks, rules, and dashboards. | `operator`, `admin` |
+| `catalog.repositories.manage` | Add, edit, enable, disable, and remove signed release catalog (`:release_catalog`) and private GitOps (`:gitops_tree`) repository sources. | `admin` |
+| `catalog.gitops.sync` | Push secret-free solution pack trees to connected Git repositories and pull environment promotions (`dev -> staging -> prod`). | `operator`, `admin` |
+
+Installing a solution pack with optional Wasm `plugin_dependencies` never
+auto-approves staged Wasm capabilities; staging and approving plugin packages
+still require `plugins.stage` and `plugins.approve`.
 
 ## Custom role profiles
 

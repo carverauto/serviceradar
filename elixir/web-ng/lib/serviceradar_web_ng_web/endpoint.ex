@@ -38,6 +38,10 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     secure: Application.compile_env(:serviceradar_web_ng, [:session, :secure], false)
   ]
 
+  # The origin check for every socket below is the endpoint's `check_origin`
+  # (config/runtime.exs), which defaults to the request host in production. The
+  # scanner only looks for the option on each socket; those three findings are
+  # recorded in .sobelow-skips.
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options, uri: true]],
     longpoll: [connect_info: [session: @session_options, uri: true]]

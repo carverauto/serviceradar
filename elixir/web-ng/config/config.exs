@@ -120,6 +120,7 @@ config :serviceradar_core,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,
     ServiceRadar.Camera,
+    ServiceRadar.Catalog,
     ServiceRadar.CompositeChecks,
     ServiceRadar.DeclarativeChecks,
     ServiceRadar.Identity,
@@ -264,6 +265,16 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   """,
   cosign_public_key_file: nil
 
+# Transparency-log trust for first-party Cosign verification
+# (ServiceRadarWebNG.Plugins.CosignVerifier). Both are files the web-ng image ships
+# (//docker/images:web_ng_sigstore_layer): every accepted Rekor v1 key, named
+# <logID>.pub and byte-identical to docs/sigstore/rekor-keys, and the frozen list of
+# pre-cutover first-party digests that verify without a receipt. Deliberately not
+# overridable at runtime: the keys change only with a reviewed web-ng release.
+config :serviceradar_web_ng, :first_party_transparency_log,
+  rekor_keys_dir: "/usr/share/serviceradar/sigstore/rekor-keys",
+  pre_cutover_digests_file: "/usr/share/serviceradar/sigstore/pre-cutover-first-party-digests.json"
+
 config :serviceradar_web_ng, :god_view_enabled, false
 config :serviceradar_web_ng, :mcp_client_credentials_enabled, true
 config :serviceradar_web_ng, :mcp_enabled, false
@@ -367,6 +378,7 @@ config :serviceradar_web_ng,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,
     ServiceRadar.Camera,
+    ServiceRadar.Catalog,
     ServiceRadar.CompositeChecks,
     ServiceRadar.DeclarativeChecks,
     ServiceRadar.Identity,

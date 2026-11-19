@@ -858,18 +858,27 @@ cosign_release_verify_key() {
   return 1
 }
 
-# Verify the classic `.sig` of one digest the way this run's signing ledger says it was
-# produced, never by whether a receipt happens to be present. A digest created in the run
-# must carry a receipt from an accepted (self-hosted) log that verifies offline under the
-# pinned key for its log ID. A reused signature is held to its receipt when it carries one,
-# from an accepted log or, for a pre-cutover manual signing, from the public-good log; it is
-# verified with the release key alone when it carries none, which only a pre-cutover
-# signature can. A digest the ledger does not record fails. No Rekor is contacted.
+# Verify the classic `.sig` of one digest (kind: image, wasm-plugin or native-addon) the way
+# this run's signing ledger says it was produced, never by whether a receipt happens to be
+# present. A digest created in the run must carry a receipt from an accepted (self-hosted)
+# log that verifies offline under the pinned key for its log ID. A reused signature is held
+# to its receipt when it carries one, from an accepted log or, for a pre-cutover manual
+# signing, from the public-good log, whose receipt counts only when integrated before the
+# pinned cutover (cutover.json). A reused signature without a receipt is verified with the
+# release key alone: a Wasm plugin or native add-on only when its digest is on the frozen
+# pre-cutover allowlist, an image always (Kyverno admission gates images). A digest the
+# ledger does not record fails. No Rekor is contacted.
 # Call after cosign_init_verify_args.
 cosign_verify_legacy_signature() {
   local ref="$1"
+  local kind="${2:-}"
   local digest="${ref##*@}"
-  local class signature_ref log_id release_key key_file
+  local class signature_ref log_id release_key key_file output
+
+  case "${kind}" in
+    image|wasm-plugin|native-addon) ;;
+    *) echo "error: cosign_verify_legacy_signature needs the artifact kind (image, wasm-plugin or native-addon)" >&2; return 1 ;;
+  esac
 
   class="$(cosign_receipt ledger-classify "${digest}")" || return 1
   if [[ "${class}" == "unrecorded" ]]; then
@@ -888,6 +897,11 @@ cosign_verify_legacy_signature() {
       echo "error: ${ref} was signed in this run but its signature carries no transparency-log receipt" >&2
       return 1
     fi
+    if [[ "${kind}" != "image" ]] && ! cosign_receipt allowlisted "${digest}" \
+      "${COSIGN_SIGSTORE_DIR}/pre-cutover-first-party-digests.json"; then
+      echo "error: ${ref} reuses a signature without a receipt and is not on the frozen pre-cutover allowlist" >&2
+      return 1
+    fi
     env -u SIGSTORE_REKOR_PUBLIC_KEY \
       cosign verify --new-bundle-format=false --insecure-ignore-tlog=true \
       --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}"
@@ -895,14 +909,25 @@ cosign_verify_legacy_signature() {
   fi
 
   key_file="${COSIGN_SIGSTORE_DIR}/rekor-keys/${log_id}.pub"
-  if [[ ! -f "${key_file}" && "${class}" == "reused" ]]; then
-    key_file="${COSIGN_SIGSTORE_DIR}/pre-cutover-rekor-keys/${log_id}.pub"
+  if [[ -f "${key_file}" ]]; then
+    SIGSTORE_REKOR_PUBLIC_KEY="${key_file}" \
+      cosign verify --new-bundle-format=false --offline=true \
+      --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}"
+    return
   fi
-  if [[ ! -f "${key_file}" ]]; then
+  key_file="${COSIGN_SIGSTORE_DIR}/pre-cutover-rekor-keys/${log_id}.pub"
+  if [[ "${class}" != "reused" || ! -f "${key_file}" ]]; then
     echo "error: ${ref} carries a receipt from log ${log_id}, which is not an accepted Rekor log for a ${class} signature" >&2
     return 1
   fi
-  SIGSTORE_REKOR_PUBLIC_KEY="${key_file}" \
+  # A pre-cutover log's receipt counts only for an entry integrated before the cutover; the
+  # integrated time is read from what cosign verified, which the SET covers.
+  output="$(SIGSTORE_REKOR_PUBLIC_KEY="${key_file}" \
     cosign verify --new-bundle-format=false --offline=true \
-    --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}"
+    --key "${release_key}" --timeout "${COSIGN_VERIFY_TIMEOUT}" "${ref}")" || return 1
+  if ! cosign_receipt verified-before-cutover "${log_id}" "${COSIGN_SIGSTORE_DIR}/cutover.json" <<<"${output}"; then
+    echo "error: ${ref} reuses a receipt from the pre-cutover log ${log_id} integrated at or after the cutover" >&2
+    return 1
+  fi
+  printf '%s\n' "${output}"
 }

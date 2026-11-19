@@ -398,7 +398,7 @@ Conventions that apply to every phase:
       `String.to_atom/1` on stored or user input.
 - [x] 1.4.4 Validate every operator-supplied outbound URL with
       `Palisade.OutboundURLPolicy.validate_https_public_url/2`
-  (resolved at compile time to `ServiceRadar.Policies.OutboundURLPolicy` (the in-tree port; note `Palisade` is NOT a dependency of `serviceradar_core`, so `Palisade.OutboundURLPolicy` is undefined there)) before any request.
+  (`serviceradar_core` depends on `elixir/palisade` by sibling path) before any request.
       `WebhookNotifier` did not do this; the replacement must.
 - [x] 1.4.5 Add `Notifications.Renderer` implementing the restricted substitution
       engine: whitelisted variable paths plus exactly the filters `upper`,
@@ -972,9 +972,7 @@ Conventions that apply to every phase:
       `Transports.HTTP.request/4`, which runs the guard before a socket exists
       and is the single outbound path; the engine does not call the policy
       separately, so there is one guard rather than two that can disagree.
-      (`Palisade` is not a dependency of `serviceradar_core`; the in-tree
-      `ServiceRadar.Policies.OutboundURLPolicy` is what `HTTP` resolves to, with
-      the same heads and the same error atoms.) A rendered URL carrying
+      A rendered URL carrying
       whitespace or a control character is refused as a permanent configuration
       defect first, because it survives both `URI.parse/1` and the policy and
       would otherwise come back as an unclassified transport error that costs

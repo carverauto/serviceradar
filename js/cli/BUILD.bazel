@@ -89,6 +89,17 @@ js_test(
     ],
 )
 
+js_test(
+    name = "pack_test",
+    size = "medium",
+    entry_point = "tests/pack.test.mjs",
+    data = [
+        ":edge_cli_dist",
+        "bin/serviceradar-cli.js",
+        "package.json",
+    ],
+)
+
 js_run_binary(
     name = "managed_host_bundle",
     tool = "//elixir/web-ng/assets:cli_bundler",

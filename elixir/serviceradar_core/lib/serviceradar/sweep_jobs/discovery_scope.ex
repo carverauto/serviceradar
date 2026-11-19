@@ -16,7 +16,7 @@ defmodule ServiceRadar.SweepJobs.DiscoveryScope do
 
   import Bitwise
 
-  alias ServiceRadar.Policies.NetworkAddressPolicy
+  alias Palisade.NetworkAddressPolicy
   alias ServiceRadar.SweepJobs.SweepGroup
 
   @typedoc "Why an answering host was not added to inventory."

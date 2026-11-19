@@ -387,6 +387,7 @@ elixir_release(
         "//third_party/hex_vendored/connection:mix.exs",
         "//elixir/datasvc:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/palisade:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
@@ -493,6 +494,9 @@ ex_unit_tests(
         # shared examples pin for the Rust harness and the Elixir port alike.
         "//integration_tests/srql_parity:inventory.json",
         "//integration_tests/srql_parity:shape_examples.json",
+        # CosignVerifierTest runs the cosign release the web-ng image ships against
+        # synthetic signatures and a loopback registry.
+        "//docker/images:web_ng_cosign",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
@@ -538,6 +542,8 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/auth/jit_provisioning_test.exs",
         "test/phoenix/channels/topology_tile_channel_live_db_test.exs",
         "test/phoenix/controllers/api/api_docs_console_test.exs",
+        "test/phoenix/controllers/authored_dashboard_export_controller_test.exs",
+        "test/phoenix/controllers/csp_report_controller_test.exs",
         "test/phoenix/controllers/api/authorization_settings_controller_test.exs",
         "test/phoenix/controllers/api/bmp_settings_controller_test.exs",
         "test/phoenix/controllers/api/camera_relay_session_controller_test.exs",

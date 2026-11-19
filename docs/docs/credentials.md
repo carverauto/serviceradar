@@ -877,6 +877,46 @@ NVR workload identity, local spool durability, and the deployment recovery
 gate, see
 [NVR runtime and replicated storage](https://github.com/carverauto/serviceradar/blob/staging/docs/nvr-runtime.md).
 
+### Declarative checks, solution packs, and catalog repositories
+
+Declarative checks, installed solution packs, and authenticated catalog
+repositories all bind exclusively to CNPG credentials in
+`platform.network_credential_secrets` or `platform.network_credential_rules`.
+Exported check JSON, `.srpack` archives, and GitOps commits never contain
+secret payloads or deployment-local secret/rule UUIDs -- they declare abstract
+`credential_slots` instead (see
+[Solution Packs & Declarative Checks](./solution-packs.md#typed-parameters-credential_slots-and-the-secret-free-guarantee)).
+
+Three resources hold local foreign-key bindings to the unified credential store:
+
+- **`DeclarativeCheckCredentialBinding`** (`platform.declarative_check_credential_bindings`):
+  Maps a declarative check's abstract `credential_slot` to either a
+  `NetworkCredentialRule` (preferred for dynamic `srql_devices` /
+  `service_targets` fan-out) or a `NetworkCredentialSecret` (singleton checks).
+  At execution time, `SecretBroker` issues short-lived `CredentialBrokerGrant`
+  leases so `serviceradar-agent`'s `declarative-check-runner` WASI host injects
+  credentials only on allowlisted origins.
+- **`InstalledSolutionPackCredentialBinding`** (`platform.installed_solution_pack_credential_bindings`):
+  Records the pack-level `credential_slot` bindings chosen during the Guided
+  Install Wizard and projects them onto each installed check's
+  `DeclarativeCheckCredentialBinding` rows so pack upgrades (`0.1.0 -> 0.2.0`)
+  preserve local bindings without secret re-entry.
+- **`CatalogRepository`** (`platform.catalog_repositories`):
+  References an AshCloak-encrypted `:api_token` `NetworkCredentialSecret`
+  (`credential_secret_id`) for private `:release_catalog` downloads and
+  `:gitops_tree` HTTPS Git Data REST syncs over `ServiceRadar.HTTP.EgressClient`.
+  The PAT is decrypted only inside `serviceradar_core` during sync and is never
+  rendered in LiveView assigns or OCSF audit records.
+
+**Usage inventory and guarded deletion:** All three resources enforce
+PostgreSQL `on_delete: :restrict` foreign keys and are registered in
+`ServiceRadar.Credentials.CredentialUsage`, `GuardCredentialDestroy`, and
+`GuardCredentialRuleLifecycle`. Bound credentials and rules appear in the
+**Usage** inventory on `/settings/networks/credentials`, and deleting a secret
+or rule referenced by any `DeclarativeCheckCredentialBinding`,
+`InstalledSolutionPackCredentialBinding`, or `CatalogRepository` is refused
+with `credential_in_use` until the binding is cleared or replaced.
+
 ### SNMP
 
 SNMP is a protocol ServiceRadar speaks itself, so its descriptor is
@@ -1224,6 +1264,7 @@ host-call entries.
 - [Ansible Integration](./ansible.md)
 - [SNMP Ingest Guide](./snmp.md)
 - [Wasm Plugins](./wasm-plugins.md)
+- [Solution Packs & Declarative Checks](./solution-packs.md)
 - [Camera Recording & NVR](./camera-recording.md)
 - [RBAC and Roles](./rbac-and-roles.md)
 - [TLS Security](./tls-security.md)

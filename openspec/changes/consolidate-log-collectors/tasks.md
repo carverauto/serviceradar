@@ -39,7 +39,7 @@
 - [x] 6.1 `openspec validate consolidate-log-collectors --strict` passes.
 - [x] 6.2 Flowgger tests cover the shared-output case and the unchanged single-input case.
 - [x] 6.3 `helm unittest` covers the unified Service ports, the label-selected compatibility Service, TCP disabled, and the foreign-subject failure.
-- [ ] 6.4 After a deployment upgrade, `serviceradar-log-collector-tcp` has no Deployment, its endpoints are only pods labeled `serviceradar.io/syslog-tcp=true`, and one TCP message and one UDP message both arrive on `logs.syslog`.
+- [x] 6.4 After a deployment upgrade, `serviceradar-log-collector-tcp` has no Deployment, its endpoints are only pods labeled `serviceradar.io/syslog-tcp=true`, and one TCP message and one UDP message both arrive on `logs.syslog`. Checked on the demo deployment on 2026-11-18: no such Deployment exists, the Service's three endpoints are exactly the three pods carrying the label, and one synthetic TCP line and one synthetic UDP line were each stored in `platform.logs` with source `syslog`, while a marker that was never sent returned no row. TCP needed the network-policy port fix (#6792) first.
 
 ## 7. Companion proposal ownership
 

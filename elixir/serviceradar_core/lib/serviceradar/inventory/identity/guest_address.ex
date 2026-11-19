@@ -59,6 +59,7 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
 
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Policies.NetworkAddressPolicy
+  alias Palisade.NetworkAddressPolicy
 
   # Interface names container engines, CNI plugins, and local hypervisors give
   # the networks they create inside a host.

@@ -193,6 +193,56 @@ func TestBuildVerificationPayloadDoesNotHTMLEscape(t *testing.T) {
 	}
 }
 
+func TestSolutionPackCrossLanguageConformanceVector(t *testing.T) {
+	seedHex := strings.Repeat("11", 32)
+	t.Setenv(uploadSigningPrivateKeyEnv, seedHex)
+	t.Setenv(uploadSigningKeyIDEnv, "conformance-key-1")
+	t.Setenv(uploadSigningSignerEnv, "conformance-key-1")
+
+	manifestJSON := []byte(`{
+  "version": "0.1.0",
+  "slug": "conformance-pack",
+  "resources": {"rules": [], "dashboards": [], "checks": []},
+  "plugin_dependencies": [],
+  "pack_format_version": 1,
+  "name": "Conformance <Pack>",
+  "id": "io.example.conformance-pack",
+  "files": {"README.md": "` + strings.Repeat("cd", 32) + `"},
+  "credential_slots": [],
+  "config": [],
+  "categories": ["Storage & NVR"]
+}`)
+	contentHash := strings.Repeat("ab", 32)
+
+	payload, err := buildVerificationPayload(manifestJSON, contentHash)
+	if err != nil {
+		t.Fatalf("buildVerificationPayload() error = %v", err)
+	}
+
+	wantPayload := `{"content_hash":"` + contentHash + `","manifest":{"categories":["Storage & NVR"],"config":[],"credential_slots":[],"files":{"README.md":"` + strings.Repeat("cd", 32) + `"},"id":"io.example.conformance-pack","name":"Conformance <Pack>","pack_format_version":1,"plugin_dependencies":[],"resources":{"checks":[],"dashboards":[],"rules":[]},"slug":"conformance-pack","version":"0.1.0"}}`
+	if string(payload) != wantPayload {
+		t.Fatalf("payload = %s, want %s", payload, wantPayload)
+	}
+
+	pubKey, err := uploadSigningPublicKey()
+	if err != nil {
+		t.Fatalf("uploadSigningPublicKey() error = %v", err)
+	}
+	wantPubB64 := "0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc="
+	if gotPubB64 := base64.StdEncoding.EncodeToString(pubKey); gotPubB64 != wantPubB64 {
+		t.Fatalf("public key = %s, want %s", gotPubB64, wantPubB64)
+	}
+
+	sigBytes, err := signUploadPayload(payload)
+	if err != nil {
+		t.Fatalf("signUploadPayload() error = %v", err)
+	}
+	wantSigB64 := "xeLs96BmT+/ac+HgPnQ7LMXyXe0olbpQjW4BgdWgWvhHnr7L3ZJPYlVObW2FxCL5YCcTEBYY+OGLas/xQaKMDw=="
+	if gotSigB64 := base64.StdEncoding.EncodeToString(sigBytes); gotSigB64 != wantSigB64 {
+		t.Fatalf("signature = %s, want %s", gotSigB64, wantSigB64)
+	}
+}
+
 func writeBundleForTest(path string, manifest, wasm []byte) (err error) {
 	file, err := os.Create(path)
 	if err != nil {

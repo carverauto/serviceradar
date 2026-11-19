@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Components.PackProvenanceComponents
+
   alias ServiceRadar.Observability.ZenRule
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -147,6 +149,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
     |> assign(:dirty, false)
     |> assign(:saving, false)
     |> assign(:properties_collapsed, false)
+    |> assign(:fork_prompt_open, false)
+    |> assign(:pending_save_params, nil)
   end
 
   defp page_title(:create, _), do: "Create Zen Rule"
@@ -164,26 +168,34 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   end
 
   def handle_event("save", %{"zen_rule" => params}, socket) do
-    # Include the jdm_definition in the params
     params = Map.put(params, "jdm_definition", socket.assigns.jdm_definition)
 
-    case AshPhoenix.Form.submit(socket.assigns.ash_form, params: params) do
-      {:ok, rule} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Rule saved successfully")
-         |> assign(:dirty, false)
-         |> assign(:rule, rule)
-         |> assign(:mode, :edit)
-         |> push_patch(to: ~p"/settings/rules/zen/#{rule.id}")}
-
-      {:error, ash_form} ->
-        {:noreply,
-         socket
-         |> assign(:ash_form, ash_form)
-         |> assign(:form, to_form(ash_form))
-         |> put_flash(:error, "Failed to save rule. Check the form for errors.")}
+    if managed_pack_zen_rule?(socket.assigns.rule) and not socket.assigns.fork_prompt_open do
+      {:noreply,
+       socket
+       |> assign(:fork_prompt_open, true)
+       |> assign(:pending_save_params, params)}
+    else
+      submit_zen_rule(socket, params)
     end
+  end
+
+  def handle_event("cancel_zen_fork", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:fork_prompt_open, false)
+     |> assign(:pending_save_params, nil)}
+  end
+
+  def handle_event("confirm_zen_fork", _params, socket) do
+    params =
+      Map.put(
+        socket.assigns.pending_save_params || %{"jdm_definition" => socket.assigns.jdm_definition},
+        "managed",
+        false
+      )
+
+    submit_zen_rule(assign(socket, :fork_prompt_open, false), params)
   end
 
   def handle_event("jdm_editor_change", %{"definition" => definition}, socket) do
@@ -194,28 +206,33 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   end
 
   def handle_event("jdm_editor_save", %{"definition" => definition}, socket) do
-    # Save the rule with the new definition
-    params = %{
-      "jdm_definition" => definition
-    }
+    params = %{"jdm_definition" => definition}
 
-    ash_form = AshPhoenix.Form.validate(socket.assigns.ash_form, params)
+    if managed_pack_zen_rule?(socket.assigns.rule) do
+      {:noreply,
+       socket
+       |> assign(:jdm_definition, definition)
+       |> assign(:fork_prompt_open, true)
+       |> assign(:pending_save_params, params)}
+    else
+      ash_form = AshPhoenix.Form.validate(socket.assigns.ash_form, params)
 
-    case AshPhoenix.Form.submit(ash_form, params: params) do
-      {:ok, rule} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Rule saved successfully")
-         |> assign(:jdm_definition, definition)
-         |> assign(:dirty, false)
-         |> assign(:rule, rule)}
+      case AshPhoenix.Form.submit(ash_form, params: params) do
+        {:ok, rule} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Rule saved successfully")
+           |> assign(:jdm_definition, definition)
+           |> assign(:dirty, false)
+           |> assign(:rule, rule)}
 
-      {:error, ash_form} ->
-        {:noreply,
-         socket
-         |> assign(:ash_form, ash_form)
-         |> assign(:form, to_form(ash_form))
-         |> put_flash(:error, "Failed to save rule")}
+        {:error, ash_form} ->
+          {:noreply,
+           socket
+           |> assign(:ash_form, ash_form)
+           |> assign(:form, to_form(ash_form))
+           |> put_flash(:error, "Failed to save rule")}
+      end
     end
   end
 
@@ -257,6 +274,26 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             </.ui_button>
           </div>
         </div>
+
+        <.pack_provenance_banner
+          :if={@rule}
+          pack_id={Map.get(@rule, :pack_id)}
+          pack_version={Map.get(@rule, :pack_version)}
+          managed={Map.get(@rule, :managed, false)}
+          resource_kind="Zen rule"
+          class="mt-4"
+        />
+
+        <.pack_fork_confirmation_modal
+          id="zen-rule-fork-modal"
+          open={Map.get(assigns, :fork_prompt_open, false)}
+          resource_label="Zen rule"
+          pack_id={@rule && Map.get(@rule, :pack_id)}
+          pack_version={@rule && Map.get(@rule, :pack_version)}
+          allow_override_save={false}
+          on_confirm_fork="confirm_zen_fork"
+          on_cancel="cancel_zen_fork"
+        />
 
         <!-- Single form that persists across all states -->
         <.form
@@ -446,5 +483,33 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
       ],
       "edges" => []
     }
+  end
+
+  defp managed_pack_zen_rule?(rule) when is_map(rule) do
+    Map.get(rule, :managed) == true and is_binary(Map.get(rule, :pack_id)) and
+      Map.get(rule, :pack_id) != ""
+  end
+
+  defp managed_pack_zen_rule?(_), do: false
+
+  defp submit_zen_rule(socket, params) do
+    case AshPhoenix.Form.submit(socket.assigns.ash_form, params: params) do
+      {:ok, rule} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Rule saved successfully")
+         |> assign(:dirty, false)
+         |> assign(:pending_save_params, nil)
+         |> assign(:rule, rule)
+         |> assign(:mode, :edit)
+         |> push_patch(to: ~p"/settings/rules/zen/#{rule.id}")}
+
+      {:error, ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:ash_form, ash_form)
+         |> assign(:form, to_form(ash_form))
+         |> put_flash(:error, "Failed to save rule. Check the form for errors.")}
+    end
   end
 end

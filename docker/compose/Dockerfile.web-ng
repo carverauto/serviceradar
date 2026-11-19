@@ -20,6 +20,7 @@ WORKDIR /app
 # Preserve repo-relative layout so all path deps resolve naturally:
 #   elixir/web-ng/mix.exs uses path: "../serviceradar_core", "../datasvc", etc.
 #   elixir/serviceradar_srql/native/srql_nif/Cargo.toml uses path: "../../../../rust/srql"
+COPY elixir/palisade ./elixir/palisade
 COPY elixir/serviceradar_core ./elixir/serviceradar_core
 COPY elixir/serviceradar_recording_control ./elixir/serviceradar_recording_control
 COPY elixir/serviceradar_recording_metadata ./elixir/serviceradar_recording_metadata

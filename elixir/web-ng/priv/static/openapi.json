@@ -653,6 +653,10 @@
                 ],
                 "description": "Field included by default."
               },
+              "managed": {
+                "description": "Field included by default.",
+                "type": "boolean"
+              },
               "match": {
                 "anyOf": [
                   {
@@ -668,6 +672,34 @@
               "name": {
                 "description": "Field included by default.",
                 "type": "string"
+              },
+              "pack_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "pack_version": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "parameter_overrides": {
+                "description": "Field included by default.",
+                "type": "object"
               },
               "priority": {
                 "anyOf": [
@@ -700,11 +732,25 @@
                   "metric"
                 ],
                 "type": "string"
+              },
+              "template_fingerprint": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               }
             },
             "required": [
               "name",
-              "source_type"
+              "source_type",
+              "managed",
+              "parameter_overrides"
             ],
             "type": "object"
           },
@@ -945,6 +991,55 @@
             "type": "string"
           },
           "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SolutionPackSummary": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "available_version": {
+            "nullable": true,
+            "type": "string"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "counts": {
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "installed_version": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "update_available": {
+            "type": "boolean"
+          },
+          "version": {
             "type": "string"
           }
         },
@@ -3100,6 +3195,20 @@
         },
         "type": "deepObject"
       },
+      "CatalogGitOpsPushRequest": {
+        "properties": {
+          "commit_message": {
+            "type": "string"
+          },
+          "files": {
+            "type": "object"
+          },
+          "pack_slug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-interface_uid": {
         "additionalProperties": false,
         "description": "Interface unique identifier (ifindex or name-based)",
@@ -4613,6 +4722,14 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogErrorResponse": {
+        "properties": {
+          "error": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9132,6 +9249,15 @@
             "type": "array",
             "uniqueItems": true
           },
+          "pack_id": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-pack_id"
+          },
+          "pack_version": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-pack_version"
+          },
+          "parameter_overrides": {
+            "$ref": "#/components/schemas/stateful-alert-rule-filter-parameter_overrides"
+          },
           "plugin_package_id": {
             "$ref": "#/components/schemas/stateful-alert-rule-filter-plugin_package_id"
           },
@@ -12670,6 +12796,60 @@
         },
         "type": "object"
       },
+      "stateful-alert-rule-filter-pack_version": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "poll-job-filter-id": {
         "additionalProperties": false,
         "properties": {
@@ -14454,6 +14634,60 @@
         },
         "type": "object"
       },
+      "event-rule-filter-template_fingerprint": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-partition": {
         "additionalProperties": false,
         "description": "Network partition. The same IP may exist in more than one partition.",
@@ -15130,6 +15364,60 @@
         "description": "A link MUST be represented as either: a string containing the link's URL or a link object.",
         "type": "string"
       },
+      "event-rule-filter-pack_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-group-filter-desc": {
         "additionalProperties": false,
         "description": "Group description",
@@ -15386,6 +15674,59 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogRepositoryWriteRequest": {
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "credential_secret_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "release_catalog",
+              "gitops_tree"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "enum": [
+              "github",
+              "gitlab",
+              "gitea",
+              "portal"
+            ],
+            "type": "string"
+          },
+          "push_strategy": {
+            "enum": [
+              "pull_request",
+              "direct_commit"
+            ],
+            "type": "string"
+          },
+          "repo_url": {
+            "type": "string"
+          },
+          "signing_key_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signing_public_key": {
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -18796,6 +19137,30 @@
         },
         "type": "object"
       },
+      "SolutionPackImportRequest": {
+        "properties": {
+          "archive_base64": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "type": "boolean"
+          },
+          "files": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-acknowledged_by_user_id": {
         "additionalProperties": false,
         "description": "Platform user who acknowledged, when one can be identified.\n\nThe free-text `acknowledged_by` is retained alongside this for external\nprincipals (a chat or paging identity with no platform user).\n",
@@ -19254,6 +19619,14 @@
           "type",
           "id"
         ],
+        "type": "object"
+      },
+      "CatalogRepositoryResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CatalogRepository"
+          }
+        },
         "type": "object"
       },
       "alert-filter-last_notification_at": {
@@ -22744,6 +23117,56 @@
             "type": "string"
           },
           "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogRepository": {
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "release_catalog",
+              "gitops_tree"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "enum": [
+              "github",
+              "gitlab",
+              "gitea",
+              "portal"
+            ],
+            "type": "string"
+          },
+          "push_strategy": {
+            "enum": [
+              "pull_request",
+              "direct_commit"
+            ],
+            "type": "string"
+          },
+          "repo_url": {
             "type": "string"
           }
         },
@@ -26860,6 +27283,9 @@
           "id": {
             "$ref": "#/components/schemas/event-rule-filter-id"
           },
+          "managed": {
+            "$ref": "#/components/schemas/event-rule-filter-managed"
+          },
           "match": {
             "$ref": "#/components/schemas/event-rule-filter-match"
           },
@@ -26876,6 +27302,15 @@
             "type": "array",
             "uniqueItems": true
           },
+          "pack_id": {
+            "$ref": "#/components/schemas/event-rule-filter-pack_id"
+          },
+          "pack_version": {
+            "$ref": "#/components/schemas/event-rule-filter-pack_version"
+          },
+          "parameter_overrides": {
+            "$ref": "#/components/schemas/event-rule-filter-parameter_overrides"
+          },
           "priority": {
             "$ref": "#/components/schemas/event-rule-filter-priority"
           },
@@ -26884,6 +27319,9 @@
           },
           "source_type": {
             "$ref": "#/components/schemas/event-rule-filter-source_type"
+          },
+          "template_fingerprint": {
+            "$ref": "#/components/schemas/event-rule-filter-template_fingerprint"
           }
         },
         "type": "deepObject"
@@ -28040,6 +28478,34 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "CatalogGitOpsPullRequest": {
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": true,
+            "type": "boolean"
+          },
+          "ref": {
+            "nullable": true,
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
         "type": "object"
       },
       "device": {
@@ -29398,6 +29864,32 @@
         },
         "type": "object"
       },
+      "SolutionPackInstallRequest": {
+        "properties": {
+          "config": {
+            "type": "object"
+          },
+          "credential_bindings": {
+            "type": "object"
+          },
+          "decisions": {
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SolutionPackResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SolutionPackSummary"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-deleted_by": {
         "additionalProperties": false,
         "description": "Actor identifier that deleted the device",
@@ -29768,6 +30260,34 @@
                 "description": "Field included by default.",
                 "type": "string"
               },
+              "pack_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "pack_version": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "parameter_overrides": {
+                "description": "Field included by default.",
+                "type": "object"
+              },
               "plugin_package_id": {
                 "anyOf": [
                   {
@@ -29842,7 +30362,8 @@
               "bucket_seconds",
               "cooldown_seconds",
               "renotify_seconds",
-              "managed"
+              "managed",
+              "parameter_overrides"
             ],
             "type": "object"
           },
@@ -32425,6 +32946,84 @@
         },
         "type": "object"
       },
+      "event-rule-filter-managed": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "event-rule-filter-parameter_overrides": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric_interface_hourly-filter-device_id": {
         "additionalProperties": false,
         "properties": {
@@ -33690,6 +34289,60 @@
         },
         "type": "object"
       },
+      "event-rule-filter-pack_version": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-last_seen_time": {
         "additionalProperties": false,
         "description": "When agent was last seen",
@@ -33869,6 +34522,60 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "stateful-alert-rule-filter-pack_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -34765,6 +35472,25 @@
         },
         "type": "object"
       },
+      "CatalogRepositoryListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogRepository"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "CatalogOperationResponse": {
+        "properties": {
+          "data": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric-filter-target_device_ip": {
         "additionalProperties": false,
         "description": "Target device IP for SNMP/network metrics",
@@ -35247,6 +35973,17 @@
         },
         "type": "object"
       },
+      "SolutionPackListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SolutionPackSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "gateway": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a gateway",
@@ -35580,6 +36317,45 @@
         },
         "type": "object"
       },
+      "stateful-alert-rule-filter-parameter_overrides": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "notification_route-filter-throttle_seconds": {
         "additionalProperties": false,
         "description": "Minimum seconds between repeat notifications for the same dedupe key",
@@ -35878,6 +36654,81 @@
         },
         "tags": [
           "device"
+        ]
+      }
+    },
+    "/catalog/packs/{slug}/install": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Runs dry-run preview (`dry_run: true`) or atomic installation/upgrade via `ServiceRadar.Catalog.Reconciler`. Requires `catalog.packs.install`.",
+        "operationId": "installSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolutionPackInstallRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Reconciliation plan or apply result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Install or upgrade a Solution Pack (supports dry_run)",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -37239,6 +38090,91 @@
         ]
       }
     },
+    "/catalog/packs/{slug}/export": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Downloads a secret-free `.srpack` archive (`format=srpack`) or canonical `.json` bundle (`format=json`). Requires `catalog.packs.export`.",
+        "operationId": "exportSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Output format (`srpack` or `json`).",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "srpack",
+              "enum": [
+                "srpack",
+                "json"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Secret-free Solution Pack archive or JSON bundle"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Export Solution Pack (.srpack or .json)",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/gateways/{id}/drain/finish": {
       "patch": {
         "callbacks": {},
@@ -38437,6 +39373,149 @@
         ]
       }
     },
+    "/catalog/repositories/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Deletes a non-built-in catalog repository. Requires `catalog.repositories.manage`.",
+        "operationId": "deleteCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Repository deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      },
+      "put": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Updates a non-built-in catalog repository. Requires `catalog.repositories.manage`.",
+        "operationId": "updateCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogRepositoryWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryResponse"
+                }
+              }
+            },
+            "description": "Updated repository"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/alerts/{id}": {
       "get": {
         "callbacks": {},
@@ -38828,6 +39907,82 @@
         },
         "tags": [
           "device_cleanup_settings"
+        ]
+      }
+    },
+    "/catalog/repositories/{id}/gitops/pull": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Previews (`dry_run: true`, default) or applies a GitOps promotion from a `:gitops_tree` branch. Requires `catalog.gitops.sync`.",
+        "operationId": "pullSolutionPackFromGitOps",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogGitOpsPullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "GitOps pull preview or applied result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Pull or dry-run preview a Solution Pack from GitOps repository",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -39321,7 +40476,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -39379,12 +40534,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -39459,12 +40614,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -39580,6 +40735,36 @@
                           },
                           "name": {
                             "type": "string"
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "plugin_package_id": {
                             "anyOf": [
@@ -40704,7 +41889,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|signal|-signal|\\+\\+signal|--signal|match|-match|\\+\\+match|--match|threshold|-threshold|\\+\\+threshold|--threshold|window_seconds|-window_seconds|\\+\\+window_seconds|--window_seconds|bucket_seconds|-bucket_seconds|\\+\\+bucket_seconds|--bucket_seconds|cooldown_seconds|-cooldown_seconds|\\+\\+cooldown_seconds|--cooldown_seconds|renotify_seconds|-renotify_seconds|\\+\\+renotify_seconds|--renotify_seconds|event|-event|\\+\\+event|--event|alert|-alert|\\+\\+alert|--alert|managed|-managed|\\+\\+managed|--managed|template_version|-template_version|\\+\\+template_version|--template_version|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides|plugin_package_id|-plugin_package_id|\\+\\+plugin_package_id|--plugin_package_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -40729,12 +41914,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -41047,6 +42232,77 @@
         },
         "tags": [
           "timeseries_metric_disk_hourly"
+        ]
+      }
+    },
+    "/catalog/packs/export": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Serializes selected checks, rules, and dashboards through `SecretFreeValidator` into a `.srpack` or `.json` bundle. Requires `catalog.packs.export`.",
+        "operationId": "exportCustomSolutionPack",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Secret-free Solution Pack archive or JSON bundle"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or secret-free violation"
+          }
+        },
+        "summary": "Export custom Solution Pack spec",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -41403,6 +42659,71 @@
         },
         "tags": [
           "agent"
+        ]
+      }
+    },
+    "/catalog/packs/{slug}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Returns full pack manifest, sanitized README, assets, check documents, rules, and dashboards. Requires `catalog.view`.",
+        "operationId": "getSolutionPack",
+        "parameters": [
+          {
+            "description": "Solution Pack slug or reverse-DNS pack_id.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolutionPackResponse"
+                }
+              }
+            },
+            "description": "Solution Pack detail"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get Solution Pack detail",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -46442,7 +47763,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides))*$",
               "type": "string"
             },
             "style": "form"
@@ -46467,12 +47788,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -47511,12 +48832,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47572,12 +48893,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47655,12 +48976,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id"
+                "stateful-alert-rule": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id"
               },
               "properties": {
                 "stateful-alert-rule": {
                   "description": "Comma separated field names for stateful-alert-rule",
-                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,plugin_package_id",
+                  "example": "id,name,description,enabled,priority,signal,match,group_by,threshold,window_seconds,bucket_seconds,cooldown_seconds,renotify_seconds,event,alert,managed,template_version,template_fingerprint,pack_id,pack_version,parameter_overrides,plugin_package_id",
                   "type": "string"
                 }
               },
@@ -47778,6 +49099,36 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
                               },
                               {
                                 "type": "null"
@@ -47934,6 +49285,51 @@
         ]
       }
     },
+    "/catalog/packs": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Lists built-in and installed Solution Packs with resource counts and update availability. Requires `catalog.view`.",
+        "operationId": "listSolutionPacks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolutionPackListResponse"
+                }
+              }
+            },
+            "description": "Solution Pack list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List Solution Packs",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/poll-jobs/running": {
       "get": {
         "callbacks": {},
@@ -48035,6 +49431,114 @@
         },
         "tags": [
           "poll-job"
+        ]
+      }
+    },
+    "/catalog/repositories": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Lists configured `:release_catalog` and `:gitops_tree` repositories. Requires `catalog.view`.",
+        "operationId": "listCatalogRepositories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryListResponse"
+                }
+              }
+            },
+            "description": "Repository list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List Catalog & GitOps Repositories",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Creates a `:release_catalog` or `:gitops_tree` repository. Requires `catalog.repositories.manage`.",
+        "operationId": "createCatalogRepository",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogRepositoryWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRepositoryResponse"
+                }
+              }
+            },
+            "description": "Created repository"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create Catalog Repository",
+        "tags": [
+          "solution_packs_catalog"
         ]
       }
     },
@@ -48434,6 +49938,92 @@
         ]
       }
     },
+    "/catalog/repositories/{id}/gitops/push": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Pushes a secret-free pack file tree to a `:gitops_tree` repository via HTTPS Git Data REST APIs. Requires `catalog.gitops.sync`.",
+        "operationId": "pushSolutionPackToGitOps",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogGitOpsPushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "GitOps push result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Upstream branch conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Push secret-free Solution Pack to GitOps repository",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/notification-channels": {
       "get": {
         "callbacks": {},
@@ -48538,6 +50128,147 @@
         ]
       }
     },
+    "/catalog/repositories/{id}/sync": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Runs an immediate isolated sync for the specified catalog repository. Requires `catalog.repositories.manage` or `catalog.gitops.sync`.",
+        "operationId": "syncCatalogRepository",
+        "parameters": [
+          {
+            "description": "CatalogRepository UUID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Sync summary"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Trigger isolated repository sync",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
+    "/catalog/packs/import": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Validates an uploaded archive or file map and previews or applies reconciliation. Requires `catalog.packs.install`.",
+        "operationId": "importSolutionPack",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolutionPackImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogOperationResponse"
+                }
+              }
+            },
+            "description": "Import preview or applied result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Import a .srpack, .zip, or JSON Solution Pack (supports dry_run)",
+        "tags": [
+          "solution_packs_catalog"
+        ]
+      }
+    },
     "/event-rules/{id}": {
       "delete": {
         "callbacks": {},
@@ -48573,12 +50304,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48634,12 +50365,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48717,12 +50448,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -48763,6 +50494,16 @@
                               }
                             ]
                           },
+                          "managed": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "match": {
                             "anyOf": [
                               {
@@ -48777,6 +50518,36 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
                               },
                               {
                                 "type": "null"
@@ -48810,6 +50581,16 @@
                                   "log",
                                   "metric"
                                 ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "template_fingerprint": {
+                            "anyOf": [
+                              {
                                 "type": "string"
                               },
                               {
@@ -49170,7 +50951,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|source_type|-source_type|\\+\\+source_type|--source_type|source|-source|\\+\\+source|--source|match|-match|\\+\\+match|--match|event|-event|\\+\\+event|--event|pack_id|-pack_id|\\+\\+pack_id|--pack_id|pack_version|-pack_version|\\+\\+pack_version|--pack_version|managed|-managed|\\+\\+managed|--managed|template_fingerprint|-template_fingerprint|\\+\\+template_fingerprint|--template_fingerprint|parameter_overrides|-parameter_overrides|\\+\\+parameter_overrides|--parameter_overrides))*$",
               "type": "string"
             },
             "style": "form"
@@ -49228,12 +51009,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -49308,12 +51089,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "event-rule": "id,name,enabled,priority,source_type,source,match,event"
+                "event-rule": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides"
               },
               "properties": {
                 "event-rule": {
                   "description": "Comma separated field names for event-rule",
-                  "example": "id,name,enabled,priority,source_type,source,match,event",
+                  "example": "id,name,enabled,priority,source_type,source,match,event,pack_id,pack_version,managed,template_fingerprint,parameter_overrides",
                   "type": "string"
                 }
               },
@@ -49354,6 +51135,16 @@
                               }
                             ]
                           },
+                          "managed": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "match": {
                             "anyOf": [
                               {
@@ -49366,6 +51157,36 @@
                           },
                           "name": {
                             "type": "string"
+                          },
+                          "pack_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_version": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parameter_overrides": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "priority": {
                             "anyOf": [
@@ -49394,6 +51215,16 @@
                                   "log",
                                   "metric"
                                 ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "template_fingerprint": {
+                            "anyOf": [
+                              {
                                 "type": "string"
                               },
                               {
@@ -50848,6 +52679,10 @@
     {
       "description": "Declarative service and posture checks (DAG CRUD, canonical import/export, and ephemeral test-run)",
       "name": "declarative_checks"
+    },
+    {
+      "description": "Solution Packs catalog gallery, guided install/upgrade, secret-free export/import, signed release catalogs, and HTTPS GitOps sync",
+      "name": "solution_packs_catalog"
     }
   ]
 }

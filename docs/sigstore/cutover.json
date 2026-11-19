@@ -1,0 +1,6 @@
+{
+  "description": "The cutover release: the first release built with the receipt signer. A reused signature's receipt from a pre-cutover log (docs/sigstore/pre-cutover-rekor-keys/) is accepted by release verification only when it was integrated before this time. Taken from the annotated tag object of v1.5.8 (GET /repos/carverauto/serviceradar/git/tags/10b4b272a399a1c6fa8dae25a8d8d8c660a0057d, tagger date), which points at 932684c5ed0cf5cc899e9590e8ea6f7d84c28ba1. Never move this later.",
+  "release": "v1.5.8",
+  "tag_time": "2026-11-18T20:48:02Z",
+  "integrated_time_before": 1795034882
+}

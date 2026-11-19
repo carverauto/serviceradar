@@ -2183,8 +2183,7 @@ actions:
   # in //elixir/web-ng:unit_tests, on every pull request. Compiling them a
   # second time under Mix needed the Rust NIFs this image cannot build (no
   # cargo; Rust links on RBE), and without them the Boundary compiler crashed
-  # on modules it could not load. elixir/palisade is not built by Bazel and has
-  # no NIFs, so this job compiles it with warnings as errors after the script.
+  # on modules it could not load.
   #
   # The Hex dependencies are still compiled, because Mix refuses to run Credo
   # or the audits against uncompiled ones. Their C code builds with this
@@ -2255,4 +2254,3 @@ actions:
           mix local.rebar --force
 
           ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-compile
-          (cd elixir/palisade && mix compile --no-deps-check --warnings-as-errors)

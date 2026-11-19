@@ -4,7 +4,7 @@ ServiceRadar is introducing declarative service and posture check DAGs (`add-dec
 
 Inspired structurally by Timeplus Apps (`timeplus-io/apps`, where each package bundles a manifest with typed `config` inputs, inline SVG icon, categories, modular pipeline resources, dashboards, `README.md`, and a static `index.json` catalog), ServiceRadar Solution Packs elevate monitoring from individual check or rule forms into versioned, composable, secret-free monitoring bundles that can be:
 1. Browsed and installed in one guided flow from a `web-ng` Catalog Gallery.
-2. Distributed as deterministic `.srpack` archives from signed public or private release catalogs (`carverauto/serviceradar-apps` and third-party repositories).
+2. Distributed as deterministic `.srpack` archives from signed public or private release catalogs (`carverauto/serviceradar`, `developer.serviceradar.cloud`, and third-party repositories).
 3. Committed and promoted across `dev -> staging -> prod` as clean human-readable Git directory trees (`packs/<slug>/...`) in private GitHub, GitLab, or Gitea repositories via pure HTTPS REST APIs over `ServiceRadar.HTTP.EgressClient`.
 4. Upgraded safely across versions (`0.1.0 -> 0.2.0`) using `RuleSeeder`-style `managed` + `template_fingerprint` reconciliation without clobbering operator `parameter_overrides` or threshold customizations.
 
@@ -205,9 +205,9 @@ We therefore define `ServiceRadar.Catalog.CatalogRepository` in the `ServiceRada
 - RBAC-gated writes (`catalog.repositories.manage`, admin-only, enforced in both LiveView and Ash policies) and OCSF audit records emitted via `ServiceRadar.Events.AuditWriter`.
 
 #### Mode A: Signed Release Catalogs (`mode: :release_catalog`)
-- **Seeded built-in catalog:** Migration seeds `https://github.com/carverauto/serviceradar-apps` (`name: "ServiceRadar Official Solution Packs"`, `mode: :release_catalog`, `builtin: true`, `is_default: true`, `index_asset_name: "serviceradar-pack-index.json"`, trusted first-party ed25519 signing keys). Like `PluginRepository`, `builtin: true` rows reject `:update` and `:destroy` while allowing `:enable` / `:disable`.
-- **Third-party public & private release catalogs:** Operators add public or private GitHub/Gitea release repositories with mandatory `signing_key_id` + base64 ed25519 `signing_public_key` and optional `:api_token` PAT `credential_secret_id`.
-- **Verification & transport:** `ReleaseCatalogClient` fetches `serviceradar-pack-index.json`, `.srpack`, and `.srpack.sig` via `ServiceRadar.HTTP.EgressClient` (using the API asset endpoint `Accept: application/octet-stream` for private GitHub/Gitea releases and stripping `Authorization` headers across cross-origin pre-signed asset redirects). Every `.srpack` archive's SHA-256 `content_hash` and decoded `manifest.json` MUST verify via `ServiceRadarWebNG.Plugins.UploadSignature.verify/4` against *that repository's* ed25519 public key before extraction or preview. No cosign or public Sigstore Rekor lookup is invoked, preserving repository privacy.
+- **Seeded built-in catalog:** Migration seeds `https://github.com/carverauto/serviceradar` (`name: "ServiceRadar Official Solution Packs"`, `mode: :release_catalog`, `builtin: true`, `is_default: true`, `index_asset_name: "serviceradar-pack-index.json"`, trusted first-party ed25519 signing keys). Like `PluginRepository`, `builtin: true` rows reject `:update` and `:destroy` while allowing `:enable` / `:disable`.
+- **Direct HTTPS catalog portals & third-party release catalogs:** Operators add direct HTTPS catalog portal endpoints (for example `https://developer.serviceradar.cloud` or `https://developer.serviceradar.cloud/packs/index.json`) or public/private GitHub/Gitea release repositories with mandatory `signing_key_id` + base64 ed25519 `signing_public_key` and optional `:api_token` PAT `credential_secret_id`.
+- **Verification & transport:** `ReleaseCatalogClient` fetches `serviceradar-pack-index.json` (or `/packs/index.json` on direct HTTPS portal sources), `.srpack`, and `.srpack.sig` via `ServiceRadar.HTTP.EgressClient` (using the API asset endpoint `Accept: application/octet-stream` for private GitHub/Gitea releases and stripping `Authorization` headers across cross-origin pre-signed asset redirects). Every `.srpack` archive's SHA-256 `content_hash` and decoded `manifest.json` MUST verify via `ServiceRadar.Catalog.UploadSignature.verify/4` (byte-compatible with `ServiceRadarWebNG.Plugins.UploadSignature.verify/4`) against *that repository's* ed25519 public key before extraction or preview. No cosign or public Sigstore Rekor lookup is invoked, preserving repository privacy.
 
 #### Mode B: Two-Way Private Git Tree Sync (`mode: :gitops_tree`)
 - **Configuration:** Stores `provider_type` (`:github | :gitlab | :gitea`), `repo_url`, `branch` (e.g. `"main"` or `"staging"`), `base_path` (default `"packs"`), `push_strategy` (`:pull_request | :direct_commit`, default `:pull_request`), and required PAT `credential_secret_id` (`:api_token`).
@@ -284,7 +284,7 @@ Following the architectural rule from `add-third-party-plugin-repositories` ("pu
 ## Migration Plan
 
 1. **Additive schema migration (`mix ash.codegen`)**:
-   - Create `platform.catalog_repositories` and seed `https://github.com/carverauto/serviceradar-apps` (`mode: :release_catalog`, `builtin: true`, `is_default: true`) idempotently keyed on `(mode, repo_url, branch, base_path)`.
+   - Create `platform.catalog_repositories` and seed `https://github.com/carverauto/serviceradar` (`mode: :release_catalog`, `builtin: true`, `is_default: true`) idempotently keyed on `(mode, repo_url, branch, base_path)`.
    - Create `platform.installed_solution_packs`.
    - Add nullable `pack_id`, `pack_version`, `parameter_overrides` (and `managed`, `template_fingerprint` where not already present on `EventRule`, `ZenRule`, and `Dashboard`, matching `StatefulAlertRule` and `DeclarativeCheck`) with indexes on `pack_id`.
 2. **Seed Built-in Pack #1**:

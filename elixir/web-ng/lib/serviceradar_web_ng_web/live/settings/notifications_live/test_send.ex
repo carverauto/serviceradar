@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   ## SSRF
 
   Any operator-supplied outbound URL in the configuration is validated by
-  `ServiceRadar.Policies.OutboundURLPolicy.validate_https_public_url/2` before a
+  `Palisade.OutboundURLPolicy.validate_https_public_url/2` before a
   request is made, and the specific rejection reason is surfaced - "not HTTPS",
   "private address" - rather than a generic failure that leaves an operator
   guessing.
@@ -41,13 +41,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   none, which is why the inline result is the only record of it.
   """
 
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadar.Automation.Northbound.ActionRedaction
   alias ServiceRadar.Notifications.Renderer
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
   alias ServiceRadar.Notifications.Transports.Registry
   alias ServiceRadar.Plugins.SecretRefs
-  alias ServiceRadar.Policies.OutboundURLPolicy
 
   # Persist-time `validate_config/1` requires secretRef fields to be stored
   # references. A test send that just received plaintext in `secrets` has no
@@ -109,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
         {:ok, resolved}
 
       {:error, reason} ->
+        # --- validation ------------------------------------------------------------
         {:error, failure("Provider transport unavailable", Registry.describe_error(reason))}
     end
   end
@@ -124,8 +125,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp transport_module(_provider) do
     {:error, failure("Select a provider first", "A test send needs a provider to dispatch through.")}
   end
-
-  # --- validation ------------------------------------------------------------
 
   defp validate_urls(config, secrets, opts) do
     (url_values(config) ++ url_values(secrets))
@@ -159,9 +158,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
 
   # These heads must match the atoms the policy ACTUALLY returns. The full surface is
   # `:invalid_url`, `:disallowed_scheme`, `:disallowed_port` from
-  # ServiceRadar.Policies.OutboundURLPolicy, plus `:disallowed_host`,
+  # Palisade.OutboundURLPolicy, plus `:disallowed_host`,
   # `:dns_resolution_failed` and `:invalid_cidr` passed through from
-  # ServiceRadar.Policies.NetworkAddressPolicy. An earlier version of this function
+  # Palisade.NetworkAddressPolicy. An earlier version of this function
   # named four atoms nobody returns (`:scheme_not_allowed`, `:port_not_allowed`,
   # `:host_not_allowed`, `:private_address`), so every scheme, port and host refusal
   # fell through to the generic clause - defeating the whole point of this function,
@@ -190,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
       field = to_string(key)
 
       if present_secret?(value) and not present_secret?(Map.get(acc, field)) do
+        # --- rendering -------------------------------------------------------------
         Map.put(acc, field, @test_send_secret_ref)
       else
         acc
@@ -216,8 +216,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
   defp config_error(%{field: field, message: message}), do: "#{field}: #{message}"
   defp config_error(%{"field" => field, "message" => message}), do: "#{field}: #{message}"
   defp config_error(other), do: inspect(other)
-
-  # --- rendering -------------------------------------------------------------
 
   defp render(provider) do
     formats = Map.get(provider, :payload_formats) || []
@@ -274,6 +272,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
     else
       endpoint_public_base_url()
     end
+
+    # --- result ----------------------------------------------------------------
   end
 
   # Endpoint.url/0 reads persistent_term and raises when the endpoint is not
@@ -311,8 +311,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
       metadata: %{"rendered_payload_digest" => rendered.digest}
     }
   end
-
-  # --- result ----------------------------------------------------------------
 
   defp outcome(%Result{disposition: :delivered} = result, sensitive) do
     {:ok,

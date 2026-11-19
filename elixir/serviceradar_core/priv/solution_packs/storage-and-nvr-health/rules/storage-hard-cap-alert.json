@@ -1,0 +1,27 @@
+{
+  "alert": {
+    "severity": "critical",
+    "summary": "Storage entitlement hard-cap or critical utilization threshold exceeded"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Alerts when archive storage entitlement hard-cap enforcement activates or billable utilization exceeds critical threshold.",
+  "event": {
+    "log_name": "health.storage_entitlement_cap"
+  },
+  "group_by": [
+    "check_slug"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "check_slug": "storage-entitlement-utilization",
+    "status": "down"
+  },
+  "name": "storage_entitlement_hard_cap",
+  "priority": 20,
+  "renotify_seconds": 21600,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

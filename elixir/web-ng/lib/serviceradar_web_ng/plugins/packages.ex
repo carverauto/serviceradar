@@ -717,16 +717,36 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp reconcile_first_party_provenance(%PluginPackage{} = package, attrs, ash_opts) do
-    if package.source_release_tag == Map.get(attrs, :source_release_tag) do
+    changes = first_party_provenance_changes(package, attrs)
+
+    if changes == %{} do
       {:ok, package, false}
     else
       package
-      |> Ash.Changeset.for_update(:update, Map.take(attrs, [:source_release_tag]))
+      |> Ash.Changeset.for_update(:update, changes)
       |> update_resource_with_opts(ash_opts)
       |> case do
         {:ok, updated} -> {:ok, updated, false}
         {:error, error} -> {:error, error}
       end
+    end
+  end
+
+  defp first_party_provenance_changes(%PluginPackage{} = package, attrs) do
+    stored_metadata = package.source_metadata || %{}
+    receipt = get_in(attrs, [:source_metadata, "transparency_receipt"])
+
+    changes =
+      if package.source_release_tag == Map.get(attrs, :source_release_tag) do
+        %{}
+      else
+        Map.take(attrs, [:source_release_tag])
+      end
+
+    if is_map(receipt) and receipt != Map.get(stored_metadata, "transparency_receipt") do
+      Map.put(changes, :source_metadata, Map.put(stored_metadata, "transparency_receipt", receipt))
+    else
+      changes
     end
   end
 

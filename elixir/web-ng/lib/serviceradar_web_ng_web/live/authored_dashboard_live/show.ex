@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
+  import ServiceRadarWebNGWeb.Components.PackProvenanceComponents
 
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.SystemReports
@@ -38,6 +39,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:settings_open?, false)
       |> assign(:editing_panel_id, nil)
       |> assign(:panel_preview, nil)
+      |> assign(:dashboard_fork_prompt_open?, false)
+      |> assign(:pending_panel_save_params, nil)
       |> assign(:source_query_params, SourceQueries.default_params())
       |> assign(:source_query_preview, nil)
       |> assign(:can_edit?, AccessControls.can_edit?(socket.assigns.current_scope))
@@ -548,49 +551,41 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
-  def handle_event("save_panel", %{"panel" => params}, socket) do
-    panel =
-      Enum.find(
-        socket.assigns.dashboard.panels || [],
-        &(&1.id == socket.assigns.editing_panel_id)
-      )
+  def handle_event("cancel_dashboard_fork", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:dashboard_fork_prompt_open?, false)
+     |> assign(:pending_panel_save_params, nil)}
+  end
 
+  def handle_event("confirm_dashboard_fork", _params, socket) do
+    dashboard = socket.assigns.dashboard
+    params = socket.assigns.pending_panel_save_params
+
+    if dashboard && is_map(params) do
+      _ = Dashboards.update_authored_dashboard(socket.assigns.current_scope, dashboard, %{managed: false})
+      updated_dashboard = Map.put(dashboard, :managed, false)
+
+      socket
+      |> assign(:dashboard, updated_dashboard)
+      |> assign(:dashboard_fork_prompt_open?, false)
+      |> assign(:pending_panel_save_params, nil)
+      |> persist_panel_save(params)
+    else
+      {:noreply, assign(socket, :dashboard_fork_prompt_open?, false)}
+    end
+  end
+
+  def handle_event("save_panel", %{"panel" => params}, socket) do
     params = merge_params(socket.assigns.panel_params, params)
 
-    save_result =
-      if socket.assigns.editing_panel_id == "new" do
-        with :ok <- AccessControls.authorize_panel_edit(socket) do
-          attrs =
-            params
-            |> PanelParams.attrs()
-            |> Map.put(:dashboard_id, socket.assigns.dashboard.id)
-
-          Dashboards.create_authored_panel(socket.assigns.current_scope, attrs)
-        end
-      else
-        with :ok <- AccessControls.authorize_panel_edit(socket),
-             {:ok, panel} <- require_record(panel) do
-          Dashboards.update_authored_panel(socket.assigns.current_scope, panel, PanelParams.attrs(params))
-        end
-      end
-
-    case save_result do
-      {:ok, _panel} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, if(socket.assigns.editing_panel_id == "new", do: "Panel created", else: "Panel updated"))
-         |> assign(:editing_panel_id, nil)
-         |> assign(:panel_preview, nil)
-         |> assign(:panel_params, PanelParams.default())
-         |> reload_dashboard_panels()
-         |> assign_panel_form()}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:panel_params, params)
-         |> assign_panel_form()
-         |> put_flash(:error, "Panel update failed: #{format_error(reason)}")}
+    if managed_pack_dashboard?(socket.assigns.dashboard) do
+      {:noreply,
+       socket
+       |> assign(:dashboard_fork_prompt_open?, true)
+       |> assign(:pending_panel_save_params, params)}
+    else
+      persist_panel_save(socket, params)
     end
   end
 
@@ -768,6 +763,25 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         <.dashboard_breadcrumb_header
           dashboard={@dashboard}
           route_param={@route_param}
+        />
+
+        <.pack_provenance_banner
+          :if={@dashboard}
+          pack_id={Map.get(@dashboard, :pack_id)}
+          pack_version={Map.get(@dashboard, :pack_version)}
+          managed={Map.get(@dashboard, :managed, false)}
+          resource_kind="dashboard"
+        />
+
+        <.pack_fork_confirmation_modal
+          id="authored-dashboard-fork-modal"
+          open={Map.get(assigns, :dashboard_fork_prompt_open?, false)}
+          resource_label="authored dashboard"
+          pack_id={@dashboard && Map.get(@dashboard, :pack_id)}
+          pack_version={@dashboard && Map.get(@dashboard, :pack_version)}
+          allow_override_save={false}
+          on_confirm_fork="confirm_dashboard_fork"
+          on_cancel="cancel_dashboard_fork"
         />
 
         <.variable_bar
@@ -984,4 +998,55 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp persist_panel_save(socket, params) do
+    panel =
+      Enum.find(
+        socket.assigns.dashboard.panels || [],
+        &(&1.id == socket.assigns.editing_panel_id)
+      )
+
+    save_result =
+      if socket.assigns.editing_panel_id == "new" do
+        with :ok <- AccessControls.authorize_panel_edit(socket) do
+          attrs =
+            params
+            |> PanelParams.attrs()
+            |> Map.put(:dashboard_id, socket.assigns.dashboard.id)
+
+          Dashboards.create_authored_panel(socket.assigns.current_scope, attrs)
+        end
+      else
+        with :ok <- AccessControls.authorize_panel_edit(socket),
+             {:ok, panel} <- require_record(panel) do
+          Dashboards.update_authored_panel(socket.assigns.current_scope, panel, PanelParams.attrs(params))
+        end
+      end
+
+    case save_result do
+      {:ok, _panel} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, if(socket.assigns.editing_panel_id == "new", do: "Panel created", else: "Panel updated"))
+         |> assign(:editing_panel_id, nil)
+         |> assign(:panel_preview, nil)
+         |> assign(:panel_params, PanelParams.default())
+         |> reload_dashboard_panels()
+         |> assign_panel_form()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:panel_params, params)
+         |> assign_panel_form()
+         |> put_flash(:error, "Panel update failed: #{format_error(reason)}")}
+    end
+  end
+
+  defp managed_pack_dashboard?(dashboard) when is_map(dashboard) do
+    Map.get(dashboard, :managed) == true and is_binary(Map.get(dashboard, :pack_id)) and
+      Map.get(dashboard, :pack_id) != ""
+  end
+
+  defp managed_pack_dashboard?(_), do: false
 end

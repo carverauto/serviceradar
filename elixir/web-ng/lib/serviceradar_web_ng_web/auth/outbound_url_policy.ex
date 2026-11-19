@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   Shared outbound URL validation for auth-related metadata/JWKS fetches.
   """
 
-  alias ServiceRadar.Policies.OutboundURLPolicy, as: SharedOutboundURLPolicy
+  alias Palisade.OutboundURLPolicy, as: SharedOutboundURLPolicy
 
   @doc """
   Validates a URL string and returns a normalized URI if allowed.

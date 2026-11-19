@@ -1890,6 +1890,41 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    %{
+      id: :solution_packs_catalog,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
+      title: "Solution Packs Catalog",
+      description: "Browse, install, upgrade, and GitOps-sync secret-free Solution Packs.",
+      icon: "hero-cube-transparent",
+      route: "/settings/catalog",
+      live_view: ServiceRadarWebNGWeb.CatalogLive.Index,
+      permission: [
+        "catalog.view",
+        "catalog.packs.install",
+        "catalog.packs.export",
+        "catalog.repositories.manage",
+        "catalog.gitops.sync"
+      ],
+      order: 64,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: ["/settings/catalog", "/catalog"],
+      keywords: [
+        "catalog",
+        "solution packs",
+        "srpack",
+        "gitops",
+        "release catalog",
+        "templates",
+        "nvr",
+        "storage"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
     # === Network Services · Services =========================================
     %{
@@ -2981,6 +3016,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   tab's deep link, and merges the view's and tab's keywords.
   """
   @spec palette_index(term()) :: [map()]
+  # `view.id` and `tab.id` come from the compile-time view table, never from a
+  # request.
+  # sobelow_skip ["DOS.BinToAtom"]
   def palette_index(scope) do
     @views
     |> Enum.filter(fn view -> visible_view?(scope, view) end)

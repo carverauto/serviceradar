@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.ReleaseFetchPolicy do
   Shared outbound URL validation for release import and artifact mirroring.
   """
 
-  alias ServiceRadar.Policies.OutboundURLPolicy, as: SharedOutboundURLPolicy
+  alias Palisade.OutboundURLPolicy, as: SharedOutboundURLPolicy
 
   @spec validate(String.t()) :: :ok | {:error, atom()}
   def validate(url) when is_binary(url) do

@@ -19,10 +19,9 @@ name: Elixir Quality
 # project still reports success — it just does not mix deps.compile.
 #
 # The hex/deps audits and Sobelow run daily from //buildbuddy.yaml
-# ("Elixir Quality (daily)") against staging, as does compiling elixir/palisade
-# (which Bazel does not build) with warnings as errors. BazelCI compiles every
-# Bazel-built first-party app with warnings as errors, tests it, and checks the
-# committed OpenAPI dump on every PR.
+# ("Elixir Quality (daily)") against staging. BazelCI compiles every
+# first-party app with warnings as errors, tests it, and checks the committed
+# OpenAPI dump on every PR.
 permissions:
   contents: read
   pull-requests: write

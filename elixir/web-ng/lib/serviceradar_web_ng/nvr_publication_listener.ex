@@ -76,6 +76,8 @@ defmodule ServiceRadarWebNG.NVRPublicationListener do
 
   defp absolute_path?(_), do: false
 
+  # The path is operator configuration read at boot, never request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp bounded_file(path, limit) when is_binary(path) do
     case File.open(path, [:read, :binary]) do
       {:ok, file} ->

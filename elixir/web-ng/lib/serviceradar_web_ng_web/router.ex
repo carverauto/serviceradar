@@ -57,6 +57,8 @@ defmodule ServiceRadarWebNGWeb.Router do
                   "base-uri 'self'; " <>
                   "form-action 'self'"
 
+  # The policy is the @csp attribute, which the scanner cannot evaluate.
+  # sobelow_skip ["Config.CSP"]
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -91,6 +93,10 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # Authenticated browser pipeline without content negotiation.
   # Used for binary endpoints where clients may send non-HTML Accept headers.
+  # The policy is the @csp attribute, which the scanner cannot evaluate. Every
+  # route on this pipeline is a GET, and cross-origin websocket upgrades are
+  # refused by `require_same_origin_websocket`.
+  # sobelow_skip ["Config.CSP", "Config.CSRF"]
   pipeline :browser_raw_auth do
     plug(:fetch_session)
     plug(:fetch_live_flash)
@@ -113,17 +119,17 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Topology HTTP clients need JSON auth failures for both binary snapshots and
   # revision metadata. The controller checks scope and permission after these
   # session plugs; ordinary browser routes retain their login redirects.
+  # The policy is the @csp attribute, which the scanner cannot evaluate.
+  # sobelow_skip ["Config.CSP"]
   pipeline :topology_api do
     plug(:fetch_session)
+    # Session-authenticated, so every state-changing request needs a CSRF token.
+    plug(:protect_from_forgery)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp, "cache-control" => "no-store"})
     plug(SecurityHeaders)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
-  end
-
-  pipeline :topology_mutation do
-    plug(:protect_from_forgery)
   end
 
   pipeline :api do
@@ -136,6 +142,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   # `require_authenticated_user` redirects unauthenticated browsers to log in.
   # The SwaggerUI mounted on this pipeline is configured as an RBAC-backed API
   # console — see the `/api/v2/swaggerui` route below.
+  # The policy is the @api_docs_csp attribute, which the scanner cannot evaluate.
+  # sobelow_skip ["Config.CSP"]
   pipeline :api_docs_ui do
     plug(:accepts, ["html"])
     plug(:fetch_session)
@@ -155,6 +163,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   # accepts either a browser session cookie (used by the in-app SwaggerUI console)
   # or an `Authorization: Bearer` token, and `require_authenticated_user_api`
   # returns a 401 JSON body (rather than an HTML redirect) for anonymous callers.
+  # Its only route is the read-only GET of the OpenAPI document.
+  # sobelow_skip ["Config.CSRF"]
   pipeline :api_docs_spec do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
@@ -272,6 +282,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   # a mail client while buying nothing (an attacker who could forge the
   # submission would need the token to address it, and holding it could POST
   # directly). HTML rather than JSON, because a human clicked a link.
+  # The policy is the @csp attribute, which the scanner cannot evaluate.
+  # sobelow_skip ["Config.CSP"]
   pipeline :notification_action do
     plug(:accepts, ["html"])
     plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
@@ -996,6 +1008,21 @@ defmodule ServiceRadarWebNGWeb.Router do
     delete("/declarative-checks/:slug", DeclarativeCheckController, :delete)
     get("/declarative-checks/:slug/export", DeclarativeCheckController, :export)
     post("/declarative-checks/:slug/test-run", DeclarativeCheckController, :test_run)
+
+    # Solution Packs Catalog, Signed Release Catalogs, and HTTPS GitOps REST API (`/api/v2/catalog/*`)
+    get("/catalog/packs", SolutionPackController, :index)
+    post("/catalog/packs/import", SolutionPackController, :import_pack)
+    post("/catalog/packs/export", SolutionPackController, :export_custom)
+    get("/catalog/packs/:slug", SolutionPackController, :show)
+    get("/catalog/packs/:slug/export", SolutionPackController, :export)
+    post("/catalog/packs/:slug/install", SolutionPackController, :install)
+    get("/catalog/repositories", SolutionPackController, :list_repositories)
+    post("/catalog/repositories", SolutionPackController, :create_repository)
+    put("/catalog/repositories/:id", SolutionPackController, :update_repository)
+    delete("/catalog/repositories/:id", SolutionPackController, :delete_repository)
+    post("/catalog/repositories/:id/sync", SolutionPackController, :sync_repository)
+    post("/catalog/repositories/:id/gitops/push", SolutionPackController, :gitops_push)
+    post("/catalog/repositories/:id/gitops/pull", SolutionPackController, :gitops_pull)
   end
 
   # Interactive docs UIs — authenticated internal tools.
@@ -1203,15 +1230,13 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   ## Authenticated routes
 
+  # The snapshot, details and search reads also accept POST, for filters too
+  # large for a query string. Those actions change nothing; `relayout` is the
+  # only mutation here. Every POST is CSRF-checked by `:topology_api`.
   scope "/topology/snapshot", ServiceRadarWebNGWeb do
     pipe_through([:topology_api])
 
     get("/latest", TopologySnapshotController, :show)
-  end
-
-  scope "/topology/snapshot", ServiceRadarWebNGWeb do
-    pipe_through([:topology_api, :topology_mutation])
-
     post("/latest", TopologySnapshotController, :show)
   end
 
@@ -1219,8 +1244,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:topology_api])
 
     get("/details", TopologyTileController, :details)
+    post("/details", TopologyTileController, :details)
     get("/query/prefix-tags", TopologyQueryController, :prefix_tags)
     get("/query/values", TopologyQueryController, :values)
+    post("/query", TopologyQueryController, :create)
     get("/overlays/:layout_version/:z/:x/:y", TopologyTileController, :overlay)
   end
 
@@ -1229,21 +1256,9 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/manifest", TopologyTileController, :manifest)
     get("/search", TopologyTileController, :search)
-    get("/:layout_version/:z/:x/:y", TopologyTileController, :show)
-  end
-
-  scope "/topology/tiles", ServiceRadarWebNGWeb do
-    pipe_through([:topology_api, :topology_mutation])
-
     post("/search", TopologyTileController, :search)
     post("/relayout", TopologyTileController, :relayout)
-  end
-
-  scope "/topology", ServiceRadarWebNGWeb do
-    pipe_through([:topology_api, :topology_mutation])
-
-    post("/details", TopologyTileController, :details)
-    post("/query", TopologyQueryController, :create)
+    get("/:layout_version/:z/:x/:y", TopologyTileController, :show)
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -1286,6 +1301,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/reports/import", ReportImportLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
+      live("/catalog", CatalogLive.Index, :index)
+      live("/catalog/:slug", CatalogLive.Index, :show)
+      live("/settings/catalog", CatalogLive.Index, :index)
       live("/security", SecurityLive.Index, :index)
       live("/security/threat-intel", Security.ThreatIntelLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)

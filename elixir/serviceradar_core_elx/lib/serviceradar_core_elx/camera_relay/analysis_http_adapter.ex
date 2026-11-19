@@ -3,8 +3,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisHTTPAdapter do
   Reference HTTP adapter for relay-scoped analysis worker dispatch.
   """
 
+  alias Palisade.OutboundFetch
   alias ServiceRadar.Camera.AnalysisContract
-  alias ServiceRadar.Policies.OutboundFetch
 
   @default_timeout_ms 2_000
 

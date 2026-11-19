@@ -178,6 +178,7 @@ elixir_release(
         "//third_party/hex_vendored/boombox:mix.exs",
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/palisade:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_nvr_client:mix.exs",
         "//elixir/serviceradar_object_storage:mix.exs",
