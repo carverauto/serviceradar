@@ -325,6 +325,7 @@ func applyPluginHTTPRedirectPolicy(
 	if envelopeMode {
 		stopRedirectsAtSetCookie(httpClient)
 	}
+	stopRedirectsReplayingGuestData(httpClient)
 	if trace != nil {
 		trace.wrapCheckRedirect(httpClient)
 	}
@@ -1116,6 +1117,64 @@ func stopRedirectsAtSetCookie(client *http.Client) {
 		}
 		return nil
 	}
+}
+
+var pluginHTTPCrossHostRedirectSafeHeaders = map[string]struct{}{
+	"Accept":          {},
+	"Accept-Encoding": {},
+	"Accept-Language": {},
+	"Cache-Control":   {},
+	"Content-Type":    {},
+	"Pragma":          {},
+	"User-Agent":      {},
+}
+
+// stopRedirectsReplayingGuestData refuses a cross-host hop that would resend
+// the guest's request body or a guest header outside a small safe set, and
+// strips the query and fragment from the Referer of every hop still followed.
+func stopRedirectsReplayingGuestData(client *http.Client) {
+	if client == nil {
+		return
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req != nil && len(via) > 0 && via[0] != nil && via[0].URL != nil && req.URL != nil &&
+			!strings.EqualFold(req.URL.Host, via[0].URL.Host) &&
+			(pluginHTTPRedirectCarriesBody(req) || pluginHTTPRequestHasUnsafeHeader(via[0])) {
+			return http.ErrUseLastResponse
+		}
+		if previous != nil {
+			if err := previous(req, via); err != nil {
+				return err
+			}
+		} else if len(via) >= 10 {
+			return errPluginHTTPTooManyRedirects
+		}
+		if req != nil {
+			if referer := req.Header.Get("Referer"); referer != "" {
+				parsed, err := url.Parse(referer)
+				if err != nil {
+					req.Header.Del("Referer")
+				} else {
+					req.Header.Set("Referer", scrubPluginTraceURL(parsed))
+				}
+			}
+		}
+		return nil
+	}
+}
+
+func pluginHTTPRedirectCarriesBody(req *http.Request) bool {
+	return req.ContentLength != 0 || (req.Body != nil && req.Body != http.NoBody)
+}
+
+func pluginHTTPRequestHasUnsafeHeader(req *http.Request) bool {
+	for name := range req.Header {
+		if _, ok := pluginHTTPCrossHostRedirectSafeHeaders[http.CanonicalHeaderKey(name)]; !ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *pluginHTTPTrace) wrapCheckRedirect(client *http.Client) {

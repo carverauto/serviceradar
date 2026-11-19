@@ -472,6 +472,95 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	require.Len(t, deniedHopResp.Trace.Hops, 1)
 }
 
+func TestPluginHostHTTPRedirectDoesNotReplayGuestSecretsCrossHost(t *testing.T) {
+	t.Parallel()
+
+	var sinkMu sync.Mutex
+	var sinkHits []*http.Request
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sinkMu.Lock()
+		sinkHits = append(sinkHits, r.Clone(context.Background()))
+		sinkMu.Unlock()
+		_, _ = w.Write([]byte("sink"))
+	}))
+	defer sink.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			http.Redirect(w, r, sink.URL+"/collect", http.StatusTemporaryRedirect)
+		case "/start":
+			http.Redirect(w, r, sink.URL+"/asset", http.StatusFound)
+		case "/same":
+			http.Redirect(w, r, "/landing", http.StatusTemporaryRedirect)
+		case "/landing":
+			_, _ = w.Write([]byte(r.Method))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer origin.Close()
+
+	exec, mod := newPluginHTTPHostTestExecution(t, pluginPermissions{
+		AllowedNetworks: []string{"127.0.0.0/8"},
+		AllowedPorts:    []int{serverPortFromURL(t, origin.URL), serverPortFromURL(t, sink.URL)},
+	}, nil, nil)
+
+	call := func(req httpRequestPayload) httpResponsePayload {
+		req.ResponseMode = "envelope"
+		code, raw := callPluginHostHTTPPayload(t, exec, mod, req)
+		require.Positive(t, code)
+		var resp httpResponsePayload
+		require.NoError(t, json.Unmarshal(raw, &resp))
+		return resp
+	}
+	sinkCount := func() int {
+		sinkMu.Lock()
+		defer sinkMu.Unlock()
+		return len(sinkHits)
+	}
+
+	bodyResp := call(httpRequestPayload{
+		Method:  http.MethodPost,
+		URL:     origin.URL + "/login",
+		Body:    "password=hunter2",
+		Headers: map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
+	})
+	assert.Equal(t, http.StatusTemporaryRedirect, bodyResp.Status)
+	assert.Equal(t, 0, sinkCount())
+
+	headerResp := call(httpRequestPayload{
+		Method:  http.MethodGet,
+		URL:     origin.URL + "/start",
+		Headers: map[string]string{"X-API-Key": "secret-key"},
+	})
+	assert.Equal(t, http.StatusFound, headerResp.Status)
+	assert.Equal(t, 0, sinkCount())
+
+	plainResp := call(httpRequestPayload{
+		Method:  http.MethodGet,
+		URL:     origin.URL + "/start?code=top-secret#frag",
+		Headers: map[string]string{"Accept": "text/html"},
+	})
+	assert.Equal(t, http.StatusOK, plainResp.Status)
+	require.Equal(t, 1, sinkCount())
+	sinkMu.Lock()
+	assert.Equal(t, origin.URL+"/start", sinkHits[0].Header.Get("Referer"))
+	sinkMu.Unlock()
+
+	sameHostResp := call(httpRequestPayload{
+		Method:  http.MethodPost,
+		URL:     origin.URL + "/same",
+		Body:    "payload",
+		Headers: map[string]string{"X-API-Key": "secret-key"},
+	})
+	assert.Equal(t, http.StatusOK, sameHostResp.Status)
+	body, err := base64.StdEncoding.DecodeString(sameHostResp.BodyBase64)
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, string(body))
+	assert.Equal(t, 1, sinkCount())
+}
+
 func TestPluginHostHTTPRedirectQueryScrubbingAndHopCap(t *testing.T) {
 	t.Parallel()
 
