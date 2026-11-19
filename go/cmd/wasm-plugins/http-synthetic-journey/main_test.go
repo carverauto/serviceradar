@@ -637,3 +637,17 @@ func TestHTTPSyntheticJourneyCertThresholdFailsWithoutLeafCert(t *testing.T) {
 		t.Fatalf("unexpected tls_cert_days_remaining emitted without leaf cert")
 	}
 }
+
+func TestHTTPSyntheticJourneyCookieJarUnquotesCookieValue(t *testing.T) {
+	t.Parallel()
+
+	jar := sdk.NewCookieJar()
+	jar.StoreResponseCookies("https://app.example.test/login", []string{`sid="sess secret"; Path=/`, `pref=""; Path=/`})
+
+	if got := jar.HeaderValue("https://app.example.test/app"); got != "sid=sess secret; pref=" {
+		t.Fatalf("Cookie header = %q, want %q", got, "sid=sess secret; pref=")
+	}
+	if got, ok := jar.Get("https://app.example.test/app", "sid"); !ok || got != "sess secret" {
+		t.Fatalf("Get(sid) = %q, %v; want %q", got, ok, "sess secret")
+	}
+}

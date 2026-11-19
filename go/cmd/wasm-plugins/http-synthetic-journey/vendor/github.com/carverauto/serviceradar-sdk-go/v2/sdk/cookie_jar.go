@@ -107,6 +107,9 @@ func (j *CookieJar) storeOneAt(reqHost, reqPath, header string, now time.Time) {
 	}
 	name := strings.TrimSpace(nameVal[:eq])
 	value := strings.TrimSpace(nameVal[eq+1:])
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		value = value[1 : len(value)-1]
+	}
 	if name == "" {
 		return
 	}

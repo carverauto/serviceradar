@@ -26,6 +26,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -1129,7 +1130,7 @@ func stopRedirectsReplayingGuestData(client *http.Client) {
 	previous := client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if req != nil && len(via) > 0 && via[0] != nil && via[0].URL != nil && req.URL != nil &&
-			!strings.EqualFold(req.URL.Host, via[0].URL.Host) &&
+			!pluginHTTPRedirectSameHost(req.URL, via[0].URL) &&
 			(pluginHTTPRedirectCarriesBody(req) || pluginHTTPRequestHasUnsafeHeader(via[0])) {
 			return http.ErrUseLastResponse
 		}
@@ -1152,6 +1153,23 @@ func stopRedirectsReplayingGuestData(client *http.Client) {
 		}
 		return nil
 	}
+}
+
+func pluginHTTPRedirectSameHost(next, origin *url.URL) bool {
+	if strings.EqualFold(next.Host, origin.Host) {
+		return true
+	}
+	return pluginHTTPCanonicalHostPort(next) == pluginHTTPCanonicalHostPort(origin)
+}
+
+func pluginHTTPCanonicalHostPort(u *url.URL) string {
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	port := u.Port()
+	scheme := strings.ToLower(u.Scheme)
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	return net.JoinHostPort(host, port)
 }
 
 func pluginHTTPRedirectCarriesBody(req *http.Request) bool {

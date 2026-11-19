@@ -727,3 +727,28 @@ func TestPluginHostHTTPResponseModeCompatibility(t *testing.T) {
 	assert.False(t, hasTLS)
 	assert.False(t, hasSetCookies)
 }
+
+func TestPluginHTTPRedirectSameHostCanonicalizesDefaultPorts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		origin, next string
+		same         bool
+	}{
+		{"https://app.example/login", "https://app.example:443/session", true},
+		{"http://app.example/login", "http://app.example:80/session", true},
+		{"https://app.example./login", "https://app.example/session", true},
+		{"https://APP.example/login", "https://app.example/session", true},
+		{"https://app.example/login", "http://app.example/login", true},
+		{"http://127.0.0.1:8080/login", "http://127.0.0.1:8081/login", false},
+		{"https://app.example/login", "https://app.example:8443/login", false},
+		{"https://app.example/login", "https://collector.example/sink", false},
+	}
+	for _, tc := range cases {
+		origin, err := url.Parse(tc.origin)
+		require.NoError(t, err)
+		next, err := url.Parse(tc.next)
+		require.NoError(t, err)
+		assert.Equal(t, tc.same, pluginHTTPRedirectSameHost(next, origin), "%s -> %s", tc.origin, tc.next)
+	}
+}
