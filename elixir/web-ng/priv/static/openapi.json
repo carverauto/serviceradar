@@ -28839,6 +28839,10 @@
                 ],
                 "description": "Alternative unique identifier. Field included by default."
               },
+              "attribute_provenance": {
+                "description": "Source and evidence strength of each single-valued attribute group (name,\nvendor, type, integration_type, management_device_id), written by the ranked\nwrites in ServiceRadar.Inventory.Sync.AttributeStrength. A group without a\ntag has no recorded strength.\n. Field included by default.",
+                "type": "object"
+              },
               "tags": {
                 "anyOf": [
                   {
@@ -29156,6 +29160,7 @@
             "required": [
               "partition",
               "is_active",
+              "attribute_provenance",
               "availability_state",
               "availability_conflict"
             ],
@@ -31245,6 +31250,46 @@
         },
         "type": "object"
       },
+      "device-filter-attribute_provenance": {
+        "additionalProperties": false,
+        "description": "Source and evidence strength of each single-valued attribute group (name,\nvendor, type, integration_type, management_device_id), written by the ranked\nwrites in ServiceRadar.Inventory.Sync.AttributeStrength. A group without a\ntag has no recorded strength.\n",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "otel_metric-filter-grpc_method": {
         "additionalProperties": false,
         "description": "gRPC method name",
@@ -31915,6 +31960,9 @@
           },
           "uid_alt": {
             "$ref": "#/components/schemas/device-filter-uid_alt"
+          },
+          "attribute_provenance": {
+            "$ref": "#/components/schemas/device-filter-attribute_provenance"
           },
           "tags": {
             "$ref": "#/components/schemas/device-filter-tags"
@@ -36529,7 +36577,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
+              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -36583,12 +36631,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
                   "type": "string"
                 }
               },
@@ -48134,12 +48182,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
                   "type": "string"
                 }
               },

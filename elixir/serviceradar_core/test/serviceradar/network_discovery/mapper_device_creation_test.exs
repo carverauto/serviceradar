@@ -19,6 +19,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
+  alias ServiceRadar.Inventory.Sync.RankedAttributeWrite
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -890,6 +892,48 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     end
   end
 
+  # fix-device-attribute-source-precedence, decision 12: a platform inventory's
+  # management_device_id outranks the mapper's, including a clear to none, so the
+  # mapper's fill of an empty parent must not put one back.
+  test "the mapper does not refill a management parent a platform inventory cleared", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    controller_ip = unique_test_ip(198, 51, 58, uniq)
+    ap_ip = unique_test_ip(198, 51, 59, uniq + 1)
+
+    payload =
+      managed_pair_payload(
+        controller_ip,
+        unique_global_test_mac(uniq),
+        ap_ip,
+        unique_global_test_mac(uniq + 1)
+      )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+             wait_for_devices_by_ip(actor, ap_ip)
+
+    # The camera inventory's write: platform tier, clear to none.
+    assert :ok =
+             RankedAttributeWrite.write(ap_uid, %{management_device_id: nil}, %{
+               "management_device_id" =>
+                 AttributeStrength.tag(
+                   "management_device_id",
+                   :platform_inventory,
+                   "camera_plugin"
+                 )
+             })
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+    assert [%Device{uid: ^controller_uid}] = wait_for_devices_by_ip(actor, controller_ip)
+
+    assert {:ok, %Device{management_device_id: nil}} =
+             Device.get_by_uid(ap_uid, false, actor: actor)
+  end
+
   test "same-poll rediscovery links a dependent to the controller successor", %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     controller_ip = unique_test_ip(198, 51, 55, uniq)
@@ -1204,6 +1248,67 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert [%Device{uid: ^ap_uid, management_device_id: ^other_uid}] =
              wait_for_devices_by_ip(actor, ap_ip)
+  end
+
+  # A management_device_id written before attribute provenance existed has no
+  # recorded strength. One that names a deleted device counts as empty, so the
+  # weakest (mapper) tier refills it; one that names a live device is kept.
+  for {parent_state, base_octet, description} <- [
+        {:deleted, 210, "refills an unrecorded parent that names a deleted device"},
+        {:live, 220, "keeps an unrecorded parent that names a live device"}
+      ] do
+    test "a later poll #{description}", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      controller_ip = "192.0.2.#{unquote(base_octet) + 1}"
+      ap_ip = "192.0.2.#{unquote(base_octet) + 2}"
+      other_ip = "192.0.2.#{unquote(base_octet) + 3}"
+      controller_mac = unique_global_test_mac(uniq)
+      ap_mac = unique_global_test_mac(uniq + 1)
+      other_mac = unique_global_test_mac(uniq + 2)
+
+      assert :ok =
+               MapperResultsIngestor.ingest_interfaces(
+                 managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+                 %{}
+               )
+
+      assert [%Device{uid: controller_uid} = controller] =
+               wait_for_devices_by_ip(actor, controller_ip)
+
+      assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+               wait_for_devices_by_ip(actor, ap_ip)
+
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET attribute_provenance = '{}'::jsonb WHERE uid = $1",
+        [ap_uid]
+      )
+
+      if unquote(parent_state) == :deleted do
+        assert {:ok, _} =
+                 Device.soft_delete(controller, "manual", Ecto.UUID.generate(), actor: actor)
+      end
+
+      assert :ok =
+               MapperResultsIngestor.ingest_interfaces(
+                 managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+                 %{}
+               )
+
+      assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+      assert device_reports_address?(actor, other_uid, ap_ip)
+
+      expected_parent = if unquote(parent_state) == :deleted, do: other_uid, else: controller_uid
+
+      assert [%Device{uid: ^ap_uid, management_device_id: ^expected_parent} = ap] =
+               wait_for_devices_by_ip(actor, ap_ip)
+
+      expected_provenance =
+        if unquote(parent_state) == :deleted,
+          do: %{"management_device_id" => %{"source" => "mapper", "strength" => 1}},
+          else: %{}
+
+      assert Map.take(ap.attribute_provenance, ["management_device_id"]) == expected_provenance
+    end
   end
 
   test "a later poll links an existing dependent after successor progress", %{actor: actor} do

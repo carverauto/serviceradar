@@ -107,7 +107,13 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     revision = tombstone.identity_revision
     assert_receive {:fence, :stale, %{device_id: ^source_uid, current_revision: ^revision}}
-    assert %Device{hostname: "after-purge"} = device!(survivor.uid, actor)
+
+    # The re-resolved write landed on the survivor. Its hostname stays: NetBox is
+    # a different source at the same tier as the one that recorded it.
+    assert %Device{hostname: "fence-purge-survivor", discovery_sources: sources} =
+             device!(survivor.uid, actor)
+
+    assert "netbox" in sources
   end
 
   test "a second transition during the retried write abandons it with telemetry", ctx do
