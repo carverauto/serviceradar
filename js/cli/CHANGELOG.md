@@ -12,6 +12,17 @@
   installation and service activation. They no longer apply a leaf `setup.sh`
   or collector `update.sh` bundle, and they do not wait for `serviceradar-nats`
   before configuring a site-assigned collector.
+- `dashboard build` inlines imported `.css` into the single `renderer.js`.
+  Styles are scoped to the mount root and removed on `destroy()`. The build
+  fails on an external `@import`, an external font, any other external `url()`,
+  a non-inlineable font asset, or a sidecar asset. `dashboard dev` applies the
+  same stylesheet handling with Vite dev-server URLs allowed.
+- `dashboard build` and `dashboard dev` resolve optional `@blueprintjs/core`,
+  `@blueprintjs/icons` and `@blueprintjs/select` from the project. Aliases in
+  `dashboard.config.mjs` still take precedence. `doctor` prints their installed
+  versions when any of them is present.
+- `dashboard init --template blueprint` scaffolds a Blueprint v6 dashboard on
+  `@carverauto/serviceradar-dashboard-sdk/blueprint`.
 
 ## 0.2.2
 

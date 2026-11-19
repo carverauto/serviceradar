@@ -1,0 +1,557 @@
+[
+  {
+    "id": "netperf_recent_samples",
+    "query": "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 942000000,
+        "unit": "bit/s",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-tcp",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.loss_percent",
+        "value": 0.02,
+        "unit": "%",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-tcp",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.jitter_ms",
+        "value": 1.4,
+        "unit": "ms",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-tcp",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.available",
+        "value": 1,
+        "unit": "1",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-tcp",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:56:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 415000000,
+        "unit": "bit/s",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-udp",
+          "direction": "download",
+          "protocol": "udp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:56:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.jitter_ms",
+        "value": 3.2,
+        "unit": "ms",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "192.0.2.10",
+          "responder_agent_id": "agent-hub-east-01",
+          "policy_id": "pol-hub-east-udp",
+          "direction": "download",
+          "protocol": "udp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:57:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.bits_per_second",
+        "value": 118000000,
+        "unit": "bit/s",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": "{\"metric_family\":\"rperf\",\"target\":\"198.51.100.20\",\"responder_agent_id\":\"agent-hub-west-01\",\"policy_id\":\"pol-hub-west-udp\",\"direction\":\"upload\",\"protocol\":\"udp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:57:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.loss_percent",
+        "value": 2.4,
+        "unit": "%",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": "{\"metric_family\":\"rperf\",\"target\":\"198.51.100.20\",\"responder_agent_id\":\"agent-hub-west-01\",\"policy_id\":\"pol-hub-west-udp\",\"direction\":\"upload\",\"protocol\":\"udp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:57:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.jitter_ms",
+        "value": 26.5,
+        "unit": "ms",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": "{\"metric_family\":\"rperf\",\"target\":\"198.51.100.20\",\"responder_agent_id\":\"agent-hub-west-01\",\"policy_id\":\"pol-hub-west-udp\",\"direction\":\"upload\",\"protocol\":\"udp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:57:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.available",
+        "value": 0,
+        "unit": "1",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": "{\"metric_family\":\"rperf\",\"target\":\"198.51.100.20\",\"responder_agent_id\":\"agent-hub-west-01\",\"policy_id\":\"pol-hub-west-udp\",\"direction\":\"upload\",\"protocol\":\"udp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:55:00Z",
+        "agent_id": "agent-spoke-legacy-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-legacy-01",
+        "device_id": "sr:device-legacy-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 284000000,
+        "unit": "bit/s",
+        "target_device_ip": "203.0.113.30",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "203.0.113.30"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:55:00Z",
+        "agent_id": "agent-spoke-legacy-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-legacy-01",
+        "device_id": "sr:device-legacy-01",
+        "metric_name": "rperf.available",
+        "value": 1,
+        "unit": "1",
+        "target_device_ip": "203.0.113.30",
+        "partition": "default",
+        "tags": {
+          "metric_family": "rperf",
+          "target": "203.0.113.30"
+        }
+      }
+    ]
+  },
+  {
+    "id": "netperf_metric_trends",
+    "query": "in:rperf_metrics time:last_24h bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:40:00Z",
+        "series": "rperf.bits_per_second",
+        "metric_name": "rperf.bits_per_second",
+        "value": 510000000
+      },
+      {
+        "timestamp": "2026-11-18T03:50:00Z",
+        "series": "rperf.bits_per_second",
+        "metric_name": "rperf.bits_per_second",
+        "value": 530000000
+      },
+      {
+        "timestamp": "2026-11-18T03:40:00Z",
+        "series": "rperf.loss_percent",
+        "metric_name": "rperf.loss_percent",
+        "value": 0.45
+      },
+      {
+        "timestamp": "2026-11-18T03:50:00Z",
+        "series": "rperf.loss_percent",
+        "metric_name": "rperf.loss_percent",
+        "value": 1.21
+      },
+      {
+        "timestamp": "2026-11-18T03:40:00Z",
+        "series": "rperf.jitter_ms",
+        "metric_name": "rperf.jitter_ms",
+        "value": 8.4
+      },
+      {
+        "timestamp": "2026-11-18T03:50:00Z",
+        "series": "rperf.jitter_ms",
+        "metric_name": "rperf.jitter_ms",
+        "value": 13.95
+      },
+      {
+        "timestamp": "2026-11-18T03:50:00Z",
+        "series": "rperf.available",
+        "metric_name": "rperf.available",
+        "value": 0.67
+      }
+    ]
+  },
+  {
+    "id": "netperf_spoke_summary",
+    "query": "in:rperf_metrics time:last_24h metric_name:rperf.bits_per_second stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "agent_id": "agent-spoke-branch-01",
+        "avg_bps": 678500000,
+        "samples": 24
+      },
+      {
+        "agent_id": "agent-spoke-legacy-01",
+        "avg_bps": 284000000,
+        "samples": 12
+      },
+      {
+        "agent_id": "agent-spoke-branch-02",
+        "avg_bps": 118000000,
+        "samples": 18
+      }
+    ]
+  },
+  {
+    "id": "netperf_responder_capacity",
+    "query": "in:rperf_metrics metric_name:(rperf.responder_active_sessions,rperf.responder_sessions_total,rperf.responder_busy_rejections_total,rperf.responder_bytes_total) time:last_24h sort:timestamp:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-east-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-hub-east-01",
+        "device_id": "sr:device-hub-east-01",
+        "metric_name": "rperf.responder_active_sessions",
+        "value": 2,
+        "unit": "1",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-east-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-hub-east-01",
+        "device_id": "sr:device-hub-east-01",
+        "metric_name": "rperf.responder_sessions_total",
+        "value": 148,
+        "unit": "1",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-east-01",
+        "gateway_id": "gw-east-01",
+        "uid": "sr:device-hub-east-01",
+        "device_id": "sr:device-hub-east-01",
+        "metric_name": "rperf.responder_busy_rejections_total",
+        "value": 0,
+        "unit": "1",
+        "target_device_ip": "192.0.2.10",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-west-01",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-hub-west-01",
+        "device_id": "sr:device-hub-west-01",
+        "metric_name": "rperf.responder_active_sessions",
+        "value": 4,
+        "unit": "1",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-west-01",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-hub-west-01",
+        "device_id": "sr:device-hub-west-01",
+        "metric_name": "rperf.responder_sessions_total",
+        "value": 210,
+        "unit": "1",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:59:00Z",
+        "agent_id": "agent-hub-west-01",
+        "gateway_id": "gw-west-01",
+        "uid": "sr:device-hub-west-01",
+        "device_id": "sr:device-hub-west-01",
+        "metric_name": "rperf.responder_busy_rejections_total",
+        "value": 3,
+        "unit": "1",
+        "target_device_ip": "198.51.100.20",
+        "partition": "default",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01"
+        }
+      }
+    ]
+  },
+  {
+    "id": "netperf_agents",
+    "query": "in:agents sort:last_seen:desc limit:500",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "uid": "agent-hub-east-01",
+        "name": "hub-east-01",
+        "display_name": "Hub East 01",
+        "host": "hub-east-01.example.com",
+        "ip": "192.0.2.10",
+        "status": "online",
+        "capabilities": ["netperf", "rperf"],
+        "gateway_id": "gw-east-01",
+        "version": "1.0.0",
+        "last_seen": "2026-11-18T03:59:30Z"
+      },
+      {
+        "uid": "agent-hub-west-01",
+        "name": "hub-west-01",
+        "display_name": "Hub West 01",
+        "host": "hub-west-01.example.com",
+        "ip": "198.51.100.20",
+        "status": "online",
+        "capabilities": ["netperf", "rperf"],
+        "gateway_id": "gw-west-01",
+        "version": "1.0.0",
+        "last_seen": "2026-11-18T03:59:20Z"
+      },
+      {
+        "uid": "agent-spoke-branch-01",
+        "name": "spoke-branch-01",
+        "display_name": "Branch 01 Spoke",
+        "host": "branch-01.example.com",
+        "ip": "192.0.2.51",
+        "status": "online",
+        "capabilities": ["netperf"],
+        "gateway_id": "gw-east-01",
+        "version": "1.0.0",
+        "last_seen": "2026-11-18T03:58:10Z"
+      },
+      {
+        "uid": "agent-spoke-branch-02",
+        "name": "spoke-branch-02",
+        "display_name": "Branch 02 Spoke",
+        "host": "branch-02.example.com",
+        "ip": "198.51.100.52",
+        "status": "degraded",
+        "capabilities": ["netperf"],
+        "gateway_id": "gw-west-01",
+        "version": "1.0.0",
+        "last_seen": "2026-11-18T03:57:10Z"
+      },
+      {
+        "uid": "agent-spoke-legacy-01",
+        "name": "spoke-legacy-01",
+        "display_name": "Legacy 01 Spoke",
+        "host": "legacy-01.example.com",
+        "ip": "203.0.113.53",
+        "status": "online",
+        "capabilities": ["rperf"],
+        "gateway_id": "gw-east-01",
+        "version": "0.9.8",
+        "last_seen": "2026-11-18T03:55:10Z"
+      }
+    ]
+  },
+  {
+    "id": "spoke_history",
+    "query": "in:rperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:38:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 910000000,
+        "unit": "bit/s",
+        "target_device_ip": "192.0.2.10",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:48:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 925000000,
+        "unit": "bit/s",
+        "target_device_ip": "192.0.2.10",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-spoke-branch-01",
+        "uid": "sr:device-spoke-01",
+        "device_id": "sr:device-spoke-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 942000000,
+        "unit": "bit/s",
+        "target_device_ip": "192.0.2.10",
+        "tags": {
+          "responder_agent_id": "agent-hub-east-01",
+          "direction": "upload",
+          "protocol": "tcp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:37:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.loss_percent",
+        "value": 0.9,
+        "unit": "%",
+        "target_device_ip": "198.51.100.20",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01",
+          "direction": "upload",
+          "protocol": "udp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:47:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.loss_percent",
+        "value": 1.6,
+        "unit": "%",
+        "target_device_ip": "198.51.100.20",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01",
+          "direction": "upload",
+          "protocol": "udp"
+        }
+      },
+      {
+        "timestamp": "2026-11-18T03:57:00Z",
+        "agent_id": "agent-spoke-branch-02",
+        "uid": "sr:device-spoke-02",
+        "device_id": "sr:device-spoke-02",
+        "metric_name": "rperf.loss_percent",
+        "value": 2.4,
+        "unit": "%",
+        "target_device_ip": "198.51.100.20",
+        "tags": {
+          "responder_agent_id": "agent-hub-west-01",
+          "direction": "upload",
+          "protocol": "udp"
+        }
+      }
+    ]
+  }
+]
