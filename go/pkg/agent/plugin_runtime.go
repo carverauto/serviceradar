@@ -39,6 +39,8 @@ const (
 	pluginMaxHTTPBodyBytes           = 2 * 1024 * 1024
 	pluginDefaultHTTPTimeout         = 15 * time.Second
 	pluginWarmupGrace                = 2 * time.Minute
+	pluginLoadRetryBase              = time.Minute
+	pluginLoadRetryMax               = 15 * time.Minute
 )
 
 const (
@@ -162,6 +164,9 @@ type PluginManager struct {
 	stateMu  sync.Mutex
 	states   map[string]*assignmentState
 	stateNow func() time.Time
+
+	loadRetryBase time.Duration
+	loadRetryMax  time.Duration
 
 	limitsMu         sync.Mutex
 	limits           pluginEngineLimits

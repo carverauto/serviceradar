@@ -120,6 +120,8 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		httpClient:                    client,
 		artifactHTTPClient:            artifactClient,
 		compilationCache:              wazero.NewCompilationCache(),
+		loadRetryBase:                 pluginLoadRetryBase,
+		loadRetryMax:                  pluginLoadRetryMax,
 		credentialBroker:              cfg.CredentialBroker,
 		awxCallbackCredentialResolver: cfg.AWXCallbackCredentialResolver,
 		artifactUploader:              cfg.ArtifactUploader,
@@ -1220,17 +1222,76 @@ func (r *pluginRunner) start(ctx context.Context) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		r.runOnce(runCtx)
+		// A module that fails to load (artifact store briefly unavailable, URL
+		// not yet valid) is retried on a short backoff instead of waiting a full
+		// interval, which for a daily plugin would leave it failed for a day.
+		retry := pluginLoadRetryBackoff{
+			base:     r.manager.loadRetryBase,
+			max:      r.manager.loadRetryMax,
+			interval: interval,
+		}
+		var retryTimer *time.Timer
+		var retryC <-chan time.Time
+		defer func() {
+			if retryTimer != nil {
+				retryTimer.Stop()
+			}
+		}()
+
+		run := func() {
+			loadFailed := r.runOnce(runCtx)
+			if retryTimer != nil {
+				retryTimer.Stop()
+				retryTimer, retryC = nil, nil
+			}
+			if !loadFailed {
+				retry.reset()
+				return
+			}
+			if delay, ok := retry.next(); ok {
+				retryTimer = time.NewTimer(delay)
+				retryC = retryTimer.C
+			}
+		}
+
+		run()
 
 		for {
 			select {
 			case <-runCtx.Done():
 				return
 			case <-ticker.C:
-				r.runOnce(runCtx)
+				run()
+			case <-retryC:
+				run()
 			}
 		}
 	}()
+}
+
+// pluginLoadRetryBackoff yields doubling delays from base, capped at max, and
+// stops once a delay would reach the run interval: the ticker covers that.
+type pluginLoadRetryBackoff struct {
+	base     time.Duration
+	max      time.Duration
+	interval time.Duration
+	current  time.Duration
+}
+
+func (b *pluginLoadRetryBackoff) next() (time.Duration, bool) {
+	if b.current <= 0 {
+		b.current = b.base
+	}
+	delay := min(b.current, b.max)
+	if delay <= 0 || delay >= b.interval {
+		return 0, false
+	}
+	b.current = min(b.current*2, b.max)
+	return delay, true
+}
+
+func (b *pluginLoadRetryBackoff) reset() {
+	b.current = 0
 }
 
 func (r *pluginRunner) stop() {
@@ -1240,7 +1301,9 @@ func (r *pluginRunner) stop() {
 	<-r.done
 }
 
-func (r *pluginRunner) runOnce(ctx context.Context) {
+// runOnce executes one scheduled run and reports whether it failed because the
+// module could not be loaded.
+func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
 	timeout := r.assignment.Timeout
 	if timeout <= 0 {
 		timeout = pluginDefaultTimeout
@@ -1252,7 +1315,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 	if !r.manager.acquireSlot() {
 		r.manager.recordExecution(false)
 		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", "admission denied: max concurrent reached"))
-		return
+		return false
 	}
 	defer r.manager.releaseSlot()
 
@@ -1263,7 +1326,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 				Err(err).
 				Str("assignment_id", r.assignment.AssignmentID).
 				Msg("Plugin wasm not ready; deferring execution")
-			return
+			return true
 		}
 		r.manager.recordExecution(false)
 		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", fmt.Sprintf("execution failed: %s", err)))
@@ -1271,7 +1334,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
 			Msg("Plugin execution failed")
-		return
+		return true
 	}
 
 	if err := r.manager.executeWithWasm(runCtx, r.assignment, module); err != nil {
@@ -1285,10 +1348,11 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
 			Msg("Plugin execution failed")
-		return
+		return false
 	}
 
 	r.manager.recordExecution(true)
+	return false
 }
 
 // RunAction executes a configured non-streaming plugin assignment on demand for
