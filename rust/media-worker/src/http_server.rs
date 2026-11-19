@@ -71,6 +71,10 @@ impl ReadinessState {
 struct HealthzResponse<'a> {
     status: &'a str,
     service: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backend: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -122,14 +126,30 @@ pub async fn serve_http_probes(
     Ok(bound)
 }
 
-async fn handle_healthz() -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        Json(HealthzResponse {
-            status: "ok",
-            service: "serviceradar-media-worker",
-        }),
-    )
+async fn handle_healthz(State(state): State<ReadinessState>) -> Response {
+    let snapshot = state.phase.read().clone();
+    match snapshot {
+        ReadinessPhase::Ready(manifest) => (
+            StatusCode::OK,
+            Json(HealthzResponse {
+                status: "ok",
+                service: "serviceradar-media-worker",
+                backend: Some(manifest.inference_backend().as_str()),
+                device: Some(manifest.inference_device()),
+            }),
+        )
+            .into_response(),
+        ReadinessPhase::NotReady(_) | ReadinessPhase::Draining(_) => (
+            StatusCode::OK,
+            Json(HealthzResponse {
+                status: "ok",
+                service: "serviceradar-media-worker",
+                backend: None,
+                device: None,
+            }),
+        )
+            .into_response(),
+    }
 }
 
 async fn handle_readyz(State(state): State<ReadinessState>) -> Response {

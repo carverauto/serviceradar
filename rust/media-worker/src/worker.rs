@@ -1,6 +1,7 @@
 //! JetStream visual-index pull loop (`WPI` + publish-before-ACK) and reserved
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
+use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
 use crate::cmaf::{decode_idr_keyframe, parse_init_segment, parse_media_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
@@ -10,7 +11,7 @@ use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
 };
-use crate::vision::{RgbFrame, VisionPipeline, embed_query_text};
+use crate::vision::{RgbFrame, VisionPipeline};
 use async_nats::jetstream::AckKind;
 use async_nats::jetstream::consumer::{AckPolicy, pull};
 use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
@@ -483,17 +484,39 @@ pub fn text_embed_rpc_subject(models: &ModelPinConfig) -> String {
 
 /// Reserved interactive text-embedding lane (`2.5`), isolated on its own semaphore
 /// from bulk `media.jobs.visual_index.v1` processing.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TextEmbedService {
     models: ModelPinConfig,
+    backend: Arc<dyn InferenceBackend>,
     semaphore: Arc<Semaphore>,
     metrics: Arc<WorkerMetrics>,
 }
 
+impl core::fmt::Debug for TextEmbedService {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TextEmbedService")
+            .field("models", &self.models)
+            .field("backend_info", &self.backend.info())
+            .finish()
+    }
+}
+
 impl TextEmbedService {
     pub fn new(models: ModelPinConfig, concurrency: usize, metrics: Arc<WorkerMetrics>) -> Self {
+        let backend: Arc<dyn InferenceBackend> =
+            Arc::new(DeterministicStubBackend::new(models.clone()));
+        Self::with_backend(models, backend, concurrency, metrics)
+    }
+
+    pub fn with_backend(
+        models: ModelPinConfig,
+        backend: Arc<dyn InferenceBackend>,
+        concurrency: usize,
+        metrics: Arc<WorkerMetrics>,
+    ) -> Self {
         Self {
             models,
+            backend,
             semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
             metrics,
         }
@@ -516,9 +539,10 @@ impl TextEmbedService {
             return TextEmbedRpcResponse::error("unsupported_schema");
         }
 
+        let expected_dim = self.backend.info().embedding_dim();
         if req.model_id() != self.models.embedder_model_id()
             || req.model_version() != self.models.embedder_model_version()
-            || req.expected_dim() != self.models.embedding_dim()
+            || req.expected_dim() != expected_dim
         {
             return TextEmbedRpcResponse::error("model_version_or_dim_mismatch");
         }
@@ -538,10 +562,10 @@ impl TextEmbedService {
         }
 
         let query = req.query().to_string();
-        let models = self.models.clone();
+        let backend = Arc::clone(&self.backend);
         let compute_res = timeout(
             remaining,
-            tokio::task::spawn_blocking(move || embed_query_text(&query, &models)),
+            tokio::task::spawn_blocking(move || backend.encode_text(&query)),
         )
         .await;
         drop(permit);
@@ -605,11 +629,32 @@ where
         publisher: P,
         metrics: Arc<WorkerMetrics>,
     ) -> Self {
+        let backend: Arc<dyn InferenceBackend> =
+            Arc::new(DeterministicStubBackend::new(config.models().clone()));
+        Self::with_backend(
+            config,
+            backend,
+            grant_client,
+            fragment_store,
+            publisher,
+            metrics,
+        )
+    }
+
+    pub fn with_backend(
+        config: &WorkerConfig,
+        backend: Arc<dyn InferenceBackend>,
+        grant_client: G,
+        fragment_store: S,
+        publisher: P,
+        metrics: Arc<WorkerMetrics>,
+    ) -> Self {
         Self {
             models: config.models().clone(),
-            pipeline: VisionPipeline::new(
+            pipeline: VisionPipeline::with_backend(
                 config.models().clone(),
                 config.skip_unchanged_empty_scenes(),
+                backend,
             ),
             index_semaphore: Arc::new(Semaphore::new(config.index_concurrency().max(1))),
             wpi_interval: Duration::from_secs(15),
@@ -735,7 +780,7 @@ where
             self.metrics.inc_keyframes_decoded(1);
 
             let t_s1 = Instant::now();
-            let detections = self.pipeline.detect_subjects(&decoded_frame);
+            let detections = self.pipeline.detect_subjects_checked(&decoded_frame)?;
             self.metrics
                 .observe_stage1_latency(t_s1.elapsed().as_secs_f64());
 
@@ -746,9 +791,11 @@ where
                     .is_some_and(|prev| decoded_frame.downsampled_l1_delta(prev) < 0.02);
 
             let t_s2 = Instant::now();
-            let generated_embs =
-                self.pipeline
-                    .encode_stage2_batch(&decoded_frame, &detections, scene_suppressed);
+            let generated_embs = self.pipeline.encode_stage2_batch_checked(
+                &decoded_frame,
+                &detections,
+                scene_suppressed,
+            )?;
             self.metrics
                 .observe_stage2_latency(t_s2.elapsed().as_secs_f64());
 
@@ -1106,6 +1153,17 @@ pub async fn spawn_nats_text_embed_responder(
 pub async fn run_nats_worker_loops(
     config: WorkerConfig,
     metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    let backend = build_inference_backend(&config)?;
+    run_nats_worker_loops_with_backend(config, backend, metrics, shutdown).await
+}
+
+/// Runs the NATS worker loops using a pre-initialized `InferenceBackend`.
+pub async fn run_nats_worker_loops_with_backend(
+    config: WorkerConfig,
+    backend: Arc<dyn InferenceBackend>,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), MediaWorkerError> {
     let auth = config.worker_auth().cloned().unwrap_or_else(|| {
@@ -1119,8 +1177,9 @@ pub async fn run_nats_worker_loops(
     let (client, js, cert_policy) = connect_nats_and_jetstream(&config).await?;
     ensure_media_streams(&js, &config).await?;
 
-    let text_service = TextEmbedService::new(
+    let text_service = TextEmbedService::with_backend(
         config.models().clone(),
+        Arc::clone(&backend),
         config.text_embed_concurrency(),
         Arc::clone(&metrics),
     );
@@ -1141,7 +1200,14 @@ pub async fn run_nats_worker_loops(
         ),
     );
     let publisher = JetStreamResultPublisher::new(js.clone(), cert_policy, Duration::from_secs(10));
-    let processor = VisualIndexProcessor::new(&config, grant_client, store, publisher, metrics);
+    let processor = VisualIndexProcessor::with_backend(
+        &config,
+        backend,
+        grant_client,
+        store,
+        publisher,
+        metrics,
+    );
 
     let live_consumer = ensure_pull_consumer(
         &js,
