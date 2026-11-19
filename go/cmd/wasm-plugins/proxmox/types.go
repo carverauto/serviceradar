@@ -338,19 +338,23 @@ type proxmoxCephStatus struct {
 }
 
 type proxmoxResource struct {
-	ID      string  `json:"id"`
-	Node    string  `json:"node"`
-	Name    string  `json:"name"`
-	Type    string  `json:"type"`
-	Status  string  `json:"status"`
-	VMID    int     `json:"vmid"`
-	CPU     float64 `json:"cpu"`
-	MaxCPU  float64 `json:"maxcpu"`
-	Mem     float64 `json:"mem"`
-	MaxMem  float64 `json:"maxmem"`
-	Disk    float64 `json:"disk"`
-	MaxDisk float64 `json:"maxdisk"`
-	Uptime  float64 `json:"uptime"`
+	ID     string `json:"id"`
+	Node   string `json:"node"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	// RuntimeState is the QEMU runtime state (qmpstatus). Proxmox reports
+	// status "running" for as long as the QEMU process exists, including while
+	// the guest is paused; this is the only field that tells the two apart.
+	RuntimeState string  `json:"qmpstatus,omitempty"`
+	VMID         int     `json:"vmid"`
+	CPU          float64 `json:"cpu"`
+	MaxCPU       float64 `json:"maxcpu"`
+	Mem          float64 `json:"mem"`
+	MaxMem       float64 `json:"maxmem"`
+	Disk         float64 `json:"disk"`
+	MaxDisk      float64 `json:"maxdisk"`
+	Uptime       float64 `json:"uptime"`
 }
 
 type proxmoxGuest struct {

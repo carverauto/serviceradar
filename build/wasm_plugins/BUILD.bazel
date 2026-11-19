@@ -129,6 +129,7 @@ go_test(
         "awx_runtime_test.go",
         "declarative_check_runner_runtime_test.go",
         "http_synthetic_journey_runtime_test.go",
+        "proxmox_guest_runtime_state_runtime_test.go",
         "proxmox_runtime_test.go",
         "tinygo_reflection_runtime_test.go",
         "wasm_runtime_host_test.go",

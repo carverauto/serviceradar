@@ -90,6 +90,12 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     Ok((sql, params))
 }
 
+/// Whole percent of a datastore in use, or NULL when its size is unknown. Byte
+/// counts alone cannot say how full a datastore is, and a query has no
+/// arithmetic to divide them with.
+const DATASTORE_USED_PERCENT: &str =
+    "(CASE WHEN t.total_bytes > 0 THEN (t.used_bytes * 100) / t.total_bytes END)";
+
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     if is_virtualization_entity(&plan.entity) {
         Ok(())
@@ -130,13 +136,13 @@ fn entity_spec(entity: &Entity) -> Result<EntitySpec> {
         Entity::VirtualizationGuests => Ok(EntitySpec {
             table: "virtualization_guests",
             joins: "LEFT JOIN virtualization_hosts h ON h.id = t.host_id LEFT JOIN virtualization_clusters c ON c.id = h.cluster_id",
-            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name)",
+            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name, 'runtime_state', t.metadata->>'runtime_state')",
             default_order: "t.observed_at DESC NULLS LAST, t.name ASC",
         }),
         Entity::VirtualizationDatastores => Ok(EntitySpec {
             table: "virtualization_datastores",
             joins: "LEFT JOIN virtualization_hosts h ON h.id = t.host_id LEFT JOIN virtualization_clusters c ON c.id = COALESCE(t.cluster_id, h.cluster_id)",
-            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name, 'storage', t.name)",
+            payload_extra: "jsonb_build_object('host_name', h.name, 'node', h.name, 'cluster_name', c.name, 'storage', t.name, 'used_percent', CASE WHEN t.total_bytes > 0 THEN (t.used_bytes * 100) / t.total_bytes END)",
             default_order: "t.observed_at DESC NULLS LAST, t.name ASC",
         }),
         Entity::VirtualizationHostDisks => Ok(EntitySpec {
@@ -351,6 +357,16 @@ fn filter_predicate(
         },
         "used_bytes" | "available_bytes" | "total_bytes" => match entity {
             Entity::VirtualizationDatastores => int_filter(filter, &format!("t.{field}"), params),
+            _ => unsupported_field(entity, &field),
+        },
+        "used_percent" => match entity {
+            Entity::VirtualizationDatastores => int_filter(filter, DATASTORE_USED_PERCENT, params),
+            _ => unsupported_field(entity, &field),
+        },
+        "runtime_state" => match entity {
+            Entity::VirtualizationGuests => {
+                text_filter(filter, "t.metadata->>'runtime_state'", params)
+            }
             _ => unsupported_field(entity, &field),
         },
         "size_bytes" | "wearout" => match entity {
@@ -600,6 +616,10 @@ fn order_column(entity: &Entity, field: &str) -> Result<&'static str> {
                 "used_bytes" => "t.used_bytes",
                 _ => "t.total_bytes",
             }),
+            _ => unsupported_order_field(entity, &normalized),
+        },
+        "used_percent" => match entity {
+            Entity::VirtualizationDatastores => Ok(DATASTORE_USED_PERCENT),
             _ => unsupported_order_field(entity, &normalized),
         },
         "size_bytes" => match entity {
