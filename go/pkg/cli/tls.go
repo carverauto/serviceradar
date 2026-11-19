@@ -445,11 +445,12 @@ func copyCertificates(cfg *CmdConfig, components []string) error {
 
 // getCertificateCopies returns a slice of source and destination paths for certificate copying.
 func getCertificateCopies(cfg *CmdConfig, components []string) []struct{ src, dst string } {
-	copies := []struct{ src, dst string }{
-		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
-		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
-		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
-	}
+	copies := make([]struct{ src, dst string }, 0, 3+2*len(components))
+	copies = append(copies,
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
+	)
 
 	for _, component := range components {
 		certName := getCertName(component)

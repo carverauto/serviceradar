@@ -51,6 +51,8 @@ import (
 	netperfpb "github.com/carverauto/serviceradar/proto/netperf/v1"
 )
 
+const netperfTestLoopback = "127.0.0.1"
+
 var errTransientBindFailure = errors.New("transient bind failure")
 
 func TestAgentCapabilitiesAdvertiseNetperf(t *testing.T) {
@@ -147,7 +149,7 @@ func TestNetperfConfigHotApplyLifecycleAndNotModifiedTrustRetention(t *testing.T
 	var startCalls int
 	svc.startRespFn = func(ctx context.Context, cfg netperf.ResponderConfig) (*netperf.Responder, error) {
 		startCalls++
-		cfg.ListenAddress = "127.0.0.1"
+		cfg.ListenAddress = netperfTestLoopback
 		cfg.ListenPort = 0
 		cfg.AllowEphemeralPort = true
 		r, err := netperf.NewResponder(cfg)
@@ -658,7 +660,7 @@ func TestNetperfRealSenderResponderPreemption(t *testing.T) {
 			resp, err := netperf.NewResponder(netperf.ResponderConfig{
 				AgentID:               "agent-hub-01",
 				PartitionID:           "default",
-				ListenAddress:         "127.0.0.1",
+				ListenAddress:         netperfTestLoopback,
 				AllowEphemeralPort:    true,
 				UDPEnabled:            true,
 				MaxConcurrentSessions: 4,
@@ -857,7 +859,7 @@ func TestNetperfResponderStartupRetryAcrossNotModifiedAndScheduler(t *testing.T)
 			if failFirst && n == 1 {
 				return nil, errTransientBindFailure
 			}
-			cfg.ListenAddress = "127.0.0.1"
+			cfg.ListenAddress = netperfTestLoopback
 			cfg.ListenPort = 0
 			cfg.AllowEphemeralPort = true
 			cfg.Security = sec

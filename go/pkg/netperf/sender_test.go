@@ -600,8 +600,8 @@ func TestUDP100PercentUploadLossReportsZeroBitsPerSecond(t *testing.T) {
 		require.Equal(t, uint64(100), res.Upload.PacketsLost)
 		require.InDelta(t, 100.0, res.Upload.LossPercent, 1e-9)
 		require.Equal(t, uint64(0), res.Upload.BytesReceived)
-		require.Equal(t, 0.0, res.Upload.BitsPerSecond)
-		require.Equal(t, 0.0, res.Primary.BitsPerSecond)
+		require.InDelta(t, 0.0, res.Upload.BitsPerSecond, 1e-9)
+		require.InDelta(t, 0.0, res.Primary.BitsPerSecond, 1e-9)
 	})
 
 	t.Run("end_to_end_blackholed_udp_upload", func(t *testing.T) {
@@ -703,9 +703,9 @@ func TestUDP100PercentUploadLossReportsZeroBitsPerSecond(t *testing.T) {
 		require.Equal(t, res.Upload.PacketsSent, res.Upload.PacketsLost)
 		require.InDelta(t, 100.0, res.Upload.LossPercent, 1e-9)
 		require.Equal(t, uint64(0), res.Upload.BytesReceived)
-		require.Equal(t, 0.0, res.Upload.BitsPerSecond)
+		require.InDelta(t, 0.0, res.Upload.BitsPerSecond, 1e-9)
 		require.Equal(t, uint64(0), res.Primary.BytesReceived)
-		require.Equal(t, 0.0, res.Primary.BitsPerSecond)
+		require.InDelta(t, 0.0, res.Primary.BitsPerSecond, 1e-9)
 		require.InDelta(t, 100.0, res.Primary.LossPercent, 1e-9)
 	})
 }
@@ -882,7 +882,7 @@ func TestSenderUDPDownloadHelloBlockedFailsAndReleasesSession(t *testing.T) {
 				require.Positive(t, res.Download.PacketsSent)
 				require.Equal(t, uint64(0), res.Download.PacketsReceived)
 				require.InDelta(t, tc.wantLossPercent, res.Download.LossPercent, 1e-9)
-				require.Equal(t, 0.0, res.Download.BitsPerSecond)
+				require.InDelta(t, 0.0, res.Download.BitsPerSecond, 1e-9)
 			}
 			require.Equal(t, uint64(0), resp.SnapshotMetrics().ActiveSessions)
 		})

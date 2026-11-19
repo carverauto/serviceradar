@@ -418,8 +418,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
   def format_dispatch_error(:invalid_authority_epoch),
     do: "Invalid authority epoch override (must be a positive 64-bit integer)."
 
-  def format_dispatch_error(:netperf_omit_not_less_than_duration),
-    do: "Omit (s) must be less than Duration (s)."
+  def format_dispatch_error(:netperf_omit_not_less_than_duration), do: "Omit (s) must be less than Duration (s)."
 
   def format_dispatch_error(:invalid_netperf_protocol), do: "Protocol must be tcp or udp."
 
