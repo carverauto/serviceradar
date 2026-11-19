@@ -284,6 +284,13 @@ normal interval.
   device in the partition holds as its primary IP are not swept.
 - A result for an alias older than that window, from a group that still covers
   the address, counts for the device only when the address answered.
+- When several devices hold an address, its result counts for a live one: a
+  device holding it as a confirmed alias seen within that window, then the device
+  whose primary IP it is, then a device holding it as a detected alias seen within
+  the window, then an older alias (confirmed ahead of detected). A deleted device
+  is used only when no live device holds the address, so the sweep can restore it
+  and does not add a new device for the address. Only an answered probe confirms
+  a detected alias.
 - Sweep results update device availability and discovery metadata. When one
   agent sweeps a device at several addresses, the device is available from that
   agent if any address answered in the sweep, whatever order the results arrive in.

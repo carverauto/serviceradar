@@ -1,10 +1,12 @@
 defmodule ServiceRadar.SweepJobs.AliasRecency do
   @moduledoc """
-  Shared alias recency policy for sweep compilation and result attribution.
+  Shared alias recency policy for sweep compilation and IP attribution.
 
   See `docs/docs/network-sweeps.md`, Execution Notes, for configuration and behavior.
-  Read recency before confirming detected aliases: `DeviceAliasState.confirm_from_sweep`
-  refreshes `last_seen_at`. This policy does not mutate alias state or identity resolution.
+  `DeviceLookup.batch_resolve_by_ip/2` ranks a live alias holder seen within the window
+  ahead of one outside it. Read recency before confirming detected aliases:
+  `DeviceAliasState.confirm_from_sweep` refreshes `last_seen_at`. This policy does not
+  mutate alias state.
   """
 
   alias ServiceRadar.Repo
@@ -26,6 +28,13 @@ defmodule ServiceRadar.SweepJobs.AliasRecency do
       days when is_integer(days) and days > 0 -> days
       _ -> @default_max_age_days
     end
+  end
+
+  @doc "Whether an alias last seen at `last_seen_at` is within the window."
+  @spec recent?(DateTime.t()) :: boolean()
+  def recent?(%DateTime{} = last_seen_at) do
+    cutoff = DateTime.shift(DateTime.utc_now(), day: -max_age_days())
+    DateTime.compare(last_seen_at, cutoff) != :lt
   end
 
   @doc """
