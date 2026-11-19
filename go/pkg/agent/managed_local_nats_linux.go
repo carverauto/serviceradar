@@ -524,20 +524,14 @@ func (a localNATSAuthority) reconcile(ctx context.Context, system *nats.Conn, pe
 	return disconnected, writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
 }
 
-func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
+// managedLocalNATSConfigured reports whether this host has native add-on
+// hosting and a managed local NATS binding to supervise.
+func managedLocalNATSConfigured() bool {
 	if !runtimeSupportsNativeAddonHosting() {
-		return
+		return false
 	}
-	if _, err := os.Lstat(filepath.Join(managedCertificateRoot, "local-nats.json")); errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	if !p.managedLocalNATSRunning.CompareAndSwap(false, true) {
-		return
-	}
-	go func() {
-		defer p.managedLocalNATSRunning.Store(false)
-		p.managedLocalNATSLoop(ctx)
-	}()
+	_, err := os.Lstat(filepath.Join(managedCertificateRoot, "local-nats.json"))
+	return !errors.Is(err, os.ErrNotExist)
 }
 
 func (p *PushLoop) managedLocalNATSLoop(ctx context.Context) {

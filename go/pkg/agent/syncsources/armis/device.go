@@ -409,15 +409,18 @@ func bestAddress(candidates []string) string {
 	return best
 }
 
-var (
-	privateIPv4Prefixes = []netip.Prefix{
+func privateIPv4Prefixes() []netip.Prefix {
+	return []netip.Prefix{
 		netip.MustParsePrefix("10.0.0.0/8"),
 		netip.MustParsePrefix("172.16.0.0/12"),
 		netip.MustParsePrefix("192.168.0.0/16"),
 		netip.MustParsePrefix("100.64.0.0/10"),
 	}
-	uniqueLocalIPv6 = netip.MustParsePrefix("fc00::/7")
-)
+}
+
+func uniqueLocalIPv6() netip.Prefix {
+	return netip.MustParsePrefix("fc00::/7")
+}
 
 // addressStrength mirrors platform.sr_address_strength / Identity.Address.strength:
 // usable IPv4 300+rank, routable IPv6 200+rank, link-local 120, never 0, where
@@ -430,13 +433,13 @@ func addressStrength(addr netip.Addr) int {
 	case addr.IsLinkLocalUnicast():
 		return 120
 	case addr.Is4():
-		for _, prefix := range privateIPv4Prefixes {
+		for _, prefix := range privateIPv4Prefixes() {
 			if prefix.Contains(addr) {
 				return 340
 			}
 		}
 		return 350
-	case uniqueLocalIPv6.Contains(addr):
+	case uniqueLocalIPv6().Contains(addr):
 		return 230
 	default:
 		return 250

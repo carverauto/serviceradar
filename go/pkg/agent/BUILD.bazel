@@ -160,6 +160,7 @@ go_library(
         "managed_certificates.go",
         "managed_certificates_linux.go",
         "managed_certificates_unsupported.go",
+        "managed_local_nats.go",
         "managed_local_nats_linux.go",
         "mapper_config_gateway.go",
         "mapper_convert.go",
