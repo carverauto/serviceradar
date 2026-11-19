@@ -57,7 +57,9 @@ Repository context:
   that device fan-out has today. A target counts as departed only when a
   complete, successful, non-truncated scope read no longer contains it. The
   closing transition is delivered even for an inactive or out-of-service
-  device, whose other events stay suppressed.
+  device, whose other events stay suppressed. It carries a
+  `target_departed: true` marker that the alert engine treats as recovery-only,
+  so it can close an alert but never open or renotify one.
 - **A failed evaluation is not a departure.** A target still in scope whose
   graph evaluation fails keeps its instance and last status, publishes
   nothing, and is reported on the check as a pass diagnostic.
@@ -86,7 +88,10 @@ Not in this change:
   added).
 - Affected code: `ServiceRadar.DeclarativeChecks` (`SchemaValidator`,
   `Evaluation`, `DAGEngine`, `NodeEvaluators`, `DeclarativeCheckInstance`,
-  `VerdictEventWriter`, `ServiceStateProjector`, importer and exporter), one
+  `VerdictEventWriter`, `ServiceStateProjector`, importer and exporter), the
+  alert engine's event state machine
+  (`ServiceRadar.Observability.StatefulAlertEngine.StateMachine`), which treats
+  a `target_departed` event as recovery-only, one
   migration on `platform.declarative_check_instances`, the SRQL
   `declarative_check_results` entity, `js/cli` pack validation, and the web-ng
   check editor.

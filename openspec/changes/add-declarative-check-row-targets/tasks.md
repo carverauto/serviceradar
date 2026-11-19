@@ -48,15 +48,18 @@
 - [ ] 4.1 In every fan-out mode, compute departed keys as existing instance
       keys minus the keys of a complete, successful, non-truncated scope read,
       replacing the `evaluated_at < started_at` test in
-      `Evaluation.prune_departed_targets`. A read is complete only when its
-      last page has fewer rows than the limit that ran; a device stream whose
-      last page is full is truncated even without a `next_cursor`, and prunes
-      and closes nothing.
+      `Evaluation.prune_departed_targets`. An SRQL scope read (`srql_rows`,
+      the `srql_devices` stream) is complete only when its last page has
+      fewer rows than the limit that ran; a device stream whose last page is
+      full is truncated even without a `next_cursor`, and prunes and closes
+      nothing. A successful `service_targets` resolution is always complete;
+      its 1000-id chunking is batching, not a limit.
 - [ ] 4.2 Before pruning, publish a `healthy` / `target_departed` transition
       for each departed instance whose status was `degraded`, `down` or
       `unknown`, passing the publisher a suppression predicate that returns
-      false for this transition only. Other transitions keep the default
-      predicate.
+      false for this transition only, and setting the verdict
+      `target_departed` and the boolean event field `target_departed: true`.
+      Other transitions keep the default predicate.
 - [ ] 4.3 A target in scope whose graph evaluation fails keeps its instance
       and status, publishes nothing, is not pruned, and is counted in the
       pass diagnostics (3.3).
@@ -72,6 +75,18 @@
       marked out of service publishes its `target_departed` transition through
       the real publisher (not suppressed), while an ordinary transition for an
       out-of-service device is still suppressed.
+- [ ] 4.7 In the alert engine's event state machine
+      (`StatefulAlertEngine.StateMachine`), treat an event carrying
+      `target_departed: true` as a recovery for the matching rule and skip the
+      rule's open clause for it.
+- [ ] 4.8 Test through the engine's event path (not only `RuleMatcher`): with
+      a rule whose `open_on_statuses` is `["down", "healthy"]` and an open
+      alert for a target, a `target_departed` event closes that alert and
+      opens or renotifies none; the same event with no open alert changes
+      nothing.
+- [ ] 4.9 Test: a `service_targets` check bound to exactly 1000 service
+      targets, one removed and one added, prunes the removed one and publishes
+      its closing transition.
 
 ## 5. Events and alerts
 

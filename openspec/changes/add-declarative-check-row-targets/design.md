@@ -141,11 +141,17 @@ that deletion while adding the closing event would close a live alert on an
 evaluation error and reopen it on the next good pass; keeping the deletion
 without the event would leave the alert open with no instance behind it.
 
-A scope read is complete only when its last page has fewer rows than the
-limit that actually ran for that page. This one rule applies to every fan-out
-mode, including the paged device stream: a device stream whose last page is
-full is truncated even when no `next_cursor` came back. A missing cursor is
-never evidence of completeness.
+An SRQL scope read (`srql_rows` and the paged `srql_devices` stream) is
+complete only when its last page has fewer rows than the limit that actually
+ran for that page. A device stream whose last page is full is truncated even
+when no `next_cursor` came back. A missing cursor is never evidence of
+completeness.
+
+A successful `service_targets` resolution is always the whole scope, whatever
+its size. It loads every bound service target id, and the 1,000-id chunking
+that follows is evaluation batching, not a limit, so the full-page rule does
+not apply to it: a resolution of exactly 1,000 (or any multiple of 1,000)
+service targets is complete, and a removed one is departed.
 
 A truncated scope (D5) must not close alerts: a row may be missing only
 because the limit cut it off. On a truncated pass nothing is treated as
@@ -174,9 +180,25 @@ instance has a `device_uid`.
 The `target_departed` transition is therefore delivered even for an
 inactive or out-of-service device. The writer does this by passing the
 publisher a suppression predicate that returns false, for this transition
-only. It can only close an alert, never open one, so delivering it for an
-out-of-service device cannot page anyone. Every other transition keeps the
-default predicate and the current suppression rules.
+only. Every other transition keeps the default predicate and the current
+suppression rules. The bypass is unconditional because D9 guarantees the
+transition can only close an alert, never open or renotify one, so
+delivering it for an out-of-service device cannot page anyone.
+
+### D9. Departure is recovery-only
+
+A check's `open_on_statuses` may include `healthy`, and the alert engine's
+event state machine evaluates a matched event against the rule's open clause
+before its recovery clause. A plain `to_status: healthy` transition could
+therefore open or renotify an alert instead of closing it.
+
+The closing transition carries an explicit departure marker: the
+`target_departed` verdict plus a dedicated boolean `target_departed: true`
+field on the event. The alert engine treats an event carrying that marker as
+a recovery for the matching rule and does not evaluate it against the rule's
+open clause. It closes the open alert for that `check_slug` and `target_key`
+if there is one and otherwise does nothing; it never opens or renotifies an
+alert, including for a check whose `open_on_statuses` contains `healthy`.
 
 ## Risks / Trade-offs
 
@@ -195,7 +217,7 @@ default predicate and the current suppression rules.
 ## Migration Plan
 
 Additive. Existing checks and packs are untouched. The departure transition
-(D6, D8) starts closing stale alerts for device and service-target checks on
+(D6, D8, D9) starts closing stale alerts for device and service-target checks on
 the first pass after the upgrade, and a device or service target whose
 evaluation fails keeps its instance instead of being deleted (D6).
 

@@ -111,7 +111,7 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **THEN** validation SHALL fail with an out-of-range diagnostic
 
 ### Requirement: Per-Target Alerts That Name and Close
-The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key, where a scope read in any fan-out mode is complete only when its last page has fewer rows than the limit that actually ran, and the absence of a `next_cursor` SHALL NOT be taken as completeness; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression.
+The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key, where an SRQL scope read (`srql_rows` or the `srql_devices` stream) is complete only when its last page has fewer rows than the limit that actually ran, the absence of a `next_cursor` SHALL NOT be taken as completeness, and a successful `service_targets` resolution SHALL be treated as the whole scope whatever its size; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression. The closing transition SHALL carry the `target_departed` verdict and a boolean `target_departed: true` event field, and the alert engine MUST treat an event carrying that marker as a recovery for the matching rule and MUST NOT evaluate it against the rule's open clause, so that it never opens or renotifies an alert, including for a check whose `open_on_statuses` contains `healthy`.
 
 #### Scenario: A second row going down opens a second alert
 - **GIVEN** a row check with an alert open for target `tank01 on hv-a`
@@ -159,3 +159,16 @@ The system SHALL carry a row target's label on its OCSF `health.state_change` tr
 - **WHEN** a pass reads the device scope and its last page holds as many devices as the limit that ran, with no `next_cursor`, and does not contain `dev-3`
 - **THEN** the pass SHALL treat the scope as truncated
 - **AND** SHALL NOT prune `dev-3` and SHALL NOT publish a transition for it
+
+#### Scenario: A removed service target is departed in a resolution of exactly 1,000
+- **GIVEN** a `service_targets` check bound to exactly 1,000 synthetic service targets, one of them `svc-0042` at status `down` with an open alert
+- **WHEN** `svc-0042` is removed from the binding, another is added so the resolution still holds exactly 1,000 service targets, and the next pass resolves them successfully
+- **THEN** the pass SHALL treat the resolution as complete
+- **AND** SHALL publish the `healthy` / `target_departed` transition for `svc-0042`, close its alert and prune its instance
+
+#### Scenario: Departure never opens an alert when healthy is an open status
+- **GIVEN** a check whose alert rule has `open_on_statuses: ["down", "healthy"]`, with device target `dev-4` at status `down` and an open alert
+- **WHEN** `dev-4` leaves the scope of a complete, successful scope read
+- **THEN** the pass SHALL publish a transition for `dev-4` with verdict `target_departed` and event field `target_departed: true`
+- **AND** the alert engine SHALL close the open alert for `dev-4`
+- **AND** SHALL NOT open or renotify any alert for that event
