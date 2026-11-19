@@ -10,7 +10,7 @@ use async_nats::jetstream::context::{
 };
 use async_nats::jetstream::{
     self,
-    stream::{DiscardPolicy, StorageType},
+    stream::{DiscardPolicy, RetentionPolicy, StorageType},
 };
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -304,6 +304,7 @@ struct StreamShape {
     max_bytes: i64,
     num_replicas: usize,
     discard: DiscardPolicy,
+    max_age: Duration,
 }
 
 impl StreamShape {
@@ -313,6 +314,7 @@ impl StreamShape {
             max_bytes: cfg.max_bytes,
             num_replicas: cfg.num_replicas,
             discard: cfg.discard,
+            max_age: cfg.max_age,
         }
     }
 }
@@ -321,11 +323,12 @@ impl std::fmt::Display for StreamShape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "owner={} max_bytes={} replicas={} discard={:?}",
+            "owner={} max_bytes={} replicas={} discard={:?} max_age={}s",
             self.owner.as_deref().unwrap_or("<none>"),
             self.max_bytes,
             self.num_replicas,
-            self.discard
+            self.discard,
+            self.max_age.as_secs()
         )
     }
 }
@@ -339,14 +342,14 @@ struct StreamReconcile {
 }
 
 /// The config bmp-collector creates its stream with when it is absent: claimed, at
-/// the configured size, replicas, and explicit discard policy.
+/// the configured size, replicas, age, and explicit discard policy.
 fn desired_stream_config(config: &Config) -> jetstream::stream::Config {
     jetstream::stream::Config {
         name: config.stream_name.clone(),
         subjects: config.stream_subjects_resolved(),
         storage: StorageType::File,
         max_bytes: config.stream_max_bytes,
-        max_age: Duration::from_secs(24 * 60 * 60),
+        max_age: config.stream_max_age(),
         num_replicas: config.stream_replicas,
         discard: config.stream_discard_policy,
         metadata: HashMap::from([(OWNER_METADATA_KEY.to_string(), OWNER.to_string())]),
@@ -359,8 +362,9 @@ fn desired_stream_config(config: &Config) -> jetstream::stream::Config {
 /// any, the stream carries), keeps the union of existing and required subjects, and
 /// sets `max_bytes` and `num_replicas` to the configured values. The stream is a
 /// discard-new buffer by default; incoming messages fail when full. Operators can
-/// explicitly choose discard-old. Every other setting, including other metadata keys, is
-/// left as found. Returns `None` when the stream already matches.
+/// explicitly choose discard-old. `max_age` is bounded by [`bounded_max_age`]. Every
+/// other setting, including other metadata keys, is left as found. Returns `None` when
+/// the stream already matches.
 fn plan_stream_reconcile(
     existing: &jetstream::stream::Config,
     config: &Config,
@@ -379,6 +383,7 @@ fn plan_stream_reconcile(
     desired.max_bytes = config.stream_max_bytes;
     desired.num_replicas = config.stream_replicas;
     desired.discard = config.stream_discard_policy;
+    desired.max_age = bounded_max_age(existing.max_age, config.stream_max_age());
 
     if desired == *existing {
         return None;
@@ -389,6 +394,34 @@ fn plan_stream_reconcile(
         after: StreamShape::of(&desired),
         config: desired,
     })
+}
+
+/// The configured age is a ceiling on an existing stream's `max_age`. An unlimited
+/// (zero) or longer age is lowered to it: it bounds how long a full discard-new stream
+/// rejects publishes before expiry frees space. A shorter age is a stricter bound an
+/// operator chose, and is kept.
+fn bounded_max_age(existing: Duration, ceiling: Duration) -> Duration {
+    if existing.is_zero() {
+        ceiling
+    } else {
+        existing.min(ceiling)
+    }
+}
+
+/// Refuses to write a discard-new, limits-retained stream without an age limit.
+/// Acknowledgement does not remove limits-retained records, so once such a stream is
+/// full, every publish fails until an operator frees space.
+fn ensure_bounded_age(stream: &jetstream::stream::Config) -> Result<()> {
+    if stream.discard == DiscardPolicy::New
+        && stream.retention == RetentionPolicy::Limits
+        && stream.max_age.is_zero()
+    {
+        anyhow::bail!(
+            "refusing to write JetStream stream {} with discard-new, limits retention and no max_age: it would never free space once full",
+            stream.name
+        );
+    }
+    Ok(())
 }
 
 async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
@@ -403,14 +436,17 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
                 return reconcile_existing_stream(config, js, &info.config, info.state.bytes).await;
             }
             Err(err) if stream_not_found(&err) => {
-                match js.create_stream(desired_stream_config(config)).await {
+                let desired = desired_stream_config(config);
+                ensure_bounded_age(&desired)?;
+                match js.create_stream(desired).await {
                     Ok(_) => {
                         info!(
-                            "created JetStream stream {} owner={} max_bytes={} replicas={}",
+                            "created JetStream stream {} owner={} max_bytes={} replicas={} max_age={}s",
                             config.stream_name,
                             OWNER,
                             config.stream_max_bytes,
-                            config.stream_replicas
+                            config.stream_replicas,
+                            config.stream_max_age().as_secs()
                         );
                         return Ok(());
                     }
@@ -450,6 +486,7 @@ async fn reconcile_existing_stream(
         );
         return Ok(());
     };
+    ensure_bounded_age(&plan.config)?;
 
     if u64::try_from(plan.after.max_bytes).is_ok_and(|cap| stored_bytes > cap) {
         if plan.after.discard == DiscardPolicy::New {
@@ -503,7 +540,6 @@ fn ensure_rustls_provider_installed() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_nats::jetstream::stream::RetentionPolicy;
 
     const GIB: i64 = 1024 * 1024 * 1024;
 
@@ -750,12 +786,53 @@ mod tests {
         assert_eq!(plan.config.retention, existing.retention);
     }
 
+    /// The configured age is a ceiling. The incident shape (discard-new, limits, no
+    /// age limit) never frees space once full, so an unlimited age, like a longer one,
+    /// is lowered to the ceiling; a shorter age is a stricter bound and is kept.
+    #[test]
+    fn max_age_is_reconciled_to_at_most_the_configured_age() {
+        const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+        let config = collector_config(2 * GIB, 1);
+        let existing_with_age = |max_age| {
+            let mut existing = existing_stream(2 * GIB, 1, Some(OWNER));
+            existing.discard = DiscardPolicy::New;
+            existing.max_age = max_age;
+            existing
+        };
+
+        for unbounded in [Duration::ZERO, 7 * DAY] {
+            let plan = plan_stream_reconcile(&existing_with_age(unbounded), &config)
+                .unwrap_or_else(|| panic!("max_age {unbounded:?} must be lowered to {DAY:?}"));
+            assert_eq!(plan.before.max_age, unbounded);
+            assert_eq!(plan.config.max_age, DAY);
+            assert!(plan_stream_reconcile(&plan.config, &config).is_none());
+        }
+
+        let shorter = existing_with_age(DAY / 4);
+        assert!(plan_stream_reconcile(&shorter, &config).is_none());
+    }
+
+    #[test]
+    fn unbounded_discard_new_limits_stream_is_refused() {
+        let mut stream = desired_stream_config(&collector_config(2 * GIB, 1));
+        assert!(ensure_bounded_age(&stream).is_ok());
+
+        stream.max_age = Duration::ZERO;
+        assert!(ensure_bounded_age(&stream).is_err());
+
+        stream.discard = DiscardPolicy::Old;
+        assert!(ensure_bounded_age(&stream).is_ok());
+    }
+
     #[test]
     fn absent_stream_is_created_claimed_at_the_configured_shape() {
-        let created = desired_stream_config(&collector_config(2 * GIB, 3));
+        let mut config = collector_config(2 * GIB, 3);
+        config.stream_max_age_secs = std::num::NonZeroU64::new(6 * 60 * 60).unwrap();
+        let created = desired_stream_config(&config);
 
         assert_eq!(created.name, "ARANCINI_CAUSAL");
         assert_eq!(created.max_bytes, 2 * GIB);
+        assert_eq!(created.max_age, Duration::from_secs(6 * 60 * 60));
         assert_eq!(created.num_replicas, 3);
         assert_eq!(created.discard, DiscardPolicy::New);
         assert_eq!(

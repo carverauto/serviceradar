@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::num::NonZeroU64;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -50,6 +52,11 @@ pub struct Config {
     pub stream_max_bytes: i64,
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
+    /// Upper bound on how long the stream keeps a record. Non-zero by type: a
+    /// discard-new, limits-retained stream with no age limit never frees space once
+    /// full, because acknowledgement does not remove limits-retained records.
+    #[serde(default = "default_stream_max_age_secs")]
+    pub stream_max_age_secs: NonZeroU64,
     #[serde(default = "default_publish_timeout_ms")]
     pub publish_timeout_ms: u64,
 }
@@ -148,6 +155,10 @@ impl Config {
         Ok(())
     }
 
+    pub fn stream_max_age(&self) -> Duration {
+        Duration::from_secs(self.stream_max_age_secs.get())
+    }
+
     pub fn listen_addr_parsed(&self) -> anyhow::Result<SocketAddr> {
         self.listen_addr
             .parse()
@@ -242,6 +253,11 @@ fn default_stream_replicas() -> usize {
     1
 }
 
+fn default_stream_max_age_secs() -> NonZeroU64 {
+    const DAY: NonZeroU64 = NonZeroU64::new(24 * 60 * 60).unwrap();
+    DAY
+}
+
 fn default_publish_timeout_ms() -> u64 {
     5_000
 }
@@ -281,6 +297,7 @@ mod tests {
         let cfg = load(&json_with_stream(None, None), &[]).unwrap();
         assert_eq!(cfg.max_connections, 16);
         assert_eq!(cfg.read_timeout_secs, 30);
+        assert_eq!(cfg.stream_max_age(), Duration::from_secs(86_400));
         assert_eq!(
             cfg.stream_discard_policy,
             async_nats::jetstream::stream::DiscardPolicy::New
@@ -291,6 +308,7 @@ mod tests {
             "publish_messages_per_second",
             "publish_bytes_per_second",
             "publish_timeout_ms",
+            "stream_max_age_secs",
         ] {
             let mut value = serde_json::json!({"nats_url": "nats://nats.example.com:4222"});
             value[field] = 0.into();
