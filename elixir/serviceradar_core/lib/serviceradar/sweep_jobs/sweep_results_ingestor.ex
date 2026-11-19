@@ -234,17 +234,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # rows, the inventory rollup lock and this execution's own row, because a late batch of an
   # older execution takes those in that order and only then locks its execution row. Locking
   # the older row first, while creating this execution, closes a wait cycle with that batch.
-  defp supersede_after_ingest(
-         {:ok, _} = ok,
-         {:created, started_at},
-         reporter_context,
-         execution_id
-       ) do
+  defp supersede_after_ingest(result, {:created, started_at}, reporter_context, execution_id) do
     maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
-    ok
+    result
   end
 
-  defp supersede_after_ingest(result, _ready, _reporter_context, _execution_id), do: result
+  defp supersede_after_ingest(result, :ok, _reporter_context, _execution_id), do: result
 
   @doc """
   Process a single sweep result.

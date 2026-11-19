@@ -7,9 +7,11 @@ defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
   the late batch holds, the late batch's request for its execution row closes a wait cycle
   and Postgres aborts one side with a deadlock.
 
-  The case holds a device row the way that late batch does, lets the new batch run into it,
-  then asks for the older execution row without waiting: if the new batch took it first the
-  request fails at once instead of forming the cycle.
+  The new batch runs in one transaction, as the EventWriter runs each record, so any row lock
+  it takes is held until it commits. The case holds a device row the way that late batch
+  does, lets the new batch run into it, then asks for the older execution row without
+  waiting: if the new batch took it first the request fails at once instead of forming the
+  cycle.
   """
   use ServiceRadar.DataCase, async: false
 
@@ -158,14 +160,20 @@ defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
           [[backend]] = Repo.query!("SELECT pg_backend_pid()").rows
           send(parent, {:batch_backend, ref, backend})
 
-          SweepResultsIngestor.ingest_results(results, Ash.UUID.generate(),
-            actor: context.actor,
-            sweep_group_id: context.group.id,
-            agent_id: context.agent_id,
-            authenticated_agent_id: context.agent_id,
-            authenticated_partition_id: context.partition,
-            config_version: "supersede-order-#{System.unique_integer([:positive])}"
-          )
+          Repo.transaction(fn ->
+            case SweepResultsIngestor.ingest_results(results, Ash.UUID.generate(),
+                   actor: context.actor,
+                   repo: Repo,
+                   sweep_group_id: context.group.id,
+                   agent_id: context.agent_id,
+                   authenticated_agent_id: context.agent_id,
+                   authenticated_partition_id: context.partition,
+                   config_version: "supersede-order-#{System.unique_integer([:positive])}"
+                 ) do
+              {:ok, stats} -> stats
+              {:error, reason} -> Repo.rollback(reason)
+            end
+          end)
         end,
         timeout: @wait_ms * 2
       )
