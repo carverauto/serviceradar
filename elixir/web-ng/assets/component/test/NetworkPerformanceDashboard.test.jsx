@@ -582,6 +582,45 @@ describe("cloud.serviceradar.network-performance Blueprint dashboard", () => {
     expect(drawerText).not.toContain("Fleet-wide fallback")
   })
 
+  test("uses the grouped samples for drawer history when a row has no agent id", async () => {
+    const root = createMountRoot()
+    const frames = structuredClone(sampleFrames)
+    frames[0].results = [
+      {
+        timestamp: "2026-11-18T03:50:00Z",
+        metric_name: "rperf.bits_per_second",
+        value: 123000000,
+        target_device_ip: "192.0.2.90",
+        tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+      },
+      {
+        timestamp: "2026-11-18T03:55:00Z",
+        metric_name: "rperf.bits_per_second",
+        value: 124000000,
+        target_device_ip: "192.0.2.90",
+        tags: {responder_agent_id: "agent-hub-east-01", direction: "download", protocol: "tcp"},
+      },
+    ]
+    frames[5].results = []
+    const {host, api} = createHostApi({frames})
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const unknownRow = Array.from(root.querySelectorAll("tbody tr")).find((tr) =>
+      tr.textContent?.includes("unknown-spoke"),
+    )
+    expect(unknownRow).toBeDefined()
+    unknownRow.click()
+    await flushUi()
+
+    const portalRoot = root.querySelector(".sr-dashboard-blueprint [data-sr-blueprint-portals='true']")
+    const drawerText = portalRoot?.querySelector(".bp6-drawer")?.textContent || ""
+    expect(drawerText).toContain("124,000,000")
+    expect(drawerText).not.toContain("Fleet-wide fallback")
+  })
+
   test("labels fleet-wide metricTrends fallback clearly when spoke has no per-spoke history", async () => {
     const root = createMountRoot()
     const frames = structuredClone(sampleFrames)

@@ -568,6 +568,62 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook.connectFrameStream).not.toHaveBeenCalled()
   }, COLD_IMPORT_TIMEOUT_MS)
 
+  test("a superseded boot's mount failure leaves the newer boot's host state intact", async () => {
+    const hook = hookContext()
+    hook._bootGen = 1
+    let rejectStaleMount
+    const staleMount = vi.fn(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectStaleMount = reject
+        }),
+    )
+
+    const staleBoot = hook.mountExternalRenderer(baseHost(), 1, {}, staleMount)
+    await vi.waitFor(() => expect(staleMount).toHaveBeenCalled())
+
+    hook._bootGen = 2
+    const liveCallback = vi.fn()
+    const liveEvents = {clear: vi.fn()}
+    const liveActions = {}
+    hook._frameUpdateCallbacks = [liveCallback]
+    hook._eventsApi = liveEvents
+    hook._actionsApi = liveActions
+    const liveCamera = {closeAll: vi.fn()}
+    hook._cameraApi = liveCamera
+
+    rejectStaleMount(new Error("stale mount failed"))
+    await expect(staleBoot).rejects.toThrow("stale mount failed")
+
+    expect(hook._frameUpdateCallbacks).toEqual([liveCallback])
+    expect(hook._eventsApi).toBe(liveEvents)
+    expect(liveEvents.clear).not.toHaveBeenCalled()
+    expect(hook._actionsApi).toBe(liveActions)
+    expect(hook._cameraApi).toBe(liveCamera)
+    expect(liveCamera.closeAll).not.toHaveBeenCalled()
+  })
+
+  test("a current boot's mount failure clears the host state it registered", async () => {
+    const hook = hookContext()
+    hook._bootGen = 1
+    const events = {clear: vi.fn()}
+    hook._frameUpdateCallbacks = [vi.fn()]
+    hook._eventsApi = events
+    hook._actionsApi = {}
+
+    await expect(
+      hook.mountExternalRenderer(baseHost(), 1, {}, () => {
+        throw new Error("mount failed")
+      }),
+    ).rejects.toThrow("mount failed")
+
+    expect(hook._frameUpdateCallbacks).toEqual([])
+    expect(hook._eventsApi).toBeNull()
+    expect(events.clear).toHaveBeenCalled()
+    expect(hook._actionsApi).toBeNull()
+    expect(hook._cameraApi).toBeNull()
+  })
+
   test("reconnects the frame stream when a browser module host update changes the stream token", () => {
     const rendererUrl = "data:text/javascript,export function mountDashboard() {}"
     const frames = [

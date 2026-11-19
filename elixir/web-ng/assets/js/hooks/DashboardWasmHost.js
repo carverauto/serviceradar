@@ -697,11 +697,13 @@ const DashboardWasmHost = {
       if (this._bootAbortController === effectiveAbort) {
         this._bootAbortController = null
       }
-      this.closeCameraSessions()
-      this._eventsApi?.clear()
-      this._eventsApi = null
-      this._actionsApi = null
-      this._frameUpdateCallbacks = []
+      if ((this._bootGen ?? 0) === bootGen && !this._destroyed) {
+        this.closeCameraSessions()
+        this._eventsApi?.clear()
+        this._eventsApi = null
+        this._actionsApi = null
+        this._frameUpdateCallbacks = []
+      }
       throw error
     }
 

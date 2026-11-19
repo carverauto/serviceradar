@@ -279,6 +279,10 @@ export function parseTags(rawTags) {
   return {}
 }
 
+function rowSpokeId(row, tags) {
+  return String(row.agent_id || tags.agent_id || "").trim() || "unknown-spoke"
+}
+
 function numericValue(value) {
   if (value === null || value === undefined) return null
   if (typeof value === "boolean" || Array.isArray(value)) return null
@@ -430,7 +434,7 @@ function buildLinksFromSamples(samples, spokeSummaryRows, agentById, {allowSumma
     if (metricName.startsWith("rperf.responder_")) continue
 
     const tags = parseTags(row.tags)
-    const spokeId = String(row.agent_id || tags.agent_id || "").trim() || "unknown-spoke"
+    const spokeId = rowSpokeId(row, tags)
     const hasExplicitResponder = Boolean(tags.responder_agent_id)
     const responderId = String(
       tags.responder_agent_id || tags.target || row.target_device_ip || "unassigned-target",
@@ -900,7 +904,7 @@ export function NetworkPerformanceDashboard() {
       const metricName = String(row.metric_name || "")
       if (metricName.startsWith("rperf.responder_")) return false
       const tags = parseTags(row.tags)
-      const spoke = String(row.agent_id || tags.agent_id || "").trim()
+      const spoke = rowSpokeId(row, tags)
       if (spoke !== selectedLink.spokeId) return false
       const explicitResponder = String(tags.responder_agent_id || "").trim()
       const legacyTarget = String(tags.target || row.target_device_ip || "").trim()
