@@ -62,7 +62,7 @@
   `docs/sigstore/pre-cutover-rekor-keys/`. Negative tests: a created signature with a public-good
   receipt fails; a reused one with a public-good receipt whose SET-signed `integratedTime` is before
   the pinned cutover time verifies offline.
-- [ ] 3.5 Follow-up to the signer PR: bound release verification of reused signatures. Pin the
+- [x] 3.5 Follow-up to the signer PR: bound release verification of reused signatures. Pin the
   cutover time in `docs/sigstore/cutover.json` from the real v1.5.8 tag; accept a reused public-good receipt only
   when its SET-signed `integratedTime` is before it; accept a reused receipt-less Wasm plugin or
   native add-on digest only when it is on the frozen pre-cutover allowlist. Negative tests: a reused

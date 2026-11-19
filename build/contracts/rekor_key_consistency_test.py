@@ -104,6 +104,23 @@ class WebNgImageTrustTest(unittest.TestCase):
                 self.assertEqual(shipped[name], content)
 
 
+class CutoverPinTest(unittest.TestCase):
+    def test_cutover_time_is_the_pinned_tag_time(self):
+        from datetime import datetime
+        cutover = json.loads((SIGSTORE / "cutover.json").read_text())
+        tag_time = datetime.fromisoformat(cutover["tag_time"].replace("Z", "+00:00"))
+        self.assertEqual(cutover["integrated_time_before"], int(tag_time.timestamp()))
+
+    def test_cutover_is_the_published_v1_5_8_tag_time(self):
+        # Oracle: the tagger date of the annotated v1.5.8 tag object
+        # 10b4b272a399a1c6fa8dae25a8d8d8c660a0057d
+        # (GET /repos/carverauto/serviceradar/git/tags/10b4b272a399a1c6fa8dae25a8d8d8c660a0057d).
+        cutover = json.loads((SIGSTORE / "cutover.json").read_text())
+        self.assertEqual(cutover["release"], "v1.5.8")
+        self.assertEqual(cutover["tag_time"], "2026-11-18T20:48:02Z")
+        self.assertEqual(cutover["integrated_time_before"], 1795034882)
+
+
 class PreCutoverAllowlistTest(unittest.TestCase):
     def test_allowlist_is_frozen(self):
         self.assertEqual(hashlib.sha256(ALLOWLIST.read_bytes()).hexdigest(), FROZEN_ALLOWLIST_SHA256)

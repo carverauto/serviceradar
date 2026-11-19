@@ -327,7 +327,7 @@ check_cosign_verify() {
     fail "${ref}:${tag} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
   fi
 
-  cosign_verify_legacy_signature "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
+  cosign_verify_legacy_signature "${ref}@${digest}" image >/dev/null || fail "${ref}:${tag} failed cosign verification"
 }
 
 for tag in "${TAGS[@]}"; do

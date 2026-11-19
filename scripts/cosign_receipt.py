@@ -19,6 +19,10 @@ Subcommands:
                                      record the log entry the upload returned (legacy or protobuf bundle)
   ledger-reused SUBJECT              record a reused existing signature
   ledger-classify DIGEST             print created, reused or unrecorded
+  allowlisted DIGEST ALLOWLIST       exit 0 when the digest is on the frozen pre-cutover allowlist
+  verified-before-cutover LOG_ID CUTOVER
+                                     read `cosign verify` output on stdin; exit 0 when a verified
+                                     signature's receipt from LOG_ID was integrated before the cutover
 
 The ledger is the JSON-lines file SERVICERADAR_SIGNING_LEDGER names.
 """
@@ -226,6 +230,32 @@ def cmd_ledger_classify(ledger, digest):
     print("created" if created else "reused" if reused else "unrecorded")
 
 
+def cmd_allowlisted(digest, allowlist_path):
+    with open(allowlist_path, "rb") as handle:
+        digests = strict_json(handle.read()).get("digests")
+    if not isinstance(digests, list):
+        fail(f"{allowlist_path} has no digest list")
+    raise SystemExit(0 if DIGEST.fullmatch(digest) and digest in digests else 1)
+
+
+def cmd_verified_before_cutover(log_id_value, cutover_path):
+    with open(cutover_path, "rb") as handle:
+        cutover = strict_json(handle.read())
+    before = cutover.get("integrated_time_before")
+    if type(before) is not int or before <= 0:
+        fail(f"{cutover_path} pins no cutover time")
+    for line in sys.stdin.read().splitlines():
+        line = line.strip()
+        if not line.startswith("["):
+            continue
+        for signature in strict_json(line):
+            payload = (((signature or {}).get("optional") or {}).get("Bundle") or {}).get("Payload") or {}
+            integrated = payload.get("integratedTime")
+            if payload.get("logID") == log_id_value and type(integrated) is int and integrated < before:
+                raise SystemExit(0)
+    raise SystemExit(1)
+
+
 def main(argv):
     if not argv:
         fail(__doc__)
@@ -247,6 +277,10 @@ def main(argv):
         append(ledger, ledger_line("reused", args[0]))
     elif command == "ledger-classify" and len(args) == 1:
         cmd_ledger_classify(ledger, args[0])
+    elif command == "allowlisted" and len(args) == 2:
+        cmd_allowlisted(*args)
+    elif command == "verified-before-cutover" and len(args) == 2:
+        cmd_verified_before_cutover(*args)
     else:
         fail(f"usage: {__doc__}")
 

@@ -167,7 +167,7 @@ PY
 
     if cosign_init_verify_args; then
       digest="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}" | jq -r '.digest')"
-      cosign_verify_legacy_signature "${repo}@${digest}" >/dev/null
+      cosign_verify_legacy_signature "${repo}@${digest}" native-addon >/dev/null
     else
       echo "error: ${ref} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity" >&2
       exit 1

@@ -23,6 +23,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 REPOSITORY = "example"
 OCI_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+CUTOVER = 1767225600 + 3600  # the synthetic cutover: one hour after the default integrated time
 
 
 def pinned_cosign():
@@ -143,6 +144,10 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         (cls.sigstore / "pre-cutover-rekor-keys").mkdir()
         (cls.sigstore / "pre-cutover-rekor-keys" / f"{cls.pre_cutover_log_id}.pub").write_bytes(
             cls.pre_cutover_log_pub.read_bytes())
+        # Synthetic cutover and allowlist; entries made by publish(..., allowlisted=True) are added.
+        (cls.sigstore / "cutover.json").write_text(json.dumps({"release": "v9.9.9", "integrated_time_before": CUTOVER}))
+        cls.allowlist = []
+        (cls.sigstore / "pre-cutover-first-party-digests.json").write_text(json.dumps({"digests": cls.allowlist}))
 
     @classmethod
     def tearDownClass(cls):
@@ -182,7 +187,7 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
             TUF_ROOT=str(home / "tuf"), SIGSTORE_CACHE_DIR=str(home / "sigstore"))
         return environment
 
-    def publish(self, receipt=None, payload_override=None, through_signer_check=True):
+    def publish(self, receipt=None, payload_override=None, through_signer_check=True, allowlisted=False):
         """Push a fresh image and its classic `.sig`; return the digest reference."""
         config = self.registry.put_blob(os.urandom(16).hex().encode())
         image = json.dumps({"schemaVersion": 2, "mediaType": OCI_MANIFEST,
@@ -221,9 +226,12 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         self.registry.blobs[layer["digest"]] = payload
         self.registry.put_blob((work / "config").read_bytes())
         self.registry.put_manifest(manifest, tag=digest.replace(":", "-") + ".sig")
+        if allowlisted:
+            self.allowlist.append(digest)
+            (self.sigstore / "pre-cutover-first-party-digests.json").write_text(json.dumps({"digests": self.allowlist}))
         return reference, digest
 
-    def receipt(self, log_key=None, log_id=None):
+    def receipt(self, log_key=None, log_id=None, integrated_time=1767225600):
         """A legacy RekorBundle whose SET is signed by the stand-in log over a hashedrekord body."""
 
         def build(payload, signature):
@@ -232,7 +240,7 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
                 "signature": {"content": signature,
                               "publicKey": {"content": base64.b64encode(self.release_pub.read_bytes()).decode()}}}},
                 separators=(",", ":")).encode()
-            entry = {"body": base64.b64encode(body).decode(), "integratedTime": 1767225600,
+            entry = {"body": base64.b64encode(body).decode(), "integratedTime": integrated_time,
                      "logID": log_id or self.log_id, "logIndex": 4242}
             canonical = json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()
             signed_entry_timestamp = base64.b64encode(self.sign(log_key or self.log_key, canonical)).decode()
@@ -247,10 +255,10 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         path.write_text("".join(json.dumps({"event": event, "digest": digest}) + "\n" for event, digest in records))
         return path
 
-    def verify(self, reference, ledger):
-        script = ('source "$1"; COSIGN_VERIFY_ARGS=(--key "$2"); cosign_verify_legacy_signature "$3"')
+    def verify(self, reference, ledger, kind="image"):
+        script = ('source "$1"; COSIGN_VERIFY_ARGS=(--key "$2"); cosign_verify_legacy_signature "$3" "$4"')
         return subprocess.run(["bash", "-c", script, "verify", str(REPO / "scripts/cosign_common.sh"),
-                               str(self.release_pub), reference],
+                               str(self.release_pub), reference, kind],
                               env=self.env(ledger), capture_output=True, text=True, timeout=120)
 
     def assert_verified(self, result):
@@ -301,6 +309,25 @@ class ReleaseReceiptVerificationTest(unittest.TestCase):
         result = self.verify(reference, self.ledger([("reused", digest)]))
         self.assert_verified(result)
         self.assertIn("verified offline", result.stderr)
+
+    def test_reused_pre_cutover_log_receipt_integrated_after_the_cutover_fails(self):
+        reference, digest = self.publish(
+            receipt=self.receipt(log_key=self.pre_cutover_log_key, log_id=self.pre_cutover_log_id,
+                                 integrated_time=CUTOVER + 60),
+            through_signer_check=False)
+        result = self.verify(reference, self.ledger([("reused", digest)]))
+        self.assert_rejected(result, "integrated at or after the cutover")
+
+    def test_reused_receiptless_plugin_or_addon_off_the_allowlist_fails(self):
+        for kind in ("wasm-plugin", "native-addon"):
+            with self.subTest(kind=kind):
+                reference, digest = self.publish()
+                result = self.verify(reference, self.ledger([("reused", digest)]), kind=kind)
+                self.assert_rejected(result, "not on the frozen pre-cutover allowlist")
+
+    def test_reused_receiptless_allowlisted_plugin_verifies_with_the_release_key(self):
+        reference, digest = self.publish(allowlisted=True)
+        self.assert_verified(self.verify(reference, self.ledger([("reused", digest)]), kind="wasm-plugin"))
 
     def test_created_signature_with_a_pre_cutover_log_receipt_fails(self):
         reference, digest = self.publish(
