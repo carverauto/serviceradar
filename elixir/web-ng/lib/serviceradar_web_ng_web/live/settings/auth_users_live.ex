@@ -453,9 +453,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
       :oidc ->
         "SSO (OIDC)"
 
-      :saml ->
-        "SSO (SAML)"
-
       :gateway ->
         "Gateway"
 

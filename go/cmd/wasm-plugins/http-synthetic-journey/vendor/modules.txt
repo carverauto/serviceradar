@@ -1,0 +1,4 @@
+# github.com/carverauto/serviceradar-sdk-go/v2 v2.2.0 => /Volumes/Build/worktrees/sdk-go-journey
+## explicit; go 1.25
+github.com/carverauto/serviceradar-sdk-go/v2/sdk
+# github.com/carverauto/serviceradar-sdk-go/v2 => /Volumes/Build/worktrees/sdk-go-journey

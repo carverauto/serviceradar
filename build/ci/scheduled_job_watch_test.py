@@ -10,6 +10,7 @@ import http.server
 import io
 import json
 import threading
+import urllib.parse
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,7 @@ from build.ci import scheduled_job_watch as watch
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2030, 1, 2, 12, 0, tzinfo=timezone.utc)
 RUN = "https://ci.example.com/invocation/"
+TRUNCATED = object()
 
 
 class Server:
@@ -29,17 +31,50 @@ class Server:
     A queued reply is (status, body), or a function of the request that returns one.
     """
 
-    def __init__(self, *replies):
+    def __init__(self, *replies, monitor_runs=()):
         received = self.received = []
         queue = list(replies)
+        # GET: the Rekor signing monitor's successful Actions runs, newest first, and each run's
+        # artifacts (the fake-only "artifacts" field of the run), paged like GitHub; None answers 500.
+        self.monitor_runs = monitor_runs if monitor_runs != () else [monitor_run(1, 1)]
+        server = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                path = self.path.split("?")[0]
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                per_page, page = int(query.get("per_page", ["30"])[0]), int(query.get("page", ["1"])[0])
+                if server.monitor_runs is None:
+                    self.send_response(500)
+                    self.end_headers()
+                    return
+                if path.endswith("/actions/workflows/rekor-signing-monitor.yml/runs"):
+                    body = {"workflow_runs": server.monitor_runs[(page - 1) * per_page:page * per_page]}
+                elif "/actions/runs/" in path and path.endswith("/artifacts"):
+                    run_id = int(path.split("/")[-2])
+                    run = next(run for run in server.monitor_runs if run["id"] == run_id)
+                    names = run["artifacts"][(page - 1) * per_page:page * per_page]
+                    body = {"artifacts": [{"name": name} for name in names]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps(body).encode())
+
             def do_POST(self):
                 length = int(self.headers["Content-Length"])
                 received.append(json.loads(self.rfile.read(length)))
                 reply = queue.pop(0)
                 status, body = reply(received[-1]) if callable(reply) else reply
                 self.send_response(status)
+                if body is TRUNCATED:
+                    # Promises more than it sends: the client reads a short body.
+                    self.send_header("Content-Length", "100")
+                    self.end_headers()
+                    self.wfile.write(b"{")
+                    return
                 self.end_headers()
                 self.wfile.write(json.dumps(body).encode() if body is not None else b"")
 
@@ -53,6 +88,16 @@ class Server:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+def iso(hours_ago):
+    return (NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def monitor_run(run_id, hours_ago, branch="staging", event="schedule",
+                artifacts=("rekor-signing-monitor-state",)):
+    return {"id": run_id, "updated_at": iso(hours_ago), "head_branch": branch, "event": event,
+            "artifacts": list(artifacts)}
 
 
 def status(context, state, hours_ago, description=""):
@@ -106,8 +151,8 @@ def history(*commits):
 
 
 class ScheduledJobWatchTest(unittest.TestCase):
-    def serve(self, *replies):
-        server = Server(*replies)
+    def serve(self, *replies, monitor_runs=()):
+        server = Server(*replies, monitor_runs=monitor_runs)
         self.addCleanup(server.close)
         return server
 
@@ -117,7 +162,7 @@ class ScheduledJobWatchTest(unittest.TestCase):
             environ[watch.WEBHOOK_ENV] = webhook.url
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = watch.main(list(argv), environ, now=NOW, graphql_url=github.url)
+            code = watch.main(list(argv), environ, now=NOW, graphql_url=github.url, actions_api=github.url)
         return code, out.getvalue(), err.getvalue()
 
     def test_healthy_jobs_send_nothing(self):
@@ -129,6 +174,31 @@ class ScheduledJobWatchTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual([], webhook.received)
         self.assertEqual("refs/heads/staging", github.received[0]["variables"]["ref"])
+
+    def test_a_rekor_monitor_without_a_recent_scan_is_reported(self):
+        cases = {
+            "old scan": ([monitor_run(1, 4)], "last scan"),
+            "no run": ([], "no successful scan found"),
+            # Newer green runs that are not staging scans: a self-test keeps no checkpoint, and
+            # a dispatch on another branch does not scan for staging.
+            "only a self-test and another branch since": (
+                [monitor_run(3, 1, event="workflow_dispatch", artifacts=()),
+                 monitor_run(2, 1, branch="feature", event="workflow_dispatch"),
+                 monitor_run(1, 4)],
+                "last scan",
+            ),
+        }
+        for name, (runs, expected) in cases.items():
+            with self.subTest(name):
+                github = self.serve(page([("a", healthy())]), monitor_runs=runs)
+                webhook = self.serve((204, None))
+
+                code, _, _ = self.run_watch(github, webhook)
+
+                self.assertEqual(0, code)
+                content = webhook.received[0]["content"]
+                self.assertIn("**Rekor Signing Monitor** has not scanned in the last 3 hours", content)
+                self.assertIn(expected, content)
 
     def test_failed_stalled_and_missing_jobs_are_named_in_one_message(self):
         # The newest status wins across commits and pages: the gate failed on an older
@@ -254,19 +324,54 @@ class ScheduledJobWatchTest(unittest.TestCase):
         # The job log still says what was wrong.
         self.assertIn("**WorldWorkerScale** failure", out)
 
-    def test_unreadable_statuses_fail_the_run(self):
-        webhook = self.serve()
+    def test_unreadable_statuses_fail_the_run_and_are_reported(self):
         replies = (
             ((502, None), "HTTPError"),
             # GitHub answers 200 with the refusal in the body.
             ((200, {"errors": [{"message": "denied"}]}), "denied"),
         )
         for reply, reason in replies:
-            code, _, err = self.run_watch(self.serve(reply), webhook)
+            webhook = self.serve((204, None))
+            code, _, err = self.run_watch(self.serve(reply, monitor_runs=[monitor_run(1, 4)]), webhook)
             self.assertEqual(1, code)
-            self.assertIn("could not read commit statuses", err)
+            self.assertIn("could not read the commit statuses", err)
             self.assertIn(reason, err)
+            content = webhook.received[0]["content"]
+            self.assertIn("Could not read the commit statuses", content)
+            # The monitor lookup still ran and its problem is still reported.
+            self.assertIn("**Rekor Signing Monitor** has not scanned", content)
+
+    def test_a_truncated_status_reply_is_reported_with_the_monitor_lookup(self):
+        webhook = self.serve((204, None))
+        code, _, err = self.run_watch(self.serve((200, TRUNCATED), monitor_runs=[monitor_run(1, 4)]), webhook)
+        self.assertEqual(1, code)
+        self.assertIn("IncompleteRead", err)
+        content = webhook.received[0]["content"]
+        self.assertIn("Could not read the commit statuses (IncompleteRead)", content)
+        self.assertIn("**Rekor Signing Monitor** has not scanned", content)
+
+    def test_a_scan_behind_a_full_page_of_self_tests_counts(self):
+        runs = [monitor_run(100 + number, 1, event="workflow_dispatch", artifacts=()) for number in range(100)]
+        runs.append(monitor_run(1, 2, artifacts=[f"other-{number}" for number in range(100)]
+                                + ["rekor-signing-monitor-state"]))
+        github = self.serve(page([("a", healthy())]), monitor_runs=runs)
+        webhook = self.serve()
+
+        code, out, _ = self.run_watch(github, webhook)
+
+        self.assertEqual(0, code)
+        self.assertIn("every scheduled job is healthy", out)
         self.assertEqual([], webhook.received)
+
+    def test_an_unreadable_monitor_lookup_keeps_the_job_report(self):
+        failing = healthy(without=("WorldWorkerScale",)) + [status("WorldWorkerScale", "FAILURE", 2)]
+        webhook = self.serve((204, None))
+        code, _, err = self.run_watch(self.serve(page([("a", failing)]), monitor_runs=None), webhook)
+        self.assertEqual(1, code)
+        self.assertIn("could not read the Rekor Signing Monitor runs", err)
+        content = webhook.received[0]["content"]
+        self.assertIn("**WorldWorkerScale** failure", content)
+        self.assertIn("Could not read the Rekor Signing Monitor runs (HTTPError)", content)
 
     def test_self_test_posts_without_reading_statuses(self):
         github = self.serve()

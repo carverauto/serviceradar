@@ -130,7 +130,7 @@ exist).
 
 This is the path SSO-mandated deployments should use. ServiceRadar is the
 OAuth authorization server. The browser sign-in is the existing LoginPolicy
-(Authentik on demo, OIDC/SAML in production, local password where SSO is
+(Authentik on demo, OIDC in production, local password where SSO is
 off). MCP clients do **not** talk to the IdP token endpoint.
 
 Shared rules for every client below:
@@ -150,7 +150,7 @@ Access tokens last **one hour**. A refresh token is issued only when
 ServiceRadar can keep the grant bound to the IdP session:
 
 - Local-password logins: refresh is TTL + rotation (default 8 hours).
-- OIDC/SAML: the grant stores the IdP `sid` / SessionIndex and, when the
+- OIDC: the grant stores the IdP `sid` and, when the
   IdP issued one, an encrypted IdP refresh token. Each MCP refresh confirms
   that IdP session is still alive. Sign out of Authentik, or an IdP
   back-channel logout, and the next refresh is `invalid_grant` — run

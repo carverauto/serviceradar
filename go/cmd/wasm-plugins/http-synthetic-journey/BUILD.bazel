@@ -1,0 +1,46 @@
+# gazelle:ignore
+#
+# This is a TinyGo plugin in its own Go module, compiled to wasip1 by
+# //build/wasm_plugins, not by rules_go. Gazelle has no rules_go targets to generate
+# here. See go.mod for the SDK pin.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "config.schema.json",
+    "main.go",
+    "plugin.yaml",
+])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "dist/**",
+            "manifest.json",
+        ],
+    ),
+)
+
+go_library(
+    name = "native_sdk",
+    testonly = True,
+    srcs = glob(["vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk/*.go"]),
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
+    visibility = ["//visibility:private"],
+)
+
+go_test(
+    name = "http_synthetic_journey_test",
+    srcs = [
+        "main.go",
+        "main_test.go",
+    ],
+    data = [
+        "config.schema.json",
+        "plugin.yaml",
+    ],
+    deps = [":native_sdk"],
+)

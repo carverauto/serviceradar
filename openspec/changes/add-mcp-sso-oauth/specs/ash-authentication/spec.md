@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: MCP OAuth authorize uses the browser login session
-`GET /oauth/authorize` for MCP MUST authenticate the user with the same browser session and LoginPolicy as the web UI. If no session exists, the system MUST redirect to the existing log-in path with a return URL back to authorize. Completing log-in (OIDC, SAML, or password as configured) MUST resume authorize. The system MUST NOT implement a parallel login form for MCP.
+`GET /oauth/authorize` for MCP MUST authenticate the user with the same browser session and LoginPolicy as the web UI. If no session exists, the system MUST redirect to the existing log-in path with a return URL back to authorize. Completing log-in (OIDC or password as configured) MUST resume authorize. The system MUST NOT implement a parallel login form for MCP.
 
 #### Scenario: Logged-out authorize goes to existing log-in
 - **GIVEN** no browser session
@@ -13,10 +13,10 @@
 - **WHEN** the user completes OIDC and lands back on authorize
 - **THEN** the system treats them as the SSO user for consent
 - **AND** does not prompt for a local password
-- **AND** the resulting MCP grant stores the IdP session identifier from the login (OIDC `sid` or SAML SessionIndex) when present
+- **AND** the resulting MCP grant stores the IdP session identifier from the login (OIDC `sid`) when present
 
 ### Requirement: MCP OAuth refresh consults the IdP session
-For MCP grants whose `auth_method` is OIDC or SAML, `POST /oauth/token` with `grant_type=refresh_token` MUST use the stored IdP session binding (session id and/or encrypted IdP refresh token) to verify the identity provider still holds that session. A failed IdP check MUST be treated as `invalid_grant` and MUST revoke the ServiceRadar refresh family. The system MUST NOT mint a new Guardian access token from refresh alone when SSO created the grant.
+For MCP grants whose `auth_method` is OIDC, `POST /oauth/token` with `grant_type=refresh_token` MUST use the stored IdP session binding (session id and/or encrypted IdP refresh token) to verify the identity provider still holds that session. A failed IdP check MUST be treated as `invalid_grant` and MUST revoke the ServiceRadar refresh family. The system MUST NOT mint a new Guardian access token from refresh alone when SSO created the grant.
 
 #### Scenario: Live IdP session allows MCP refresh
 - **GIVEN** an MCP grant with a stored Authentik `sid` and a still-valid IdP session

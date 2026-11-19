@@ -10,6 +10,7 @@ React/JS surface customer dashboards depend on).
 ```text
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import|list|status>
+serviceradar-cli pack      <validate|build|keygen|sign|verify|index>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 serviceradar-cli notifications <ensure-k8s-alerts>
 serviceradar-cli agent     <list>
@@ -398,7 +399,7 @@ js/cli/
 │   ├── auth/                        # auth/{credentials,login,status,logout,index}.ts
 │   ├── dashboard/                   # dashboard/{init,build,manifest,validate,
 │                                    #            dev,publish,import,list,status,
-│                                    #            resolve,index}.ts
+│                                    #            resolve,css,css-plugin,index}.ts
 │   ├── edge/                        # agent, edge package/site/install, collector, nats
 │   ├── notifications/               # notifications/ensure_k8s_alerts.ts
 │   └── plugin/                      # plugin init, validate, publish, apply
@@ -415,7 +416,8 @@ js/cli/
 ├── templates/                       # scaffolder templates
 │   ├── react-map/
 │   ├── react-table/
-│   └── react-blank/
+│   ├── react-blank/
+│   └── blueprint/
 ├── tests/
 ├── tsconfig.json                    # tsc --noEmit (`npm run typecheck`)
 ├── tsconfig.build.json              # tsc emit to dist/ (`npm run build`)

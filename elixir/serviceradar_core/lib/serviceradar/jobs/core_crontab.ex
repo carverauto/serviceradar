@@ -19,7 +19,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Edge.SweepHostGaugeSweeper
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureTerminalCompactionWorker
-  alias ServiceRadar.Identity.SAMLAssertionCleanupWorker
   alias ServiceRadar.Inventory.Availability.ExpiryWorker
   alias ServiceRadar.Inventory.Availability.PinSilenceWorker
   alias ServiceRadar.Inventory.Availability.ResolverWorker
@@ -84,7 +83,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
       {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
       {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
-      {"29 * * * *", SAMLAssertionCleanupWorker, queue: :maintenance},
       {"*/10 * * * *", RemoteAccessRecordingReaperWorker, queue: :maintenance},
       {"*/5 * * * *", RemoteAccessSessionReaperWorker, queue: :maintenance},
       {"31 3 * * *", RemoteAccessVersionRetentionWorker, queue: :maintenance},

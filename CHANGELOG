@@ -1,3 +1,85 @@
+# ServiceRadar v1.5.10
+
+This release refreshes `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 so the
+formal release publish pipeline (`--lockfile_mode=error`) succeeds (#6850). It
+supersedes the unpublished `v1.5.9` tag and carries all `v1.5.9` features,
+security hardening, fixes, and upgrade notes listed below.
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles (#6836).
+- **Upgrading from v1.5.8 or earlier: read the v1.5.9 and earlier upgrade notes
+  below first.** They still apply to this release.
+
+## Build and CI
+
+- bazel: refresh `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 (#6850).
+
+# ServiceRadar v1.5.9
+
+This release introduces Solution Packs with a `/catalog` gallery, 4-step
+install and upgrade wizard, two-way GitOps sync, `serviceradar-cli` pack
+tooling, four flagship packs, and signed `.srpack` plus
+`serviceradar-pack-index.json` release publishing. It expands Declarative
+Checks operations with the `/services/checks` SRQL Check Results Explorer,
+global SRQL bar routing for `in:declarative_check_results`, fullscreen editor
+mode with collapsible Palette and Inspector panels, dark-mode canvas polish,
+and `declarative_checks` Oban queue activation. For Camera Semantic Clip
+Search, the stateless media worker adds a pure-Rust HuggingFace `candle`
+(`.safetensors`, CPU and optional CUDA) inference backend behind
+`InferenceBackend` and `trackforge` multi-object tracking (ByteTrack,
+BoT-SORT, and Deep OC-SORT) with best-crop deduplication. It also removes
+SAML single sign-on, adopts Palisade for outbound URL and address policy,
+adds offline transparency-log receipt verification at import and a
+self-hosted Rekor signing monitor, hardens web-ng Sobelow findings, and
+fixes dashboard renderer blob repair and fullest-datastore labeling.
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles (#6836).
+- **Upgrading from v1.5.7 or earlier: read the v1.5.8 upgrade notes below
+  first.** They still apply and are not repeated here.
+
+## Features
+
+- Solution Packs: core domain, two-way GitOps sync, and `serviceradar-cli`
+  pack tooling (#6822); `/catalog` gallery, 4-step install/upgrade wizard,
+  REST API, and documentation (#6832); four flagship packs and signed
+  `.srpack` plus `serviceradar-pack-index.json` release publishing (#6839).
+- Declarative checks: `/services/checks` SRQL Check Results Explorer and
+  global SRQL bar routing for `in:declarative_check_results` (#6840);
+  fullscreen editor mode and collapsible Palette/Inspector panels (#6841);
+  dark-mode canvas polish and `declarative_checks` Oban queue activation
+  (#6837).
+- Media worker: pure-Rust HuggingFace `candle` (`.safetensors`, CPU and
+  optional CUDA) inference backend behind `InferenceBackend` (#6845), and
+  `trackforge` multi-object tracking (ByteTrack, BoT-SORT, Deep OC-SORT)
+  with best-crop deduplication (#6846).
+- Signing: verify first-party transparency-log receipts offline at import
+  (#6828) and add a Rekor signing monitor for the self-hosted transparency
+  log (#6835).
+
+## Security and Fixes
+
+- auth: remove SAML single sign-on (#6836).
+- elixir: adopt Palisade for outbound URL and address policy (#6824).
+- web-ng: harden Sobelow findings and document safe exceptions (#6833).
+- web-ng: repair missing dashboard renderer blobs idempotently on republish
+  (#6821) and name the fullest datastore on the virtualization panel (#6820).
+- scripts: bound which reused signatures release verification accepts as
+  pre-cutover (#6834).
+
+## Build and CI
+
+- ci(elixir): resolve remaining daily Elixir quality audit failures (#6826).
+- deps: bump `tonic-reflection` from 0.14.6 to 0.14.9 (#6677).
+
 # ServiceRadar v1.5.8
 
 This release fixes the v1.5.7 upgrade: the Helm migrations Job crashed at boot

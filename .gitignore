@@ -123,6 +123,7 @@ js/cli/managed-host.mjs
 
 # Output of 'npm pack'
 *.tgz
+!elixir/web-ng/assets/vendor/*.tgz
 
 # Yarn Integrity file
 .yarn-integrity

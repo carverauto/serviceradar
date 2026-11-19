@@ -128,7 +128,6 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/metrics_controller_test.exs",
     "test/phoenix/controllers/oauth_controller_test.exs",
     "test/phoenix/controllers/page_controller_test.exs",
-    "test/phoenix/controllers/saml_controller_test.exs",
     "test/phoenix/controllers/security_headers_test.exs",
     "test/phoenix/controllers/topology_snapshot_controller_test.exs",
     "test/phoenix/controllers/user_session_controller_test.exs",

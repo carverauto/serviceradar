@@ -2,7 +2,9 @@ name: Scheduled Job Watch
 
 # The scheduled BuildBuddy jobs in //:buildbuddy.yaml gate nothing, so nobody sees one fail.
 # This reads the commit status each of them posts on staging and reports the ones that
-# failed, stalled or did not run to Discord. See build/ci/scheduled_job_watch.py.
+# failed, stalled or did not run to Discord, and reports the Rekor signing monitor when its last
+# successful scan on staging that uploaded rekor-signing-monitor-state is older than three hours.
+# See build/ci/scheduled_job_watch.py.
 on:
   schedule:
     # After the last nightly (WorldWorkerScale, 07:30 UTC) has had time to finish.
@@ -22,6 +24,8 @@ concurrency:
 permissions:
   contents: read
   statuses: read
+  # The Rekor signing monitor's last successful scan (an Actions lookup, not a commit status).
+  actions: read
 
 jobs:
   watch:

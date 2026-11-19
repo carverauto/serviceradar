@@ -30,13 +30,6 @@ defmodule ServiceRadarWebNG.MixProject do
       # removal criteria for each advisory.
       hex: [
         ignore_advisories: [
-          "GHSA-4g2h-vm7x-747c",
-          # No incoming SAML decompression; see .deps_audit_ignore.
-          "EEF-CVE-2026-93471",
-          # No esaml status-code decoding or logout endpoint; see .deps_audit_ignore.
-          "EEF-CVE-2026-86696",
-          # Response names pass an atom-safe allowlist before xmerl; see .deps_audit_ignore.
-          "EEF-CVE-2026-105270",
           "EEF-CVE-2026-95105"
         ]
       ]
@@ -193,15 +186,9 @@ defmodule ServiceRadarWebNG.MixProject do
       # Guardian - JWT token management (replacing AshAuthentication tokens)
       {:guardian, "~> 2.3"},
 
-      # Ueberauth - OAuth2/OIDC/SAML authentication strategies
+      # Ueberauth - OAuth2/OIDC authentication strategies
       {:ueberauth, "~> 0.10"},
       {:ueberauth_oidcc, "~> 0.4"},
-
-      # SAML 2.0 Service Provider. The SP flow is our own
-      # (ServiceRadarWebNGWeb.SAMLController); these supply XML signature
-      # verification (:xmerl_dsig) and XPath extraction.
-      {:esaml, "~> 4.6"},
-      {:sweet_xml, "~> 0.7.5"},
 
       # Note: ash_admin comes from serviceradar_core dependency
 

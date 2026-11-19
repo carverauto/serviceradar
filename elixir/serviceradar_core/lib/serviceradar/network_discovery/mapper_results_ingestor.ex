@@ -33,9 +33,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Inventory.InterfaceClassifier
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Inventory.Sync.Normalize
+  alias ServiceRadar.Inventory.Sync.RankedAttributeWrite
   alias ServiceRadar.Inventory.Sync.StateEvents
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -1510,23 +1512,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     Map.merge(metadata, role_metadata(role)) != metadata
   end
 
-  defp write_role_metadata(device_id, role, actor) do
-    case Device.get_by_uid(device_id, true, actor: actor) do
-      {:ok, %Device{} = device} ->
-        metadata = Map.new(device.metadata || %{})
-        role_metadata = role_metadata(role)
+  # The role keys ride on the device's type group (AttributeStrength): the
+  # mapper's role is SNMP-tier evidence, so it never replaces a platform
+  # inventory's role (a hypervisor node the heuristic scores as `host` keeps
+  # `hypervisor`, and its Proxmox plugin item keeps target_kind pve_host), and a
+  # role-only write leaves the stored type and type_id alone. One ranked UPDATE,
+  # merged in the database, so a concurrent writer's keys are not carried back.
+  defp write_role_metadata(device_id, role, _actor) do
+    case RankedAttributeWrite.write(
+           device_id,
+           %{type_metadata: role_metadata(role)},
+           %{"type" => AttributeStrength.tag("type", :snmp, "mapper")}
+         ) do
+      :ok ->
+        :ok
 
-        # The comparison still uses the freshly read map -- it is only deciding
-        # whether there is anything to write. The WRITE sends the role keys alone
-        # and merges them in the database, so a concurrent writer's keys are not
-        # carried back from this read.
-        if Map.merge(metadata, role_metadata) != metadata do
-          device
-          |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: role_metadata})
-          |> Ash.update(actor: actor)
-        end
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to persist device role metadata for #{device_id}: #{inspect(reason)}"
+        )
 
-      _ ->
         :ok
     end
   rescue
@@ -1852,14 +1857,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     management_device_id = find_management_device_uid(device_ip, parent_ips, ip_to_uid)
 
     attrs =
-      maybe_put(
+      put_mapper_management_device(
         %{
           uid: device_uid,
           ip: device_ip,
           discovery_sources: ["mapper"],
           metadata: address_seed_metadata()
         },
-        :management_device_id,
         management_device_id
       )
 
@@ -2795,8 +2799,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           :identity_observed_at,
           if(MapSet.member?(strong_uids, record.uid), do: observed_at)
         )
-        |> maybe_put(
-          :management_device_id,
+        |> put_mapper_management_device(
           find_management_device_uid(record.ip, parent_ips, context)
         )
       end)
@@ -3325,15 +3328,38 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
+  # The mapper's management parent is the weakest management_device_id tier
+  # (AttributeStrength): it is recorded with its source so a platform
+  # inventory's value -- including a camera inventory's clear to none -- stays.
+  defp put_mapper_management_device(attrs, nil), do: attrs
+
+  defp put_mapper_management_device(attrs, parent_uid) do
+    attrs
+    |> Map.put(:management_device_id, parent_uid)
+    |> Map.update(
+      :attribute_provenance,
+      %{"management_device_id" => mapper_management_tag()},
+      &Map.put(&1 || %{}, "management_device_id", mapper_management_tag())
+    )
+  end
+
+  defp mapper_management_tag, do: AttributeStrength.tag("management_device_id", :mapper, "mapper")
+
   defp update_management_links([]), do: :ok
 
+  # Fills an empty management parent. A stored parent that names a deleted or
+  # missing device counts as empty, so even this weakest tier may fill it when no
+  # strength is recorded; a live parent is a populated value. A parent a platform
+  # inventory recorded, or cleared, outranks the mapper and is left alone.
   defp update_management_links(pairs) do
     {children, parents} = Enum.unzip(Enum.uniq(pairs))
+    tag = %{"management_device_id" => mapper_management_tag()}
 
     Repo.query!(
       """
       UPDATE platform.ocsf_devices AS child
       SET management_device_id = desired.parent_uid,
+          attribute_provenance = COALESCE(child.attribute_provenance, '{}'::jsonb) || $3::jsonb,
           modified_time = timezone('utc', now())
       FROM unnest($1::text[], $2::text[]) AS desired(child_uid, parent_uid)
       JOIN platform.ocsf_devices AS parent
@@ -3351,8 +3377,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
               AND stored_parent.deleted_at IS NULL
           )
         )
+        AND platform.sr_attribute_write_accepted(
+          child.attribute_provenance, $3::jsonb, 'management_device_id',
+          EXISTS (
+            SELECT 1
+            FROM platform.ocsf_devices AS live_parent
+            WHERE live_parent.uid = child.management_device_id
+              AND live_parent.deleted_at IS NULL
+          )
+        )
       """,
-      [children, parents]
+      [children, parents, tag]
     )
 
     :ok

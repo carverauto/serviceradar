@@ -11,7 +11,7 @@ also create **custom role profiles** for individual users or reusable user
 groups. Effective permissions combine one base profile with the profiles from
 all current group memberships.
 
-This page is for operators and administrators who manage who can do what. For how users sign in (local passwords, OIDC, SAML), see
+This page is for operators and administrators who manage who can do what. For how users sign in (local passwords, OIDC), see
 [Authentication](./auth-configuration.md). For mapping identity-provider
 groups onto these roles and profiles, see
 [Group Permission Mapping](./group-permission-mapping.md).

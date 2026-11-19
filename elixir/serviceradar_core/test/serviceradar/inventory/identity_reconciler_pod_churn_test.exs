@@ -80,9 +80,11 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerPodChurnTest do
     # agent_id identifier still points only at the canonical device.
     assert identifier_owners(actor, :agent_id, agent_id) == [device_uid]
 
-    # New pod facts landed on the same device, including the fresh pod MAC.
+    # New pod facts landed on the same device, including the fresh pod MAC. The
+    # check-in's hostname is corroboration only: a check-in on an existing device
+    # never rewrites it, so the name the first check-in created stays.
     {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
-    assert device.hostname == "pod-churn-host-#{unique}-bbbbb"
+    assert device.hostname == "pod-churn-host-#{unique}-aaaaa"
     assert device.ip == ip_second
     assert identifier_owners(actor, :mac, mac_new_pod) == [device_uid]
   end

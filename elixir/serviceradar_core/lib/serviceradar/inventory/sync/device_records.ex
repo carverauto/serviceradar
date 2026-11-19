@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
   @moduledoc "Builds ocsf_devices upsert records from resolved updates."
 
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.Enrichment
   alias ServiceRadar.Inventory.Sync.MacVendor
 
@@ -21,23 +22,28 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       source = if update.source in [nil, ""], do: "unknown", else: update.source
       classification = DeviceEnrichmentRules.classify(update)
 
-      # OUI is consulted ONLY when nothing else produced a vendor, and the
-      # ordering is structural rather than a convention someone must remember.
-      # device_writes upserts vendor_name as COALESCE(EXCLUDED.vendor_name, ?),
-      # so any non-nil value here overwrites what is stored -- an OUI guess
-      # emitted alongside a real vendor would outrank the real one on every
-      # subsequent sync.
-      inferred_vendor = Enrichment.infer_vendor_name(update, classification)
-      oui_resolved = if is_nil(inferred_vendor), do: MacVendor.resolve(update.mac, oui_lookup)
+      # Vendor evidence is ranked (AttributeStrength): a hardware vendor beats the
+      # IEEE OUI registrant, which beats a name of SNMP agent software. The record
+      # carries the strongest one, and the upsert decides it against the stored
+      # vendor's recorded strength. The OUI is looked up only when no hardware
+      # vendor is present.
+      %{vendor: inferred_vendor, vendor_class: inferred_class, model: inferred_model} =
+        Enrichment.infer_vendor_and_model(update, classification)
 
-      vendor_name =
-        case {inferred_vendor, oui_resolved} do
-          {nil, {org, _prefix}} -> org
-          {vendor, _} -> vendor
+      oui_resolved =
+        if inferred_class != :hardware, do: MacVendor.resolve(update.mac, oui_lookup)
+
+      {vendor_name, vendor_class, oui_resolved} =
+        case {inferred_class, oui_resolved} do
+          {:hardware, _} -> {inferred_vendor, :hardware, nil}
+          {_, {org, _prefix}} -> {org, :oui, oui_resolved}
+          {class, nil} -> {inferred_vendor, class, nil}
         end
 
-      model = Enrichment.infer_model(update, classification)
-      {device_type, device_type_id} = Enrichment.infer_device_type(update, classification)
+      model = if vendor_class, do: inferred_model
+
+      {device_type, device_type_id, type_evidence} =
+        Enrichment.infer_device_type(update, classification)
 
       metadata =
         (update.metadata || %{})
@@ -46,6 +52,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
       owner = Enrichment.infer_owner(update, metadata)
       persisted_metadata = persisted_metadata(metadata, source)
+
+      {name, hostname, name_tag} = AttributeStrength.name_write(update)
+
+      provenance =
+        %{
+          "name" => name_tag,
+          "vendor" => AttributeStrength.vendor_tag(vendor_class, update),
+          "type" => AttributeStrength.type_tag(device_type, type_evidence, update),
+          "integration_type" => AttributeStrength.integration_type_tag(persisted_metadata, update)
+        }
+        |> Enum.reject(fn {_group, tag} -> is_nil(tag) end)
+        |> Map.new()
 
       record = %{
         uid: device_id,
@@ -57,8 +75,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         partition: update_partition(update),
         ip: update.ip,
         mac: update.mac,
-        hostname: update.hostname,
-        name: update.hostname || update.ip,
+        hostname: hostname,
+        name: name,
         type: device_type,
         type_id: device_type_id,
         vendor_name: vendor_name,
@@ -76,6 +94,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         is_active: true,
         owner: owner,
         metadata: persisted_metadata,
+        attribute_provenance: provenance,
         tags: update.tags || %{},
         discovery_sources: [source],
         first_seen_time: update.first_seen_time || timestamp,
@@ -84,7 +103,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         modified_time: timestamp
       }
 
-      Map.put(acc, device_id, record)
+      # A later update for the same device in this batch replaces the earlier
+      # one, except for the ranked attributes, which resolve as they would in
+      # two batches.
+      Map.update(acc, device_id, record, &AttributeStrength.fold_ranked(&1, record, record))
     end)
     |> Map.values()
   end
@@ -120,16 +142,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     merged_discovery_sources =
       merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
 
+    # name / hostname, vendor_name / model, type / type_id / device_role and
+    # integration_type are ranked: AttributeStrength.fold_ranked/3 below
+    # resolves them the way the upsert would across two batches.
     merged = %{
       existing
       | ip: prefer_non_empty(incoming.ip, existing.ip),
         mac: prefer_non_empty(incoming.mac, existing.mac),
-        hostname: prefer_non_empty(incoming.hostname, existing.hostname),
-        name: prefer_non_empty(incoming.name, existing.name),
-        type: prefer_non_empty(incoming.type, existing.type),
-        type_id: prefer_positive_int(incoming.type_id, existing.type_id),
-        vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
-        model: prefer_non_empty(incoming.model, existing.model),
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
@@ -144,6 +163,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         created_time: prefer_non_nil(existing.created_time, incoming.created_time),
         modified_time: prefer_non_nil(incoming.modified_time, existing.modified_time)
     }
+
+    merged = AttributeStrength.fold_ranked(existing, incoming, merged)
 
     # The later identity-bearing observation of the two
     # (DeviceWrites.observed_after?/2).
@@ -168,11 +189,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
   defp later(nil, other), do: other
   defp later(at, nil), do: at
   defp later(at, other), do: if(DateTime.after?(other, at), do: other, else: at)
-
-  defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0,
-    do: new_value
-
-  defp prefer_positive_int(_new_value, old_value), do: old_value
 
   # Complete plugin inventories keep source identity in typed identifiers and
   # source observations. They must not replace another source's canonical identity.
