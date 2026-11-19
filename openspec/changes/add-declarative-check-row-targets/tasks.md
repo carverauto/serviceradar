@@ -23,9 +23,10 @@
 ## 3. Evaluation
 
 - [ ] 3.1 `Evaluation.run_for_mode("srql_rows", ...)`: run the scope query
-      once with `max_targets + 1`, flatten each row, derive key and label,
-      skip incomplete and duplicate keys, evaluate, and persist with target
-      kind `row`.
+      once with limit `max_targets` (at most 1000), treat the scope as
+      complete only when the runner returns no `next_cursor`, flatten each
+      row, derive key and label, skip incomplete and duplicate keys,
+      evaluate, and persist with target kind `row`.
 - [ ] 3.2 `target_row` evaluator returning the target's row; add
       `{{target.row.*}}` and `{{target.label}}` to interpolation.
 - [ ] 3.3 Record pass diagnostics on the check: truncated scope, rows skipped
@@ -34,7 +35,9 @@
 - [ ] 3.4 Do not prune on a truncated pass or after a failed scope query.
 - [ ] 3.5 Tests with a stub SRQL runner and invented rows: one query per
       pass; three rows give three instances with the expected statuses; key
-      stability across passes; incomplete and duplicate keys; truncation;
+      stability across passes; incomplete and duplicate keys; truncation,
+      including a full page returned under a limit clamped below
+      `max_targets`, which prunes and closes nothing;
       scope failure leaves instances untouched; single-`payload` rows are
       flattened.
 
@@ -46,8 +49,9 @@
       `Evaluation.prune_departed_targets`.
 - [ ] 4.2 Before pruning, publish a `healthy` / `target_departed` transition
       for each departed instance whose status was `degraded`, `down` or
-      `unknown`, with `suppress?: false`. Other transitions keep current
-      suppression.
+      `unknown`, passing the publisher a suppression predicate that returns
+      false for this transition only. Other transitions keep the default
+      predicate.
 - [ ] 4.3 A target in scope whose graph evaluation fails keeps its instance
       and status, publishes nothing, is not pruned, and is counted in the
       pass diagnostics (3.3).

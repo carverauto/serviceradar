@@ -61,7 +61,11 @@ Repository context:
 - **A failed evaluation is not a departure.** A target still in scope whose
   graph evaluation fails keeps its instance and last status, publishes
   nothing, and is reported on the check as a pass diagnostic.
-- **Bounds.** At most 1,000 row targets per check. Rows with a missing or
+- **Bounds.** At most 1,000 row targets per check per pass. The scope is
+  complete only when the page returned is short of the limit that ran; a full
+  page is truncated, so the pass prunes nothing and closes no alert, and
+  stored instances can exceed the bound until a later complete pass. Rows
+  with a missing or
   duplicate key are not evaluated and are reported on the check, not dropped
   silently. Edge signal nodes and credential slots are refused in an
   `srql_rows` check.

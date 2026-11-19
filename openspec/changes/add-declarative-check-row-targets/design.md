@@ -90,11 +90,22 @@ use it.
 ### D5. Bounds
 
 - `max_targets` defaults to 200 and may not exceed 1,000, the page size device
-  fan-out already uses. The scope query is run with that limit plus one; if
-  more rows come back, the first `max_targets` are evaluated and the pass
-  records that the scope was truncated. Truncation is a diagnostic on the
-  check and sets no verdict: inventing a verdict for rows that were not read
-  would be a guess.
+  fan-out already uses. The scope query is run once with limit `max_targets`,
+  never more than 1,000. The scope is complete only when the page that came
+  back is short of the limit that actually ran, which is what the SRQL
+  runner's `next_cursor` reports: it is set when the page is full relative to
+  the effective limit, including a limit clamped below `max_targets` by a
+  configured SRQL maximum. A full page, or any page with a `next_cursor`, is
+  truncated: its rows are evaluated, the pass records that the scope was
+  truncated, and nothing is pruned or closed (D6). A scope with exactly
+  `max_targets` rows therefore reports as truncated; authors size the bound
+  above the expected scope. Truncation is a diagnostic on the check and sets
+  no verdict: inventing a verdict for rows that were not read would be a
+  guess.
+- The 1,000 cap is per pass. Because a truncated pass prunes nothing, the
+  stored instances of a check can exceed `max_targets` (for example after the
+  bound is lowered or the scope grows) until a later complete pass prunes
+  them.
 - The scope query is validated exactly as a `srql_query` node's query is
   (read-only SRQL, no raw SQL, 10 second timeout). It may not contain template
   placeholders, so it is syntax-checked at authoring time.
@@ -152,11 +163,12 @@ carries `device_uid`, so the closing event would be suppressed, the instance
 pruned, and the alert left open. The same holds for a service target whose
 instance has a `device_uid`.
 
-The `target_departed` transition is therefore always published with
-suppression off (the publisher's `suppress?: false`). It can only close an
-alert, never open one, so delivering it for an out-of-service device cannot
-page anyone. Only this closing transition bypasses suppression; every other
-transition keeps the current suppression rules.
+The `target_departed` transition is therefore delivered even for an
+inactive or out-of-service device. The writer does this by passing the
+publisher a suppression predicate that returns false, for this transition
+only. It can only close an alert, never open one, so delivering it for an
+out-of-service device cannot page anyone. Every other transition keeps the
+default predicate and the current suppression rules.
 
 ## Risks / Trade-offs
 

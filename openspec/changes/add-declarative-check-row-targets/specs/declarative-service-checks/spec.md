@@ -70,7 +70,7 @@ The system SHALL provide a `target_row` core signal node that outputs the curren
 - **THEN** validation SHALL fail with a diagnostic on that node
 
 ### Requirement: Bounded Row Fan-Out
-The system SHALL bound an `srql_rows` check to `max_targets` row targets per pass, defaulting to 200 and refusing a value above 1,000, SHALL validate the scope query as read-only SRQL without template placeholders, and MUST refuse edge signal nodes and credential slots in an `srql_rows` check.
+The system SHALL bound an `srql_rows` check to `max_targets` row targets per pass, defaulting to 200 and refusing a value above 1,000, SHALL run the scope query with a limit of at most `max_targets` and treat the scope as complete only when the returned page is short of the limit that actually ran, SHALL treat a full page as truncated, SHALL validate the scope query as read-only SRQL without template placeholders, and MUST refuse edge signal nodes and credential slots in an `srql_rows` check.
 
 #### Scenario: A scope larger than the bound is truncated and reported
 - **GIVEN** a binding with `max_targets: 2` whose scope query matches three rows
@@ -83,6 +83,12 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **GIVEN** a row target with status `down` that the truncated pass did not evaluate
 - **WHEN** the pass finishes
 - **THEN** the pass SHALL NOT prune that instance and SHALL NOT publish a transition for it
+
+#### Scenario: A full page under a clamped limit is truncated
+- **GIVEN** a binding with `max_targets: 200` whose scope query is clamped by a configured SRQL maximum of 100 and matches 150 rows, one of them a row target at status `down` with an open alert that the returned page does not contain
+- **WHEN** the pass runs and the page holds 100 rows
+- **THEN** the pass SHALL record on the check that the scope was truncated
+- **AND** SHALL NOT prune that row target and SHALL NOT publish a transition for it
 
 #### Scenario: A failed scope query is not an empty scope
 - **GIVEN** an `srql_rows` check with three existing row targets
