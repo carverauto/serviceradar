@@ -6,6 +6,7 @@ Owner: build/ci/rekor_signing_monitor.py.
 """
 
 import base64
+import contextlib
 import hashlib
 import http.server
 import io
@@ -88,6 +89,8 @@ class World:
         self.truncated_ledgers = set()
         self.filler_artifacts = 0
         self.blob_requests_with_auth = 0
+        self.artifact_accepts = []
+        self.failing_paths = {}
 
     def add_entry(self, payload, key_pub=None, when=NOW - timedelta(hours=3)):
         digest = hashlib.sha256(payload).hexdigest()
@@ -145,6 +148,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def github_rejects(self):
+        """Like the GitHub REST API: 415 for an Accept it does not serve (application/zip included)."""
+        if not self.path.startswith("/repos/"):
+            return False
+        accept = self.headers.get("Accept", "")
+        if any(kind in accept for kind in ("application/json", "application/vnd.github+json", "*/*")):
+            return False
+        self.reply(415, {"message": f"Unsupported 'Accept' header: '{accept}'. Must accept 'application/json'."})
+        return True
+
+    def injected_failure(self, path):
+        failure = self.server.world.failing_paths.get(path)
+        if failure is None:
+            return False
+        if failure == "drop":
+            self.close_connection = True
+            return True
+        status, location = failure
+        self.reply(status, {}, headers=[("Location", location)] if location else ())
+        return True
+
     @staticmethod
     def page(items, query):
         per_page, page = int(query.get("per_page", ["30"])[0]), int(query.get("page", ["1"])[0])
@@ -158,6 +182,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         world, path = self.server.world, self.path.split("?")[0]
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         prefix = f"/repos/{REPOSITORY}"
+        if self.injected_failure(path) or self.github_rejects():
+            return None
         if path == "/api/v1/log":
             return self.reply(200, world.log_info())
         if path == "/api/v1/log/publicKey":
@@ -181,15 +207,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if run_id in world.state_zips:
                 artifacts.append({
                     "name": monitor.STATE_ARTIFACT, "expired": False,
-                    "archive_download_url": f"http://127.0.0.1:{self.server.server_port}/state/{run_id}"})
+                    "archive_download_url": f"http://127.0.0.1:{self.server.server_port}{prefix}/actions/artifacts/s{run_id}/zip"})
             elif run_id in world.ledgers:
                 artifacts.append({
                     "name": f"signing-ledger-x-publish-{run_id}-1", "expired": False,
                     "archive_download_url": f"http://127.0.0.1:{self.server.server_port}{prefix}/actions/artifacts/{run_id}/zip"})
             return self.reply(200, {"artifacts": self.page(artifacts, query)})
         if path.startswith(prefix + "/actions/artifacts/"):
-            run_id = path.split("/")[-2]
-            return self.reply(302, headers=[("Location", f"http://127.0.0.1:{self.server.server_port}/blob/{run_id}")])
+            world.artifact_accepts.append(self.headers.get("Accept"))
+            artifact_id = path.split("/")[-2]
+            target = f"/state/{artifact_id[1:]}" if artifact_id.startswith("s") else f"/blob/{artifact_id}"
+            return self.reply(302, headers=[("Location", f"http://127.0.0.1:{self.server.server_port}{target}")])
         if path.startswith("/blob/"):
             if self.headers.get("Authorization"):
                 world.blob_requests_with_auth += 1
@@ -204,6 +232,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         world, path = self.server.world, self.path.split("?")[0]
         prefix = f"/repos/{REPOSITORY}"
         payload = self.body()
+        if self.injected_failure(path) or self.github_rejects():
+            return None
         if path == "/api/v1/log/entries/retrieve":
             return self.reply(200, [world.entry(index) for index in payload["logIndexes"]])
         if path == prefix + "/labels":
@@ -234,6 +264,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_PATCH(self):
         world, path = self.server.world, self.path.split("?")[0]
         payload = self.body()
+        if self.github_rejects():
+            return None
         world.issues[int(path.split("/")[-1]) - 1]["state"] = payload["state"]
         self.reply(200, {})
 
@@ -466,6 +498,64 @@ class MonitorTest(unittest.TestCase):
         self.assertFalse(out.exists())
         self.assertEqual(self.titles(), ["Rekor signing monitor run failed"])
         self.assertIn("BadZipFile", self.world.discord[-1])
+
+    def test_artifact_downloads_ask_for_a_media_type_the_github_api_serves(self):
+        entry = self.world.add_entry(b"release payload")
+        self.world.add_run("release.yml", 23, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [], "the ledger download did not explain the entry")
+        state = io.BytesIO()
+        with zipfile.ZipFile(state, "w") as bundle:
+            bundle.writestr("state.json", json.dumps({"tree_size": 3}))
+        self.world.runs[monitor.MONITOR_WORKFLOW] = [{"id": 46, "head_branch": "staging", "event": "schedule"}]
+        self.world.state_zips = {46: state.getvalue()}
+        out = self.root / "fetched.json"
+        status = monitor.main(["--github-api", self.base, "--fetch-state", "--state-out", str(out)],
+                              {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_TOKEN": "synthetic-token"})
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(out.read_text()), {"tree_size": 3})
+        self.assertEqual(self.world.artifact_accepts, ["application/vnd.github+json"] * 2)
+        self.assertEqual(self.world.blob_requests_with_auth, 0)
+
+    def test_a_failed_request_names_its_method_host_and_path_without_the_query(self):
+        entry = self.world.add_entry(b"release payload")
+        self.world.add_run("release.yml", 24, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        location = f"{self.base}/expired-blob?sig=synthetic-signed-credential"
+        self.world.failing_paths = {f"/repos/{REPOSITORY}/actions/artifacts/24/zip": (302, location),
+                                    "/expired-blob": (403, None)}
+        self.assertEqual(self.run_monitor(), 1)
+        self.assertIn(f"(GET {self.base}/expired-blob)", self.world.discord[-1])
+        self.assertIn("HTTP Error 403", self.world.discord[-1])
+        failure = next(issue for issue in self.world.issues if issue["title"] == "Rekor signing monitor run failed")
+        for text in (self.world.discord[-1], failure["body"]):
+            self.assertNotIn("synthetic-signed-credential", text)
+            self.assertNotIn("synthetic-token", text)
+
+    def test_a_dropped_connection_names_its_method_host_and_path(self):
+        self.world.add_entry(b"release payload")
+        self.world.failing_paths = {"/api/v1/log/entries/retrieve": "drop"}
+        self.assertEqual(self.run_monitor(), 1)
+        self.assertIn("RemoteDisconnected", self.world.discord[-1])
+        self.assertIn(f"(POST {self.base}/api/v1/log/entries/retrieve)", self.world.discord[-1])
+
+    def test_a_failing_webhook_never_reveals_its_path(self):
+        self.world.add_entry(b"release payload")
+        webhook = "/discord/synthetic-webhook-secret"
+        self.world.failing_paths = {"/api/v1/log/entries/retrieve": "drop", webhook: "drop"}
+        args = ["--rekor-url", self.base, "--github-api", self.base, "--rekor-key", str(self.world.log_pub),
+                "--release-key", str(self.world.release_pub), "--acknowledged", str(self.acknowledged),
+                "--state-in", str(self.state), "--state-out", str(self.root / "unused.json")]
+        environ = {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_TOKEN": "synthetic-token",
+                   "CI_FAILURE_DISCORD_WEBHOOK_URL": self.base + webhook}
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output), contextlib.redirect_stdout(output):
+            self.assertEqual(monitor.main(args, environ, now=NOW), 1)
+        self.assertIn("the Discord notification was not delivered", output.getvalue())
+        failure = next(issue for issue in self.world.issues if issue["title"] == "Rekor signing monitor run failed")
+        for text in [output.getvalue(), failure["body"], *self.world.discord]:
+            self.assertNotIn("synthetic-webhook-secret", text)
 
     def test_an_issue_behind_a_full_page_of_newer_issues_is_still_found(self):
         entry = self.world.add_entry(b"signed outside any run")

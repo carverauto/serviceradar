@@ -126,6 +126,21 @@ def verify_signature(pem_path, payload, signature):
         return result.returncode == 0
 
 
+# The REST API answers 415 to any Accept it does not serve, including application/zip on an
+# artifact's archive_download_url; with this media type it redirects to the archive instead.
+GITHUB_MEDIA_TYPE = "application/vnd.github+json"
+
+
+def describe_request(method, url):
+    """Method, host and path of a request for an error message: no query string (a pre-signed
+    download carries its credential there) and no user info."""
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return f"{method} {parts.scheme}://{host}{parts.path}"
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, url):
         return None
@@ -158,7 +173,13 @@ class Http:
             if error.code in (301, 302, 303, 307, 308) and redirects > 0 and location:
                 # A redirect (an artifact's pre-signed download) never receives the token.
                 return self.request(location, accept=accept, raw=raw, redirects=redirects - 1, send_token=False)
+            error.msg = f"{error.msg} ({describe_request(method, url)})"
             raise
+        except urllib.error.URLError as error:
+            raise urllib.error.URLError(f"{error.reason} ({describe_request(method, url)})") from error
+        except (OSError, HTTPException) as error:
+            raise urllib.error.URLError(
+                f"{type(error).__name__}: {error} ({describe_request(method, url)})") from error
         if raw:
             return body
         return json.loads(body) if body else None
@@ -264,7 +285,7 @@ class GitHub:
         for artifact in self.pages(f"actions/runs/{run_id}/artifacts", "artifacts"):
             if not artifact["name"].startswith(LEDGER_ARTIFACT_PREFIX) or artifact.get("expired"):
                 continue
-            archive = self.http.request(artifact["archive_download_url"], accept="application/zip", raw=True)
+            archive = self.http.request(artifact["archive_download_url"], accept=GITHUB_MEDIA_TYPE, raw=True)
             with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
                 for name in bundle.namelist():
                     for raw in bundle.read(name).decode().splitlines():
@@ -279,7 +300,7 @@ class GitHub:
                 continue
             for artifact in self.pages(f"actions/runs/{run['id']}/artifacts", "artifacts"):
                 if artifact["name"] == STATE_ARTIFACT and not artifact.get("expired"):
-                    archive = self.http.request(artifact["archive_download_url"], accept="application/zip", raw=True)
+                    archive = self.http.request(artifact["archive_download_url"], accept=GITHUB_MEDIA_TYPE, raw=True)
                     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
                         return bundle.read("state.json")
         return None
