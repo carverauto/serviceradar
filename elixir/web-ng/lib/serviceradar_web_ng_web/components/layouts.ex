@@ -220,7 +220,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   active={
                     @current_path in ["/services", "/gateways"] or
                       (@current_path &&
-                         String.starts_with?(@current_path, "/inventory/public-endpoints"))
+                         (String.starts_with?(@current_path, "/services/") or
+                            String.starts_with?(@current_path, "/inventory/public-endpoints")))
                   }
                 />
               </li>

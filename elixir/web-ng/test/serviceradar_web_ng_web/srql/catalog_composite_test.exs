@@ -197,7 +197,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
 
     test "registers declarative_check_results entity and aliases" do
       entity = Enum.find(Catalog.entities(), &(&1.id == "declarative_check_results"))
-      assert %{id: "declarative_check_results", default_sort_field: "evaluated_at"} = entity
+
+      assert %{
+               id: "declarative_check_results",
+               route: "/services/checks",
+               default_sort_field: "evaluated_at"
+             } = entity
 
       for field <- [
             "check_slug",
@@ -220,7 +225,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.CatalogCompositeTest do
       assert "verdict" in entity.stats_fields
       assert "check_slug" in entity.stats_fields
       assert Catalog.entity("declarative_results").id == "declarative_check_results"
+      assert Catalog.entity("declarative_results").route == "/services/checks"
       assert Catalog.entity("declarative_verdicts").id == "declarative_check_results"
+      assert Catalog.entity("declarative_verdicts").route == "/services/checks"
     end
   end
 
