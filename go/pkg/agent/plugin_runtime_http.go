@@ -1119,16 +1119,6 @@ func stopRedirectsAtSetCookie(client *http.Client) {
 	}
 }
 
-var pluginHTTPCrossHostRedirectSafeHeaders = map[string]struct{}{
-	"Accept":          {},
-	"Accept-Encoding": {},
-	"Accept-Language": {},
-	"Cache-Control":   {},
-	"Content-Type":    {},
-	"Pragma":          {},
-	"User-Agent":      {},
-}
-
 // stopRedirectsReplayingGuestData refuses a cross-host hop that would resend
 // the guest's request body or a guest header outside a small safe set, and
 // strips the query and fragment from the Referer of every hop still followed.
@@ -1170,11 +1160,23 @@ func pluginHTTPRedirectCarriesBody(req *http.Request) bool {
 
 func pluginHTTPRequestHasUnsafeHeader(req *http.Request) bool {
 	for name := range req.Header {
-		if _, ok := pluginHTTPCrossHostRedirectSafeHeaders[http.CanonicalHeaderKey(name)]; !ok {
+		if !pluginHTTPCrossHostRedirectSafeHeader(http.CanonicalHeaderKey(name)) {
 			return true
 		}
 	}
 	return false
+}
+
+// pluginHTTPCrossHostRedirectSafeHeader reports whether a canonical header
+// name may be replayed on a cross-host redirect hop.
+func pluginHTTPCrossHostRedirectSafeHeader(name string) bool {
+	switch name {
+	case "Accept", "Accept-Encoding", "Accept-Language", "Cache-Control",
+		"Content-Type", "Pragma", "User-Agent":
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *pluginHTTPTrace) wrapCheckRedirect(client *http.Client) {

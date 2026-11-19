@@ -41,6 +41,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+const pluginHTTPTestStartPath = "/start"
+
 func callPluginHostHTTPPayload(
 	t *testing.T,
 	exec *pluginExecution,
@@ -326,7 +328,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/start":
+		case pluginHTTPTestStartPath:
 			w.Header().Add("Set-Cookie", "step=one; Path=/")
 			http.Redirect(w, r, "/next", http.StatusFound)
 		case "/plain":
@@ -349,7 +351,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	exec, mod := newPluginHTTPHostTestExecution(t, perms, nil, nil)
 	code, raw := callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
 		Method:          http.MethodGet,
-		URL:             srv.URL + "/start",
+		URL:             srv.URL + pluginHTTPTestStartPath,
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(false),
 	})
@@ -369,7 +371,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	// Set-Cookie reaches the guest instead of being dropped by the followed hop.
 	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
 		Method:          http.MethodGet,
-		URL:             srv.URL + "/start",
+		URL:             srv.URL + pluginHTTPTestStartPath,
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
@@ -430,7 +432,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	}
 	code, raw = callPluginHostHTTPPayload(t, execCred, modCred, httpRequestPayload{
 		Method:          http.MethodGet,
-		URL:             srv.URL + "/start",
+		URL:             srv.URL + pluginHTTPTestStartPath,
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 		CredentialInjection: &credentialInjectionIntent{
@@ -459,7 +461,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	}, nil, nil)
 	code, raw = callPluginHostHTTPPayload(t, execDisallowed, modDisallowed, httpRequestPayload{
 		Method:          http.MethodGet,
-		URL:             disallowedSrv.URL + "/start",
+		URL:             disallowedSrv.URL + pluginHTTPTestStartPath,
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
@@ -489,7 +491,7 @@ func TestPluginHostHTTPRedirectDoesNotReplayGuestSecretsCrossHost(t *testing.T) 
 		switch r.URL.Path {
 		case "/login":
 			http.Redirect(w, r, sink.URL+"/collect", http.StatusTemporaryRedirect)
-		case "/start":
+		case pluginHTTPTestStartPath:
 			http.Redirect(w, r, sink.URL+"/asset", http.StatusFound)
 		case "/same":
 			http.Redirect(w, r, "/landing", http.StatusTemporaryRedirect)
@@ -531,7 +533,7 @@ func TestPluginHostHTTPRedirectDoesNotReplayGuestSecretsCrossHost(t *testing.T) 
 
 	headerResp := call(httpRequestPayload{
 		Method:  http.MethodGet,
-		URL:     origin.URL + "/start",
+		URL:     origin.URL + pluginHTTPTestStartPath,
 		Headers: map[string]string{"X-API-Key": "secret-key"},
 	})
 	assert.Equal(t, http.StatusFound, headerResp.Status)
@@ -545,7 +547,7 @@ func TestPluginHostHTTPRedirectDoesNotReplayGuestSecretsCrossHost(t *testing.T) 
 	assert.Equal(t, http.StatusOK, plainResp.Status)
 	require.Equal(t, 1, sinkCount())
 	sinkMu.Lock()
-	assert.Equal(t, origin.URL+"/start", sinkHits[0].Header.Get("Referer"))
+	assert.Equal(t, origin.URL+pluginHTTPTestStartPath, sinkHits[0].Header.Get("Referer"))
 	sinkMu.Unlock()
 
 	sameHostResp := call(httpRequestPayload{
