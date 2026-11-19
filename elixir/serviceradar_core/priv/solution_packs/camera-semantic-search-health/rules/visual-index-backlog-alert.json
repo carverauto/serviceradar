@@ -1,0 +1,27 @@
+{
+  "alert": {
+    "severity": "critical",
+    "summary": "Camera visual indexing queue backlog exceeded critical threshold"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Alerts when queued visual indexing jobs exceed the configured critical lag threshold.",
+  "event": {
+    "log_name": "health.camera_visual_index_queue_lag"
+  },
+  "group_by": [
+    "check_slug"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "check_slug": "visual-index-queue-lag",
+    "status": "down"
+  },
+  "name": "camera_visual_index_queue_lag",
+  "priority": 20,
+  "renotify_seconds": 21600,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

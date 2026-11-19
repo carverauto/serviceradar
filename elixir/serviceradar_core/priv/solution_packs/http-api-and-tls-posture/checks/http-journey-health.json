@@ -1,0 +1,203 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [
+    {
+      "description": "Optional bearer token or API credential for authenticated synthetic API probes.",
+      "provider": "generic_http",
+      "purpose": "Synthetic HTTP API health journey",
+      "required": false,
+      "role": "bearer_token",
+      "slot": "api_auth"
+    }
+  ],
+  "description": "Executes a multi-step synthetic HTTP API health journey with JSON payload assertions and httptrace latency thresholds.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "journey_1",
+      "source_handle": "signal",
+      "target": "extract_latency",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "extract_latency",
+      "source_handle": "value",
+      "target": "assert_latency",
+      "target_handle": "in"
+    },
+    {
+      "id": "e3",
+      "source": "assert_latency",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "warn_ms"
+      },
+      "description": "Warning total HTTP journey latency in milliseconds",
+      "key": "warn_ms",
+      "max": 30000,
+      "min": 50,
+      "type": "integer"
+    },
+    {
+      "default": {
+        "$pack_param": "crit_ms"
+      },
+      "description": "Critical total HTTP journey latency in milliseconds",
+      "key": "crit_ms",
+      "max": 60000,
+      "min": 100,
+      "type": "integer"
+    }
+  ],
+  "managed": true,
+  "name": "HTTP API Journey Health",
+  "nodes": [
+    {
+      "config": {
+        "credential_slot": "api_auth",
+        "steps": [
+          {
+            "assertions": [
+              {
+                "field": "status",
+                "op": "==",
+                "value": "ok"
+              }
+            ],
+            "expected_statuses": [
+              200
+            ],
+            "extract": [
+              {
+                "expression": "$.status",
+                "key": "api_status",
+                "source": "jsonpath"
+              }
+            ],
+            "id": "healthz",
+            "method": "GET",
+            "name": "API Health Endpoint",
+            "url": {
+              "$pack_param": "api_target_url"
+            }
+          },
+          {
+            "assertions": [
+              {
+                "field": "ready",
+                "op": "==",
+                "value": true
+              }
+            ],
+            "expected_statuses": [
+              200
+            ],
+            "id": "readyz",
+            "method": "GET",
+            "name": "API Readiness Endpoint",
+            "url": "https://api.example.com/readyz"
+          }
+        ],
+        "timeout_ms": 10000
+      },
+      "id": "journey_1",
+      "kind": "http_journey",
+      "label": "Synthetic API Journey"
+    },
+    {
+      "config": {
+        "cast": "number",
+        "field": "httptrace.total_ms",
+        "output_key": "total_ms",
+        "source_type": "field"
+      },
+      "id": "extract_latency",
+      "kind": "extract_field",
+      "label": "Extract httptrace Latency"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.crit_ms}}"
+        },
+        "field": "total_ms",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.warn_ms}}"
+        }
+      },
+      "id": "assert_latency",
+      "kind": "threshold_assert",
+      "label": "Latency Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "api_journey_slow",
+          "down": "api_journey_failed",
+          "healthy": "api_journey_healthy",
+          "unknown": "api_journey_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "API Journey Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.http-api-and-tls-posture",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 60,
+    "jitter_seconds": 10,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "http-api-journey-health",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "service_targets",
+    "target_ids": [
+      "https://api.example.com/healthz"
+    ],
+    "url": "https://api.example.com/healthz"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_latency": {
+        "x": 640,
+        "y": 120
+      },
+      "extract_latency": {
+        "x": 360,
+        "y": 120
+      },
+      "journey_1": {
+        "x": 80,
+        "y": 120
+      },
+      "out_1": {
+        "x": 920,
+        "y": 120
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "alert": {
+    "severity": "warning",
+    "summary": "TLS leaf certificate is approaching expiry threshold"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 600,
+  "description": "Opt-in warning alert when a monitored TLS leaf certificate enters the configured expiry warning window.",
+  "event": {
+    "log_name": "health.tls_certificate_expiry_warning"
+  },
+  "group_by": [
+    "check_slug"
+  ],
+  "install_state": "paused",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "check_slug": "tls-certificate-expiry-posture",
+    "status": "degraded"
+  },
+  "name": "tls_certificate_expiry_warning",
+  "priority": 30,
+  "renotify_seconds": 43200,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

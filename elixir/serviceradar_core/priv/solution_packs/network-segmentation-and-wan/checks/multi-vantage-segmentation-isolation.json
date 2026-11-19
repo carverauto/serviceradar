@@ -1,0 +1,220 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 1,
+    "renotify_seconds": 14400,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Hybrid multi-vantage decision table check verifying that a protected internal service is reachable from the core vantage and blocked from the DMZ vantage.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "probe_dmz",
+      "source_handle": "signal",
+      "target": "decide_isolation",
+      "target_handle": "in:dmz_probe"
+    },
+    {
+      "id": "e2",
+      "source": "probe_core",
+      "source_handle": "signal",
+      "target": "decide_isolation",
+      "target_handle": "in:core_probe"
+    },
+    {
+      "id": "e3",
+      "source": "vantage_dmz",
+      "source_handle": "signal",
+      "target": "decide_isolation",
+      "target_handle": "in:dmz_vantage"
+    },
+    {
+      "id": "e4",
+      "source": "decide_isolation",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [],
+  "managed": true,
+  "name": "Multi-Vantage Segmentation Isolation",
+  "nodes": [
+    {
+      "config": {
+        "agent_id": {
+          "$pack_param": "dmz_vantage_agent_id"
+        },
+        "host": {
+          "$pack_param": "protected_target_host"
+        },
+        "port": {
+          "$pack_param": "protected_target_port"
+        },
+        "timeout_ms": 3000
+      },
+      "id": "probe_dmz",
+      "kind": "tcp_connect",
+      "label": "DMZ Vantage TCP Probe"
+    },
+    {
+      "config": {
+        "agent_id": {
+          "$pack_param": "core_vantage_agent_id"
+        },
+        "host": {
+          "$pack_param": "protected_target_host"
+        },
+        "port": {
+          "$pack_param": "protected_target_port"
+        },
+        "timeout_ms": 3000
+      },
+      "id": "probe_core",
+      "kind": "tcp_connect",
+      "label": "Core Vantage TCP Probe"
+    },
+    {
+      "config": {
+        "agent_id": {
+          "$pack_param": "dmz_vantage_agent_id"
+        },
+        "expected": "online",
+        "max_age_seconds": 300
+      },
+      "id": "vantage_dmz",
+      "kind": "vantage_point",
+      "label": "DMZ Vantage Liveness"
+    },
+    {
+      "config": {
+        "inputs": [
+          {
+            "field": "connected",
+            "key": "dmz_probe",
+            "label": "DMZ TCP Reachability",
+            "max_age_seconds": 300,
+            "source_node_id": "probe_dmz"
+          },
+          {
+            "field": "connected",
+            "key": "core_probe",
+            "label": "Core TCP Reachability",
+            "max_age_seconds": 300,
+            "source_node_id": "probe_core"
+          },
+          {
+            "field": "status",
+            "key": "dmz_vantage",
+            "label": "DMZ Agent Health",
+            "max_age_seconds": 300,
+            "source_node_id": "vantage_dmz"
+          }
+        ],
+        "rules": [
+          {
+            "id": "r_breach",
+            "label": "Segmentation Breach",
+            "match": {
+              "core_probe": "*",
+              "dmz_probe": "true",
+              "dmz_vantage": "online"
+            },
+            "status": "down",
+            "summary": "DMZ vantage unexpectedly reached protected internal service",
+            "verdict": "segmentation_breach"
+          },
+          {
+            "id": "r_isolated",
+            "label": "Verified Isolated",
+            "match": {
+              "core_probe": "true",
+              "dmz_probe": "false",
+              "dmz_vantage": "online"
+            },
+            "status": "healthy",
+            "summary": "Protected service reachable from core and blocked from DMZ",
+            "verdict": "isolated"
+          },
+          {
+            "id": "r_inconclusive",
+            "label": "Inconclusive Catch-All",
+            "match": {
+              "core_probe": "*",
+              "dmz_probe": "*",
+              "dmz_vantage": "*"
+            },
+            "status": "unknown",
+            "summary": "Insufficient or stale vantage signals to confirm segmentation state",
+            "verdict": "inconclusive"
+          }
+        ]
+      },
+      "id": "decide_isolation",
+      "kind": "decision_table",
+      "label": "Segmentation Decision Table"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "segmentation_degraded",
+          "down": "segmentation_breach",
+          "healthy": "isolated",
+          "unknown": "inconclusive"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Segmentation Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.network-segmentation-and-wan",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 120,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "multi-vantage-segmentation-isolation",
+  "state": "enabled",
+  "target_binding": {
+    "host": "192.0.2.50",
+    "mode": "service_targets",
+    "port": 5432,
+    "target_ids": [
+      "192.0.2.50:5432"
+    ]
+  },
+  "ui_layout": {
+    "nodes": {
+      "decide_isolation": {
+        "x": 420,
+        "y": 140
+      },
+      "out_1": {
+        "x": 740,
+        "y": 140
+      },
+      "probe_core": {
+        "x": 80,
+        "y": 140
+      },
+      "probe_dmz": {
+        "x": 80,
+        "y": 40
+      },
+      "vantage_dmz": {
+        "x": 80,
+        "y": 240
+      }
+    }
+  }
+}
