@@ -1257,7 +1257,7 @@ func (r *pluginRunner) start(ctx context.Context) {
 				}
 			case pluginRunLoadFailed:
 				arm(retry.next())
-			default:
+			case pluginRunCompleted:
 				retry.reset()
 				arm(0, false)
 			}
