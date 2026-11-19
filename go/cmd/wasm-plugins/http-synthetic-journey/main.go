@@ -26,8 +26,6 @@ type Config struct {
 	DeviceID           string       `json:"device_id,omitempty"`
 	TargetIP           string       `json:"target_ip,omitempty"`
 	EmitTelemetry      *bool        `json:"emit_telemetry,omitempty"`
-	URL                string       `json:"url,omitempty"`
-	Method             string       `json:"method,omitempty"`
 	TimeoutMS          int          `json:"timeout_ms,omitempty"`
 	FollowRedirects    *bool        `json:"follow_redirects,omitempty"`
 	InsecureSkipVerify bool         `json:"insecure_skip_verify,omitempty"`
@@ -133,8 +131,6 @@ func primeTinyGoJSON() {
 		"device_id":"dev-prime",
 		"target_ip":"192.0.2.1",
 		"emit_telemetry":true,
-		"url":"https://example.test/health",
-		"method":"GET",
 		"timeout_ms":5000,
 		"follow_redirects":true,
 		"insecure_skip_verify":false,
@@ -240,28 +236,8 @@ func runSyntheticJourney(cfg Config) *sdk.Result {
 
 func buildJourney(cfg Config) (*sdk.Journey, error) {
 	steps := cfg.Steps
-	singleURLMode := false
-	if len(steps) == 0 && strings.TrimSpace(cfg.URL) != "" {
-		singleURLMode = true
-		method := strings.ToUpper(strings.TrimSpace(cfg.Method))
-		if method == "" {
-			method = http.MethodGet
-		}
-		insecureSkip := cfg.InsecureSkipVerify
-		steps = []StepConfig{{
-			Name:               "request",
-			Method:             method,
-			URL:                cfg.URL,
-			TimeoutMS:          cfg.TimeoutMS,
-			FollowRedirects:    cfg.FollowRedirects,
-			InsecureSkipVerify: &insecureSkip,
-			ExpectStatusMin:    200,
-			ExpectStatusMax:    399,
-		}}
-	}
-
 	if len(steps) == 0 {
-		return nil, fmt.Errorf("either steps or url is required")
+		return nil, fmt.Errorf("steps is required")
 	}
 	if len(steps) > maxJourneySteps {
 		return nil, fmt.Errorf("steps exceeds maximum allowed (%d > %d)", len(steps), maxJourneySteps)
@@ -320,13 +296,13 @@ func buildJourney(cfg Config) (*sdk.Journey, error) {
 
 		if sc.FollowRedirects != nil {
 			step.WithFollowRedirects(*sc.FollowRedirects)
-		} else if !singleURLMode && cfg.FollowRedirects != nil {
+		} else if cfg.FollowRedirects != nil {
 			step.WithFollowRedirects(*cfg.FollowRedirects)
 		}
 
 		if sc.InsecureSkipVerify != nil {
 			step.WithInsecureTLS(*sc.InsecureSkipVerify)
-		} else if !singleURLMode && cfg.InsecureSkipVerify {
+		} else if cfg.InsecureSkipVerify {
 			step.WithInsecureTLS(true)
 		}
 

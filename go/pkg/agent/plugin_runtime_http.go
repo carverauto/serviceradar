@@ -286,6 +286,9 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 			return http.ErrUseLastResponse
 		}
 	}
+	if envelopeMode {
+		stopRedirectsAtSetCookie(httpClient)
+	}
 	if trace != nil {
 		trace.wrapCheckRedirect(httpClient)
 	}
@@ -1081,6 +1084,24 @@ func (t *pluginHTTPTrace) clientTrace() *httptrace.ClientTrace {
 			}
 			t.mu.Unlock()
 		},
+	}
+}
+
+// stopRedirectsAtSetCookie returns a redirect response that sets cookies to the
+// guest instead of following it, because the host client keeps no cookie jar.
+func stopRedirectsAtSetCookie(client *http.Client) {
+	if client == nil {
+		return
+	}
+	previous := client.CheckRedirect
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req != nil && req.Response != nil && len(req.Response.Header.Values("Set-Cookie")) > 0 {
+			return http.ErrUseLastResponse
+		}
+		if previous != nil {
+			return previous(req, via)
+		}
+		return nil
 	}
 }
 

@@ -491,7 +491,7 @@ func TestHTTPSyntheticJourneyMaxStepsWithinMemoryLimitInWasm(t *testing.T) {
 	}
 }
 
-func TestHTTPSyntheticJourneyWasmTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
+func TestHTTPSyntheticJourneyWasmCertThresholdFailsWithoutLeafCert(t *testing.T) {
 	wasm := loadBuiltWasm(t, "http_synthetic_journey.wasm")
 
 	cfgJSON := `{
@@ -538,8 +538,11 @@ func TestHTTPSyntheticJourneyWasmTLSWithoutLeafCertAndJSONPointerSlash(t *testin
 
 	hostNoLeaf.run(t, wasm, "run_check")
 	res := hostNoLeaf.results[len(hostNoLeaf.results)-1]
-	if res["status"] != "OK" {
-		t.Fatalf("no-leaf-cert result status = %v, summary = %v", res["status"], res["summary"])
+	if res["status"] != "CRITICAL" {
+		t.Fatalf("no-leaf-cert result status = %v, want CRITICAL, summary = %v", res["status"], res["summary"])
+	}
+	if summary, _ := res["summary"].(string); !strings.Contains(summary, "TLS certificate expiry unavailable") {
+		t.Fatalf("no-leaf-cert summary = %q, want missing leaf expiry failure after JSON pointer \"/\" matched", summary)
 	}
 	if len(hostNoLeaf.telemetry) != 1 {
 		t.Fatalf("telemetry emissions = %d, want 1", len(hostNoLeaf.telemetry))

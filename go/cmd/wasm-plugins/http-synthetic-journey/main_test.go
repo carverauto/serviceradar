@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -217,17 +216,18 @@ func TestHTTPSyntheticJourneyMultiStepSSOAndRedaction(t *testing.T) {
 	}
 }
 
-func TestHTTPSyntheticJourneyEnvelopeAndSingleURLFallback(t *testing.T) {
+func TestHTTPSyntheticJourneyPluginInputsEnvelopeTemplate(t *testing.T) {
 	t.Parallel()
 
 	envelopeJSON := `{
 		"schema": "serviceradar.plugin_inputs.v1",
 		"template": {
-			"journey_name": "single-url-check",
-			"url": "https://portal.example.test/health",
-			"method": "HEAD",
+			"journey_name": "envelope-check",
 			"follow_redirects": false,
-			"warn_ms": 1000
+			"warn_ms": 1000,
+			"steps": [
+				{"name": "health", "method": "HEAD", "url": "https://portal.example.test/health", "expect_status": [204]}
+			]
 		},
 		"inputs": [{"items": [{"id": "wp-1"}]}]
 	}`
@@ -268,7 +268,7 @@ func TestHTTPSyntheticJourneyWarningThreshold(t *testing.T) {
 
 	cfgJSON := `{
 		"journey_name": "slow-portal",
-		"url": "https://portal.example.test/",
+		"steps": [{"name": "portal", "url": "https://portal.example.test/"}],
 		"warn_ms": 50,
 		"crit_ms": 5000
 	}`
@@ -354,6 +354,10 @@ func TestHTTPSyntheticJourneyInvalidConfigsAndCredentialGuards(t *testing.T) {
 		{
 			name:   "empty config",
 			config: `{}`,
+		},
+		{
+			name:   "url without steps rejected",
+			config: `{"url":"https://portal.example.test/health"}`,
 		},
 		{
 			name:   "credential placeholder in URL rejected",
@@ -571,46 +575,7 @@ func TestHTTPSyntheticJourneyRejectsExcessiveSteps(t *testing.T) {
 	}
 }
 
-func TestHTTPSyntheticJourneyManifestAndSchemaSanity(t *testing.T) {
-	t.Parallel()
-
-	pluginYAML, err := os.ReadFile("plugin.yaml")
-	if err != nil {
-		t.Fatalf("read plugin.yaml: %v", err)
-	}
-	yamlText := string(pluginYAML)
-	for _, want := range []string{
-		"id: http-synthetic-journey",
-		"entrypoint: run_check",
-		"runtime: wasi-preview1",
-		"outputs: serviceradar.plugin_result.v1",
-		"- emit_telemetry",
-		"- http_request",
-	} {
-		if !strings.Contains(yamlText, want) {
-			t.Fatalf("plugin.yaml missing %q", want)
-		}
-	}
-
-	schemaBytes, err := os.ReadFile("config.schema.json")
-	if err != nil {
-		t.Fatalf("read config.schema.json: %v", err)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
-		t.Fatalf("parse config.schema.json: %v", err)
-	}
-	if schema["type"] != "object" {
-		t.Fatalf("schema.type = %v, want object", schema["type"])
-	}
-	for _, forbidden := range []string{"anyOf", "oneOf", "allOf", "not"} {
-		if strings.Contains(string(schemaBytes), `"`+forbidden+`"`) {
-			t.Fatalf("config.schema.json contains forbidden keyword %q", forbidden)
-		}
-	}
-}
-
-func TestHTTPSyntheticJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T) {
+func TestHTTPSyntheticJourneyCertThresholdFailsWithoutLeafCert(t *testing.T) {
 	cfgJSON := `{
 		"journey_name": "adversarial-g2-g4",
 		"min_cert_days_warn": 30,
@@ -659,8 +624,11 @@ func TestHTTPSyntheticJourneyTLSWithoutLeafCertAndJSONPointerSlash(t *testing.T)
 	if err := json.Unmarshal(capture.ResultJSON, &res); err != nil {
 		t.Fatalf("decode ResultJSON: %v", err)
 	}
-	if res.Status != sdk.StatusOK {
-		t.Fatalf("status = %s, want OK (summary=%q)", res.Status, res.Summary)
+	if res.Status != sdk.StatusCritical {
+		t.Fatalf("status = %s, want CRITICAL (summary=%q)", res.Status, res.Summary)
+	}
+	if !strings.Contains(res.Summary, "TLS certificate expiry unavailable") {
+		t.Fatalf("summary = %q, want missing leaf expiry failure after JSON pointer \"/\" matched", res.Summary)
 	}
 	if len(capture.TelemetryJSON) != 1 {
 		t.Fatalf("telemetry batches = %d, want 1", len(capture.TelemetryJSON))

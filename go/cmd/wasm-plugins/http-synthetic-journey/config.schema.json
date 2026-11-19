@@ -1,6 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
+  "required": ["steps"],
   "properties": {
     "journey_name": {
       "type": "string",
@@ -24,17 +25,6 @@
       "description": "Emit canonical synthetic.* serviceradar.metric.v1 telemetry alongside PluginResult",
       "default": true
     },
-    "url": {
-      "type": "string",
-      "format": "uri",
-      "description": "Single-step convenience URL used when steps is omitted"
-    },
-    "method": {
-      "type": "string",
-      "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      "description": "HTTP method for single-step fallback mode",
-      "default": "GET"
-    },
     "timeout_ms": {
       "type": "integer",
       "minimum": 100,
@@ -45,7 +35,7 @@
     "follow_redirects": {
       "type": "boolean",
       "default": true,
-      "description": "Default redirect behavior for single-step mode and steps that omit follow_redirects"
+      "description": "Default redirect behavior for steps that omit follow_redirects; a redirect response that sets cookies is never followed, so that step reports the redirect status"
     },
     "insecure_skip_verify": {
       "type": "boolean",

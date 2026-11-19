@@ -719,17 +719,21 @@ func (j *Journey) runStep(
 				warnReasons = append(warnReasons, fmt.Sprintf("duration %.1fms >= warning %.1fms", outcome.DurationMS, a.warnFloat))
 			}
 		case assertMinCertDays:
-			if outcome.TLSCertDays != nil {
-				days := *outcome.TLSCertDays
-				if a.critInt >= 0 && days <= a.critInt {
-					msg := fmt.Sprintf("TLS certificate expires in %d days (<= critical %d)", days, a.critInt)
-					outcome.Status = StepStatusCritical
-					outcome.Error = msg
-					return outcome, resp, msg, ""
-				}
-				if a.warnInt >= 0 && days <= a.warnInt {
-					warnReasons = append(warnReasons, fmt.Sprintf("TLS certificate expires in %d days (<= warning %d)", days, a.warnInt))
-				}
+			if outcome.TLSCertDays == nil {
+				msg := "TLS certificate expiry unavailable for minimum certificate days check"
+				outcome.Status = StepStatusCritical
+				outcome.Error = msg
+				return outcome, resp, msg, ""
+			}
+			days := *outcome.TLSCertDays
+			if a.critInt >= 0 && days <= a.critInt {
+				msg := fmt.Sprintf("TLS certificate expires in %d days (<= critical %d)", days, a.critInt)
+				outcome.Status = StepStatusCritical
+				outcome.Error = msg
+				return outcome, resp, msg, ""
+			}
+			if a.warnInt >= 0 && days <= a.warnInt {
+				warnReasons = append(warnReasons, fmt.Sprintf("TLS certificate expires in %d days (<= warning %d)", days, a.warnInt))
 			}
 		}
 	}

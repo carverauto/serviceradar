@@ -328,6 +328,8 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 		case "/start":
 			w.Header().Add("Set-Cookie", "step=one; Path=/")
 			http.Redirect(w, r, "/next", http.StatusFound)
+		case "/plain":
+			http.Redirect(w, r, "/next", http.StatusFound)
 		case "/next":
 			_, _ = w.Write([]byte("arrived"))
 		default:
@@ -362,10 +364,28 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	require.Len(t, noFollowResp.Trace.Hops, 1)
 	assert.Equal(t, http.StatusFound, noFollowResp.Trace.Hops[0].Status)
 
-	// follow_redirects: true follows to /next.
+	// follow_redirects: true still returns a cookie-setting 302 so its
+	// Set-Cookie reaches the guest instead of being dropped by the followed hop.
 	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
 		Method:          http.MethodGet,
 		URL:             srv.URL + "/start",
+		ResponseMode:    "envelope",
+		FollowRedirects: boolPtr(true),
+	})
+	require.Greater(t, code, int32(0))
+
+	var cookieRedirectResp httpResponsePayload
+	require.NoError(t, json.Unmarshal(raw, &cookieRedirectResp))
+	assert.Equal(t, http.StatusFound, cookieRedirectResp.Status)
+	assert.Equal(t, []string{"step=one; Path=/"}, cookieRedirectResp.SetCookies)
+	require.NotNil(t, cookieRedirectResp.Trace)
+	assert.Equal(t, 0, cookieRedirectResp.Trace.RedirectCount)
+	require.Len(t, cookieRedirectResp.Trace.Hops, 1)
+
+	// follow_redirects: true follows a redirect that sets no cookies to /next.
+	code, raw = callPluginHostHTTPPayload(t, exec, mod, httpRequestPayload{
+		Method:          http.MethodGet,
+		URL:             srv.URL + "/plain",
 		ResponseMode:    "envelope",
 		FollowRedirects: boolPtr(true),
 	})
@@ -379,7 +399,7 @@ func TestPluginHostHTTPFollowRedirectsControlAndCredentialGuard(t *testing.T) {
 	assert.Equal(t, srv.URL+"/next", followResp.Trace.FinalURL)
 	require.Len(t, followResp.Trace.Hops, 2)
 	assert.Equal(t, http.StatusFound, followResp.Trace.Hops[0].Status)
-	assert.Equal(t, srv.URL+"/start", followResp.Trace.Hops[0].URL)
+	assert.Equal(t, srv.URL+"/plain", followResp.Trace.Hops[0].URL)
 	assert.Equal(t, http.StatusOK, followResp.Trace.Hops[1].Status)
 	assert.Equal(t, srv.URL+"/next", followResp.Trace.Hops[1].URL)
 
