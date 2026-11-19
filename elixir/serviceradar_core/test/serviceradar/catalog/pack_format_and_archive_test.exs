@@ -11,6 +11,7 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
   alias ServiceRadar.Catalog.SvgSanitizer
   alias ServiceRadar.Catalog.UploadSignature
   alias ServiceRadar.DeclarativeChecks.AlertRuleSync
+  alias ServiceRadar.DeclarativeChecks.DAGEngine
   alias ServiceRadar.DeclarativeChecks.VerdictEventWriter
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
@@ -51,6 +52,114 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
       assert {:ok, extracted} = PackArchive.extract(srpack_a)
       assert extracted.files == pack.files
       assert extracted.manifest["id"] == "io.serviceradar.storage-and-nvr-health"
+    end
+  end
+
+  describe "Built-in Pack (io.serviceradar.proxmox-monitoring)" do
+    # The shipped check documents are evaluated by the real engine. Only the
+    # inventory is stubbed: every virtualization SRQL row is one "payload"
+    # column, which is the shape the checks have to read.
+
+    test "datastore capacity follows the default 80 and 90 percent thresholds" do
+      check = proxmox_check("proxmox-datastore-capacity")
+
+      for {used_percent, status, verdict} <- [
+            {72, :healthy, "datastores_have_headroom"},
+            {80, :degraded, "datastore_filling"},
+            {89, :degraded, "datastore_filling"},
+            {90, :down, "datastore_nearly_full"},
+            {100, :down, "datastore_nearly_full"}
+          ] do
+        rows = [%{"payload" => %{"name" => "tank01", "used_percent" => used_percent}}]
+
+        assert {:ok, result} = evaluate_with_inventory(check, fn _query -> rows end)
+        assert {result.status, result.verdict} == {status, verdict}
+      end
+    end
+
+    test "datastore capacity cannot tell when no datastore was reported" do
+      check = proxmox_check("proxmox-datastore-capacity")
+
+      assert {:ok, result} = evaluate_with_inventory(check, fn _query -> [] end)
+      assert {result.status, result.verdict} == {:unknown, "no_fresh_datastore_inventory"}
+    end
+
+    test "paused guests are critical, and an unread runtime state is never reported healthy" do
+      check = proxmox_check("proxmox-paused-guests")
+
+      for {guests, status, verdict} <- [
+            {%{running: 3, paused: 0, unreported: 0}, :healthy, "no_paused_guests"},
+            {%{running: 3, paused: 2, unreported: 0}, :down, "guests_paused"},
+            {%{running: 3, paused: 0, unreported: 3}, :unknown, "runtime_state_not_reported"},
+            {%{running: 3, paused: 1, unreported: 2}, :down, "guests_paused"},
+            {%{running: 0, paused: 0, unreported: 0}, :unknown, "no_fresh_guest_inventory"}
+          ] do
+        assert {:ok, result} = evaluate_with_inventory(check, &guest_rows(&1, guests))
+        assert {result.status, result.verdict} == {status, verdict}
+      end
+    end
+
+    test "inventory freshness fails when no host was reported" do
+      check = proxmox_check("proxmox-inventory-freshness")
+      host = [%{"payload" => %{"name" => "pve-a"}}]
+
+      assert {:ok, current} = evaluate_with_inventory(check, fn _query -> host end)
+      assert {current.status, current.verdict} == {:healthy, "inventory_current"}
+
+      assert {:ok, stale} = evaluate_with_inventory(check, fn _query -> [] end)
+      assert {stale.status, stale.verdict} == {:down, "inventory_stale"}
+    end
+
+    test "each alert has one owner: a pack rule that matches only its own check's transition" do
+      {:ok, pack} = BuiltinPacks.get_pack("proxmox-monitoring")
+      checks = Map.new(pack.checks, &{&1.normalized["slug"], &1.normalized})
+
+      # The checks' own automatic rules are off, so a pack rule never doubles one.
+      for {_slug, check} <- checks do
+        refute AlertRuleSync.build_rule_attrs(check).enabled
+      end
+
+      expected = %{
+        "proxmox_datastore_nearly_full" => {"proxmox-datastore-capacity", "down"},
+        "proxmox_datastore_filling" => {"proxmox-datastore-capacity", "degraded"},
+        "proxmox_guests_paused" => {"proxmox-paused-guests", "down"},
+        "proxmox_guest_runtime_state_unavailable" => {"proxmox-paused-guests", "unknown"},
+        "proxmox_inventory_stale" => {"proxmox-inventory-freshness", "down"}
+      }
+
+      assert expected |> Map.keys() |> Enum.sort() ==
+               pack.rules |> Enum.map(& &1.normalized["name"]) |> Enum.sort()
+
+      transitions =
+        for {slug, check} <- checks, status <- ~w(healthy degraded down unknown) do
+          {{slug, status}, VerdictEventWriter.event_attrs(check, %{to_status: status})}
+        end
+
+      unrelated = %{log_name: "health.agent.state_change", unmapped: %{"new_state" => "down"}}
+
+      for rule <- pack.rules do
+        match = rule.normalized["match"]
+        {slug, _status} = owner = Map.fetch!(expected, rule.normalized["name"])
+
+        matched =
+          for {key, event} <- transitions, RuleMatcher.event_matches?(event, match), do: key
+
+        assert matched == [owner]
+        refute RuleMatcher.event_matches?(unrelated, match)
+
+        recovery = VerdictEventWriter.event_attrs(checks[slug], %{to_status: "healthy"})
+        assert RuleMatcher.event_matches?(recovery, match["recovery"])
+      end
+    end
+
+    test "requires the plugin version that reports the runtime state" do
+      {:ok, pack} = BuiltinPacks.get_pack("io.serviceradar.proxmox-monitoring")
+
+      assert pack.manifest["plugin_dependencies"] == [
+               %{"package_id" => "proxmox-inventory", "version_constraint" => ">=0.1.14"}
+             ]
+
+      assert pack.manifest["credential_slots"] == []
     end
   end
 
@@ -511,5 +620,27 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
     sum = for <<b <- unsigned>>, reduce: 0, do: (acc -> acc + (b &&& 0xFF))
     chksum = String.pad_leading(Integer.to_string(sum, 8), 6, "0") <> <<0, 0x20>>
     pre <> chksum <> post <> :binary.copy(<<0>>, 1_024)
+  end
+
+  defp proxmox_check(slug) do
+    {:ok, pack} = BuiltinPacks.get_pack("proxmox-monitoring")
+    Enum.find(pack.checks, &(&1.normalized["slug"] == slug)).normalized
+  end
+
+  defp evaluate_with_inventory(check, rows_for) do
+    runner = fn query, _opts -> {:ok, %{rows: rows_for.(query)}} end
+    DAGEngine.evaluate_target(check, %{}, srql_runner: runner)
+  end
+
+  # A stand-in for the guest inventory: answers the filters the checks use.
+  defp guest_rows(query, %{running: running, paused: paused, unreported: unreported}) do
+    count =
+      cond do
+        String.contains?(query, "status:paused") -> paused
+        String.contains?(query, "runtime_state:unknown") -> unreported
+        true -> running + paused
+      end
+
+    List.duplicate(%{"payload" => %{"name" => "vm-a"}}, count)
   end
 end
