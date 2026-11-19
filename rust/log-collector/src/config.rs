@@ -27,9 +27,10 @@ pub struct RulesConfig {
     pub subject: String,
 
     /// Whether the collector runs these rules on syslog itself and publishes
-    /// normalized batches, instead of leaving the rules to EventWriter. The
-    /// `LOG_COLLECTOR_NORMALIZE_SYSLOG` environment variable overrides it.
-    #[serde(default)]
+    /// normalized batches, instead of leaving the rules to EventWriter. On
+    /// unless set to `false`; the `LOG_COLLECTOR_NORMALIZE_SYSLOG` environment
+    /// variable overrides it.
+    #[serde(default = "default_true")]
     pub normalize: bool,
 
     pub datasvc: DatasvcConfig,
@@ -199,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn syslog_is_normalized_here_only_when_switched_on_and_a_ruleset_is_followed() {
+    fn syslog_is_normalized_here_whenever_a_ruleset_is_followed_unless_switched_off() {
         let rules = |normalize: &str| -> Config {
             toml::from_str(&format!(
                 "[rules]\n{normalize}\n[rules.datasvc]\naddress = \"datasvc.example.com:50057\"\n"
@@ -208,15 +209,16 @@ mod tests {
         };
         let without_rules: Config = toml::from_str("").unwrap();
 
-        // Off unless asked for, in the file or by the override.
-        assert!(!rules("").normalize_syslog(None).unwrap());
-        assert!(rules("normalize = true").normalize_syslog(None).unwrap());
-        assert!(rules("").normalize_syslog(Some("true")).unwrap());
+        // On with a ruleset to follow, unless the file or the override says no.
+        assert!(rules("").normalize_syslog(None).unwrap());
+        assert!(!rules("normalize = false").normalize_syslog(None).unwrap());
+        assert!(!rules("").normalize_syslog(Some("false")).unwrap());
         assert!(
-            !rules("normalize = true")
-                .normalize_syslog(Some("false"))
+            rules("normalize = false")
+                .normalize_syslog(Some("true"))
                 .unwrap()
         );
+        // No ruleset to follow: syslog goes to EventWriter as before.
         assert!(!without_rules.normalize_syslog(None).unwrap());
 
         // Asking for it without a ruleset to follow, or unclearly, stops the start.
