@@ -327,6 +327,26 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.world.issues, [])
 
+    def certificate(self, private, name):
+        path = self.root / f"{name}.crt"
+        subprocess.run(["openssl", "req", "-x509", "-new", "-key", str(private), "-subj", f"/CN={name}",
+                        "-days", "1", "-out", str(path)], check=True, capture_output=True)
+        return path
+
+    def test_a_release_key_inside_a_certificate_is_judged(self):
+        entry = self.world.add_entry(b"signed with a wrapped release key",
+                                     key_pub=self.certificate(self.world.release_key, "wrapped"))
+        self.world.add_entry(b"someone else's certificate", key_pub=self.certificate(self.world.other_key, "other"))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
+
+    def test_a_certificate_that_cannot_be_decoded_fails_the_scan(self):
+        garbage = self.root / "garbage.crt"
+        garbage.write_text("-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----\n")
+        self.world.add_entry(b"unreadable certificate", key_pub=garbage)
+        self.assertEqual(self.run_monitor(), 1)
+        self.assertIn("certificate cannot be decoded", self.world.discord[-1])
+
     def test_entry_in_a_finished_runs_ledger_is_explained(self):
         entry = self.world.add_entry(b"release payload")
         self.world.add_run("release.yml", 7, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
@@ -565,6 +585,16 @@ class MonitorTest(unittest.TestCase):
         self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
         self.assertIn("log index 99", self.world.issues[0]["body"])
         self.assertIn("log index 99", self.world.discord[-1])
+
+    def test_unseen_entries_that_do_not_fit_one_message_rotate_into_later_posts(self):
+        lines = [self.canary_line(100 + number, NOW - timedelta(hours=5)) for number in range(40)]
+        self.world.add_run("publish-oci.yml", 25, NOW - timedelta(hours=8), NOW - timedelta(hours=3), lines)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertTrue(all(len(message) <= 2000 for message in self.world.discord))
+        self.assertNotIn("log index 139 ", self.world.discord[0])
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        posted = "\n".join(self.world.discord)
+        self.assertEqual([number for number in range(100, 140) if f"log index {number} " not in posted], [])
 
     def test_a_closed_canary_issue_does_not_hide_an_unseen_entry(self):
         self.world.add_run("publish-oci.yml", 15, NOW - timedelta(hours=8), NOW - timedelta(hours=3),

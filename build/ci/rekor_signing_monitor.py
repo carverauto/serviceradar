@@ -88,6 +88,14 @@ def pem_der(pem_text):
     return base64.b64decode("".join(lines[1:-1]), validate=True)
 
 
+def certificate_public_key(pem_text):
+    """The subject public key of a PEM certificate, as a PEM public key."""
+    result = subprocess.run(["openssl", "x509", "-pubkey", "-noout"], input=pem_text.encode(), capture_output=True)
+    if result.returncode != 0:
+        raise MonitorFailure("an entry's certificate cannot be decoded")
+    return result.stdout.decode()
+
+
 def merkle_root(leaves):
     """RFC 6962 Merkle tree hash over leaf hashes (the empty tree is SHA-256 of nothing)."""
     if not leaves:
@@ -212,8 +220,14 @@ def release_key_entries(entries, release_der):
         spec = body.get("spec") or {}
         key_b64 = ((spec.get("signature") or {}).get("publicKey") or {}).get("content", "")
         try:
-            der = pem_der(base64.b64decode(key_b64).decode())
-        except (ValueError, UnicodeDecodeError, MonitorFailure):
+            key_pem = base64.b64decode(key_b64).decode()
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if "-----BEGIN CERTIFICATE-----" in key_pem:
+            key_pem = certificate_public_key(key_pem)
+        try:
+            der = pem_der(key_pem)
+        except (ValueError, MonitorFailure):
             continue
         if der != release_der:
             continue
@@ -484,16 +498,21 @@ def run(args, environ, now):
                        "not seen", None))
     alerts += [(f"unexplained release-key entry {match['uuid']} (log index {match['log_index']})", match["uuid"])
                for match in unalerted]
-    alerts += [(line, None) for line in canary_lines.values()]
+    # Every unseen entry is posted every run; the longest-unposted go first, so all of them rotate in.
+    alerts += [(canary_lines[key], key)
+               for key in sorted(canary_lines, key=lambda key: findings[key].get("posted_at", ""))]
     content, sent = "Rekor signing monitor:", set()
-    for line, uuid in alerts:
+    for line, tag in alerts:
         if len(content) + len(line) + 3 <= MESSAGE_LIMIT:
             content += f"\n- {line}"
-            sent.add(uuid)
+            sent.add(tag)
     delivered = bool(alerts) and post_discord(http, environ, content)
     for match in unexplained:
         decided[match["uuid"]] = {"status": "reported", "log_index": match["log_index"],
                                   "alerted": (delivered and match["uuid"] in sent) or match not in unalerted}
+    for key in findings:
+        if delivered and key in sent:
+            findings[key]["posted_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     missing_runs = {item["run_id"] for item in blind}
     checked.update({str(run["id"]): int(run["ended"].timestamp()) for run in canary_runs
                     if run["id"] not in missing_runs})
