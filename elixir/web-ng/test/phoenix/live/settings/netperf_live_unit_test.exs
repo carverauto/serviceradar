@@ -408,6 +408,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveUnitTest do
         assert {:error, reason} = Forms.build_run_params(Map.put(valid_run_base, field, bad_val))
         assert Forms.format_dispatch_error(reason) =~ ~r/integer|between/i
       end
+
+      assert {:error, omit_reason} =
+               Forms.build_run_params(%{valid_run_base | "duration_sec" => "2", "omit_sec" => "5"})
+
+      assert Forms.format_dispatch_error(omit_reason) == "Omit (s) must be less than Duration (s)."
+
+      assert {:ok, %{omit_sec: 1}} =
+               Forms.build_run_params(%{valid_run_base | "duration_sec" => "2", "omit_sec" => "1"})
     end
 
     test "policy_to_form_params guards %Ash.NotLoaded{} on :responders" do

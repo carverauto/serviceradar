@@ -90,6 +90,10 @@ defmodule ServiceRadar.Edge.NetperfPermitSigning do
   Because `issued_at_unix`, `expires_at_unix`, and `permit_id` are aligned to the
   current UTC day and RFC 8032 Ed25519 signing is deterministic, repeated compiles
   on the same UTC day produce byte-identical permits.
+
+  `authority_epoch` is the responder's epoch, which is the revocation fence. The
+  policy epoch only rotates `permit_id`; revoking permits already issued for a
+  policy requires bumping the responder epoch.
   """
   @spec sign_scheduled(map(), map(), map(), String.t(), String.t(), keyword()) ::
           {:ok, NetperfPermitV1.t()} | {:error, term()}

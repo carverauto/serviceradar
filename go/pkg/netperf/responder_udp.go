@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -114,12 +115,20 @@ func (r *Responder) handleUDPPacket(pkt []byte, src netip.AddrPort) {
 }
 
 func (s *responderSession) lockOrVerifyPeerAddr(src netip.AddrPort, flags uint8) bool {
+	if src.Addr().Unmap() != s.peerIP {
+		return false
+	}
+
 	s.udpMu.Lock()
 	defer s.udpMu.Unlock()
 
+	if flags&UDPFlagHello != 0 {
+		s.lockedPeerAddr = src
+		s.hasLockedPeer = true
+		return true
+	}
 	if !s.hasLockedPeer {
-		// Lock NAT tuple on authenticated HELLO, or first authenticated DATA for upload.
-		if flags&(UDPFlagHello|UDPFlagData) == 0 {
+		if flags&UDPFlagData == 0 {
 			return false
 		}
 		s.lockedPeerAddr = src
@@ -127,6 +136,18 @@ func (s *responderSession) lockOrVerifyPeerAddr(src netip.AddrPort, flags uint8)
 		return true
 	}
 	return s.lockedPeerAddr == src
+}
+
+func peerTransportIP(ctx context.Context) (netip.Addr, bool) {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p == nil || p.Addr == nil {
+		return netip.Addr{}, false
+	}
+	addrPort, err := netip.ParseAddrPort(p.Addr.String())
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return addrPort.Addr().Unmap(), true
 }
 
 func (r *Responder) runUDPDownload(streamCtx context.Context, sess *responderSession) error {

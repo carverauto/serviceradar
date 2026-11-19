@@ -361,6 +361,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
            parse_run_int(params, "bandwidth_bps", "Bandwidth Ceiling (bps)", 100_000, 10_000_000_000),
          {:ok, duration_sec} <- parse_run_int(params, "duration_sec", "Duration (s)", 1, 30),
          {:ok, omit_sec} <- parse_run_int(params, "omit_sec", "Omit (s)", 0, 5),
+         :ok <- validate_run_omit_below_duration(omit_sec, duration_sec),
          {:ok, parallel} <- parse_run_int(params, "parallel", "Parallel", 1, 8),
          {:ok, packet_length} <- parse_run_int(params, "packet_length", "Packet Size (B)", 64, 65_507) do
       {:ok,
@@ -416,6 +417,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
 
   def format_dispatch_error(:invalid_authority_epoch),
     do: "Invalid authority epoch override (must be a positive 64-bit integer)."
+
+  def format_dispatch_error(:netperf_omit_not_less_than_duration),
+    do: "Omit (s) must be less than Duration (s)."
 
   def format_dispatch_error(:invalid_netperf_protocol), do: "Protocol must be tcp or udp."
 
@@ -550,6 +554,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Forms do
 
   defp parse_int_input(nil), do: nil
   defp parse_int_input(value), do: value
+
+  defp validate_run_omit_below_duration(omit_sec, duration_sec) when omit_sec < duration_sec, do: :ok
+
+  defp validate_run_omit_below_duration(_omit_sec, _duration_sec),
+    do: {:error, {:invalid_run_param, "Omit (s)", "must be less than Duration (s)."}}
 
   defp parse_run_int(params, key, label, min_val, max_val) do
     case Map.get(params, key) do

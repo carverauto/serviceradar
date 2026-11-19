@@ -29,6 +29,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -552,6 +553,12 @@ func TestResponderUDPNATTuplePinningIgnoresSpoofedSource(t *testing.T) {
 	// Socket A sends valid-HMAC HELLO to pin lockedPeerAddr.
 	helloPkt := make([]byte, UDPHeaderSize)
 	require.NoError(t, EncodeUDPDatagram(helloPkt, udpKey, UDPFlagHello, sid, 0, uint64(time.Now().UnixNano())))
+
+	resp.handleUDPPacket(helloPkt, netip.MustParseAddrPort("198.51.100.7:40000"))
+	sess.udpMu.Lock()
+	pinnedOffPath := sess.hasLockedPeer
+	sess.udpMu.Unlock()
+	require.False(t, pinnedOffPath, "valid-HMAC HELLO from an IP other than the mTLS peer must not pin the session")
 	_, err = connA.Write(helloPkt)
 	require.NoError(t, err)
 
@@ -599,6 +606,21 @@ func TestResponderUDPNATTuplePinningIgnoresSpoofedSource(t *testing.T) {
 	require.NoError(t, EncodeUDPDatagram(realEnd, udpKey, UDPFlagEnd, sid, 1, uint64(time.Now().UnixNano())))
 	_, err = connA.Write(realEnd)
 	require.NoError(t, err)
+
+	lockedPeer := func() netip.AddrPort {
+		sess.udpMu.Lock()
+		defer sess.udpMu.Unlock()
+		return sess.lockedPeerAddr
+	}
+	addrA := connA.LocalAddr().(*net.UDPAddr).AddrPort()
+	addrB := connB.LocalAddr().(*net.UDPAddr).AddrPort()
+	require.Equal(t, addrA, lockedPeer())
+
+	_, err = connB.Write(helloPkt)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return lockedPeer() == addrB
+	}, 2*time.Second, 5*time.Millisecond, "HELLO from the mTLS peer IP on a new port must retarget the session")
 
 	closeResp, err := client.CloseSession(context.Background(), &netperfpb.CloseSessionRequest{
 		SessionId: openResp.GetSessionId(),

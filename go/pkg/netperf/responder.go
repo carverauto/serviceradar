@@ -117,6 +117,7 @@ type responderSession struct {
 	udpKey          []byte
 	udpTracker      *RFC3550Tracker
 	udpMu           sync.Mutex
+	peerIP          netip.Addr
 	hasLockedPeer   bool
 	lockedPeerAddr  netip.AddrPort
 	helloReady      chan struct{}
@@ -454,7 +455,13 @@ func (r *Responder) OpenSession(
 
 	var udpKey []byte
 	var udpPort uint32
+	var peerIP netip.Addr
 	if req.GetProtocol() == netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP {
+		var ok bool
+		if peerIP, ok = peerTransportIP(ctx); !ok {
+			r.admission.release(req.GetBandwidthBps())
+			return nil, status.Error(codes.FailedPrecondition, "UDP session requires an IP transport peer")
+		}
 		udpKey = make([]byte, UDPKeySize)
 		if _, err := rand.Read(udpKey); err != nil {
 			r.admission.release(req.GetBandwidthBps())
@@ -487,6 +494,7 @@ func (r *Responder) OpenSession(
 		ctx:           sessCtx,
 		cancel:        sessCancel,
 		udpKey:        udpKey,
+		peerIP:        peerIP,
 		udpTracker:    &RFC3550Tracker{},
 		helloReady:    make(chan struct{}),
 		udpEndCh:      make(chan struct{}),

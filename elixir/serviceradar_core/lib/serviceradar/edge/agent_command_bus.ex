@@ -1978,17 +1978,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
          :ok <- if(sender == responder, do: {:error, :netperf_self_target_forbidden}, else: :ok),
          {:ok, address} <- require_nonempty_value(target_address, :target_address_required),
          {:ok, protocol} <- normalize_netperf_protocol(netperf_param(params, :protocol)),
-         {:ok, direction} <- normalize_netperf_direction(netperf_param(params, :direction)) do
-      duration_sec = clamp_netperf_int(netperf_param(params, :duration_sec), 5, 1, 30)
-
-      omit_sec =
-        clamp_netperf_int(
-          netperf_param(params, :omit_sec),
-          min(1, max(duration_sec - 1, 0)),
-          0,
-          min(5, max(duration_sec - 1, 0))
-        )
-
+         {:ok, direction} <- normalize_netperf_direction(netperf_param(params, :direction)),
+         duration_sec = clamp_netperf_int(netperf_param(params, :duration_sec), 5, 1, 30),
+         omit_sec =
+           clamp_netperf_int(netperf_param(params, :omit_sec), min(1, duration_sec - 1), 0, 5),
+         :ok <-
+           if(omit_sec < duration_sec,
+             do: :ok,
+             else: {:error, :netperf_omit_not_less_than_duration}
+           ) do
       {:ok,
        %{
          sender_agent_id: sender,

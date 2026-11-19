@@ -30,6 +30,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -548,6 +549,11 @@ type udpBlackholePeerWrapper struct {
 }
 
 func (w *udpBlackholePeerWrapper) OpenSession(ctx context.Context, req *netperfpb.OpenSessionRequest) (*netperfpb.OpenSessionResponse, error) {
+	if p, ok := peer.FromContext(ctx); ok {
+		loopbackPeer := *p
+		loopbackPeer.Addr = &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
+		ctx = peer.NewContext(ctx, &loopbackPeer)
+	}
 	resp, err := w.NetworkPerfPeerServiceServer.OpenSession(ctx, req)
 	if err != nil {
 		return resp, err

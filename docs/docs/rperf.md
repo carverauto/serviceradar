@@ -49,7 +49,7 @@ Key architectural properties:
    `agent-gateway`.
 3. **Permit-authorized execution** - Control-plane `NetperfCompiler` compiles
    policies (`:hub_and_spoke` or `:hub_mesh`) into `AgentConfigResponse` and
-   mints short-lived Ed25519-signed `NetperfPermitV1` tokens verified against the
+   mints Ed25519-signed `NetperfPermitV1` tokens verified against the
    agent's `RecordTrust` keyset.
 4. **Durable delivery** - Completed test summaries commit directly to the
    agent's `RecordSpool` under `serviceradar.metrics.batch` (`source =
@@ -72,6 +72,17 @@ Manage active network performance testing in the web UI at
 - **On-demand execution** - Trigger immediate runs from `/settings/networks/netperf`
   ("Run Test Now"), which dispatches a `netperf.run` command over `ControlStream`
   with a single-shot `NetperfPermitV1`.
+
+### Revoking Issued Permits
+
+Scheduled permits are valid for up to eight days and carry the Hub Responder's
+authority epoch. Editing or disabling a policy rotates its permit IDs and drops
+the target from the next config push, but it does not invalidate a permit a
+spoke already holds. To revoke outstanding permits for a responder (for example
+after tightening a profile or disabling a policy), click **Bump Epoch** on the
+Hub Responder. Disabling a Hub Responder bumps its epoch as well. The responder
+rejects any permit whose epoch is below its current epoch once it receives the
+new config.
 
 ### Firewall Rules (Hub Responders only)
 

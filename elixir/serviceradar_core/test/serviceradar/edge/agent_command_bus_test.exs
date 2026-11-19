@@ -1546,6 +1546,18 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  actor: %{id: Ash.UUID.generate(), role: :operator}
                )
 
+      assert {:error, :netperf_omit_not_less_than_duration} =
+               AgentCommandBus.dispatch_netperf_run(
+                 agent_id,
+                 %{
+                   responder_agent_id: "agent-hub-1",
+                   target_address: "198.51.100.1",
+                   duration_sec: 2,
+                   omit_sec: 5
+                 },
+                 actor: %{id: Ash.UUID.generate(), role: :operator}
+               )
+
       commands =
         AgentCommand
         |> Ash.Query.filter(agent_id == ^agent_id and command_type == "netperf.run")
