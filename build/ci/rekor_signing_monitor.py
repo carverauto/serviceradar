@@ -60,7 +60,7 @@ SCAN_INTERVAL = timedelta(hours=1)
 # within 30 days of its creation and fails a job that waits on an environment for 30 days, so a run
 # active at an entry's integrated time was created at most RUN_MARGIN before it.
 RUN_MARGIN = timedelta(days=60)
-# Signing-ledger artifacts are kept this long; the canary checks every run created within it.
+# Signing-ledger artifacts are kept this long; the canary checks every run that ended within it.
 LEDGER_RETENTION = timedelta(days=90)
 MESSAGE_LIMIT = 2000
 BRANCH = "staging"
@@ -408,13 +408,14 @@ def run(args, environ, now):
     decided = state.setdefault("decisions", {})
     undecided = [integrated(match) for match in matches
                  if decided.get(match["uuid"], {}).get("status") != "explained"]
-    canary_since = max(datetime.fromtimestamp(first_time, timezone.utc), now - LEDGER_RETENTION)
+    first_checkpoint = datetime.fromtimestamp(first_time, timezone.utc)
+    canary_since = max(first_checkpoint - RUN_MARGIN, now - LEDGER_RETENTION)
     runs = signing_runs(github, min([canary_since] + [when - RUN_MARGIN for when in undecided]))
     # An ended run is checked until all it ledgered was seen (again if a re-run ends later).
     checked = {run_id: ended for run_id, ended in state.get("canary_checked", {}).items()
                if ended >= (now - LEDGER_RETENTION).timestamp()}
     canary_runs = [run for run in runs
-                   if run["ended"] is not None and run["started"] >= canary_since
+                   if run["ended"] is not None and run["ended"] >= first_checkpoint
                    and now - run["ended"] >= 2 * SCAN_INTERVAL
                    and checked.get(str(run["id"]), 0) < int(run["ended"].timestamp())]
     ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs

@@ -557,6 +557,15 @@ class MonitorTest(unittest.TestCase):
         return {"event": "logged", "log_id": log_id, "log_index": log_index,
                 "integrated_time": int(integrated.timestamp()), "subject": f"registry.example/x{log_index}"}
 
+    def test_blindness_canary_checks_a_run_that_started_before_the_first_checkpoint(self):
+        # The first checkpoint was taken ten hours ago, while this release was waiting on its environment.
+        self.world.add_run("release.yml", 24, NOW - timedelta(hours=12), NOW - timedelta(hours=3),
+                           [self.canary_line(99, NOW - timedelta(hours=5))])
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), ["Rekor signing monitor is blind to ledgered entries"])
+        self.assertIn("log index 99", self.world.issues[0]["body"])
+        self.assertIn("log index 99", self.world.discord[-1])
+
     def test_a_closed_canary_issue_does_not_hide_an_unseen_entry(self):
         self.world.add_run("publish-oci.yml", 15, NOW - timedelta(hours=8), NOW - timedelta(hours=3),
                            [self.canary_line(99, NOW - timedelta(hours=5))])

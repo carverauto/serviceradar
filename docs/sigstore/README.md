@@ -102,8 +102,8 @@ it was integrated:
 The blindness canary opens an issue when a signing ledger records an entry in this log (its
 `logged` line names this log's ID) that was integrated after the first checkpoint's time, kept
 in the checkpoint, from a run that ended more than two hours ago, and that entry is not among
-the entries seen. Every signing run created since the first checkpoint, within the 90-day ledger
-retention, is checked after it ends until every entry it ledgered is seen (again if a re-run ends
+the entries seen. Every signing run that ended after the first checkpoint (including one that
+started before it), within the 90-day ledger retention, is checked after it ends until every entry it ledgered is seen (again if a re-run ends
 later), so a monitor outage is caught up on the next successful run. Each unseen entry is kept in
 the checkpoint, named on the open canary issue (or a new one, if it was closed) and posted to
 Discord every run until it appears in the log or its log index is listed in
