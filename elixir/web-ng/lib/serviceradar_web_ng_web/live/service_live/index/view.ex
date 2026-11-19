@@ -22,6 +22,27 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.View do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
+          <nav
+            id="services-subnav-tabs"
+            aria-label="Services views"
+            class="flex items-center gap-2 border-b border-sr-line"
+          >
+            <.link
+              id="services-tab-overview"
+              navigate={~p"/services"}
+              class="border-b-2 border-sr-brand px-3 py-2 text-sm font-medium text-sr-ink"
+            >
+              Service Checks
+            </.link>
+            <.link
+              id="services-tab-check-results"
+              navigate={~p"/services/checks"}
+              class="border-b-2 border-transparent px-3 py-2 text-sm font-medium text-sr-muted hover:text-sr-ink transition-colors"
+            >
+              Check Results
+            </.link>
+          </nav>
+
           <div
             :if={@plugin_error}
             id="services-plugin-state-error"

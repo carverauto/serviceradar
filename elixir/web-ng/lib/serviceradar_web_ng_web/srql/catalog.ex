@@ -808,7 +808,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "declarative_check_results",
       label: "Declarative Check Results",
-      route: nil,
+      route: "/services/checks",
       default_time: "",
       default_sort_field: "evaluated_at",
       default_sort_dir: "desc",

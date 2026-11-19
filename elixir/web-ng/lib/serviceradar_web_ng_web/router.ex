@@ -1308,6 +1308,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs", LogLive.Index, :logs)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
+      live("/services/checks", ServiceLive.Checks, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)

@@ -169,6 +169,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeclarativeCheckLiveTest do
 
       assert html =~ "Synthetic Checkout API Health"
       assert html =~ "Targets: 1"
+      assert html =~ "view-live-results-link"
+      assert html =~ "/services/checks"
       refute html =~ "new-declarative-check-btn"
       refute html =~ "open-import-declarative-check-btn"
       refute html =~ "toggle-check-checkout-api-health"

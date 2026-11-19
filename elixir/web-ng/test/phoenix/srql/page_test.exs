@@ -371,6 +371,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
 
     assert Page.route_target_for_query("in:security_events severity:critical", "/devices") ==
              {"/devices", %{}}
+
+    for origin <- ["/devices", "/observability", "/dashboards", "/services"],
+        entity <- ["declarative_check_results", "declarative_results", "declarative_verdicts"] do
+      query = "in:#{entity} status:down limit:50"
+
+      assert Page.route_target_for_query(query, origin) ==
+               {"/services/checks", %{}}
+
+      socket =
+        %Socket{}
+        |> Page.init("devices", default_limit: 20)
+        |> Page.sync_from_params(%{"q" => "in:devices limit:20"}, "https://example.test#{origin}")
+        |> Page.handle_event("srql_submit", %{"q" => query}, fallback_path: origin)
+
+      assert {:live, :redirect, %{to: to}} = socket.redirected
+      uri = URI.parse(to)
+      assert uri.path == "/services/checks"
+      assert URI.decode_query(uri.query || "")["q"] == query
+    end
   end
 
   test "sanitize_query removes stale catalog filters when switching entities" do
