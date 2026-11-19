@@ -116,6 +116,23 @@ ignores_for() {
       #   https://rustsec.org/advisories/RUSTSEC-2026-0441 . Accepted 2026-11-06; review
       #   by 2027-02-01, and remove once an async-dnssd release drops pin-utils.
       echo RUSTSEC-2026-0441
+      # heapless 0.7.17 (unsoundness advisories published 2026-11-18, patched only in
+      #   heapless >= 0.8/0.9): reached solely via connector 0.10.0 -> sspi 0.21.1 ->
+      #   winscard 0.3.3 -> iso7816 0.1.4 -> heapless 0.7.17, the same forced sspi/scard
+      #   build subtree as atomic-polyfill above. ServiceRadar rejects smart-card
+      #   redirection at runtime, and iso7816 0.1.4 pins heapless ^0.7.
+      #   https://rustsec.org/advisories/RUSTSEC-2026-0574 .. RUSTSEC-2026-0582 .
+      #   Accepted 2026-11-19; review by 2027-02-19, and remove once ironrdp-connector
+      #   drops the forced sspi/scard dependency or upgrades iso7816 off heapless 0.7.
+      echo RUSTSEC-2026-0574
+      echo RUSTSEC-2026-0575
+      echo RUSTSEC-2026-0576
+      echo RUSTSEC-2026-0577
+      echo RUSTSEC-2026-0578
+      echo RUSTSEC-2026-0579
+      echo RUSTSEC-2026-0580
+      echo RUSTSEC-2026-0581
+      echo RUSTSEC-2026-0582
       ;;
   esac
 }
