@@ -42,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
      |> assign(:bindings_count, 0)
      |> assign(:service_checks_count, 0)
      |> assign(:synthetic_assignments, [])
+     |> assign(:rum_beacon_url, rum_beacon_url())
+     |> assign(:rum_script_url, ServiceRadarWebNGWeb.Endpoint.static_url() <> "/assets/rum/boomerang-sr.min.js")
      |> assign(:srql, %{enabled: false, page_path: "/websites"})
      |> stream_configure(:bindings, dom_id: &"binding-#{&1.id}")
      |> stream_configure(:service_checks, dom_id: &"service-check-#{&1.id}")
@@ -782,42 +784,27 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
 
           <.ui_panel id="website-rum-snippet-panel">
             <:header>
-              <span class="text-sm font-semibold text-sr-ink">RUM Onboarding Snippets</span>
-              <div class="flex flex-wrap items-center gap-2">
-                <.ui_button
-                  id="copy-rum-snippet-button"
-                  variant="ghost"
-                  size="xs"
-                  phx-click="copy_value"
-                  phx-value-value={rum_snippet_text(@web_property)}
-                >
-                  Copy Snippet
-                </.ui_button>
-                <.ui_button
-                  id="copy-rum-mpulse-snippet-button"
-                  variant="ghost"
-                  size="xs"
-                  phx-click="copy_value"
-                  phx-value-value={rum_mpulse_tee_snippet_text(@web_property)}
-                >
-                  Copy mPulse Tee
-                </.ui_button>
-              </div>
+              <span class="text-sm font-semibold text-sr-ink">RUM Onboarding Snippet</span>
+              <.ui_button
+                :if={@rum_beacon_url}
+                id="copy-rum-snippet-button"
+                variant="ghost"
+                size="xs"
+                phx-click="copy_value"
+                phx-value-value={rum_snippet_text(@web_property, @rum_script_url, @rum_beacon_url)}
+              >
+                Copy Snippet
+              </.ui_button>
             </:header>
-            <div class="space-y-4">
-              <div class="space-y-2">
-                <p class="text-xs text-sr-muted">
-                  Embed the first-party ServiceRadar Boomerang RUM bundle with optional W3C traceparent propagation.
-                </p>
-                <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-boomerang-snippet" phx-no-curly-interpolation><%= rum_snippet_text(@web_property) %></code></pre>
-              </div>
-              <div class="space-y-2 border-t border-sr-line pt-3">
-                <p class="text-xs text-sr-muted">
-                  Or tee beacons from an existing Akamai mPulse Boomerang tag without changing your CDN tag deployment.
-                </p>
-                <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-mpulse-tee-snippet" phx-no-curly-interpolation><%= rum_mpulse_tee_snippet_text(@web_property) %></code></pre>
-              </div>
+            <div :if={@rum_beacon_url} class="space-y-2">
+              <p class="text-xs text-sr-muted">
+                Embed the first-party ServiceRadar Boomerang RUM bundle with optional W3C traceparent propagation.
+              </p>
+              <pre class="overflow-x-auto rounded-sr-control border border-sr-line bg-sr-subtle p-3 font-mono text-xs text-sr-ink"><code id="rum-boomerang-snippet" phx-no-curly-interpolation><%= rum_snippet_text(@web_property, @rum_script_url, @rum_beacon_url) %></code></pre>
             </div>
+            <p :if={!@rum_beacon_url} id="rum-snippet-unconfigured" class="text-xs text-sr-muted">
+              No public RUM ingest endpoint is configured. Set SERVICERADAR_OTLP_HTTP_ENDPOINT to the externally reachable OTLP/HTTP URL that routes /rum/v1/beacon to the collector.
+            </p>
           </.ui_panel>
 
           <%!-- Infrastructure Bindings --%>
@@ -1048,33 +1035,33 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Show do
     """
   end
 
-  defp rum_snippet_text(%WebProperty{} = wp) do
+  defp rum_beacon_url do
+    case :serviceradar_web_ng
+         |> Application.get_env(:otlp_onboarding, [])
+         |> Keyword.get(:http_endpoint) do
+      endpoint when is_binary(endpoint) ->
+        case String.trim_trailing(String.trim(endpoint), "/") do
+          "" -> nil
+          base -> base <> "/rum/v1/beacon"
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp rum_snippet_text(%WebProperty{} = wp, script_url, beacon_url) do
     String.trim("""
     <script>
       window.BOOMR_config = window.BOOMR_config || {};
       window.BOOMR_config.ServiceRadar = {
         siteKey: #{Jason.encode!(wp.rum_site_key || "")},
-        beaconUrl: "/rum/v1/beacon",
+        beaconUrl: #{Jason.encode!(beacon_url)},
         sampleRate: #{wp.rum_sample_rate},
         tracePropagateOrigins: #{Jason.encode!(wp.trace_propagate_origins || [])}
       };
     </script>
-    <script src="/assets/rum/boomerang-sr.min.js" async crossorigin="anonymous"></script>
-    """)
-  end
-
-  defp rum_mpulse_tee_snippet_text(%WebProperty{} = wp) do
-    site_key = wp.rum_site_key || ""
-    encoded_key = URI.encode_www_form(site_key)
-
-    String.trim("""
-    <script>
-      window.BOOMR && BOOMR.subscribe("beacon", function(vars) {
-        if (!vars || vars["sr.key"]) return;
-        var p = new URLSearchParams({ "sr.key": #{Jason.encode!(site_key)}, u: vars.u || location.href, "c.lcp": vars["pt.lcp"] || vars["c.lcp"] || "", "c.inp": vars["et.inp"] || vars["c.inp"] || "", "c.cls": vars["c.cls"] || "", "c.fcp": vars["pt.fcp"] || vars["c.fcp"] || "", "c.ttfb": vars.t_resp || vars["c.ttfb"] || "", t_done: vars.t_done || "", servertiming: vars.servertiming || "" });
-        navigator.sendBeacon("/rum/v1/beacon?key=#{encoded_key}", p);
-      });
-    </script>
+    <script src=#{Jason.encode!(script_url)} async crossorigin="anonymous"></script>
     """)
   end
 

@@ -1,5 +1,4 @@
 const TRACEPARENT_HEADER = "traceparent";
-const DEFAULT_BEACON_PATH = "/rum/v1/beacon";
 const PATCHED_MARKER = "__srTracePatched";
 
 function toHex(bytes) {
@@ -77,12 +76,12 @@ export function normalizeAllowedOrigins(origins, pageOrigin) {
   return allowed;
 }
 
-export function isBeaconTarget(targetUrl, pageOrigin, beaconUrl = DEFAULT_BEACON_PATH) {
-  if (!targetUrl) return false;
+export function isBeaconTarget(targetUrl, pageOrigin, beaconUrl = null) {
+  if (!targetUrl || !beaconUrl) return false;
   const base = normalizeOrigin(pageOrigin) || "http://localhost";
   try {
     const target = new URL(String(targetUrl), base);
-    const beacon = new URL(String(beaconUrl || DEFAULT_BEACON_PATH), base);
+    const beacon = new URL(String(beaconUrl), base);
     return (
       target.origin.toLowerCase() === beacon.origin.toLowerCase() &&
       target.pathname === beacon.pathname
@@ -96,7 +95,7 @@ export function shouldPropagateTrace(
   targetUrl,
   pageOrigin,
   allowedOrigins = [],
-  beaconUrl = DEFAULT_BEACON_PATH,
+  beaconUrl = null,
 ) {
   if (!targetUrl) return false;
   const normalizedPageOrigin = normalizeOrigin(pageOrigin);
@@ -432,7 +431,7 @@ export function registerServiceRadarTrace(win) {
   const state = {
     initialized: false,
     tracePropagateOrigins: [],
-    beaconUrl: DEFAULT_BEACON_PATH,
+    beaconUrl: null,
     lastTrace: null,
     subscribedBeacon: false,
     normalizedKeys: new Set(),
@@ -458,7 +457,7 @@ export function registerServiceRadarTrace(win) {
         pluginConfig.beaconUrl ||
         globalConfig.beaconUrl ||
         (config && config.beacon_url) ||
-        DEFAULT_BEACON_PATH;
+        null;
 
       patchFetch(win, state);
       patchXMLHttpRequest(win, state);

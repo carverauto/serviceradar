@@ -216,8 +216,56 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
     assert refreshed_when_not_editing.assigns.edit_form.params["name"] == "Posture Updated"
   end
 
-  test "WebPropertyLive.Show renders Boomerang snippet with tracePropagateOrigins, mPulse tee, and RUM link" do
-    wp = %WebProperty{
+  test "WebPropertyLive.Show renders a Boomerang snippet with absolute script and public beacon URLs" do
+    wp = rum_web_property()
+
+    with_otlp_onboarding([http_endpoint: "https://otlp.example.com/"], fn ->
+      {:ok, show_socket} = Show.mount(%{}, %{}, manager_socket())
+      show_socket = Show.apply_property_state(show_socket, wp, [], [], [])
+
+      html = render_component(&Show.render/1, show_socket.assigns)
+      doc = LazyHTML.from_fragment(html)
+
+      refute Enum.empty?(LazyHTML.query(doc, "#open-web-rum-dashboard-button"))
+      assert html =~ "/dashboards/web-rum"
+      refute Enum.empty?(LazyHTML.query(doc, "#copy-rum-snippet-button"))
+      assert Enum.empty?(LazyHTML.query(doc, "#rum-snippet-unconfigured"))
+
+      boomerang_text = doc |> LazyHTML.query("#rum-boomerang-snippet") |> LazyHTML.text()
+      assert boomerang_text =~ ~s(beaconUrl: "https://otlp.example.com/rum/v1/beacon")
+      assert boomerang_text =~ ~s(crossorigin="anonymous")
+      assert boomerang_text =~ "sr_rum_unit_test_key"
+      assert boomerang_text =~ "0.25"
+      assert boomerang_text =~ "tracePropagateOrigins"
+      assert boomerang_text =~ "https://api.example.com"
+
+      [_, script_src] = Regex.run(~r/<script src="([^"]+)"/, boomerang_text)
+      script_uri = URI.parse(script_src)
+      assert script_uri.scheme in ["http", "https"]
+      assert is_binary(script_uri.host) and script_uri.host != ""
+      assert script_uri.path == "/assets/rum/boomerang-sr.min.js"
+
+      {config_idx, _} = :binary.match(boomerang_text, "window.BOOMR_config")
+      {script_idx, _} = :binary.match(boomerang_text, "<script src=")
+      assert config_idx < script_idx
+    end)
+  end
+
+  test "WebPropertyLive.Show withholds the RUM snippet when no public ingest endpoint is configured" do
+    with_otlp_onboarding([http_endpoint: ""], fn ->
+      {:ok, show_socket} = Show.mount(%{}, %{}, manager_socket())
+      show_socket = Show.apply_property_state(show_socket, rum_web_property(), [], [], [])
+
+      doc = LazyHTML.from_fragment(render_component(&Show.render/1, show_socket.assigns))
+
+      assert Enum.empty?(LazyHTML.query(doc, "#rum-boomerang-snippet"))
+      assert Enum.empty?(LazyHTML.query(doc, "#copy-rum-snippet-button"))
+      refute Enum.empty?(LazyHTML.query(doc, "#rum-snippet-unconfigured"))
+    end)
+  end
+
+  defp rum_web_property do
+    %WebProperty{
       id: Ash.UUID.generate(),
       name: "Portal",
       canonical_origin: "https://portal.example.com",
@@ -230,33 +278,20 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveUnitTest do
       allowed_query_keys: [],
       trace_propagate_origins: ["https://api.example.com"]
     }
+  end
 
-    {:ok, show_socket} = Show.mount(%{}, %{}, manager_socket())
-    show_socket = Show.apply_property_state(show_socket, wp, [], [], [])
+  defp with_otlp_onboarding(config, fun) do
+    prev = Application.fetch_env(:serviceradar_web_ng, :otlp_onboarding)
+    Application.put_env(:serviceradar_web_ng, :otlp_onboarding, config)
 
-    html = render_component(&Show.render/1, show_socket.assigns)
-    doc = LazyHTML.from_fragment(html)
-
-    assert LazyHTML.query(doc, "#open-web-rum-dashboard-button") != []
-    assert html =~ "/dashboards/web-rum"
-
-    boomerang_text = doc |> LazyHTML.query("#rum-boomerang-snippet") |> LazyHTML.text()
-    assert boomerang_text =~ ~s(src="/assets/rum/boomerang-sr.min.js")
-    assert boomerang_text =~ ~s(crossorigin="anonymous")
-    assert boomerang_text =~ "sr_rum_unit_test_key"
-    assert boomerang_text =~ "0.25"
-    assert boomerang_text =~ "tracePropagateOrigins"
-    assert boomerang_text =~ "https://api.example.com"
-
-    {config_idx, _} = :binary.match(boomerang_text, "window.BOOMR_config")
-    {script_idx, _} = :binary.match(boomerang_text, ~s(src="/assets/rum/boomerang-sr.min.js"))
-    assert config_idx < script_idx
-
-    mpulse_text = doc |> LazyHTML.query("#rum-mpulse-tee-snippet") |> LazyHTML.text()
-    assert mpulse_text =~ ~s(BOOMR.subscribe("beacon")
-    assert mpulse_text =~ "navigator.sendBeacon"
-    assert mpulse_text =~ "/rum/v1/beacon?key=sr_rum_unit_test_key"
-    assert LazyHTML.query(doc, "#copy-rum-mpulse-snippet-button") != []
+    try do
+      fun.()
+    after
+      case prev do
+        {:ok, value} -> Application.put_env(:serviceradar_web_ng, :otlp_onboarding, value)
+        :error -> Application.delete_env(:serviceradar_web_ng, :otlp_onboarding)
+      end
+    end
   end
 
   defp manager_socket do

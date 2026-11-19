@@ -233,6 +233,16 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
       }),
     )
 
+    const noBeaconInit = vi.fn()
+    const noBeaconWin = {
+      location: {origin: "https://portal.example.com"},
+      crypto: window.crypto,
+      BOOMR: {addVar: vi.fn(), init: noBeaconInit, subscribe: vi.fn(), plugins: {}},
+      BOOMR_config: {ServiceRadar: {siteKey: "sr_rum_testkey", sampleRate: 1.0}},
+    }
+    expect(initServiceRadarBoomerang(noBeaconWin)).toBe(false)
+    expect(noBeaconInit).not.toHaveBeenCalled()
+
     // Sample rate 0 drops initialization cleanly
     const droppedInit = vi.fn()
     const droppedWin = {
@@ -258,6 +268,7 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
       BOOMR_config: {
         ServiceRadar: {
           siteKey: "sr_rum_fractional",
+          beaconUrl: "https://otlp.example.com/rum/v1/beacon",
           sampleRate: 0.1,
         },
       },

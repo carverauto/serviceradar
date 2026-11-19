@@ -16,6 +16,20 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveTest do
 
   @moduletag :web_ng_shared_fixture_db
 
+  setup do
+    prev = Application.fetch_env(:serviceradar_web_ng, :otlp_onboarding)
+    Application.put_env(:serviceradar_web_ng, :otlp_onboarding, http_endpoint: "https://otlp.example.com")
+
+    on_exit(fn ->
+      case prev do
+        {:ok, value} -> Application.put_env(:serviceradar_web_ng, :otlp_onboarding, value)
+        :error -> Application.delete_env(:serviceradar_web_ng, :otlp_onboarding)
+      end
+    end)
+
+    :ok
+  end
+
   test "redirects unauthenticated requests to sign-in" do
     conn = build_conn()
     assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, ~p"/websites")
@@ -53,9 +67,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLiveTest do
       |> follow_redirect(conn)
 
     assert has_element?(show_view, "#rum-site-key-value")
-    assert has_element?(show_view, "#rum-boomerang-snippet")
-    assert has_element?(show_view, "#rum-mpulse-tee-snippet")
-    assert has_element?(show_view, "#copy-rum-mpulse-snippet-button")
+    assert has_element?(show_view, "#rum-boomerang-snippet", "https://otlp.example.com/rum/v1/beacon")
     assert has_element?(show_view, "#open-web-rum-dashboard-button")
 
     {:ok, wp} = WebProperty.get_by_canonical_origin(origin, actor: sys)

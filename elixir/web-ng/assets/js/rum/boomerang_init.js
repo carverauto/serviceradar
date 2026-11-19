@@ -1,12 +1,8 @@
 import {registerServiceRadarTrace} from "./serviceradar_trace.js";
 
-const DEFAULT_BEACON_URL = "/rum/v1/beacon";
-
 export function buildBeaconUrl(baseUrl, siteKey) {
-  const base =
-    typeof baseUrl === "string" && baseUrl.trim() !== ""
-      ? baseUrl.trim()
-      : DEFAULT_BEACON_URL;
+  const base = typeof baseUrl === "string" ? baseUrl.trim() : "";
+  if (!base) return "";
 
   if (!siteKey) return base;
 
@@ -57,7 +53,8 @@ export function initServiceRadarBoomerang(win) {
     : Array.isArray(srConfig.trace_propagate_origins)
       ? srConfig.trace_propagate_origins
       : [];
-  const beaconUrl = buildBeaconUrl(srConfig.beaconUrl || DEFAULT_BEACON_URL, siteKey);
+  const beaconUrl = buildBeaconUrl(srConfig.beaconUrl, siteKey);
+  if (!beaconUrl) return false;
 
   if (typeof boomr.addVar === "function") {
     boomr.addVar("sr.key", siteKey);

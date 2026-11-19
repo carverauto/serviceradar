@@ -13,8 +13,6 @@ defmodule ServiceRadar.Inventory.RumPolicySync do
 
   use GenServer
 
-  import Ash.Expr
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.WebProperty
   alias ServiceRadar.Inventory.WebPropertyPubSub
