@@ -52,8 +52,10 @@ const minified = await esbuild.transform(combined, {
   legalComments: "none",
 });
 
+const boomerangLicense = fs.readFileSync("vendor/boomerang/LICENSE", "utf8").trim();
 const licenseBanner =
-  "/*! ServiceRadar Boomerang RUM Bundle (akamai/boomerang BSD-3-Clause + ServiceRadarTrace) */\n";
+  "/*! ServiceRadar Boomerang RUM Bundle (akamai/boomerang BSD-3-Clause + ServiceRadarTrace)\n\n" +
+  `${boomerangLicense}\n*/\n`;
 
 fs.mkdirSync(path.dirname(outfile), { recursive: true });
 fs.writeFileSync(outfile, `${licenseBanner}${minified.code}`, "utf8");
