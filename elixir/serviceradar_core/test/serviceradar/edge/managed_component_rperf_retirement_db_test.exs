@@ -54,8 +54,21 @@ defmodule ServiceRadar.Edge.ManagedComponentRperfRetirementDbTest do
                component_id: "rperf-client-cert-#{suffix}",
                component_type: "rperf-client",
                partition_id: "default",
-               permissions: %{"publish" => ["metrics.rperf.>"]}
+               certificate_pem: self_signed_pem(),
+               permissions: %{
+                 publish: %{allow: ["metrics.rperf.>"], deny: []},
+                 subscribe: %{allow: [], deny: ["$SYS.>"]}
+               }
              })
+  end
+
+  defp self_signed_pem do
+    %{cert: der} =
+      :public_key.pkix_test_root_cert(~c"example-rperf-client",
+        validity: {{2026, 1, 1}, {2027, 6, 1}}
+      )
+
+    :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
   end
 
   test "keeps historical rperf-client rows readable" do
