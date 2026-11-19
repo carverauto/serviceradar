@@ -1,0 +1,88 @@
+{
+  "default_time_range": "last_24h",
+  "description": "Overview of synthetic HTTP API journey health, httptrace latency posture, TLS leaf certificate expiry status, and active HTTP/TLS alerts.",
+  "metadata": {
+    "category": "Synthetic HTTP"
+  },
+  "panels": [
+    {
+      "data_binding": {
+        "value": "total"
+      },
+      "display_config": {
+        "unit": "checks"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "position": 0,
+      "srql_query": "in:services stats:\"count() as total\"",
+      "title": "Monitored HTTP & TLS Checks",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "value": "failing"
+      },
+      "display_config": {
+        "unit": "checks"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "position": 1,
+      "srql_query": "in:services available:false stats:\"count() as failing\"",
+      "title": "Failing HTTP & TLS Probes",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "value": "open_alerts"
+      },
+      "display_config": {
+        "unit": "alerts"
+      },
+      "layout": {
+        "h": 3,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "position": 2,
+      "srql_query": "in:alerts status:open stats:\"count() as open_alerts\"",
+      "title": "Open HTTP & TLS Alerts",
+      "visual_config": {},
+      "visual_type": "stat"
+    },
+    {
+      "data_binding": {
+        "category": "available",
+        "value": "total"
+      },
+      "display_config": {},
+      "layout": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 3
+      },
+      "position": 3,
+      "srql_query": "in:services stats:\"count() as total by available\"",
+      "title": "Synthetic HTTP & TLS Availability Breakdown",
+      "visual_config": {},
+      "visual_type": "category"
+    }
+  ],
+  "slug": "http-api-and-tls-overview",
+  "title": "Synthetic HTTP & TLS Posture",
+  "variables": {},
+  "version": 1
+}

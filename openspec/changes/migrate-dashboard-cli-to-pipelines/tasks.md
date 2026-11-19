@@ -31,4 +31,4 @@
 - [x] 7.1 Update `docs/PLATFORM_SECURITY_HARDENING.md` operator runbook: cross out the "still on the shim by design" caveat for CLI device-auth and dashboard publish; note that the `Auth.RateLimiter` shim is gone.
 
 ## 8. Housekeeping
-- [ ] 8.1 Archive the predecessor `migrate-controllers-to-security-pipelines` change once it's no longer in the active list (if not already archived in the parallel audit-history-page change). Predecessor still has open OIDC/SAML wiring + smoke-test items, so this stays open.
+- [ ] 8.1 Archive the predecessor `migrate-controllers-to-security-pipelines` change once it's no longer in the active list (if not already archived in the parallel audit-history-page change). Predecessor still has open SSO callback wiring + smoke-test items, so this stays open.

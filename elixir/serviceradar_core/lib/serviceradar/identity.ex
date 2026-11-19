@@ -4,7 +4,7 @@ defmodule ServiceRadar.Identity do
 
   This domain is responsible for:
   - User management and profiles
-  - Authentication (password, OIDC, SAML, Gateway JWT)
+  - Authentication (password, OIDC, Gateway JWT)
   - API token management via OAuth2 client credentials
   - Session management via Guardian JWT
 
@@ -16,12 +16,10 @@ defmodule ServiceRadar.Identity do
   - `ServiceRadar.Identity.AuthSettings` - Instance-level SSO configuration
   - `ServiceRadar.Identity.AuthorizationSettings` - Default role and role mapping configuration
   - `ServiceRadar.Identity.AdminSecretMarker` - Rotation fingerprints for the bootstrap admin secret
-  - `ServiceRadar.Identity.SAMLConsumedAssertion` - Replay ledger for accepted SAML assertions
-  - `ServiceRadar.Identity.SAMLPendingRequest` - In-flight SAML logins, by RelayState
 
   ## Authentication
 
-  Authentication is handled by Guardian (JWT tokens) and Ueberauth (OIDC/SAML).
+  Authentication is handled by Guardian (JWT tokens) and Ueberauth (OIDC).
   See `ServiceRadarWebNG.Auth.Guardian` for token management.
 
   ## Authorization
@@ -52,8 +50,6 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.McpOAuthGrant
     resource ServiceRadar.Identity.McpOAuthCode
     resource ServiceRadar.Identity.McpOAuthRefreshToken
-    resource ServiceRadar.Identity.SAMLConsumedAssertion
-    resource ServiceRadar.Identity.SAMLPendingRequest
     resource ServiceRadar.Identity.DeviceAliasState
     resource ServiceRadar.Identity.UserGroup
     resource ServiceRadar.Identity.UserGroupMembership

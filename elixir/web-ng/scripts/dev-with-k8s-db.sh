@@ -124,7 +124,7 @@ if [[ -z "${CNPG_USERNAME}" || -z "${CNPG_PASSWORD}" ]]; then
   exit 1
 fi
 
-# App secrets — required to decrypt AshCloak fields (auth_settings OIDC/SAML secrets,
+# App secrets — required to decrypt AshCloak fields (auth_settings OIDC secrets,
 # credentials, etc.) that were encrypted by the in-cluster web-ng/core with CLOAK_KEY.
 # Without this, local Phoenix uses the dev fallback key and every auth_settings read
 # 500s with AshCloak FunctionClauseError on decrypt.

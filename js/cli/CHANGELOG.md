@@ -1,7 +1,12 @@
 # `@carverauto/serviceradar-cli` Changelog
 
-## Unreleased
+## 0.3.0
 
+- Solution Pack authoring and signing CLI: `serviceradar-cli pack <validate|build|keygen|sign|verify|index>`
+  for validating pack manifests, building deterministic `.srpack` archives,
+  generating Ed25519 keypairs, signing/verifying pack bundles, and generating
+  signed catalog `index.json` manifests.
+- Added the `serviceradar` bin alias alongside `serviceradar-cli` and `srcloud`.
 - `edge install leaf` and `edge install collector` require an enrolled host
   agent. They register a managed component and wait for agent certificate
   installation and service activation. They no longer apply a leaf `setup.sh`

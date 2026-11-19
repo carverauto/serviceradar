@@ -1,6 +1,7 @@
 """Bazel-native OCI images."""
 
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
@@ -112,6 +113,34 @@ declare_alpine_netutils_rootfs()
 
 # web-ng (Phoenix) -----------------------------------------------------------
 
+# Transparency-log trust for first-party plugin and add-on import
+# (ServiceRadarWebNG.Plugins.CosignVerifier): every accepted Rekor v1 key, copied from
+# docs/sigstore/rekor-keys, and the frozen pre-cutover digest allowlist. Kept identical to
+# the committed files by //build/contracts:rekor_key_consistency_test.
+pkg_tar(
+    name = "web_ng_sigstore_allowlist_layer",
+    files = {"//docs:sigstore/pre-cutover-first-party-digests.json": "pre-cutover-first-party-digests.json"},
+    mode = "0644",
+    package_dir = "/usr/share/serviceradar/sigstore",
+)
+
+pkg_tar(
+    name = "web_ng_sigstore_rekor_keys_layer",
+    srcs = ["//docs:sigstore/rekor-keys"],
+    mode = "0644",
+    package_dir = "/usr/share/serviceradar/sigstore/rekor-keys",
+)
+
+# One image layer; each part keeps its own package_dir (a dep is re-rooted under the
+# outer package_dir, so the outer tar stays at /).
+pkg_tar(
+    name = "web_ng_sigstore_layer",
+    deps = [
+        ":web_ng_sigstore_allowlist_layer",
+        ":web_ng_sigstore_rekor_keys_layer",
+    ],
+)
+
 file_layer_amd64(
     name = "sshca_signer_layer_amd64",
     src = "//go/cmd/tools/sshca-signer",
@@ -166,6 +195,7 @@ declare_web_ng_release_container_amd64(
     exposed_ports = ["4000/tcp"],
     extra_tars = [
         ":sshca_signer_layer_amd64",
+        ":web_ng_sigstore_layer",
     ],
     image_title = "serviceradar-web-ng",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-web-ng:local",

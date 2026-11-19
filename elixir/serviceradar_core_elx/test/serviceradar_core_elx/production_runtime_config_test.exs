@@ -32,7 +32,6 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
     ServiceRadar.Edge.RemoteAccessSessionReaperWorker,
     ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
-    ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Inventory.ExposureReconciliationWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
     ServiceRadar.Jobs.PruneStaleAgentsWorker,

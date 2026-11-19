@@ -599,6 +599,7 @@ jobs:
             cp docs/sigstore/rekor.pub "${RUNNER_TEMP}/sigstore/rekor.pub"
             cp -R docs/sigstore/rekor-keys "${RUNNER_TEMP}/sigstore/rekor-keys"
             cp -R docs/sigstore/pre-cutover-rekor-keys "${RUNNER_TEMP}/sigstore/pre-cutover-rekor-keys"
+            cp docs/sigstore/cutover.json docs/sigstore/pre-cutover-first-party-digests.json "${RUNNER_TEMP}/sigstore/"
             echo "SERVICERADAR_SIGSTORE_DIR=${RUNNER_TEMP}/sigstore" >> "${GITHUB_ENV}"
           fi
           cp scripts/ci/attach-signing-ledger.sh "${RUNNER_TEMP}/attach-signing-ledger.sh"
@@ -1196,12 +1197,22 @@ jobs:
             -f "ref=${RELEASE_TAG}" -f "inputs[tag]=${RELEASE_TAG}"
           echo "Dispatched image security scan for published images at ${RELEASE_TAG}."
 
+  solution-packs:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.dry_run != 'true' }}
+    uses: ./.github/workflows/solution-packs.yml
+    with:
+      release_tag: ${{ needs.publish.outputs.tag }}
+      release_id: ${{ needs.publish.outputs.release_id }}
+      dry_run: false
+    secrets: inherit
+
   # Keep release finalization off the privileged signing pool. Catalog and security
   # workflows attach assets in parallel; this job waits until every required upload
   # is visible before making the draft immutable.
   finalize:
-    needs: [publish, image-security-dispatch]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.image-security-dispatch.result == 'success' && needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
+    needs: [publish, image-security-dispatch, solution-packs]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.image-security-dispatch.result == 'success' && needs.solution-packs.result == 'success' && needs.publish.outputs.dry_run != 'true' && needs.publish.outputs.draft != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 95
     environment: release
@@ -1239,6 +1250,7 @@ jobs:
           required_assets=(
             "serviceradar-native-addon-index.json"
             "serviceradar-wasm-plugin-index.json"
+            "serviceradar-pack-index.json"
             "serviceradar-source-security.tar.gz"
             "serviceradar-image-security-${RELEASE_TAG}.tar.gz"
           )

@@ -74,5 +74,12 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
     domains: @domains,
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0",
-    modify_open_api: {ServiceRadarWebNGWeb.OpenAPI.DeclarativeCheckSpec, :merge_spec, []}
+    modify_open_api: {__MODULE__, :customize_open_api, []}
+
+  @doc false
+  def customize_open_api(spec, conn, opts) do
+    spec
+    |> ServiceRadarWebNGWeb.OpenAPI.DeclarativeCheckSpec.merge_spec(conn, opts)
+    |> ServiceRadarWebNGWeb.OpenAPI.SolutionPackSpec.merge_spec(conn, opts)
+  end
 end

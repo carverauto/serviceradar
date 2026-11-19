@@ -12,22 +12,19 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
 
   describe "record_successful_authentication/3" do
     @tag :web_ng_shared_fixture_db
-    test "persists the trusted OIDC and SAML authentication method" do
+    test "persists the trusted OIDC authentication method" do
       actor = SystemActor.system(:test)
+      user = user_fixture(%{email: "oidc-login@example.com"})
 
-      for provider <- [:oidc, :saml] do
-        user = user_fixture(%{email: "#{provider}-login@example.com"})
+      assert {:ok, recorded} =
+               SSOProvisioning.record_successful_authentication(user, :oidc, actor)
 
-        assert {:ok, recorded} =
-                 SSOProvisioning.record_successful_authentication(user, provider, actor)
+      assert recorded.authenticated_at
+      assert recorded.last_login_at
+      assert recorded.last_auth_method == :oidc
 
-        assert recorded.authenticated_at
-        assert recorded.last_login_at
-        assert recorded.last_auth_method == provider
-
-        assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
-        assert persisted.last_auth_method == provider
-      end
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.last_auth_method == :oidc
     end
 
     @tag :web_ng_shared_fixture_db
@@ -67,8 +64,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
           %{
             email: "sso-existing@example.com",
             display_name: "Original Name",
-            external_id: "saml|existing",
-            provider: :saml
+            external_id: "oidc|existing",
+            provider: :oidc
           },
           actor: actor
         )
@@ -78,15 +75,15 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
                  %{
                    email: "different@example.com",
                    name: "Updated Name",
-                   external_id: "saml|existing"
+                   external_id: "oidc|existing"
                  },
-                 %{"sub" => "saml|existing"},
-                 :saml,
+                 %{"sub" => "oidc|existing"},
+                 :oidc,
                  actor
                )
 
       assert found.id == existing.id
-      assert found.external_id == "saml|existing"
+      assert found.external_id == "oidc|existing"
     end
 
     @tag :web_ng_shared_fixture_db
@@ -113,9 +110,9 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
 
       assert {:error, :no_local_account} =
                SSOProvisioning.find_or_create_user(
-                 %{email: "newcomer2@example.com", name: "Newcomer", external_id: "saml|new-2"},
-                 %{"sub" => "saml|new-2", "email" => "newcomer2@example.com"},
-                 :saml,
+                 %{email: "newcomer2@example.com", name: "Newcomer", external_id: "oidc|new-2"},
+                 %{"sub" => "oidc|new-2", "email" => "newcomer2@example.com"},
+                 :oidc,
                  actor
                )
 

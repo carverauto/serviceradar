@@ -220,7 +220,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   active={
                     @current_path in ["/services", "/gateways"] or
                       (@current_path &&
-                         String.starts_with?(@current_path, "/inventory/public-endpoints"))
+                         (String.starts_with?(@current_path, "/services/") or
+                            String.starts_with?(@current_path, "/inventory/public-endpoints")))
                   }
                 />
               </li>
@@ -337,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/services", label: "Services", icon: "hero-bolt"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
       %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
+      %{href: "/catalog", label: "Solution Packs", icon: "hero-cube-transparent"},
       %{href: "/security", label: "Security", icon: "hero-shield-check"},
       %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
       %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},
@@ -576,6 +578,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/observability/flows"), do: "Network Flows"
   defp operations_page_title("/observability/flows/attributed"), do: "Attributed Flows"
   defp operations_page_title("/security"), do: "Security"
+  defp operations_page_title("/catalog"), do: "Solution Packs"
   defp operations_page_title("/spatial"), do: "FieldSurvey"
 
   defp operations_page_title(path) when is_binary(path) do
@@ -589,6 +592,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       String.starts_with?(path, "/settings") -> "Settings"
       String.starts_with?(path, "/observability") -> "Observability"
       String.starts_with?(path, "/security") -> "Security"
+      String.starts_with?(path, "/catalog") -> "Solution Packs"
       true -> "ServiceRadar"
     end
   end

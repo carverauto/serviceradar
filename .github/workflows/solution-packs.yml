@@ -1,0 +1,187 @@
+name: Publish Solution Packs
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag to build, sign, and attach solution packs to (for example, v1.4.22)."
+        required: true
+        type: string
+      release_id:
+        description: "Optional pre-resolved numeric GitHub Release ID."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Build, sign, verify, and index solution packs without uploading to GitHub Releases."
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to backfill signed solution packs onto (for example, v1.4.22)."
+        required: true
+        type: string
+      dry_run:
+        description: "Build, sign, verify, and index solution packs without uploading to GitHub Releases."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: solution-packs-${{ inputs.release_tag || github.ref_name || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: serviceradar-signing
+    environment: release
+    timeout-minutes: 30
+    env:
+      # ARC does not put the reserved GITHUB_TOKEN name in the step env.
+      # GH_TOKEN is the name that actually arrives on serviceradar-signing.
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
+      PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
+      PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Enforce release tag source
+        id: source
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_ID: ${{ inputs.release_id || '' }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          release_tag="${INPUT_RELEASE_TAG}"
+          ./scripts/validate-release-tag.sh "${release_tag}"
+
+          if [[ -n "${INPUT_RELEASE_ID}" && ! "${INPUT_RELEASE_ID}" =~ ^[0-9]+$ ]]; then
+            echo "Invalid release_id input: ${INPUT_RELEASE_ID}" >&2
+            exit 1
+          fi
+
+          expected_ref="refs/tags/${release_tag}"
+          git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
+          if ! git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
+          fi
+
+          tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
+          if [[ ! "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Unable to resolve commit for release tag ${release_tag}" >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF}" == "${expected_ref}" ]]; then
+            checkout_commit="$(git rev-parse HEAD^{commit})"
+            if [[ "${checkout_commit}" != "${tag_commit}" ]]; then
+              echo "Checked-out commit ${checkout_commit} does not match ${release_tag} commit ${tag_commit}" >&2
+              exit 1
+            fi
+          fi
+
+          file_version="$(git show "${tag_commit}:VERSION")"
+          file_version="${file_version%%[$'\r\n']*}"
+          if [[ "${release_tag}" != "v${file_version}" ]]; then
+            echo "Release tag ${release_tag} does not match VERSION (${file_version})" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+          if ! git merge-base --is-ancestor "${tag_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${tag_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
+          printf 'release_tag=%s\n' "${release_tag}" >> "${GITHUB_OUTPUT}"
+          printf 'tag_commit=%s\n' "${tag_commit}" >> "${GITHUB_OUTPUT}"
+          printf 'release_id=%s\n' "${INPUT_RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+          printf 'dry_run=%s\n' "${INPUT_DRY_RUN}" >> "${GITHUB_OUTPUT}"
+          echo "Validated ${release_tag} at commit ${tag_commit} from ${RELEASE_BASE_REF}."
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: js/cli/package-lock.json
+
+      - name: Build ServiceRadar CLI
+        working-directory: js/cli
+        run: |
+          set -euo pipefail
+          sfw npm ci
+          npm run build
+
+      - name: Package, sign, verify, index, and upload solution packs
+        env:
+          RELEASE_TAG: ${{ steps.source.outputs.release_tag }}
+          RELEASE_ID: ${{ steps.source.outputs.release_id }}
+          DRY_RUN: ${{ steps.source.outputs.dry_run }}
+          OUT_DIR: ${{ runner.temp }}/solution-packs-${{ steps.source.outputs.release_tag }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+
+          # Use OpenBao Transit on serviceradar-signing when no direct private key
+          # secret is configured, matching wasm-plugins.yml.
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
+            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              export OPENBAO_SIGNING_ALLOWED_REFS_REGEX='^refs/tags/v.*$'
+            fi
+            source ./scripts/ci/prepare-openbao-cosign-env.sh
+          fi
+
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY:-}" && -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "Missing solution pack signing key: set PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY or PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${PLUGIN_UPLOAD_SIGNING_KEY_ID:-}" ]]; then
+            echo "Missing solution pack signing key id. Set PLUGIN_UPLOAD_SIGNING_KEY_ID." >&2
+            exit 1
+          fi
+
+          publish_args=(
+            --skip-cli-build
+            --release-tag "${RELEASE_TAG}"
+            --repo "${GITHUB_REPOSITORY}"
+            --out-dir "${OUT_DIR}"
+          )
+          if [[ -n "${RELEASE_ID}" ]]; then
+            publish_args+=(--release-id "${RELEASE_ID}")
+          fi
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            publish_args+=(--dry-run)
+          fi
+
+          ./scripts/publish-solution-packs-release.sh "${publish_args[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF PLUGIN_UPLOAD_SIGNING_TRANSIT_KEY
+
+      - name: Retain solution pack release artifacts
+        if: ${{ success() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: solution-packs-${{ steps.source.outputs.release_tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/solution-packs-${{ steps.source.outputs.release_tag }}
+          if-no-files-found: error
+          retention-days: 30

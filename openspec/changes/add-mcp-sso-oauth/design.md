@@ -17,7 +17,7 @@ They:
 7. Refresh when the access token expires
 
 Demo SSO is Authentik OIDC (`forceLocalLogin: false`). Production customers
-use the same LoginPolicy (OIDC/SAML). The MCP client must not talk to
+use the same LoginPolicy (OIDC). The MCP client must not talk to
 Authentik's token endpoint with a ServiceRadar client secret; ServiceRadar
 must run authorize so LoginPolicy applies, then issue the JWT `ApiAuth`
 already understands.
@@ -80,17 +80,17 @@ already understands.
     "SSO once, then silent app-issued tokens." Reviews that require SSO on
     every grant will reject that. Short TTL is not a substitute: an 8h
     refresh still outlives an Authentik logout. The grant MUST store the
-    IdP session identifier (`sid` on OIDC id_token, SAML `SessionIndex`)
+    IdP session identifier (`sid` on the OIDC id_token)
     and, when the IdP issued one, an encrypted IdP refresh token. On
     `grant_type=refresh_token` the server MUST confirm that IdP session is
     still valid (IdP token refresh and/or introspection / userinfo) before
     minting a new Guardian access token. If the IdP session is gone, MCP
     refresh fails (`invalid_grant`) and the refresh family is revoked; the
     client must run authorize again (browser + SSO). Back-channel OIDC
-    logout / SAML SLO for that `sid` MUST revoke matching MCP grants
+    logout for that `sid` MUST revoke matching MCP grants
     immediately, not wait for the next refresh. Local-password-only
     deployments have no IdP session: refresh is TTL + rotation only.
-  - Fail closed: if the login method is OIDC/SAML but the IdP did not
+  - Fail closed: if the login method is OIDC but the IdP did not
     provide a session id or a way to check it, do not issue an MCP refresh
     token (access token only, 1h). Do not silently unbound-refresh.
   - Default refresh TTL remains 8 hours as a backstop, not as the SSO
@@ -137,9 +137,9 @@ Access token:
 Grant:
 
 - `user_id`, `client_id`, `scope`, `created_at`, `revoked_at`
-- `auth_method` (`oidc` | `saml` | `password`)
-- `idp_iss`, `idp_sid` (OIDC `sid` or SAML SessionIndex; required to
-  *issue* a refresh token when `auth_method` is oidc/saml)
+- `auth_method` (`oidc` | `password`)
+- `idp_iss`, `idp_sid` (OIDC `sid`; required to
+  *issue* a refresh token when `auth_method` is oidc)
 - encrypted IdP refresh token when the IdP issued one (Cloak; never log)
 - IdP access token only if needed for introspection, same encryption,
   short-lived, replace on successful IdP refresh
@@ -187,7 +187,7 @@ Grant:
     even after logout; that is the same as today's browser session
     cookies unless we add token revocation lists for access JWTs (out of
     scope; keep TTL short).
-- Risk: IdP does not send `sid` / SessionIndex or IdP refresh.
+- Risk: IdP does not send `sid` or IdP refresh.
   - Mitigation: fail closed — no MCP refresh token, 1h access only, client
     re-authorizes. Do not fall back to unbound refresh. Configure
     Authentik (demo) to include session claims / `offline_access` as

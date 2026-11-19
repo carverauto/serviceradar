@@ -160,7 +160,7 @@ Overview -> Object ID**.
 
 ### Group Overage
 
-If a user is a member of more than roughly 150 groups (200 for SAML), Entra
+If a user is a member of more than roughly 150 groups, Entra
 omits the `groups` claim entirely and sends a Graph API pointer instead:
 
 ```

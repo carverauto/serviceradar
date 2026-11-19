@@ -10,6 +10,7 @@ React/JS surface customer dashboards depend on).
 ```text
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import|list|status>
+serviceradar-cli pack      <validate|build|keygen|sign|verify|index>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 serviceradar-cli notifications <ensure-k8s-alerts>
 serviceradar-cli agent     <list>

@@ -111,3 +111,17 @@ Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:66,7
 # authorized through session or bearer authentication and no form action mutates state.
 Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:114,3173E02
 DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/device_live/discovery_sources_components.ex:341,7DB415F
+
+# The topology snapshot, details and search reads also accept POST for filters
+# too large for a query string. The actions change nothing, and every POST is
+# CSRF-checked by the :topology_api pipeline.
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1189,70BF4D9
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1196,1783385
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1208,23599DC
+
+# The socket origin check is the endpoint's `check_origin` (config/runtime.exs),
+# which defaults to the request host in production; the scanner only looks for
+# the option on each socket. The third socket is the dev-only live reloader.
+Config.CSWH: Cross-Site Websocket Hijacking,lib/serviceradar_web_ng_web/endpoint.ex:45,5A7497A
+Config.CSWH: Cross-Site Websocket Hijacking,lib/serviceradar_web_ng_web/endpoint.ex:49,1CC0362
+Config.CSWH: Cross-Site Websocket Hijacking,lib/serviceradar_web_ng_web/endpoint.ex:67,1D3EE54

@@ -111,6 +111,9 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionLoader do
     end
   end
 
+  # Reads only files shipped in this application's priv directory and named by
+  # its own index; no caller passes request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp read_file(path, source) do
     case File.read(path) do
       {:ok, body} -> {:ok, body}

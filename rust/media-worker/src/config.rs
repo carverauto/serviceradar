@@ -1,7 +1,9 @@
 //! Configuration types and CLI/environment parsing for `serviceradar-media-worker`.
 
+use crate::backend::{InferenceBackendKind, InferenceDevicePreference};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
+use crate::tracking::TrackerMode;
 use clap::Parser;
 use core::fmt::{self, Display, Formatter};
 use core::str::FromStr;
@@ -257,6 +259,9 @@ impl ModelPinConfig {
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     listen_addr: SocketAddr,
+    backend_kind: InferenceBackendKind,
+    model_dir: Option<PathBuf>,
+    device_preference: InferenceDevicePreference,
     execution_provider: ExecutionProvider,
     declared_gpu_sharing_mode: Option<GpuSharingMode>,
     min_gpu_vram_mb: u64,
@@ -264,6 +269,8 @@ pub struct WorkerConfig {
     index_concurrency: usize,
     text_embed_concurrency: usize,
     skip_unchanged_empty_scenes: bool,
+    tracker_mode: TrackerMode,
+    dedup_track_crops: bool,
     models: ModelPinConfig,
     control_plane_url: String,
     worker_auth: Option<WorkerAuthCredentials>,
@@ -286,6 +293,9 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 8096)),
+            backend_kind: InferenceBackendKind::Stub,
+            model_dir: None,
+            device_preference: InferenceDevicePreference::Auto,
             execution_provider: ExecutionProvider::Cuda,
             declared_gpu_sharing_mode: None,
             min_gpu_vram_mb: 1024,
@@ -293,6 +303,8 @@ impl Default for WorkerConfig {
             index_concurrency: 2,
             text_embed_concurrency: 4,
             skip_unchanged_empty_scenes: true,
+            tracker_mode: TrackerMode::ByteTrack,
+            dedup_track_crops: true,
             models: ModelPinConfig::default(),
             control_plane_url: "http://serviceradar-web-ng:4001".to_string(),
             worker_auth: None,
@@ -328,6 +340,21 @@ impl WorkerConfig {
         self
     }
 
+    pub fn with_backend_kind(mut self, kind: InferenceBackendKind) -> Self {
+        self.backend_kind = kind;
+        self
+    }
+
+    pub fn with_model_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.model_dir = dir;
+        self
+    }
+
+    pub fn with_device_preference(mut self, pref: InferenceDevicePreference) -> Self {
+        self.device_preference = pref;
+        self
+    }
+
     pub fn with_execution_provider(mut self, provider: ExecutionProvider) -> Self {
         self.execution_provider = provider;
         self
@@ -356,6 +383,16 @@ impl WorkerConfig {
 
     pub fn with_skip_unchanged_empty_scenes(mut self, skip: bool) -> Self {
         self.skip_unchanged_empty_scenes = skip;
+        self
+    }
+
+    pub fn with_tracker_mode(mut self, mode: TrackerMode) -> Self {
+        self.tracker_mode = mode;
+        self
+    }
+
+    pub fn with_dedup_track_crops(mut self, dedup: bool) -> Self {
+        self.dedup_track_crops = dedup;
         self
     }
 
@@ -394,6 +431,18 @@ impl WorkerConfig {
         self.listen_addr
     }
 
+    pub fn backend_kind(&self) -> InferenceBackendKind {
+        self.backend_kind
+    }
+
+    pub fn model_dir(&self) -> Option<&Path> {
+        self.model_dir.as_deref()
+    }
+
+    pub fn device_preference(&self) -> InferenceDevicePreference {
+        self.device_preference
+    }
+
     pub fn execution_provider(&self) -> ExecutionProvider {
         self.execution_provider
     }
@@ -420,6 +469,14 @@ impl WorkerConfig {
 
     pub fn skip_unchanged_empty_scenes(&self) -> bool {
         self.skip_unchanged_empty_scenes
+    }
+
+    pub fn tracker_mode(&self) -> TrackerMode {
+        self.tracker_mode
+    }
+
+    pub fn dedup_track_crops(&self) -> bool {
+        self.dedup_track_crops
     }
 
     pub fn models(&self) -> &ModelPinConfig {
@@ -498,6 +555,15 @@ pub struct CliArgs {
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_PORT", default_value_t = 8096)]
     port: u16,
 
+    #[arg(long, env = "MEDIA_WORKER_BACKEND")]
+    backend: Option<String>,
+
+    #[arg(long, env = "MEDIA_WORKER_MODEL_DIR")]
+    model_dir: Option<PathBuf>,
+
+    #[arg(long, env = "MEDIA_WORKER_DEVICE", default_value = "auto")]
+    device: String,
+
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER")]
     execution_provider: Option<String>,
 
@@ -533,6 +599,17 @@ pub struct CliArgs {
         default_value_t = true
     )]
     skip_unchanged_empty_scenes: bool,
+
+    #[arg(long, env = "MEDIA_WORKER_TRACKER", default_value = "bytetrack")]
+    tracker: String,
+
+    #[arg(
+        long,
+        env = "MEDIA_WORKER_DEDUP_TRACK_CROPS",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    dedup_track_crops: bool,
 
     #[arg(
         long,
@@ -679,6 +756,20 @@ impl CliArgs {
             _ => SocketAddr::from(([0, 0, 0, 0], self.port)),
         };
 
+        let model_dir = non_empty_path(self.model_dir);
+        let backend_kind = match non_empty_opt(self.backend) {
+            Some(raw) => InferenceBackendKind::from_str(&raw)?,
+            None => {
+                if model_dir.is_some() {
+                    InferenceBackendKind::Candle
+                } else {
+                    InferenceBackendKind::Stub
+                }
+            }
+        };
+        let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
+
         let raw_provider = self
             .execution_provider
             .as_deref()
@@ -727,6 +818,9 @@ impl CliArgs {
 
         Ok(WorkerConfig {
             listen_addr,
+            backend_kind,
+            model_dir,
+            device_preference,
             execution_provider,
             declared_gpu_sharing_mode,
             min_gpu_vram_mb: self.min_gpu_vram_mb,
@@ -734,6 +828,8 @@ impl CliArgs {
             index_concurrency,
             text_embed_concurrency: self.text_embed_concurrency,
             skip_unchanged_empty_scenes: self.skip_unchanged_empty_scenes,
+            tracker_mode,
+            dedup_track_crops: self.dedup_track_crops,
             models,
             control_plane_url: self.control_plane_url,
             worker_auth,

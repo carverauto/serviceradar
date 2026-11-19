@@ -828,13 +828,35 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     end
   end
 
-  def verify_cosign_signature(nil, _digest), do: {:error, :oci_ref_required}
-  def verify_cosign_signature(_ref, nil), do: {:error, :oci_digest_required}
+  @doc """
+  Verify the classic Cosign `.sig` signature of `ref` at `digest`.
 
-  def verify_cosign_signature(ref, digest) do
+  Fetches the `.sig` manifest itself (`<repository>:sha256-<hex>.sig`, the tag cosign
+  reads) so the verifier can decide from the signature whether its transparency-log
+  receipt is required. Returns the receipt status to store on the imported package.
+  """
+  def verify_cosign_signature(_repo, nil, _digest), do: {:error, :oci_ref_required}
+  def verify_cosign_signature(_repo, _ref, nil), do: {:error, :oci_digest_required}
+
+  def verify_cosign_signature(repo, ref, digest) do
     verifier = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, CosignVerifier)
-    verifier.verify(%{ref: ref, digest: digest})
+
+    with {:ok, signature_manifest} <- fetch_signature_manifest(repo, ref, digest) do
+      verifier.verify(%{ref: ref, digest: digest, signature_manifest: signature_manifest})
+    end
   end
+
+  defp fetch_signature_manifest(repo, ref, "sha256:" <> hex) do
+    with {:ok, parsed} <- parse_oci_ref(ref) do
+      case fetch_oci_manifest(repo, %{parsed | reference: "sha256-#{hex}.sig"}) do
+        {:ok, manifest, _digest} -> {:ok, manifest}
+        {:error, {:oci_manifest_http_error, 404}} -> {:error, :cosign_signature_missing}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  defp fetch_signature_manifest(_repo, _ref, _digest), do: {:error, :invalid_oci_digest}
 
   def verify_declared_digest(declared, actual) do
     case {normalize_digest(declared), normalize_digest(actual)} do

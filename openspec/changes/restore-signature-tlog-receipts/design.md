@@ -23,7 +23,44 @@ What was established while writing this change (read-only checks, 2026-11-17):
   `k8s/kyverno/argocd-application.yaml`), and Kyverno v1.17.1 builds against cosign v3.0.4.
   `verify-serviceradar-images` has a `keys` attestor with no `rekor` block.
 
-## Decision 1: Produce the receipt with cosign's legacy upload path, pinned to Rekor v1
+Established on 2026-11-18, after the amendment to a self-hosted log:
+
+- **Public-good Rekor v1 cannot be scanned in full.** It grew by 4,166 entries in 13 seconds and by
+  919 in 3 seconds (about 300 a second, 1.1 million an hour). `rekor_monitor` reads entries ten at
+  a time, sequentially (`GetEntriesByIndexRange`). From a workstation, a 10-entry
+  `POST /api/v1/log/entries/retrieve` took 9.8 to 26.8 seconds and about 55 KB; a single-entry
+  `GET /api/v1/log/entries?logIndex=` took 3.2 to 7.9 seconds and about 5.5 KB. One hour of log is
+  about 110,000 requests and 6 GB, which takes far longer than an hour at any interval.
+- **ServiceRadar runs its own Rekor v1** at `https://rekor.serviceradar.cloud`
+  (`carverauto/gitops` `k8s/sigstore`, Argo application `sigstore`): Trillian on MySQL, tree
+  `7401445772329872027`, 46 entries on 2026-11-18. Rekor signs with the OpenBao Transit key
+  `rekor`, in the same OpenBao that holds `cosign-release`. The gitops README records that the
+  Rekor and Fulcio OpenBao tokens expire around 2026-12-01 (32-day cluster maximum TTL) unless
+  reminted or moved to Kubernetes auth.
+- **The self-hosted log's key** was read with
+  `curl https://rekor.serviceradar.cloud/api/v1/log/publicKey` (also with `?treeID=7401445772329872027`,
+  byte-identical) on 2026-11-18 17:04 UTC. It is an ECDSA P-256 key with log ID
+  `a8839837a73a6b28ca5102be67a874e8f0aa324a694320fa08fd55f9167b12c9`. The live signed tree head
+  (`GET /api/v1/log`, size 46) verifies under it with `openssl dgst -sha256 -verify`, and its
+  signature's key hint is `a8839837`, the first four bytes of that log ID.
+- **Demo already admits a `.sig` with the annotation.** `serviceradar-rtsp-replayer` runs in `demo`
+  under `verify-serviceradar-images` (Enforce) with a `.sig` whose one layer carries a
+  public-good receipt, and `serviceradar-cnpg` (whose digest is unchanged from v1.5.3 to v1.5.6)
+  carries public-good receipts on two of its three layers. Both come from earlier manual
+  `cosign sign` runs. Release verification therefore meets reused signatures with public-good
+  receipts.
+
+## Decision 1: Produce the receipt with cosign's legacy upload path, pinned to the self-hosted Rekor v1
+
+**Amended 2026-11-18.** The pinned Rekor v1 URL is `https://rekor.serviceradar.cloud`, not
+public-good Rekor. The mechanism below is unchanged. When that log is unreachable, rejects the
+upload, or answers without a SET or with another log ID, signing fails and the release stops;
+there is no fallback to another log. Re-read against cosign v3.1.4: `SignBlobCmd` always signs
+through sigstore-go `cbundle.SignData`; with `--use-signing-config=false`,
+`NewSigningConfigFromKeyOpts` builds a signing config holding `--rekor-url` as a Rekor v1 service,
+and the legacy `--bundle` file is built from the protobuf entry by
+`RekorBundleFromProtoTlogEntry` (SET from `inclusionPromise`, `logID` as hex). The outcome this
+decision relies on holds.
 
 `cosign_sign_blob_to_files` today runs `cosign sign-blob --tlog-upload=true --key ... --bundle`
 with cosign v3.0.3 defaults. Under `--use-signing-config=true` (the default), cosign takes the log
@@ -80,35 +117,74 @@ annotation and copy the `.sig` by digest, so an extra annotation passes through 
 reconcile path must keep its "verified existing signature is reused" rule: a re-run must not
 re-sign, and it cannot replace an immutable tag.
 
-## Decision 3: Kyverno keeps working without a policy change, and stops depending on online lookups
+## Decision 3: Kyverno verifies the self-hosted receipt offline with the pinned key
+
+**Amended 2026-11-18. Requires a `carverauto/gitops` policy change that is live on demo before
+the cutover release is cut.**
 
 From the Kyverno v1.17.1 source (`pkg/engine/internal/imageverifier.go`): a `keys` attestor with no
-`rekor` block sets `RekorURL=https://rekor.sigstore.dev` and `IgnoreTlog=false`.
-`pkg/cosign/cosign.go` then builds a Rekor client and loads the Rekor public keys from cosign's TUF
-client (`cosign.GetRekorPubs`). It sets no `TrustedMaterial`.
+`rekor` block sets `RekorURL=https://rekor.sigstore.dev` and `IgnoreTlog=false`, and
+`pkg/cosign/cosign.go` loads the Rekor public keys from cosign's TUF client (`getRekorPubs` with an
+empty key calls `cosign.GetRekorPubs`). With a `rekor` block, `url`, `pubkey` and `ignoreTlog` are
+taken from it, and a non-empty `pubkey` replaces the TUF keys. There is no offline flag.
 
-In cosign v3.0.4 `verifySignature` (`pkg/cosign/verify.go`), with `IgnoreTlog=false` it calls
-`VerifyBundle` first:
+In cosign `verifySignature`, with `IgnoreTlog=false`, `VerifyBundle` runs first:
 
-- no annotation: `VerifyBundle` returns `false, nil`, and cosign falls back to an **online** Rekor
-  lookup (`tlogValidateEntry`). That is what demo admission does for every image today, inside a
-  30-second webhook timeout.
-- annotation present: cosign compares the logged signature and public key, verifies the SET against
-  the TUF Rekor key and checks the payload hash, all offline. It records "Existence of the claims in
-  the transparency log was verified offline".
+- annotation present and its log ID among the Rekor keys: the receipt is checked offline (signature,
+  key, payload hash, SET). No network call.
+- annotation present but its log ID unknown: `VerifyBundle` returns an error, there is no online
+  fallback, and the image is denied.
+- no annotation: cosign falls back to an online lookup at `RekorURL`.
 
-The annotation therefore removes a network dependency from admission. It does add a new failure
-mode: a present but malformed or mismatched annotation makes `VerifyBundle` return an error, with
-no online fallback, and the image is denied. The release verification gate (Decision 4) runs the
-same offline check before promotion to close that.
+The current policy (`k8s/kyverno/base/verify-serviceradar-images.yaml`: one `keys` attestor, no
+`rekor` block) is therefore pointed at the online public-good log and trusts only the TUF
+public-good keys. A cutover-release image, whose receipt names the self-hosted log, would be
+**denied**. Pre-cutover images keep being admitted by the online public-good lookup or, for
+`serviceradar-rtsp-replayer`, by its public-good annotation.
 
-`docs/agent-runbooks.md` already documents manual demo signing with
-`cosign sign --new-bundle-format=false --use-signing-config=false --tlog-upload=true`. That command
-attaches this same annotation through cosign's own code, so annotated `.sig` signatures may already
-have gone through demo admission. Whether they did is **unverified**: nothing here checked an
-admitted digest.
+The policy changes as follows (`count: 1`, two `keys` entries with the same release key):
+
+1. **Receipt entry:** a `keys` attestor with the release key, `rekor.pubkey` set to the pinned
+   self-hosted key (`docs/sigstore/rekor.pub`), `ignoreTlog: false`, and no `rekor.url`. An image
+   whose signature carries a self-hosted receipt is verified offline against the pinned key.
+2. **Pre-cutover entry (transition only):** today's configuration, the public-good default. It
+   admits an image whose signature predates the cutover through the existing online public-good
+   lookup or its public-good annotation, exactly as now, until it is removed.
+
+The Kyverno v1.17.1 limit, stated plainly: the Rekor `url` field defaults to
+`https://rekor.sigstore.dev` when unset (CRD default), and Kyverno has no offline switch. An image
+**without** a receipt therefore makes the receipt entry do an online public-good lookup. That
+lookup can never pass the receipt entry, because the entry verifies only against the pinned
+self-hosted key. So no admission call ever reaches the self-hosted Rekor, and an image with a
+self-hosted receipt is verified offline. An image with neither a self-hosted receipt nor a
+public-good record is denied by both entries, which is today's bar.
+
+**Removal of the transition entry.** Entry 2 is removed once every image admitted in demo carries
+a self-hosted receipt. This is checked against the running images, not assumed: an image whose
+digest does not change (for example `serviceradar-cnpg`, unchanged since v1.5.3) keeps its
+pre-cutover signature until it is rebuilt. After removal no admitted image causes any Rekor
+lookup; only an image without a receipt, which is denied, still triggers the public-good lookup
+described above.
+
+**Ordering.** The policy change SHALL be live on demo before the cutover release (Decision 9) is
+cut, because the current policy denies a self-hosted receipt and the two-entry policy denies
+nothing the current one admits. A `carverauto/gitops` PR implementing it is drafted with this
+work; a person merges and applies it. The release gate (Decision 4) checks the same receipt
+offline before promotion.
+
+Rejected: `ignoreTlog: true`. It would admit an image signed with the release key but logged
+nowhere.
 
 ## Decision 4: Verify receipts offline with a pinned Rekor key, never with TUF
+
+**Amended 2026-11-18.** Key selection by log ID now has two sources (Decision 5). Import, and a
+signature created in the current run, accept only `docs/sigstore/rekor-keys/` (the self-hosted
+log); a created signature whose receipt names any other log fails. A **reused** signature whose
+receipt names the public-good log is verified in receipt-required mode against
+`docs/sigstore/pre-cutover-rekor-keys/` and accepted only when its SET-signed `integratedTime` is
+before the cutover time pinned in `docs/sigstore/cutover.json` (the v1.5.8 tag time, pinned by the implementation PR from the real tag); a later public-good receipt fails. That set is never shipped and never accepted at import. A
+reused signature whose receipt names a log in neither set fails. A verifier never calls a Rekor:
+both modes run offline, and a test proves that no request reaches a Rekor URL during verification.
 
 There are exactly two command shapes.
 
@@ -124,15 +200,22 @@ cosign verify --new-bundle-format=false --offline=true --key <release key> \
 
 with no `--trusted-root` and no `--insecure-ignore-tlog` flag. This mode is not conditional on a
 receipt being present: a missing receipt fails closed. Both `CosignVerifier` and release
-verification read `logID` from the annotation, select the matching key file from the retained key
-set (Decision 5; the image copy at import, `docs/sigstore/rekor-keys/` in release verification) and
-pass it as `SIGSTORE_REKOR_PUBLIC_KEY`, so a receipt under an older accepted log still verifies,
-including a post-cutover signature reused after a Rekor rotation. A missing annotation or a log ID
-with no file in the set fails before cosign runs.
+verification read `logID` from the annotation, select the matching key file (Decision 5) and pass
+it as `SIGSTORE_REKOR_PUBLIC_KEY`, so a receipt under an older accepted log still verifies,
+including a post-cutover signature reused after a Rekor rotation. The key is selected from:
+
+- at import: only the image copy of `docs/sigstore/rekor-keys/`;
+- in release verification, for a signature created in the run: only `docs/sigstore/rekor-keys/`;
+- in release verification, for a reused signature: `docs/sigstore/rekor-keys/`, or
+  `docs/sigstore/pre-cutover-rekor-keys/` when the receipt names the public-good log.
+
+A missing annotation, or a log ID with no file in the sets allowed for that case, fails before
+cosign runs.
 
 **(b) Key-only mode.** Used by `CosignVerifier` only for digests on the frozen pre-cutover
 allowlist, which then records `absent_allowlisted`, and by release verification only for a
-reused signature that carries no receipt, which can only be pre-cutover. A digest whose signature
+reused signature that carries no receipt and is either a container image or a Wasm plugin or native
+add-on digest on the frozen pre-cutover allowlist. A digest whose signature
 carries a receipt is always verified in receipt-required mode and recorded as `verified`, never in
 key-only mode and never as `absent_allowlisted`. It is #6778's command unchanged: `--insecure-ignore-tlog=true`, no Rekor
 key, no `SIGSTORE_REKOR_PUBLIC_KEY`.
@@ -159,45 +242,45 @@ one (Decision 2). The release verification scripts (`verify-oci-publish.sh`,
 - a digest in the created set is verified in receipt-required mode, so a current-run signature
   published without its receipt fails;
 - a digest in the reused set is verified in receipt-required mode if its signature carries a
-  receipt, and in key-only mode if it does not. A reused signature without a receipt can only
-  predate the cutover release (Decision 2), whether for an image, a native add-on or a Wasm plugin,
-  and is exempt from the receipt check, as today;
-- a digest in neither set fails closed. Kyverno remains the admission gate for images. The import allowlist (Decision 9) covers only
-Wasm plugin and native add-on digests and is not consulted by release verification.
+  receipt (a public-good receipt only if integrated before the pinned cutover time), and in key-only
+  mode if it does not. Reuse alone does not prove a signature predates the cutover: a reused
+  receipt-less Wasm plugin or native add-on digest is accepted only when it is on the frozen
+  pre-cutover allowlist (Decision 9) and fails otherwise; a reused receipt-less container image is
+  exempt from the receipt check, because Kyverno admits images;
+- a digest in neither set fails closed. Kyverno remains the admission gate for images. The
+  allowlist (Decision 9) covers only Wasm plugin and native add-on digests; release verification
+  consults it for reused receipt-less digests of those kinds.
 
 ## Decision 5: The pinned Rekor key and how it is updated
 
+**Amended 2026-11-18** for the self-hosted log.
+
 - **Source of truth:** `docs/sigstore/rekor-keys/` holds the full accepted key set, one PEM file
-  per accepted Rekor v1 log ID, named `<logID>.pub`. At the start it holds one key, the public-good
-  Rekor v1 key whose log ID is `c0d23d6a...801d`. `docs/sigstore/rekor.pub` is the key of the log
-  the signer currently writes to, byte-identical to that log's file in the set.
-  `cosign_export_trust_overrides` already exports `docs/sigstore/rekor.pub` as
-  `SIGSTORE_REKOR_PUBLIC_KEY` when the file exists, so the signer picks it up without new wiring
-  and its own post-upload check uses the same key. The release verifiers, like `CosignVerifier`,
-  select the key from `docs/sigstore/rekor-keys/` by the receipt's log ID (Decision 4).
+  per accepted Rekor v1 log ID, named `<logID>.pub`. It holds the self-hosted log's key
+  (`a8839837...12c9`). `docs/sigstore/rekor.pub` is the key of the log the signer writes to,
+  byte-identical to that log's file in the set.
+- **Pre-cutover receipts:** the public-good key (`c0d23d6a...801d`) is not accepted for new
+  receipts or at import. Accepting it would let someone with the release key log a signature in the
+  public log, which the monitor does not watch, and import it. It is kept in
+  `docs/sigstore/pre-cutover-rekor-keys/` and used only by release verification for a **reused**
+  signature whose receipt names it (the manual-signing receipts in Context). It is not shipped in
+  the web-ng image.
 - **Image copy:** the web-ng image carries the whole `docs/sigstore/rekor-keys/` set at a fixed
-  path. `runtime.exs` points `first_party_plugin_import` at it. There is no runtime override: no
-  operator-supplied mounted file, setting or environment variable replaces the pinned keys. The keys
-  change only through a reviewed change of `docs/sigstore/rekor-keys/` (and `docs/sigstore/rekor.pub`
-  with it) that ships in a web-ng image. A `build/contracts` test keeps the image copy of every key
-  in the set byte-identical to the committed set, and `docs/sigstore/rekor.pub` byte-identical to
-  one member of it, as `first_party_plugin_cosign_key_consistency_test` does for `docs/cosign.pub`.
-- **Initial value:** the key comes from Sigstore's signed TUF `trusted_root.json` (`tlogs` entry
-  whose `logId` matches), not from a Rekor `/api/v1/log/publicKey` response. The commit records the
-  TUF root version it was taken from.
-- **Update process:** the monitor workflow (Decision 7) also fetches the current public-good
-  `trusted_root.json` through TUF once a day. It compares the Rekor v1 `tlogs` entries with the
-  pinned keys. It alerts when a new Rekor v1 key appears, the pinned key's `validFor.end` is set, or
-  the pinned key is removed. A person then adds the new key to `docs/sigstore/rekor-keys/` in a
-  reviewed PR, keeps every key whose log ID is still accepted, and points `docs/sigstore/rekor.pub`
-  at the log the signer writes to from then on. The change ships in the next release. A rotation
-  never drops a key that an accepted receipt names. `SIGSTORE_REKOR_PUBLIC_KEY` holds one PEM key,
-  so `CosignVerifier` reads `logID` from the annotation, selects the matching key file from the
-  set, and rejects a log ID with no file in the set before it runs cosign.
-- **Air-gapped installs** get a new key only by upgrading. Sigstore keeps validity windows on old
-  keys, so a receipt verified against the key that was valid at `integratedTime` stays valid after
-  a rotation. A rotation therefore affects only newly signed releases, which reach an install
-  together with the web-ng release that carries the new key.
+  path. There is no runtime override: no operator-supplied mounted file, setting or environment
+  variable replaces the pinned keys. A `build/contracts` test keeps the image copy of every key in
+  the set byte-identical to the committed set, and `docs/sigstore/rekor.pub` byte-identical to one
+  member of it.
+- **Initial value:** the key is read from the self-hosted log's `GET /api/v1/log/publicKey`
+  endpoint and accepted only when the log's current signed tree head verifies under it and names
+  it by key hint. The commit records the URL, the time, the tree ID and the tree size it was
+  checked against (Context).
+- **Update process:** the monitor workflow (Decision 7) compares the key the log serves with the
+  pinned one on every run and alerts on a difference. A key change follows a reviewed PR that adds
+  the new key to `docs/sigstore/rekor-keys/`, keeps every key an accepted receipt names, and points
+  `docs/sigstore/rekor.pub` at the new key. The change ships in the next release.
+- **Air-gapped installs** get a new key only by upgrading. A receipt verifies against the key that
+  was pinned when it was issued, so a rotation affects only newly signed releases, which reach an
+  install together with the web-ng release that carries the new key.
 
 ## Decision 6: Upgrade cosign in signer and image together
 
@@ -216,28 +299,50 @@ and v3.0.4.
 
 ## Decision 7: The monitor
 
-**What runs.** `.github/workflows/rekor-signing-monitor.yml`, scheduled at a configured scan
-interval, on
-`arc-runner-set`, with `permissions: contents: read, actions: read, issues: write`. It runs
-`rekor_monitor` from `sigstore/rekor-monitor`, built from a pinned commit with a verified checksum
-(the project publishes no release tags). The scan interval is hourly unless the measurement in
-Open Question 1 forces a longer one. Its config has
-`monitoredValues.fingerprints: [<hex SHA-256 of the DER PKIX release public key>]`. The monitor
-verifies log consistency from the previous checkpoint to the current one, and lists every new entry
-whose key fingerprint matches. The reusable workflow `rekor-monitor` publishes is not used directly,
-because a called workflow fixes its own `runs-on` and this one must run on ARC. The reusable
-workflow keeps its checkpoint as a workflow artifact, and so does this one, with retention longer
-than the schedule interval.
+**Amended 2026-11-18.** The monitor scans the self-hosted log, not public-good Rekor. That log holds
+only ServiceRadar's entries (46 on 2026-11-18), so every run reads the whole log. The scan
+interval is one hour. Open Question 1 is resolved by this change of log: the measurement in
+Context shows the public log cannot be scanned in full. Where the text below says "Rekor v1" or
+"the log", it means the self-hosted log.
+
+**What runs.** `.github/workflows/rekor-signing-monitor.yml`, scheduled hourly on
+`arc-runner-set`, with `permissions: contents: read, actions: read, issues: write`. It runs a
+project-owned scanner, `build/ci/rekor_signing_monitor.py`. `rekor_monitor` from
+`sigstore/rekor-monitor` is not used: it verifies checkpoints only through a TUF trusted root,
+which does not list the self-hosted log. Each run:
+
+- reads every entry of the self-hosted log, recomputes the RFC 6962 Merkle root, and checks it
+  against the log's signed tree head, which must verify under `docs/sigstore/rekor.pub`; a tree
+  head that does not verify, or a recomputed root that does not match it, fails the run and
+  alerts;
+- requires the previous checkpoint to be a prefix of the log (same leaves up to its size, same
+  root); only a `bootstrap=true` dispatch while no checkpoint exists skips this check. Every run
+  other than a bootstrap dispatch, scheduled or manual, that finds no checkpoint artifact, a
+  checkpoint that is not a prefix, a tree head that does not verify or a root that does not match
+  fails, alerts and does not replace the checkpoint; a bootstrap dispatch while a checkpoint exists
+  still applies the prefix check and, when the stored checkpoint is not a prefix, fails, alerts and
+  keeps the stored artifact. Every failed run, bootstrap included, writes no checkpoint. The checkpoint artifact is retained 90 days,
+  as long as the signing ledgers, and every successful run replaces it, carrying forward the
+  per-entry decisions and the first checkpoint's integrated time; it expires only if the monitor
+  stops for 90 days;
+- checks that `GET /api/v1/log/publicKey` still serves `docs/sigstore/rekor.pub` (Decision 5);
+- selects every release-key entry (public key `docs/cosign.pub`) in the whole log, including
+  entries integrated before the first checkpoint, and judges each as below.
+
+**Bootstrap.** The first checkpoint is seeded only by an explicit manual `workflow_dispatch` with
+input `bootstrap=true`, started and reviewed by a person, never automatically. The bootstrap run
+verifies the signed tree head under the pinned key, judges the whole log as every run does, and
+writes the checkpoint only if it succeeds; a failed bootstrap writes nothing. Scheduled runs never bootstrap.
 
 The rejected alternative is Rekor's `POST /api/v1/index/retrieve` search by public key. It is cheap,
 but Rekor's OpenAPI marks it deprecated, experimental and "may be incomplete". A monitor that can
 silently miss entries does not meet the AGENTS.md rule that a verification must be able to fail.
 
 **What counts as expected.** Every signing run writes a signing ledger: one JSON line per
-signature, written **before** `cosign sign-blob` is called. The line holds the payload SHA-256, the
+created signature, written **before** `cosign sign-blob` is called; this is the `sign` line. It holds the payload SHA-256, the
 subject `repo@digest` (or the file name for `SHA256SUMS`), the workflow, the run ID and attempt, and
 the time. After signing, a second line adds the returned `logIndex` and entry UUID. A digest whose
-existing signature is reused gets one line marking it reused instead, so the ledger records for
+existing signature is reused gets one reused line instead, which is not a `sign` line, so the ledger records for
 every digest whether its signature was created or reused in the run. The ledger is
 uploaded with `if: always()` as a workflow artifact named per run attempt, retained 90 days, and
 for tag runs it is also attached to the GitHub release.
@@ -249,14 +354,22 @@ the ledger.
 
 A Rekor entry is pending while a run of any release-key signing workflow that was active at the
 entry's `integratedTime` (started before it, and still running or ended after it) is in progress.
-It is explained only when it is a `hashedrekord` whose `data.hash` equals a payload SHA-256 in a
-published ledger of one of those runs, or when the acknowledged-entries file lists it. Because the
+It is explained when it is a `hashedrekord` whose `data.hash` equals the payload SHA-256 of a
+`sign` line in a published ledger of one of those runs, when the acknowledged-entries file lists it, or when the
+monitor's checkpoint state already records it as explained by a ledger match an earlier run
+found. An acknowledgement explains an entry only while the file lists it, so a retracted
+acknowledgement restores detection. Because the
 ledger is
 uploaded only when the job ends, the monitor does not decide on an entry while a release-key
 signing run that was active at its `integratedTime` is still in progress: the entry stays pending,
-and no alert is raised. Once every such run has ended, the entry is explained if one of their
-ledgers holds its payload hash, and unexplained otherwise. A pending entry is kept in the
-monitor's state, next to the checkpoint, so later scans re-evaluate it.
+and no alert is raised. Once every such run has ended, the entry is explained by any of those
+three, and unexplained otherwise. The monitor keeps each entry's state
+in its checkpoint state: pending, explained with its reason (the ledger run or the
+acknowledgement), or reported. Later scans re-evaluate pending and reported entries and every
+entry explained by acknowledgement, so a stored acknowledgement decision never suppresses an alert
+once the file no longer lists the entry; an entry
+explained by a ledger stays explained after that run and its 90-day ledger artifact age out of the
+lookback.
 
 **False positives.**
 
@@ -281,13 +394,14 @@ time, payload hash and a link to the entry. Every scan re-checks the open `signi
 issues, and when a later scan finds an entry explained (its ledger became visible, or it was
 acknowledged) the monitor closes that entry's issue with a comment naming the explaining run or
 acknowledgement. The workflow also posts to Discord through the
-existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_watch.py` does. Open
-Question 2 asks whether security alerts should have their own channel.
+existing `CI_FAILURE_DISCORD_WEBHOOK_URL` secret, as `build/ci/scheduled_job_watch.py` does.
 
 **The monitor must be able to fail.**
 
-- A run that fails (log inconsistency, Rekor unreachable, checkpoint artifact missing, bad config)
-  fails the workflow, opens an issue and posts to Discord.
+- A run that fails (a tree head that does not verify under the pinned key or a recomputed root
+  that does not match it, Rekor unreachable, checkpoint not a prefix of the log, checkpoint
+  artifact missing on any run other than a bootstrap dispatch, bad config) fails the workflow,
+  opens an issue, posts to Discord and writes no checkpoint; this includes a bootstrap dispatch.
 - The daily scheduled job watch (`.github/workflows/scheduled-job-watch.yml`, ARC, Discord) also
   reports the monitor when its last successful run is older than three scan intervals (three hours
   at the hourly default). `build/ci/scheduled_job_watch.py` only reads BuildBuddy commit statuses
@@ -296,22 +410,23 @@ Question 2 asks whether security alerts should have their own channel.
   API and finds the last successful one; `scheduled-job-watch.yml` gains `actions: read` for it. A
   monitor that stopped running is then noticed even if no run is left to report on itself.
 - *Blindness canary:* every ledger line with a `logIndex` from a signing run that ended more than
-  two scan intervals ago (two hours at the hourly default), whose entry was integrated after the monitor's first retained checkpoint, must
-  have been seen by the monitor as a matching entry. Entries integrated before that checkpoint
-  were never in the monitor's scan range (see Historical entries) and are not checked. A ledger entry the monitor
-  never saw means the monitor is blind (wrong fingerprint, broken scan) or the receipt is bogus.
+  two scan intervals ago (two hours at the hourly default), whose entry was integrated after the first checkpoint's integrated time recorded once in
+  monitor state, must
+  have been seen by the monitor as a matching entry. The canary does not check ledger lines whose
+  entry was integrated before that checkpoint; this lower bound applies only to the canary, and
+  those entries are still read and judged on every run like any other. A ledger entry the monitor
+  never saw means the monitor is blind (wrong release key, broken scan) or the receipt is bogus.
   Either way it alerts. Each release thereby proves the monitor works.
 
-**Historical entries.** `rekor-monitor` starts from the latest checkpoint. Entries made before the
-first monitor run are not scanned. That is acceptable, because the ledger begins in the same
-change; the gap is recorded in `docs/sigstore/README.md`. The monitor keeps the integrated time of
-its first retained checkpoint in its state, and the blindness canary uses it as its lower bound.
-
-**Unverified:** how long an hourly scan of public-good Rekor v1 takes on an ARC runner, and how
-much it downloads. The first task measures it before the schedule is enabled. If an hourly scan
-does not fit, the fallback is a less frequent scan with a longer window, not the index search.
-A high scan cost never removes the scheduled release-key monitor; only the scan interval may grow,
-with a correspondingly longer window.
+**Historical entries.** Every run, the bootstrap run included, reads and judges every release-key
+entry in the whole log, including entries integrated before the first checkpoint. Each needs a
+`sign` line in a ledger of a release-key signing run active at its `integratedTime`, a current entry in `docs/sigstore/rekor-acknowledged-entries.json`, or a ledger-match
+decision already recorded in the monitor's checkpoint state, and alerts otherwise once no release-key
+signing run active at its `integratedTime` is still in progress (the pending rule above).
+Release-key entries made before the ledger existed (the manual signings in Context) have no ledger,
+so they are listed in the acknowledged-entries file in the PR that enables the monitor, and that
+pre-ledger history is recorded in `docs/sigstore/README.md`. The monitor keeps the integrated time
+of its first checkpoint in its state; only the blindness canary uses it, as its lower bound.
 
 ## Decision 8: Record the receipt status on the imported package
 
@@ -328,14 +443,17 @@ No UI change is part of this change.
 
 ## Decision 9: Pre-cutover Wasm plugins and native add-ons use a frozen digest allowlist
 
-Decided by the product owner. The cutover release is the first release whose signer attaches
-receipts (migration step 2). Every first-party `.sig` published before it lacks the annotation (see
-Context). Harbor tag immutability prevents adding one, since the classic tag is addressed by digest.
+Decided by the product owner. The cutover release is v1.5.8 or later: the first release built from
+a commit containing the signer change, so the first whose signer attaches receipts (migration
+step 3). v1.5.7 was cut without the signer. Every first-party `.sig` published before the cutover
+release lacks the annotation (see Context). Harbor tag immutability prevents adding one, since the
+classic tag is addressed by digest.
 
 The list of every first-party OCI digest in every `serviceradar-wasm-plugin-index.json` and
-`serviceradar-native-addon-index.json` published before the cutover release is generated (v1.5.6
+`serviceradar-native-addon-index.json` published up to and including v1.5.7 is generated (v1.5.6
 lists 16 Wasm plugins; GitHub shows 50 releases, so on the order of a thousand digests at most) and
-committed. It is frozen from those indexes only, shipped unchanged with the later verifier release
+committed. Once the allowlist is frozen, no release may be cut from a commit without the signer
+change: such a release would publish receipt-less digests the allowlist does not cover. It is frozen from those indexes only, shipped unchanged with the later verifier release
 (migration step 4), and never regenerated once receipt-bearing releases exist, so no receipt-bearing
 digest is on it. At import, those digests verify key-only and are
 recorded as `absent_allowlisted`. A digest whose signature carries a valid receipt is verified in
@@ -344,7 +462,8 @@ Every other first-party Wasm plugin or native add-on digest
 requires a receipt from the cutover release on. A contract test fails if the list changes after the
 cutover. It is safe because an attacker cannot produce new content under an allowlisted digest. It
 costs one generated file, and it never grows. The list holds no image digests: images are admitted
-by Kyverno, and release verification exempts reused pre-cutover signatures (Decision 4). Web-ng
+by Kyverno. Release verification also consults the list: a reused receipt-less Wasm plugin or native
+add-on digest passes only when it is on the list (Decision 4). Web-ng
 releases before the cutover keep #6778 key-only behaviour and ignore the annotation.
 
 Alternatives considered:
@@ -362,24 +481,57 @@ Alternatives considered:
 
 Third-party repositories are not affected: they use ed25519 upload signatures, not Cosign.
 
+## Decision 10: Second line: the OpenBao audit log
+
+The self-hosted Rekor signs SETs with the OpenBao Transit key `rekor`, in the same OpenBao as
+`cosign-release`. Whoever can call both Transit keys can sign an artifact and forge a valid
+receipt for an entry that was never logged; the monitor, which reads the log, cannot see it. The
+second line does not depend on the log.
+
+- **Audit device.** OpenBao gets a file (or socket) audit device that records every request,
+  including `transit/sign/cosign-release`. The operator enables it; agents never do. **When every
+  enabled audit device fails to write, OpenBao refuses the request**, so an unwritable audit sink
+  stops release signing, Rekor and every other OpenBao client. The device's sink needs the same
+  capacity monitoring and alerting as a database volume.
+- **Watch.** A scheduled job reads the audit log and reports every `transit/sign/cosign-release`
+  request that is not explained. A request is explained only by a `sign` line holding its input
+  hash (Transit signs the payload digest) in a ledger of a release-key signing run active at the
+  request's time; an older run's ledger does not explain a later call on the same hash. It reuses the monitor's pending rule: a request is pending while a release-key signing
+  run active at its time is still in progress; once those runs have ended it is decided (explained
+  only if a `sign` line, not a reused line, in a ledger of one of them holds its input hash,
+  otherwise alerted). The watch keeps a position
+  in its own state that advances only past decided records, and never re-examines a decided record,
+  so a sign call decided while its ledger was retained is not re-examined after the ledger ages
+  out. Alerts go where the monitor's alerts go.
+- **Scope.** This change specifies the device and the watch; the watch is implemented once the
+  device exists. Until then the audit log is not available and the forged-receipt case is
+  undetected.
+
+## Decision 11: Operator precondition on the release key
+
+`bao read transit/keys/cosign-release` must show `exportable=false` and
+`allow_plaintext_backup=false`. Either one set would let the key bytes leave OpenBao, after which
+nothing in this change (log, monitor or audit log) sees a signature. This is an operator check,
+recorded in `docs/sigstore/README.md` and repeated on every key change; agents do not run it.
+
 ## Threat model
 
 **Assets.** The integrity of the Wasm plugins and native add-ons an installation imports and runs.
-Images are covered too, for the monitor and public verification, but Kyverno remains their
-admission gate.
+Images are covered too, for the monitor, but Kyverno remains their admission gate.
 
 **What the receipt plus monitor adds.** From the cutover release on, receipts are required for every
 first-party Wasm plugin and native add-on digest not on the frozen allowlist (Decision 9), so an
-accepted artifact must have a public, append-only record in Rekor v1, made by the
+accepted artifact must have an append-only record in the self-hosted Rekor v1 log, made by the
 holder of the release key. Without a receipt requirement, someone who can sign with the key can
-produce an importable package that leaves no public trace. With it they must log the signature, and
-the monitor reports any logged signature that none of our signing runs accounts for within about
+produce an importable package that leaves no trace. With it they must log the signature, and
+the monitor reports any logged signature not explained by a `sign` line in a ledger of a release-key signing run active at its
+`integratedTime`, a current acknowledgement or a stored ledger-match decision, within about
 one scan interval after the entry becomes decidable, that is, after every release-key signing run
 that was active at its `integratedTime` has ended (Decision 7, pending rule). For an entry outside
 any signing run that is about one scan interval (an hour at the hourly default). For an entry that
 overlaps a long release run the worst case is the remaining run time plus one scan interval, a few
-hours for `release.yml`. The log is also an independent record of everything the key signed, available to anyone,
-which bounds the investigation after an incident.
+hours for `release.yml`. The log is also a record of everything the key signed, which bounds the
+investigation after an incident. It is ServiceRadar's own log, not a public one.
 
 **What it does not add.**
 
@@ -391,6 +543,9 @@ which bounds the investigation after an incident.
   inside them.
 - *Before enforcement.* While a missing receipt is accepted, an attacker omits it. Verifying a
   receipt only when one is present adds visibility, not security.
+- *A forged receipt.* Someone who can use both the `rekor` and `cosign-release` Transit keys in the
+  shared OpenBao can sign an artifact and a SET for an entry that was never logged. The log and
+  the monitor cannot see that. The OpenBao audit log (Decision 10) is the second line for it.
 - *Log-operator misbehaviour.* A SET is a signed promise of inclusion, not a proof. The monitor's
   consistency check catches a log that rewrites history. A log that signs a SET and never includes
   the entry is outside this threat model.
@@ -407,17 +562,36 @@ likelihood is low, and the impact is code execution on every agent that runs the
 **Complexity cost.** One shared signer helper replaces three copies. The verifier gains a receipt
 mode, a pinned key and an allowlist. The pinned cosign version moves in two places. Two
 consistency tests, a ledger in five workflows, one new scheduled workflow and a check in the
-existing job watcher are added. Operationally, a release now cannot sign while public Rekor v1 is
-down (already true in practice, since upload is on and failures are not swallowed), and the
-monitor's alerts need an owner.
+existing job watcher are added. Operationally, a release now cannot sign while the self-hosted
+Rekor or its OpenBao token is unavailable (Risks), and the monitor's alerts need an owner.
 
 ## Risks
 
-- **Rekor v1 freeze.** Sigstore is moving public-good to Rekor v2. When v1 stops accepting
-  entries, release signing fails closed by design. A Rekor v2 receipt cannot be carried in the
-  legacy annotation, so continuing then needs a new decision: a self-hosted v1-compatible log,
-  revisiting the bundle-format decision, or going back to key-only. Mitigation: the failure is
-  loud, and the daily trusted-root check (Decision 5) warns when v1's `validFor.end` is set.
+Added 2026-11-18 for the self-hosted log:
+
+- **Losing the Trillian database.** Verification of receipts already issued does not break: a
+  receipt is verified offline against the pinned key and never looks the entry up. It does end the
+  audit trail: the monitor can no longer prove what the key signed, and a new tree means a new log
+  ID and a reviewed key change. The Trillian MySQL database therefore needs backups with tested
+  restores, like any other system of record. Backup and restore test are operator-owned; agents do
+  not run them.
+- **Shared OpenBao.** The Rekor signing key and `cosign-release` live in one OpenBao. Compromise
+  of OpenBao (or of a token allowed to use both keys) can produce a signature and a valid receipt
+  without a log entry. That residual risk is why the OpenBao audit log (Decision 10) is the second
+  line.
+- **Self-hosted availability.** Release signing depends on the self-hosted Rekor and its OpenBao
+  token. The token recorded in Context expires around 2026-12-01 unless reminted or moved to
+  Kubernetes auth; after that, releases fail closed until it is fixed. Reminting the token or
+  moving Rekor to Kubernetes auth is operator-owned; agents do not run it. Customers never depend
+  on this log: verification is offline.
+- **No public record.** Unlike public-good Rekor, only ServiceRadar runs this log, so it is not a
+  third-party-auditable history.
+
+The original risks follow.
+
+- **Public-good Rekor v1 freeze.** Release signing no longer writes to public-good Rekor, so a
+  freeze there does not affect it. Reused pre-cutover public-good receipts keep verifying offline
+  against `docs/sigstore/pre-cutover-rekor-keys/` (Decision 4).
 - **Deprecated flags.** `--tlog-upload` and `--offline` are deprecated in cosign v3. The cosign
   version is pinned, and contract tests fail if a pinned-version bump changes the behaviour.
 - **Admission regression.** A malformed annotation denies an image at admission (Decision 3). The
@@ -429,37 +603,45 @@ monitor's alerts need an owner.
 
 1. Upgrade cosign (signer and image), add `docs/sigstore/rekor-keys/` and `docs/sigstore/rekor.pub`,
    and add the consistency tests.
-2. Ship the signer change (receipt annotation and ledger) and the receipt check in the release
-   verification scripts. The first release with this signer is the cutover release; from then on
-   every new signature carries a receipt. Generate and commit the frozen allowlist from the indexes
-   published before it.
-3. Enable the monitor once the scan cost is measured. Release N+1's ledger is the first end-to-end
+2. Change the demo Kyverno policy (Decision 3) so it trusts the pinned self-hosted key, keeping the
+   pre-cutover entry. A `carverauto/gitops` PR is drafted with this work; a person merges and
+   applies it. It must be live on demo before the cutover release is cut.
+3. Ship the signer change (receipt annotation and ledger) and the receipt check in the release
+   verification scripts. The first release built from a commit containing this signer is the
+   cutover release, v1.5.8 or later; from then on every new signature carries a receipt. Generate
+   and commit the frozen allowlist from the indexes published up to and including v1.5.7. From
+   then on no release is cut from a commit without the signer.
+4. Enable the monitor on the self-hosted log. Release N+1's ledger is the first end-to-end
    canary.
-4. Ship the verifier change with the frozen pre-cutover allowlist from step 2, unchanged and not
+5. Ship the verifier change with the frozen pre-cutover allowlist from step 3, unchanged and not
    regenerated (Decision 9).
    Until it ships, #6778's key-only verification remains in force.
+6. Enable the OpenBao audit device (operator) and then the audit watch (Decision 10).
+7. Remove the pre-cutover Kyverno entry (Decision 3) once every image admitted in demo carries a
+   self-hosted receipt, checked against the running images (an unchanged digest such as
+   `serviceradar-cnpg` keeps its pre-cutover signature until rebuilt). After that no admitted
+   image causes any Rekor lookup.
 
 Rollback: the verifier change can be reverted to #6778's key-only mode on its own. A key-only
 verifier (`--insecure-ignore-tlog=true`) never reads the annotation, so already-published
-annotated `.sig` signatures stay valid for it. Kyverno with the current policy verifies the
-annotation offline (Decision 3), and the release gate has already checked it.
+annotated `.sig` signatures stay valid for it. Kyverno with the amended policy verifies the
+annotation offline (Decision 3), and the release gate has already checked it. Rolling the signer
+back to public-good Rekor is not a rollback: new receipts would then name a log the shipped
+verifier does not accept.
 
 ## Open questions
 
 ### Open Question 1: Is an hourly full-log scan affordable on ARC?
 
-Recommendation: measure first (task 5.1). Keep `rekor-monitor` log scanning even if the interval
-has to grow. Do not fall back to the incomplete index search. A high scan cost never removes the
-scheduled release-key monitor; only the scan interval may grow, with a correspondingly longer
-window.
+Resolved 2026-11-18: not for public-good Rekor (Context). The product owner moved the log to the
+self-hosted Rekor, which a full scan covers cheaply.
 
 ### Open Question 2: Where do signing-monitor alerts go?
 
-Recommendation: a GitHub issue per unexplained entry, plus Discord. The existing
-`CI_FAILURE_DISCORD_WEBHOOK_URL` is acceptable at the start. A dedicated security webhook secret
-would keep key-misuse alerts out of CI-failure noise, and the owner should choose.
+Resolved: one GitHub issue per unexplained entry, plus the existing
+`CI_FAILURE_DISCORD_WEBHOOK_URL`.
 
 ### Open Question 3: Which cosign version?
 
-Recommendation: v3.1.4, the latest patch release at the time of writing, in the signer and the
-image together. The floor is v3.1.3 (all four advisories in Decision 6).
+Resolved: v3.1.4 in the signer and the image together, v3.1.3 the floor.
+

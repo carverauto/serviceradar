@@ -480,15 +480,19 @@ from the ledger, never from whether a receipt is present:
   no `--insecure-ignore-tlog`. A missing receipt, a log ID outside the key set, a
   SignedEntryTimestamp that does not verify, or a logged entry that names a
   different signature, key or payload hash fails the release.
-- Reused with a receipt: verified the same way. A receipt from the public-good
-  log (some images were signed by hand before the cutover) is checked against
-  `docs/sigstore/pre-cutover-rekor-keys/`; that key is never accepted for a
-  signature created in the run (nor at import; pending: lands with the
-  import-verifier PR).
-- Reused without a receipt: only a signature made before the cutover release
-  (the first release whose signer attaches receipts) can be in this state. It is
-  verified with the release key alone (`--insecure-ignore-tlog=true`). Kyverno
-  remains the admission gate for images.
+- Reused with a receipt from the self-hosted log: verified the same way.
+- Reused with a receipt from the public-good log (some images were signed by
+  hand before the cutover): verified offline against
+  `docs/sigstore/pre-cutover-rekor-keys/`, and accepted only when the receipt
+  was integrated before the cutover pinned in `docs/sigstore/cutover.json`
+  (the v1.5.8 tag time). That key is never accepted for a signature created in
+  the run or at import.
+- Reused without a receipt: a Wasm plugin or native add-on digest is verified
+  with the release key alone (`--insecure-ignore-tlog=true`) only when it is on
+  the frozen pre-cutover allowlist
+  (`docs/sigstore/pre-cutover-first-party-digests.json`); otherwise it fails.
+  An image is verified with the release key alone; Kyverno remains the
+  admission gate for images.
 - Not in the ledger: fails.
 
 `make verify_publish` therefore needs the ledger of the run that signed the

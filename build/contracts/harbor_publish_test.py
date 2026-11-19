@@ -707,6 +707,10 @@ class PublicationVerificationTest(unittest.TestCase):
         # The signer reused the digest's existing (receipt-less) signature in this run.
         self.ledger = self.root / "signing-ledger.jsonl"
         self.ledger.write_text(json.dumps({"event": "reused", "digest": "sha256:" + "a" * 64}) + "\n")
+        # A reused receipt-less Wasm plugin or add-on signature must be on the frozen allowlist.
+        sigstore = self.root / "docs/sigstore"
+        sigstore.mkdir(parents=True)
+        (sigstore / "pre-cutover-first-party-digests.json").write_text(json.dumps({"digests": ["sha256:" + "a" * 64]}))
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.parent.mkdir(parents=True)
         inventory.write_text('PUBLISHABLE_IMAGES = [{"repository":"registry.example/serviceradar/example"}]\n\n')

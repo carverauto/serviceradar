@@ -216,7 +216,10 @@ class ReleaseAssetWorkflowTest(unittest.TestCase):
         jobs = self.release["jobs"]
         dispatcher = jobs["image-security-dispatch"]
         self.assertEqual(dispatcher["needs"], "publish")
-        self.assertEqual(set(jobs["finalize"]["needs"]), {"publish", "image-security-dispatch"})
+        self.assertEqual(
+            set(jobs["finalize"]["needs"]),
+            {"publish", "image-security-dispatch", "solution-packs"},
+        )
         self.assertEqual(dispatcher["permissions"], {"contents": "write", "actions": "write"})
 
     def test_failed_macos_installer_cannot_skip_jobs_downstream_of_it(self):

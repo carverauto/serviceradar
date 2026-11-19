@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   @moduledoc """
-  Shared SSO provisioning rules for OIDC and SAML authentication flows.
+  SSO provisioning rules for the OIDC authentication flow.
   """
 
   alias ServiceRadar.Identity.AuthSettings
@@ -15,11 +15,11 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   require Ash.Query
   require Logger
 
-  @type provider :: :oidc | :saml
+  @type provider :: :oidc
 
   @spec record_successful_authentication(User.t(), provider(), term()) ::
           {:ok, User.t()} | {:error, term()}
-  def record_successful_authentication(user, provider, actor) when provider in [:oidc, :saml] do
+  def record_successful_authentication(user, :oidc = provider, actor) do
     with {:ok, user} <- User.record_authentication(user, actor: actor) do
       Users.record_login(user, provider, actor: actor)
     end
@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   @spec find_or_create_user(map(), map(), provider(), term()) ::
           {:ok, User.t()} | {:error, term()}
   def find_or_create_user(%{email: email, name: name, external_id: external_id}, claims, provider, actor)
-      when provider in [:oidc, :saml] and is_map(claims) do
+      when provider == :oidc and is_map(claims) do
     resolution = RoleMapping.resolve(claims, actor: actor)
     resolved_role = resolution.role
 

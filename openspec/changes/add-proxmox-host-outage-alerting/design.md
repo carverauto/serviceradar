@@ -41,6 +41,8 @@ not establish OOM as the cause.
 
 **Goals**
 - Detect guest stops and host OOM kills as distinct condition events.
+- Detect guests the hypervisor has paused, which the guest status alone
+  reports as running, and a node datastore at critical capacity.
 - Complement endpoint checks and Kubernetes readiness notifications with
   host-level evidence.
 - Reuse `ServiceCheck`, `Notifications`, and plugin-manifest alert rules.
@@ -66,6 +68,71 @@ not establish OOM as the cause.
   spike; a retained OOM-killer log entry records the kill after pressure
   subsides. Scan since the last successful poll and avoid repeat events for
   entries already processed.
+- **Trust the runtime state over the status for a running guest.** Proxmox
+  reports `status: running` while a QEMU process exists, including when the
+  guest is paused or stopped on an I/O error. The runtime state is the only
+  field that tells the two apart, so a non-running runtime state makes the
+  guest not available. Containers have no such state and keep their status.
+- **Give capacity its own event with a recovery.** The pressure summary is
+  band-classified and de-duplicated, and a return to `ok` is the absence of
+  further events. An alert needs an explicit recovery to close, so the
+  critical band gets a separate scoped condition and the summaries are left
+  alone. The event omits the ratio and threshold fields, so the plugin's band
+  decides membership and the agent's hysteresis does not hold the alert open
+  below the critical threshold. Each new event, like the availability and
+  OOM events, sets `log_name` to its own subject string rather than the SDK
+  default `events.ocsf.processed` the pressure summaries use, and carries a
+  non-ok `unmapped.level`, because the stateful rule engine matches
+  `subject_prefix` against `log_name` and `attribute_equals` against
+  unmapped fields; the synthesized clear copies that `log_name` with level
+  `ok`, which is what the recovery match selects.
+- **Condition wire fields.** These are the fields the agent's condition
+  debounce (`go/pkg/agent/plugin_condition_debounce.go`) already reads; the
+  paused and capacity conditions use exactly these. A condition event sets
+  `log_name` to its subject, `unmapped.condition_key` to its condition key,
+  `unmapped.level` to its level and, for a scoped condition,
+  `unmapped.condition_scope` to its scope id. A scope-complete marker is a
+  separate record that sets `unmapped.condition_scope_complete` to that scope
+  id and `unmapped.active_condition_keys` to a JSON array of key strings
+  (empty when nothing is active); it carries neither `condition_key` nor
+  `level`, because a record with both is read as a condition event and never
+  as a marker. The key a marker lists is the same string the event carried
+  as `condition_key`; a guest's DeviceID and a datastore's byte counts are
+  event detail, never the key.
+- **Recover through the existing condition scope, not plugin memory.** The
+  WASM plugin is re-instantiated on every check and has no state between
+  polls, so it cannot compare with a previous poll or know that it emitted an
+  event before. Each node of each Proxmox target gets two condition scopes,
+  a guest-runtime scope for its guest list and a node-storage scope for its
+  storage, which is already fetched per node. Separate scopes keep one
+  condition's marker from clearing the other condition's keys, so each scope
+  id is the target discriminator, the scope name (`guest-runtime` or
+  `node-storage`) and the node. Every scope id and condition key in this
+  change, including the guest-availability and OOM keys, starts with
+  the target discriminator the plugin already
+  uses as its condition-key prefix, because one assignment polls several
+  targets through one agent debouncer and two targets can share a node name
+  and VMID. A guest key is that discriminator, the node, the guest type and
+  the VMID; a datastore key is that discriminator, the node and the datastore
+  name, with byte counts kept as event detail so the key stays stable while
+  the datastore stays critical. A scope read fully emits its active
+  conditions and a scope-complete marker listing their keys, with an empty
+  list when nothing is active, which is what clears its last key. The
+  guest-runtime marker also lists a QEMU guest the list shows running whose
+  runtime state could not be read, with no condition event for it. That is
+  safe because the agent never opens a key from a marker: a listed key the
+  agent remembers stays open and an unknown one is ignored, so a failed
+  per-guest read holds only that guest's alert and raises none. Because the
+  key is derived from the target, node, type and VMID, the plugin can list it
+  without memory. The marker omits a guest the list shows stopped or no
+  longer contains, so stopping or deleting a paused guest clears its alert.
+  The agent's condition debounce already forwards a condition event on first
+  sight, on a level change and on its unchanged-level refresh, and forwards
+  one clear for a key it still remembers in a scope whose marker no longer
+  lists it. A scope that could not be read fully emits no marker, which the
+  agent treats as a partial view of that scope only. Another scope's marker,
+  an agent restart or the expiry of a remembered key clears nothing, so such
+  an alert stays open until an operator resolves it.
 - **Keep rule activation explicit.** Approving the plugin package creates
   disabled rules. Operators enable them through the existing alert-rules UI.
 
@@ -96,6 +163,13 @@ not establish OOM as the cause.
 
 ## Open Questions
 
+- Does the guest list return the runtime state, or does each running guest
+  need its own status call? A per-guest call adds one request per running
+  guest per poll and a new entry in the agent's Proxmox path allowlist.
+- The guest-availability and OOM-kill requirements are also worded as
+  cross-poll comparisons ("previous poll", "since the last successful poll"),
+  which the stateless plugin cannot evaluate. Before implementation they need
+  the same condition-scope treatment or an explicit state source.
 - Which Proxmox API log endpoint and permissions provide the required kernel
   entries? If unavailable, can the existing SSH console-access path supply
   them within the plugin execution and credential contracts?

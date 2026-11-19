@@ -289,7 +289,6 @@ WEB_NG_DEPS = [
     "@hexpm//:dns_cluster",
     "@hexpm//:ecto_sql",
     "@hexpm//:elixlsx",
-    "@hexpm//:esaml",
     "@hexpm//:esbuild",
     "@hexpm//:gen_smtp",
     "@hexpm//:gettext",
@@ -313,7 +312,6 @@ WEB_NG_DEPS = [
     "@hexpm//:redoc_ui_plug",
     "@hexpm//:req",
     "@hexpm//:stream_data",
-    "@hexpm//:sweet_xml",
     "@hexpm//:swoosh",
     "@hexpm//:tailwind",
     "@hexpm//:telemetry_metrics",
@@ -494,6 +492,9 @@ ex_unit_tests(
         # shared examples pin for the Rust harness and the Elixir port alike.
         "//integration_tests/srql_parity:inventory.json",
         "//integration_tests/srql_parity:shape_examples.json",
+        # CosignVerifierTest runs the cosign release the web-ng image ships against
+        # synthetic signatures and a loopback registry.
+        "//docker/images:web_ng_cosign",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
@@ -539,6 +540,8 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/auth/jit_provisioning_test.exs",
         "test/phoenix/channels/topology_tile_channel_live_db_test.exs",
         "test/phoenix/controllers/api/api_docs_console_test.exs",
+        "test/phoenix/controllers/authored_dashboard_export_controller_test.exs",
+        "test/phoenix/controllers/csp_report_controller_test.exs",
         "test/phoenix/controllers/api/authorization_settings_controller_test.exs",
         "test/phoenix/controllers/api/bmp_settings_controller_test.exs",
         "test/phoenix/controllers/api/camera_relay_session_controller_test.exs",
@@ -734,7 +737,6 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/controllers/error_json_test.exs",
         "test/phoenix/controllers/metrics_controller_test.exs",
         "test/phoenix/controllers/oauth_controller_test.exs",
-        "test/phoenix/controllers/saml_controller_test.exs",
         "test/phoenix/controllers/security_headers_test.exs",
         "test/phoenix/controllers/user_session_controller_test.exs",
         "test/phoenix/live/admin/addon_fleet_live_test.exs",

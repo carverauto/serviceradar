@@ -3,10 +3,14 @@ defmodule ServiceRadar.Catalog.BuiltinPacks do
   Runtime loader for first-party Solution Packs shipped inside
   `:code.priv_dir(:serviceradar_core)/solution_packs/<slug>/` (`2.6`).
 
-  Ensures Built-in Pack #1 (`io.serviceradar.storage-and-nvr-health`) is
-  available offline in the Catalog Gallery on boot without requiring external
-  network egress, validated through the exact same `PackManifest.validate_pack_tree/2`
-  contract as remote release catalogs and GitOps trees.
+  Ensures all 4 flagship built-in Solution Packs
+  (`io.serviceradar.camera-semantic-search-health`,
+  `io.serviceradar.http-api-and-tls-posture`,
+  `io.serviceradar.network-segmentation-and-wan`, and
+  `io.serviceradar.storage-and-nvr-health`) are available offline in the
+  Catalog Gallery on boot without requiring external network egress, validated
+  through the exact same `PackManifest.validate_pack_tree/2` contract as remote
+  release catalogs and GitOps trees.
   """
 
   alias ServiceRadar.Catalog.PackManifest
@@ -71,6 +75,21 @@ defmodule ServiceRadar.Catalog.BuiltinPacks do
         pack -> {:ok, pack}
       end
     end
+  end
+
+  @doc """
+  Alias for `list_packs/1` returning all shipped built-in Solution Packs.
+  """
+  @spec list_builtin_packs(String.t() | nil) :: {:ok, [map()]} | {:error, term()}
+  def list_builtin_packs(dir \\ nil), do: list_packs(dir)
+
+  @doc """
+  Alias for `get_pack/2` loading a single built-in Solution Pack by `pack_id` or `slug`.
+  """
+  @spec load_builtin_pack(String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, :not_found | term()}
+  def load_builtin_pack(id_or_slug, dir \\ nil) when is_binary(id_or_slug) do
+    get_pack(id_or_slug, dir)
   end
 
   @doc """

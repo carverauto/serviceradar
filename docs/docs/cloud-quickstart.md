@@ -181,20 +181,17 @@ break-glass account) for IdP outages. See
 [Authentication — local password with SSO](./auth-configuration.md#local-password-login-with-sso).
 :::
 
-### 4.3 Configure SSO (OIDC / SAML)
+### 4.3 Configure SSO (OIDC)
 
 **Where:** **Settings → Authentication** (`/settings/authentication`)
 
-1. Choose **Direct SSO** (OIDC or SAML).
+1. Choose **Direct SSO** (OIDC).
 2. **OIDC** — discovery URL, client ID, client secret.  
    Redirect URI: `https://<your-web-host>/auth/oidc/callback`
-3. **SAML** — IdP metadata URL or XML.  
-   - ACS: `https://<your-web-host>/auth/saml/consume`  
-   - SP metadata: `https://<your-web-host>/auth/saml/metadata`
-4. Map claims: `email` (required), plus `name` and `sub` when available.
-5. In **Settings → Authorization**, turn on first-SSO account creation if you
+3. Map claims: `email` (required), plus `name` and `sub` when available.
+4. In **Settings → Authorization**, turn on first-SSO account creation if you
    do not want to pre-create users, and add group → role / role-profile mappings.
-6. Test with a non-admin account first; confirm the assigned role and profile
+5. Test with a non-admin account first; confirm the assigned role and profile
    after login.
 
 Full detail: [Authentication](./auth-configuration.md) and

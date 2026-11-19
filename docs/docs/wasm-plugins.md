@@ -682,6 +682,17 @@ path. ServiceRadar verifies those artifacts against the release public key it sh
 with and does not contact the public Sigstore services, so the import works on an
 installation with no internet access beyond the artifact registry.
 
+A first-party signature also carries its transparency-log receipt: proof that the
+signature was recorded in ServiceRadar's Rekor transparency log. ServiceRadar checks the receipt
+offline against the Rekor keys shipped in the web-ng image, never by contacting the
+log, so an installation does not depend on reaching it. ServiceRadar requires it for
+every first-party artifact except those published before receipts were introduced,
+whose digests ServiceRadar lists explicitly. Each imported package records the
+outcome in its verification metadata as `transparency_receipt`: `verified`, with
+the log index and integration time, or `absent_allowlisted` for such an older
+artifact. An artifact without a valid receipt that is not on that list is
+rejected.
+
 The repository record stores the matching `key_id` and base64 public key, and a
 bundle is verified against *that repository's* key -- so a bundle signed by one
 publisher cannot be imported through another's catalog. A repository cannot be
