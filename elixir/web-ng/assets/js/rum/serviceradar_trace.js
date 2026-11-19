@@ -123,7 +123,31 @@ export function shouldPropagateTrace(
   }
 
   const allowed = normalizeAllowedOrigins(allowedOrigins, normalizedPageOrigin);
-  return allowed.has(targetOrigin);
+  if (allowed.has(targetOrigin)) return true;
+  for (const pattern of allowed) {
+    if (wildcardOriginMatches(pattern, targetOrigin)) return true;
+  }
+  return false;
+}
+
+export function wildcardOriginMatches(pattern, candidate) {
+  const patternParts = splitOrigin(pattern);
+  const candidateParts = splitOrigin(candidate);
+  if (!patternParts || !candidateParts) return false;
+  if (patternParts.scheme !== candidateParts.scheme) return false;
+  if (patternParts.port !== candidateParts.port) return false;
+  if (!patternParts.host.startsWith("*.")) return false;
+  const suffix = patternParts.host.slice(2);
+  if (!suffix || suffix.includes("*")) return false;
+  if (!candidateParts.host.endsWith(`.${suffix}`)) return false;
+  const label = candidateParts.host.slice(0, -(suffix.length + 1));
+  return label !== "" && !label.includes(".");
+}
+
+function splitOrigin(origin) {
+  const match = /^(https?):\/\/([^/:]+)(?::(\d+))?$/.exec(String(origin || ""));
+  if (!match) return null;
+  return {scheme: match[1], host: match[2], port: match[3] || ""};
 }
 
 export function hasHeader(headers, headerName) {

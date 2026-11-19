@@ -2,7 +2,7 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Method, StatusCode};
@@ -21,6 +21,7 @@ use serviceradar_metric_proto::pb::MetricBatch;
 
 #[derive(Default)]
 struct RecordingOutput {
+    beacon_publish_error: Option<&'static str>,
     beacons: Mutex<Vec<(String, RumBeaconV1)>>,
     metrics: Mutex<Vec<(String, MetricBatch)>>,
 }
@@ -64,6 +65,9 @@ impl TelemetryOutput for RecordingOutput {
         web_property_id: &str,
         beacon: &RumBeaconV1,
     ) -> anyhow::Result<PublishOutcome> {
+        if let Some(err) = self.beacon_publish_error {
+            anyhow::bail!(err);
+        }
         self.beacons
             .lock()
             .unwrap()
@@ -459,6 +463,49 @@ async fn rate_limiter_returns_429_with_retry_after() {
     .await;
     assert_eq!(r2.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(r2.headers().get(header::RETRY_AFTER).is_some());
+}
+
+#[tokio::test]
+async fn publish_failure_returns_generic_503_without_internal_error_text() {
+    let output = Arc::new(RecordingOutput {
+        beacon_publish_error: Some(
+            "jetstream stream RUM_BEACONS unavailable at nats://nats.internal.example:4222",
+        ),
+        ..RecordingOutput::default()
+    });
+    let collector = ServiceRadarCollector::with_output(output.clone());
+    let runtime = make_runtime(RumConfig::default());
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::ORIGIN,
+        HeaderValue::from_static("https://shop.example"),
+    );
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-www-form-urlencoded"),
+    );
+
+    let resp = handle_rum_request(
+        &Method::POST,
+        None,
+        &headers,
+        Full::new(Bytes::from_static(
+            b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
+        )),
+        None,
+        &runtime,
+        &collector,
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    assert!(!body.is_empty());
+    assert!(!body.contains("jetstream"), "{body}");
+    assert!(!body.contains("nats"), "{body}");
+    assert!(output.beacons.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

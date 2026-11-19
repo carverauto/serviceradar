@@ -44,8 +44,7 @@ export function initServiceRadarBoomerang(win) {
 
   registerServiceRadarTrace(win);
 
-  const sampleRate = normalizeSampleRate(srConfig.sampleRate);
-  if (sampleRate <= 0 || (sampleRate < 1.0 && Math.random() >= sampleRate)) {
+  if (normalizeSampleRate(srConfig.sampleRate) <= 0) {
     srConfig.sampledOut = true;
     return false;
   }

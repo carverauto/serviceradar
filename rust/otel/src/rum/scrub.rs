@@ -16,6 +16,8 @@ use crate::rum::prefix::{Prefix, ip_in_cidrs, truncate_ip};
 use crate::rum_proto::RumBeaconV1;
 
 const MAX_SERVER_TIMING_RAW_BYTES: usize = 512;
+const MAX_OBSERVED_AT_PAST_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+const MAX_OBSERVED_AT_FUTURE_MS: i64 = 5 * 60 * 1000;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GeoAsnInfo {
@@ -665,7 +667,11 @@ pub fn build_beacon_and_metrics(
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or(0);
     let observed_at_unix_ms = parse_i64_param(params, &["rt.tstart", "observed_at_unix_ms"])
-        .filter(|ts| *ts > 1_000_000_000_000)
+        .filter(|ts| {
+            (now_ms.saturating_sub(MAX_OBSERVED_AT_PAST_MS)
+                ..=now_ms.saturating_add(MAX_OBSERVED_AT_FUTURE_MS))
+                .contains(ts)
+        })
         .unwrap_or(now_ms);
 
     let lcp_ms = parse_f64_param(params, &["c.lcp", "lcp_ms", "lcp"]);
@@ -734,7 +740,7 @@ pub fn build_beacon_and_metrics(
         .cloned()
         .unwrap_or_else(|| "document".to_string());
 
-    let beacon = RumBeaconV1 {
+    let mut beacon = RumBeaconV1 {
         beacon_id,
         observed_at_unix_ms,
         web_property_id: policy.web_property_id.clone(),
@@ -784,9 +790,53 @@ pub fn build_beacon_and_metrics(
         prefix_tag,
         attributes: HashMap::new(),
     };
+    bound_beacon_columns(&mut beacon);
 
     let metric_batch = build_rum_metric_batch(policy, &beacon);
     Ok((beacon, metric_batch))
+}
+
+fn bound_beacon_columns(beacon: &mut RumBeaconV1) {
+    let columns: [(&mut String, usize); 24] = [
+        (&mut beacon.web_property_id, 64),
+        (&mut beacon.beacon_id, 64),
+        (&mut beacon.canonical_origin, 512),
+        (&mut beacon.environment, 64),
+        (&mut beacon.url, 4096),
+        (&mut beacon.host, 256),
+        (&mut beacon.path, 2048),
+        (&mut beacon.metric_path, 1024),
+        (&mut beacon.referrer, 4096),
+        (&mut beacon.page_group, 1024),
+        (&mut beacon.initiator, 128),
+        (&mut beacon.session_id, 128),
+        (&mut beacon.user_agent, 1024),
+        (&mut beacon.device_type, 64),
+        (&mut beacon.cdn_provider, 64),
+        (&mut beacon.cdn_cache_status, 64),
+        (&mut beacon.cdn_pop, 128),
+        (&mut beacon.server_timing_raw, 1024),
+        (&mut beacon.client_ip, 64),
+        (&mut beacon.country, 16),
+        (&mut beacon.region, 64),
+        (&mut beacon.city, 128),
+        (&mut beacon.as_org, 256),
+        (&mut beacon.prefix_tag, 256),
+    ];
+    for (value, max_bytes) in columns {
+        truncate_at_char_boundary(value, max_bytes);
+    }
+}
+
+fn truncate_at_char_boundary(value: &mut String, max_bytes: usize) {
+    if value.len() <= max_bytes {
+        return;
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
 }
 
 pub fn build_rum_metric_batch(
@@ -1201,6 +1251,108 @@ mod tests {
 
         let parent_proxied = scrub_url("../proxy/https://target.example/a?token=s", &[]).unwrap();
         assert_eq!(parent_proxied.path, "/../proxy/https://target.example/a");
+    }
+
+    fn now_unix_ms() -> i64 {
+        i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    }
+
+    fn build_from_query(query: &str) -> (RumBeaconV1, Option<MetricBatch>) {
+        let (cache, policy) = test_policy_cache();
+        let params = parse_form_urlencoded(query);
+        build_beacon_and_metrics(
+            &params,
+            &HeaderMap::new(),
+            Some("203.0.113.77".parse().unwrap()),
+            &[],
+            &policy,
+            &cache,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn client_observed_at_outside_server_window_falls_back_to_server_time() {
+        let hour_ms = 60 * 60 * 1000;
+        let day_ms = 24 * hour_ms;
+        let cases = [
+            (now_unix_ms() - hour_ms, true),
+            (now_unix_ms() + 60 * 1000, true),
+            (now_unix_ms() + 365 * day_ms, false),
+            (now_unix_ms() + hour_ms, false),
+            (now_unix_ms() - 30 * day_ms, false),
+            (1_100_000_000_000, false),
+        ];
+
+        for (client_ms, accepted) in cases {
+            let before = now_unix_ms();
+            let (beacon, batch) = build_from_query(&format!(
+                "u=https://shop.example.com/&c.lcp=1200&rt.tstart={client_ms}"
+            ));
+            let after = now_unix_ms();
+
+            if accepted {
+                assert_eq!(beacon.observed_at_unix_ms, client_ms);
+            } else {
+                assert!(
+                    (before..=after).contains(&beacon.observed_at_unix_ms),
+                    "client timestamp {client_ms} should be replaced by server time"
+                );
+            }
+
+            let expected_ns = u64::try_from(beacon.observed_at_unix_ms).unwrap() * 1_000_000;
+            let batch = batch.unwrap();
+            assert!(!batch.metrics.is_empty());
+            for metric in &batch.metrics {
+                for point in &metric.points {
+                    assert_eq!(point.observed_at_unix_nano, expected_ns);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn oversized_client_fields_are_truncated_to_column_widths_on_char_boundaries() {
+        let wide = "\u{e9}".repeat(300);
+        let encoded = urlencoding::encode(&wide).into_owned();
+        let long_path = "a".repeat(5000);
+        let (beacon, _) = build_from_query(&format!(
+            "u=https://shop.example.com/{long_path}&sr.beacon_id={encoded}&rt.si={encoded}&http.initiator={encoded}&mob.etype={encoded}"
+        ));
+
+        for (value, max_bytes) in [
+            (&beacon.beacon_id, 64),
+            (&beacon.session_id, 128),
+            (&beacon.initiator, 128),
+            (&beacon.device_type, 64),
+            (&beacon.url, 4096),
+            (&beacon.path, 2048),
+        ] {
+            assert!(
+                value.len() <= max_bytes,
+                "{} bytes > {max_bytes}",
+                value.len()
+            );
+            assert!(value.len() > max_bytes - 4);
+        }
+        assert_eq!(beacon.beacon_id, "\u{e9}".repeat(32));
+        assert_eq!(beacon.session_id, "\u{e9}".repeat(64));
+        assert!(beacon.url.starts_with("https://shop.example.com/aaa"));
+
+        let (short, _) = build_from_query(
+            "u=https://shop.example.com/&sr.beacon_id=b-1&rt.si=s-1&mob.etype=mobile",
+        );
+        assert_eq!(short.beacon_id, "b-1");
+        assert_eq!(short.session_id, "s-1");
+        assert_eq!(short.device_type, "mobile");
+        assert_eq!(short.initiator, "document");
     }
 
     #[test]

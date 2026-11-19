@@ -70,6 +70,24 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     ).toBe(false)
   })
 
+  test("shouldPropagateTrace matches single-label wildcard origins like the collector allowlist", () => {
+    const pageOrigin = "https://portal.example.com"
+    const allowed = ["https://*.Example.net", "https://*.api.example.org:8443"]
+
+    expect(shouldPropagateTrace("https://shop.example.net/cart", pageOrigin, allowed)).toBe(true)
+    expect(shouldPropagateTrace("https://eu.api.example.org:8443/v1", pageOrigin, allowed)).toBe(true)
+
+    // Wildcard covers exactly one label: apex and deeper subdomains are rejected
+    expect(shouldPropagateTrace("https://example.net/cart", pageOrigin, allowed)).toBe(false)
+    expect(shouldPropagateTrace("https://a.b.example.net/cart", pageOrigin, allowed)).toBe(false)
+    // Scheme and port must match the pattern
+    expect(shouldPropagateTrace("http://shop.example.net/cart", pageOrigin, allowed)).toBe(false)
+    expect(shouldPropagateTrace("https://eu.api.example.org/v1", pageOrigin, allowed)).toBe(false)
+    // Suffix must align on a label boundary
+    expect(shouldPropagateTrace("https://shopexample.net/cart", pageOrigin, allowed)).toBe(false)
+    expect(shouldPropagateTrace("https://shop.example.net.attacker.example/cart", pageOrigin, allowed)).toBe(false)
+  })
+
   test("patchFetch injects traceparent on allowed origins and preserves caller-supplied traceparent", async () => {
     const calls = []
     const addedVars = []
@@ -229,6 +247,24 @@ describe("ServiceRadarTrace W3C traceparent plugin", () => {
     expect(initServiceRadarBoomerang(droppedWin)).toBe(false)
     expect(droppedInit).not.toHaveBeenCalled()
     expect(droppedWin.BOOMR_config.ServiceRadar.sampledOut).toBe(true)
+
+    // Fractional rates are applied only by the collector; the page always initializes
+    vi.spyOn(Math, "random").mockReturnValue(0.99)
+    const fractionalInit = vi.fn()
+    const fractionalWin = {
+      location: {origin: "https://portal.example.com"},
+      crypto: window.crypto,
+      BOOMR: {addVar: vi.fn(), init: fractionalInit, subscribe: vi.fn(), plugins: {}},
+      BOOMR_config: {
+        ServiceRadar: {
+          siteKey: "sr_rum_fractional",
+          sampleRate: 0.1,
+        },
+      },
+    }
+    expect(initServiceRadarBoomerang(fractionalWin)).toBe(true)
+    expect(fractionalInit).toHaveBeenCalledTimes(1)
+    expect(fractionalWin.BOOMR_config.ServiceRadar.sampledOut).toBeUndefined()
 
     // Late BOOMR_config.ServiceRadar initialization via DOMContentLoaded/load retry
     const docListeners = new Map()

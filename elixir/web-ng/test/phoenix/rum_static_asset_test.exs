@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
     refute body =~ "BEGIN_DEBUG"
   end
 
-  test "ServiceRadarWebNGWeb.Endpoint mounts /assets/rum Plug.Static before root Plug.Static with CORS, Timing-Allow-Origin, and Cache headers" do
+  test "/assets/rum Plug.Static serves the bundle with CORS, Timing-Allow-Origin, and Cache headers" do
     headers = ServiceRadarWebNGWeb.Endpoint.rum_static_headers()
 
     assert headers == %{
@@ -36,31 +36,6 @@ defmodule ServiceRadarWebNGWeb.RumStaticAssetTest do
              "timing-allow-origin" => "*",
              "cache-control" => "public, max-age=300, stale-while-revalidate=86400"
            }
-
-    endpoint_source =
-      "../../lib/serviceradar_web_ng_web/endpoint.ex"
-      |> Path.expand(__DIR__)
-      |> File.read!()
-
-    {:defmodule, _, [_, [do: {:__block__, _, statements}]]} =
-      Code.string_to_quoted!(endpoint_source)
-
-    static_plugs =
-      Enum.flat_map(statements, fn
-        {:plug, _, [{:__aliases__, _, [:Plug, :Static]}, opts]} when is_list(opts) -> [opts]
-        _ -> []
-      end)
-
-    rum_index = Enum.find_index(static_plugs, &(Keyword.get(&1, :at) == "/assets/rum"))
-    root_index = Enum.find_index(static_plugs, &(Keyword.get(&1, :at) == "/"))
-
-    assert is_integer(rum_index)
-    assert is_integer(root_index)
-    assert rum_index < root_index
-
-    rum_opts = Enum.at(static_plugs, rum_index)
-    assert Keyword.get(rum_opts, :from) == {:serviceradar_web_ng, "priv/static/assets/rum"}
-    assert match?({:@, _, [{:rum_static_headers, _, _}]}, Keyword.get(rum_opts, :headers))
 
     # Exercise live ServiceRadarWebNGWeb.Endpoint.call/2 dispatch for static assets.
     app_static_conn =

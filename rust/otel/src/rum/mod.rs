@@ -276,9 +276,9 @@ where
         .await
     {
         Ok(()) => no_content_response(allow_origin),
-        Err(e) => rum_response(
+        Err(_) => rum_response(
             StatusCode::SERVICE_UNAVAILABLE,
-            &format!("failed to publish RUM beacon: {e}"),
+            "RUM ingest temporarily unavailable",
             allow_origin,
         ),
     }
