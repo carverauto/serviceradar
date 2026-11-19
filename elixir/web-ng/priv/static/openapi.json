@@ -5794,6 +5794,55 @@
         },
         "type": "object"
       },
+      "service-check-filter-web_property_id": {
+        "additionalProperties": false,
+        "description": "Optional L7 WebProperty this check monitors",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "notification_route": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a notification_route",
@@ -17748,6 +17797,9 @@
           },
           "warning_threshold_ms": {
             "$ref": "#/components/schemas/service-check-filter-warning_threshold_ms"
+          },
+          "web_property_id": {
+            "$ref": "#/components/schemas/service-check-filter-web_property_id"
           }
         },
         "type": "deepObject"
@@ -26470,6 +26522,19 @@
                   }
                 ],
                 "description": "Response time warning threshold (milliseconds). Field included by default."
+              },
+              "web_property_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional L7 WebProperty this check monitors. Field included by default."
               }
             },
             "required": [
@@ -37678,12 +37743,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },
@@ -37761,12 +37826,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },
@@ -37918,6 +37983,18 @@
                               }
                             ],
                             "description": "Response time warning threshold (milliseconds)"
+                          },
+                          "web_property_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional L7 WebProperty this check monitors"
                           }
                         },
                         "type": "object"
@@ -40057,7 +40134,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -40115,12 +40192,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },
@@ -40195,12 +40272,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },
@@ -40363,6 +40440,18 @@
                               }
                             ],
                             "description": "Response time warning threshold (milliseconds)"
+                          },
+                          "web_property_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional L7 WebProperty this check monitors"
                           }
                         },
                         "required": [
@@ -43370,7 +43459,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -43395,12 +43484,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },
@@ -48377,7 +48466,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|check_type|-check_type|\\+\\+check_type|--check_type|target|-target|\\+\\+target|--target|port|-port|\\+\\+port|--port|interval_seconds|-interval_seconds|\\+\\+interval_seconds|--interval_seconds|timeout_seconds|-timeout_seconds|\\+\\+timeout_seconds|--timeout_seconds|retries|-retries|\\+\\+retries|--retries|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|warning_threshold_ms|-warning_threshold_ms|\\+\\+warning_threshold_ms|--warning_threshold_ms|critical_threshold_ms|-critical_threshold_ms|\\+\\+critical_threshold_ms|--critical_threshold_ms|last_check_at|-last_check_at|\\+\\+last_check_at|--last_check_at|last_result|-last_result|\\+\\+last_result|--last_result|last_response_time_ms|-last_response_time_ms|\\+\\+last_response_time_ms|--last_response_time_ms|last_error|-last_error|\\+\\+last_error|--last_error|consecutive_failures|-consecutive_failures|\\+\\+consecutive_failures|--consecutive_failures|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|device_uid|-device_uid|\\+\\+device_uid|--device_uid|web_property_id|-web_property_id|\\+\\+web_property_id|--web_property_id|metadata|-metadata|\\+\\+metadata|--metadata|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -48402,12 +48491,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id"
+                "service-check": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id"
               },
               "properties": {
                 "service-check": {
                   "description": "Comma separated field names for service-check",
-                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,metadata,schedule_id",
+                  "example": "id,name,description,check_type,target,port,interval_seconds,timeout_seconds,retries,enabled,config,warning_threshold_ms,critical_threshold_ms,last_check_at,last_result,last_response_time_ms,last_error,consecutive_failures,agent_uid,device_uid,web_property_id,metadata,schedule_id",
                   "type": "string"
                 }
               },

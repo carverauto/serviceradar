@@ -207,15 +207,20 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     ambig_uid_2 = "sr:" <> Ecto.UUID.generate()
     mixed_gateway_uid = "sr:" <> Ecto.UUID.generate()
 
-    for {uid, ip} <- [
-          {direct_uid, direct_vip},
-          {ambig_uid_1, ambiguous_vip},
-          {ambig_uid_2, ambiguous_vip},
-          {mixed_gateway_uid, mixed_gateway_vip}
+    for {uid, ip, partition} <- [
+          {direct_uid, direct_vip, "direct-#{unique}"},
+          {ambig_uid_1, ambiguous_vip, "ambig-a-#{unique}"},
+          {ambig_uid_2, ambiguous_vip, "ambig-b-#{unique}"},
+          {mixed_gateway_uid, mixed_gateway_vip, "mixed-#{unique}"}
         ] do
       {:ok, _} =
         Device
-        |> Ash.Changeset.for_create(:create, %{uid: uid, ip: ip, hostname: "host-#{uid}"})
+        |> Ash.Changeset.for_create(:create, %{
+          uid: uid,
+          ip: ip,
+          partition: partition,
+          hostname: "host-#{uid}"
+        })
         |> Ash.create(actor: actor)
     end
 
