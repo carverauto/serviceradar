@@ -29,22 +29,64 @@ type wasmCredentialInjection struct {
 	CredentialSecretRef string `json:"credential_secret_ref"`
 }
 
-// wasmHTTPRequest is the subset of the env.http_request payload the fixtures route on.
+// wasmHTTPRequest is the env.http_request payload decoded by the test host.
 type wasmHTTPRequest struct {
 	Method              string                   `json:"method"`
 	URL                 string                   `json:"url"`
-	Headers             map[string]string        `json:"headers"`
-	Body                string                   `json:"body"`
-	BodyBase64          string                   `json:"body_base64"`
+	Headers             map[string]string        `json:"headers,omitempty"`
+	Body                string                   `json:"body,omitempty"`
+	BodyBase64          string                   `json:"body_base64,omitempty"`
 	ResponseMode        string                   `json:"response_mode"`
+	FollowRedirects     *bool                    `json:"follow_redirects,omitempty"`
+	InsecureSkipVerify  bool                     `json:"insecure_skip_verify,omitempty"`
 	CredentialInjection *wasmCredentialInjection `json:"credential_injection"`
 }
 
+type wasmHTTPHopTrace struct {
+	URL                    string `json:"url"`
+	Status                 int    `json:"status"`
+	DNSDurationNS          int64  `json:"dns_duration_ns"`
+	ConnectDurationNS      int64  `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64  `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64  `json:"ttfb_duration_ns"`
+	RemoteAddr             string `json:"remote_addr,omitempty"`
+}
+
+type wasmHTTPTrace struct {
+	DNSDurationNS          int64              `json:"dns_duration_ns"`
+	ConnectDurationNS      int64              `json:"connect_duration_ns"`
+	TLSHandshakeDurationNS int64              `json:"tls_handshake_duration_ns"`
+	TTFBDurationNS         int64              `json:"ttfb_duration_ns"`
+	TransferDurationNS     int64              `json:"transfer_duration_ns"`
+	TotalDurationNS        int64              `json:"total_duration_ns"`
+	ConnectionReused       bool               `json:"connection_reused"`
+	RedirectCount          int                `json:"redirect_count"`
+	FinalURL               string             `json:"final_url"`
+	Protocol               string             `json:"protocol,omitempty"`
+	RemoteAddr             string             `json:"remote_addr,omitempty"`
+	Hops                   []wasmHTTPHopTrace `json:"hops,omitempty"`
+}
+
+type wasmHTTPTLSInfo struct {
+	Version           string `json:"version,omitempty"`
+	CipherSuite       string `json:"cipher_suite,omitempty"`
+	ALPN              string `json:"alpn,omitempty"`
+	LeafSubjectCN     string `json:"leaf_subject_cn,omitempty"`
+	LeafIssuerCN      string `json:"leaf_issuer_cn,omitempty"`
+	LeafNotAfterUnix  *int64 `json:"leaf_not_after_unix,omitempty"`
+	LeafDaysRemaining *int   `json:"leaf_days_remaining,omitempty"`
+}
+
 type wasmHTTPEnvelopeResponse struct {
-	Status    int               `json:"status"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	Body      []byte            `json:"-"`
-	HTTPTrace map[string]any    `json:"httptrace,omitempty"`
+	// ErrCode, when negative, is returned as the host-call error code.
+	ErrCode    int32             `json:"-"`
+	Status     int               `json:"status"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	SetCookies []string          `json:"set_cookies,omitempty"`
+	Body       []byte            `json:"-"`
+	HTTPTrace  map[string]any    `json:"httptrace,omitempty"`
+	Trace      *wasmHTTPTrace    `json:"trace,omitempty"`
+	TLS        *wasmHTTPTLSInfo  `json:"tls,omitempty"`
 }
 
 // wasmHost stands in for the agent's env host module. A host call the guest
@@ -56,7 +98,8 @@ type wasmHost struct {
 	// status is returned as that host-call error code instead, the way the
 	// agent reports a denied, failed or timed-out request.
 	http func(t *testing.T, req wasmHTTPRequest) (status int, body []byte)
-	// httpEnvelope answers env.http_request in "envelope" mode with headers and optional httptrace.
+	// httpEnvelope answers env.http_request in "envelope" mode (and in any
+	// mode when http is nil) with headers, Set-Cookie, httptrace, trace and TLS.
 	httpEnvelope func(t *testing.T, req wasmHTTPRequest) wasmHTTPEnvelopeResponse
 	// tcpDial opens a TCP connection handle for tcp_connect/tcp_read/tcp_write/tcp_close.
 	tcpDial func(t *testing.T, host string, port uint16, timeout time.Duration) (net.Conn, int32)
@@ -64,10 +107,12 @@ type wasmHost struct {
 	conns      map[uint32]net.Conn
 	nextHandle uint32
 
-	results   []map[string]any
-	telemetry [][]byte
-	httpCalls int
-	tcpCalls  int
+	results          []map[string]any
+	telemetry        [][]byte
+	httpCalls        int
+	tcpCalls         int
+	memoryLimitPages uint32
+	lastMemoryBytes  uint32
 }
 
 func loadBuiltWasm(t *testing.T, name string) []byte {
@@ -90,7 +135,11 @@ func (h *wasmHost) run(t *testing.T, wasm []byte, export string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	runtime := wazero.NewRuntime(ctx)
+	runtimeCfg := wazero.NewRuntimeConfig()
+	if h.memoryLimitPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(h.memoryLimitPages)
+	}
+	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
 	defer func() {
 		for _, conn := range h.conns {
 			_ = conn.Close()
@@ -127,6 +176,9 @@ func (h *wasmHost) run(t *testing.T, wasm []byte, export string) {
 	if _, err := module.ExportedFunction(export).Call(ctx); err != nil {
 		t.Fatal(fmt.Errorf("%s: %w", export, err))
 	}
+	if mem := module.Memory(); mem != nil {
+		h.lastMemoryBytes = mem.Size()
+	}
 	if len(h.results) == 0 {
 		t.Fatal("plugin did not submit a result")
 	}
@@ -145,8 +197,12 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 	}
 	switch name {
 	case "get_config":
-		if uint64(len(h.config)) > stack[1] || !module.Memory().Write(uint32(stack[0]), h.config) {
-			t.Fatal("config exceeds guest buffer")
+		if uint64(len(h.config)) > stack[1] {
+			stack[0] = api.EncodeI32(-3)
+			return
+		}
+		if !module.Memory().Write(uint32(stack[0]), h.config) {
+			t.Fatal("config write failed")
 		}
 		stack[0] = uint64(len(h.config))
 	case "submit_result":
@@ -169,8 +225,13 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 		if err := json.Unmarshal(read(stack[0], stack[1]), &request); err != nil {
 			t.Fatal(err)
 		}
-		if h.httpEnvelope != nil {
+		envelopeMode := strings.EqualFold(strings.TrimSpace(request.ResponseMode), "envelope")
+		if h.httpEnvelope != nil && (envelopeMode || h.http == nil) {
 			envResp := h.httpEnvelope(t, request)
+			if envResp.ErrCode < 0 {
+				stack[0] = api.EncodeI32(envResp.ErrCode)
+				return
+			}
 			if envResp.Status < 0 {
 				stack[0] = api.EncodeI32(int32(envResp.Status))
 				return
@@ -179,26 +240,38 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 			if strings.EqualFold(strings.TrimSpace(request.ResponseMode), "status_body") {
 				response = append([]byte(fmt.Sprintf("%d\n", envResp.Status)), envResp.Body...)
 			} else {
-				wire := map[string]any{
-					"status":        envResp.Status,
-					"headers":       envResp.Headers,
-					"body_base64":   base64.StdEncoding.EncodeToString(envResp.Body),
-					"body_encoding": "base64",
-				}
-				if envResp.HTTPTrace != nil {
-					wire["httptrace"] = envResp.HTTPTrace
-				}
-				encoded, err := json.Marshal(wire)
+				encoded, err := json.Marshal(struct {
+					Status       int               `json:"status"`
+					Headers      map[string]string `json:"headers,omitempty"`
+					SetCookies   []string          `json:"set_cookies,omitempty"`
+					BodyBase64   string            `json:"body_base64"`
+					BodyEncoding string            `json:"body_encoding,omitempty"`
+					HTTPTrace    map[string]any    `json:"httptrace,omitempty"`
+					Trace        *wasmHTTPTrace    `json:"trace,omitempty"`
+					TLS          *wasmHTTPTLSInfo  `json:"tls,omitempty"`
+				}{
+					Status:       envResp.Status,
+					Headers:      envResp.Headers,
+					SetCookies:   envResp.SetCookies,
+					BodyBase64:   base64.StdEncoding.EncodeToString(envResp.Body),
+					BodyEncoding: "base64",
+					HTTPTrace:    envResp.HTTPTrace,
+					Trace:        envResp.Trace,
+					TLS:          envResp.TLS,
+				})
 				if err != nil {
 					t.Fatal(err)
 				}
 				response = encoded
 			}
 			if uint64(len(response)) > stack[3] || !module.Memory().Write(uint32(stack[2]), response) {
-				t.Fatal("response exceeds guest buffer")
+				t.Fatal("envelope response exceeds guest buffer")
 			}
 			stack[0] = uint64(len(response))
 			return
+		}
+		if h.http == nil {
+			t.Fatal("unexpected HTTP request")
 		}
 		status, body := h.http(t, request)
 		if status < 0 {
@@ -283,5 +356,85 @@ func (h *wasmHost) call(t *testing.T, name string, module api.Module, stack []ui
 		stack[0] = 0
 	default:
 		t.Fatalf("unexpected host call %s", name)
+	}
+}
+
+func TestWasmHostHTTPEnvelopeCallback(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	rt := wazero.NewRuntime(ctx)
+	defer func() { _ = rt.Close(ctx) }()
+
+	mod, err := rt.Instantiate(ctx, []byte{
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+		0x05, 0x03, 0x01, 0x00, 0x01,
+		0x07, 0x0a, 0x01, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reqJSON := []byte(`{"method":"GET","url":"https://app.example.test/login","response_mode":"envelope","follow_redirects":false}`)
+	const (
+		reqPtr  = uint32(0)
+		respPtr = uint32(4096)
+		respLen = uint32(8192)
+	)
+	if !mod.Memory().Write(reqPtr, reqJSON) {
+		t.Fatal("write request")
+	}
+
+	daysZero := 0
+	var capturedFollowRedirects *bool
+	host := &wasmHost{
+		httpEnvelope: func(t *testing.T, req wasmHTTPRequest) wasmHTTPEnvelopeResponse {
+			capturedFollowRedirects = req.FollowRedirects
+			return wasmHTTPEnvelopeResponse{
+				Status:     302,
+				Headers:    map[string]string{"Location": "/callback"},
+				SetCookies: []string{"sid=alpha; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/; Secure"},
+				Body:       []byte(`{"step":"redirect"}`),
+				Trace: &wasmHTTPTrace{
+					TotalDurationNS: 4_200_000,
+					FinalURL:        "https://app.example.test/login",
+					Protocol:        "HTTP/2.0",
+					Hops: []wasmHTTPHopTrace{
+						{URL: "https://app.example.test/login", Status: 302, TTFBDurationNS: 3_000_000},
+					},
+				},
+				TLS: &wasmHTTPTLSInfo{
+					Version:           "TLS1.3",
+					LeafDaysRemaining: &daysZero,
+				},
+			}
+		},
+	}
+
+	stack := []uint64{uint64(reqPtr), uint64(len(reqJSON)), uint64(respPtr), uint64(respLen)}
+	host.call(t, "http_request", mod, stack)
+
+	if capturedFollowRedirects == nil || *capturedFollowRedirects {
+		t.Fatalf("follow_redirects = %v, want false", capturedFollowRedirects)
+	}
+	n := uint32(stack[0])
+	raw, ok := mod.Memory().Read(respPtr, n)
+	if !ok {
+		t.Fatal("read response")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["status"] != float64(302) {
+		t.Fatalf("status = %v, want 302", decoded["status"])
+	}
+	cookies, _ := decoded["set_cookies"].([]any)
+	if len(cookies) != 1 {
+		t.Fatalf("set_cookies = %v, want 1 entry", decoded["set_cookies"])
+	}
+	tlsObj, _ := decoded["tls"].(map[string]any)
+	if tlsObj == nil || tlsObj["leaf_days_remaining"] != float64(0) {
+		t.Fatalf("tls = %v, want leaf_days_remaining=0", decoded["tls"])
 	}
 }

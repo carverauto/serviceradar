@@ -445,6 +445,7 @@ go_test(
         "plugin_runtime_host_authority_test.go",
         "plugin_runtime_http_body_policy_test.go",
         "plugin_runtime_http_egress_test.go",
+        "plugin_runtime_http_test.go",
         "plugin_runtime_local_test.go",
         "plugin_runtime_network_test.go",
         "plugin_runtime_notify_test.go",
@@ -640,6 +641,35 @@ go_test(
     deps = [
         "//go/pkg/logger",
         "//proto",
+    ],
+)
+
+go_test(
+    name = "http_synthetic_journey_pipeline_test",
+    srcs = ["http_synthetic_journey_pipeline_test.go"],
+    data = [
+        "//build/wasm_plugins:http_synthetic_journey_wasm",
+        "//go/cmd/wasm-plugins/http-synthetic-journey:plugin.yaml",
+    ],
+    embed = [":agent"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/sender",
+        "//go/pkg/edge/spool",
+        "//go/pkg/logger",
+        "//proto",
+        "//proto/agent/addon/v1:addonpb",
+        "//proto/edge/v1:edgev1",
+        "//proto/metric/v1:metricpb",
+        "@com_github_google_uuid//:uuid",
+        "@com_github_stretchr_testify//require",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_grpc//test/bufconn",
+        "@org_golang_google_protobuf//proto",
     ],
 )
 
