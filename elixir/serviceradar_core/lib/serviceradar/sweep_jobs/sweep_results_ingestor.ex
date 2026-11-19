@@ -523,7 +523,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       DeviceLookup.batch_lookup_by_ip(ips,
         actor: actor,
         include_deleted: true,
-        include_detected: true,
         use_cache: false,
         partition: partition
       )
@@ -856,6 +855,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     partition = sweep_group_partition(reporter_context.group)
 
+    # Full holder order, as process_batch/4 attributed the result: promotion dispatches
+    # mapper discovery by address and records a cooldown on the device; it does not
+    # create, merge or confirm an identity.
     device_map =
       DeviceLookup.batch_lookup_by_ip(ips,
         actor: actor,

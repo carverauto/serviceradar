@@ -46,6 +46,21 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     timeseries rows, `use_cache: false`.
   - Direct `IdentityCache` access: limited to the cache implementation and
     tests.
+
+  ## Holder Order
+
+  Every IP lookup attributes an address to its holder in one order, described in
+  `batch_resolve_by_ip/2`, detected aliases included. Attribution callers use that
+  order: sweep result ingestion and its device seeding, ICMP and SNMP metric
+  ingestion, core result processing, and sweep mapper promotion, which only
+  dispatches mapper discovery by address and records a cooldown on the device.
+
+  A caller that acts on identity must not act on an unconfirmed detected alias and
+  passes `confirmed_aliases_only: true`, which leaves the detected tiers out:
+
+  - Event device correlation (`DeviceCorrelation`), through
+    `get_canonical_device/2`: its answer is cached and keys alerts and findings to
+    a device, so it resolves on confirmed aliases and primary IPs only.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -124,8 +139,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   with information about which key was used. A database read error stops the
   lookup and returns `{:error, reason}` without trying later keys or IP
   fallbacks; only a successful read with no match advances to another key.
-  An IP key resolves to its holder as `batch_resolve_by_ip/2` picks it, among
-  confirmed aliases and the primary IP.
+  An IP key resolves to its holder as `batch_resolve_by_ip/2` picks it.
 
   ## Options
 
@@ -133,6 +147,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   - `:partition` - Partition context for partition-scoped lookups
   - `:use_cache` - Whether to use the identity cache (default: false)
   - `:include_deleted` - Fall back to a soft-deleted device (default: false)
+  - `:confirmed_aliases_only` - Leave detected aliases out (default: false); see
+    the moduledoc
   - `:actor` - Actor for authorization context
   """
   @spec get_canonical_device([identity_key()], keyword()) ::
@@ -169,18 +185,19 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   - `:actor` - Actor for authorization context
   - `:include_deleted` - Fall back to a soft-deleted holder when no live device
     holds the address (default: false)
-  - `:include_detected` - Also consider detected aliases (default: false)
+  - `:confirmed_aliases_only` - Leave detected aliases out (default: false); see
+    the moduledoc
   - `:partition` - Partition to resolve in (default: "default")
   """
   @spec batch_lookup_by_ip([String.t()], keyword()) :: %{String.t() => canonical_record()}
   def batch_lookup_by_ip(ips, opts \\ []) when is_list(ips) do
     ips
-    |> resolve_ips(opts, Keyword.get(opts, :include_detected, false))
+    |> batch_resolve_by_ip(opts)
     |> Map.new(fn {ip, {record, _detected_alias}} -> {ip, record} end)
   end
 
   @doc """
-  Resolve each address to the device it is attributed to, detected aliases included.
+  Resolve each address to the device it is attributed to.
 
   Returns `{record, detected_alias}` per resolved address. `detected_alias` is the
   `DeviceAliasState` when the winner is a live device holding the address only as a
@@ -205,18 +222,16 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   restore a soft-deleted device and stops it seeding a new device for an address only
   a tombstone holds. A merged-away holder is not redirected to its survivor.
 
-  Takes the options of `batch_lookup_by_ip/2`; detected aliases are always considered.
+  With `confirmed_aliases_only: true` tiers 3 and 5 are left out. Takes the options of
+  `batch_lookup_by_ip/2`.
   """
   @spec batch_resolve_by_ip([String.t()], keyword()) ::
           %{String.t() => {canonical_record(), DeviceAliasState.t() | nil}}
   def batch_resolve_by_ip(ips, opts \\ []) when is_list(ips) do
-    resolve_ips(ips, opts, true)
-  end
-
-  defp resolve_ips(ips, opts, include_detected) do
     use_cache = Keyword.get(opts, :use_cache, false)
     actor = Keyword.get(opts, :actor)
     include_deleted = Keyword.get(opts, :include_deleted, false)
+    include_detected = include_detected?(opts)
 
     unique_ips =
       ips
@@ -259,6 +274,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       resolved
     end
   end
+
+  defp include_detected?(opts), do: not Keyword.get(opts, :confirmed_aliases_only, false)
 
   # A batch resolves what it can read: an alias read error leaves the primary IP to decide.
   defp candidates_or_empty({:ok, candidates}), do: candidates
@@ -405,6 +422,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     use_cache = Keyword.get(opts, :use_cache, false)
     actor = Keyword.get(opts, :actor)
     include_deleted = Keyword.get(opts, :include_deleted, false)
+    include_detected = include_detected?(opts)
     partition = lookup_partition(opts)
 
     Enum.reduce_while(
@@ -416,7 +434,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
             {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
           :miss ->
-            handle_lookup_miss(key, actor, include_deleted, use_cache, partition)
+            handle_lookup_miss(key, actor, include_deleted, include_detected, use_cache, partition)
         end
       end
     )
@@ -435,13 +453,17 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp cached_record_for_key(_key, _use_cache, _partition), do: :miss
 
-  defp handle_lookup_miss(key, actor, include_deleted, use_cache, partition) do
-    case lookup_by_key(key, actor, include_deleted, partition) do
+  defp handle_lookup_miss(key, actor, include_deleted, include_detected, use_cache, partition) do
+    case lookup_by_key(key, actor, include_deleted, include_detected, partition) do
       {:ok, nil} ->
         {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
 
       {:ok, record} ->
-        cache_lookup_result(key, record, use_cache)
+        {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
+
+      # A detected-alias winner is not cached; see cache_resolved/2.
+      {:ok, record, detected_alias} ->
+        cache_lookup_result(key, record, use_cache and is_nil(detected_alias))
         {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
 
       {:error, _reason} = error ->
@@ -455,23 +477,29 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp cache_lookup_result(_key, _record, _use_cache), do: :ok
 
-  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor, include_deleted, _partition) do
+  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor, include_deleted, _, _partition) do
     Device
     |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
     |> read_one_with_actor(actor)
     |> device_record()
   end
 
-  defp lookup_by_key(%{kind: :partition_ip, value: value}, actor, include_deleted, _partition) do
+  defp lookup_by_key(
+         %{kind: :partition_ip, value: value},
+         actor,
+         include_deleted,
+         include_detected,
+         _partition
+       ) do
     {partition, ip} = split_partition_ip(value)
-    lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition)
+    lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, include_detected, partition)
   end
 
-  # The same holder selection as batch_resolve_by_ip/2 over confirmed aliases and the
-  # primary IP, except that a read error stops the lookup (see get_canonical_device/2).
-  defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition) do
+  # The same holder selection as batch_resolve_by_ip/2, except that a read error stops
+  # the lookup (see get_canonical_device/2).
+  defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, include_detected, partition) do
     with {:ok, alias_candidates} <-
-           read_alias_candidates([ip], actor, include_deleted, false, partition),
+           read_alias_candidates([ip], actor, include_deleted, include_detected, partition),
          {:ok, primary_holders} <-
            Device
            |> Ash.Query.for_read(:by_ip, %{
@@ -488,12 +516,12 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
       case select_holder(Map.get(alias_candidates, ip, []) ++ primary_candidates) do
         nil -> {:ok, nil}
-        winner -> {:ok, winner.record}
+        winner -> {:ok, winner.record, confirmable_alias(winner)}
       end
     end
   end
 
-  defp lookup_by_key(%{kind: :mac, value: mac}, actor, include_deleted, _partition) do
+  defp lookup_by_key(%{kind: :mac, value: mac}, actor, include_deleted, _, _partition) do
     normalized_mac = normalize_mac(mac)
 
     Device
@@ -502,7 +530,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> device_record()
   end
 
-  defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted, partition)
+  defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted, _, partition)
        when id_type in [:armis_id, :netbox_id, :integration_id] do
     DeviceIdentifier
     |> Ash.Query.for_read(:lookup, %{
@@ -529,7 +557,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
-  defp lookup_by_key(_key, _actor, _include_deleted, _partition), do: {:ok, nil}
+  defp lookup_by_key(_key, _actor, _include_deleted, _include_detected, _partition),
+    do: {:ok, nil}
 
   defp device_record({:ok, nil}), do: {:ok, nil}
   defp device_record({:ok, device}), do: {:ok, build_record_from_device(device)}

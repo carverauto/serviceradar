@@ -306,7 +306,6 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
     DeviceLookup.batch_lookup_by_ip(ips,
       actor: actor,
       include_deleted: true,
-      include_detected: true,
       partition: partition
     )
   end
