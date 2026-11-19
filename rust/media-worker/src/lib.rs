@@ -14,6 +14,7 @@ mod metrics;
 mod ort_loader;
 mod range_reader;
 mod tokenizer;
+mod tracking;
 mod vision;
 mod worker;
 mod yolo_v8;
@@ -22,6 +23,8 @@ mod yolo_v8;
 mod candle_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tracking_tests;
 
 pub use backend::{
     DeterministicStubBackend, InferenceBackend, InferenceBackendInfo, InferenceBackendKind,
@@ -62,14 +65,15 @@ pub use range_reader::{
     extract_and_verify_slices, longshore_registered_pool_bytes, verify_sha256_hex,
 };
 pub use tokenizer::PureRustTokenizer;
+pub use tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
 pub use vision::{
-    DetectedSubject, GeneratedEmbedding, KeyframeAnalysis, ObjectClass, RgbFrame, VisionPipeline,
-    classify_dominant_colors, cosine_similarity, embed_query_text,
+    ClipAnalysis, ClipKeyframe, DetectedSubject, GeneratedEmbedding, KeyframeAnalysis, ObjectClass,
+    RgbFrame, VisionPipeline, classify_dominant_colors, cosine_similarity, embed_query_text,
 };
 pub use worker::{
     DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,
     JetStreamResultPublisher, JobDelivery, JobOutcome, ResultPublisher, TextEmbedRpcRequest,
-    TextEmbedRpcResponse, TextEmbedService, VISUAL_INDEX_BACKFILL_SUBJECT,
+    TextEmbedRpcResponse, TextEmbedService, TrackSummaryPayload, VISUAL_INDEX_BACKFILL_SUBJECT,
     VISUAL_INDEX_LIVE_SUBJECT, VISUAL_INDEX_RESULTS_SUBJECT, VISUAL_TEXT_EMBED_QUEUE_GROUP,
     VISUAL_TEXT_EMBED_RPC_PREFIX, VisualIndexJobEnvelope, VisualIndexProcessor,
     VisualIndexResultEnvelope, run_nats_worker_loops, run_nats_worker_loops_with_backend,

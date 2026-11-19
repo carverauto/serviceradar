@@ -81,6 +81,8 @@ async fn main() -> ExitCode {
         inference_backend = %manifest.inference_backend(),
         inference_device = %manifest.inference_device(),
         detector_enabled = manifest.detector_enabled(),
+        tracker = %manifest.tracker(),
+        dedup_track_crops = manifest.dedup_track_crops(),
         execution_provider = %manifest.execution_provider(),
         gpu_sharing_mode = %manifest.gpu_sharing_mode(),
         embedder_model_id = %manifest.embedder_model_id(),

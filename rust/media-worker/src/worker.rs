@@ -11,7 +11,7 @@ use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
 };
-use crate::vision::{RgbFrame, VisionPipeline};
+use crate::vision::{ClipKeyframe, RgbFrame, VisionPipeline};
 use async_nats::jetstream::AckKind;
 use async_nats::jetstream::consumer::{AckPolicy, pull};
 use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
@@ -173,6 +173,8 @@ pub struct DetectionPayload {
     confidence: f32,
     bbox: [f32; 4],
     dominant_colors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track_id: Option<u64>,
 }
 
 impl DetectionPayload {
@@ -191,6 +193,10 @@ impl DetectionPayload {
     pub fn dominant_colors(&self) -> &[String] {
         &self.dominant_colors
     }
+
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
+    }
 }
 
 /// Embedding entry inside `VisualIndexResultEnvelope.frames[*].embeddings`.
@@ -205,6 +211,8 @@ pub struct EmbeddingPayload {
     confidence: Option<f32>,
     bbox: Option<[f32; 4]>,
     dominant_colors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track_id: Option<u64>,
     embedding: Vec<f32>,
 }
 
@@ -233,8 +241,54 @@ impl EmbeddingPayload {
         &self.dominant_colors
     }
 
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
+    }
+
     pub fn embedding(&self) -> &[f32] {
         &self.embedding
+    }
+}
+
+/// Per-track summary entry inside `VisualIndexResultEnvelope.tracks`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackSummaryPayload {
+    track_id: u64,
+    object_class: String,
+    first_seen_offset_ms: u64,
+    last_seen_offset_ms: u64,
+    dwell_ms: u64,
+    frame_count: u32,
+    peak_confidence: f32,
+}
+
+impl TrackSummaryPayload {
+    pub fn track_id(&self) -> u64 {
+        self.track_id
+    }
+
+    pub fn object_class(&self) -> &str {
+        &self.object_class
+    }
+
+    pub fn first_seen_offset_ms(&self) -> u64 {
+        self.first_seen_offset_ms
+    }
+
+    pub fn last_seen_offset_ms(&self) -> u64 {
+        self.last_seen_offset_ms
+    }
+
+    pub fn dwell_ms(&self) -> u64 {
+        self.dwell_ms
+    }
+
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    pub fn peak_confidence(&self) -> f32 {
+        self.peak_confidence
     }
 }
 
@@ -286,6 +340,8 @@ pub struct VisualIndexResultEnvelope {
     model_version: String,
     embedding_dim: usize,
     frames: Vec<FrameResultPayload>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tracks: Vec<TrackSummaryPayload>,
 }
 
 impl VisualIndexResultEnvelope {
@@ -327,6 +383,10 @@ impl VisualIndexResultEnvelope {
 
     pub fn frames(&self) -> &[FrameResultPayload] {
         &self.frames
+    }
+
+    pub fn tracks(&self) -> &[TrackSummaryPayload] {
+        &self.tracks
     }
 }
 
@@ -655,7 +715,8 @@ where
                 config.models().clone(),
                 config.skip_unchanged_empty_scenes(),
                 backend,
-            ),
+            )
+            .with_tracking(config.tracker_mode(), config.dedup_track_crops()),
             index_semaphore: Arc::new(Semaphore::new(config.index_concurrency().max(1))),
             wpi_interval: Duration::from_secs(15),
             otel_endpoint: config.otel_endpoint().to_string(),
@@ -771,33 +832,12 @@ where
         let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
         let init_seg = parse_init_segment(verified_block.init_bytes())?;
 
-        let mut frame_payloads = Vec::with_capacity(verified_block.fragments().len());
-        let mut previous_frame: Option<RgbFrame> = None;
-
+        let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
+            Vec::with_capacity(verified_block.fragments().len());
         for frag in verified_block.fragments() {
             let parsed_frag = parse_media_fragment(frag.bytes(), &init_seg)?;
             let decoded_frame = decode_idr_keyframe(&init_seg, &parsed_frag)?;
             self.metrics.inc_keyframes_decoded(1);
-
-            let t_s1 = Instant::now();
-            let detections = self.pipeline.detect_subjects_checked(&decoded_frame)?;
-            self.metrics
-                .observe_stage1_latency(t_s1.elapsed().as_secs_f64());
-
-            let scene_suppressed = self.pipeline.skip_unchanged_empty_scenes()
-                && detections.is_empty()
-                && previous_frame
-                    .as_ref()
-                    .is_some_and(|prev| decoded_frame.downsampled_l1_delta(prev) < 0.02);
-
-            let t_s2 = Instant::now();
-            let generated_embs = self.pipeline.encode_stage2_batch_checked(
-                &decoded_frame,
-                &detections,
-                scene_suppressed,
-            )?;
-            self.metrics
-                .observe_stage2_latency(t_s2.elapsed().as_secs_f64());
 
             // Prefer authoritative descriptor `start_ns` when > 0, else container `tfdt` PTS.
             let media_pts_ns = if frag.start_ns() > 0 {
@@ -805,19 +845,46 @@ where
             } else {
                 parsed_frag.media_pts_ns(init_seg.timescale())
             };
+            decoded_frames.push((frag.sequence(), media_pts_ns, decoded_frame));
+        }
 
-            let det_payloads = detections
+        let base_pts_ns = decoded_frames.first().map(|(_, pts, _)| *pts).unwrap_or(0);
+        let clip_keyframes: Vec<ClipKeyframe<'_>> = decoded_frames
+            .iter()
+            .map(|(_, pts, frame)| {
+                let offset_ms = pts.saturating_sub(base_pts_ns) / 1_000_000;
+                ClipKeyframe::new(offset_ms, frame)
+            })
+            .collect();
+
+        let clip_analysis = self.pipeline.process_clip_keyframes(&clip_keyframes)?;
+        for &secs in clip_analysis.stage1_latencies_secs() {
+            self.metrics.observe_stage1_latency(secs);
+        }
+        for &secs in clip_analysis.stage2_latencies_secs() {
+            self.metrics.observe_stage2_latency(secs);
+        }
+
+        let (frame_analyses, track_summaries) = clip_analysis.into_parts();
+        let mut frame_payloads = Vec::with_capacity(decoded_frames.len());
+        for ((sequence, media_pts_ns, _), analysis) in
+            decoded_frames.into_iter().zip(frame_analyses)
+        {
+            let det_payloads = analysis
+                .detections()
                 .iter()
                 .map(|d| DetectionPayload {
                     object_class: d.object_class().as_str().to_string(),
                     confidence: d.confidence(),
                     bbox: d.bbox_norm(),
                     dominant_colors: d.dominant_colors().to_vec(),
+                    track_id: d.track_id(),
                 })
                 .collect();
 
-            let emb_payloads = generated_embs
-                .into_iter()
+            let emb_payloads = analysis
+                .embeddings()
+                .iter()
                 .map(|e| EmbeddingPayload {
                     region_kind: e.region_kind().to_string(),
                     region_index: e.region_index(),
@@ -825,20 +892,32 @@ where
                     confidence: e.confidence(),
                     bbox: e.bbox_norm(),
                     dominant_colors: e.dominant_colors().to_vec(),
+                    track_id: e.track_id(),
                     embedding: e.embedding().to_vec(),
                 })
                 .collect();
 
             frame_payloads.push(FrameResultPayload {
-                fragment_sequence: frag.sequence(),
+                fragment_sequence: sequence,
                 media_pts_ns,
-                scene_suppressed,
+                scene_suppressed: analysis.scene_suppressed(),
                 detections: det_payloads,
                 embeddings: emb_payloads,
             });
-
-            previous_frame = Some(decoded_frame);
         }
+
+        let track_payloads: Vec<TrackSummaryPayload> = track_summaries
+            .into_iter()
+            .map(|t| TrackSummaryPayload {
+                track_id: t.track_id(),
+                object_class: t.object_class().as_str().to_string(),
+                first_seen_offset_ms: t.first_seen_offset_ms(),
+                last_seen_offset_ms: t.last_seen_offset_ms(),
+                dwell_ms: t.dwell_ms(),
+                frame_count: t.frame_count(),
+                peak_confidence: t.peak_confidence(),
+            })
+            .collect();
 
         let det_id = job
             .resolved_detector_model_id(self.models.detector_model_id())
@@ -864,6 +943,7 @@ where
                 model_version: emb_ver,
                 embedding_dim: self.models.embedding_dim(),
                 frames: frame_payloads,
+                tracks: track_payloads,
             },
         )))
     }

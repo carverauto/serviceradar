@@ -40,6 +40,7 @@ serde_json = { workspace = true }
 serviceradar-cert-policy = { path = "../cert-policy" }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+trackforge = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 ureq = { workspace = true, features = ["json"] }
