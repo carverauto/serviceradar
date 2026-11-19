@@ -19,8 +19,8 @@ defmodule ServiceRadar.Repo.Migrations.RemoveSamlAuthentication do
 
   Then the SAML columns of `auth_settings` and the two SAML tables
   (`saml_pending_requests`, `saml_consumed_assertions`) are dropped, and
-  pending jobs of the removed SAML assertion cleanup worker are deleted so Oban
-  does not retry a worker that no longer exists.
+  pending and executing jobs of the removed SAML assertion cleanup worker are
+  deleted so Oban does not retry a worker that no longer exists.
 
   Every statement is idempotent: the drops are `IF EXISTS`, and the rewrites
   match only rows that still carry a SAML value, so a fresh install or a re-run
@@ -30,7 +30,7 @@ defmodule ServiceRadar.Repo.Migrations.RemoveSamlAuthentication do
   are bounded by construction: `auth_settings` is a singleton row,
   `ng_users`/`mcp_oauth_grants` are matched on a SAML value that only
   SAML-authenticated users carry, and the Oban delete is limited to one
-  removed worker's not-yet-run jobs. They cannot be deferred to a
+  removed worker's pending and executing jobs. They cannot be deferred to a
   post-bootstrap job, because the release that ships this migration no longer
   loads a SAML value: an `ng_users` row still carrying `last_auth_method =
   'saml'` would fail to load until it was rewritten.
@@ -76,7 +76,7 @@ defmodule ServiceRadar.Repo.Migrations.RemoveSamlAuthentication do
     execute("""
     DELETE FROM platform.oban_jobs
     WHERE worker = '#{@cleanup_worker}'
-      AND state IN ('available', 'scheduled', 'retryable')
+      AND state IN ('available', 'scheduled', 'retryable', 'executing')
     """)
 
     execute("""
