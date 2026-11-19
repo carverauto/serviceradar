@@ -462,3 +462,48 @@ Out-of-line staged artifacts referenced by a `serviceradar.plugin_results.batch`
 - **THEN** `serviceradar.plugin_result.handler.outcome.count` SHALL carry only bounded `:outcome`, `:handler`, and `:reason` tags
 - **AND** `controller_id` and `assignment_id` SHALL appear only in untagged `:telemetry` metadata and single-shot structured logs
 
+### Requirement: Shipped First-Party Declarative Check Runner Wasm Plugin
+The system SHALL ship and sign (`UploadSignature`) one first-party generic WASI plugin (`io.serviceradar.declarative-check-runner`) for `serviceradar-agent`, and `DeclarativeCheckAssignmentCompiler` SHALL compile Edge-only and Hybrid Edge declarative check subgraphs (`http_request`, `http_journey`, `tcp_connect`, `tls_handshake`, `dns_lookup`, plus pure `extract_field`, `threshold_assert`, `decision_table`, and `alert_output` nodes) into standard agent plugin assignments targeting that single runner without generating per-check Wasm binaries.
+
+#### Scenario: Edge declarative check compiles into a declarative-check-runner assignment
+- **GIVEN** an enabled declarative check containing `tls_handshake` (`leaf_days_remaining`) and `http_request` nodes assigned to an agent
+- **WHEN** `DeclarativeCheckAssignmentCompiler` materializes agent configuration
+- **THEN** the agent config SHALL include a `declarative-check-runner` plugin assignment carrying the validated secret-free Edge subgraph, target batch, schedule, and strict host/port allowlists
+- **AND** no bespoke Wasm compilation SHALL occur at check authoring time
+
+### Requirement: Declarative Check Runner Host Credential Injection, Httptrace Waterfalls, and Durable Spooling
+The `declarative-check-runner` Wasm plugin on `serviceradar-agent` MUST inject credentials exclusively via `SecretBroker` (`CredentialBrokerGrant`) host capabilities enforced against domain/IP/port allowlists, MUST capture `httptrace` phase timings (`dns_ms`, `tcp_ms`, `tls_ms`, `ttfb_ms`, `transfer_ms`, `total_ms`) for `http_request` and `http_journey` steps, and MUST persist results and step telemetry through the agent's durable `RecordSpool` for delivery to NATS JetStream.
+
+#### Scenario: Multi-step synthetic HTTP journey records httptrace waterfall and buffers through RecordSpool
+- **GIVEN** an `http_journey` declarative check referencing an abstract `credential_slot` resolved via a `CredentialBrokerGrant` for `https://api.example.com`
+- **WHEN** `serviceradar-agent` executes `declarative-check-runner` while NATS connectivity is temporarily unavailable
+- **THEN** the host runtime SHALL inject the brokered credential header only for allowlisted `api.example.com:443` requests, record per-step `httptrace` phase timings without logging or returning secret bytes, and spool the `serviceradar.plugin_result.v1` and step records in `RecordSpool` until NATS JetStream delivery succeeds
+
+#### Scenario: Disallowed redirect or host is blocked during declarative check execution
+- **GIVEN** an `http_journey` check allowlisted for `https://status.example.com`
+- **WHEN** a response redirects to `http://192.0.2.99/internal` outside the assignment allowlist
+- **THEN** the agent host capability check SHALL deny the outbound request and strip brokered credentials, recording a bounded allowlist error on the step
+
+### Requirement: Solution Pack Plugin Dependency Verification
+When a Solution Pack `manifest.json` declares `plugin_dependencies`, the system MUST verify each referenced Wasm plugin `package_id` and SemVer `version_constraint` against `ServiceRadar.Plugins.PluginPackage` approval state before activating dependent resources, and MUST NOT bypass staged capability review or auto-approve unapproved Wasm plugin packages.
+
+#### Scenario: Approved plugin dependency satisfies pack installation
+- **GIVEN** a Solution Pack declaring `plugin_dependencies` entry `io.example.wireless-controller` with constraint `>= 0.2.0 and < 1.0.0`
+- **AND** `ServiceRadar.Plugins.PluginPackage` contains an `:approved` package `io.example.wireless-controller` at version `0.2.1`
+- **WHEN** an operator runs the Guided Install Wizard for the pack
+- **THEN** the dependency check passes and dependent checks are eligible for active installation
+
+#### Scenario: Staged or missing plugin dependency blocks silent capability approval
+- **GIVEN** a Solution Pack declaring a required `plugin_dependencies` entry whose `PluginPackage` is missing or in `:staged` status awaiting capability review
+- **WHEN** an operator attempts to activate the pack
+- **THEN** the system does not auto-approve the `:staged` Wasm plugin package
+- **AND** the wizard surfaces the missing or `:staged` dependency with a link to Settings -> Agents -> Plugins for capability review under `plugins.approve`
+
+### Requirement: Shared UploadSignature Verification Contract Across Plugins and Solution Packs
+The ed25519 `UploadSignature` verification primitive (`ServiceRadarWebNG.Plugins.UploadSignature`) MUST enforce identical canonical JSON serialization (`{"content_hash": "<sha256>", "manifest": <canonical-manifest>}`) and per-repository key isolation across both `:wasm_plugin` bundles and `:release_catalog` `.srpack` Solution Pack archives.
+
+#### Scenario: Canonical JSON signature conformance holds across Elixir verifier, Go signer, and CLI pack signer
+- **GIVEN** a fixed conformance test manifest, archive SHA-256 `content_hash`, and test ed25519 keypair
+- **WHEN** the signature payload is produced by `serviceradar pack sign` (`js/cli`), `build/wasm_plugins/upload_signature_tool.go`, and `ServiceRadarWebNG.Plugins.UploadSignature.verification_payload/2`
+- **THEN** all three produce identical canonical JSON bytes and mutually verifiable ed25519 signatures
+
