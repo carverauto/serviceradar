@@ -23,7 +23,9 @@ uniform and the deny path is not an account-enumeration oracle.
 - **AND** a user with a valid password and `local_login_enabled = false`
 - **WHEN** the user POSTs valid credentials to `/auth/sign-in` or `/auth/local/sign-in`
 - **THEN** the server SHALL reject the local login
-- **AND** show a generic SSO-required message and redirect toward the SSO entry
+- **AND** show a generic SSO-required message and redirect back to the sign-in page
+  (`/users/log-in`), never on to `/auth/oidc` or the identity provider, because a form
+  submission's redirect chain must stay on this site under `form-action 'self'`
 - **AND** SHALL NOT create a session
 
 #### Scenario: SSO mode allows an opted-in account
