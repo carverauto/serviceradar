@@ -215,8 +215,6 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
   csp_mode: :report_only,
   csp_report_uri: "/api/security/csp-report"
 
-config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
-
 # Local-login break-glass + SSO toggle. Overridden at runtime from
 # SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN / SERVICERADAR_AUTH_DISABLE_SSO (see
 # config/runtime.exs). Default off: server-side local-login policy is governed by the
