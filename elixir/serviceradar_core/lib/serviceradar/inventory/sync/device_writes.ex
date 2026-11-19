@@ -473,11 +473,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
+  # Converts :ip_seen_at only where the record carries it: adding the key would bind a
+  # column per row that ParameterChunking did not count, and a missing key inserts NULL
+  # just as nil does.
   defp insert_row(record) do
     record
     |> Map.delete(:ip_sightings)
-    |> Map.update(:ip_seen_at, nil, &usec/1)
+    |> convert_ip_seen_at()
   end
+
+  defp convert_ip_seen_at(%{ip_seen_at: seen_at} = record),
+    do: %{record | ip_seen_at: usec(seen_at)}
+
+  defp convert_ip_seen_at(record), do: record
 
   # Separates a device uid from its stored address in a primary-ip input key.
   @primary_key_separator <<31>>
