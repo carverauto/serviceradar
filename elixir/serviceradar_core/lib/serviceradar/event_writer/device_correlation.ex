@@ -318,8 +318,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
              DeviceLookup.get_canonical_device(keys,
                actor: actor,
                ip_hint: ip,
-               use_cache: false,
-               include_detected: true
+               use_cache: false
              )
            end) do
         {:ok, %{record: %{canonical_device_id: uid}}} when is_binary(uid) and uid != "" -> uid

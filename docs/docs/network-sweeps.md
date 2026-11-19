@@ -290,7 +290,7 @@ normal interval.
   the window, then an older alias (confirmed ahead of detected). A deleted device
   is used only when no live device holds the address, so the sweep can restore it
   and does not add a new device for the address. Only an answered probe confirms
-  a detected alias.
+  a detected alias, and only one held by a live device.
 - Sweep results update device availability and discovery metadata. When one
   agent sweeps a device at several addresses, the device is available from that
   agent if any address answered in the sweep, whatever order the results arrive in.

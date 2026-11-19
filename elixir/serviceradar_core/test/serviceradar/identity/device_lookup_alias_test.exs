@@ -141,6 +141,16 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
 
       assert %{^ip => %{canonical_device_id: uid}} = lookup(actor, partition, [ip])
       assert uid == live.uid
+
+      # The single-key lookup picks the same holder.
+      assert {:ok, %{found: true, record: %{canonical_device_id: single_uid}}} =
+               DeviceLookup.get_canonical_device([%{kind: :ip, value: ip}],
+                 actor: actor,
+                 include_deleted: true,
+                 partition: partition
+               )
+
+      assert single_uid == live.uid
     end
 
     test "a live alias holder beats a deleted device whose primary IP is the address", %{

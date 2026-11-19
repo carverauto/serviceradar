@@ -1544,11 +1544,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   # A soft-deleted device is the holder of last resort: with no live holder, the address still
   # resolves to it, through any of its holds (here a detected alias, the last one considered),
-  # so the sweep restores it and does not seed a new device.
-  test "a sweep restores the soft-deleted alias holder of an address rather than seeding one", %{
-    actor: actor,
-    agent_id: agent_id
-  } do
+  # so the sweep restores it and does not seed a new device. The answer is evidence for a
+  # deleted device, so it does not confirm that device's detected alias.
+  test "a sweep restores the soft-deleted alias holder of an address without confirming the alias",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
     unique_id = Ash.UUID.generate()
     ip = doc_ip("tombstone-alias-#{unique_id}", "192.0.2")
 
@@ -1558,7 +1560,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         discovery_sources: ["armis"]
       )
 
-    assert {:ok, _alias} =
+    assert {:ok, detected} =
              DeviceAliasState.create_detected(
                %{
                  device_id: tombstone.uid,
@@ -1573,13 +1575,23 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, _deleted} =
              Device.soft_delete(tombstone, "test", "sweep_results_flow_e2e", actor: actor)
 
+    register_reporter!(actor, agent_id)
     group = reporter_group!(actor, unique_id, "tombstone-alias", [], %{static_targets: [ip]})
 
     assert {:ok, stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
 
     assert %{devices_created: 0, devices_updated: 1} = stats
-    assert is_nil(include_deleted_device!(actor, tombstone.uid).deleted_at)
     assert [] = devices_at(actor, ip)
+
+    restored = include_deleted_device!(actor, tombstone.uid)
+
+    assert Map.take(restored, [:deleted_at, :deleted_by, :deleted_reason, :is_available]) ==
+             %{deleted_at: nil, deleted_by: nil, deleted_reason: nil, is_available: true}
+
+    assert {:ok, alias_after} = Ash.get(DeviceAliasState, detected.id, actor: actor)
+
+    assert Map.take(alias_after, [:state, :sighting_count]) ==
+             Map.take(detected, [:state, :sighting_count])
   end
 
   test "an unanswered probe neither confirms nor refreshes a detected alias", %{

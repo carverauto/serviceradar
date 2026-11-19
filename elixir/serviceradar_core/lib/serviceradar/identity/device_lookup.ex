@@ -124,12 +124,15 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   with information about which key was used. A database read error stops the
   lookup and returns `{:error, reason}` without trying later keys or IP
   fallbacks; only a successful read with no match advances to another key.
+  An IP key resolves to its holder as `batch_resolve_by_ip/2` picks it, among
+  confirmed aliases and the primary IP.
 
   ## Options
 
   - `:ip_hint` - Optional IP to append as a fallback key
   - `:partition` - Partition context for partition-scoped lookups
   - `:use_cache` - Whether to use the identity cache (default: false)
+  - `:include_deleted` - Fall back to a soft-deleted device (default: false)
   - `:actor` - Actor for authorization context
   """
   @spec get_canonical_device([identity_key()], keyword()) ::
@@ -180,8 +183,10 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   Resolve each address to the device it is attributed to, detected aliases included.
 
   Returns `{record, detected_alias}` per resolved address. `detected_alias` is the
-  `DeviceAliasState` when the winner holds the address only as a detected (not yet
-  confirmed) alias, so a caller can confirm it, and `nil` otherwise.
+  `DeviceAliasState` when the winner is a live device holding the address only as a
+  detected (not yet confirmed) alias, so a caller can confirm it, and `nil` otherwise.
+  A soft-deleted winner's detected alias is not returned: evidence for a deleted
+  device does not confirm its aliases.
 
   A device holds an address as its primary IP or through an IP alias. The winner is
   the first live holder in this order:
@@ -225,7 +230,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       %{}
     else
       alias_candidates =
-        lookup_alias_candidates(unique_ips, actor, include_deleted, include_detected, partition)
+        unique_ips
+        |> read_alias_candidates(actor, include_deleted, include_detected, partition)
+        |> candidates_or_empty()
 
       {cache_hits, cache_misses} = fetch_cache_hits(unique_ips, use_cache, partition)
 
@@ -239,13 +246,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
           candidates =
             Map.get(alias_candidates, ip, []) ++ List.wrap(Map.get(primary_candidates, ip))
 
-          case candidates do
-            [] ->
-              acc
-
-            _ ->
-              winner = Enum.min_by(candidates, &candidate_rank/1)
-              Map.put(acc, ip, {winner.record, winner.detected_alias})
+          case select_holder(candidates) do
+            nil -> acc
+            winner -> Map.put(acc, ip, {winner.record, confirmable_alias(winner)})
           end
         end)
 
@@ -256,6 +259,21 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       resolved
     end
   end
+
+  # A batch resolves what it can read: an alias read error leaves the primary IP to decide.
+  defp candidates_or_empty({:ok, candidates}), do: candidates
+
+  defp candidates_or_empty({:error, reason}) do
+    Logger.warning("Alias lookup failed: #{inspect(reason)}")
+    %{}
+  end
+
+  # The holder an address is attributed to; see batch_resolve_by_ip/2.
+  defp select_holder([]), do: nil
+  defp select_holder(candidates), do: Enum.min_by(candidates, &candidate_rank/1)
+
+  defp confirmable_alias(%{live?: true, detected_alias: detected_alias}), do: detected_alias
+  defp confirmable_alias(_winner), do: nil
 
   # Lower ranks win; Enum.min_by/2 keeps the first of equal ranks, so holders of one
   # kind keep their holder_sort order. See batch_resolve_by_ip/2.
@@ -422,8 +440,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       {:ok, nil} ->
         {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
 
-      {:ok, device} ->
-        record = build_record_from_device(device)
+      {:ok, record} ->
         cache_lookup_result(key, record, use_cache)
         {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
 
@@ -442,6 +459,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     Device
     |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
     |> read_one_with_actor(actor)
+    |> device_record()
   end
 
   defp lookup_by_key(%{kind: :partition_ip, value: value}, actor, include_deleted, _partition) do
@@ -449,25 +467,29 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition)
   end
 
+  # The same holder selection as batch_resolve_by_ip/2 over confirmed aliases and the
+  # primary IP, except that a read error stops the lookup (see get_canonical_device/2).
   defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition) do
-    case lookup_alias_device_by_ip(ip, actor,
-           include_deleted: include_deleted,
-           partition: partition
-         ) do
-      {:ok, %Device{} = device} ->
-        {:ok, device}
+    with {:ok, alias_candidates} <-
+           read_alias_candidates([ip], actor, include_deleted, false, partition),
+         {:ok, primary_holders} <-
+           Device
+           |> Ash.Query.for_read(:by_ip, %{
+             ip: ip,
+             partition: partition,
+             include_deleted: include_deleted
+           })
+           |> read_with_actor(actor) do
+      primary_candidates =
+        primary_holders
+        |> select_canonical_device(include_deleted)
+        |> List.wrap()
+        |> Enum.map(&device_candidate(&1, :primary))
 
-      {:ok, nil} ->
-        Device
-        |> Ash.Query.for_read(:by_ip, %{
-          ip: ip,
-          partition: partition,
-          include_deleted: include_deleted
-        })
-        |> read_canonical_device(actor, include_deleted)
-
-      {:error, _reason} = error ->
-        error
+      case select_holder(Map.get(alias_candidates, ip, []) ++ primary_candidates) do
+        nil -> {:ok, nil}
+        winner -> {:ok, winner.record}
+      end
     end
   end
 
@@ -477,6 +499,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     Device
     |> Ash.Query.for_read(:by_mac, %{mac: normalized_mac, include_deleted: include_deleted})
     |> read_canonical_device(actor, include_deleted)
+    |> device_record()
   end
 
   defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted, partition)
@@ -496,6 +519,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
           include_deleted: include_deleted
         })
         |> read_one_with_actor(actor)
+        |> device_record()
 
       {:ok, []} ->
         {:ok, nil}
@@ -506,6 +530,10 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp lookup_by_key(_key, _actor, _include_deleted, _partition), do: {:ok, nil}
+
+  defp device_record({:ok, nil}), do: {:ok, nil}
+  defp device_record({:ok, device}), do: {:ok, build_record_from_device(device)}
+  defp device_record(error), do: error
 
   defp lookup_devices_by_ips([], _actor, _include_deleted, _partition), do: %{}
 
@@ -623,39 +651,30 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   # Every holder of each address through an IP alias, as candidates in holder_sort order.
   # A holder whose device is not loaded (soft-deleted, without include_deleted)
   # is no candidate, so the next holder is considered instead.
-  defp lookup_alias_candidates(ips, actor, include_deleted, include_detected, partition) do
+  defp read_alias_candidates(ips, actor, include_deleted, include_detected, partition) do
     states =
       if include_detected, do: [:confirmed, :updated, :detected], else: [:confirmed, :updated]
 
-    case read_alias_states(ips, states, partition, actor) do
-      {:ok, []} ->
-        %{}
+    with {:ok, aliases} <- read_alias_states(ips, states, partition, actor),
+         {:ok, devices} <- load_alias_devices(aliases, actor, include_deleted) do
+      {:ok,
+       aliases
+       |> Enum.flat_map(fn alias_state ->
+         case Map.get(devices, alias_state.device_id) do
+           nil ->
+             []
 
-      {:ok, aliases} ->
-        devices = load_alias_devices(aliases, actor, include_deleted)
-
-        aliases
-        |> Enum.flat_map(fn alias_state ->
-          case Map.get(devices, alias_state.device_id) do
-            nil ->
-              []
-
-            device ->
-              [
-                {alias_state.alias_value,
-                 device_candidate(device, alias_source(alias_state), alias_state)}
-              ]
-          end
-        end)
-        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-
-      {:error, _} ->
-        %{}
+           device ->
+             [
+               {alias_state.alias_value,
+                device_candidate(device, alias_source(alias_state), alias_state)}
+             ]
+         end
+       end)
+       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))}
     end
   rescue
-    e ->
-      Logger.warning("Alias lookup failed: #{inspect(e)}")
-      %{}
+    e -> {:error, e}
   end
 
   defp alias_source(%DeviceAliasState{state: :detected}), do: :detected
@@ -675,6 +694,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
+  defp load_alias_devices([], _actor, _include_deleted), do: {:ok, %{}}
+
   defp load_alias_devices(aliases, actor, include_deleted) do
     device_ids = aliases |> Enum.map(& &1.device_id) |> Enum.uniq()
 
@@ -683,34 +704,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> Ash.Query.filter(uid in ^device_ids)
     |> read_stream_with_actor(actor)
     |> case do
-      {:ok, records} -> Map.new(records, &{&1.uid, &1})
-      _ -> %{}
-    end
-  end
-
-  defp lookup_alias_device_by_ip(ip, actor, opts) do
-    partition = Keyword.get(opts, :partition)
-    include_deleted = Keyword.get(opts, :include_deleted, false)
-
-    query =
-      DeviceAliasState
-      |> Ash.Query.filter(
-        alias_type == :ip and alias_value == ^ip and state in [:confirmed, :updated]
-      )
-      |> maybe_filter_alias_partition(partition)
-      |> Ash.Query.sort(DeviceAliasState.holder_sort())
-
-    case read_with_actor(query, actor) do
-      {:ok, [%DeviceAliasState{device_id: device_id} | _]} ->
-        Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
-        |> read_one_with_actor(actor)
-
-      {:ok, []} ->
-        {:ok, nil}
-
-      error ->
-        error
+      {:ok, records} -> {:ok, Map.new(records, &{&1.uid, &1})}
+      error -> error
     end
   end
 
