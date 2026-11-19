@@ -1,0 +1,27 @@
+{
+  "alert": {
+    "severity": "critical",
+    "summary": "Network segmentation breach detected from DMZ vantage point"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Opens a critical security alert when the DMZ vantage point unexpectedly connects to a protected internal service.",
+  "event": {
+    "log_name": "health.network_segmentation_breach"
+  },
+  "group_by": [
+    "check_slug"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "check_slug": "multi-vantage-segmentation-isolation",
+    "status": "down"
+  },
+  "name": "network_segmentation_breach",
+  "priority": 10,
+  "renotify_seconds": 14400,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

@@ -49,6 +49,7 @@ exports_files([
     ".github/workflows/native-addons.yml",
     ".github/workflows/publish-oci.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/solution-packs.yml",
     ".github/workflows/source-security.yml",
     ".github/workflows/wasm-plugins.yml",
     "MODULE.bazel",
