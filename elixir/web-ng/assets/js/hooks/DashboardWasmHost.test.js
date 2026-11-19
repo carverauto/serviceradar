@@ -900,6 +900,77 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(arrowFrame.truncated).toBe(true)
   })
 
+  test("drops previous frame rows when a pending host update changes the frame query", () => {
+    const renderer = {
+      kind: "built_in",
+      interface_version: "dashboard-built-in-v1",
+      trust: "first_party",
+      artifact: "network-performance",
+      entrypoint: "network_performance",
+    }
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute"],
+        renderer,
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:rperf_metrics time:last_24h limit:500",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-1", value: 1}],
+          },
+          {
+            id: "spoke_history",
+            required: false,
+            query: "in:rperf_metrics agent_id:agent-spoke-1",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-1", value: 2}],
+          },
+          {
+            id: "netperf_agents",
+            required: false,
+            query: "in:agents",
+            status: "ok",
+            results: [{uid: "agent-hub-east-01"}],
+          },
+        ],
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+
+    const pendingHost = baseHost({
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute"],
+        renderer,
+        data_frames: [
+          {id: "netperf_recent_samples", query: "in:rperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500"},
+          {id: "spoke_history", query: "in:rperf_metrics agent_id:agent-spoke-2"},
+          {id: "netperf_agents", query: "in:agents"},
+        ],
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:rperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500",
+            status: "loading",
+            results: [],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(pendingHost, "built-in-v2")).toEqual(true)
+    const updatedFrames = hook._host.package.frames
+    expect(updatedFrames.map((f) => f.id)).toEqual(["netperf_recent_samples", "netperf_agents"])
+    expect(updatedFrames[0].status).toBe("loading")
+    expect(updatedFrames[0].results).toEqual([])
+    expect(updatedFrames[1].results).toEqual([{uid: "agent-hub-east-01"}])
+  })
+
   test("reboots built-in and browser-module hosts when settings, capabilities, or permissions change", () => {
     const baseBuiltIn = () =>
       baseHost({

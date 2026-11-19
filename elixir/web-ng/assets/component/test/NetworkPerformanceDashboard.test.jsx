@@ -559,6 +559,52 @@ describe("cloud.serviceradar.network-performance Blueprint dashboard", () => {
     expect(root.textContent).toContain("Median throughput")
   })
 
+  test("computes Fleet Median Throughput from each link's latest upload and download rate", async () => {
+    const root = createMountRoot()
+    const sample = (agentId, ts, direction, value) => ({
+      timestamp: ts,
+      agent_id: agentId,
+      metric_name: "rperf.bits_per_second",
+      value,
+      target_device_ip: "192.0.2.10",
+      tags: {responder_agent_id: "agent-hub-east-01", direction, protocol: "tcp"},
+    })
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        status: "ok",
+        results: [
+          sample("agent-spoke-chatty", "2026-11-18T03:00:00Z", "upload", 1_000_000),
+          sample("agent-spoke-chatty", "2026-11-18T03:10:00Z", "upload", 1_000_000),
+          sample("agent-spoke-chatty", "2026-11-18T03:20:00Z", "upload", 100_000_000),
+          sample("agent-spoke-chatty", "2026-11-18T03:00:00Z", "download", 5_000_000),
+          sample("agent-spoke-chatty", "2026-11-18T03:10:00Z", "download", 5_000_000),
+          sample("agent-spoke-chatty", "2026-11-18T03:20:00Z", "download", 200_000_000),
+          sample("agent-spoke-quiet", "2026-11-18T03:20:00Z", "upload", 100_000_000),
+          sample("agent-spoke-quiet", "2026-11-18T03:20:00Z", "download", 200_000_000),
+        ],
+      },
+      {id: "netperf_metric_trends", status: "ok", results: []},
+      {id: "netperf_spoke_summary", status: "ok", results: []},
+      {id: "netperf_responder_capacity", status: "ok", results: []},
+      {id: "netperf_agents", status: "ok", results: []},
+      {id: "spoke_history", status: "ok", results: []},
+    ]
+    const {host, api} = createHostApi({frames})
+
+    const mounted = await mountNetworkPerformance(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const card = Array.from(root.querySelectorAll(".sr-netperf-kpi-card")).find((el) =>
+      el.textContent?.includes("Fleet Median Throughput"),
+    )
+    expect(card).toBeDefined()
+    expect(card.querySelector(".sr-netperf-kpi-value")?.textContent).toMatch(/^100(\.0+)? Mbps$/)
+    expect(card.textContent).toContain("Uplink median")
+    expect(card.querySelector(".sr-netperf-kpi-meta")?.textContent).toMatch(/Downlink 200(\.0+)? Mbps/)
+  })
+
   test("uses recentSamples for Legacy 01 Spoke drawerHistory before fleet-wide metricTrends fallback", async () => {
     const root = createMountRoot()
     const {host, api} = createHostApi()

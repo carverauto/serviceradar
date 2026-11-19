@@ -796,15 +796,16 @@ export function NetworkPerformanceDashboard() {
     const downloadBps = []
     const allBps = []
 
-    for (const row of recentSamples) {
-      if (row?.metric_name !== "rperf.bits_per_second" && row?.metric_name !== "rperf.bandwidth_bps") continue
-      const val = numericValue(row.value)
-      if (val === null) continue
-      allBps.push(val)
-      const tags = parseTags(row.tags)
-      const dir = String(tags.direction || "").toLowerCase()
-      if (dir === "upload") uploadBps.push(val)
-      else if (dir === "download") downloadBps.push(val)
+    for (const link of allLinks) {
+      if (link.throughputBps !== null) allBps.push(link.throughputBps)
+      const latestByDirection = new Map()
+      for (const sample of link.samples || []) {
+        if (sample.metric_name !== "rperf.bits_per_second" && sample.metric_name !== "rperf.bandwidth_bps") continue
+        if (sample.value === null || latestByDirection.has(sample.direction)) continue
+        latestByDirection.set(sample.direction, sample.value)
+      }
+      if (latestByDirection.has("upload")) uploadBps.push(latestByDirection.get("upload"))
+      if (latestByDirection.has("download")) downloadBps.push(latestByDirection.get("download"))
     }
 
     const hasUploadSamples = uploadBps.length > 0
@@ -845,7 +846,7 @@ export function NetworkPerformanceDashboard() {
       busyHubs,
       legacyLinks,
     }
-  }, [responders, recentSamples, allLinks, lossThresholdPct, jitterThresholdMs])
+  }, [responders, allLinks, lossThresholdPct, jitterThresholdMs])
 
   const toggleSort = useCallback((field) => {
     setSortBy((prev) =>

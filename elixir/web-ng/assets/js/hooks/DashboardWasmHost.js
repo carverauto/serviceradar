@@ -430,6 +430,9 @@ const DashboardWasmHost = {
     const previousById = new Map(currentFrames.map((frame) => [String(frame?.id), frame]))
     const nextIds = new Set(nextFrames.map((frame) => String(frame?.id)))
     const hasPendingLoadingFrame = nextFrames.some((frame) => frame?.status === "loading")
+    const frameQuery = (frame) => String(frame?.query ?? "").trim()
+    const nextDataFrames = Array.isArray(nextHost.package?.data_frames) ? nextHost.package.data_frames : []
+    const nextQueryById = new Map(nextDataFrames.map((frame) => [String(frame?.id), frameQuery(frame)]))
 
     const mergedFrames = nextFrames.map((frame) => {
       const previous = previousById.get(String(frame?.id))
@@ -441,7 +444,7 @@ const DashboardWasmHost = {
         frame?.payload == null &&
         typeof frame?.payload_base64 !== "string"
 
-      if (!isEmptyPendingFrame) return frame
+      if (!isEmptyPendingFrame || frameQuery(frame) !== frameQuery(previous)) return frame
 
       const prevHasResults = Array.isArray(previous?.results) && previous.results.length > 0
       const prevHasPayload = previous?.payload != null || typeof previous?.payload_base64 === "string"
@@ -484,7 +487,8 @@ const DashboardWasmHost = {
     if (hasPendingLoadingFrame) {
       for (const previous of currentFrames) {
         const id = String(previous?.id)
-        if (!nextIds.has(id)) {
+        const nextQuery = nextQueryById.get(id)
+        if (!nextIds.has(id) && (nextQuery === undefined || nextQuery === frameQuery(previous))) {
           mergedFrames.push(previous)
         }
       }
