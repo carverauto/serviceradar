@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ExUnit.CaptureLog
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadar.Actors.SystemActor
@@ -8,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNGWeb.Auth.ClaimDiagnostics
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
   describe "record_successful_authentication/3" do
@@ -241,6 +243,82 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert user.id == existing.id
       assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
       assert persisted.role == :helpdesk
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "warns at sign-in when mappings are configured but the token matched none", %{actor: actor} do
+      settings!([mapping("example-admins", %{"role" => "admin"})], actor)
+
+      log =
+        capture_log(fn ->
+          {:ok, user} = sign_in("unmatched@example.com", "oidc|unmatched", ["example-readers"], actor)
+          assert {:ok, %{role: :viewer}} = Ash.get(User, user.id, actor: actor)
+        end)
+
+      assert log =~ "SSO sign-in matched no role mapping"
+      assert log =~ "groups=[example-readers]"
+    end
+  end
+
+  describe "claim diagnostics against stored mappings" do
+    setup do
+      %{actor: SystemActor.system(:claim_diagnostics_test)}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "reports the role claims, identity and the mapping an app role matched", %{actor: actor} do
+      settings!([%{"source" => "groups", "value" => "example-admins", "role" => "admin"}], actor)
+
+      diagnosis =
+        ClaimDiagnostics.diagnose(
+          %{
+            "iss" => "https://idp.example.com/v2.0",
+            "preferred_username" => "alex@example.com",
+            "roles" => ["example-admins"],
+            "groups" => ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"]
+          },
+          actor: actor
+        )
+
+      assert diagnosis.mapping_count == 1
+      assert diagnosis.resolution.role == :admin
+      assert [%{"value" => "example-admins"}] = diagnosis.resolution.matched
+      assert {"roles", ["example-admins"]} in diagnosis.role_claims
+      assert {"groups", ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"]} in diagnosis.role_claims
+      assert {"iss", "https://idp.example.com/v2.0"} in diagnosis.identity
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "includes a claim a mapping names explicitly", %{actor: actor} do
+      settings!(
+        [%{"source" => "claim", "claim" => "department", "value" => "network", "role" => "operator"}],
+        actor
+      )
+
+      diagnosis = ClaimDiagnostics.diagnose(%{"department" => "network"}, actor: actor)
+
+      assert {"department", ["network"]} in diagnosis.role_claims
+      assert diagnosis.resolution.role == :operator
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "the sign-in log never carries token values from the claim set", %{actor: actor} do
+      claims = %{
+        "roles" => ["example-readers"],
+        "id_token" => "header.payload.signature-value",
+        "access_token" => "opaque-access-token-value",
+        "nonce" => "nonce-value"
+      }
+
+      {_level, message} =
+        claims
+        |> ClaimDiagnostics.diagnose(actor: actor)
+        |> ClaimDiagnostics.log_entry(:oidc)
+
+      assert message =~ "roles=[example-readers]"
+      refute message =~ "signature-value"
+      refute message =~ "opaque-access-token-value"
+      refute message =~ "nonce-value"
     end
   end
 
