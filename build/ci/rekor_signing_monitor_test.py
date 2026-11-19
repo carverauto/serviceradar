@@ -6,6 +6,7 @@ Owner: build/ci/rekor_signing_monitor.py.
 """
 
 import base64
+import contextlib
 import hashlib
 import http.server
 import io
@@ -161,6 +162,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         failure = self.server.world.failing_paths.get(path)
         if failure is None:
             return False
+        if failure == "drop":
+            self.close_connection = True
+            return True
         status, location = failure
         self.reply(status, {}, headers=[("Location", location)] if location else ())
         return True
@@ -528,6 +532,30 @@ class MonitorTest(unittest.TestCase):
         for text in (self.world.discord[-1], failure["body"]):
             self.assertNotIn("synthetic-signed-credential", text)
             self.assertNotIn("synthetic-token", text)
+
+    def test_a_dropped_connection_names_its_method_host_and_path(self):
+        self.world.add_entry(b"release payload")
+        self.world.failing_paths = {"/api/v1/log/entries/retrieve": "drop"}
+        self.assertEqual(self.run_monitor(), 1)
+        self.assertIn("RemoteDisconnected", self.world.discord[-1])
+        self.assertIn(f"(POST {self.base}/api/v1/log/entries/retrieve)", self.world.discord[-1])
+
+    def test_a_failing_webhook_never_reveals_its_path(self):
+        self.world.add_entry(b"release payload")
+        webhook = "/discord/synthetic-webhook-secret"
+        self.world.failing_paths = {"/api/v1/log/entries/retrieve": "drop", webhook: "drop"}
+        args = ["--rekor-url", self.base, "--github-api", self.base, "--rekor-key", str(self.world.log_pub),
+                "--release-key", str(self.world.release_pub), "--acknowledged", str(self.acknowledged),
+                "--state-in", str(self.state), "--state-out", str(self.root / "unused.json")]
+        environ = {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_TOKEN": "synthetic-token",
+                   "CI_FAILURE_DISCORD_WEBHOOK_URL": self.base + webhook}
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output), contextlib.redirect_stdout(output):
+            self.assertEqual(monitor.main(args, environ, now=NOW), 1)
+        self.assertIn("the Discord notification was not delivered", output.getvalue())
+        failure = next(issue for issue in self.world.issues if issue["title"] == "Rekor signing monitor run failed")
+        for text in [output.getvalue(), failure["body"], *self.world.discord]:
+            self.assertNotIn("synthetic-webhook-secret", text)
 
     def test_an_issue_behind_a_full_page_of_newer_issues_is_still_found(self):
         entry = self.world.add_entry(b"signed outside any run")

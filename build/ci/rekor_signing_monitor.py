@@ -177,6 +177,9 @@ class Http:
             raise
         except urllib.error.URLError as error:
             raise urllib.error.URLError(f"{error.reason} ({describe_request(method, url)})") from error
+        except (OSError, HTTPException) as error:
+            raise urllib.error.URLError(
+                f"{type(error).__name__}: {error} ({describe_request(method, url)})") from error
         if raw:
             return body
         return json.loads(body) if body else None
