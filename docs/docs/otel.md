@@ -203,6 +203,15 @@ logCollector:
   gateway address. A scoped NetworkPolicy admits only the Envoy gateway namespace
   to 4317/4318 in this mode.
 
+  The OTLP/HTTP HTTPRoute also routes the public Boomerang RUM ingest path
+  `/rum/v1/beacon` to the collector unless `logCollector.otlp.gateway.rum.enabled`
+  is `false`. Set `logCollector.otlp.gateway.rumHostname` to add a separate
+  HTTPRoute that serves only that path on its own hostname. The collector's
+  `[rum]` block comes from `logCollector.otlp.rum` (`enabled`, `maxBodyBytes`,
+  default 65536, and `trustedProxies`). Beacons are accepted only with a valid
+  web property `rum_site_key` and an allowed `Origin`, and are published to
+  `rum.beacons.>` and `metrics.rum.>` on JetStream.
+
 **LoadBalancer mode (opt-in)** for clusters without the shared gateway:
 
 ```yaml

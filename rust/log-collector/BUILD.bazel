@@ -47,3 +47,34 @@ rust_test(
         "@crates//:tempfile",
     ],
 )
+
+# Live check of the public /rum/v1/beacon gate: the real collector binary
+# against a real JetStream nats-server, driven over TCP.
+rust_test(
+    name = "rum_live_e2e_test",
+    size = "medium",
+    srcs = ["tests/rum_live_e2e.rs"],
+    data = [
+        ":log-collector",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
+    env = {
+        "LOG_COLLECTOR_BIN": "$(rlocationpath :log-collector)",
+        "NATS_SERVER_BIN": "$(rlocationpath @nats_server_linux_amd64//:nats_server)",
+    },
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    deps = [
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/otel:otel_lib",
+        "@crates//:async-nats",
+        "@crates//:flate2",
+        "@crates//:futures",
+        "@crates//:prost",
+        "@crates//:runfiles",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+    ],
+)
