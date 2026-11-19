@@ -70,7 +70,7 @@ The system SHALL provide a `target_row` core signal node that outputs the curren
 - **THEN** validation SHALL fail with a diagnostic on that node
 
 ### Requirement: Bounded Row Fan-Out
-The system SHALL bound an `srql_rows` check to `max_targets` row targets per pass, defaulting to 200 and refusing a value above 1,000, SHALL run the scope query with a limit of at most `max_targets` and treat the scope as complete only when the returned page is short of the limit that actually ran, SHALL treat a full page as truncated, SHALL validate the scope query as read-only SRQL without template placeholders, and MUST refuse edge signal nodes and credential slots in an `srql_rows` check.
+The system SHALL bound an `srql_rows` check to `max_targets` row targets per pass, defaulting to 200 and refusing a value above 1,000, SHALL run the scope query with a limit of at most `max_targets` and treat the scope as complete only when the returned page is short of the limit that actually ran, SHALL treat a page with at least as many rows as that limit as truncated whether or not a `next_cursor` was returned, SHALL validate the scope query as read-only SRQL without template placeholders, and MUST refuse edge signal nodes and credential slots in an `srql_rows` check.
 
 #### Scenario: A scope larger than the bound is truncated and reported
 - **GIVEN** a binding with `max_targets: 2` whose scope query matches three rows
@@ -90,6 +90,12 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **THEN** the pass SHALL record on the check that the scope was truncated
 - **AND** SHALL NOT prune that row target and SHALL NOT publish a transition for it
 
+#### Scenario: A full page without a cursor is truncated
+- **GIVEN** a binding with `max_targets: 200` whose scope query matches 250 rows, one of them a row target at status `down` with an open alert that the returned page does not contain
+- **WHEN** the pass runs, the page holds 200 rows and the runner returns no `next_cursor`
+- **THEN** the pass SHALL record on the check that the scope was truncated
+- **AND** SHALL NOT prune that row target and SHALL NOT publish a transition for it
+
 #### Scenario: A failed scope query is not an empty scope
 - **GIVEN** an `srql_rows` check with three existing row targets
 - **WHEN** the scope query fails or times out
@@ -105,7 +111,7 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **THEN** validation SHALL fail with an out-of-range diagnostic
 
 ### Requirement: Per-Target Alerts That Name and Close
-The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression.
+The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key, where a scope read in any fan-out mode is complete only when its last page has fewer rows than the limit that actually ran, and the absence of a `next_cursor` SHALL NOT be taken as completeness; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression.
 
 #### Scenario: A second row going down opens a second alert
 - **GIVEN** a row check with an alert open for target `tank01 on hv-a`
@@ -147,3 +153,9 @@ The system SHALL carry a row target's label on its OCSF `health.state_change` tr
 - **THEN** the pass SHALL publish the `healthy` / `target_departed` transition for `dev-2` without operational-event suppression
 - **AND** the alert for `dev-2` SHALL close
 - **AND** SHALL then prune the instance
+
+#### Scenario: A device stream whose last page is full is not complete
+- **GIVEN** an `srql_devices` check with device target `dev-3` at status `down` and an open alert
+- **WHEN** a pass reads the device scope and its last page holds as many devices as the limit that ran, with no `next_cursor`, and does not contain `dev-3`
+- **THEN** the pass SHALL treat the scope as truncated
+- **AND** SHALL NOT prune `dev-3` and SHALL NOT publish a transition for it

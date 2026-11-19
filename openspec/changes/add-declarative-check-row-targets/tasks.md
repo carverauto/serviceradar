@@ -24,7 +24,8 @@
 
 - [ ] 3.1 `Evaluation.run_for_mode("srql_rows", ...)`: run the scope query
       once with limit `max_targets` (at most 1000), treat the scope as
-      complete only when the runner returns no `next_cursor`, flatten each
+      complete only when the page has fewer rows than the limit that
+      actually ran (never by the absence of `next_cursor`), flatten each
       row, derive key and label, skip incomplete and duplicate keys,
       evaluate, and persist with target kind `row`.
 - [ ] 3.2 `target_row` evaluator returning the target's row; add
@@ -37,7 +38,8 @@
       pass; three rows give three instances with the expected statuses; key
       stability across passes; incomplete and duplicate keys; truncation,
       including a full page returned under a limit clamped below
-      `max_targets`, which prunes and closes nothing;
+      `max_targets`, and a full page returned with no `next_cursor`, both of
+      which prune and close nothing;
       scope failure leaves instances untouched; single-`payload` rows are
       flattened.
 
@@ -46,7 +48,10 @@
 - [ ] 4.1 In every fan-out mode, compute departed keys as existing instance
       keys minus the keys of a complete, successful, non-truncated scope read,
       replacing the `evaluated_at < started_at` test in
-      `Evaluation.prune_departed_targets`.
+      `Evaluation.prune_departed_targets`. A read is complete only when its
+      last page has fewer rows than the limit that ran; a device stream whose
+      last page is full is truncated even without a `next_cursor`, and prunes
+      and closes nothing.
 - [ ] 4.2 Before pruning, publish a `healthy` / `target_departed` transition
       for each departed instance whose status was `degraded`, `down` or
       `unknown`, passing the publisher a suppression predicate that returns

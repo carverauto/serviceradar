@@ -91,13 +91,15 @@ use it.
 
 - `max_targets` defaults to 200 and may not exceed 1,000, the page size device
   fan-out already uses. The scope query is run once with limit `max_targets`,
-  never more than 1,000. The scope is complete only when the page that came
-  back is short of the limit that actually ran, which is what the SRQL
-  runner's `next_cursor` reports: it is set when the page is full relative to
-  the effective limit, including a limit clamped below `max_targets` by a
-  configured SRQL maximum. A full page, or any page with a `next_cursor`, is
-  truncated: its rows are evaluated, the pass records that the scope was
-  truncated, and nothing is pruned or closed (D6). A scope with exactly
+  never more than 1,000. Completeness is decided by row count alone (D6): the
+  scope is complete only when the page that came back has fewer rows than the
+  limit that actually ran, which is the translated query's limit after any
+  configured SRQL maximum has clamped it below `max_targets`. A page with at
+  least as many rows as that limit is truncated, whether or not the runner
+  returned a `next_cursor`: the translator omits the cursor past its
+  configured offset cap without failing the query, so a missing cursor proves
+  nothing. A truncated page's rows are evaluated, the pass records that the
+  scope was truncated, and nothing is pruned or closed (D6). A scope with exactly
   `max_targets` rows therefore reports as truncated; authors size the bound
   above the expected scope. Truncation is a diagnostic on the check and sets
   no verdict: inventing a verdict for rows that were not read would be a
@@ -139,9 +141,15 @@ that deletion while adding the closing event would close a live alert on an
 evaluation error and reopen it on the next good pass; keeping the deletion
 without the event would leave the alert open with no instance behind it.
 
+A scope read is complete only when its last page has fewer rows than the
+limit that actually ran for that page. This one rule applies to every fan-out
+mode, including the paged device stream: a device stream whose last page is
+full is truncated even when no `next_cursor` came back. A missing cursor is
+never evidence of completeness.
+
 A truncated scope (D5) must not close alerts: a row may be missing only
 because the limit cut it off. On a truncated pass nothing is treated as
-departed.
+departed, nothing is pruned and no `target_departed` transition is published.
 
 A scope query that fails is not an empty scope. The pass records the failure
 and neither evaluates nor prunes.
