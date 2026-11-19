@@ -860,15 +860,14 @@ cosign_release_verify_key() {
 
 # Verify the classic `.sig` of one digest (kind: image, wasm-plugin or native-addon) the way
 # this run's signing ledger says it was produced, never by whether a receipt happens to be
-# present. A reused signature counts as pre-cutover only within bounds: a public-good
-# receipt must have been integrated before the pinned cutover (cutover.json), and a reused
-# Wasm plugin or native add-on signature without a receipt must be on the frozen
-# pre-cutover allowlist; a reused image relies on Kyverno admission. A digest created in the run
-# must carry a receipt from an accepted (self-hosted) log that verifies offline under the
-# pinned key for its log ID. A reused signature is held to its receipt when it carries one,
-# from an accepted log or, for a pre-cutover manual signing, from the public-good log; it is
-# verified with the release key alone when it carries none, which only a pre-cutover
-# signature can. A digest the ledger does not record fails. No Rekor is contacted.
+# present. A digest created in the run must carry a receipt from an accepted (self-hosted)
+# log that verifies offline under the pinned key for its log ID. A reused signature is held
+# to its receipt when it carries one, from an accepted log or, for a pre-cutover manual
+# signing, from the public-good log, whose receipt counts only when integrated before the
+# pinned cutover (cutover.json). A reused signature without a receipt is verified with the
+# release key alone: a Wasm plugin or native add-on only when its digest is on the frozen
+# pre-cutover allowlist, an image always (Kyverno admission gates images). A digest the
+# ledger does not record fails. No Rekor is contacted.
 # Call after cosign_init_verify_args.
 cosign_verify_legacy_signature() {
   local ref="$1"

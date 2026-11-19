@@ -55,8 +55,10 @@ keys, so no installation depends on the log being up.
 
 - `pre-cutover-first-party-digests.json`: the frozen list of first-party Wasm
   plugin and native add-on digests published through v1.5.7, before the cutover
-  release. Only these import without a receipt (key-only); the web-ng image
-  ships it at `/usr/share/serviceradar/sigstore/`. It is never regenerated or
+  release. Only these import without a receipt (key-only), and release
+  verification accepts a reused receipt-less Wasm plugin or native add-on
+  signature only for these; the web-ng image ships it at
+  `/usr/share/serviceradar/sigstore/`. It is never regenerated or
   extended.
 
 `//build/contracts:rekor_key_consistency_test` checks that every file is named by
