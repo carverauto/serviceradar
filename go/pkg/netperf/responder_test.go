@@ -738,3 +738,107 @@ func TestResponderClosesTCPUploadThatExceedsPermittedBandwidth(t *testing.T) {
 	_, err = client.CloseSession(context.Background(), &netperfpb.CloseSessionRequest{SessionId: openResp.GetSessionId()})
 	require.Equal(t, codes.NotFound, status.Code(err))
 }
+
+func TestResponderClosesUDPSessionWhenControlDatagramsExceedPermittedBandwidth(t *testing.T) {
+	t.Parallel()
+
+	pki := newTestPKI(t)
+	hubSec := pki.agentSecurity(t, "agent-hub-01", 220)
+	spokeSec := pki.agentSecurity(t, "agent-spoke-01", 221)
+
+	seed := bytes.Repeat([]byte{0x78}, ed25519.SeedSize)
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := priv.Public().(ed25519.PublicKey)
+	keyID := []byte("0123456789abcdef")
+
+	snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+	resolver := TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }}
+
+	resp, err := NewResponder(ResponderConfig{
+		AgentID:               "agent-hub-01",
+		PartitionID:           "default",
+		ListenAddress:         "127.0.0.1",
+		AllowEphemeralPort:    true,
+		UDPEnabled:            true,
+		MaxConcurrentSessions: 2,
+		MaxTotalBandwidthBps:  50_000_000,
+		MinAuthorityEpoch:     1,
+		Security:              hubSec,
+		KeyResolver:           resolver,
+		Logger:                logger.NewTestLogger(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Start(context.Background()))
+	t.Cleanup(func() { _ = resp.Close() })
+
+	creds, owned, err := buildClientTransportCredentials(spokeSec, nil, nil, "agent-hub-01", "default", logger.NewTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if owned != nil {
+			_ = owned.Close()
+		}
+	})
+
+	conn, err := grpc.NewClient(resp.ListenAddr(), grpc.WithTransportCredentials(creds))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := netperfpb.NewNetworkPerfPeerServiceClient(conn)
+	now := time.Now()
+	permit := signTestPermit(t, priv, &netperfpb.NetperfPermitV1{
+		PermitVersion:    1,
+		PermitId:         "permit-udp-control-overrun-1",
+		PartitionId:      "default",
+		SenderAgentId:    "agent-spoke-01",
+		ResponderAgentId: "agent-hub-01",
+		PolicyId:         "policy-udp-control-overrun",
+		MaxBandwidthBps:  100_000,
+		MaxDurationSec:   10,
+		MaxParallel:      1,
+		AllowedProtocols: []netperfpb.NetperfProtocol{netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP},
+		AllowedDirections: []netperfpb.NetperfDirection{
+			netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		},
+		IssuedAtUnix:   now.Unix() - 60,
+		ExpiresAtUnix:  now.Unix() + 600,
+		AuthorityEpoch: 1,
+		IssuerId:       "serviceradar-core",
+		IssuerKeyId:    keyID,
+		Algorithm:      "ed25519",
+	})
+
+	openResp, err := client.OpenSession(context.Background(), &netperfpb.OpenSessionRequest{
+		Permit:       permit,
+		Protocol:     netperfpb.NetperfProtocol_NETPERF_PROTOCOL_UDP,
+		Direction:    netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+		BandwidthBps: 100_000,
+		DurationSec:  10,
+		Parallel:     1,
+		PacketLength: DefaultPacketLength,
+	})
+	require.NoError(t, err)
+	require.True(t, openResp.GetAccepted())
+
+	var sid [UDPSessionSize]byte
+	copy(sid[:], openResp.GetSessionId())
+	udpKey := openResp.GetUdpSessionKey()
+	src := netip.MustParseAddrPort("127.0.0.1:40001")
+
+	// 100 kbit/s permits 12.5 KB/s; 320 KiB of HMAC-valid HELLO and END
+	// datagrams sent back to back is many seconds of the permitted rate.
+	for seq := uint64(0); seq < 40; seq++ {
+		flags := UDPFlagHello
+		if seq%2 == 1 {
+			flags = UDPFlagEnd
+		}
+		pkt := make([]byte, 8*1024)
+		require.NoError(t, EncodeUDPDatagram(pkt, udpKey, flags, sid, seq, uint64(time.Now().UnixNano())))
+		resp.handleUDPPacket(pkt, src)
+	}
+
+	resp.sessionsMu.Lock()
+	_, stillOpen := resp.udpSessions[sid]
+	resp.sessionsMu.Unlock()
+	require.False(t, stillOpen, "session must be closed once control datagrams exceed the permitted bandwidth")
+	require.Equal(t, uint64(0), resp.SnapshotMetrics().ActiveSessions)
+}

@@ -76,6 +76,9 @@ func (r *Responder) handleUDPPacket(pkt []byte, src netip.AddrPort) {
 	if !sess.lockOrVerifyPeerAddr(src, flags) {
 		return
 	}
+	if !r.admitReceivedBytes(sess, len(pkt)) {
+		return
+	}
 
 	if flags&UDPFlagHello != 0 {
 		sess.helloOnce.Do(func() {
@@ -95,9 +98,6 @@ func (r *Responder) handleUDPPacket(pkt []byte, src netip.AddrPort) {
 	}
 
 	if flags&UDPFlagData != 0 {
-		if !r.admitReceivedBytes(sess, len(pkt)) {
-			return
-		}
 		if flags&UDPFlagOmit != 0 {
 			return
 		}
