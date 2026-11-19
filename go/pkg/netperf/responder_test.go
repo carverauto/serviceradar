@@ -842,3 +842,132 @@ func TestResponderClosesUDPSessionWhenControlDatagramsExceedPermittedBandwidth(t
 	require.False(t, stillOpen, "session must be closed once control datagrams exceed the permitted bandwidth")
 	require.Equal(t, uint64(0), resp.SnapshotMetrics().ActiveSessions)
 }
+
+func TestResponderStopsPacedDownloadWhenUploadExceedsPermittedBandwidth(t *testing.T) {
+	pki := newTestPKI(t)
+	hubSec := pki.agentSecurity(t, "agent-hub-01", 230)
+	spokeSec := pki.agentSecurity(t, "agent-spoke-01", 231)
+
+	seed := bytes.Repeat([]byte{0x79}, ed25519.SeedSize)
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := priv.Public().(ed25519.PublicKey)
+	keyID := []byte("0123456789abcdef")
+
+	snap := makeTestTrustSnapshot(t, "agent-hub-01", []byte("serviceradar-core"), keyID, pub, "valid", []string{"production"})
+	resolver := TrustSnapshotKeyResolver{Snapshot: func() *edgerecord.TrustSnapshot { return snap }}
+
+	resp, err := NewResponder(ResponderConfig{
+		AgentID:               "agent-hub-01",
+		PartitionID:           "default",
+		ListenAddress:         "127.0.0.1",
+		AllowEphemeralPort:    true,
+		MaxConcurrentSessions: 1,
+		MaxTotalBandwidthBps:  10_000_000,
+		MinAuthorityEpoch:     1,
+		Security:              hubSec,
+		KeyResolver:           resolver,
+		Logger:                logger.NewTestLogger(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, resp.Start(context.Background()))
+	t.Cleanup(func() { _ = resp.Close() })
+
+	creds, owned, err := buildClientTransportCredentials(spokeSec, nil, nil, "agent-hub-01", "default", logger.NewTestLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if owned != nil {
+			_ = owned.Close()
+		}
+	})
+
+	conn, err := grpc.NewClient(resp.ListenAddr(), grpc.WithTransportCredentials(creds))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client := netperfpb.NewNetworkPerfPeerServiceClient(conn)
+	now := time.Now()
+	permit := signTestPermit(t, priv, &netperfpb.NetperfPermitV1{
+		PermitVersion:    1,
+		PermitId:         "permit-bidi-overrun-1",
+		PartitionId:      "default",
+		SenderAgentId:    "agent-spoke-01",
+		ResponderAgentId: "agent-hub-01",
+		PolicyId:         "policy-bidi-overrun",
+		MaxBandwidthBps:  100_000,
+		MaxDurationSec:   10,
+		MaxParallel:      1,
+		AllowedProtocols: []netperfpb.NetperfProtocol{netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP},
+		AllowedDirections: []netperfpb.NetperfDirection{
+			netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+		},
+		IssuedAtUnix:   now.Unix() - 60,
+		ExpiresAtUnix:  now.Unix() + 600,
+		AuthorityEpoch: 1,
+		IssuerId:       "serviceradar-core",
+		IssuerKeyId:    keyID,
+		Algorithm:      "ed25519",
+	})
+
+	openResp, err := client.OpenSession(context.Background(), &netperfpb.OpenSessionRequest{
+		Permit:       permit,
+		Protocol:     netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+		Direction:    netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+		BandwidthBps: 100_000,
+		DurationSec:  10,
+		Parallel:     1,
+	})
+	require.NoError(t, err)
+
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer streamCancel()
+
+	download, err := client.StreamTest(streamCtx)
+	require.NoError(t, err)
+	require.NoError(t, download.Send(&netperfpb.TestStreamChunk{
+		SessionId:   openResp.GetSessionId(),
+		StreamIndex: 0,
+		Phase:       netperfpb.NetperfDirection_NETPERF_DIRECTION_DOWNLOAD,
+	}))
+	first, err := download.Recv()
+	require.NoError(t, err)
+	require.NotEmpty(t, first.GetData())
+
+	downloadDone := make(chan error, 1)
+	go func() {
+		for {
+			chunk, recvErr := download.Recv()
+			if recvErr != nil {
+				downloadDone <- recvErr
+				return
+			}
+			if chunk.GetEndOfPhase() {
+				downloadDone <- nil
+				return
+			}
+		}
+	}()
+
+	upload, err := client.StreamTest(streamCtx)
+	require.NoError(t, err)
+	for seq := uint64(1); seq <= 8; seq++ {
+		if sendErr := upload.Send(&netperfpb.TestStreamChunk{
+			SessionId:   openResp.GetSessionId(),
+			StreamIndex: 0,
+			Phase:       netperfpb.NetperfDirection_NETPERF_DIRECTION_UPLOAD,
+			Data:        make([]byte, TCPChunkSize),
+			Sequence:    seq,
+		}); sendErr != nil {
+			break
+		}
+	}
+	_, recvErr := upload.Recv()
+	require.Equal(t, codes.ResourceExhausted, status.Code(recvErr), "expected ResourceExhausted, got: %v", recvErr)
+
+	// The download phase is planned for 10s; it must stop well before then.
+	select {
+	case downErr := <-downloadDone:
+		require.Error(t, downErr, "download must be cut off instead of finishing its phase")
+	case <-time.After(3 * time.Second):
+		t.Fatal("paced download kept running after the upload exceeded the permitted bandwidth")
+	}
+}
