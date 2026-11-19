@@ -2747,6 +2747,11 @@ networkPolicy:
         port: 50053
       - protocol: TCP
         port: 50057
+      # Agent netperf Hub Responder control (mTLS gRPC) and UDP probes.
+      - protocol: TCP
+        port: 5199
+      - protocol: UDP
+        port: 5199
       - protocol: TCP
         port: 5432
       - protocol: TCP
