@@ -1,3 +1,16 @@
+# ServiceRadar Unreleased
+
+## Upgrade Notes
+
+- **The log collector now applies the Zen rules to syslog itself.** It
+  publishes normalized batches on `logs.normalized.syslog`, and EventWriter
+  stores them without running the rules again. Until the collector has
+  received its ruleset it still publishes JSON, which EventWriter normalizes
+  as before. To keep the old behaviour, set `[rules] normalize = false` in
+  the collector configuration or `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`.
+  Upgrade core before the collector if you upgrade them separately:
+  EventWriter has read the normalized subject since v1.5.6.
+
 # ServiceRadar v1.5.10
 
 This release refreshes `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 so the
