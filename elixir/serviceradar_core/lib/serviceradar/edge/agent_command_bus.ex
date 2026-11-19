@@ -2024,9 +2024,16 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     with {:ok, explicit} <-
            parse_explicit_netperf_authority_epoch(netperf_param(params, :authority_epoch)),
          {:ok, responder_epoch} <- lookup_netperf_responder_epoch(responder_agent_id) do
-      {:ok, explicit || responder_epoch}
+      select_netperf_authority_epoch(explicit, responder_epoch)
     end
   end
+
+  defp select_netperf_authority_epoch(nil, responder_epoch), do: {:ok, responder_epoch}
+
+  defp select_netperf_authority_epoch(explicit, responder_epoch) when explicit > responder_epoch,
+    do: {:error, :authority_epoch_ahead_of_responder}
+
+  defp select_netperf_authority_epoch(explicit, _responder_epoch), do: {:ok, explicit}
 
   defp parse_explicit_netperf_authority_epoch(nil), do: {:ok, nil}
 

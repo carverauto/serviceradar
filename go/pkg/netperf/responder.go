@@ -88,6 +88,8 @@ type Responder struct {
 	wg        sync.WaitGroup
 }
 
+const receiveRateSlack = 1.25
+
 type responderSession struct {
 	id            [UDPSessionSize]byte
 	senderAgentID string
@@ -106,6 +108,8 @@ type responderSession struct {
 
 	uploadPhase   tcpPhaseStats
 	downloadPhase tcpPhaseStats
+
+	receiveLimiter *rate.Limiter
 
 	downloadOnce    sync.Once
 	downloadLimiter *rate.Limiter
@@ -480,24 +484,25 @@ func (r *Responder) OpenSession(
 
 	sessCtx, sessCancel := context.WithDeadline(context.Background(), deadline)
 	sess := &responderSession{
-		id:            sessionID,
-		senderAgentID: peerID.AgentID,
-		partitionID:   peerID.PartitionID,
-		protocol:      req.GetProtocol(),
-		direction:     req.GetDirection(),
-		bandwidthBps:  req.GetBandwidthBps(),
-		duration:      duration,
-		omitDuration:  omitDuration,
-		parallel:      req.GetParallel(),
-		packetLength:  pktLen,
-		deadline:      deadline,
-		ctx:           sessCtx,
-		cancel:        sessCancel,
-		udpKey:        udpKey,
-		peerIP:        peerIP,
-		udpTracker:    &RFC3550Tracker{},
-		helloReady:    make(chan struct{}),
-		udpEndCh:      make(chan struct{}),
+		id:             sessionID,
+		senderAgentID:  peerID.AgentID,
+		partitionID:    peerID.PartitionID,
+		protocol:       req.GetProtocol(),
+		direction:      req.GetDirection(),
+		bandwidthBps:   req.GetBandwidthBps(),
+		duration:       duration,
+		omitDuration:   omitDuration,
+		parallel:       req.GetParallel(),
+		packetLength:   pktLen,
+		deadline:       deadline,
+		ctx:            sessCtx,
+		cancel:         sessCancel,
+		receiveLimiter: newReceiveLimiter(req.GetBandwidthBps()),
+		udpKey:         udpKey,
+		peerIP:         peerIP,
+		udpTracker:     &RFC3550Tracker{},
+		helloReady:     make(chan struct{}),
+		udpEndCh:       make(chan struct{}),
 	}
 
 	r.sessionsMu.Lock()
@@ -581,7 +586,9 @@ func (r *Responder) handleStreamUpload(
 			if chunk.GetSequence() > 0 {
 				lastSeq = chunk.GetSequence()
 			}
-			r.admission.addBytes(uint64(n))
+			if !r.admitReceivedBytes(sess, n) {
+				return false, status.Error(codes.ResourceExhausted, ErrBandwidthExceeded.Error())
+			}
 			sess.uploadPhase.record(n, sess.omitDuration, r.nowFn())
 		} else if firstChunk == chunk {
 			sess.uploadPhase.record(0, sess.omitDuration, r.nowFn())
@@ -892,6 +899,23 @@ func (r *Responder) lookupAuthorizedSession(rawID []byte, peer PeerIdentity) (*r
 		return nil, status.Error(codes.PermissionDenied, ErrPermitScopeMismatch.Error())
 	}
 	return sess, nil
+}
+
+func newReceiveLimiter(bandwidthBps uint64) *rate.Limiter {
+	bytesPerSec := float64(bandwidthBps) / 8.0
+	burst := max(int(bytesPerSec), TCPChunkSize)
+	return rate.NewLimiter(rate.Limit(bytesPerSec*receiveRateSlack), burst)
+}
+
+// admitReceivedBytes polices inbound test traffic against the session's
+// permitted bandwidth and closes the session when the peer exceeds it.
+func (r *Responder) admitReceivedBytes(sess *responderSession, n int) bool {
+	if !sess.receiveLimiter.AllowN(r.nowFn(), n) {
+		r.removeSession(sess)
+		return false
+	}
+	r.admission.addBytes(uint64(n))
+	return true
 }
 
 func (r *Responder) removeSession(sess *responderSession) {

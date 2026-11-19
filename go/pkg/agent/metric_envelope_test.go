@@ -492,6 +492,36 @@ func TestBuildNetperfMetricBatchBidirectionalAndResponderStats(t *testing.T) {
 	require.InDelta(t, 99_000_000.0, byName["rperf.responder_bytes_total"].GetPoints()[0].GetValue(), 1e-6)
 }
 
+func TestBuildNetperfMetricBatchFailedBidirectionalKeepsRequestedDirection(t *testing.T) {
+	t.Parallel()
+
+	batch, err := buildNetperfMetricBatch([]netperfSample{
+		{
+			Kind:          netperfSampleTest,
+			Timestamp:     1_795_046_400_000_000_000,
+			TargetAddress: "192.0.2.10",
+			Result: &netperf.TestResult{
+				Available:        false,
+				Error:            "responder unreachable",
+				ResponderAgentID: "agent-hub-01",
+				Protocol:         netperfpb.NetperfProtocol_NETPERF_PROTOCOL_TCP,
+				Direction:        netperfpb.NetperfDirection_NETPERF_DIRECTION_BIDIRECTIONAL,
+				Parallel:         1,
+				ExecutionSource:  netperfpb.NetperfExecutionSource_NETPERF_EXECUTION_SOURCE_ON_DEMAND,
+			},
+		},
+	}, metricEnvelopeContext{AgentID: "agent-spoke-01", GatewayID: "gateway-01", Partition: "default"})
+	require.NoError(t, err)
+
+	byName := metricsByName(batch)
+	points := byName["rperf.available"].GetPoints()
+	require.Len(t, points, 1)
+	require.Equal(t, "bidirectional", entry(points[0].GetAttributes(), "direction"))
+	require.InDelta(t, 0.0, points[0].GetValue(), 1e-9)
+	require.Equal(t, "responder unreachable", entry(points[0].GetMetadata(), "error"))
+	require.Nil(t, byName["rperf.bits_per_second"])
+}
+
 func metricsByName(batch *metricpb.MetricBatch) map[string]*metricpb.Metric {
 	metrics := make(map[string]*metricpb.Metric, len(batch.Metrics))
 	for _, metric := range batch.Metrics {

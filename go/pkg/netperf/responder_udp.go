@@ -95,7 +95,9 @@ func (r *Responder) handleUDPPacket(pkt []byte, src netip.AddrPort) {
 	}
 
 	if flags&UDPFlagData != 0 {
-		r.admission.addBytes(uint64(len(pkt)))
+		if !r.admitReceivedBytes(sess, len(pkt)) {
+			return
+		}
 		if flags&UDPFlagOmit != 0 {
 			return
 		}

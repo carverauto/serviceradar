@@ -1759,14 +1759,31 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       _completed = wait_for_status(command.command_id, :completed, actor)
 
-      # Explicit valid authority_epoch override succeeds while responder is enabled.
+      # An explicit authority_epoch above the responder epoch would outlive a later
+      # bump_authority_epoch fence, so it is rejected and nothing is dispatched.
+      for ahead_epoch <- [4, "7"] do
+        assert {:error, :authority_epoch_ahead_of_responder} =
+                 AgentCommandBus.dispatch_netperf_run(
+                   agent_id,
+                   %{
+                     responder_agent_id: hub_uid,
+                     target_address: "198.51.100.30",
+                     authority_epoch: ahead_epoch
+                   },
+                   actor: operator
+                 )
+      end
+
+      refute_receive {:send_command, _, _}, 100
+
+      # An explicit authority_epoch equal to the responder epoch is accepted.
       assert {:ok, _command_id} =
                AgentCommandBus.dispatch_netperf_run(
                  agent_id,
                  %{
                    responder_agent_id: hub_uid,
                    target_address: "198.51.100.30",
-                   authority_epoch: "7"
+                   authority_epoch: "3"
                  },
                  actor: operator
                )
@@ -1779,7 +1796,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       override_permit =
         override_payload["permit_b64"] |> Base.decode64!() |> NetperfPermitV1.decode()
 
-      assert override_permit.authority_epoch == 7
+      assert override_permit.authority_epoch == 3
       assert NetperfPermitSigning.verify(override_permit, issuer_key.public_key)
 
       # Invalid, zero/negative, out-of-range, and malformed authority_epoch overrides are rejected.

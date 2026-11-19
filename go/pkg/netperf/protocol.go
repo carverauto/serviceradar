@@ -104,6 +104,7 @@ var (
 	ErrResponderBusy          = errors.New("netperf: responder at capacity")
 	ErrSessionRejected        = errors.New("netperf: session rejected by responder")
 	ErrSessionNotFound        = errors.New("netperf: unknown or expired session")
+	ErrBandwidthExceeded      = errors.New("netperf: peer exceeded permitted session bandwidth")
 	ErrInvalidStreamChunk     = errors.New("netperf: invalid stream test chunk")
 	ErrInvalidUDPBuffer       = errors.New("netperf: UDP datagram buffer smaller than 54-byte header")
 )

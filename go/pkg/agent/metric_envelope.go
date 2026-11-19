@@ -542,7 +542,7 @@ func buildNetperfMetricBatch(samples []netperfSample, ctx metricEnvelopeContext)
 						dirPhase{dirLabel: "download", phase: *res.Download},
 					)
 				} else {
-					phases = append(phases, dirPhase{dirLabel: "upload", phase: res.Primary})
+					phases = append(phases, dirPhase{dirLabel: "bidirectional", phase: res.Primary})
 				}
 			case netperfpb.NetperfDirection_NETPERF_DIRECTION_UNSPECIFIED:
 				phases = append(phases, dirPhase{dirLabel: "upload", phase: res.Primary})
