@@ -29,7 +29,8 @@
 - [ ] 3.2 `target_row` evaluator returning the target's row; add
       `{{target.row.*}}` and `{{target.label}}` to interpolation.
 - [ ] 3.3 Record pass diagnostics on the check: truncated scope, rows skipped
-      for incomplete or duplicate keys, scope query failure.
+      for incomplete or duplicate keys, scope query failure, targets whose
+      graph evaluation failed.
 - [ ] 3.4 Do not prune on a truncated pass or after a failed scope query.
 - [ ] 3.5 Tests with a stub SRQL runner and invented rows: one query per
       pass; three rows give three instances with the expected statuses; key
@@ -39,13 +40,29 @@
 
 ## 4. Departure
 
-- [ ] 4.1 Before pruning in any fan-out mode, publish a `healthy` /
-      `target_departed` transition for each departing instance whose status
-      was `degraded`, `down` or `unknown`.
-- [ ] 4.2 Tests: a departed `down` row, device and service target each
+- [ ] 4.1 In every fan-out mode, compute departed keys as existing instance
+      keys minus the keys of a complete, successful, non-truncated scope read,
+      replacing the `evaluated_at < started_at` test in
+      `Evaluation.prune_departed_targets`.
+- [ ] 4.2 Before pruning, publish a `healthy` / `target_departed` transition
+      for each departed instance whose status was `degraded`, `down` or
+      `unknown`, with `suppress?: false`. Other transitions keep current
+      suppression.
+- [ ] 4.3 A target in scope whose graph evaluation fails keeps its instance
+      and status, publishes nothing, is not pruned, and is counted in the
+      pass diagnostics (3.3).
+- [ ] 4.4 Tests: a departed `down` row, device and service target each
       publish one closing transition and are then pruned; a departed healthy
       target publishes nothing; the closing event matches the recovery clause
       of the rule `AlertRuleSync` builds, checked with the real `RuleMatcher`.
+- [ ] 4.5 Test: an `srql_devices` target at `down` whose evaluation returns
+      an error while it is still in scope keeps its instance and status,
+      publishes no transition and is reported as a diagnostic; the same for a
+      row target.
+- [ ] 4.6 Test: a `down` device target that leaves the scope after being
+      marked out of service publishes its `target_departed` transition through
+      the real publisher (not suppressed), while an ordinary transition for an
+      out-of-service device is still suppressed.
 
 ## 5. Events and alerts
 

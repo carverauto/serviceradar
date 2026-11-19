@@ -23,7 +23,9 @@ Non-goals:
 
 - Edge execution against row targets.
 - A general join or aggregation language. The scope query is ordinary SRQL.
-- Changing how singleton, device or service-target checks evaluate.
+- Changing how singleton, device or service-target checks compute a verdict.
+  What happens when a device or service target leaves the scope, or its
+  evaluation fails, does change; see D6 and D8.
 
 ## Decisions
 
@@ -102,14 +104,29 @@ use it.
 
 ### D6. Departure closes the alert
 
-When a pass finishes, an instance it did not touch belongs to a target that
-left the scope. Today that instance is deleted and nothing is published. If
-its status was `degraded`, `down` or `unknown`, the pass now first publishes a
-transition to `healthy` with verdict `target_departed`, which the rule's
-existing recovery clause matches. Then it prunes.
+A target is departed only when a complete, successful, non-truncated scope
+read no longer contains its key. The departed set is the keys of the check's
+existing instances minus the keys that scope read returned. "Not touched by
+this pass" is not the test, because a pass also leaves untouched a target that
+is still in scope but whose graph evaluation failed.
+
+Today a departed instance is deleted and nothing is published. If its status
+was `degraded`, `down` or `unknown`, the pass now first publishes a transition
+to `healthy` with verdict `target_departed`, which the rule's existing recovery
+clause matches. Then it prunes.
 
 This is done for all fan-out modes. The gap exists for devices today and a
 row-only fix would leave two behaviours for the same event.
+
+A target that is in scope but whose graph evaluation failed is not departed.
+Its instance and last status are kept unchanged, no transition is published
+for it, it is not pruned, and the failure is recorded as a pass diagnostic on
+the check. This changes today's behaviour for `srql_devices` and
+`service_targets`: today such a target is dropped from the pass, its instance
+is older than the pass start, and `prune_departed_targets` deletes it. Keeping
+that deletion while adding the closing event would close a live alert on an
+evaluation error and reopen it on the next good pass; keeping the deletion
+without the event would leave the alert open with no instance behind it.
 
 A truncated scope (D5) must not close alerts: a row may be missing only
 because the limit cut it off. On a truncated pass nothing is treated as
@@ -125,6 +142,21 @@ gains a nullable `target_label` column. The check constraint is replaced in
 one migration. `device_uid` and `service_target_id` stay null for row targets.
 A row target is not linked to a device even when the row carries a device
 identifier; a check about devices should use `srql_devices`.
+
+### D8. The departure transition is never suppressed
+
+The transition publisher drops operational events for a device that is
+inactive or out of service. A device that leaves an `srql_devices` scope
+because it was taken out of service is exactly that case: its instance still
+carries `device_uid`, so the closing event would be suppressed, the instance
+pruned, and the alert left open. The same holds for a service target whose
+instance has a `device_uid`.
+
+The `target_departed` transition is therefore always published with
+suppression off (the publisher's `suppress?: false`). It can only close an
+alert, never open one, so delivering it for an out-of-service device cannot
+page anyone. Only this closing transition bypasses suppression; every other
+transition keeps the current suppression rules.
 
 ## Risks / Trade-offs
 
@@ -143,8 +175,9 @@ identifier; a check about devices should use `srql_devices`.
 ## Migration Plan
 
 Additive. Existing checks and packs are untouched. The departure transition
-(D6) starts closing stale alerts for device and service-target checks on the
-first pass after the upgrade.
+(D6, D8) starts closing stale alerts for device and service-target checks on
+the first pass after the upgrade, and a device or service target whose
+evaluation fails keeps its instance instead of being deleted (D6).
 
 ## Open Questions
 

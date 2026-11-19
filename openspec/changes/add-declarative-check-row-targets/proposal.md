@@ -54,7 +54,13 @@ Repository context:
 - **Departure closes the alert.** When a target with a non-healthy verdict
   leaves the scope, the pass emits a closing transition before it prunes the
   instance. This applies to every fan-out mode, and fixes the stale-alert gap
-  that device fan-out has today.
+  that device fan-out has today. A target counts as departed only when a
+  complete, successful, non-truncated scope read no longer contains it. The
+  closing transition is delivered even for an inactive or out-of-service
+  device, whose other events stay suppressed.
+- **A failed evaluation is not a departure.** A target still in scope whose
+  graph evaluation fails keeps its instance and last status, publishes
+  nothing, and is reported on the check as a pass diagnostic.
 - **Bounds.** At most 1,000 row targets per check. Rows with a missing or
   duplicate key are not evaluated and are reported on the check, not dropped
   silently. Edge signal nodes and credential slots are refused in an
@@ -86,5 +92,8 @@ Not in this change:
   come from the pack instead. If this change is approved, that change is
   revised to drop them; its guest-stopped and OOM-kill requirements are
   one-off events, not queryable state, and stay as they are.
-- No behaviour change for existing checks, except that a departed device or
-  service target with an open alert now has that alert closed.
+- No behaviour change for existing checks, except two for `srql_devices` and
+  `service_targets`: a departed device or service target with an open alert
+  now has that alert closed, even when the device is out of service; and a
+  target still in scope whose evaluation fails now keeps its instance and last
+  status, where today its instance is deleted.

@@ -99,7 +99,7 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **THEN** validation SHALL fail with an out-of-range diagnostic
 
 ### Requirement: Per-Target Alerts That Name and Close
-The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance.
+The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression.
 
 #### Scenario: A second row going down opens a second alert
 - **GIVEN** a row check with an alert open for target `tank01 on hv-a`
@@ -127,3 +127,17 @@ The system SHALL carry a row target's label on its OCSF `health.state_change` tr
 - **GIVEN** an `srql_devices` check with a device target at status `down` and an open alert
 - **WHEN** the device leaves the scope query
 - **THEN** the pass SHALL publish a transition for that target to status `healthy` with verdict `target_departed` before pruning it
+
+#### Scenario: A failed evaluation is not a departure
+- **GIVEN** an `srql_devices` check with device target `dev-1` at status `down` and an open alert
+- **WHEN** a pass's scope read succeeds and still contains `dev-1` but evaluating the graph for `dev-1` returns an error
+- **THEN** the pass SHALL keep the instance for `dev-1` with status `down`
+- **AND** SHALL NOT publish a transition for `dev-1` and SHALL NOT prune it
+- **AND** SHALL record on the check that the evaluation of one target failed
+
+#### Scenario: A departed out-of-service device's alert is closed
+- **GIVEN** an `srql_devices` check scoped to in-service devices, with device target `dev-2` at status `down` and an open alert
+- **WHEN** `dev-2` is marked out of service and a later pass no longer returns it from the scope query
+- **THEN** the pass SHALL publish the `healthy` / `target_departed` transition for `dev-2` without operational-event suppression
+- **AND** the alert for `dev-2` SHALL close
+- **AND** SHALL then prune the instance
