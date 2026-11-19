@@ -78,11 +78,11 @@ defmodule ServiceRadarWebNGWeb.Auth.ClaimDiagnostics do
       end
 
     detail =
-      "provider=#{provider} role=#{resolution.role} mappings_configured=#{count} " <>
+      "provider=#{provider} mapped_role=#{resolution.role} mappings_configured=#{count} " <>
         "matched=[#{matched}] role_claims: #{claims} groups_overage=#{diagnosis.groups_overage?}"
 
     if count > 0 and resolution.matched == [] do
-      {:warning, "SSO sign-in matched no role mapping; default role applied. " <> detail}
+      {:warning, "SSO sign-in matched no role mapping; mappings grant only the default role. " <> detail}
     else
       {:info, "SSO role mapping resolved. " <> detail}
     end

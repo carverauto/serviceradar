@@ -166,7 +166,25 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
         |> live(~p"/settings/profile")
 
       assert has_element?(lv, "#sso-no-mapping", "No mapping matched")
+      assert has_element?(lv, "#sso-no-mapping", "default role (Viewer)")
       assert has_element?(lv, "#sso-sign-in", "example-readers")
+      refute has_element?(lv, "#sso-role-outcome")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "an admin whose token matched no mapping is told the admin role was kept", %{conn: conn} do
+      authorization_settings!([
+        %{"source" => "groups", "value" => "example-admins", "role" => "admin"}
+      ])
+
+      {:ok, lv, _html} =
+        conn
+        |> log_in_sso_user(%{"roles" => ["example-readers"]}, :admin)
+        |> live(~p"/settings/profile")
+
+      assert has_element?(lv, "#sso-no-mapping", "No mapping matched")
+      assert has_element?(lv, "#sso-role-outcome", "Your current role (Admin) was kept")
+      refute render(lv) =~ "you received"
     end
 
     @tag :web_ng_shared_fixture_db
@@ -417,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
 
   # The claims an OIDC sign-in leaves in the session (`OIDCController` marks them
   # with the auth method).
-  defp log_in_sso_user(conn, claims) do
+  defp log_in_sso_user(conn, claims, role \\ :viewer) do
     unique = System.unique_integer([:positive])
 
     {:ok, user} =
@@ -426,6 +444,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
           email: "sso-profile-#{unique}@example.com",
           display_name: "SSO Profile User",
           external_id: "oidc|profile-#{unique}",
+          role: role,
           provider: :oidc
         },
         actor: SystemActor.system(:test)

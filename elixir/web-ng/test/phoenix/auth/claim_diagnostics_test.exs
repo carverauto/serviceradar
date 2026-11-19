@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ClaimDiagnosticsTest do
 
       assert {:warning, message} = ClaimDiagnostics.log_entry(diagnosis, :oidc)
       assert message =~ "matched no role mapping"
+      assert message =~ "mapped_role=viewer"
       assert message =~ "mappings_configured=3"
       assert message =~ "roles=[example-readers]"
     end
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.Auth.ClaimDiagnosticsTest do
       diagnosis = diagnosis(%{matched: matched, role: :admin}, 1, [{"roles", ["example-admins"]}])
 
       assert {:info, message} = ClaimDiagnostics.log_entry(diagnosis, :oidc)
-      assert message =~ "role=admin"
+      assert message =~ "mapped_role=admin"
       assert message =~ "matched=[groups=example-admins]"
     end
 

@@ -150,7 +150,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               <% end %>
             </dl>
 
-            <div :if={@sso_session?} id="sso-sign-in" class="mt-4 space-y-3 border-t border-sr-line pt-4">
+            <div
+              :if={@sso_session?}
+              id="sso-sign-in"
+              class="mt-4 space-y-3 border-t border-sr-line pt-4"
+            >
               <div>
                 <div class="text-sm font-semibold">SSO sign-in</div>
                 <p class="text-xs text-sr-muted">
@@ -171,21 +175,33 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
                     <dt class="w-32 shrink-0 text-sr-muted"><code>{key}</code></dt>
                     <dd class="break-all text-sr-ink">{Enum.join(values, ", ")}</dd>
                   </div>
-                  <div :if={@sso_diagnosis.role_claims == []} class="flex gap-2" id="sso-no-role-claims">
+                  <div
+                    :if={@sso_diagnosis.role_claims == []}
+                    class="flex gap-2"
+                    id="sso-no-role-claims"
+                  >
                     <dt class="w-32 shrink-0 text-sr-muted">Groups / roles</dt>
                     <dd class="text-sr-ink">None in this token</dd>
                   </div>
                 </dl>
 
-                <p :if={@sso_diagnosis.groups_overage?} id="sso-groups-overage" class="text-xs text-warning">
+                <p
+                  :if={@sso_diagnosis.groups_overage?}
+                  id="sso-groups-overage"
+                  class="text-xs text-warning"
+                >
                   Your identity provider left the groups claim out because you are in too many groups,
                   so group mappings cannot match. Use app roles or a narrower groups claim.
                 </p>
 
                 <div id="sso-role-mappings" class="text-sm">
                   <div class="text-sr-muted">Role mappings</div>
-                  <p :if={@sso_diagnosis.resolution.matched == []} id="sso-no-mapping" class="text-sr-ink">
-                    No mapping matched — you received the default role
+                  <p
+                    :if={@sso_diagnosis.resolution.matched == []}
+                    id="sso-no-mapping"
+                    class="text-sr-ink"
+                  >
+                    No mapping matched — the mappings grant only the default role
                     ({format_role(@sso_diagnosis.resolution.role)}).
                     <span :if={@sso_diagnosis.mapping_count > 0} class="text-sr-muted">
                       {@sso_diagnosis.mapping_count} configured.
@@ -198,6 +214,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
                       → {mapping_grant(mapping, @sso_grant_labels)}
                     </li>
                   </ul>
+                  <%= if note = role_outcome_note(@current_scope.user.role, @sso_diagnosis.resolution.role) do %>
+                    <p id="sso-role-outcome" class="mt-1 text-sr-muted">{note}</p>
+                  <% end %>
                 </div>
               <% end %>
 
@@ -509,6 +528,18 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     end
   end
 
+  defp role_outcome_note(role, role), do: nil
+
+  defp role_outcome_note(:admin, mapped_role) do
+    "Your current role (Admin) was kept instead of #{format_role(mapped_role)}: " <>
+      "SSO sign-in never lowers an existing admin."
+  end
+
+  defp role_outcome_note(current_role, mapped_role) do
+    "Your current role (#{format_role(current_role)}) differs because it or the mappings changed " <>
+      "after you signed in; your next sign-in sets it to #{format_role(mapped_role)}."
+  end
+
   defp label_for(_names, nil), do: nil
   defp label_for(_names, ""), do: nil
   defp label_for(names, id), do: Map.get(names, to_string(id), to_string(id))
@@ -708,7 +739,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   defp format_role(:viewer), do: "Viewer"
 
   defp format_auth_method(:oidc), do: "SSO (OIDC)"
-  defp format_auth_method(:saml), do: "SSO (SAML)"
   defp format_auth_method(:password), do: "Password"
   defp format_auth_method(:gateway), do: "Gateway"
   defp format_auth_method(:api_token), do: "API token"
