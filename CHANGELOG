@@ -1,3 +1,23 @@
+# ServiceRadar v1.5.10
+
+This release refreshes `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 so the
+formal release publish pipeline (`--lockfile_mode=error`) succeeds (#6850). It
+supersedes the unpublished `v1.5.9` tag and carries all `v1.5.9` features,
+security hardening, fixes, and upgrade notes listed below.
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles (#6836).
+- **Upgrading from v1.5.8 or earlier: read the v1.5.9 and earlier upgrade notes
+  below first.** They still apply to this release.
+
+## Build and CI
+
+- bazel: refresh `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 (#6850).
+
 # ServiceRadar v1.5.9
 
 This release introduces Solution Packs with a `/catalog` gallery, 4-step
