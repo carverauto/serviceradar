@@ -6,11 +6,11 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.IdpGroupMemberships
   alias ServiceRadar.Identity.MappedUserGroups
-  alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
+  alias ServiceRadarWebNGWeb.Auth.ClaimDiagnostics
 
   require Ash.Query
   require Logger
@@ -31,7 +31,10 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
           {:ok, User.t()} | {:error, term()}
   def find_or_create_user(%{email: email, name: name, external_id: external_id}, claims, provider, actor)
       when provider == :oidc and is_map(claims) do
-    resolution = RoleMapping.resolve(claims, actor: actor)
+    diagnosis = ClaimDiagnostics.diagnose(claims, actor: actor)
+    {level, message} = ClaimDiagnostics.log_entry(diagnosis, provider)
+    Logger.log(level, message)
+    resolution = diagnosis.resolution
     resolved_role = resolution.role
 
     case find_user_by_external_id(external_id, actor) do

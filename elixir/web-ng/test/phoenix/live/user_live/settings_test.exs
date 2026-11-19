@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts
 
@@ -127,6 +128,66 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert {:redirect, %{to: path, flash: flash}} = redirect
       assert path == ~p"/users/log-in"
       assert %{"error" => "You must log in to access this page."} = flash
+    end
+  end
+
+  describe "SSO sign-in diagnostics" do
+    @tag :web_ng_shared_fixture_db
+    test "shows the claims an SSO session carried and the mapping they matched", %{conn: conn} do
+      authorization_settings!([
+        %{"source" => "groups", "value" => "example-admins", "role" => "admin"}
+      ])
+
+      {:ok, lv, _html} =
+        conn
+        |> log_in_sso_user(%{
+          "iss" => "https://idp.example.com/v2.0",
+          "roles" => ["example-admins"],
+          "nonce" => "nonce-value"
+        })
+        |> live(~p"/settings/profile")
+
+      assert has_element?(lv, "#sso-sign-in", "https://idp.example.com/v2.0")
+      assert has_element?(lv, "#sso-role-mappings", "example-admins")
+      assert has_element?(lv, "#sso-role-mappings", "role admin")
+      refute has_element?(lv, "#sso-no-mapping")
+      refute render(lv) =~ "nonce-value"
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "says so when no mapping matched and the default role applied", %{conn: conn} do
+      authorization_settings!([
+        %{"source" => "groups", "value" => "example-admins", "role" => "admin"}
+      ])
+
+      {:ok, lv, _html} =
+        conn
+        |> log_in_sso_user(%{"roles" => ["example-readers"]})
+        |> live(~p"/settings/profile")
+
+      assert has_element?(lv, "#sso-no-mapping", "No mapping matched")
+      assert has_element?(lv, "#sso-sign-in", "example-readers")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "flags a token whose groups claim the IdP left out", %{conn: conn} do
+      {:ok, lv, _html} =
+        conn
+        |> log_in_sso_user(%{"_claim_names" => %{"groups" => "src1"}})
+        |> live(~p"/settings/profile")
+
+      assert has_element?(lv, "#sso-groups-overage")
+      assert has_element?(lv, "#sso-no-role-claims")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "a password session has no SSO section", %{conn: conn} do
+      {:ok, lv, _html} =
+        conn
+        |> log_in_user(user_fixture())
+        |> live(~p"/settings/profile")
+
+      refute has_element?(lv, "#sso-sign-in")
     end
   end
 
@@ -353,6 +414,37 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
   end
 
   defp scope_for(user), do: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+  # The claims an OIDC sign-in leaves in the session (`OIDCController` marks them
+  # with the auth method).
+  defp log_in_sso_user(conn, claims) do
+    unique = System.unique_integer([:positive])
+
+    {:ok, user} =
+      User.provision_sso_user(
+        %{
+          email: "sso-profile-#{unique}@example.com",
+          display_name: "SSO Profile User",
+          external_id: "oidc|profile-#{unique}",
+          provider: :oidc
+        },
+        actor: SystemActor.system(:test)
+      )
+
+    conn
+    |> log_in_user(user)
+    |> Plug.Conn.put_session("identity_claims", Map.put(claims, "service_radar_auth_method", "oidc"))
+  end
+
+  defp authorization_settings!(mappings) do
+    {:ok, settings} =
+      AuthorizationSettings.create_settings(
+        %{default_role: :viewer, role_mappings: mappings},
+        actor: SystemActor.system(:test)
+      )
+
+    settings
+  end
 
   defp preview_instant(html) do
     [_, datetime] = Regex.run(~r/id="timezone-preview"[^>]*datetime="([^"]+)"/, html)

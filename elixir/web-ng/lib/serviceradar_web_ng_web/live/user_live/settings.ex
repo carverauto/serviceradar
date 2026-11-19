@@ -6,12 +6,17 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.RoleMappingSupport
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.Homepage
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Auth.ClaimDiagnostics
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   # Viewing the profile must not require sudo mode. Sensitive submits
@@ -144,6 +149,68 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
                 </div>
               <% end %>
             </dl>
+
+            <div :if={@sso_session?} id="sso-sign-in" class="mt-4 space-y-3 border-t border-sr-line pt-4">
+              <div>
+                <div class="text-sm font-semibold">SSO sign-in</div>
+                <p class="text-xs text-sr-muted">
+                  What your identity provider sent at sign-in, and which role mappings it matched.
+                  Role changes apply at your next sign-in.
+                </p>
+              </div>
+
+              <p :if={is_nil(@sso_diagnosis)} class="text-xs text-sr-muted">Loading…</p>
+
+              <%= if @sso_diagnosis do %>
+                <dl class="space-y-2 text-sm">
+                  <div :for={{key, value} <- @sso_diagnosis.identity} class="flex gap-2">
+                    <dt class="w-32 shrink-0 text-sr-muted"><code>{key}</code></dt>
+                    <dd class="break-all text-sr-ink">{value}</dd>
+                  </div>
+                  <div :for={{key, values} <- @sso_diagnosis.role_claims} class="flex gap-2">
+                    <dt class="w-32 shrink-0 text-sr-muted"><code>{key}</code></dt>
+                    <dd class="break-all text-sr-ink">{Enum.join(values, ", ")}</dd>
+                  </div>
+                  <div :if={@sso_diagnosis.role_claims == []} class="flex gap-2" id="sso-no-role-claims">
+                    <dt class="w-32 shrink-0 text-sr-muted">Groups / roles</dt>
+                    <dd class="text-sr-ink">None in this token</dd>
+                  </div>
+                </dl>
+
+                <p :if={@sso_diagnosis.groups_overage?} id="sso-groups-overage" class="text-xs text-warning">
+                  Your identity provider left the groups claim out because you are in too many groups,
+                  so group mappings cannot match. Use app roles or a narrower groups claim.
+                </p>
+
+                <div id="sso-role-mappings" class="text-sm">
+                  <div class="text-sr-muted">Role mappings</div>
+                  <p :if={@sso_diagnosis.resolution.matched == []} id="sso-no-mapping" class="text-sr-ink">
+                    No mapping matched — you received the default role
+                    ({format_role(@sso_diagnosis.resolution.role)}).
+                    <span :if={@sso_diagnosis.mapping_count > 0} class="text-sr-muted">
+                      {@sso_diagnosis.mapping_count} configured.
+                    </span>
+                  </p>
+                  <ul :if={@sso_diagnosis.resolution.matched != []} class="mt-1 space-y-1">
+                    <li :for={mapping <- @sso_diagnosis.resolution.matched} class="text-sr-ink">
+                      <code>{RoleMappingSupport.get_key(mapping, "source")}</code>
+                      = <code>{RoleMappingSupport.get_key(mapping, "value")}</code>
+                      → {mapping_grant(mapping, @sso_grant_labels)}
+                    </li>
+                  </ul>
+                </div>
+              <% end %>
+
+              <details :if={@sso_raw_claims != []} class="text-xs">
+                <summary class="cursor-pointer text-sr-muted">All claims</summary>
+                <dl class="mt-2 space-y-1">
+                  <div :for={{key, value} <- @sso_raw_claims} class="flex gap-2">
+                    <dt class="w-40 shrink-0 text-sr-muted"><code>{key}</code></dt>
+                    <dd class="break-all font-mono text-sr-ink">{value}</dd>
+                  </div>
+                </dl>
+              </details>
+            </div>
           </.ui_panel>
 
           <.ui_panel>
@@ -346,6 +413,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       |> assign(:timezone_catalog_warning, timezone_catalog_warning)
       |> assign(:timezone_preview_at, DateTime.utc_now())
       |> assign_homepage(user)
+      |> assign_sso_diagnosis(scope)
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
 
@@ -371,6 +439,79 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     |> assign(:homepage_options, options)
     |> assign(:homepage_form, to_form(%{"choice" => current}, as: "homepage"))
   end
+
+  # The claims come from this session; the mappings they resolve against and the
+  # names of what they grant are database reads, so those load once connected. The
+  # system actor reads them because a viewer may not read authorization settings,
+  # which would otherwise show every SSO user "no mapping matched".
+  @hidden_claim_keys ~w[service_radar_auth_method nonce at_hash c_hash sid]
+
+  defp assign_sso_diagnosis(socket, scope) do
+    claims = scope.identity_claims || %{}
+    sso_session? = Map.get(claims, "service_radar_auth_method") == "oidc"
+
+    {diagnosis, labels} =
+      if sso_session? and connected?(socket) do
+        actor = SystemActor.system(:profile_access_panel)
+        diagnosis = ClaimDiagnostics.diagnose(claims, actor: actor)
+        {diagnosis, grant_labels(diagnosis, actor)}
+      else
+        {nil, %{profiles: %{}, groups: %{}}}
+      end
+
+    socket
+    |> assign(:sso_session?, sso_session?)
+    |> assign(:sso_diagnosis, diagnosis)
+    |> assign(:sso_grant_labels, labels)
+    |> assign(:sso_raw_claims, if(sso_session?, do: raw_claims(claims), else: []))
+  end
+
+  defp grant_labels(%{resolution: %{matched: []}}, _actor), do: %{profiles: %{}, groups: %{}}
+
+  defp grant_labels(_diagnosis, actor) do
+    %{profiles: names_by_id(RoleProfile, actor), groups: names_by_id(UserGroup, actor)}
+  end
+
+  defp names_by_id(resource, actor) do
+    case Ash.read(resource, actor: actor) do
+      {:ok, records} -> Map.new(records, &{to_string(&1.id), &1.name})
+      {:error, _reason} -> %{}
+    end
+  end
+
+  defp raw_claims(claims) do
+    claims
+    |> Enum.reject(fn {key, _value} -> key in @hidden_claim_keys end)
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> Enum.map(fn {key, value} -> {key, render_claim_value(value)} end)
+  end
+
+  defp render_claim_value(value) when is_binary(value), do: value
+  defp render_claim_value(value) when is_list(value), do: Enum.map_join(value, ", ", &render_claim_value/1)
+  defp render_claim_value(value) when is_map(value), do: Jason.encode!(value)
+  defp render_claim_value(nil), do: ""
+  defp render_claim_value(value), do: to_string(value)
+
+  defp mapping_grant(mapping, labels) do
+    role = RoleMappingSupport.get_key(mapping, "role")
+    profile = label_for(labels.profiles, RoleMappingSupport.get_key(mapping, "role_profile_id"))
+    group = label_for(labels.groups, RoleMappingSupport.get_key(mapping, "user_group_id"))
+
+    [
+      role && "role #{role}",
+      profile && "profile #{profile}",
+      group && "group #{group}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> "nothing"
+      parts -> Enum.join(parts, ", ")
+    end
+  end
+
+  defp label_for(_names, nil), do: nil
+  defp label_for(_names, ""), do: nil
+  defp label_for(names, id), do: Map.get(names, to_string(id), to_string(id))
 
   defp mount_sudo_at(session) do
     case session["sudo_authenticated_at"] do
