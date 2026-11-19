@@ -2,9 +2,7 @@
   "alert_policy": {
     "cooldown_seconds": 300,
     "emit_ocsf_transition": true,
-    "open_on_statuses": [
-      "down"
-    ],
+    "open_on_statuses": [],
     "priority": 2,
     "renotify_seconds": 21600,
     "threshold": 1,
@@ -163,7 +161,7 @@
     }
   ],
   "pack_id": "io.serviceradar.http-api-and-tls-posture",
-  "pack_version": "0.1.0",
+  "pack_version": "0.1.1",
   "parameter_overrides": {},
   "schedule": {
     "interval_seconds": 60,

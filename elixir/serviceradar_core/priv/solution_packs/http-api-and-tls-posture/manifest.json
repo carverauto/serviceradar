@@ -70,11 +70,11 @@
   "files": {
     "README.md": "d94b6a32c6541e45d100aea806f0c5e3d235bda7e683eecdc207fb565fa44571",
     "assets/architecture.svg": "d52e6791f2bfd79b46cadc6cae0566c77d4968c383c7235c0253d8f97d4306e3",
-    "checks/http-journey-health.json": "98e81564925ad28665ef493470eb6c463c628ebf9bc1ed5eed36c22e0dd7dadb",
-    "checks/tls-certificate-expiry-posture.json": "960f7a140fd7251087c440fd9118b4be8a58b46eb3bbb0929b0e50d9419770ab",
+    "checks/http-journey-health.json": "a02e72577cf31eb786635729e22c26cdcd4d6a71eccf84cff397a355c7fd4532",
+    "checks/tls-certificate-expiry-posture.json": "daa308b384916ff58c00b4ca822174589cb3964e2591952d3bc5d03d515dab96",
     "dashboards/http-tls-overview.json": "f40c1bd73cff923f61c7388a4fee737559032443fcd6cfd60f99d5e919db3d15",
-    "rules/http-journey-down-alert.json": "87d9747ea104391711b988f176894054d9af63d5e3d2b875eea7c900991d9560",
-    "rules/tls-certificate-expiry-alert.json": "e4925f08a3c5564c692d9c1229a06b253c88e65ce56be87381a288fb5d4294e2"
+    "rules/http-journey-down-alert.json": "0d7d1b9ef3beba2eb18665a21af36bedf35e8a60de19c6fa01a1f8d711852a3f",
+    "rules/tls-certificate-expiry-alert.json": "89f9c66cfb3b5c4c3fd25d90b39b3e68d78d32874bb4c32a0b8eef5c1d613031"
   },
   "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxwYXRoIGQ9Ik0yNCAxMiBMMzQgMTcgVjI1IEMzNCAzMSAyOS41IDM1IDI0IDM3IEMxOC41IDM1IDE0IDMxIDE0IDI1IFYxNyBaIiBmaWxsPSIjMjJjNTVlIi8+PGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iNCIgZmlsbD0iIzBmMTcyYSIvPjwvc3ZnPg==",
   "id": "io.serviceradar.http-api-and-tls-posture",
@@ -116,5 +116,5 @@
     ]
   },
   "slug": "http-api-and-tls-posture",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

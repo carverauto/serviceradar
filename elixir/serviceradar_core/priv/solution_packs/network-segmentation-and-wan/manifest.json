@@ -66,11 +66,11 @@
   "files": {
     "README.md": "de1355ee5fa36f4f44f5de76af6b96a48545bdb7c5d31ccc52397ac9c4587c36",
     "assets/architecture.svg": "83e68f3d003303f981eeaad7e935c496b83aa9596f1c0d9a91c2078ca584b75c",
-    "checks/multi-vantage-segmentation-isolation.json": "b5adaa221cbb7a05c1f88133dda43917a14bca6ce8f8471bd9b441aad0b5b38d",
-    "checks/wan-dns-resolution-posture.json": "b3a9e7e5b9c28a8dc2175be08a89b2059f55153797fee2e31c8ab84def401d8b",
+    "checks/multi-vantage-segmentation-isolation.json": "e60f566a1ef264af570693914c5e61c10dc4cbb6258effcf67d36ab60b2bae7f",
+    "checks/wan-dns-resolution-posture.json": "b5be370699c36ac16d240c6d7a58a1204d91427cd31d84530bfd4b6b61cc9858",
     "dashboards/network-segmentation-and-wan-overview.json": "26b4b38ede2ce99f0e94eb631d36605b8ed1fce7778a8e9c81ed9ecd95938943",
-    "rules/segmentation-breach-alert.json": "7b0a6878f31f7564c46b54f2b5ed6a23436d411256b281abc13a64d82fec2d5c",
-    "rules/wan-dns-degraded-alert.json": "f8d018621b3d095ef4658993f82532eb95e16a3617a4936f216a93eec72db09a"
+    "rules/segmentation-breach-alert.json": "1db3758409e225d8e683b21451321098b8e4dbe59907c461b4d36c4e0106663a",
+    "rules/wan-dns-degraded-alert.json": "d24c5dba4323377d2cfcbec45efe912c7cbcc1393da6d79a5cc0b0c8c6f051b5"
   },
   "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTgiIHI9IjQiIGZpbGw9IiNmNDNmNWUiLz48Y2lyY2xlIGN4PSIxNiIgY3k9IjMwIiByPSI0IiBmaWxsPSIjMzhiZGY4Ii8+PGNpcmNsZSBjeD0iMzMiIGN5PSIyNCIgcj0iNSIgZmlsbD0iIzEwYjk4MSIvPjxsaW5lIHgxPSIyMCIgeTE9IjE5IiB4Mj0iMjgiIHkyPSIyMyIgc3Ryb2tlPSIjZjQzZjVlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1kYXNoYXJyYXk9IjMgMiIvPjxsaW5lIHgxPSIyMCIgeTE9IjI5IiB4Mj0iMjgiIHkyPSIyNSIgc3Ryb2tlPSIjMzhiZGY4IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=",
   "id": "io.serviceradar.network-segmentation-and-wan",
@@ -112,5 +112,5 @@
     ]
   },
   "slug": "network-segmentation-and-wan",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

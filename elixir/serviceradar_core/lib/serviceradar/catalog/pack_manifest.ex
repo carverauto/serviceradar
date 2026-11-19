@@ -9,6 +9,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
   alias ServiceRadar.Dashboards.DashboardPanel
   alias ServiceRadar.DeclarativeChecks.CanonicalJSON
   alias ServiceRadar.DeclarativeChecks.SchemaValidator
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   @supported_format_version 1
   @pack_id_regex ~r/\A[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+\z/
@@ -1412,7 +1413,7 @@ defmodule ServiceRadar.Catalog.PackManifest do
       "invalid_window_bucket",
       "window_seconds must be a positive multiple of bucket_seconds"
     )
-    |> Enum.reverse()
+    |> Enum.reverse(unknown_match_key_diags(Map.get(doc, "match"), file))
   end
 
   defp validate_rule_kind_fields(doc, "event_rule", file) do
@@ -1460,6 +1461,20 @@ defmodule ServiceRadar.Catalog.PackManifest do
   end
 
   defp validate_rule_kind_fields(_doc, _kind, _file), do: []
+
+  # The alert engine ignores a match key it does not know, so a rule written
+  # with one matches every record instead of none.
+  defp unknown_match_key_diags(match, file) do
+    for key <- RuleMatcher.unknown_match_keys(match) do
+      diag(
+        file,
+        "$.match.#{key}",
+        "unknown_match_key",
+        "the alert engine does not read match key #{inspect(key)}; " <>
+          "put record fields under attribute_equals"
+      )
+    end
+  end
 
   defp validate_dashboard_panels(panels, file) when is_list(panels) and panels != [] do
     allowed_visuals =

@@ -63,15 +63,15 @@
   "credential_slots": [],
   "description": "Monitors archive storage entitlement quota, PD5 hold-pin retention pressure, S3 role credential health, and continuous camera recording silence.",
   "files": {
-    "README.md": "7547623e58312fa3abfed5667d8030101eccff3cc2b25b6f1c184ec89d7503c5",
+    "README.md": "990031029af8c10414752a93bff4f5a01d88fe2246944027d127da5ba0edb384",
     "assets/architecture.svg": "b3108812b243005d43b5284aa74e58ae254c519db9b890b6982bd1c0f80e1f78",
-    "checks/archive-storage-posture.json": "6912096546fa66e38c27ea9f9e983aaad25daf0613d811484214f16d264a2512",
-    "checks/camera-recording-silence.json": "0d22f96ce5b97e62a42f764faf70477dcc57380350f426781492a90c3772c4f4",
-    "checks/entitlement-utilization.json": "3541ec53daa6e06829c7cecfef346e7bc4692ed2989555e365b66bc6d0706a1f",
-    "checks/hold-pin-pressure.json": "d262abc5cae08695afa428093ff31a44f4822dd9057a804f18ca57caba044d44",
+    "checks/archive-storage-posture.json": "829a47849214fc62b63081124e612edc6df320c001612dd369f236518535fe4d",
+    "checks/camera-recording-silence.json": "2b07c2c0178547c44a9b532775555080a80c916d5fe706071c3b7b5812ebe014",
+    "checks/entitlement-utilization.json": "7ff46edb425872580cb583c9c6b8df68eee21dc5cff4156e0c0d56f12e6d6c3f",
+    "checks/hold-pin-pressure.json": "e841d960e5de99103e95851241e6feb5a9287c12b0db2f2dc6e9c0f7b8a6cfd1",
     "dashboards/storage-and-nvr-overview.json": "d46401780e60cc73240472222880bd3ac152aed72d91cb2ef4e8151e0f8a0fa4",
-    "rules/camera-silence-alert.json": "db5fc01b41d39855def7660fc5d59a13f050881e1dfcd1f7e6607219a7563d23",
-    "rules/storage-hard-cap-alert.json": "ac88bf161d1dca372a998bd17e9d48a7302cbb977d144311acc2cdd393a0c78b"
+    "rules/camera-silence-alert.json": "a4f8c5ed2a93db29cd646094dc22a0f5c328f3fa38c4f3b1d95d03b3349d0286",
+    "rules/storage-hard-cap-alert.json": "28a6c211df95b22d9355b1eba3cd41584559b2dba02bfdd9cb4dbe0bd7055eb8"
   },
   "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMjQiIHI9IjEwIiBmaWxsPSIjMzhiZGY4Ii8+PC9zdmc+",
   "id": "io.serviceradar.storage-and-nvr-health",
@@ -121,5 +121,5 @@
     ]
   },
   "slug": "storage-and-nvr-health",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

@@ -128,7 +128,10 @@ async function createSamplePackDir(overrides = {}) {
     window_seconds: 300,
     bucket_seconds: 60,
     cooldown_seconds: 300,
-    match: {source: "declarative_check"},
+    match: {
+      subject_prefix: "declarative_check.health.state_change",
+      attribute_equals: {check_slug: "storage-entitlement-utilization", to_status: "down"},
+    },
   }
 
   const pausedRuleDoc = {
@@ -140,7 +143,10 @@ async function createSamplePackDir(overrides = {}) {
     window_seconds: 600,
     bucket_seconds: 60,
     cooldown_seconds: 300,
-    match: {source: "camera_silence"},
+    match: {
+      subject_prefix: "declarative_check.health.state_change",
+      attribute_equals: {check_slug: "camera-continuous-recording-silence", to_status: "down"},
+    },
   }
 
   const dashboardDoc = overrides.dashboardDoc ?? {
@@ -320,6 +326,34 @@ test("pack validate rejects unsupported pack_format_version and SHA-256 digest m
   assert.notEqual(badHash.code, 0)
   assert.match(badHash.stderr, /file_digest_mismatch/)
   assert.match(badHash.stderr, /README\.md/)
+})
+
+test("pack validate rejects a stateful rule match key the alert engine does not read", async () => {
+  // The engine ignores unknown match keys, so such a rule would match every event.
+  const rule = (match) => ({
+    name: "storage_entitlement_hard_cap",
+    signal: "event",
+    threshold: 1,
+    window_seconds: 300,
+    bucket_seconds: 60,
+    match,
+  })
+
+  const topLevelDir = await createSamplePackDir({ruleDoc: rule({check_slug: "storage-entitlement-utilization", status: "down"})})
+  const topLevel = await runCli(["pack", "validate", topLevelDir])
+  assert.notEqual(topLevel.code, 0)
+  assert.match(topLevel.stderr, /\[unknown_match_key\] rules\/storage-hard-cap-alert\.json \(\$\.match\.check_slug\)/)
+  assert.match(topLevel.stderr, /\[unknown_match_key\] rules\/storage-hard-cap-alert\.json \(\$\.match\.status\)/)
+
+  const recoveryDir = await createSamplePackDir({
+    ruleDoc: rule({
+      subject_prefix: "declarative_check.health.state_change",
+      recovery: {to_status: "healthy"},
+    }),
+  })
+  const recovery = await runCli(["pack", "validate", recoveryDir])
+  assert.notEqual(recovery.code, 0)
+  assert.match(recovery.stderr, /\(\$\.match\.recovery\.to_status\)/)
 })
 
 test("pack validate enforces SecretFreeValidator parity against secret keys, tokens, and live UUIDs", async () => {
