@@ -3347,8 +3347,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp update_management_links([]), do: :ok
 
-  # Fills an empty (or dead) management parent. A parent a platform inventory
-  # recorded, or cleared, outranks the mapper and is left alone.
+  # Fills an empty management parent. A stored parent that names a deleted or
+  # missing device counts as empty, so even this weakest tier may fill it when no
+  # strength is recorded; a live parent is a populated value. A parent a platform
+  # inventory recorded, or cleared, outranks the mapper and is left alone.
   defp update_management_links(pairs) do
     {children, parents} = Enum.unzip(Enum.uniq(pairs))
     tag = %{"management_device_id" => mapper_management_tag()}
@@ -3376,7 +3378,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           )
         )
         AND platform.sr_attribute_write_accepted(
-          child.attribute_provenance, $3::jsonb, 'management_device_id', false
+          child.attribute_provenance, $3::jsonb, 'management_device_id',
+          EXISTS (
+            SELECT 1
+            FROM platform.ocsf_devices AS live_parent
+            WHERE live_parent.uid = child.management_device_id
+              AND live_parent.deleted_at IS NULL
+          )
         )
       """,
       [children, parents, tag]

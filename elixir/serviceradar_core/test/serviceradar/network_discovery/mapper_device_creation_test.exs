@@ -1250,6 +1250,67 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
              wait_for_devices_by_ip(actor, ap_ip)
   end
 
+  # A management_device_id written before attribute provenance existed has no
+  # recorded strength. One that names a deleted device counts as empty, so the
+  # weakest (mapper) tier refills it; one that names a live device is kept.
+  for {parent_state, description} <- [
+        {:deleted, "refills an unrecorded parent that names a deleted device"},
+        {:live, "keeps an unrecorded parent that names a live device"}
+      ] do
+    test "a later poll #{description}", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      controller_ip = "192.0.2.#{rem(uniq, 250) + 1}"
+      ap_ip = "192.0.2.#{rem(uniq + 1, 250) + 1}"
+      other_ip = "192.0.2.#{rem(uniq + 2, 250) + 1}"
+      controller_mac = unique_global_test_mac(uniq)
+      ap_mac = unique_global_test_mac(uniq + 1)
+      other_mac = unique_global_test_mac(uniq + 2)
+
+      assert :ok =
+               MapperResultsIngestor.ingest_interfaces(
+                 managed_pair_payload(controller_ip, controller_mac, ap_ip, ap_mac),
+                 %{}
+               )
+
+      assert [%Device{uid: controller_uid} = controller] =
+               wait_for_devices_by_ip(actor, controller_ip)
+
+      assert [%Device{uid: ap_uid, management_device_id: ^controller_uid}] =
+               wait_for_devices_by_ip(actor, ap_ip)
+
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET attribute_provenance = '{}'::jsonb WHERE uid = $1",
+        [ap_uid]
+      )
+
+      if unquote(parent_state) == :deleted do
+        assert {:ok, _} =
+                 Device.soft_delete(controller, "manual", Ecto.UUID.generate(), actor: actor)
+      end
+
+      assert :ok =
+               MapperResultsIngestor.ingest_interfaces(
+                 managed_pair_payload(other_ip, other_mac, ap_ip, ap_mac),
+                 %{}
+               )
+
+      assert [%Device{uid: other_uid}] = wait_for_devices_by_ip(actor, other_ip)
+      assert device_reports_address?(actor, other_uid, ap_ip)
+
+      expected_parent = if unquote(parent_state) == :deleted, do: other_uid, else: controller_uid
+
+      assert [%Device{uid: ^ap_uid, management_device_id: ^expected_parent} = ap] =
+               wait_for_devices_by_ip(actor, ap_ip)
+
+      expected_provenance =
+        if unquote(parent_state) == :deleted,
+          do: %{"management_device_id" => %{"source" => "mapper", "strength" => 1}},
+          else: %{}
+
+      assert Map.take(ap.attribute_provenance, ["management_device_id"]) == expected_provenance
+    end
+  end
+
   test "a later poll links an existing dependent after successor progress", %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     controller_ip = unique_test_ip(198, 51, 71, uniq)

@@ -14,7 +14,11 @@ cleared management_device_id) is a stored decision and SHALL NOT be filled by
 a weaker write. A populated value
 without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
-and record its strength. For a value made of several fields (name and
+and record its strength. A device-reference attribute (management_device_id)
+whose stored value names a deleted or missing device SHALL count as empty, so
+when no strength is recorded for it a write of any tier MAY fill it; a
+reference to a live device is a populated value and follows the rules above.
+For a value made of several fields (name and
 hostname; vendor and model; type, type_id and device_role) the strength
 decision SHALL accept or reject the write as a whole, and a field of that value
 that the write does not carry SHALL stay stored and SHALL NOT be cleared by the
@@ -260,6 +264,17 @@ inventory cleared it.
 - **WHEN** a mapper pass that would fill an empty management_device_id runs
 - **THEN** the management_device_id SHALL remain none
 - **AND** the SNMP polling host compiled for the camera SHALL NOT change
+
+#### Scenario: The mapper refills a management device that names a deleted device
+- **GIVEN** a device whose management_device_id, with no recorded strength, names a device that has since been deleted
+- **WHEN** a mapper update naming a live management device for it is ingested
+- **THEN** the management_device_id SHALL be the live device the mapper named
+- **AND** its recorded source SHALL be the mapper
+
+#### Scenario: The mapper keeps an unrecorded management device that is live
+- **GIVEN** a device whose management_device_id, with no recorded strength, names a live device
+- **WHEN** a mapper update naming a different management device is ingested
+- **THEN** the management_device_id SHALL be unchanged
 
 #### Scenario: Two writers at the same tier keep the first recorded value
 - **GIVEN** a camera whose vendor Example Cam Co and model were recorded from the camera inventory at the hardware-vendor tier
