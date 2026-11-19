@@ -456,7 +456,10 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
 
     ep_entries = Map.get(endpoint_vips_by_origin, wp.canonical_origin, [])
     ep_vips = ep_entries |> Enum.map(&elem(&1, 0)) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-    exposure_class = ep_entries |> Enum.map(&elem(&1, 1)) |> Enum.find(&is_binary/1)
+    exposure_classes = ep_entries |> Enum.map(&elem(&1, 1)) |> Enum.filter(&is_binary/1)
+
+    exposure_class =
+      if "Gateway" in exposure_classes, do: "Gateway", else: List.first(exposure_classes)
 
     if not probes_enabled? and not has_custom_probes? and ep_vips == [] do
       :skip

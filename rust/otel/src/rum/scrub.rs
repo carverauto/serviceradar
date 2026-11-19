@@ -866,7 +866,10 @@ pub fn build_rum_metric_batch(
         resource_attrs.push(kv("prefix_tag", &beacon.prefix_tag));
     }
     if !beacon.cdn_cache_status.is_empty() {
-        resource_attrs.push(kv("cdn_cache_status", &beacon.cdn_cache_status));
+        resource_attrs.push(kv(
+            "cdn_cache_status",
+            cdn_cache_status_label(&beacon.cdn_cache_status),
+        ));
     }
     if !beacon.country.is_empty() {
         resource_attrs.push(kv("country", &beacon.country));
@@ -964,6 +967,30 @@ fn rum_gauge_metric(
         tags: attrs.to_vec(),
         ..Default::default()
     }
+}
+
+const CDN_CACHE_STATUS_LABELS: &[&str] = &[
+    "HIT",
+    "MISS",
+    "REFRESH_HIT",
+    "REFRESH_MISS",
+    "STALE",
+    "EXPIRED",
+    "REVALIDATED",
+    "UPDATING",
+    "BYPASS",
+    "DYNAMIC",
+    "PASS",
+    "NONE",
+    "ERROR",
+];
+
+fn cdn_cache_status_label(status: &str) -> &str {
+    CDN_CACHE_STATUS_LABELS
+        .iter()
+        .copied()
+        .find(|label| *label == status)
+        .unwrap_or("OTHER")
 }
 
 fn kv(key: &str, value: &str) -> StringMapEntry {
@@ -1174,6 +1201,45 @@ mod tests {
         assert!(names.contains(&"rum.cls"));
         assert!(names.contains(&"rum.akamai_edge_rtt_ms"));
         assert!(names.contains(&"rum.akamai_origin_rtt_ms"));
+    }
+
+    #[test]
+    fn metric_cdn_cache_status_label_is_bounded_while_beacon_keeps_raw_value() {
+        let (cache, policy) = test_policy_cache();
+        let label_for = |servertiming: &str| {
+            let params = parse_form_urlencoded(&format!(
+                "u=https://shop.example.com/&c.lcp=1200&servertiming={servertiming}"
+            ));
+            let (beacon, batch) = build_beacon_and_metrics(
+                &params,
+                &HeaderMap::new(),
+                Some("203.0.113.9".parse().unwrap()),
+                &[],
+                &policy,
+                &cache,
+                None,
+            )
+            .unwrap();
+            let attrs = batch.unwrap().resource.unwrap().attributes;
+            let label = attrs
+                .iter()
+                .find(|a| a.key == "cdn_cache_status")
+                .map(|a| a.value.clone());
+            (beacon.cdn_cache_status, label)
+        };
+
+        assert_eq!(
+            label_for("cdn-cache%3Bdesc%3DMISS"),
+            ("MISS".to_string(), Some("MISS".to_string()))
+        );
+        assert_eq!(
+            label_for("cdn-cache%3Bdesc%3Dsynthetic-variant-0042"),
+            (
+                "SYNTHETIC-VARIANT-0042".to_string(),
+                Some("OTHER".to_string())
+            )
+        );
+        assert_eq!(label_for("edge%3Bdur%3D5"), (String::new(), None));
     }
 
     #[test]

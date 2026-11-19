@@ -185,7 +185,7 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     );
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_unknown"),
         &headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_unknown&u=https%3A%2F%2Fshop.example%2F",
@@ -196,6 +196,22 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     )
     .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Site key only in the body -> 401
+    let resp = handle_rum_request(
+        &Method::POST,
+        None,
+        &headers,
+        Full::new(Bytes::from_static(
+            b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
+        )),
+        None,
+        &runtime,
+        &collector,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert!(output.beacons.lock().unwrap().is_empty());
 
     // Disabled property -> 403
     let mut off_headers = HeaderMap::new();
@@ -209,7 +225,7 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     );
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_disabled"),
         &off_headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_disabled&u=https%3A%2F%2Foff.example%2F",
@@ -233,7 +249,7 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     );
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &evil_headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
@@ -270,7 +286,7 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     let oversized = vec![b'a'; 65_537];
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &headers,
         Full::new(Bytes::from(oversized)),
         None,
@@ -288,7 +304,7 @@ async fn beacon_gate_enforces_keys_origins_methods_and_payload_limits() {
     gz_headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &gz_headers,
         Full::new(gz_bytes),
         None,
@@ -340,7 +356,7 @@ async fn enrichment_and_trusted_proxy_gating_scrub_and_publish_beacon_and_metric
 
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &spoof_headers,
         Full::new(Bytes::from(json_body.clone())),
         Some("203.0.113.42".parse::<IpAddr>().unwrap()),
@@ -393,7 +409,7 @@ async fn enrichment_and_trusted_proxy_gating_scrub_and_publish_beacon_and_metric
     // 2. Trusted proxy (192.0.2.10 in 192.0.2.0/24) honors True-Client-IP & Akamai-Edgescape
     let resp2 = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &spoof_headers,
         Full::new(Bytes::from(json_body)),
         Some("192.0.2.10".parse::<IpAddr>().unwrap()),
@@ -437,7 +453,7 @@ async fn rate_limiter_returns_429_with_retry_after() {
 
     let r1 = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
@@ -451,7 +467,7 @@ async fn rate_limiter_returns_429_with_retry_after() {
 
     let r2 = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
@@ -488,7 +504,7 @@ async fn publish_failure_returns_generic_503_without_internal_error_text() {
 
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_storefront"),
         &headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_storefront&u=https%3A%2F%2Fshop.example%2F",
@@ -573,7 +589,7 @@ async fn ipv6_non_default_ports_uppercase_multipart_boundary_and_javascript_reje
 
     let resp = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_ipv6_port"),
         &mp_headers,
         Full::new(Bytes::from_static(mp_body)),
         None,
@@ -595,7 +611,7 @@ async fn ipv6_non_default_ports_uppercase_multipart_boundary_and_javascript_reje
     );
     let resp_port = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_port8443"),
         &port_headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_port8443&u=https%3A%2F%2Fshop.example%3A8443%2Fcheckout%3Fpage%3D2%26token%3Dsecret",
@@ -610,7 +626,7 @@ async fn ipv6_non_default_ports_uppercase_multipart_boundary_and_javascript_reje
     // 3. javascript: scheme rejected with 400 Bad Request
     let resp_js = handle_rum_request(
         &Method::POST,
-        None,
+        Some("key=sr_rum_live_port8443"),
         &port_headers,
         Full::new(Bytes::from_static(
             b"sr.key=sr_rum_live_port8443&u=javascript%3Aalert(1)%3Ftoken%3Dabc",

@@ -129,6 +129,45 @@ where
         );
     }
 
+    let site_key = header_key.or(query_key).map(str::trim).unwrap_or("");
+
+    if site_key.is_empty() {
+        metrics::record_rejected("rum_beacons", "unknown_key", 1);
+        return rum_response(StatusCode::UNAUTHORIZED, "missing rum_site_key", None);
+    }
+
+    let Some(policy) = runtime.policy.lookup(site_key) else {
+        metrics::record_rejected("rum_beacons", "unknown_key", 1);
+        return rum_response(StatusCode::UNAUTHORIZED, "unknown rum_site_key", None);
+    };
+
+    if !policy.rum_enabled {
+        metrics::record_rejected("rum_beacons", "disabled_property", 1);
+        return rum_response(StatusCode::FORBIDDEN, "RUM disabled for web property", None);
+    }
+
+    let effective_origin = request_origin.map(str::to_string).or_else(|| {
+        headers
+            .get(header::REFERER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(policy::normalize_origin)
+    });
+    if !runtime
+        .policy
+        .validate_origin(&policy, effective_origin.as_deref())
+    {
+        metrics::record_rejected("rum_beacons", "disallowed_origin", 1);
+        return rum_response(StatusCode::FORBIDDEN, "disallowed Origin", None);
+    }
+    let allow_origin = effective_origin.as_deref();
+
+    let (client_ip_for_limit, _) =
+        scrub::resolve_client_ip(peer_ip, headers, &runtime.trusted_proxies);
+    if let Err(retry_after) = runtime.rate_limiter.check(site_key, client_ip_for_limit) {
+        metrics::record_rejected("rum_beacons", "rate_limited", 1);
+        return rate_limited_response(retry_after, allow_origin);
+    }
+
     // Strict 64 KiB body cap before buffering excess bytes.
     let max_body = runtime.config.max_body_bytes.max(1);
     let raw_body = match Limited::new(body, max_body).collect().await {
@@ -200,54 +239,6 @@ where
     };
     for (k, v) in query_params {
         params.entry(k).or_insert(v);
-    }
-
-    let site_key = header_key
-        .or_else(|| {
-            params
-                .get("sr.key")
-                .or_else(|| params.get("key"))
-                .or_else(|| params.get("site_key"))
-                .map(String::as_str)
-        })
-        .map(str::trim)
-        .unwrap_or("");
-
-    if site_key.is_empty() {
-        metrics::record_rejected("rum_beacons", "unknown_key", 1);
-        return rum_response(StatusCode::UNAUTHORIZED, "missing rum_site_key", None);
-    }
-
-    let Some(policy) = runtime.policy.lookup(site_key) else {
-        metrics::record_rejected("rum_beacons", "unknown_key", 1);
-        return rum_response(StatusCode::UNAUTHORIZED, "unknown rum_site_key", None);
-    };
-
-    if !policy.rum_enabled {
-        metrics::record_rejected("rum_beacons", "disabled_property", 1);
-        return rum_response(StatusCode::FORBIDDEN, "RUM disabled for web property", None);
-    }
-
-    let effective_origin = request_origin.map(str::to_string).or_else(|| {
-        headers
-            .get(header::REFERER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(policy::normalize_origin)
-    });
-    if !runtime
-        .policy
-        .validate_origin(&policy, effective_origin.as_deref())
-    {
-        metrics::record_rejected("rum_beacons", "disallowed_origin", 1);
-        return rum_response(StatusCode::FORBIDDEN, "disallowed Origin", None);
-    }
-    let allow_origin = effective_origin.as_deref();
-
-    let (client_ip_for_limit, _) =
-        scrub::resolve_client_ip(peer_ip, headers, &runtime.trusted_proxies);
-    if let Err(retry_after) = runtime.rate_limiter.check(site_key, client_ip_for_limit) {
-        metrics::record_rejected("rum_beacons", "rate_limited", 1);
-        return rate_limited_response(retry_after, allow_origin);
     }
 
     if !runtime.should_sample(policy.rum_sample_rate) {

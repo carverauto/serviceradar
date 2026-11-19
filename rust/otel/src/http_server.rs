@@ -49,6 +49,7 @@ const MAX_CONNECTION_AGE: Duration = Duration::from_secs(300);
 // Allow for compressed bytes, expanded bytes and decoded data. Admission is
 // shared by every connection/HTTP2 stream, including anonymous deployments.
 const REQUEST_MEMORY_BUDGET: usize = 128 * 1024 * 1024;
+const RUM_REQUEST_CONCURRENCY: usize = 64;
 
 fn request_concurrency(max_request_bytes: usize) -> usize {
     (REQUEST_MEMORY_BUDGET / max_request_bytes.saturating_mul(3).max(1)).clamp(1, 16)
@@ -156,6 +157,7 @@ pub async fn start_http_server(
     let requests = Arc::new(Semaphore::new(request_concurrency(
         options.max_request_bytes,
     )));
+    let rum_requests = Arc::new(Semaphore::new(RUM_REQUEST_CONCURRENCY));
     let shared = Arc::new((options, collector));
 
     loop {
@@ -165,6 +167,7 @@ pub async fn start_http_server(
             continue;
         };
         let requests = Arc::clone(&requests);
+        let rum_requests = Arc::clone(&rum_requests);
         let shared = Arc::clone(&shared);
         let tls_acceptor = tls_acceptor.clone();
 
@@ -174,10 +177,15 @@ pub async fn start_http_server(
             let service = service_fn(move |req: Request<Incoming>| {
                 let shared = Arc::clone(&shared);
                 let requests = Arc::clone(&requests);
+                let rum_requests = Arc::clone(&rum_requests);
                 async move {
                     let (options, collector) = &*shared;
+                    let limits = RequestLimits {
+                        otlp: &requests,
+                        rum: &rum_requests,
+                    };
                     Ok::<_, Infallible>(
-                        handle_request(req, options, collector, &requests, Some(peer_ip)).await,
+                        handle_request(req, options, collector, limits, Some(peer_ip)).await,
                     )
                 }
             });
@@ -242,11 +250,17 @@ fn build_tls_acceptor(identity: &TlsIdentityPem) -> Result<tokio_rustls::TlsAcce
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
 
+#[derive(Clone, Copy)]
+struct RequestLimits<'a> {
+    otlp: &'a Semaphore,
+    rum: &'a Semaphore,
+}
+
 async fn handle_request<B>(
     req: Request<B>,
     options: &HttpServerOptions,
     collector: &ServiceRadarCollector,
-    requests: &Semaphore,
+    limits: RequestLimits<'_>,
     peer_ip: Option<IpAddr>,
 ) -> Response<Full<Bytes>>
 where
@@ -255,8 +269,8 @@ where
 {
     let (parts, body) = req.into_parts();
     if parts.uri.path() == crate::rum::RUM_BEACON_PATH {
-        let Ok(_permit) = requests.try_acquire() else {
-            return retryable_error_response("HTTP request capacity exhausted".to_owned(), None);
+        let Ok(_permit) = limits.rum.try_acquire() else {
+            return retryable_error_response("RUM request capacity exhausted".to_owned(), None);
         };
         let query = parts.uri.query().map(str::to_owned);
         let operation = crate::rum::handle_rum_request(
@@ -294,7 +308,7 @@ where
     ) {
         return *response;
     }
-    let Ok(_permit) = requests.try_acquire() else {
+    let Ok(_permit) = limits.otlp.try_acquire() else {
         return retryable_error_response(
             "OTLP/HTTP request capacity exhausted".to_owned(),
             cors_origin,
@@ -777,7 +791,17 @@ mod tests {
                 .header(header::CONTENT_ENCODING, encoding)
                 .body(UnreadBody)
                 .unwrap();
-            let response = handle_request(request, options, &collector, &requests, None).await;
+            let response = handle_request(
+                request,
+                options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests,
+                },
+                None,
+            )
+            .await;
             assert_eq!(response.status(), expected);
             assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         }
@@ -789,9 +813,18 @@ mod tests {
             .body(UnreadBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &anonymous, &collector, &requests, None)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &anonymous,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
         drop(held);
@@ -803,9 +836,18 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &enforced, &collector, &requests, None)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &enforced,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
         assert_eq!(requests.available_permits(), 1);
@@ -837,9 +879,18 @@ mod tests {
             .body(PendingBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests, None)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::REQUEST_TIMEOUT
         );
         assert_eq!(requests.available_permits(), 1);
@@ -850,9 +901,18 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests, None)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
     }
@@ -870,9 +930,18 @@ mod tests {
             .body(Full::new(Bytes::from_static(b"synthetic")))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests, None)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::PAYLOAD_TOO_LARGE
         );
         assert_eq!(requests.available_permits(), 1);
@@ -1453,6 +1522,11 @@ mod tests {
         ));
 
         let requests = Semaphore::new(4);
+        let rum_requests = Semaphore::new(4);
+        let limits = RequestLimits {
+            otlp: &requests,
+            rum: &rum_requests,
+        };
 
         // Unauthenticated OTLP /v1/traces still fails 401.
         let otlp_req = Request::builder()
@@ -1461,20 +1535,54 @@ mod tests {
             .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
             .body(UnreadBody)
             .unwrap();
-        let otlp_resp = handle_request(otlp_req, &options, &collector, &requests, None).await;
+        let otlp_resp = handle_request(otlp_req, &options, &collector, limits, None).await;
         assert_eq!(otlp_resp.status(), StatusCode::UNAUTHORIZED);
+
+        // A beacon without a site key in the header or query is refused before its body is read.
+        for uri in ["/rum/v1/beacon", "/rum/v1/beacon?key=sr_rum_live_unknown"] {
+            let keyless = Request::builder()
+                .method(Method::POST)
+                .uri(uri)
+                .header(header::ORIGIN, "https://shop.example")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(UnreadBody)
+                .unwrap();
+            let resp = handle_request(keyless, &options, &collector, limits, None).await;
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        // Saturated RUM admission does not consume OTLP request slots.
+        let held_rum = rum_requests.acquire_many(4).await.unwrap();
+        let rum_req = Request::builder()
+            .method(Method::POST)
+            .uri("/rum/v1/beacon?key=sr_rum_live_testkey")
+            .header(header::ORIGIN, "https://shop.example")
+            .body(UnreadBody)
+            .unwrap();
+        let rum_resp = handle_request(rum_req, &options, &collector, limits, None).await;
+        assert_eq!(rum_resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let otlp_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .header("x-serviceradar-ingestion-key", "secret-a")
+            .body(Full::new(empty_traces_body()))
+            .unwrap();
+        let otlp_resp = handle_request(otlp_req, &options, &collector, limits, None).await;
+        assert_eq!(otlp_resp.status(), StatusCode::OK);
+        drop(held_rum);
 
         // /rum/v1/beacon with valid rum_site_key & allowed Origin succeeds without OTLP token.
         let rum_req = Request::builder()
             .method(Method::POST)
-            .uri("/rum/v1/beacon")
+            .uri("/rum/v1/beacon?key=sr_rum_live_testkey")
             .header(header::ORIGIN, "https://shop.example")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Full::new(Bytes::from_static(
-                b"sr.key=sr_rum_live_testkey&u=https%3A%2F%2Fshop.example%2F&t_page=420",
+                b"u=https%3A%2F%2Fshop.example%2F&t_page=420",
             )))
             .unwrap();
-        let rum_resp = handle_request(rum_req, &options, &collector, &requests, None).await;
+        let rum_resp = handle_request(rum_req, &options, &collector, limits, None).await;
         assert_eq!(rum_resp.status(), StatusCode::NO_CONTENT);
         assert_eq!(
             rum_resp

@@ -413,7 +413,7 @@ impl TelemetryOutput for AgentForwardOutput {
         _web_property_id: &str,
         _beacon: &crate::rum_proto::RumBeaconV1,
     ) -> Result<PublishOutcome> {
-        Ok(PublishOutcome::default())
+        anyhow::bail!("RUM beacons are not supported by the agent output backend")
     }
 
     async fn publish_rum_metrics(
@@ -421,7 +421,7 @@ impl TelemetryOutput for AgentForwardOutput {
         _web_property_id: &str,
         _metrics: &serviceradar_metric_proto::pb::MetricBatch,
     ) -> Result<PublishOutcome> {
-        Ok(PublishOutcome::default())
+        anyhow::bail!("RUM metrics are not supported by the agent output backend")
     }
 }
 

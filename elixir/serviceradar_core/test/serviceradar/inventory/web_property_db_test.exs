@@ -199,15 +199,19 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     shared_vip = "203.0.113.100"
     direct_vip = "198.51.100.77"
     ambiguous_vip = "198.51.100.88"
+    mixed_gateway_vip = "203.0.113.150"
+    mixed_lb_vip = "198.51.100.150"
 
     direct_uid = "sr:" <> Ecto.UUID.generate()
     ambig_uid_1 = "sr:" <> Ecto.UUID.generate()
     ambig_uid_2 = "sr:" <> Ecto.UUID.generate()
+    mixed_gateway_uid = "sr:" <> Ecto.UUID.generate()
 
     for {uid, ip} <- [
           {direct_uid, direct_vip},
           {ambig_uid_1, ambiguous_vip},
-          {ambig_uid_2, ambiguous_vip}
+          {ambig_uid_2, ambiguous_vip},
+          {mixed_gateway_uid, mixed_gateway_vip}
         ] do
       {:ok, _} =
         Device
@@ -288,10 +292,61 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
         route_name: "ambig-ing",
         observed_at: now,
         snapshot_at: now
+      },
+      %{
+        endpoint_key: "ep-mixed-gw-#{unique}",
+        cluster_id: "demo",
+        ip: mixed_gateway_vip,
+        hostname: "mixed-#{unique}.example.com",
+        port: 443,
+        protocol: "TCP",
+        exposure_class: "Gateway",
+        namespace: "web",
+        service_name: "mixed-svc",
+        gateway_name: "public-gw",
+        listener_name: "https",
+        route_kind: "HTTPRoute",
+        route_name: "mixed-route",
+        observed_at: now,
+        snapshot_at: now
+      },
+      %{
+        endpoint_key: "ep-mixed-lb-#{unique}",
+        cluster_id: "demo",
+        ip: mixed_lb_vip,
+        hostname: "mixed-#{unique}.example.com",
+        port: 443,
+        protocol: "TCP",
+        exposure_class: "LoadBalancer",
+        namespace: "web",
+        service_name: "mixed-svc",
+        gateway_name: "",
+        listener_name: "https",
+        route_kind: "Ingress",
+        route_name: "mixed-ing",
+        observed_at: now,
+        snapshot_at: now
       }
     ]
 
     Repo.insert_all({"public_endpoints_current", :platform}, endpoints, prefix: "platform")
+
+    mixed_origin = "https://mixed-#{unique}.example.com"
+
+    {:ok, _} =
+      WebProperty
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "mixed-#{unique}.example.com",
+          canonical_origin: mixed_origin,
+          allowed_origins: [mixed_origin],
+          environment: :production,
+          edge_provider: "direct"
+        },
+        actor: actor
+      )
+      |> Ash.create()
 
     assert {:ok, stats} =
              WebPropertyDiscoveryWorker.run_reconcile(
@@ -300,6 +355,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
                  cond do
                    String.starts_with?(host, "direct-") -> {:ok, [direct_vip]}
                    String.starts_with?(host, "ambig-") -> {:ok, [ambiguous_vip]}
+                   String.starts_with?(host, "mixed-") -> {:ok, [mixed_gateway_vip]}
                    true -> {:ok, [shared_vip]}
                  end
                end,
@@ -344,6 +400,13 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
 
     {:ok, ambig_bindings} = WebPropertyBinding.list_by_web_property(ambig_wp.id, actor: actor)
     refute Enum.any?(ambig_bindings, &(&1.binding_kind == :origin_device))
+
+    {:ok, mixed_wp} =
+      WebProperty.get_by_canonical_origin(mixed_origin, actor: actor)
+
+    assert mixed_wp.edge_provider == "envoy_gateway"
+    {:ok, mixed_bindings} = WebPropertyBinding.list_by_web_property(mixed_wp.id, actor: actor)
+    refute Enum.any?(mixed_bindings, &(&1.binding_kind == :origin_device))
 
     # Soft-delete ep-shop and confirm stale :k8s_discovery binding is pruned
     Repo.update_all(
