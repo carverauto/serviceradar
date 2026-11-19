@@ -6,6 +6,9 @@
   for validating pack manifests, building deterministic `.srpack` archives,
   generating Ed25519 keypairs, signing/verifying pack bundles, and generating
   signed catalog `index.json` manifests.
+- `pack validate` rejects a `stateful_alert_rule` whose `match` or
+  `match.recovery` uses a key the alert engine does not read
+  (`unknown_match_key`).
 - Added the `serviceradar` bin alias alongside `serviceradar-cli` and `srcloud`.
 - `edge install leaf` and `edge install collector` require an enrolled host
   agent. They register a managed component and wait for agent certificate
