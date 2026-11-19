@@ -1727,6 +1727,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       ])
 
       ingest!(actor, [source_update(device, "mapper", hostname: "pve-a", metadata: hardware_snmp)])
+
       assert %{name: "pve-node-a", vendor_name: "Ubiquiti"} = stored(device)
 
       assert {:ok, live} = Device.get_by_uid(device.uid, false, actor: actor)
