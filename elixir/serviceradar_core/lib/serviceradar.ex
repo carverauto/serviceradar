@@ -12,6 +12,7 @@ defmodule ServiceRadar do
     deps: [
       Flowpb,
       Monitoring,
+      Netperf.V1,
       Serviceradar.Agent.Addon.V1,
       Serviceradar.Agent.Discovery.V1,
       Serviceradar.Agent.Netprobe.V1,

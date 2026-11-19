@@ -3,5 +3,6 @@ defmodule Monitoring do
 
   use Boundary,
     top_level?: true,
+    deps: [Netperf.V1],
     exports: :all
 end
