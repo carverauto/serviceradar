@@ -146,8 +146,9 @@ defmodule ServiceRadar.Inventory.Device do
   # No name, hostname, type or type_id: an agent check-in's hostname and type are
   # corroboration, not identity (fix-device-attribute-source-precedence, design
   # decision 13), so the check-in actions cannot write them. :gateway_restore also
-  # takes a hostname, for the agent-link remediation that restores a device whose
-  # identity was purged (it has no name left to overwrite).
+  # takes a hostname and name with their provenance, for the agent-link
+  # remediation that restores a device whose identity was purged (it has no name
+  # left to overwrite); the remediation records them at the check-in tier.
   @gateway_sync_fields [
     :agent_id,
     :management_device_id,
@@ -160,7 +161,7 @@ defmodule ServiceRadar.Inventory.Device do
     :identity_observed_at,
     :metadata
   ]
-  @gateway_restore_fields @gateway_sync_fields ++ [:hostname]
+  @gateway_restore_fields @gateway_sync_fields ++ [:hostname, :name, :attribute_provenance]
   @group_fields [:group_id]
   @availability_fields [:is_available]
   @availability_source_fields [:availability_source_agent_id, :availability_source_profile_id]

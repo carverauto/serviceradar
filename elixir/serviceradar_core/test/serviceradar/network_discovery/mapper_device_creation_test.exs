@@ -1253,15 +1253,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   # A management_device_id written before attribute provenance existed has no
   # recorded strength. One that names a deleted device counts as empty, so the
   # weakest (mapper) tier refills it; one that names a live device is kept.
-  for {parent_state, description} <- [
-        {:deleted, "refills an unrecorded parent that names a deleted device"},
-        {:live, "keeps an unrecorded parent that names a live device"}
+  for {parent_state, base_octet, description} <- [
+        {:deleted, 210, "refills an unrecorded parent that names a deleted device"},
+        {:live, 220, "keeps an unrecorded parent that names a live device"}
       ] do
     test "a later poll #{description}", %{actor: actor} do
       uniq = System.unique_integer([:positive, :monotonic])
-      controller_ip = "192.0.2.#{rem(uniq, 250) + 1}"
-      ap_ip = "192.0.2.#{rem(uniq + 1, 250) + 1}"
-      other_ip = "192.0.2.#{rem(uniq + 2, 250) + 1}"
+      controller_ip = "192.0.2.#{unquote(base_octet) + 1}"
+      ap_ip = "192.0.2.#{unquote(base_octet) + 2}"
+      other_ip = "192.0.2.#{unquote(base_octet) + 3}"
       controller_mac = unique_global_test_mac(uniq)
       ap_mac = unique_global_test_mac(uniq + 1)
       other_mac = unique_global_test_mac(uniq + 2)

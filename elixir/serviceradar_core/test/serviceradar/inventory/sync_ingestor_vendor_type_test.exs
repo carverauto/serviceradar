@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Interface
@@ -1711,6 +1712,44 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
         assert %{vendor_name: ^expected} = stored(device), description
       end
+    end
+
+    test "a scrubbed identity is empty, not a recorded clear: the next sysName and OUI refill it",
+         %{actor: actor} do
+      device = new_device!(actor)
+      hardware_snmp = %{"sys_object_id" => ".1.3.6.1.4.1.41112.1.6", "sys_descr" => "UAP"}
+
+      ingest!(actor, [
+        source_update(device, "hypervisor_enrichment",
+          hostname: "pve-node-a",
+          metadata: hypervisor_metadata()
+        )
+      ])
+
+      ingest!(actor, [source_update(device, "mapper", hostname: "pve-a", metadata: hardware_snmp)])
+      assert %{name: "pve-node-a", vendor_name: "Ubiquiti"} = stored(device)
+
+      assert {:ok, live} = Device.get_by_uid(device.uid, false, actor: actor)
+      assert {:ok, _} = Device.soft_delete(live, "stale", "system:ranked_test", actor: actor)
+
+      assert {%{errors: 0}, _} =
+               DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [
+                 %{uid: device.uid}
+               ])
+
+      assert %{name: nil, hostname: nil, vendor_name: nil} = stored(device)
+
+      assert %Ash.BulkResult{status: :success} =
+               Device
+               |> Ash.Query.for_read(:read, %{include_deleted: true})
+               |> Ash.Query.filter(uid == ^device.uid)
+               |> Ash.bulk_update(:restore, %{}, actor: actor, return_errors?: true)
+
+      ingest!(actor, [source_update(device, "mapper", hostname: "sw-02")])
+      ingest!(actor, [census_update(device, mac: oui_mac("1C:B3:C9"))])
+
+      assert %{name: "sw-02", hostname: "sw-02", vendor_name: "Example NIC Vendor"} =
+               stored(device)
     end
 
     test "a platform product name writes neither vendor nor model", %{actor: actor} do
