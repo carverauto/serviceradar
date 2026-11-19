@@ -100,6 +100,19 @@ defmodule ServiceRadar.Credentials.GrantCachePolicy do
     end
   end
 
+  @doc """
+  Whether `cache` is exactly the wire form `payload/1` emits for a grant whose
+  TTL is `grant_ttl_seconds`: mode `"memory_ttl"` and a TTL no longer than the
+  maximum or the grant's own TTL.
+  """
+  @spec valid_payload?(term(), term()) :: boolean()
+  def valid_payload?(%{"mode" => "memory_ttl", "ttl_seconds" => ttl} = cache, grant_ttl_seconds)
+      when map_size(cache) == 2 and is_integer(ttl) and ttl in 1..@max_ttl_seconds and
+             is_integer(grant_ttl_seconds) and ttl <= grant_ttl_seconds,
+      do: true
+
+  def valid_payload?(_cache, _grant_ttl_seconds), do: false
+
   defp cacheable?(attrs, secret) do
     ProxmoxHostAuthority.host_injected_consumer?(
       value(attrs, :consumer_kind),

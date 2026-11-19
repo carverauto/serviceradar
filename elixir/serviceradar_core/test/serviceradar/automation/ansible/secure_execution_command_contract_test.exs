@@ -33,6 +33,56 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContractTest do
            )
   end
 
+  test "persisted execution command accepts only the core grant cache shape" do
+    {attempt, execution, controller, request, payload} = fixture()
+
+    for cache <- [
+          %{"mode" => "memory_ttl", "ttl_seconds" => 120},
+          %{"mode" => "memory_ttl", "ttl_seconds" => 300}
+        ] do
+      assert Contract.persisted_payload_matches?(
+               attempt,
+               execution,
+               controller,
+               request,
+               put_in(payload, ["credential_broker", "cache"], cache)
+             )
+    end
+
+    for cache <- [
+          nil,
+          %{"mode" => "memory", "ttl_seconds" => 120},
+          %{"mode" => "encrypted_ttl", "ttl_seconds" => 120},
+          %{"mode" => "memory_ttl", "ttl_seconds" => 0},
+          %{"mode" => "memory_ttl", "ttl_seconds" => 301},
+          %{"mode" => "memory_ttl", "ttl_seconds" => "120"},
+          %{"mode" => "memory_ttl"},
+          %{"mode" => "memory_ttl", "ttl_seconds" => 120, "scope" => "global"}
+        ] do
+      refute Contract.persisted_payload_matches?(
+               attempt,
+               execution,
+               controller,
+               request,
+               put_in(payload, ["credential_broker", "cache"], cache)
+             ),
+             "accepted cache #{inspect(cache)}"
+    end
+
+    short_grant =
+      payload
+      |> put_in(["credential_broker", "ttl_seconds"], 60)
+      |> put_in(["credential_broker", "cache"], %{"mode" => "memory_ttl", "ttl_seconds" => 120})
+
+    refute Contract.persisted_payload_matches?(
+             attempt,
+             execution,
+             controller,
+             request,
+             short_grant
+           )
+  end
+
   test "legacy or sync credentials never satisfy an execution command" do
     {attempt, execution, controller, request, payload} = fixture()
 
