@@ -11,6 +11,7 @@ use crate::backend::{InferenceBackend, InferenceBackendKind, build_inference_bac
 use crate::config::{ExecutionProvider, GpuSharingMode, ModelPinConfig, WorkerConfig};
 use crate::errors::CapabilityError;
 use crate::ort_loader::{OrtRuntimeProbeResult, discover_default_ort_dylib, probe_ort_dylib};
+use crate::tracking::TrackerMode;
 use crate::vision::{RgbFrame, VisionPipeline};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -141,6 +142,8 @@ pub struct CapabilityManifest {
     inference_backend: InferenceBackendKind,
     inference_device: String,
     detector_enabled: bool,
+    tracker: TrackerMode,
+    dedup_track_crops: bool,
     execution_provider: ExecutionProvider,
     gpu_sharing_mode: GpuSharingMode,
     max_stage2_batch_size: usize,
@@ -178,6 +181,14 @@ impl CapabilityManifest {
 
     pub fn detector_enabled(&self) -> bool {
         self.detector_enabled
+    }
+
+    pub fn tracker(&self) -> TrackerMode {
+        self.tracker
+    }
+
+    pub fn dedup_track_crops(&self) -> bool {
+        self.dedup_track_crops
     }
 
     pub fn execution_provider(&self) -> ExecutionProvider {
@@ -262,6 +273,8 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         inference_backend: backend_info.backend(),
         inference_device: backend_info.device().to_string(),
         detector_enabled: backend_info.detector_enabled(),
+        tracker: config.tracker_mode(),
+        dedup_track_crops: config.dedup_track_crops(),
         execution_provider: config.execution_provider(),
         gpu_sharing_mode: sharing_mode,
         max_stage2_batch_size: sharing_mode.max_stage2_batch_size(),

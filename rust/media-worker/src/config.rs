@@ -3,6 +3,7 @@
 use crate::backend::{InferenceBackendKind, InferenceDevicePreference};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
+use crate::tracking::TrackerMode;
 use clap::Parser;
 use core::fmt::{self, Display, Formatter};
 use core::str::FromStr;
@@ -268,6 +269,8 @@ pub struct WorkerConfig {
     index_concurrency: usize,
     text_embed_concurrency: usize,
     skip_unchanged_empty_scenes: bool,
+    tracker_mode: TrackerMode,
+    dedup_track_crops: bool,
     models: ModelPinConfig,
     control_plane_url: String,
     worker_auth: Option<WorkerAuthCredentials>,
@@ -300,6 +303,8 @@ impl Default for WorkerConfig {
             index_concurrency: 2,
             text_embed_concurrency: 4,
             skip_unchanged_empty_scenes: true,
+            tracker_mode: TrackerMode::ByteTrack,
+            dedup_track_crops: true,
             models: ModelPinConfig::default(),
             control_plane_url: "http://serviceradar-web-ng:4001".to_string(),
             worker_auth: None,
@@ -381,6 +386,16 @@ impl WorkerConfig {
         self
     }
 
+    pub fn with_tracker_mode(mut self, mode: TrackerMode) -> Self {
+        self.tracker_mode = mode;
+        self
+    }
+
+    pub fn with_dedup_track_crops(mut self, dedup: bool) -> Self {
+        self.dedup_track_crops = dedup;
+        self
+    }
+
     pub fn with_models(mut self, models: ModelPinConfig) -> Self {
         self.models = models;
         self
@@ -454,6 +469,14 @@ impl WorkerConfig {
 
     pub fn skip_unchanged_empty_scenes(&self) -> bool {
         self.skip_unchanged_empty_scenes
+    }
+
+    pub fn tracker_mode(&self) -> TrackerMode {
+        self.tracker_mode
+    }
+
+    pub fn dedup_track_crops(&self) -> bool {
+        self.dedup_track_crops
     }
 
     pub fn models(&self) -> &ModelPinConfig {
@@ -576,6 +599,17 @@ pub struct CliArgs {
         default_value_t = true
     )]
     skip_unchanged_empty_scenes: bool,
+
+    #[arg(long, env = "MEDIA_WORKER_TRACKER", default_value = "bytetrack")]
+    tracker: String,
+
+    #[arg(
+        long,
+        env = "MEDIA_WORKER_DEDUP_TRACK_CROPS",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    dedup_track_crops: bool,
 
     #[arg(
         long,
@@ -734,6 +768,7 @@ impl CliArgs {
             }
         };
         let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
 
         let raw_provider = self
             .execution_provider
@@ -793,6 +828,8 @@ impl CliArgs {
             index_concurrency,
             text_embed_concurrency: self.text_embed_concurrency,
             skip_unchanged_empty_scenes: self.skip_unchanged_empty_scenes,
+            tracker_mode,
+            dedup_track_crops: self.dedup_track_crops,
             models,
             control_plane_url: self.control_plane_url,
             worker_auth,

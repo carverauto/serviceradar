@@ -75,6 +75,10 @@ struct HealthzResponse<'a> {
     backend: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tracker: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dedup_track_crops: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +140,8 @@ async fn handle_healthz(State(state): State<ReadinessState>) -> Response {
                 service: "serviceradar-media-worker",
                 backend: Some(manifest.inference_backend().as_str()),
                 device: Some(manifest.inference_device()),
+                tracker: Some(manifest.tracker().as_str()),
+                dedup_track_crops: Some(manifest.dedup_track_crops()),
             }),
         )
             .into_response(),
@@ -146,6 +152,8 @@ async fn handle_healthz(State(state): State<ReadinessState>) -> Response {
                 service: "serviceradar-media-worker",
                 backend: None,
                 device: None,
+                tracker: None,
+                dedup_track_crops: None,
             }),
         )
             .into_response(),
