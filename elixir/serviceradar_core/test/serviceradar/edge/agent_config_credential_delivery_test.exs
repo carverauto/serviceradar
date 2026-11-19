@@ -41,6 +41,8 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
+  require Ash.Query
+
   # The real shipped manifest, not a stand-in. Its `additionalProperties: false`
   # is what made a materialized Proxmox assignment unstorable, and with the
   # fixture's previous `config_schema: %{}` this suite proved nothing about it:
@@ -316,13 +318,27 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
       resolution_location: "agent"
     }
 
-    assert {:ok, %{value: @api_token_payload}} =
+    assert {:ok, %{value: @api_token_payload} = material} =
              AgentGatewaySync.resolve_credential_broker_grant(request)
 
     assert {:ok, %{value: @api_token_payload}} =
              AgentGatewaySync.resolve_credential_broker_grant(request)
 
+    # The cache policy is part of the reuse scope; the second resolve must
+    # still find the first grant.
     assert grant_count(secret) == 1
+    grant = only_grant!(secret, system)
+
+    # The host injects this credential, so the grant allows a memory cache,
+    # never longer than the grant itself.
+    assert %{"mode" => "memory_ttl", "ttl_seconds" => cache_ttl} =
+             CredentialBrokerGrant.to_payload(grant)["cache"]
+
+    assert cache_ttl <= min(300, grant.ttl_seconds)
+
+    # A local secret has no provider lease. The agent learns the grant's expiry
+    # only from the lease, because a binding's scope carries none.
+    assert material.lease_expires_at_unix == DateTime.to_unix(grant.expires_at)
 
     {:ok, config_after} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
     assert config_after.config_version == config.config_version
@@ -1385,6 +1401,12 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     ])
 
     assignment_id
+  end
+
+  defp only_grant!(secret, actor) do
+    CredentialBrokerGrant
+    |> Ash.Query.filter(secret_id == ^secret.id)
+    |> Ash.read_one!(actor: actor)
   end
 
   defp grant_count(secret) do

@@ -69,6 +69,17 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   def assignment?(_plugin_id, _entrypoint), do: false
 
   @doc """
+  Whether a broker grant for this consumer is only ever resolved by the agent
+  host, which injects the credential itself. The Wasm guest receives a
+  sentinel, never the material.
+  """
+  @spec host_injected_consumer?(term(), term()) :: boolean()
+  def host_injected_consumer?(kind, plugin_id) when kind in [:plugin, "plugin"],
+    do: plugin_id in [@inventory_plugin_id, @console_plugin_id]
+
+  def host_injected_consumer?(_kind, _plugin_id), do: false
+
+  @doc """
   Splits Proxmox assignment params into the public params the Wasm guest reads
   and the host authority envelope the agent keeps.
 
