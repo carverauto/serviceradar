@@ -1272,7 +1272,18 @@ export function DeclarativeCheckBuilderCanvas({
                 >
                   <Background gap={18} size={1} />
                   <Controls />
-                  <MiniMap pannable zoomable />
+                  <MiniMap
+                    pannable
+                    zoomable
+                    bgColor={isDark ? "#0f172a" : "#f8fafc"}
+                    maskColor={isDark ? "rgba(15, 23, 42, 0.72)" : "rgba(241, 245, 249, 0.72)"}
+                    nodeColor={isDark ? "#38bdf8" : "#0284c7"}
+                    nodeStrokeColor={isDark ? "#0ea5e9" : "#0369a1"}
+                    style={{
+                      border: isDark ? "1px solid #334155" : "1px solid #cbd5e1",
+                      borderRadius: 6,
+                    }}
+                  />
                 </ReactFlow>
               </ReactFlowProvider>
             </div>
@@ -1438,46 +1449,37 @@ function NodeInspectorPanel({
       {node.kind === "platform_posture" && (
         <>
           <FormGroup label="Posture Evaluator (#6760 Registry)" labelFor="inspector-posture-evaluator">
-            <div style={{display: "flex", flexDirection: "column", gap: 6}}>
-              <Select
-                items={evaluatorItems}
-                filterable={false}
-                disabled={!canManage}
-                popoverProps={{
-                  usePortal: Boolean(portalContainer),
-                  portalContainer: portalContainer || undefined,
-                }}
-                itemRenderer={(item, {handleClick, modifiers}) => (
-                  <MenuItem
-                    key={item.id}
-                    active={modifiers.active}
-                    text={item.label || item.id}
-                    label={item.id}
-                    onClick={handleClick}
-                  />
-                )}
-                onItemSelect={item => onUpdateConfig({evaluator: item.id})}
-              >
-                <Button
-                  fill
-                  alignText="left"
-                  endIcon="double-caret-vertical"
-                  disabled={!canManage}
-                  data-testid="posture-evaluator-select-btn"
-                >
-                  {cfg.evaluator || "storage.entitlement_utilization"}
-                </Button>
-              </Select>
-              <HTMLSelect
+            <Select
+              items={evaluatorItems}
+              filterable={false}
+              disabled={!canManage}
+              popoverProps={{
+                usePortal: Boolean(portalContainer),
+                portalContainer: portalContainer || undefined,
+              }}
+              itemRenderer={(item, {handleClick, modifiers}) => (
+                <MenuItem
+                  key={item.id}
+                  active={modifiers.active}
+                  text={item.label || item.id}
+                  label={item.id}
+                  data-testid={`posture-evaluator-option-${item.id}`}
+                  onClick={handleClick}
+                />
+              )}
+              onItemSelect={item => onUpdateConfig({evaluator: item.id})}
+            >
+              <Button
                 id="inspector-posture-evaluator"
-                data-testid="inspector-posture-evaluator"
                 fill
+                alignText="left"
+                endIcon="double-caret-vertical"
                 disabled={!canManage}
-                value={cfg.evaluator || "storage.entitlement_utilization"}
-                onChange={e => onUpdateConfig({evaluator: e.target.value})}
-                options={evaluatorItems.map(ev => ({value: ev.id, label: ev.label || ev.id}))}
-              />
-            </div>
+                data-testid="posture-evaluator-select-btn"
+              >
+                {cfg.evaluator || "storage.entitlement_utilization"}
+              </Button>
+            </Select>
           </FormGroup>
 
           {cfg.evaluator === "camera.continuous_recording_silence" && (

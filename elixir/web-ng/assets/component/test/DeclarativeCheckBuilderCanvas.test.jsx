@@ -377,11 +377,19 @@ describe("DeclarativeCheckBuilderCanvas", () => {
 
     expect(latestDoc.nodes.some(n => n.kind === "platform_posture")).toBe(true)
 
-    // Change evaluator via Blueprint HTMLSelect
-    const evaluatorSelect = host.querySelector('[data-testid="inspector-posture-evaluator"]')
-    expect(evaluatorSelect).not.toBeNull()
+    // Change evaluator via Blueprint Select (single control, no duplicate HTMLSelect)
+    expect(host.querySelector('[data-testid="inspector-posture-evaluator"]')).toBeNull()
+    const evaluatorSelectBtn = host.querySelector('[data-testid="posture-evaluator-select-btn"]')
+    expect(evaluatorSelectBtn).not.toBeNull()
     await act(async () => {
-      setNativeInputValue(evaluatorSelect, "camera.continuous_recording_silence")
+      evaluatorSelectBtn.click()
+    })
+    const silenceOption = host.querySelector(
+      '[data-testid="posture-evaluator-option-camera.continuous_recording_silence"]',
+    )
+    expect(silenceOption).not.toBeNull()
+    await act(async () => {
+      silenceOption.click()
     })
     const postureNode = latestDoc.nodes.find(n => n.kind === "platform_posture")
     expect(postureNode.config.evaluator).toBe("camera.continuous_recording_silence")
