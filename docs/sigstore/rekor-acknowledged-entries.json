@@ -1,0 +1,4 @@
+{
+  "description": "Entries in the self-hosted Rekor log signed by the release key that no signing ledger explains but a person has reviewed. Add one only in a reviewed PR, with the entry UUID, log index, the run or event that produced it, and why it is benign (build/ci/rekor_signing_monitor.py).",
+  "entries": []
+}
