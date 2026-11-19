@@ -578,4 +578,139 @@ describe("DeclarativeCheckBuilderCanvas", () => {
     expect(resolvedInputsEl.textContent).toContain("[REDACTED]")
     expect(resolvedInputsEl.textContent).not.toContain("synthetic-should-never-appear")
   })
+
+  it("toggles the left Node Palette and right Inspector panel and updates workspace grid columns in both Visual and JSON modes", async () => {
+    const doc = STARTER_TEMPLATES["HTTP JSON API Check"]()
+
+    await act(async () => {
+      root.render(<DeclarativeCheckBuilderCanvas initialDocument={doc} canManage canEvaluate />)
+    })
+
+    const scopeEl = host.querySelector('[data-testid="declarative-check-builder-scope"]')
+    const gridEl = host.querySelector('[data-testid="builder-workspace-grid"]')
+    const paletteBtn = host.querySelector('[data-testid="toggle-palette-btn"]')
+    const inspectorBtn = host.querySelector('[data-testid="toggle-inspector-btn"]')
+
+    expect(scopeEl.getAttribute("data-palette-open")).toBe("true")
+    expect(scopeEl.getAttribute("data-inspector-open")).toBe("true")
+    expect(host.querySelector('[data-testid="node-palette"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="property-inspector"]')).not.toBeNull()
+    expect(gridEl.style.gridTemplateColumns).toBe("250px minmax(0, 1fr) 360px")
+    expect(paletteBtn.getAttribute("aria-pressed")).toBe("true")
+    expect(inspectorBtn.getAttribute("aria-pressed")).toBe("true")
+
+    // Hide left Node Palette via toolbar toggle
+    await act(async () => {
+      paletteBtn.click()
+    })
+    expect(scopeEl.getAttribute("data-palette-open")).toBe("false")
+    expect(host.querySelector('[data-testid="node-palette"]')).toBeNull()
+    expect(host.querySelector('[data-testid="property-inspector"]')).not.toBeNull()
+    expect(gridEl.style.gridTemplateColumns).toBe("minmax(0, 1fr) 360px")
+    expect(paletteBtn.getAttribute("aria-pressed")).toBe("false")
+
+    // Hide right Inspector via panel header collapse button
+    const collapseInspectorBtn = host.querySelector('[data-testid="collapse-inspector-btn"]')
+    expect(collapseInspectorBtn).not.toBeNull()
+    await act(async () => {
+      collapseInspectorBtn.click()
+    })
+    expect(scopeEl.getAttribute("data-inspector-open")).toBe("false")
+    expect(host.querySelector('[data-testid="property-inspector"]')).toBeNull()
+    expect(gridEl.style.gridTemplateColumns).toBe("minmax(0, 1fr)")
+    expect(inspectorBtn.getAttribute("aria-pressed")).toBe("false")
+
+    // Switch to Monaco JSON mode: both panels remain hidden so JSON editor claims full width
+    await act(async () => {
+      host.querySelector('[data-testid="tab-monaco-json"]').click()
+    })
+    expect(host.querySelector('[data-testid="monaco-json-wrapper"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="node-palette"]')).toBeNull()
+    expect(host.querySelector('[data-testid="property-inspector"]')).toBeNull()
+    expect(gridEl.style.gridTemplateColumns).toBe("minmax(0, 1fr)")
+
+    // Restore both panels via toolbar toggles
+    await act(async () => {
+      paletteBtn.click()
+      inspectorBtn.click()
+    })
+    expect(scopeEl.getAttribute("data-palette-open")).toBe("true")
+    expect(scopeEl.getAttribute("data-inspector-open")).toBe("true")
+    expect(host.querySelector('[data-testid="node-palette"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="property-inspector"]')).not.toBeNull()
+    expect(gridEl.style.gridTemplateColumns).toBe("250px minmax(0, 1fr) 360px")
+
+    // Collapse palette from its own header button
+    const collapsePaletteBtn = host.querySelector('[data-testid="collapse-palette-btn"]')
+    expect(collapsePaletteBtn).not.toBeNull()
+    await act(async () => {
+      collapsePaletteBtn.click()
+    })
+    expect(scopeEl.getAttribute("data-palette-open")).toBe("false")
+    expect(host.querySelector('[data-testid="node-palette"]')).toBeNull()
+  })
+
+  it("toggles fullscreen viewport overlay, locks and restores body scroll, and handles Escape key safely", async () => {
+    document.documentElement.setAttribute("data-theme", "dark")
+    document.body.style.overflow = "auto"
+
+    const doc = STARTER_TEMPLATES["HTTP JSON API Check"]()
+
+    await act(async () => {
+      root.render(<DeclarativeCheckBuilderCanvas initialDocument={doc} canManage canEvaluate />)
+    })
+
+    const scopeEl = host.querySelector('[data-testid="declarative-check-builder-scope"]')
+    const fullscreenBtn = host.querySelector('[data-testid="toggle-fullscreen-btn"]')
+
+    expect(scopeEl.getAttribute("data-fullscreen")).toBe("false")
+    expect(scopeEl.style.position).toBe("relative")
+    expect(fullscreenBtn.textContent).toContain("Fullscreen")
+    expect(document.body.style.overflow).toBe("auto")
+
+    // Enter fullscreen
+    await act(async () => {
+      fullscreenBtn.click()
+    })
+
+    expect(scopeEl.getAttribute("data-fullscreen")).toBe("true")
+    expect(scopeEl.style.position).toBe("fixed")
+    expect(scopeEl.style.height).toBe("100vh")
+    expect(scopeEl.style.zIndex).toBe("50")
+    expect(fullscreenBtn.getAttribute("aria-pressed")).toBe("true")
+    expect(fullscreenBtn.textContent).toContain("Exit Fullscreen")
+    expect(document.body.style.overflow).toBe("hidden")
+
+    // Escape pressed inside an input does NOT exit fullscreen
+    const labelInput = host.querySelector('[data-testid="inspector-node-label"]')
+    expect(labelInput).not.toBeNull()
+    await act(async () => {
+      labelInput.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}))
+    })
+    expect(scopeEl.getAttribute("data-fullscreen")).toBe("true")
+    expect(document.body.style.overflow).toBe("hidden")
+
+    // Escape pressed on window outside inputs exits fullscreen and restores body overflow
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}))
+    })
+    expect(scopeEl.getAttribute("data-fullscreen")).toBe("false")
+    expect(scopeEl.style.position).toBe("relative")
+    expect(document.body.style.overflow).toBe("auto")
+
+    // Re-enter fullscreen in Monaco JSON mode and verify unmount restores body overflow
+    await act(async () => {
+      host.querySelector('[data-testid="tab-monaco-json"]').click()
+      fullscreenBtn.click()
+    })
+    expect(scopeEl.getAttribute("data-fullscreen")).toBe("true")
+    expect(host.querySelector('[data-testid="monaco-json-wrapper"]')).not.toBeNull()
+    expect(document.body.style.overflow).toBe("hidden")
+
+    await act(async () => {
+      root.unmount()
+      root = null
+    })
+    expect(document.body.style.overflow).toBe("auto")
+  })
 })
