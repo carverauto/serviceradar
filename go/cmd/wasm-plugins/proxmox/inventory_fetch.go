@@ -121,18 +121,21 @@ const (
 	guestRuntimeStateUnknown = "unknown"
 )
 
-// pausedRuntimeStates are the QEMU runtime states in which the guest's CPUs are
-// stopped and stay stopped until someone acts: an operator pause, an I/O error
-// such as a full datastore, an internal error, a suspend, a guest panic or a
-// watchdog action. States a guest passes through during a start, a migration or
-// a snapshot are left out, so those do not read as an outage.
-var pausedRuntimeStates = map[string]struct{}{
-	"paused":         {},
-	"io-error":       {},
-	"internal-error": {},
-	"suspended":      {},
-	"guest-panicked": {},
-	"watchdog":       {},
+// isPausedRuntimeState reports whether a QEMU runtime state means the guest's
+// CPUs are stopped and stay stopped until someone acts: an operator pause, an
+// I/O error such as a full datastore, an internal error, a suspend, a guest
+// panic or a watchdog action. States a guest passes through during a start, a
+// migration or a snapshot are left out, so those do not read as an outage.
+//
+// This is a switch rather than a package-level map: TinyGo initializes package
+// maps from _start, which the agent's wasm runtime never calls.
+func isPausedRuntimeState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "paused", "io-error", "internal-error", "suspended", "guest-panicked", "watchdog":
+		return true
+	default:
+		return false
+	}
 }
 
 // effectiveGuestStatus reports "paused" for a QEMU guest that Proxmox lists as
@@ -142,7 +145,7 @@ func effectiveGuestStatus(resource proxmoxResource, kind string) string {
 	if kind != "qemu" || !strings.EqualFold(resource.Status, guestStatusRunning) {
 		return resource.Status
 	}
-	if _, paused := pausedRuntimeStates[strings.ToLower(strings.TrimSpace(resource.RuntimeState))]; paused {
+	if isPausedRuntimeState(resource.RuntimeState) {
 		return guestStatusPaused
 	}
 
