@@ -296,6 +296,8 @@ defmodule ServiceRadarWebNGWeb.CatalogLive.Index do
     {:noreply, assign(socket, :upload_error, nil)}
   end
 
+  # The path is the temp file LiveView created for the consumed upload entry.
+  # sobelow_skip ["Traversal.FileModule"]
   def handle_event("submit_upload", _params, socket) do
     if socket.assigns.can_install do
       results =

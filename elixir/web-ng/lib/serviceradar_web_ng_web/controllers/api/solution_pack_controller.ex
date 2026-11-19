@@ -338,6 +338,9 @@ defmodule ServiceRadarWebNGWeb.Api.SolutionPackController do
     |> send_resp(:ok, bytes)
   end
 
+  # The path is the temp file Plug created for this upload; a request body
+  # cannot supply a Plug.Upload struct.
+  # sobelow_skip ["Traversal.FileModule"]
   defp extract_import_payload(%{"file" => %Plug.Upload{path: path}}) do
     case File.read(path) do
       {:ok, bytes} -> {:ok, bytes}

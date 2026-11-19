@@ -133,6 +133,8 @@ defmodule ServiceRadarWebNG.Plugins.CosignVerifier do
 
   defp annotation_log_id(_value), do: :error
 
+  # The path is operator configuration, never request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp allowlisted?(digest, trust) do
     with path when is_binary(path) <- Keyword.get(trust, :pre_cutover_digests_file),
          {:ok, raw} <- File.read(path),

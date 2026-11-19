@@ -115,9 +115,9 @@ DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/live/devic
 # The topology snapshot, details and search reads also accept POST for filters
 # too large for a query string. The actions change nothing, and every POST is
 # CSRF-checked by the :topology_api pipeline.
-Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1224,4E477D5
-Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1231,500749F
-Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1243,720D6A
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1239,175A2A4
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1246,6C5DE1D
+Config.CSRFRoute: CSRF via Action Reuse,lib/serviceradar_web_ng_web/router.ex:1258,484E88B
 
 # The socket origin check is the endpoint's `check_origin` (config/runtime.exs),
 # which defaults to the request host in production; the scanner only looks for
