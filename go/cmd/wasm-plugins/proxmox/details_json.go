@@ -261,6 +261,7 @@ func appendResourceJSONFields(b *strings.Builder, first *bool, value proxmoxReso
 	appendStringField(b, first, "name", value.Name)
 	appendStringField(b, first, "type", value.Type)
 	appendStringField(b, first, "status", value.Status)
+	appendStringField(b, first, "runtime_state", value.RuntimeState)
 	appendIntField(b, first, "vmid", value.VMID)
 	appendFloatField(b, first, "cpu", value.CPU)
 	appendFloatField(b, first, "maxcpu", value.MaxCPU)
