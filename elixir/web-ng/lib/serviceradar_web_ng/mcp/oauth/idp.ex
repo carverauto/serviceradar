@@ -38,7 +38,9 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdP do
 
   defp auth_method("oidc"), do: :oidc
   defp auth_method(:oidc), do: :oidc
-  defp auth_method(_), do: :password
+  defp auth_method("password"), do: :password
+  defp auth_method(:password), do: :password
+  defp auth_method(_), do: nil
 
   defp blank_to_nil(value) when is_binary(value) and value != "", do: value
   defp blank_to_nil(_), do: nil
