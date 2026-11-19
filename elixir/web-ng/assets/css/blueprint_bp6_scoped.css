@@ -16531,3 +16531,29 @@
   position: relative;
   z-index: 60;
 }
+.sr-bp6-scope.bp6-dark .react-flow__controls {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.sr-bp6-scope.bp6-dark .react-flow__controls-button {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-bottom-color: #334155;
+  fill: currentColor;
+}
+.sr-bp6-scope.bp6-dark .react-flow__controls-button:hover {
+  background-color: #334155;
+  color: #f8fafc;
+}
+.sr-bp6-scope.bp6-dark .react-flow__controls-button svg {
+  fill: currentColor;
+}
+.sr-bp6-scope.bp6-dark .react-flow__attribution {
+  background-color: rgba(15, 23, 42, 0.8);
+  color: #94a3b8;
+}
+.sr-bp6-scope.bp6-dark .react-flow__attribution a {
+  color: #cbd5e1;
+}
