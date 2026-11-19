@@ -17,6 +17,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialIntegration
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Credentials.GrantCachePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.RuleAccessors
@@ -564,12 +565,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   # something other than the grant changed, so a grant minted here was
   # discarded unseen. Config delivery issues one for agents that receive
   # embedded grants, and core issues one at resolve time for agents that
-  # resolve by binding.
+  # resolve by binding. Such an agent never sees the issued grant, so the
+  # scope carries the cache policy the issue action will set.
   defp build_params_template(consumer, rule, secret_id, agent_id, actor, opts) do
     with {:ok, username} <- maybe_resolve_username(consumer, secret_id, actor, opts),
          {:ok, {grant_attrs, extras}} <-
            CredentialIntegration.grant_spec(consumer, rule, secret_id, agent_id, username) do
-      scope = CredentialBrokerGrant.scope_payload(grant_attrs, extras)
+      scope =
+        grant_attrs
+        |> GrantCachePolicy.put(loaded_secret(rule))
+        |> CredentialBrokerGrant.scope_payload(extras)
+
       CredentialIntegration.params_template(consumer, rule, secret_id, scope, username)
     end
   end
@@ -580,6 +586,16 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       resolver.(secret_id, actor)
     else
       {:ok, nil}
+    end
+  end
+
+  # The secret rides on the rule as loaded by `rules_for_agent_scope/5`. A rule
+  # without it gets the policy of an unknown secret: no cache, except for a
+  # host-injected consumer.
+  defp loaded_secret(rule) do
+    case Map.get(rule, :secret) do
+      %{cache_policy: _policy} = secret -> secret
+      _not_loaded -> nil
     end
   end
 
@@ -613,7 +629,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
                  CredentialIntegration.provider(profile),
                  scope_type,
                  scope_value,
-                 actor: actor
+                 actor: actor,
+                 load: [secret: GrantCachePolicy.secret_query()]
                ) do
             {:ok, rules} ->
               {:cont,
