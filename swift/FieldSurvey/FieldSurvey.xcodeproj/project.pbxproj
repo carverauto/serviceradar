@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		637206C379E11157E04AA479 /* RPerfClient in Frameworks */ = {isa = PBXBuildFile; productRef = 753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */; };
 		C3AE7373DEAB3ABBF95FF4D3 /* Arrow in Frameworks */ = {isa = PBXBuildFile; productRef = 69664AE6145D5CD52F341607 /* Arrow */; };
 		F2A100000000000000000001 /* Arrow in Frameworks */ = {isa = PBXBuildFile; productRef = 69664AE6145D5CD52F341607 /* Arrow */; };
 /* End PBXBuildFile section */
@@ -46,7 +45,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				C3AE7373DEAB3ABBF95FF4D3 /* Arrow in Frameworks */,
-				637206C379E11157E04AA479 /* RPerfClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,7 +99,6 @@
 			name = FieldSurvey;
 			packageProductDependencies = (
 				69664AE6145D5CD52F341607 /* Arrow */,
-				753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */,
 			);
 			productName = FieldSurvey;
 			productReference = DA5F4C992F4A14BB00255097 /* FieldSurvey.app */;
@@ -161,7 +158,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */,
-				2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DA5F4C9A2F4A14BB00255097 /* Products */;
@@ -538,10 +534,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../RPerfClient;
-		};
 		CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "LocalPackages/arrow-swift";
@@ -555,11 +547,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */;
 			productName = Arrow;
-		};
-		753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */;
-			productName = RPerfClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,0 +1,71 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:go_test_inventory_test.bzl", "go_test_inventory_test")
+
+go_library(
+    name = "netperf",
+    srcs = [
+        "admission.go",
+        "identity.go",
+        "permit.go",
+        "protocol.go",
+        "responder.go",
+        "responder_udp.go",
+        "sender.go",
+        "tls.go",
+        "udp_sender.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/netperf",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/certpolicy",
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/grpc",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto/netperf/v1:netperfpb",
+        "@org_golang_google_genproto_googleapis_rpc//errdetails",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//peer",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//types/known/durationpb",
+        "@org_golang_x_time//rate",
+    ],
+)
+
+go_test(
+    name = "netperf_test",
+    size = "small",
+    srcs = [
+        "permit_test.go",
+        "protocol_test.go",
+        "responder_test.go",
+        "sender_test.go",
+    ],
+    embed = [":netperf"],
+    exec_properties = {"test.network": "off"},
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/grpc",
+        "//go/pkg/logger",
+        "//go/pkg/models",
+        "//proto/netperf/v1:netperfpb",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_genproto_googleapis_rpc//errdetails",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//peer",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_grpc//test/bufconn",
+    ],
+)
+
+go_test_inventory_test(
+    name = "test_inventory_test",
+    srcs = glob(["*_test.go"]),
+    target = ":netperf_test",
+    visibility = ["//visibility:public"],
+)

@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       interface_timeseries_metrics_hourly interface_metrics_hourly
       timeseries_metric_disk_hourly timeseries_metrics_disk_hourly
       snmp_metrics snmp
-      rperf_metrics rperf
+      rperf_metrics rperf netperf_metrics netperf
       cpu_metrics cpu
       memory_metrics memory
       disk_metrics disk

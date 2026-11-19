@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "disk_metrics" => ~w(disk_metrics disk),
     "process_metrics" => ~w(process_metrics processes),
     "snmp_metrics" => ~w(snmp_metrics snmp),
-    "rperf_metrics" => ~w(rperf_metrics rperf),
+    "rperf_metrics" => ~w(rperf_metrics rperf netperf_metrics netperf),
     "logs" => ~w(logs),
     "events" => ~w(events activity),
     "security_findings" => ~w(security_findings security_finding findings finding),

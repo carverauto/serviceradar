@@ -85,7 +85,7 @@ srctl update-gateway -file /etc/serviceradar/gateway.json -enable-all
 | `-file` | Path to `gateway.json`. |
 | `-action` | `add` or `remove` (default `add`). |
 | `-agent` | Agent name in `gateway.json` (default `local-agent`). |
-| `-type` | Service type (e.g. `sysmon`, `rperf-checker`, `snmp`). |
+| `-type` | Service type (e.g. `sysmon`, `snmp`). |
 | `-name` | Service name (defaults to the service type). |
 | `-details` | Service details, e.g. `IP:port` for gRPC checkers. |
 | `-enable-all` | Enable all standard checkers. |

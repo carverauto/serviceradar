@@ -723,6 +723,36 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     end
   end
 
+  describe "dispatch_netperf_run/3 authority_epoch validation" do
+    test "rejects <= 0, non-integer, out-of-range, and malformed authority_epoch overrides" do
+      actor = ServiceRadar.Actors.SystemActor.system(:netperf_epoch_unit_test)
+
+      for bad_epoch <- [
+            0,
+            -1,
+            "0",
+            "-2",
+            "abc",
+            "3foo",
+            1.5,
+            true,
+            %{},
+            0xFFFF_FFFF_FFFF_FFFF + 1
+          ] do
+        assert {:error, :invalid_authority_epoch} =
+                 AgentCommandBus.dispatch_netperf_run(
+                   "agent-spoke-1",
+                   %{
+                     responder_agent_id: "agent-hub-1",
+                     target_address: "198.51.100.1",
+                     authority_epoch: bad_epoch
+                   },
+                   actor: actor
+                 )
+      end
+    end
+  end
+
   defp sweep_execution(agent_id) do
     %{id: Ecto.UUID.generate(), sweep_group_id: Ecto.UUID.generate(), agent_id: agent_id}
   end

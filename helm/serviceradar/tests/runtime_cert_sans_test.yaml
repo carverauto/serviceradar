@@ -32,9 +32,6 @@ tests:
           pattern: 'generate_cert "gateway" "serviceradar-agent-gateway" "[^"]*DNS:serviceradar-agent-gateway,DNS:agent-gateway,[^"]*DNS:serviceradar-agent-gateway\.sr-san-test\.svc\.cluster\.local[,"]'
       - matchRegex:
           path: data["generate-certs.sh"]
-          pattern: 'generate_cert "rperf-client" "serviceradar-rperf-client" "[^"]*DNS:serviceradar-rperf-client,DNS:rperf-client,[^"]*DNS:serviceradar-rperf-client\.sr-san-test\.svc\.cluster\.local[,"]'
-      - matchRegex:
-          path: data["generate-certs.sh"]
           pattern: 'generate_cert "log-collector" "serviceradar-log-collector" "[^"]*DNS:serviceradar-log-collector,DNS:log-collector,[^"]*DNS:serviceradar-log-collector\.sr-san-test\.svc\.cluster\.local[,"]'
       - matchRegex:
           path: data["generate-certs.sh"]

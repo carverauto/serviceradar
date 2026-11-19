@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"runtime"
@@ -33,10 +32,6 @@ const (
 	// maxPluginResultsPerDrain bounds the plugin results one push takes from the
 	// plugin manager; the rest wait in its bounded queue for the next push.
 	maxPluginResultsPerDrain = 10
-
-	rperfServiceType   = "rperf"
-	rperfCheckerName   = "rperf-checker"
-	rperfMetricsSource = "rperf-metrics"
 )
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
@@ -236,15 +231,12 @@ func (p *PushLoop) pushPluginTelemetry(ctx context.Context) bool {
 	return false
 }
 
-// holdForPendingEdgeRecord reports whether svc must not be polled this cycle: an
-// rperf metrics status or k8s public endpoints snapshot it produced is still
-// pending (held for a grant, or refused by the spool), or, for the k8s service,
-// the agent holds no grant to emit a new snapshot under. For the k8s service it
-// also returns the grant the snapshot is emitted under.
+// holdForPendingEdgeRecord reports whether svc must not be polled this cycle: a
+// k8s public endpoints snapshot it produced is still pending (held for a grant,
+// or refused by the spool), or the agent holds no grant to emit a new snapshot
+// under. For the k8s service it also returns the grant the snapshot is emitted
+// under.
 func (p *PushLoop) holdForPendingEdgeRecord(svc Service, now time.Time) (*edgev1.EdgeSignedCapabilityV1, bool) {
-	if isRperfMetricsService(svc) && p.rperfEdge.hasPending() && !p.flushRperfEdgeMetrics(now) {
-		return nil, true
-	}
 	if !isK8sPublicEndpointsService(svc) {
 		return nil, false
 	}
@@ -298,11 +290,7 @@ func resolveServiceStatusRouting(svc Service, status *proto.StatusResponse) (str
 		source = strings.TrimSpace(routing.StatusSource())
 	}
 	if serviceType == "" {
-		if rperfStatus(serviceName, "") {
-			serviceType = rperfServiceType
-		} else {
-			serviceType = sweepType
-		}
+		serviceType = sweepType
 	}
 	if source == "" {
 		source = defaultStatusSource(status, serviceName, serviceType)
@@ -324,8 +312,8 @@ func (p *PushLoop) forwardStatusAddonTelemetry(svc Service, status *proto.Status
 
 // collectAllStatuses gathers the status summaries of every service for the
 // status push. Services whose payload is durable data (endpoint inventory,
-// bumblebee, k8s public endpoints, rperf metrics, and the sweep summary metric
-// sample) are carried on the edge-record path instead and add no status.
+// bumblebee, k8s public endpoints, and the sweep summary metric sample) are
+// carried on the edge-record path instead and add no status.
 func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServiceStatus {
 	var statuses []*proto.GatewayServiceStatus
 
@@ -404,16 +392,12 @@ func (p *PushLoop) collectServiceStatus(
 		p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
 		return nil
 	}
-	serviceName, serviceType, source := resolveServiceStatusRouting(svc, status)
+	_, serviceType, source := resolveServiceStatusRouting(svc, status)
 	if k8sCapability != nil {
 		p.spoolK8sPublicEndpointsStatus(status, k8sCapability, cfg)
 		return nil
 	}
 	p.forwardStatusAddonTelemetry(svc, status)
-	if isRperfMetricsPayload(status, serviceName, serviceType, source) {
-		p.spoolRperfMetricsStatus(status, serviceName, serviceType, now)
-		return nil
-	}
 
 	converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
 	if converted == nil {
@@ -465,52 +449,8 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	return p.convertToGatewayStatusWithSource(resp, serviceName, serviceType, defaultStatusSource(resp, serviceName, serviceType))
 }
 
-func defaultStatusSource(resp *proto.StatusResponse, serviceName string, serviceType string) string {
-	if rperfStatus(serviceName, serviceType) && metricEnvelopePayload(resp.GetMessage()) {
-		return rperfMetricsSource
-	}
-
+func defaultStatusSource(_ *proto.StatusResponse, _ string, _ string) string {
 	return "status"
-}
-
-func rperfStatus(serviceName string, serviceType string) bool {
-	serviceName = strings.ToLower(strings.TrimSpace(serviceName))
-	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
-
-	return serviceType == rperfServiceType ||
-		serviceType == rperfCheckerName ||
-		serviceType == "network_performance" ||
-		serviceName == rperfServiceType ||
-		serviceName == rperfCheckerName
-}
-
-func isRperfMetricsService(svc Service) bool {
-	if svc == nil {
-		return false
-	}
-	if rperfStatus(svc.Name(), "") {
-		return true
-	}
-	if routing, ok := svc.(StatusRoutingProvider); ok {
-		if rperfStatus(svc.Name(), routing.StatusServiceType()) {
-			return true
-		}
-		if strings.EqualFold(strings.TrimSpace(routing.StatusSource()), rperfMetricsSource) {
-			return true
-		}
-	}
-	return false
-}
-
-func isRperfMetricsPayload(resp *proto.StatusResponse, serviceName, serviceType, source string) bool {
-	if source == rperfMetricsSource {
-		return true
-	}
-	if !rperfStatus(serviceName, serviceType) || resp == nil {
-		return false
-	}
-	trimmed := bytes.TrimSpace(resp.GetMessage())
-	return len(trimmed) > 0 && trimmed[0] != '{'
 }
 
 func (p *PushLoop) convertToGatewayStatusWithSource(

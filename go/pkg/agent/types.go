@@ -57,6 +57,7 @@ type Server struct {
 	sysmonService      *SysmonService
 	snmpService        *SNMPAgentService
 	mapperService      *MapperService
+	netperfService     *NetperfService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
 	launchEnvelopes    *controlPlaneAutomationLaunchEnvelopeResolver

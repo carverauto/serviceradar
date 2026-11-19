@@ -70,6 +70,9 @@ const (
 	// push sent as AgentConfigChunks, so the gateway can push configs larger than
 	// one gRPC message.
 	capabilityConfigPushChunks = "config_push_chunks"
+	// capabilityNetperf: this agent implements the embedded pure-Go netperf
+	// Spoke Sender and opt-in Hub Responder roles and handles netperf.run.
+	capabilityNetperf = "netperf"
 	// capabilitySweepCancel: this agent handles sweep.cancel_group, aborting a
 	// group's in-flight run without streaming its partial results.
 	capabilitySweepCancel = "sweep_cancel"
@@ -610,6 +613,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		"mapper",
 		"sync",
 		"sysmon",
+		capabilityNetperf,
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
 		remoteaccess.CapabilityRemoteAccessApp,

@@ -60,11 +60,6 @@ cd "$REPO_ROOT"
 UPDATE_MODE="${1:-workspace}"
 VERIFY_TARGET="${2:-//rust/...}"
 
-# The retained rperf fork still has undeclared upstream test dependencies.
-# The unused reqsign 1.x forks have been removed; active reqsign 3.x is resolved
-# through the registry and must participate in normal dependency validation.
-BROKEN_FORKS=(--exclude rperf)
-
 run_cargo_update() {
   local mode="$1"
 
@@ -96,7 +91,7 @@ run_cargo_update "${UPDATE_MODE}"
 
 echo
 echo "==> 2/4 Checking the workspace (lib + bins + tests)"
-cargo check --workspace --lib --bins --tests "${BROKEN_FORKS[@]}"
+cargo check --workspace --lib --bins --tests
 
 echo
 echo "==> 3/4 Regenerating the vendored crate tree (this downloads ~1 GB)"
@@ -113,6 +108,6 @@ Done. Updated:
   third_party/crate_mirror/                 (refreshed)
 
 Still worth running before you push:
-  cargo test --workspace ${BROKEN_FORKS[*]}
+  cargo test --workspace
   bazel test //rust/...
 EOF

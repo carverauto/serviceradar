@@ -54,7 +54,7 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
    - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
 2. Copy unchanged images from the current demo tag to the new tag:
    - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
-   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
+   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
 3. Build, sign and promote the new `web-ng` image through the publishing workflow, not by hand:
    - Push the commit to a reviewed branch, then
      `gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <branch> -f publish_scope=web-stack-commit-only -f expected_commit=<full sha>`.

@@ -97,6 +97,27 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
       assert response.bumblebee_config.catalog.snapshot_ref == "snapshot-1"
       assert response.bumblebee_config.catalog.size_bytes == 42
     end
+
+    test "includes typed netperf_config" do
+      netperf = %Netperf.V1.NetperfConfig{
+        responder: %Netperf.V1.NetperfResponderConfig{
+          enabled: true,
+          listen_port: 5199,
+          udp_enabled: true,
+          max_concurrent_sessions: 4,
+          max_total_bandwidth_bps: 1_000_000_000,
+          advertise_address: "198.51.100.1",
+          min_authority_epoch: 2
+        },
+        targets: [],
+        config_epoch: 2
+      }
+
+      response =
+        AgentConfigGenerator.to_proto_response(Map.put(@base_config, :netperf_config, netperf))
+
+      assert response.netperf_config == netperf
+    end
   end
 
   describe "add-on config_json delivery coercion (fj#4381)" do
@@ -420,6 +441,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
         {:visibility, put_in(base, [:visibility, "enabled"], true)},
         {:bumblebee, put_in(base, [:bumblebee, "scan_profile"], "servers")},
         {:endpoint_inventory, put_in(base, [:endpoint_inventory, "cadence"], "24h")},
+        {:netperf, put_in(base, [:netperf, "config_epoch"], 99)},
         {:plugins, put_in(base, [:plugins, Access.at(0), :interval_sec], 180)},
         {:plugin_engine_limits, put_in(base, [:plugin_engine_limits, :max_concurrent], 8)},
         {:addons, put_in(base, [:addons, Access.at(0), :version], "0.1.21")}
@@ -493,6 +515,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
         visibility: %{"enabled" => false},
         bumblebee: %{"enabled" => true, "scan_profile" => "workstations"},
         endpoint_inventory: %{"enabled" => true, "cadence" => "12h"},
+        netperf: %{"enabled" => false, "targets" => [], "config_epoch" => 0},
         plugins: [
           %{
             assignment_id: "assign-1",

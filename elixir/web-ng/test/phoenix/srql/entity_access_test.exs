@@ -521,4 +521,19 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:error, :forbidden} = EntityAccess.authorize_signals("in:otel_traces", scope)
     end
   end
+
+  @netperf_aliases ~w(rperf_metrics rperf netperf_metrics netperf)
+
+  test "every rperf/netperf alias is gated by observability.metrics.view and accepted by the parser" do
+    metrics_scope = %Scope{user: nil, permissions: MapSet.new(["observability.metrics.view"])}
+    other_scope = %Scope{user: nil, permissions: MapSet.new(["devices.view"])}
+
+    for entity <- @netperf_aliases do
+      assert {:ok, "observability.metrics.view"} = EntityAccess.permission_for_entity(entity)
+      assert {:ok, _ast} = Native.parse_ast("in:#{entity} limit:1")
+      assert :ok = EntityAccess.authorize("in:#{entity} limit:1", metrics_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", other_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", nil)
+    end
+  end
 end

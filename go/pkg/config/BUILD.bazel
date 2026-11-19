@@ -24,6 +24,7 @@ go_library(
 go_test(
     name = "config_test",
     srcs = [
+        "registry_test.go",
         "sanitize_test.go",
         "toml_mask_test.go",
     ],

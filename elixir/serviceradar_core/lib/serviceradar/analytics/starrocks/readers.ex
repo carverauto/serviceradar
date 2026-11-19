@@ -177,7 +177,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
         :flows
 
       e
-      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf
+      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf netperf_metrics netperf
                    cpu_metrics cpu memory_metrics memory disk_metrics disk process_metrics processes) ->
         :metrics
 

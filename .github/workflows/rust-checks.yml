@@ -164,7 +164,7 @@ jobs:
           unzip -q "${install_dir}/${asset}" -d "${install_dir}"
           chmod +x "${install_dir}/bin/protoc"
 
-          # PROTOC as well as PATH: rust/rperf-client/build.rs prefers an injected PROTOC and
+          # PROTOC as well as PATH: prost-build / tonic-prost-build prefers an injected PROTOC and
           # otherwise guesses at system paths. PROTOC_INCLUDE keeps the well-known types
           # (proto/discovery imports google/protobuf/wrappers.proto) resolving to this
           # release's include/ rather than to a system copy of a different vintage.

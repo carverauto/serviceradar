@@ -97,7 +97,6 @@ const (
 	typeSNMP    = "snmp"
 	typeICMP    = "icmp"
 	typeSysMon  = "sysmon"
-	typeRPerf   = "rperf-checker"
 )
 
 // Supported actions for update-gateway.
@@ -109,7 +108,6 @@ const (
 func getDefaultPorts() map[string]string {
 	return map[string]string{
 		typeSNMP:   ":50080",
-		typeRPerf:  ":50081",
 		typeSysMon: ":50083",
 	}
 }
@@ -406,7 +404,7 @@ func (UpdateGatewayHandler) Parse(args []string, cfg *CmdConfig) error {
 	gatewayFile := fs.String("file", "", "path to gateway.json config file")
 	action := fs.String("action", "add", "action to perform: add or remove")
 	agent := fs.String("agent", "local-agent", "agent name in gateway.json")
-	serviceType := fs.String("type", "", "service type (e.g., sysmon, rperf-checker, snmp)")
+	serviceType := fs.String("type", "", "service type (e.g., sysmon, snmp)")
 	serviceName := fs.String("name", "", "service name")
 	serviceDetails := fs.String("details", "", "service details (e.g., IP:port for grpc)")
 	enableAll := fs.Bool("enable-all", false, "enable all standard checkers")

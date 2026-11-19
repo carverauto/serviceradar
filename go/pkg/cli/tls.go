@@ -48,8 +48,6 @@ const (
 	defaultDirPerms      = 0755
 	defaultLshShift      = 128
 	serviceNats          = "nats"
-	serviceRperf         = "rperf"
-	serviceRperfChecker  = "rperf-checker"
 	serviceSysmonChecker = "sysmon"
 )
 
@@ -57,8 +55,6 @@ const (
 func defaultServices() []string {
 	return []string{
 		serviceNats,
-		serviceRperf,
-		serviceRperfChecker,
 		serviceSysmonChecker,
 	}
 }
@@ -128,7 +124,7 @@ func selectComponents(cfg *CmdConfig) []string {
 
 	return append([]string{
 		"core", "agent", "gateway", "kv", "nats", "web",
-		"sysmon", "snmp", "rperf", "rperf-checker",
+		"sysmon", "snmp",
 	}, defaultServices()...)
 }
 
@@ -157,10 +153,6 @@ func generateComponentCerts(
 	rootKey *ecdsa.PrivateKey,
 	styles *logStyles) error {
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		certPath := filepath.Join(cfg.CertDir, certName+".pem")
 
@@ -184,8 +176,6 @@ func getCertName(component string) string {
 	// certNames maps component names to their corresponding certificate file names.
 	certNames := map[string]string{
 		serviceNats:          "nats-server",
-		serviceRperf:         "rperf",
-		serviceRperfChecker:  "rperf-checker",
 		serviceSysmonChecker: "sysmon",
 	}
 
@@ -455,17 +445,14 @@ func copyCertificates(cfg *CmdConfig, components []string) error {
 
 // getCertificateCopies returns a slice of source and destination paths for certificate copying.
 func getCertificateCopies(cfg *CmdConfig, components []string) []struct{ src, dst string } {
-	copies := []struct{ src, dst string }{
-		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
-		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
-		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
-	}
+	copies := make([]struct{ src, dst string }, 0, 3+2*len(components))
+	copies = append(copies,
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
+		struct{ src, dst string }{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
+	)
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 
 		copies = append(copies,
@@ -486,10 +473,6 @@ func setCertificatePermissions(cfg *CmdConfig, components []string) error {
 	}
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 
 		permSettings[filepath.Join(cfg.CertDir, certName+".pem")] = defaultCertPerms
@@ -532,7 +515,7 @@ func setCertificateOwnership(cfg *CmdConfig, components []string) error {
 
 	// Add component-specific files for serviceradar
 	for _, component := range components {
-		if component == serviceRperf || component == serviceNats {
+		if component == serviceNats {
 			continue
 		}
 
@@ -569,10 +552,6 @@ func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles, compone
 	}
 
 	for _, component := range components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		certPath := filepath.Join(cfg.CertDir, certName+".pem")
 
@@ -873,10 +852,6 @@ func showPostInstallInfo(cfg *CmdConfig, serviceIPs string, styles *logStyles) {
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render("Certificate locations:"))
 
 	for _, component := range cfg.Components {
-		if component == serviceRperf {
-			continue
-		}
-
 		certName := getCertName(component)
 		fmt.Println("  - " + component + ": " +
 			styles.info.Render(fmt.Sprintf("%s/%s.pem, %s/%s-key.pem", cfg.CertDir, certName, cfg.CertDir, certName)))

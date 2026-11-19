@@ -5296,6 +5296,17 @@ AND milliseconds_diff({home}, start_time) > 0)"
         .expect("rperf");
         assert!(rperf.sql.contains("metric_type = 'rperf'"));
 
+        let netperf =
+            translate(&plan("in:netperf time:last_1h limit:5"), "serviceradar").expect("netperf");
+        assert!(netperf.sql.contains("metric_type = 'rperf'"));
+
+        let netperf_metrics = translate(
+            &plan("in:netperf_metrics time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("netperf_metrics");
+        assert!(netperf_metrics.sql.contains("metric_type = 'rperf'"));
+
         // The unscoped entity spans every family, exactly as it does on CNPG.
         let all = translate(
             &plan("in:timeseries_metrics time:last_1h limit:5"),
