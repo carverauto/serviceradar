@@ -92,7 +92,9 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
 
       conn = post_login(conn, user.email, @fixture_password)
 
-      assert redirected_to(conn) == "/auth/oidc"
+      # Back to the sign-in page, never on to the identity provider: a form
+      # submission must end on this site (`form-action 'self'`).
+      assert redirected_to(conn) == "/users/log-in"
       assert is_nil(get_session(conn, "user_token"))
       assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "organization's SSO"
     end
@@ -109,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.AuthControllerTest do
           "user" => %{"email" => to_string(user.email), "password" => @fixture_password}
         })
 
-      assert redirected_to(conn) == "/auth/oidc"
+      assert redirected_to(conn) == "/users/log-in"
       assert is_nil(get_session(conn, "user_token"))
     end
 
