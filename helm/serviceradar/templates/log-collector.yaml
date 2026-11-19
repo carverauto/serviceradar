@@ -169,6 +169,9 @@ data:
 {{- if $rumCfg.trustedProxies }}
     trusted_proxies = [{{ range $i, $cidr := $rumCfg.trustedProxies }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
 {{- end }}
+{{- if $rumCfg.cdnPeers }}
+    cdn_peers = [{{ range $i, $cidr := $rumCfg.cdnPeers }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+{{- end }}
 {{- if and $logCollectorDataEnabled (not $logCollectorData.existingClaim) }}
 ---
 apiVersion: v1

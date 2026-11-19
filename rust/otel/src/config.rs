@@ -66,10 +66,14 @@ pub struct RumConfig {
     /// Per-`(rum_site_key, /24 or /48 subnet)` token-bucket burst capacity.
     #[serde(default = "default_rum_per_subnet_burst")]
     pub per_subnet_burst: f64,
-    /// Immediate TCP peer CIDRs trusted to supply `True-Client-IP`,
-    /// `X-Forwarded-For`, and `Akamai-Edgescape`.
+    /// Proxy CIDRs trusted to append to `X-Forwarded-For`; the client IP is the
+    /// rightmost entry outside this list and `cdn_peers`.
     #[serde(default = "default_rum_trusted_proxies")]
     pub trusted_proxies: Vec<String>,
+    /// CDN edge CIDRs (for example Akamai) whose `Akamai-Edgescape` geo/ASN
+    /// header is honored when that edge reported the client IP. Empty by default.
+    #[serde(default)]
+    pub cdn_peers: Vec<String>,
     /// NATS request-reply subject for initial RUM policy snapshot bootstrap.
     #[serde(default = "default_rum_policy_snapshot_subject")]
     pub policy_snapshot_subject: String,
@@ -94,6 +98,7 @@ impl Default for RumConfig {
             per_subnet_rps: default_rum_per_subnet_rps(),
             per_subnet_burst: default_rum_per_subnet_burst(),
             trusted_proxies: default_rum_trusted_proxies(),
+            cdn_peers: Vec::new(),
             policy_snapshot_subject: default_rum_policy_snapshot_subject(),
             policy_updates_subject: default_rum_policy_updates_subject(),
             policy_refresh_interval_secs: default_rum_policy_refresh_interval_secs(),

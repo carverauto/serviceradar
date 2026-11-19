@@ -517,43 +517,53 @@ pub fn parse_akamai_edgescape(raw: &str) -> GeoAsnInfo {
     info
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct ClientIpTrust {
+    pub trusted_proxies: Vec<Prefix>,
+    pub cdn_peers: Vec<Prefix>,
+}
+
+impl ClientIpTrust {
+    fn is_hop(&self, ip: IpAddr) -> bool {
+        ip_in_cidrs(ip, &self.trusted_proxies) || ip_in_cidrs(ip, &self.cdn_peers)
+    }
+}
+
 pub fn resolve_client_ip(
     peer_ip: Option<IpAddr>,
     headers: &HeaderMap,
-    trusted_proxies: &[Prefix],
+    trust: &ClientIpTrust,
 ) -> (Option<IpAddr>, bool) {
     let Some(peer) = peer_ip else {
         return (None, false);
     };
-    let trusted = ip_in_cidrs(peer, trusted_proxies);
-    if !trusted {
+    if !trust.is_hop(peer) {
         return (Some(peer), false);
     }
 
-    if let Some(true_client) = headers
-        .get("true-client-ip")
+    let chain: Vec<IpAddr> = headers
+        .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.trim().parse::<IpAddr>().ok())
-    {
-        return (Some(true_client), true);
-    }
+        .map(|xff| {
+            xff.split(',')
+                .filter_map(|part| part.trim().parse::<IpAddr>().ok())
+                .collect()
+        })
+        .unwrap_or_default();
 
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        let parsed: Vec<IpAddr> = xff
-            .split(',')
-            .filter_map(|part| part.trim().parse::<IpAddr>().ok())
-            .collect();
-        if let Some(client) = parsed
-            .iter()
-            .rev()
-            .find(|ip| !ip_in_cidrs(**ip, trusted_proxies))
-            .or_else(|| parsed.first())
-        {
-            return (Some(*client), true);
+    let mut reporter = peer;
+    for ip in chain.iter().rev() {
+        if !trust.is_hop(*ip) {
+            return (Some(*ip), ip_in_cidrs(reporter, &trust.cdn_peers));
         }
+        reporter = *ip;
     }
 
-    (Some(peer), true)
+    (Some(chain.first().copied().unwrap_or(peer)), false)
+}
+
+fn is_iso_country_code(code: &str) -> bool {
+    code.len() == 2 && code.bytes().all(|b| b.is_ascii_uppercase())
 }
 
 pub fn validate_hex_id(raw: Option<&str>, expected_len: usize) -> String {
@@ -574,7 +584,7 @@ pub fn build_beacon_and_metrics(
     params: &HashMap<String, String>,
     headers: &HeaderMap,
     peer_ip: Option<IpAddr>,
-    trusted_proxies: &[Prefix],
+    trust: &ClientIpTrust,
     policy: &CompiledPropertyPolicy,
     policy_cache: &RumPolicyCache,
     static_geo: Option<&StaticGeoAsn>,
@@ -621,9 +631,9 @@ pub fn build_beacon_and_metrics(
         .collect();
     let st = parse_server_timing(&server_timing_bounded);
 
-    let (client_ip_raw, from_trusted_proxy) = resolve_client_ip(peer_ip, headers, trusted_proxies);
+    let (client_ip_raw, reported_by_cdn) = resolve_client_ip(peer_ip, headers, trust);
 
-    let mut geo = if from_trusted_proxy {
+    let mut geo = if reported_by_cdn {
         headers
             .get("akamai-edgescape")
             .and_then(|v| v.to_str().ok())
@@ -655,6 +665,9 @@ pub fn build_beacon_and_metrics(
         if geo.as_org.is_empty() {
             geo.as_org = found.as_org.clone();
         }
+    }
+    if !is_iso_country_code(&geo.country) {
+        geo.country.clear();
     }
 
     let (client_ip, client_ip_anonymized) = match client_ip_raw {
@@ -728,7 +741,7 @@ pub fn build_beacon_and_metrics(
 
     let cdn_provider = if !st.cdn_provider.is_empty() {
         st.cdn_provider
-    } else if from_trusted_proxy && headers.contains_key("akamai-edgescape") {
+    } else if reported_by_cdn && headers.contains_key("akamai-edgescape") {
         "akamai".to_string()
     } else {
         String::new()
@@ -1141,47 +1154,82 @@ mod tests {
         assert_eq!(geo.as_org, "AKAMAI");
     }
 
+    fn test_trust() -> ClientIpTrust {
+        ClientIpTrust {
+            trusted_proxies: parse_cidr_list(&["10.0.0.0/8".to_string()]),
+            cdn_peers: parse_cidr_list(&["192.0.2.0/24".to_string()]),
+        }
+    }
+
     #[test]
-    fn trusted_proxies_gate_spoofed_headers_and_lookup_precedes_ip_truncation() {
+    fn spoofed_client_headers_are_ignored_unless_a_cdn_edge_reported_the_client() {
         let (cache, policy) = test_policy_cache();
-        let trusted = parse_cidr_list(&["10.0.0.0/8".to_string()]);
+        let trust = test_trust();
         let params = parse_form_urlencoded(
             "u=https://shop.example.com/orders/98765?token=secret#frag&c.lcp=1450&c.inp=80&c.cls=0.04&servertiming=cdn-cache%3Bdesc%3DMISS%2C+edge%3Bdur%3D12%2C+origin%3Bdur%3D340&sr.trace_id=0123456789abcdef0123456789abcdef",
         );
+        let build = |peer: &str, xff: Option<&str>, edgescape: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("true-client-ip", HeaderValue::from_static("203.0.113.9"));
+            headers.insert(
+                "akamai-edgescape",
+                HeaderValue::from_str(edgescape).unwrap(),
+            );
+            if let Some(xff) = xff {
+                headers.insert("x-forwarded-for", HeaderValue::from_str(xff).unwrap());
+            }
+            build_beacon_and_metrics(
+                &params,
+                &headers,
+                Some(peer.parse().unwrap()),
+                &trust,
+                &policy,
+                &cache,
+                None,
+            )
+            .unwrap()
+        };
 
-        let mut headers = HeaderMap::new();
-        headers.insert("true-client-ip", HeaderValue::from_static("198.51.100.42"));
-        headers.insert(
-            "akamai-edgescape",
-            HeaderValue::from_static("country_code=US,asnum=64512"),
+        let (direct, _) = build(
+            "203.0.113.77",
+            Some("198.51.100.42"),
+            "country_code=US,asnum=64512",
         );
+        assert_eq!(direct.client_ip, "203.0.113.0");
+        assert_eq!(direct.prefix_tag, "");
+        assert_eq!((direct.country.as_str(), direct.asn), ("", 0));
 
-        // Untrusted peer IP ignores spoofed True-Client-IP & Akamai-Edgescape.
-        let (untrusted_beacon, _) = build_beacon_and_metrics(
-            &params,
-            &headers,
-            Some("203.0.113.77".parse().unwrap()),
-            &trusted,
-            &policy,
-            &cache,
-            None,
-        )
-        .unwrap();
-        assert_eq!(untrusted_beacon.client_ip, "203.0.113.0");
-        assert_eq!(untrusted_beacon.prefix_tag, "");
-        assert_eq!(untrusted_beacon.asn, 0);
+        let (via_gateway, gateway_batch) = build(
+            "10.1.2.3",
+            Some("10.9.9.9, 198.51.100.42"),
+            "country_code=ZZZZZZZZZZZZZZZZ,asnum=4294967295",
+        );
+        assert_eq!(via_gateway.client_ip, "198.51.100.0");
+        assert_eq!(via_gateway.prefix_tag, "site:branch-01");
+        assert_eq!((via_gateway.country.as_str(), via_gateway.asn), ("", 0));
+        let gateway_labels: Vec<String> = gateway_batch
+            .unwrap()
+            .resource
+            .unwrap()
+            .attributes
+            .iter()
+            .map(|kv| kv.key.clone())
+            .collect();
+        assert!(!gateway_labels.iter().any(|k| k == "country" || k == "asn"));
 
-        // Trusted proxy honors True-Client-IP, runs prefix_tags LPM before truncation, then zeroes /24.
-        let (trusted_beacon, batch) = build_beacon_and_metrics(
-            &params,
-            &headers,
-            Some("10.1.2.3".parse().unwrap()),
-            &trusted,
-            &policy,
-            &cache,
-            None,
-        )
-        .unwrap();
+        let (bogus_country, _) = build(
+            "10.1.2.3",
+            Some("198.51.100.42, 192.0.2.10"),
+            "country_code=ZZZZZZZZZZZZZZZZ,asnum=64512",
+        );
+        assert_eq!(bogus_country.country, "");
+        assert_eq!(bogus_country.asn, 64512);
+
+        let (trusted_beacon, batch) = build(
+            "10.1.2.3",
+            Some("198.51.100.42, 192.0.2.10"),
+            "country_code=US,asnum=64512",
+        );
         assert_eq!(trusted_beacon.url, "https://shop.example.com/orders/98765");
         assert_eq!(trusted_beacon.metric_path, "/orders/:id");
         assert_eq!(trusted_beacon.prefix_tag, "site:branch-01");
@@ -1214,7 +1262,7 @@ mod tests {
                 &params,
                 &HeaderMap::new(),
                 Some("203.0.113.9".parse().unwrap()),
-                &[],
+                &ClientIpTrust::default(),
                 &policy,
                 &cache,
                 None,
@@ -1345,7 +1393,7 @@ mod tests {
             &params,
             &HeaderMap::new(),
             Some("203.0.113.77".parse().unwrap()),
-            &[],
+            &ClientIpTrust::default(),
             &policy,
             &cache,
             None,
@@ -1451,7 +1499,7 @@ mod tests {
         assert_eq!(in_range.http_status, 503);
 
         let (cache, policy) = test_policy_cache();
-        let trusted = parse_cidr_list(&["10.0.0.0/8".to_string()]);
+        let trust = test_trust();
         let params = parse_form_urlencoded("u=https://shop.example.com/");
         for (asnum, expected) in [
             ("4200000000", 0),
@@ -1463,11 +1511,12 @@ mod tests {
                 "akamai-edgescape",
                 HeaderValue::from_str(&format!("country_code=US,asnum={asnum}")).unwrap(),
             );
+            headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.42"));
             let (beacon, _) = build_beacon_and_metrics(
                 &params,
                 &headers,
-                Some("10.1.2.3".parse().unwrap()),
-                &trusted,
+                Some("192.0.2.10".parse().unwrap()),
+                &trust,
                 &policy,
                 &cache,
                 None,

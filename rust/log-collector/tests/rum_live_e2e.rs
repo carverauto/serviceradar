@@ -280,6 +280,7 @@ stream = "events"
 timeout_secs = 5
 [rum]
 enabled = true
+cdn_peers = ["127.0.0.1/32"]
 per_subnet_rps = 0.01
 per_subnet_burst = 3
 "#
@@ -353,7 +354,7 @@ per_subnet_burst = 3
     let ok = beacon(
         http_port,
         &[
-            ("True-Client-IP", "198.51.100.77"),
+            ("X-Forwarded-For", "198.51.100.77"),
             (
                 "Akamai-Edgescape",
                 "country_code=US,region_code=CA,city=SANJOSE,asnum=64512,network=EXAMPLENET",
@@ -414,7 +415,7 @@ per_subnet_burst = 3
                 http_port,
                 "POST",
                 "/rum/v1/beacon",
-                &[("Origin", ORIGIN), ("True-Client-IP", "100.64.1.1")],
+                &[("Origin", ORIGIN), ("X-Forwarded-For", "100.64.1.1")],
                 b"u=x",
             )
             .await,
@@ -426,7 +427,7 @@ per_subnet_burst = 3
                 http_port,
                 "POST",
                 "/rum/v1/beacon?key=sr_rum_nope",
-                &[("Origin", ORIGIN), ("True-Client-IP", "100.64.2.1")],
+                &[("Origin", ORIGIN), ("X-Forwarded-For", "100.64.2.1")],
                 b"u=x",
             )
             .await,
@@ -448,7 +449,7 @@ per_subnet_burst = 3
             "oversized 70 KiB body",
             beacon(
                 http_port,
-                &[("True-Client-IP", "100.64.5.1")],
+                &[("X-Forwarded-For", "100.64.5.1")],
                 "application/x-www-form-urlencoded",
                 &vec![b'a'; 70 * 1024],
             )
@@ -466,7 +467,7 @@ per_subnet_burst = 3
         &format!("/rum/v1/beacon?key={SITE_KEY}"),
         &[
             ("Origin", "https://evil.example"),
-            ("True-Client-IP", "100.64.3.1"),
+            ("X-Forwarded-For", "100.64.3.1"),
         ],
         b"u=https%3A%2F%2Fshop.example%2F",
     )
@@ -494,7 +495,7 @@ per_subnet_burst = 3
         http_port,
         &[
             ("Content-Encoding", "gzip"),
-            ("True-Client-IP", "100.64.6.1"),
+            ("X-Forwarded-For", "100.64.6.1"),
         ],
         "application/x-www-form-urlencoded",
         &bomb,
@@ -511,7 +512,7 @@ per_subnet_burst = 3
     for _ in 0..5 {
         let r = beacon(
             http_port,
-            &[("True-Client-IP", "100.64.7.9")],
+            &[("X-Forwarded-For", "100.64.7.9")],
             "application/x-www-form-urlencoded",
             b"u=https%3A%2F%2Fshop.example%2F",
         )
@@ -537,7 +538,7 @@ per_subnet_burst = 3
     let long_dev = "d".repeat(500);
     let nul_url = beacon(
         http_port,
-        &[("True-Client-IP", "203.0.112.9")],
+        &[("X-Forwarded-For", "203.0.112.9")],
         "application/x-www-form-urlencoded",
         b"u=https%3A%2F%2Fshop.example%2Fa%00b",
     )
@@ -550,7 +551,7 @@ per_subnet_burst = 3
     let h = beacon(
         http_port,
         &[
-            ("True-Client-IP", "203.0.113.9"),
+            ("X-Forwarded-For", "203.0.113.9"),
             (
                 "Akamai-Edgescape",
                 "country_code=U%00S,asnum=4200000000,network=PRIV",
@@ -611,7 +612,7 @@ per_subnet_burst = 3
     for i in 0..24u8 {
         let mut s = TcpStream::connect(("127.0.0.1", http_port)).await.unwrap();
         let head = format!(
-            "POST /rum/v1/beacon?key={SITE_KEY} HTTP/1.1\r\nHost: collector.example\r\nOrigin: {ORIGIN}\r\nTrue-Client-IP: 100.65.{i}.1\r\nContent-Type: text/plain\r\nContent-Length: 4000\r\n\r\nu=",
+            "POST /rum/v1/beacon?key={SITE_KEY} HTTP/1.1\r\nHost: collector.example\r\nOrigin: {ORIGIN}\r\nX-Forwarded-For: 100.65.{i}.1\r\nContent-Type: text/plain\r\nContent-Length: 4000\r\n\r\nu=",
         );
         s.write_all(head.as_bytes()).await.unwrap();
         stalled.push(s);
@@ -651,7 +652,7 @@ per_subnet_burst = 3
     let disabled = loop {
         let r = beacon(
             http_port,
-            &[("True-Client-IP", "100.66.0.1")],
+            &[("X-Forwarded-For", "100.66.0.1")],
             "text/plain",
             b"u=https%3A%2F%2Fshop.example%2F",
         )

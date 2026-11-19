@@ -18,9 +18,12 @@ use crate::ServiceRadarCollector;
 use crate::config::RumConfig;
 use crate::metrics;
 use policy::RumPolicyCache;
-use prefix::{Prefix, parse_cidr_list};
+use prefix::parse_cidr_list;
 use rate_limit::RumRateLimiter;
-use scrub::{StaticGeoAsn, build_beacon_and_metrics, decode_beacon_params, parse_form_urlencoded};
+use scrub::{
+    ClientIpTrust, StaticGeoAsn, build_beacon_and_metrics, decode_beacon_params,
+    parse_form_urlencoded,
+};
 
 pub const RUM_BEACON_PATH: &str = "/rum/v1/beacon";
 
@@ -29,14 +32,17 @@ pub struct RumRuntime {
     pub config: RumConfig,
     pub policy: Arc<RumPolicyCache>,
     pub rate_limiter: Arc<RumRateLimiter>,
-    pub trusted_proxies: Vec<Prefix>,
+    pub client_ip_trust: ClientIpTrust,
     pub static_geo: Option<Arc<StaticGeoAsn>>,
     sample_counter: AtomicU64,
 }
 
 impl RumRuntime {
     pub fn new(config: RumConfig, policy: Arc<RumPolicyCache>) -> Self {
-        let trusted_proxies = parse_cidr_list(&config.trusted_proxies);
+        let client_ip_trust = ClientIpTrust {
+            trusted_proxies: parse_cidr_list(&config.trusted_proxies),
+            cdn_peers: parse_cidr_list(&config.cdn_peers),
+        };
         let rate_limiter = Arc::new(RumRateLimiter::from_config(&config));
         let static_geo = config
             .static_geo_asn_path
@@ -47,7 +53,7 @@ impl RumRuntime {
             config,
             policy,
             rate_limiter,
-            trusted_proxies,
+            client_ip_trust,
             static_geo,
             sample_counter: AtomicU64::new(0),
         }
@@ -162,7 +168,7 @@ where
     let allow_origin = effective_origin.as_deref();
 
     let (client_ip_for_limit, _) =
-        scrub::resolve_client_ip(peer_ip, headers, &runtime.trusted_proxies);
+        scrub::resolve_client_ip(peer_ip, headers, &runtime.client_ip_trust);
     if let Err(retry_after) = runtime.rate_limiter.check(site_key, client_ip_for_limit) {
         metrics::record_rejected("rum_beacons", "rate_limited", 1);
         return rate_limited_response(retry_after, allow_origin);
@@ -249,7 +255,7 @@ where
         &params,
         headers,
         peer_ip,
-        &runtime.trusted_proxies,
+        &runtime.client_ip_trust,
         &policy,
         &runtime.policy,
         runtime.static_geo.as_deref(),

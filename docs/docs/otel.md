@@ -208,7 +208,10 @@ logCollector:
   is `false`. Set `logCollector.otlp.gateway.rumHostname` to add a separate
   HTTPRoute that serves only that path on its own hostname. The collector's
   `[rum]` block comes from `logCollector.otlp.rum` (`enabled`, `maxBodyBytes`,
-  default 65536, and `trustedProxies`). Beacons are accepted only with a valid
+  default 65536, `trustedProxies`, and `cdnPeers`). The client IP is the
+  rightmost `X-Forwarded-For` entry outside `trustedProxies` and `cdnPeers`;
+  `Akamai-Edgescape` geo/ASN is used only when a `cdnPeers` hop reported that
+  client, and `True-Client-IP` is ignored. Beacons are accepted only with a valid
   web property `rum_site_key` and an allowed `Origin`, and are published to
   `rum.beacons.>` and `metrics.rum.>` on JetStream.
 

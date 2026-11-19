@@ -320,11 +320,12 @@ async fn enrichment_and_trusted_proxy_gating_scrub_and_publish_beacon_and_metric
     let output = Arc::new(RecordingOutput::default());
     let collector = ServiceRadarCollector::with_output(output.clone());
     let runtime = make_runtime(RumConfig {
-        trusted_proxies: vec!["192.0.2.0/24".to_string()],
+        trusted_proxies: vec!["10.0.0.0/8".to_string()],
+        cdn_peers: vec!["192.0.2.0/24".to_string()],
         ..RumConfig::default()
     });
 
-    // 1. Untrusted peer tries to spoof True-Client-IP & Akamai-Edgescape -> ignored!
+    // 1. Untrusted peer tries to spoof X-Forwarded-For & Akamai-Edgescape -> ignored!
     let mut spoof_headers = HeaderMap::new();
     spoof_headers.insert(
         header::ORIGIN,
@@ -334,7 +335,10 @@ async fn enrichment_and_trusted_proxy_gating_scrub_and_publish_beacon_and_metric
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    spoof_headers.insert("true-client-ip", HeaderValue::from_static("198.51.100.77"));
+    spoof_headers.insert(
+        "x-forwarded-for",
+        HeaderValue::from_static("198.51.100.77, 192.0.2.10"),
+    );
     spoof_headers.insert(
         "akamai-edgescape",
         HeaderValue::from_static(
@@ -406,13 +410,13 @@ async fn enrichment_and_trusted_proxy_gating_scrub_and_publish_beacon_and_metric
         );
     }
 
-    // 2. Trusted proxy (192.0.2.10 in 192.0.2.0/24) honors True-Client-IP & Akamai-Edgescape
+    // 2. Gateway (10.0.0.0/8) forwarding a CDN edge (192.0.2.0/24) hop honors XFF & Akamai-Edgescape
     let resp2 = handle_rum_request(
         &Method::POST,
         Some("key=sr_rum_live_storefront"),
         &spoof_headers,
         Full::new(Bytes::from(json_body)),
-        Some("192.0.2.10".parse::<IpAddr>().unwrap()),
+        Some("10.1.2.3".parse::<IpAddr>().unwrap()),
         &runtime,
         &collector,
     )
