@@ -390,6 +390,11 @@ identified devices.
   handled. An identified holder has its alias invalidated (`mark_stale`),
   recorded as an `alias_invalidated` decision. An address-only holder is
   merged into the device by a sync and otherwise left alone.
+- An address has one live holder per partition. When a device's own
+  sightings confirm its IP alias, every other device's live alias of the
+  address is staled in the same transaction (metadata `stale_reason`
+  `superseded`). A later sighting of that device at the address revives such
+  a row; a row invalidated as above is not revived.
 - A lookup that resolves an address to one alias holder (the sweep, the
   sync's batch lookup, the resolver and the SNMP credential lookup) takes the
   most recently seen holder, then the one with the most sightings, then the
@@ -401,8 +406,8 @@ identified devices.
   is kept as a `detected` alias of the device (metadata `source`
   `replaced_primary_address`, `replaced_by` the new address), in the same
   transaction as the write, so a sweep that reaches the old address still
-  attributes it to the device. The source of the batch's last update for the
-  device decides. It is not kept when that update is an observed source (the
+  attributes it to the device. The source of the batch update that submitted
+  the device's new address decides. It is not kept when that update is an observed source (the
   old address is the stale side of a move), when the device was redirected or
   withheld, when another live device in its partition now holds the address,
   or when the device already has an alias row for the address (an invalidated
