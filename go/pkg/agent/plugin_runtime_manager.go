@@ -1238,19 +1238,28 @@ func (r *pluginRunner) start(ctx context.Context) {
 			}
 		}()
 
-		run := func() {
-			loadFailed := r.runOnce(runCtx)
+		arm := func(delay time.Duration, ok bool) {
 			if retryTimer != nil {
 				retryTimer.Stop()
 				retryTimer, retryC = nil, nil
 			}
-			if !loadFailed {
-				retry.reset()
-				return
-			}
-			if delay, ok := retry.next(); ok {
+			if ok {
 				retryTimer = time.NewTimer(delay)
 				retryC = retryTimer.C
+			}
+		}
+
+		run := func() {
+			switch r.runOnce(runCtx) {
+			case pluginRunNotAdmitted:
+				if delay, ok := retry.pending(); ok {
+					arm(delay, true)
+				}
+			case pluginRunLoadFailed:
+				arm(retry.next())
+			default:
+				retry.reset()
+				arm(0, false)
 			}
 		}
 
@@ -1276,6 +1285,7 @@ type pluginLoadRetryBackoff struct {
 	max      time.Duration
 	interval time.Duration
 	current  time.Duration
+	last     time.Duration
 }
 
 func (b *pluginLoadRetryBackoff) next() (time.Duration, bool) {
@@ -1284,15 +1294,32 @@ func (b *pluginLoadRetryBackoff) next() (time.Duration, bool) {
 	}
 	delay := min(b.current, b.max)
 	if delay <= 0 || delay >= b.interval {
+		b.last = 0
 		return 0, false
 	}
 	b.current = min(b.current*2, b.max)
+	b.last = delay
 	return delay, true
+}
+
+// pending reports the delay of the retry chain in progress, if any, without
+// advancing it.
+func (b *pluginLoadRetryBackoff) pending() (time.Duration, bool) {
+	return b.last, b.last > 0
 }
 
 func (b *pluginLoadRetryBackoff) reset() {
 	b.current = 0
+	b.last = 0
 }
+
+type pluginRunOutcome int
+
+const (
+	pluginRunCompleted pluginRunOutcome = iota
+	pluginRunLoadFailed
+	pluginRunNotAdmitted
+)
 
 func (r *pluginRunner) stop() {
 	if r.cancel != nil {
@@ -1301,9 +1328,9 @@ func (r *pluginRunner) stop() {
 	<-r.done
 }
 
-// runOnce executes one scheduled run and reports whether it failed because the
-// module could not be loaded.
-func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
+// runOnce executes one scheduled run and reports whether it was admitted and
+// whether its module loaded.
+func (r *pluginRunner) runOnce(ctx context.Context) pluginRunOutcome {
 	timeout := r.assignment.Timeout
 	if timeout <= 0 {
 		timeout = pluginDefaultTimeout
@@ -1315,7 +1342,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
 	if !r.manager.acquireSlot() {
 		r.manager.recordExecution(false)
 		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", "admission denied: max concurrent reached"))
-		return false
+		return pluginRunNotAdmitted
 	}
 	defer r.manager.releaseSlot()
 
@@ -1326,7 +1353,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
 				Err(err).
 				Str("assignment_id", r.assignment.AssignmentID).
 				Msg("Plugin wasm not ready; deferring execution")
-			return true
+			return pluginRunLoadFailed
 		}
 		r.manager.recordExecution(false)
 		r.manager.tryEnqueueResult(buildPluginErrorResult(r.assignment, "", fmt.Sprintf("execution failed: %s", err)))
@@ -1334,7 +1361,7 @@ func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
 			Msg("Plugin execution failed")
-		return true
+		return pluginRunLoadFailed
 	}
 
 	if err := r.manager.executeWithWasm(runCtx, r.assignment, module); err != nil {
@@ -1348,11 +1375,11 @@ func (r *pluginRunner) runOnce(ctx context.Context) (loadFailed bool) {
 			Err(err).
 			Str("assignment_id", r.assignment.AssignmentID).
 			Msg("Plugin execution failed")
-		return false
+		return pluginRunCompleted
 	}
 
 	r.manager.recordExecution(true)
-	return false
+	return pluginRunCompleted
 }
 
 // RunAction executes a configured non-streaming plugin assignment on demand for

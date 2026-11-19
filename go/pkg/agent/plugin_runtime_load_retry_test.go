@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -60,6 +61,54 @@ func TestPluginRunnerRetriesModuleLoadBeforeNextInterval(t *testing.T) {
 	// missing artifact. Only a retry can fetch it after it becomes available.
 	waitFor(t, 5*time.Second, func() bool { return requests.Load() >= 2 })
 	available.Store(true)
+
+	waitFor(t, 5*time.Second, func() bool {
+		mgr.stateMu.Lock()
+		defer mgr.stateMu.Unlock()
+		state := mgr.states[loadRetryAssignmentID]
+		return state != nil && state.load.status == pluginLoadStatusLoaded
+	})
+}
+
+// A retry that cannot get an execution slot never attempted the load, so it
+// must keep the retry chain alive rather than fall back to the full interval.
+func TestPluginRunnerKeepsLoadRetryAliveWhenRetryIsNotAdmitted(t *testing.T) {
+	var available atomic.Bool
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if !available.Load() {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("\x00asm"))
+	}))
+	defer server.Close()
+
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:   logger.NewTestLogger(),
+		CacheDir: t.TempDir(),
+	})
+	defer mgr.Stop()
+	mgr.loadRetryBase = 20 * time.Millisecond
+	mgr.loadRetryMax = 40 * time.Millisecond
+
+	mgr.ApplyConfig(scheduledPluginConfig(server.URL+"/artifacts/plugins/pkg-load-retry-1/blob/download", time.Hour))
+	waitFor(t, 5*time.Second, func() bool { return requests.Load() >= 2 })
+
+	mgr.setLimits(pluginEngineLimits{MaxConcurrent: 1})
+	waitFor(t, 5*time.Second, mgr.acquireSlot)
+	available.Store(true)
+
+	waitFor(t, 5*time.Second, func() bool {
+		for _, result := range mgr.DrainResults(64) {
+			if bytes.Contains(result.Payload, []byte("admission denied")) {
+				return true
+			}
+		}
+		return false
+	})
+	mgr.releaseSlot()
 
 	waitFor(t, 5*time.Second, func() bool {
 		mgr.stateMu.Lock()
