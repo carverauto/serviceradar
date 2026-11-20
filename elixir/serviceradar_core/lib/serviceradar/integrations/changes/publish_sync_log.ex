@@ -26,7 +26,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
     error_message = Ash.Changeset.get_argument(changeset, :error_message)
 
     AfterAction.after_action(changeset, fn source ->
-      case opts.stage do
+      case Keyword.fetch!(opts, :stage) do
         :started ->
           SyncLogWriter.write_start(source, device_count: device_count)
 
