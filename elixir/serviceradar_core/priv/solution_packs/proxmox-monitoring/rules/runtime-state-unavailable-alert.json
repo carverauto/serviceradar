@@ -1,0 +1,39 @@
+{
+  "alert": {
+    "severity": "warning",
+    "title": "Proxmox paused-guest detection is unavailable"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Warns when paused guests cannot be detected because no runtime state is reported. Installed paused; enable it once every agent that runs the Proxmox plugin is upgraded.",
+  "event": {
+    "log_name": "alert.proxmox_monitoring.proxmox_guest_runtime_state_unavailable",
+    "message": "Proxmox paused-guest detection is unavailable"
+  },
+  "group_by": [
+    "check_slug",
+    "target_key"
+  ],
+  "install_state": "paused",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "attribute_equals": {
+      "check_slug": "proxmox-paused-guests",
+      "to_status": "unknown"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "proxmox-paused-guests",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
+  },
+  "name": "proxmox_guest_runtime_state_unavailable",
+  "priority": 40,
+  "renotify_seconds": 86400,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

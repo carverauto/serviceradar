@@ -3,11 +3,8 @@ defmodule ServiceRadar.Catalog.BuiltinPacks do
   Runtime loader for first-party Solution Packs shipped inside
   `:code.priv_dir(:serviceradar_core)/solution_packs/<slug>/` (`2.6`).
 
-  Ensures all 4 flagship built-in Solution Packs
-  (`io.serviceradar.camera-semantic-search-health`,
-  `io.serviceradar.http-api-and-tls-posture`,
-  `io.serviceradar.network-segmentation-and-wan`, and
-  `io.serviceradar.storage-and-nvr-health`) are available offline in the
+  Ensures every built-in Solution Pack (one directory per slug under
+  `priv/solution_packs/`) is available offline in the
   Catalog Gallery on boot without requiring external network egress, validated
   through the exact same `PackManifest.validate_pack_tree/2` contract as remote
   release catalogs and GitOps trees.

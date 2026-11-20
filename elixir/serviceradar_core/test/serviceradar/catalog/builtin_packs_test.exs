@@ -15,6 +15,7 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
     "camera-semantic-search-health",
     "http-api-and-tls-posture",
     "network-segmentation-and-wan",
+    "proxmox-monitoring",
     "storage-and-nvr-health"
   ]
 
@@ -22,6 +23,7 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
     "io.serviceradar.camera-semantic-search-health",
     "io.serviceradar.http-api-and-tls-posture",
     "io.serviceradar.network-segmentation-and-wan",
+    "io.serviceradar.proxmox-monitoring",
     "io.serviceradar.storage-and-nvr-health"
   ]
 
@@ -49,10 +51,10 @@ defmodule ServiceRadar.Catalog.BuiltinPacksTest do
     pid
   end
 
-  describe "4-pack flagship built-in gallery" do
-    test "list_builtin_packs/0 and load_builtin_pack/1 discover and return all 4 packs cleanly" do
+  describe "built-in gallery" do
+    test "list_builtin_packs/0 and load_builtin_pack/1 discover and return every built-in pack cleanly" do
       assert {:ok, packs} = BuiltinPacks.list_builtin_packs()
-      assert length(packs) == 4
+      assert length(packs) == length(@expected_pack_slugs)
 
       slugs = Enum.map(packs, & &1.manifest["slug"])
       ids = Enum.map(packs, & &1.manifest["id"])
