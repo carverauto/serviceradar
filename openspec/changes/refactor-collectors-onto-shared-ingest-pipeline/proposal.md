@@ -90,8 +90,8 @@ which named datasvc as the transport.
 - Affected code: `rust/zen-normalize`, `rust/flowgger`, `rust/log-collector`,
   `rust/otel`, `rust/trapd`, `rust/bmp-collector`, `rust/flow-collector`, new
   crates under `rust/`; `ServiceRadar.Observability.ZenRuleSync` and
-  `Zen.RuleBundle`; `EventWriter.Processors.Logs`; edge leaf configuration and
-  collector bundle generators; NATS users and permissions in the chart and
-  Compose.
+  `Zen.RuleBundle`; `EventWriter.Processors.Logs`; edge permission and collector
+  bundle generators; NATS users and permissions in the chart and Compose; the
+  chart hub's JetStream domain.
 - Not affected: Falco ingestion (an external falcosidekick publishes it), the
   agent-relayed OTLP path, and core's internal logs.
