@@ -55,17 +55,23 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
   def publish_acked(subject, body, opts \\ []) when is_binary(subject) and is_binary(body) do
     request_opts = request_opts(opts)
 
-    with {:ok, %{body: ack}} <- request(subject, body, request_opts, opts),
-         {:ok, %{"stream" => stream, "seq" => seq} = decoded}
-         when is_binary(stream) and is_integer(seq) <-
-           Jason.decode(ack) do
-      {:ok, %{stream: stream, seq: seq, duplicate: Map.get(decoded, "duplicate") == true}}
-    else
-      {:ok, %{"error" => error}} -> {:error, {:jetstream, error}}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_jetstream_ack, other}}
+    with {:ok, %{body: ack}} <- request(subject, body, request_opts, opts) do
+      ack |> Jason.decode() |> stored()
     end
   end
+
+  # A stream that refuses a message (it is full, or the message breaks a limit)
+  # still names itself in the reply, with sequence 0 beside the error. The error
+  # is checked first so that reply is never read as a stored message.
+  defp stored({:ok, %{"error" => error}}) when not is_nil(error),
+    do: {:error, {:jetstream, error}}
+
+  defp stored({:ok, %{"stream" => stream, "seq" => seq} = ack})
+       when is_binary(stream) and is_integer(seq) and seq > 0 do
+    {:ok, %{stream: stream, seq: seq, duplicate: Map.get(ack, "duplicate") == true}}
+  end
+
+  defp stored(other), do: {:error, {:invalid_jetstream_ack, other}}
 
   defp request_opts(opts) do
     base = [receive_timeout: Keyword.get(opts, :timeout, @default_timeout_ms)]
