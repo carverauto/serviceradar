@@ -100,7 +100,7 @@ defmodule ServiceRadar.DeclarativeChecks.PackSeeder do
 
     case compare_versions(installed_version, shipped_version) do
       :lt -> :upgraded
-      :eq when source in [:builtin, "builtin"] -> :reapplied
+      :eq when source == :builtin -> :reapplied
       _ -> :kept_installed
     end
   end

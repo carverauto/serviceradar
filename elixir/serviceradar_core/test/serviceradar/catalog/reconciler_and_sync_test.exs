@@ -358,6 +358,7 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
         %{parameter_overrides: %{"warn_percent" => 70, "crit_percent" => 88}},
         %{parameter_overrides: %{"warn_share_percent" => 40}},
         %{parameter_overrides: %{"max_report_age_hours" => 48}},
+        %{parameter_overrides: %{"silence_window_minutes" => 2}},
         %{parameter_overrides: %{}}
       ]
 
@@ -367,7 +368,8 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
                "utilization_warn_pct" => 70,
                "utilization_crit_pct" => 88,
                "hold_warn_share_pct" => 40,
-               "max_report_age_hours" => 48
+               "max_report_age_hours" => 48,
+               "silence_window_minutes" => 2
              }
 
       # The carried values are ones the shipped pack accepts as configuration.
@@ -386,6 +388,9 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
                "utilization_warn_pct" => 70,
                "utilization_crit_pct" => 88
              }
+
+      silence = Agent.get(store, & &1.checks["camera-continuous-recording-silence"])
+      assert silence["parameter_overrides"] == %{"silence_window_minutes" => 2}
     end
 
     test "the seeder never moves an installed pack backwards or takes over another source's install" do

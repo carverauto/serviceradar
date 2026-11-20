@@ -34,7 +34,7 @@
       "description": "Rolling window in minutes over which at least 1 block must seal",
       "key": "silence_window_minutes",
       "max": 1440,
-      "min": 5,
+      "min": 1,
       "type": "integer"
     }
   ],
@@ -77,7 +77,7 @@
     }
   ],
   "pack_id": "io.serviceradar.storage-and-nvr-health",
-  "pack_version": "0.1.1",
+  "pack_version": "0.1.2",
   "parameter_overrides": {},
   "schedule": {
     "interval_seconds": 180,
