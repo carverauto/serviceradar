@@ -125,7 +125,8 @@ attribution is required.
    running the rules again.
 3. Until the collector has received its first ruleset, or when normalization is
    turned off (`[rules] normalize = false` in the collector configuration or
-   `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`), it publishes each message as GELF on
+   `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`; the Docker Compose collector ships
+   with it off), it publishes each message as GELF on
    `logs.syslog` instead, and `serviceradar_core` evaluates the Zen rules
    through a Rustler NIF before persisting it. Only these raw messages can be
    replayed through changed rules; records on `logs.normalized.syslog` already

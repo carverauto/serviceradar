@@ -10,6 +10,9 @@
   the collector configuration or `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`.
   Upgrade core before the collector if you upgrade them separately:
   EventWriter has read the normalized subject since v1.5.6.
+  Docker Compose installs keep the old behaviour for now: the collector there
+  publishes with the shared platform credential, which may not publish the
+  normalized subject.
 
 # ServiceRadar v1.5.10
 
