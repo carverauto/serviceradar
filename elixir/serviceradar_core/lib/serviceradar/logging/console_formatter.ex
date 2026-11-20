@@ -84,8 +84,8 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     media_session_id message_count message_size message_type metadata method metric
     min_canonical_edges missing missing_objects msg_id new_state node oban_job_id object_key
     observed occurrences oldest_age_seconds oldest_pending_ms ongoing_failure operation
-    orphan_grace_seconds outcome overdue_seconds owner_pid pack_id pack_slug package_id partition partition_id parts pass
-    payload_field_count payload_kind pending_count phase pipeline plugin_assignment_id plugin_id
+    orphan_grace_seconds outcome overdue_seconds owner_pid pack_id pack_slug package_id partition partition_id parts
+    pass payload_field_count payload_kind pending_count phase pipeline plugin_assignment_id plugin_id
     plugin_package_id policy_id port producer_id producer_type profile_id profile_name
     progress_percent promoted_starved_jobs protocols provider_id provider_key pull_subjects
     query queue reason reason_class reasons received_agent_id received_gateway_node recorded recovered
