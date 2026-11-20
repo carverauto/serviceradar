@@ -158,7 +158,7 @@ fn dataset_for(entity: &Entity) -> Option<Dataset> {
             scope: Some(SNMP_METRIC_SCOPE),
             hourly: Some(METRIC_HOURLY),
         }),
-        Entity::RperfMetrics => Some(Dataset {
+        Entity::NetperfMetrics => Some(Dataset {
             raw_table: "timeseries_metrics",
             time_column: "timestamp",
             scope: Some(RPERF_METRIC_SCOPE),
@@ -5292,13 +5292,6 @@ AND milliseconds_diff({home}, start_time) > 0)"
         .expect("snmp");
         assert!(snmp.sql.contains("FROM serviceradar.timeseries_metrics"));
         assert!(snmp.sql.contains("metric_type = 'snmp'"));
-
-        let rperf = translate(
-            &plan("in:rperf_metrics time:last_1h limit:5"),
-            "serviceradar",
-        )
-        .expect("rperf");
-        assert!(rperf.sql.contains("metric_type = 'rperf'"));
 
         let netperf =
             translate(&plan("in:netperf time:last_1h limit:5"), "serviceradar").expect("netperf");

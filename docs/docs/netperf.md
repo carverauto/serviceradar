@@ -2,7 +2,7 @@
 title: Network Performance Testing
 ---
 
-# Network Performance Testing (netperf / rperf)
+# Network Performance Testing (netperf)
 
 ServiceRadar actively measures network throughput, jitter, and packet loss
 between agents using embedded **netperf** inside `serviceradar-agent`. Unlike
@@ -30,8 +30,7 @@ Agents running with Hub Responder enabled also emit responder session gauges:
 ## Architecture
 
 Active network performance testing is embedded directly into
-`serviceradar-agent` (`go/pkg/netperf`). The legacy standalone `serviceradar-rperf`
-server and `serviceradar-rperf-checker` gRPC pod (`:50081`) have been retired.
+`serviceradar-agent` (`go/pkg/netperf`).
 
 | Role | Binary | Transport / Ports | Auth / Authorization |
 |---|---|---|---|
@@ -95,9 +94,8 @@ Spoke-only agents require no inbound netperf ports.
 
 ## Querying Results with SRQL
 
-Netperf measurements are stored as `rperf` time-series metrics. In SRQL,
-`in:netperf`, `in:netperf_metrics`, `in:rperf`, and `in:rperf_metrics` all resolve
-to the same metric scope (`metric_type = 'rperf'`).
+Netperf measurements are stored in `timeseries_metrics` and queried in SRQL
+with `in:netperf` or `in:netperf_metrics`.
 
 Recent netperf measurements:
 
@@ -108,7 +106,7 @@ in:netperf sort:timestamp:desc limit:50
 Throughput for a target over the last day:
 
 ```srql
-in:rperf metric_name:"rperf.bits_per_second" tags.target:"hub-01" time:last_24h sort:timestamp:desc
+in:netperf metric_name:"rperf.bits_per_second" tags.target:"hub-01" time:last_24h sort:timestamp:desc
 ```
 
 UDP packet loss:
@@ -132,7 +130,7 @@ the last 24 hours.
 
 ## Alerting on Degradation
 
-Because results land in `timeseries_metrics` with `metric_type = 'rperf'`, you
+Because results land in `timeseries_metrics`, you
 can build alerts the same way as any other metric:
 
 - **Throughput drop** - alert when `rperf.bits_per_second` falls below an
@@ -141,7 +139,7 @@ can build alerts the same way as any other metric:
   UDP targets.
 - **Jitter** - alert when `rperf.jitter_ms` exceeds tolerance for
   latency-sensitive workloads.
-- **Missing results** - alert when no `rperf` metrics arrive within a multiple
+- **Missing results** - alert when no netperf metrics arrive within a multiple
   of the policy poll interval.
 
 Use the [Rule Builder](./rule-builder.md) to turn these into notifications.

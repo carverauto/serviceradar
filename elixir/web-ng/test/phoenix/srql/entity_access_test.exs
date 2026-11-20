@@ -538,9 +538,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     end
   end
 
-  @netperf_aliases ~w(rperf_metrics rperf netperf_metrics netperf)
+  @netperf_aliases ~w(netperf_metrics netperf)
 
-  test "every rperf/netperf alias is gated by observability.metrics.view and accepted by the parser" do
+  test "every netperf alias is gated by observability.metrics.view and accepted by the parser" do
     metrics_scope = %Scope{user: nil, permissions: MapSet.new(["observability.metrics.view"])}
     other_scope = %Scope{user: nil, permissions: MapSet.new(["devices.view"])}
 

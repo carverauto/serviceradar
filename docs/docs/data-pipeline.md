@@ -60,7 +60,7 @@ dead-lettering, readiness conditions and troubleshooting are described in
 [Durable Edge Records](./durable-edge-records.md). The rest of this section is
 how each family is projected.
 
-Sysmon, SNMP, ICMP, rperf and MTR scalar metrics and the periodic sweep summary
+Sysmon, SNMP, ICMP, netperf and MTR scalar metrics and the periodic sweep summary
 share the `serviceradar.metrics.batch` grant. Each producer keeps its own queue
 or pending-item state. Full MTR traces, from agent-scheduled checks and from a
 sweep group's `mtr` mode, use the `serviceradar.mtr.scheduled_trace` version 1

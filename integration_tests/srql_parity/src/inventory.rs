@@ -327,7 +327,7 @@ mod tests {
             "flows",
             "timeseries_metrics",
             "snmp_metrics",
-            "rperf_metrics",
+            "netperf_metrics",
             "logs",
             "events",
             "security_findings",

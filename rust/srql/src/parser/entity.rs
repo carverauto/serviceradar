@@ -100,7 +100,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "gateways" | "gateway" => Ok(Entity::Gateways),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "otel_metric_points" | "metric_points" => Ok(Entity::OtelMetricPoints),
-        "rperf_metrics" | "rperf" | "netperf_metrics" | "netperf" => Ok(Entity::RperfMetrics),
+        "netperf_metrics" | "netperf" => Ok(Entity::NetperfMetrics),
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),

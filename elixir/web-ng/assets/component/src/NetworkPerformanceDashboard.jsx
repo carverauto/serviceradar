@@ -871,7 +871,7 @@ export function NetworkPerformanceDashboard() {
 
       if (canExecuteSrql && typeof updateSrql === "function") {
         const escapedAgent = srql.escapeValue ? srql.escapeValue(link.spokeId) : JSON.stringify(link.spokeId)
-        const historyQuery = `in:rperf_metrics agent_id:${escapedAgent} time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200`
+        const historyQuery = `in:netperf_metrics agent_id:${escapedAgent} time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200`
         try {
           Promise.resolve(updateSrql("", {spoke_history: historyQuery})).catch(() => {})
         } catch (_error) {}

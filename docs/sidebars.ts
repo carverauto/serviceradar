@@ -77,7 +77,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
         {type: 'doc', id: 'visibility-profiles', label: 'Visibility Profiles'},
         {type: 'doc', id: 'fingerprint-architecture', label: 'Fingerprint Architecture'},
-        {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
+        {type: 'doc', id: 'netperf', label: 'Network Performance Testing'},
       ],
     },
     {

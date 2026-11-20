@@ -891,7 +891,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
 
 async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {
     let request = QueryRequest {
-        query: r#"in:rperf_metrics device_id:"device-beta" time:last_1h sort:timestamp:desc"#
+        query: r#"in:netperf_metrics device_id:"device-beta" time:last_1h sort:timestamp:desc"#
             .to_string(),
         limit: None,
         cursor: None,

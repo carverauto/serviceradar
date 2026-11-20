@@ -1034,7 +1034,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "otel_metrics",
          "timeseries_metrics",
          "snmp_metrics",
-         "rperf_metrics",
+         "netperf_metrics",
          "cpu_metrics",
          "memory_metrics",
          "disk_metrics",

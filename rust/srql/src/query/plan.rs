@@ -96,7 +96,7 @@ fn validate_other_rollup_request(
             | Entity::AttributedFlows
             | Entity::TimeseriesMetrics
             | Entity::SnmpMetrics
-            | Entity::RperfMetrics
+            | Entity::NetperfMetrics
     ) {
         return Err(ServiceError::InvalidRequest(
             "other:true is currently supported only for flow or timeseries stats".into(),

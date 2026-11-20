@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     refute body =~ "platform.timeseries_metrics"
   end
 
-  test "rperf and netperf aliases route through StarRocks when enabled and CNPG when disabled",
+  test "netperf aliases route through StarRocks when enabled and CNPG when disabled",
        %{prev: prev} do
     parent = self()
     scope = %{permissions: MapSet.new(["observability.metrics.view"])}
@@ -213,7 +213,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       |> Keyword.put(:mysql, mysql)
     )
 
-    for alias_name <- ~w(rperf_metrics rperf netperf_metrics netperf) do
+    for alias_name <- ~w(netperf_metrics netperf) do
       assert {:ok, %{"results" => [row], "error" => nil}} =
                SRQL.query("in:#{alias_name} time:last_1h limit:1", %{scope: scope})
 
@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       Keyword.put(prev, :enabled, false)
     )
 
-    for alias_name <- ~w(rperf_metrics rperf netperf_metrics netperf) do
+    for alias_name <- ~w(netperf_metrics netperf) do
       result =
         try do
           SRQL.query("in:#{alias_name} time:last_1h limit:1", %{scope: scope})

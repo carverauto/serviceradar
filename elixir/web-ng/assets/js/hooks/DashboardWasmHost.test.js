@@ -679,7 +679,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     const frames = [
       {
         id: "netperf_recent_samples",
-        query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
         status: "ok",
         results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000}],
       },
@@ -729,13 +729,13 @@ describe("DashboardWasmHost browser-module boot validation", () => {
         frames: [
           {
             id: "netperf_recent_samples",
-            query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
             status: "ok",
             results: [{agent_id: "agent-spoke-2", metric_name: "rperf.bits_per_second", value: 420_000_000}],
           },
           {
             id: "spoke_history",
-            query: "in:rperf_metrics agent_id:\"agent-spoke-2\" time:last_24h sort:timestamp:desc limit:200",
+            query: "in:netperf_metrics agent_id:\"agent-spoke-2\" time:last_24h sort:timestamp:desc limit:200",
             status: "ok",
             results: [{agent_id: "agent-spoke-2", metric_name: "rperf.loss_percent", value: 0.4}],
           },
@@ -769,7 +769,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     const frames = [
       {
         id: "netperf_recent_samples",
-        query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
         encoding: "json_rows",
         status: "ok",
         row_count: 1,
@@ -779,7 +779,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
       },
       {
         id: "netperf_arrow_summary",
-        query: "in:rperf_metrics limit:10",
+        query: "in:netperf_metrics limit:10",
         encoding: "arrow_ipc",
         payload_transport: "channel_binary",
         payload: arrowPayload,
@@ -854,7 +854,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
         frames: [
           {
             id: "netperf_recent_samples",
-            query: "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
             encoding: "json_rows",
             required: true,
             status: "loading",
@@ -862,7 +862,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
           },
           {
             id: "netperf_arrow_summary",
-            query: "in:rperf_metrics limit:10",
+            query: "in:netperf_metrics limit:10",
             encoding: "json_rows",
             required: true,
             status: "loading",
@@ -918,14 +918,14 @@ describe("DashboardWasmHost browser-module boot validation", () => {
         frames: [
           {
             id: "netperf_recent_samples",
-            query: "in:rperf_metrics time:last_24h limit:500",
+            query: "in:netperf_metrics time:last_24h limit:500",
             status: "ok",
             results: [{agent_id: "agent-spoke-1", value: 1}],
           },
           {
             id: "spoke_history",
             required: false,
-            query: "in:rperf_metrics agent_id:agent-spoke-1",
+            query: "in:netperf_metrics agent_id:agent-spoke-1",
             status: "ok",
             results: [{agent_id: "agent-spoke-1", value: 2}],
           },
@@ -948,14 +948,14 @@ describe("DashboardWasmHost browser-module boot validation", () => {
         capabilities: ["srql.execute"],
         renderer,
         data_frames: [
-          {id: "netperf_recent_samples", query: "in:rperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500"},
-          {id: "spoke_history", query: "in:rperf_metrics agent_id:agent-spoke-2"},
+          {id: "netperf_recent_samples", query: "in:netperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500"},
+          {id: "spoke_history", query: "in:netperf_metrics agent_id:agent-spoke-2"},
           {id: "netperf_agents", query: "in:agents"},
         ],
         frames: [
           {
             id: "netperf_recent_samples",
-            query: "in:rperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500",
+            query: "in:netperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500",
             status: "loading",
             results: [],
           },

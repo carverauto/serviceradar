@@ -79,7 +79,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
             Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::SnmpMetrics
-                | Entity::RperfMetrics
+                | Entity::NetperfMetrics
                 | Entity::CpuMetrics
                 | Entity::MemoryMetrics
                 | Entity::DiskMetrics
@@ -166,7 +166,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::TimeseriesMetrics
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::SnmpMetrics
-        | Entity::RperfMetrics => metrics::timeseries_metrics(),
+        | Entity::NetperfMetrics => metrics::timeseries_metrics(),
         Entity::TimeseriesMetricDiskHourly => metrics::timeseries_metric_disk_hourly(),
         Entity::CpuMetrics => metrics::cpu_metrics(),
         Entity::MemoryMetrics => metrics::memory_metrics(),

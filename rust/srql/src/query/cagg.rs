@@ -48,13 +48,13 @@ pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
             | Entity::TimeseriesMetricInterfaceHourly
             | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics
-            | Entity::RperfMetrics
+            | Entity::NetperfMetrics
     )
 }
 
 pub(crate) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
     match entity {
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => {
             Some("timeseries_metrics_hourly")
         }
         Entity::TimeseriesMetricInterfaceHourly => Some("timeseries_metrics_interface_hourly"),
@@ -76,7 +76,7 @@ pub(crate) fn cagg_column_for_entity(
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::TimeseriesMetricDiskHourly
         | Entity::SnmpMetrics
-        | Entity::RperfMetrics => match (agg.as_str(), field.as_str()) {
+        | Entity::NetperfMetrics => match (agg.as_str(), field.as_str()) {
             ("avg", "value") => Some("avg_value"),
             ("min", "value") => Some("min_value"),
             ("max", "value") => Some("max_value"),
