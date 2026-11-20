@@ -17,6 +17,7 @@ chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
 env_logger = { workspace = true }
 flate2 = { workspace = true }
+futures = { workspace = true }
 hex = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
@@ -28,6 +29,7 @@ prost = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 serviceradar-metric-proto = { path = "../metric-proto" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -35,6 +37,7 @@ tokio-rustls = { workspace = true }
 toml = { workspace = true }
 tonic = { workspace = true, features = ["tls-ring"] }
 tonic-prost = { workspace = true }
+urlencoding = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]

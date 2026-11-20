@@ -40,6 +40,71 @@ pub struct Config {
     /// `output.backend = "agent"`. Optional: defaults apply when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_forward: Option<AgentForwardConfig>,
+    /// Public-safe Boomerang RUM beacon gate settings (`[rum]`).
+    #[serde(default)]
+    pub rum: RumConfig,
+}
+
+/// `[rum]` — configuration for the public-safe `/rum/v1/beacon` gate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RumConfig {
+    /// Enable the `/rum/v1/beacon` HTTP route on the OTLP/HTTP listener.
+    #[serde(default = "default_rum_enabled")]
+    pub enabled: bool,
+    /// Strict maximum wire AND decompressed request body size (default 64 KiB).
+    #[serde(default = "default_rum_max_body_bytes")]
+    pub max_body_bytes: usize,
+    /// Per-`rum_site_key` sustained request rate (requests/sec).
+    #[serde(default = "default_rum_per_key_rps")]
+    pub per_key_rps: f64,
+    /// Per-`rum_site_key` token-bucket burst capacity.
+    #[serde(default = "default_rum_per_key_burst")]
+    pub per_key_burst: f64,
+    /// Per-`(rum_site_key, /24 or /48 subnet)` sustained request rate (requests/sec).
+    #[serde(default = "default_rum_per_subnet_rps")]
+    pub per_subnet_rps: f64,
+    /// Per-`(rum_site_key, /24 or /48 subnet)` token-bucket burst capacity.
+    #[serde(default = "default_rum_per_subnet_burst")]
+    pub per_subnet_burst: f64,
+    /// Proxy CIDRs trusted to append to `X-Forwarded-For`; the client IP is the
+    /// rightmost entry outside this list and `cdn_peers`.
+    #[serde(default = "default_rum_trusted_proxies")]
+    pub trusted_proxies: Vec<String>,
+    /// CDN edge CIDRs (for example Akamai) whose `Akamai-Edgescape` geo/ASN
+    /// header is honored when that edge reported the client IP. Empty by default.
+    #[serde(default)]
+    pub cdn_peers: Vec<String>,
+    /// NATS request-reply subject for initial RUM policy snapshot bootstrap.
+    #[serde(default = "default_rum_policy_snapshot_subject")]
+    pub policy_snapshot_subject: String,
+    /// NATS pub/sub subject for RUM policy snapshot updates.
+    #[serde(default = "default_rum_policy_updates_subject")]
+    pub policy_updates_subject: String,
+    /// Periodic policy snapshot re-hydration interval in seconds.
+    #[serde(default = "default_rum_policy_refresh_interval_secs")]
+    pub policy_refresh_interval_secs: u64,
+    /// Optional local JSON/CSV CIDR->Geo/ASN enrichment file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_geo_asn_path: Option<String>,
+}
+
+impl Default for RumConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_rum_enabled(),
+            max_body_bytes: default_rum_max_body_bytes(),
+            per_key_rps: default_rum_per_key_rps(),
+            per_key_burst: default_rum_per_key_burst(),
+            per_subnet_rps: default_rum_per_subnet_rps(),
+            per_subnet_burst: default_rum_per_subnet_burst(),
+            trusted_proxies: default_rum_trusted_proxies(),
+            cdn_peers: Vec::new(),
+            policy_snapshot_subject: default_rum_policy_snapshot_subject(),
+            policy_updates_subject: default_rum_policy_updates_subject(),
+            policy_refresh_interval_secs: default_rum_policy_refresh_interval_secs(),
+            static_geo_asn_path: None,
+        }
+    }
 }
 
 /// `[output]` — selects the [`crate::output::TelemetryOutput`] backend the
@@ -529,6 +594,7 @@ impl Config {
             },
             output: OutputConfig::default(),
             agent_forward: None,
+            rum: RumConfig::default(),
         };
 
         toml::to_string_pretty(&example)
@@ -611,6 +677,53 @@ fn default_http_port() -> u16 {
 
 fn default_allowed_origins() -> Vec<String> {
     vec!["*".to_string()]
+}
+
+fn default_rum_enabled() -> bool {
+    true
+}
+
+fn default_rum_max_body_bytes() -> usize {
+    65_536
+}
+
+fn default_rum_per_key_rps() -> f64 {
+    200.0
+}
+
+fn default_rum_per_key_burst() -> f64 {
+    400.0
+}
+
+fn default_rum_per_subnet_rps() -> f64 {
+    30.0
+}
+
+fn default_rum_per_subnet_burst() -> f64 {
+    60.0
+}
+
+fn default_rum_trusted_proxies() -> Vec<String> {
+    vec![
+        "127.0.0.0/8".to_string(),
+        "::1/128".to_string(),
+        "10.0.0.0/8".to_string(),
+        "172.16.0.0/12".to_string(),
+        "192.168.0.0/16".to_string(),
+        "fc00::/7".to_string(),
+    ]
+}
+
+fn default_rum_policy_snapshot_subject() -> String {
+    "config.rum.policy.snapshot".to_string()
+}
+
+fn default_rum_policy_updates_subject() -> String {
+    "config.rum.policy.updates".to_string()
+}
+
+fn default_rum_policy_refresh_interval_secs() -> u64 {
+    300
 }
 
 #[cfg(test)]

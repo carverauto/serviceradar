@@ -527,21 +527,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         partition: partition
       )
 
-    unknown_ips = ips -- Map.keys(device_map)
-
-    detected_device_map =
-      unknown_ips
-      |> DeviceLookup.lookup_detected_aliases_by_ip(
-        actor: actor,
-        include_deleted: true,
-        partition: partition
-      )
-      |> Map.new(fn {ip, {record, _alias}} -> {ip, record} end)
-
     {created_device_map, _seed_uid_collisions} =
       create_available_unknown_devices(
         results,
-        unknown_ips -- Map.keys(detected_device_map),
+        ips -- Map.keys(device_map),
         reporter_context.group,
         actor,
         partition,
@@ -550,9 +539,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     all_devices =
       device_map
-      |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
-      |> Map.drop(stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map)))
+      |> Map.drop(stale_alias_failure_ips(results, device_map))
 
     _accepted =
       upsert_agent_availability(
@@ -696,43 +684,29 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
     partition = sweep_group_partition(reporter_context.group)
 
-    # Step 2: Batch lookup existing devices by IP in this sweep group's partition.
-    # Isolation and monitoring copies of the same address must not share status.
-    device_map =
-      DeviceLookup.batch_lookup_by_ip(ips,
+    # Step 2: Resolve each address to the device it is attributed to, in this sweep group's
+    # partition (isolation and monitoring copies of one address must not share status). A
+    # live holder wins over a soft-deleted one; see DeviceLookup.batch_resolve_by_ip/2.
+    resolved =
+      DeviceLookup.batch_resolve_by_ip(ips,
         actor: actor,
         include_deleted: true,
         use_cache: false,
         partition: partition
       )
 
-    # Step 3: Find IPs without existing devices
+    device_map = Map.new(resolved, fn {ip, {record, _detected_alias}} -> {ip, record} end)
     known_ips = Map.keys(device_map)
-    unknown_ips = ips -- known_ips
 
-    # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
-    detected_alias_map =
-      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips,
-        actor: actor,
-        include_deleted: true,
-        partition: partition
-      )
-
-    detected_ips = Map.keys(detected_alias_map)
-
-    # Step 4a: Extract device records from detected aliases
-    detected_device_map =
-      Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
-
-    # Step 4b: Unanswered probes of an alias the device has most likely left are not the
+    # Step 3: Unanswered probes of an alias the device has most likely left are not the
     # device's (AliasRecency). Read before any alias below is confirmed.
-    stale_failure_ips =
-      stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map))
+    stale_failure_ips = stale_alias_failure_ips(results, device_map)
 
-    # Step 4c: Confirm detected aliases only for a resolved authenticated reporter.
+    # Step 4: Confirm the detected aliases that resolved an answering address, only for a
+    # resolved authenticated reporter.
     aliases_confirmed =
       maybe_confirm_detected_aliases(
-        detected_alias_map,
+        answered_detected_aliases(results, resolved),
         execution_id,
         reporter_context,
         actor
@@ -741,36 +715,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {created_device_map, seed_uid_collisions} =
       create_available_unknown_devices(
         results,
-        unknown_ips -- detected_ips,
+        ips -- known_ips,
         reporter_context.group,
         actor,
         partition,
         track_collisions?: true,
-        resolved_ips: known_ips ++ detected_ips
+        resolved_ips: known_ips
       )
 
     # Step 5: Merge all device sources
     all_devices =
       device_map
-      |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
       |> Map.drop(stale_failure_ips)
 
-    # Step 7: Build host result records
+    # Step 6: Build host result records
     {host_results, stats} =
       build_host_results(results, execution_id, all_devices,
         agent_id: reporter_context.reporter_agent_id,
         sweep_group_id: reporter_context.resolved_group_id
       )
 
-    # Step 8: Bulk insert host results. Device availability is written once all batches
+    # Step 7: Bulk insert host results. Device availability is written once all batches
     # got here (process_batches/5), from the devices resolved for each.
     case bulk_insert_host_results(host_results) do
       :ok ->
         final_stats =
           stats
           |> Map.put(:devices_created, map_size(created_device_map))
-          |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
+          |> Map.put(:devices_updated, length(known_ips))
           |> Map.put(:aliases_confirmed, aliases_confirmed)
           |> Map.put(:seed_uid_collisions, seed_uid_collisions)
 
@@ -807,17 +780,28 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> MapSet.to_list()
   end
 
-  defp maybe_confirm_detected_aliases(detected_alias_map, execution_id, reporter_context, actor) do
+  # An unanswered probe is no sighting of the address, so it never confirms or refreshes a
+  # detected alias.
+  defp answered_detected_aliases(results, resolved) do
+    for result <- results,
+        result_available?(result),
+        ip = extract_ip(result),
+        {_record, %DeviceAliasState{} = alias_state} <- [Map.get(resolved, ip)],
+        into: %{},
+        do: {ip, alias_state}
+  end
+
+  defp maybe_confirm_detected_aliases(detected_aliases, execution_id, reporter_context, actor) do
     if expected_reporter?(reporter_context) do
-      confirm_detected_aliases(detected_alias_map, execution_id, actor)
-      map_size(detected_alias_map)
+      confirm_detected_aliases(detected_aliases, execution_id, actor)
+      map_size(detected_aliases)
     else
       0
     end
   end
 
-  defp confirm_detected_aliases(detected_alias_map, execution_id, actor) do
-    Enum.each(detected_alias_map, fn {ip, {_record, alias_state}} ->
+  defp confirm_detected_aliases(detected_aliases, execution_id, actor) do
+    Enum.each(detected_aliases, fn {ip, alias_state} ->
       metadata = %{"sweep_execution_id" => execution_id, "sweep_ip" => ip}
 
       case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata},
@@ -871,6 +855,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     partition = sweep_group_partition(reporter_context.group)
 
+    # Full holder order, as process_batch/4 attributed the result: promotion dispatches
+    # mapper discovery by address and records a cooldown on the device; it does not
+    # create, merge or confirm an identity.
     device_map =
       DeviceLookup.batch_lookup_by_ip(ips,
         actor: actor,

@@ -271,7 +271,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
     match plan.entity {
         Entity::TimeseriesMetrics => Ok(MetricScope::Any),
         Entity::SnmpMetrics => Ok(MetricScope::Forced(SNMP_METRIC_TYPE)),
-        Entity::RperfMetrics => Ok(MetricScope::Forced(RPERF_METRIC_TYPE)),
+        Entity::NetperfMetrics => Ok(MetricScope::Forced(RPERF_METRIC_TYPE)),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by timeseries metrics query".into(),
         )),

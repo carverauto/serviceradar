@@ -69,31 +69,122 @@ defmodule ServiceRadar.Inventory.Identity.Address do
   @spec rank(term()) :: non_neg_integer()
   def rank(value), do: Map.fetch!(@ranks, classify(value))
 
+  @typedoc """
+  Fitness class of a primary address, strongest first: a usable IPv4 (routable,
+  rank 40 or 50), a routable IPv6 (global or ULA), a link-local of either family,
+  and never.
+  """
+  @type strength_class :: :usable_ipv4 | :routable_ipv6 | :link_local | :never
+
+  @class_weights %{usable_ipv4: 300, routable_ipv6: 200, link_local: 100, never: 0}
+
+  @doc """
+  The fitness class of an address as a primary.
+
+  The family decides before the rank: a device that has a usable IPv4 presents it,
+  and an IPv6 is the primary only of an IPv6-only device. A `169.254/16` address
+  is link-local, not a usable IPv4, so a routable IPv6 outranks it. An
+  IPv4-mapped IPv6 (`::ffff:a.b.c.d`) is judged as the IPv4 it carries.
+  """
+  @spec strength_class(term()) :: strength_class()
+  def strength_class(value) do
+    case parsed_class(value) do
+      {_family, :link_local} -> :link_local
+      {_family, class} when class in [:loopback, :unspecified, :invalid] -> :never
+      {:ipv4, _class} -> :usable_ipv4
+      {:ipv6, _class} -> :routable_ipv6
+    end
+  end
+
+  @doc """
+  The strength of an address as a primary: its class (`strength_class/1`) first,
+  then its rank within the class. A stored primary is replaced only by an address
+  of strictly greater strength. Mirrors `platform.sr_address_strength(text)`; the
+  two are kept in step by a parity test.
+  """
+  @spec strength(term()) :: non_neg_integer()
+  def strength(value) do
+    case strength_class(value) do
+      :never -> 0
+      class -> Map.fetch!(@class_weights, class) + rank(value)
+    end
+  end
+
+  @doc "True for a routable IPv4 (rank 40 or higher): the address a device presents when it has one."
+  @spec usable_ipv4?(term()) :: boolean()
+  def usable_ipv4?(value), do: strength_class(value) == :usable_ipv4
+
+  @doc "True for an `fe80::/10` or `169.254/16` address."
+  @spec link_local?(term()) :: boolean()
+  def link_local?(value), do: strength_class(value) == :link_local
+
   @doc """
   True when `candidate` is a strictly better primary address than `current`.
 
-  Ties are NOT improvements: an equally-ranked address must not displace the
+  A usable IPv4 beats any IPv6, a routable address of either family beats a
+  link-local of either family, and otherwise the higher rank within the family
+  wins. Ties are NOT improvements: an equally strong address must not displace the
   current one, or two addresses of the same class would flap on every update.
   """
   @spec better?(term(), term()) :: boolean()
-  def better?(candidate, current), do: rank(candidate) > rank(current)
+  def better?(candidate, current), do: strength(candidate) > strength(current)
+
+  @doc """
+  True when `candidate` is of a weaker class (`strength_class/1`) than `current`: a
+  usable IPv4 replaced by an IPv6, a routable address replaced by a link-local. An
+  absent primary is replaced by a weaker class only once it has left its recording
+  source's sighting window; a same-class re-IP (one usable IPv4 to another) is not a
+  downgrade. Mirrors `platform.sr_address_strength(text) / 100`.
+  """
+  @spec class_downgrade?(term(), term()) :: boolean()
+  def class_downgrade?(candidate, current),
+    do: div(strength(candidate), 100) < div(strength(current), 100)
 
   @doc """
   Pick the best primary address from `candidates`, or `nil` when none is usable.
+
+  The strongest candidate wins (`strength/1`). Only among candidates of equal
+  strength is the tie broken: `stored`, the device's current primary, first when
+  it is among them, then the lowest address. A tie is never broken across
+  strengths.
 
   Callers MUST treat `nil` as "keep what you have". Replacing a poor address
   with no address trades a partial answer for none -- and on the deployment that
   motivated this, 8 of the 18 affected devices have no routable address at all.
   """
-  @spec best(Enumerable.t()) :: String.t() | nil
-  def best(candidates) do
+  @spec best(Enumerable.t(), term()) :: String.t() | nil
+  def best(candidates, stored \\ nil) do
     candidates
     |> Enum.filter(&is_binary/1)
-    |> Enum.map(&{rank(&1), &1})
-    |> Enum.reject(fn {rank, _value} -> rank == 0 end)
+    |> Enum.map(&{strength(&1), &1})
+    |> Enum.reject(fn {strength, _value} -> strength == 0 end)
     |> case do
-      [] -> nil
-      ranked -> ranked |> Enum.max_by(fn {rank, _value} -> rank end) |> elem(1)
+      [] ->
+        nil
+
+      ranked ->
+        top = ranked |> Enum.map(&elem(&1, 0)) |> Enum.max()
+
+        ranked
+        |> Enum.filter(fn {strength, _value} -> strength == top end)
+        |> Enum.map(&elem(&1, 1))
+        |> Enum.uniq()
+        |> tie_break(stored)
+    end
+  end
+
+  defp tie_break(values, stored) do
+    if is_binary(stored) and stored in values,
+      do: stored,
+      else: Enum.min_by(values, &address_sort_key/1)
+  end
+
+  # Lowest address by family, then numeric value; an unparseable string sorts last.
+  defp address_sort_key(value) do
+    case value |> normalize() |> parse() do
+      {_a, _b, _c, _d} = v4 -> {4, Tuple.to_list(v4), value}
+      parsed when tuple_size(parsed) == 8 -> {6, Tuple.to_list(parsed), value}
+      _ -> {9, [], value}
     end
   end
 
@@ -106,11 +197,23 @@ defmodule ServiceRadar.Inventory.Identity.Address do
   """
   @spec preferred_primary(term(), Enumerable.t()) :: term()
   def preferred_primary(current, candidates) do
-    case best(candidates) do
+    case best(candidates, current) do
       nil -> current
       candidate -> if better?(candidate, current), do: candidate, else: current
     end
   end
+
+  defp parsed_class(value) when is_binary(value) do
+    parsed = value |> normalize() |> parse()
+    {family(parsed), classify_parsed(parsed)}
+  end
+
+  defp parsed_class(_value), do: {:none, :invalid}
+
+  defp family({_a, _b, _c, _d}), do: :ipv4
+  defp family({0, 0, 0, 0, 0, 0xFFFF, _gh, _ij}), do: :ipv4
+  defp family({_a, _b, _c, _d, _e, _f, _g, _h}), do: :ipv6
+  defp family(_parsed), do: :none
 
   defp normalize(value) do
     value

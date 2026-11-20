@@ -9,9 +9,19 @@ pub mod http_server;
 pub mod metrics;
 pub mod nats;
 pub mod output;
+pub mod rum;
 pub mod server;
 pub mod setup;
 pub mod tls;
+
+pub mod rum_proto {
+    #![allow(
+        dead_code,
+        clippy::doc_overindented_list_items,
+        clippy::doc_lazy_continuation
+    )]
+    tonic::include_proto!("serviceradar.rum.v1");
+}
 
 pub mod opentelemetry {
     #![allow(
@@ -524,6 +534,48 @@ impl ServiceRadarCollector {
                 error_message: oversize_partial_message(rejected_spans),
             }),
         })
+    }
+
+    /// Publishes an enriched RUM beacon and optional derived CWV metric batch.
+    pub async fn handle_rum_beacon(
+        &self,
+        web_property_id: &str,
+        beacon: crate::rum_proto::RumBeaconV1,
+        metric_batch: Option<serviceradar_metric_proto::pb::MetricBatch>,
+    ) -> Result<(), ExportError> {
+        let Some(output) = self.output_handle() else {
+            debug!("No NATS output configured, RUM beacon received but not forwarded");
+            return Ok(());
+        };
+
+        let publish_result = publish_with_retry("rum_beacons", || async {
+            output.publish_rum_beacon(web_property_id, &beacon).await
+        })
+        .await;
+
+        match publish_result {
+            Ok(outcome) => {
+                metrics::record_published("rum_beacons", outcome.published);
+            }
+            Err(e) => {
+                metrics::record_publish_failure("rum_beacons", 1);
+                error!("Failed to publish RUM beacon to NATS after retry: {e}");
+                return Err(ExportError {
+                    message: format!("failed to publish RUM beacon to NATS after retry: {e}"),
+                });
+            }
+        }
+
+        if let Some(batch) = metric_batch {
+            if let Err(e) = output.publish_rum_metrics(web_property_id, &batch).await {
+                warn!("Failed to publish derived RUM metrics (non-fatal): {e}");
+                metrics::record_publish_failure("rum_metrics", 1);
+            } else {
+                metrics::record_published("rum_metrics", 1);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1160,6 +1212,22 @@ mod tests {
         ) -> anyhow::Result<crate::output::PublishOutcome> {
             self.record_ctx(ctx);
             self.outcome(metrics.len())
+        }
+
+        async fn publish_rum_beacon(
+            &self,
+            _web_property_id: &str,
+            _beacon: &crate::rum_proto::RumBeaconV1,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.outcome(1)
+        }
+
+        async fn publish_rum_metrics(
+            &self,
+            _web_property_id: &str,
+            _metrics: &serviceradar_metric_proto::pb::MetricBatch,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.outcome(1)
         }
     }
 

@@ -39,7 +39,7 @@ mod atoms {
         deadline, no_address, transport,
         method, date, canonical_request_sha256, signed_headers,
         status, request_id, content_length, content_range, crc64, body_len,
-        body, verified, malformed, first, last, size
+        body, verified, malformed, first, last, size, portable
     }
 }
 
@@ -89,7 +89,7 @@ fn registered_pool_bytes(concurrency: usize, buffer_size: usize, tls: bool) -> u
 }
 
 impl Config {
-    fn builder(self) -> Result<Builder, Atom> {
+    fn builder(self, portable: bool) -> Result<Builder, Atom> {
         let address = self.host.parse::<IpAddr>().ok();
         if self.port == 0
             || !(1..=16).contains(&self.concurrency)
@@ -108,6 +108,7 @@ impl Config {
         let mut builder = Builder::new(&self.host, &self.region, credentials);
         builder.port = self.port;
         builder.tls = self.tls;
+        builder.portable = portable;
         builder.bucket_in_path = self.bucket;
         builder.address = address.map(|ip| SocketAddr::new(ip, self.port));
         builder.threads = 1;
@@ -561,10 +562,10 @@ fn worker(client: Client, receiver: Receiver<Job>, lease: WorkerLease) {
     drop(lease);
 }
 
-fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<String>)> {
+fn start(config: Config, portable: bool) -> Result<ResourceArc<Handle>, (Atom, Option<String>)> {
     let concurrency = config.concurrency;
     let buffer_size = config.buffer_size;
-    let builder = config.builder().map_err(|reason| (reason, None))?;
+    let builder = config.builder(portable).map_err(|reason| (reason, None))?;
     CLIENTS
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             (n < MAX_CLIENTS).then_some(n + 1)
@@ -613,14 +614,20 @@ fn start(config: Config) -> Result<ResourceArc<Handle>, (Atom, Option<String>)> 
 fn open<'a>(env: Env<'a>, config: Term<'a>) -> Term<'a> {
     match catch_unwind(AssertUnwindSafe(|| {
         // NifMap decodes required fields but otherwise ignores unknown options.
-        // Check the exact schema before allocating a client or native buffers.
-        if config.map_size().ok() != Some(10) {
-            return Err((atoms::bad_config(), None));
-        }
+        // Check the exact schema before allocating a client or native buffers:
+        // 10 required fields, plus an optional boolean `portable` field.
+        let portable = match config.map_size().ok() {
+            Some(10) => false,
+            Some(11) => config
+                .map_get(atoms::portable())
+                .and_then(|term| term.decode::<bool>())
+                .map_err(|_| (atoms::bad_config(), None))?,
+            _ => return Err((atoms::bad_config(), None)),
+        };
         let config = config
             .decode::<Config>()
             .map_err(|_| (atoms::bad_config(), None))?;
-        start(config)
+        start(config, portable)
     }))
     .unwrap_or_else(|_| Err((atoms::native_panic(), None)))
     {

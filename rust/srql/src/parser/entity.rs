@@ -100,7 +100,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "gateways" | "gateway" => Ok(Entity::Gateways),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "otel_metric_points" | "metric_points" => Ok(Entity::OtelMetricPoints),
-        "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
+        "netperf_metrics" | "netperf" => Ok(Entity::NetperfMetrics),
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
@@ -145,6 +145,8 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "k8s_endpoints"
         | "vip_inventory" => Ok(Entity::PublicEndpoints),
         "camera_sources" | "camera_source" | "cameras" | "camera" => Ok(Entity::CameraSources),
+        "websites" | "website" | "web_properties" | "web_property" => Ok(Entity::Websites),
+        "rum" | "rum_beacons" | "rum_beacon" => Ok(Entity::RumBeacons),
         "endpoint_inventory_scans"
         | "endpoint_inventory_scan"
         | "endpoint_inventory_status"

@@ -32,4 +32,18 @@ defmodule ServiceRadar.Observability.Zen.RuleBundleTest do
              "digest" => @two_rule_digest
            }
   end
+
+  test "a bundle key names its stream and subject; other keys name none" do
+    assert RuleBundle.parse_kv_key("zen/rulesets/events/logs.syslog.json") ==
+             {:ok, {"events", "logs.syslog"}}
+
+    assert RuleBundle.parse_kv_key("zen/rulesets/events/logs.otel.json") ==
+             {:ok, {"events", "logs.otel"}}
+
+    assert RuleBundle.parse_kv_key("zen/rulesets/events/logs.syslog") == :error
+    assert RuleBundle.parse_kv_key("zen/rulesets/events/.json") == :error
+    assert RuleBundle.parse_kv_key("zen/rulesets//logs.syslog.json") == :error
+    assert RuleBundle.parse_kv_key("zen/rulesets/a/b/logs.syslog.json") == :error
+    assert RuleBundle.parse_kv_key("agents/agent01/events/logs.syslog/_rules.json") == :error
+  end
 end

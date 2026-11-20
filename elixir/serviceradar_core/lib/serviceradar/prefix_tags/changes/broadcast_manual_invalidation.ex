@@ -39,7 +39,8 @@ defmodule ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation do
   # when the action runs non-atomically. Manual update/destroy set
   # require_atomic? false so change/3 always runs for those paths.
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  # An atomic update never calls change/3, so the hook is registered here too.
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
   @doc false
   @spec source_for_invalidation(Ash.Changeset.t(), map() | nil) :: String.t() | nil

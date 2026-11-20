@@ -70,9 +70,10 @@ Users authenticate with email + password.
   Delivery uses the shared outbound mailer. Configure SMTP under
   **Settings -> Mail**; see [Outbound Mail](./outbound-mail.md).
 
-## Direct SSO (OIDC / SAML)
+## Direct SSO (OIDC)
 
-Users are redirected to an identity provider. Configure this under **Settings -> Authentication**:
+Users are redirected to an OpenID Connect identity provider. OIDC is the only
+direct-SSO protocol. Configure this under **Settings -> Authentication**:
 
 ### OIDC
 
@@ -109,43 +110,24 @@ The code verifier is stored only in the encrypted login session, bound to
 `state`, consumed on callback, and is not copied into identity claims or
 logs.
 
-### SAML 2.0
+### Upgrading from SAML
 
-Use either an IdP metadata URL or paste metadata XML.
+SAML 2.0 single sign-on has been removed. OIDC is the only direct-SSO
+protocol. Configure OIDC before you upgrade if your users sign in through
+SAML today.
 
-Service provider endpoints:
-
-- ACS URL: `https://<web-host>/auth/saml/consume`
-- SP metadata: `https://<web-host>/auth/saml/metadata`
-
-Sign-in is SP-initiated: the user starts at ServiceRadar, which sends an
-AuthnRequest and records it server-side for 10 minutes under a random
-RelayState. The IdP must return that RelayState unchanged, sign the assertion
-(or the whole response), and answer that request (`InResponseTo`). Each
-RelayState and each assertion is accepted once, on every web node. The ACS
-does not depend on the browser session cookie, so the IdP may be on a
-different site from ServiceRadar.
-
-IdP-initiated (unsolicited) responses are rejected by default, because they
-cannot be tied to a login the user started. They can be allowed with
-`config :serviceradar_web_ng, :saml_allow_idp_initiated, true`; replay
-protection and every other check still apply.
-
-Responses must use UTF-8 XML, contain at most 1 MiB of decoded XML and
-10,000 elements, and contain no DTD, processing instruction, or non-whitespace
-content after the root. Before signature verification, web-ng checks XML names
-and namespace URIs against a fixed allowlist so unauthenticated input cannot
-create permanent Erlang atoms. Unlisted namespace prefixes or vendor elements
-are rejected even when the response is signed. Ordinary attribute values
-(such as claim names in `Name`) are not XML names; namespace declarations
-are checked separately against the allowed namespace URIs.
-
-If an IdP response is rejected, inspect the web-ng warning beginning
-`Rejected SAML response XML:` for the unsupported name or limit, then adjust
-the IdP's response format. The exact allowlists are maintained in
-[`SAMLXml`](https://github.com/carverauto/serviceradar/blob/staging/elixir/web-ng/lib/serviceradar_web_ng_web/auth/saml_xml.ex).
-Operator-supplied IdP metadata retains its general XML parser to support
-vendor metadata extensions; response restrictions do not apply to metadata.
+- An install whose settings selected SAML is switched to **Password Only** by
+  the upgrade migration, so administrators can still sign in with a local
+  password. Enable OIDC afterwards under **Settings -> Authentication**.
+- The old service provider endpoints (`/auth/saml`, `/auth/saml/consume`,
+  `/auth/saml/metadata`) no longer exist and return 404.
+- Users provisioned through SAML keep their accounts and roles. On their first
+  OIDC sign-in they are matched on the stored external identifier, which is
+  the value the `sub` claim mapping produces. Map `sub` to the OIDC claim that
+  carries the same value the SAML NameID did. If it differs, the account is not
+  matched: a sign-in whose email belongs to that existing account is rejected
+  as unsafe account linking, and otherwise a new account is created only when
+  just-in-time provisioning is enabled.
 
 ## Gateway Proxy (JWT)
 
@@ -163,7 +145,7 @@ Gateway JWTs must include the mapped `email` and `sub` claims. New users are JIT
 
 ## Claim Mappings
 
-Claim mappings apply to OIDC, SAML, and Gateway Proxy to map identity claims into ServiceRadar user fields:
+Claim mappings apply to OIDC and Gateway Proxy to map identity claims into ServiceRadar user fields:
 
 - `email` (required)
 - `name`
@@ -209,6 +191,6 @@ sign-in lands on the group homepage.
 
 ## Hostname And Redirects
 
-SSO redirect URIs and SAML metadata are built from the configured web-ng base URL.
+SSO redirect URIs are built from the configured web-ng base URL.
 
-If your IdP redirect URI or SAML metadata URLs are wrong, verify `PHX_HOST` (Helm/Docker Compose set this) matches the externally reachable hostname.
+If your IdP redirect URI is wrong, verify `PHX_HOST` (Helm/Docker Compose set this) matches the externally reachable hostname.

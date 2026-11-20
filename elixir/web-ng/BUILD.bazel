@@ -1,5 +1,6 @@
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
@@ -87,6 +88,24 @@ write_source_files(
 # :deps_srcs and :unit_tests, but naming it here is deliberate: relying on incidental
 # filegroup membership would break the test the moment one of those globs is reorganised.
 exports_files(["config/config.exs"])
+
+js_library(
+    name = "network_performance_sample_fixtures",
+    srcs = [
+        "priv/dashboard-packages/network-performance/sample-frames.json",
+        "priv/dashboard-packages/network-performance/sample-settings.json",
+    ],
+    visibility = ["//elixir/web-ng/assets:__pkg__"],
+)
+
+js_library(
+    name = "web_rum_sample_fixtures",
+    srcs = [
+        "priv/dashboard-packages/web-rum/sample-frames.json",
+        "priv/dashboard-packages/web-rum/sample-settings.json",
+    ],
+    visibility = ["//elixir/web-ng/assets:__pkg__"],
+)
 
 # Standalone HEEx templates scanned at runtime by TimestampFormatterInventoryTest.
 # Keep this a named input so a broad unit-test data-glob refactor cannot silently
@@ -289,7 +308,6 @@ WEB_NG_DEPS = [
     "@hexpm//:dns_cluster",
     "@hexpm//:ecto_sql",
     "@hexpm//:elixlsx",
-    "@hexpm//:esaml",
     "@hexpm//:esbuild",
     "@hexpm//:gen_smtp",
     "@hexpm//:gettext",
@@ -313,7 +331,6 @@ WEB_NG_DEPS = [
     "@hexpm//:redoc_ui_plug",
     "@hexpm//:req",
     "@hexpm//:stream_data",
-    "@hexpm//:sweet_xml",
     "@hexpm//:swoosh",
     "@hexpm//:tailwind",
     "@hexpm//:telemetry_metrics",
@@ -474,6 +491,7 @@ ex_unit_tests(
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
+        "//elixir/web-ng/assets:rum_bundle",
         # TimestampFormatterInventoryTest scans production JavaScript at runtime.
         # assets/ is a separate package, so these sources must be explicit runfiles.
         "//elixir/web-ng/assets:timestamp_formatter_audit_js_srcs",
@@ -739,7 +757,6 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/controllers/error_json_test.exs",
         "test/phoenix/controllers/metrics_controller_test.exs",
         "test/phoenix/controllers/oauth_controller_test.exs",
-        "test/phoenix/controllers/saml_controller_test.exs",
         "test/phoenix/controllers/security_headers_test.exs",
         "test/phoenix/controllers/user_session_controller_test.exs",
         "test/phoenix/live/admin/addon_fleet_live_test.exs",
@@ -769,6 +786,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/settings/auth_users_live_test.exs",
         "test/phoenix/live/settings/authentication_live_test.exs",
         "test/phoenix/live/settings/mtr_profiles_live_test.exs",
+        "test/phoenix/live/settings/netperf_live_test.exs",
         "test/phoenix/live/settings/network_credential_rules_live_test.exs",
         "test/phoenix/live/settings/notifications_extensibility_test.exs",
         "test/phoenix/live/settings/remote_access_host_keys_live_test.exs",
@@ -778,6 +796,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/settings/vulnerability_feeds_live_test.exs",
         "test/phoenix/live/topology_live_test.exs",
         "test/phoenix/live/user_live/settings_test.exs",
+        "test/phoenix/live/web_property_live_test.exs",
         "test/phoenix/mcp_oauth_test.exs",
         "test/phoenix/plugs/gateway_auth_policy_test.exs",
         "test/serviceradar/identity/policy_test.exs",

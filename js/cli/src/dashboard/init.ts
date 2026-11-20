@@ -1,7 +1,7 @@
 // `dashboard init`: scaffold a new dashboard package from a template.
 // Copies the chosen template, swizzles project name + identifier, optionally
 // runs `npm install`, and prints next steps. Templates live at
-// `templates/{react-blank,react-map,react-table}` in the published tarball.
+// `templates/{react-blank,react-map,react-table,blueprint}` in the published tarball.
 
 import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from "node:fs"
 import {join, resolve} from "node:path"
@@ -9,7 +9,7 @@ import {join, resolve} from "node:path"
 import {TEMPLATES_DIR} from "../paths.js"
 import {relativePath, runCommand} from "../utils.js"
 
-const ALLOWED_TEMPLATES = ["react-blank", "react-map", "react-table"]
+const ALLOWED_TEMPLATES = ["react-blank", "react-map", "react-table", "blueprint"]
 
 type Replacements = Record<string, string>
 

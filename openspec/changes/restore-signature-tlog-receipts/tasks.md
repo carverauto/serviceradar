@@ -102,7 +102,7 @@
 
 - [x] 5.1 Measure the scan cost (design.md, Context and Open Question 1). Public-good Rekor v1
   cannot be scanned in full; the log moved to the self-hosted Rekor, which can.
-- [ ] 5.2 Add `build/ci/rekor_signing_monitor.py`, run hourly by
+- [x] 5.2 Add `build/ci/rekor_signing_monitor.py`, run hourly by
   `.github/workflows/rekor-signing-monitor.yml` (not `rekor_monitor` from `sigstore/rekor-monitor`,
   which verifies checkpoints only through a TUF trusted root that does not list the self-hosted
   log). Each run reads every entry of the self-hosted log, recomputes the RFC 6962 root and checks
@@ -126,15 +126,15 @@
   `docs/sigstore/rekor-acknowledged-entries.json`; a GitHub issue per unexplained entry UUID,
   closed when a later scan finds the entry explained; Discord post; failure on inconsistency or
   missing state.
-- [ ] 5.3 Add the blindness canary (ledger entries from a signing run that ended more than two scan
+- [x] 5.3 Add the blindness canary (ledger entries from a signing run that ended more than two scan
   intervals ago, two hours at the hourly default, integrated after the first
   checkpoint's integrated time recorded once in monitor state, that were never observed) and the check that the self-hosted log still serves the
   pinned key.
-- [ ] 5.4 Add a separate GitHub Actions workflow-run lookup for `rekor-signing-monitor.yml` to the
+- [x] 5.4 Add a separate GitHub Actions workflow-run lookup for `rekor-signing-monitor.yml` to the
   scheduled job watch, give `.github/workflows/scheduled-job-watch.yml` `actions: read`, and report
   the monitor when its last successful run is older than three scan intervals (three hours at the
   hourly default). Do not add the monitor to `WATCHED_JOBS`.
-- [ ] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
+- [x] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
   the result in the PR.
 
 ## 5b. Admission, second line and operations

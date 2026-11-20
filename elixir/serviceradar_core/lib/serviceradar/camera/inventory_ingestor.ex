@@ -36,6 +36,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
+  alias ServiceRadar.Inventory.Sync.Enrichment
+  alias ServiceRadar.Inventory.Sync.RankedAttributeWrite
   alias ServiceRadar.Observability.PluginResultHandler
   alias ServiceRadar.Observability.PluginResultHandlerOutcome
   alias ServiceRadar.Observability.PluginResultProvenance
@@ -49,6 +53,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   @profile_metadata_keys ~w(
     source width height fps bitrate auth_mode credential_reference_id protocol insecure_skip_verify
   )
+  @camera_ip_source "camera_plugin"
   @source_origin_keys ["source_origin", "sourceOrigin"]
   @source_url_keys ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
   @stream_url_keys ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
@@ -62,6 +67,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   ]
   @profile_id_keys ["vendor_profile_id", "vendorProfileId", "profile_id", "profileId", "id"]
   @settled_reasons []
+  @camera_discovery_source "camera_plugin"
   @refused_reasons [
     :invalid_camera_inventory_payload,
     :missing_camera_identity,
@@ -596,7 +602,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          mac: descriptor_mac(descriptor),
          vendor_name: string_value(descriptor, ["vendor"]),
          model: descriptor_model(descriptor),
-         discovery_sources: ["camera_plugin"],
+         discovery_sources: [@camera_discovery_source],
          is_managed: true,
          is_active: true,
          is_available: descriptor_available?(descriptor, status),
@@ -616,6 +622,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     case get_device_by_uid(device_uid, true, actor) do
       {:ok, nil} ->
         {create_attrs, conflicting_ip_device} = prepare_camera_ip_claim(device_uid, attrs, actor)
+        {ranked, provenance} = camera_ranked_attrs(attrs)
+
+        create_attrs =
+          create_attrs
+          |> Map.merge(Map.take(ranked, [:name, :vendor_name, :model]))
+          |> Map.put(:attribute_provenance, provenance)
 
         Device
         |> Ash.Changeset.for_create(:create, create_attrs, actor: actor)
@@ -700,7 +712,8 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
                {:ok, _device} <-
                  locked
                  |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
-                 |> Ash.update() do
+                 |> Ash.update(),
+               :ok <- write_ranked_camera_attrs(locked, attrs) do
             held
             |> Aliases.replaced_addresses(%{})
             |> Aliases.retain_replaced_addresses(actor)
@@ -757,22 +770,79 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     }
 
     if camera_classified_device?(device) do
-      Map.merge(common_attrs, %{
-        type: "camera",
-        type_id: 7,
-        name: attrs.name,
-        hostname: attrs.hostname,
-        ip: attrs.ip,
+      common_attrs
+      |> Map.merge(%{
         mac: attrs.mac,
         gateway_id: nil,
-        agent_id: nil,
-        management_device_id: nil,
-        vendor_name: attrs.vendor_name,
-        model: attrs.model
+        agent_id: nil
       })
+      |> put_camera_primary_ip(device, attrs.ip)
     else
       common_attrs
     end
+  end
+
+  # The descriptor's address replaces the camera's primary only through the shared keep
+  # decision, which records the camera inventory as its source
+  # (`DeviceWrites.direct_primary_ip_attrs/4`); otherwise the stored one stays. A
+  # descriptor with no address (or one withheld as contested) still clears it.
+  defp put_camera_primary_ip(update_attrs, _device, nil), do: Map.put(update_attrs, :ip, nil)
+
+  defp put_camera_primary_ip(update_attrs, %Device{} = device, ip) do
+    Map.merge(
+      update_attrs,
+      DeviceWrites.direct_primary_ip_attrs(device, ip, @camera_ip_source, DateTime.utc_now())
+    )
+  end
+
+  # The camera inventory is platform inventory for the identity it reports
+  # (fix-device-attribute-source-precedence, decision 13): its name, vendor /
+  # model, camera type and management_device_id -- including the clear to none --
+  # go through the same ranked decision as every other writer, so a mapper or
+  # census pass over an SNMP-polled camera cannot replace them, and the mapper's
+  # management-parent fill cannot undo the clear.
+  defp write_ranked_camera_attrs(%Device{} = device, attrs) do
+    if camera_classified_device?(device) do
+      {ranked, provenance} = camera_ranked_attrs(attrs)
+      RankedAttributeWrite.write(device.uid, ranked, provenance)
+    else
+      :ok
+    end
+  end
+
+  defp camera_ranked_attrs(attrs) do
+    {vendor_name, model} =
+      if Enrichment.not_vendor_evidence?(attrs.vendor_name),
+        do: {nil, nil},
+        else: {attrs.vendor_name, attrs.model}
+
+    # The uid is the descriptor's last-resort name, not a name the inventory
+    # reported, so it is not written as a platform-inventory name.
+    name = if attrs.name == Map.get(attrs, :uid), do: nil, else: attrs.name
+
+    ranked = %{
+      name: name,
+      hostname: attrs.hostname,
+      vendor_name: vendor_name,
+      model: model,
+      type: "camera",
+      type_id: 7,
+      management_device_id: nil
+    }
+
+    provenance =
+      %{
+        "name" => if(not blank?(name) or not blank?(attrs.hostname), do: :platform_inventory),
+        "vendor" => if(not blank?(vendor_name) or not blank?(model), do: :hardware),
+        "type" => :platform_inventory,
+        "management_device_id" => :platform_inventory
+      }
+      |> Enum.reject(fn {_group, tier} -> is_nil(tier) end)
+      |> Map.new(fn {group, tier} ->
+        {group, AttributeStrength.tag(group, tier, @camera_discovery_source)}
+      end)
+
+    {ranked, provenance}
   end
 
   defp camera_classified_device?(%Device{} = device) do

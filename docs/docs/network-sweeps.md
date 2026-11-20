@@ -280,10 +280,23 @@ normal interval.
   configurable with `:sweep_max_alias_targets_per_device`). Stale aliases,
   aliases whose `last_seen_at` is older than 30 days (configurable with the
   `:serviceradar_core` application setting `:sweep_alias_max_age_days`, a positive
-  integer), interface addresses, and addresses another live
-  device in the partition holds as its primary IP are not swept.
+  integer), interface addresses, addresses another live
+  device in the partition holds as its primary IP, and aliases another live
+  device in the partition sighted more recently (lowest device id on a tie) are
+  not swept.
 - A result for an alias older than that window, from a group that still covers
   the address, counts for the device only when the address answered.
+- When several devices hold an address, its result counts for a live one: a
+  device holding it as a confirmed alias seen within that window, then the device
+  whose primary IP it is, then a device holding it as a detected alias seen within
+  the window, then an older alias (confirmed ahead of detected). A deleted device
+  is used only when no live device holds the address, so the sweep can restore it
+  and does not add a new device for the address. Only an answered probe confirms
+  a detected alias, and only one held by a live device. ICMP and SNMP metrics
+  attributed by target address follow the same order, so a device's sweep result
+  and its ICMP readings land on the same device. Event device correlation, which
+  keys alerts and findings to a device, considers only confirmed aliases and
+  primary IPs.
 - Sweep results update device availability and discovery metadata. When one
   agent sweeps a device at several addresses, the device is available from that
   agent if any address answered in the sweep, whatever order the results arrive in.

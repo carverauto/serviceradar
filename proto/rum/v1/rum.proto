@@ -1,0 +1,112 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.rum.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/rum/v1;rumpb";
+
+message RumPrefixTagRule {
+  string cidr = 1;
+  string tag = 2;
+}
+
+message WebPropertyRumPolicy {
+  reserved 100 to 199;
+
+  string web_property_id = 1;
+  string name = 2;
+  string canonical_origin = 3;
+  repeated string allowed_origins = 4;
+  repeated string allowed_query_keys = 5;
+  repeated string trace_propagate_origins = 6;
+  string rum_site_key = 7;
+  bool rum_enabled = 8;
+  double rum_sample_rate = 9;
+  bool anonymize_client_ip = 10;
+  string environment = 11;
+  repeated RumPrefixTagRule prefix_tags = 12;
+}
+
+message WebPropertyRumPolicySnapshot {
+  reserved 100 to 199;
+
+  uint64 version = 1;
+  int64 generated_at_unix_ms = 2;
+  repeated WebPropertyRumPolicy properties = 3;
+  repeated RumPrefixTagRule global_prefix_tags = 4;
+}
+
+message RumBeaconV1 {
+  reserved 100 to 199;
+
+  string beacon_id = 1;
+  int64 observed_at_unix_ms = 2;
+  string web_property_id = 3;
+  string canonical_origin = 4;
+  string environment = 5;
+
+  string url = 6;
+  string host = 7;
+  string path = 8;
+  string metric_path = 9;
+  string referrer = 10;
+  string page_group = 11;
+  string initiator = 12;
+
+  string trace_id = 13;
+  string span_id = 14;
+  string session_id = 15;
+  string user_agent = 16;
+  string device_type = 17;
+  string browser = 18;
+  string os = 19;
+
+  optional double lcp_ms = 20;
+  optional double inp_ms = 21;
+  optional double cls = 22;
+  optional double fcp_ms = 23;
+  optional double ttfb_ms = 24;
+  optional double page_load_ms = 25;
+  optional double dns_ms = 26;
+  optional double connect_ms = 27;
+  optional double tls_ms = 28;
+  optional double dom_ready_ms = 29;
+
+  uint32 rage_clicks = 30;
+  uint32 js_errors = 31;
+  uint32 http_status = 32;
+  bool has_error = 33;
+
+  string cdn_provider = 34;
+  string cdn_cache_status = 35;
+  optional double cdn_edge_rtt_ms = 36;
+  optional double cdn_origin_rtt_ms = 37;
+  string cdn_pop = 38;
+  string server_timing_raw = 39;
+
+  string client_ip = 40;
+  bool client_ip_anonymized = 41;
+  string country = 42;
+  string region = 43;
+  string city = 44;
+  uint32 asn = 45;
+  string as_org = 46;
+  string prefix_tag = 47;
+
+  map<string, string> attributes = 48;
+}

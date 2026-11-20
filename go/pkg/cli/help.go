@@ -54,7 +54,7 @@ Options for update-gateway:
   -file string        path to gateway.json config file
   -action string      action to perform: add or remove (default "add")
   -agent string       agent name in gateway.json (default "local-agent")
-  -type string        service type (e.g., sysmon, rperf-checker, snmp)
+  -type string        service type (e.g., sysmon, snmp)
   -name string        service name (defaults to service type)
   -details string     service details (e.g., IP:port for grpc)
   -enable-all         enable all standard checkers

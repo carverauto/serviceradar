@@ -6,10 +6,10 @@ use super::{
     devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
     interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, otel_services, public_endpoints, security_events, services,
+    otel_metrics, otel_services, public_endpoints, rum_beacons, security_events, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
-    translate_request, virtualization, vulnerability_advisories, wifi_map,
+    translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -93,6 +93,7 @@ impl QueryEngine {
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
                 Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
+                Entity::Websites => websites::execute(&mut conn, &plan).await?,
                 Entity::SecurityEvents => security_events::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
                 Entity::DeviceRevivalAudit => {
@@ -101,6 +102,7 @@ impl QueryEngine {
                 Entity::DeviceAvailabilityHistory => {
                     device_availability_history::execute(&mut conn, &plan).await?
                 }
+                Entity::RumBeacons => rum_beacons::execute(&mut conn, &plan).await?,
                 Entity::DeviceIdentifiers => {
                     identity::device_identifiers::execute(&mut conn, &plan).await?
                 }
@@ -164,7 +166,7 @@ impl QueryEngine {
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
                 Entity::OtelMetricPoints => otel_metric_points::execute(&mut conn, &plan).await?,
-                Entity::RperfMetrics
+                Entity::NetperfMetrics
                 | Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::TimeseriesMetricDiskHourly

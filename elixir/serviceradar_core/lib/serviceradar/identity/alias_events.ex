@@ -30,6 +30,8 @@ defmodule ServiceRadar.Identity.AliasEvents do
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Identity.AliasGuard
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -513,12 +515,10 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp handle_existing_alias(existing, _update, confirm_threshold, actor) do
-    # Record the sighting
-    case DeviceAliasState.record_sighting(
-           existing,
-           %{confirm_threshold: confirm_threshold},
-           actor: actor
-         ) do
+    # Record the sighting; an IP alias this sighting confirms expires every other
+    # device's live alias of the address in the same transaction (one live holder
+    # per partition).
+    case record_sighting_and_expire_superseded(existing, confirm_threshold, actor) do
       {:ok, updated} ->
         # Generate event if state changed
         if updated.state == existing.state do
@@ -544,6 +544,49 @@ defmodule ServiceRadar.Identity.AliasEvents do
         nil
     end
   end
+
+  defp record_sighting_and_expire_superseded(existing, confirm_threshold, actor) do
+    fn ->
+      with {:ok, updated, notifications} <-
+             DeviceAliasState.record_sighting(
+               existing,
+               %{confirm_threshold: confirm_threshold},
+               actor: actor,
+               return_notifications?: true
+             ),
+           {:ok, updated, revived} <- AliasGuard.revive_superseded_ip_alias(updated, actor),
+           {:ok, expired} <- expire_superseded(existing, updated, actor) do
+        {updated, notifications ++ revived ++ expired}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {updated, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, updated}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp expire_superseded(
+         %{state: previous},
+         %{alias_type: :ip, state: :confirmed} = updated,
+         actor
+       )
+       when previous not in [:confirmed, :stale] do
+    AliasGuard.expire_superseded_ip_aliases(
+      updated.alias_value,
+      updated.partition,
+      updated.device_id,
+      actor
+    )
+  end
+
+  defp expire_superseded(_existing, _updated, _actor), do: {:ok, []}
 
   defp handle_new_alias(update, alias_type, alias_value, actor) do
     partition = alias_partition(update.partition, update.device_id)
@@ -580,13 +623,48 @@ defmodule ServiceRadar.Identity.AliasEvents do
 
   # Private helpers
 
+  # One update per device, the newest (nil timestamps sort oldest), carrying the alias
+  # keys of every update for the device in the batch. A census snapshot reports a
+  # dual-stack device as one sighting per address; keeping only the newest recorded
+  # one family's address and left the other with no live alias, so a sweep compiled
+  # from aliases dropped it whenever it was not the primary.
   defp deduplicate_by_device_id(updates) do
     updates
     |> Enum.group_by(& &1.device_id)
     |> Enum.map(fn {_device_id, grouped} ->
-      # Keep the newest update; nil timestamps sort oldest.
-      Enum.max_by(grouped, &sortable_timestamp(&1.timestamp), DateTime)
+      newest = Enum.max_by(grouped, &sortable_timestamp(&1.timestamp), DateTime)
+      %{newest | metadata: merged_alias_metadata(grouped, newest)}
     end)
+  end
+
+  defp merged_alias_metadata([_single], newest), do: newest.metadata
+
+  defp merged_alias_metadata(grouped, newest) do
+    grouped
+    |> Enum.reject(&(&1 == newest))
+    |> Enum.reduce(newest.metadata, fn update, acc ->
+      Map.merge(alias_keys(update.metadata), acc)
+    end)
+  end
+
+  # The alias keys of an update, with its last-seen address folded into an
+  # `ip_alias:` key so it is not lost when another update's last-seen address wins.
+  defp alias_keys(metadata) do
+    keys =
+      Map.filter(metadata || %{}, fn {key, _value} ->
+        is_binary(key) and
+          (String.starts_with?(key, "ip_alias:") or
+             String.starts_with?(key, "interface_ip_alias:") or
+             String.starts_with?(key, "service_alias:"))
+      end)
+
+    case metadata do
+      %{"_alias_last_seen_ip" => ip} when is_binary(ip) and ip != "" ->
+        Map.put_new(keys, "ip_alias:" <> ip, metadata["_alias_last_seen_at"] || "")
+
+      _ ->
+        keys
+    end
   end
 
   defp sortable_timestamp(nil), do: ~U[1970-01-01 00:00:00Z]

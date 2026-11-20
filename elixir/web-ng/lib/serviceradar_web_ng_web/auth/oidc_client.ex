@@ -16,11 +16,11 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
   @behaviour ServiceRadarWebNG.Mcp.OAuth.IdPRefreshClient
 
+  alias Palisade.OutboundFetch
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadarWebNG.Pkce
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
-  alias ServiceRadarWebNGWeb.Auth.OutboundFetch
-  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
   require Logger
 
@@ -243,6 +243,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
     cache_key = "oidc_metadata:#{discovery_url}"
 
     case ConfigCache.get_cached(cache_key) do
+      # Private functions
       {:ok, metadata} ->
         {:ok, metadata}
 
@@ -271,8 +272,6 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
       end
     end
   end
-
-  # Private functions
 
   defp get_config do
     case OIDCStrategy.get_config() do
@@ -413,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   def stale_connection?(_reason), do: false
 
   defp validate_redirect_endpoint(url) when is_binary(url) do
-    case OutboundURLPolicy.validate(url) do
+    case OutboundURLPolicy.validate_https_public_url(url) do
       {:ok, _uri} -> {:ok, url}
       {:error, _reason} -> {:error, :discovery_failed}
     end

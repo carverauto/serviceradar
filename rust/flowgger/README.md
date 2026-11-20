@@ -76,7 +76,7 @@ bridge thread per worker keeps an idle synchronous queue off the Tokio runtime.
 ## Normalized batches
 
 When the embedding log collector normalizes syslog itself (see
-`rust/log-collector/src/config.rs`, off by default), the NATS output publishes
+`rust/log-collector/src/config.rs`, on by default), the NATS output publishes
 OTLP batches on the normalized form of `output.nats_subject` (`logs.syslog`
 becomes `logs.normalized.syslog`), one ruleset per batch. Records that arrive
 before a ruleset is active are published one by one on `output.nats_subject`

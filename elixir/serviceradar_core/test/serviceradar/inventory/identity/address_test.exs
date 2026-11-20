@@ -97,6 +97,22 @@ defmodule ServiceRadar.Inventory.Identity.AddressTest do
       assert Address.best(["fe80::1", "192.168.1.1", "fd00::1"]) == "192.168.1.1"
     end
 
+    test "the family decides before the rank" do
+      # A usable IPv4 beats any IPv6, even a global one over a private IPv4; a
+      # routable IPv6 beats a link-local IPv4.
+      assert Address.best(["2001:db8::3", "192.168.0.3"]) == "192.168.0.3"
+      assert Address.best(["169.254.1.5", "2001:db8::5"]) == "2001:db8::5"
+      assert Address.best(["fe80::5", "fd00::5"]) == "fd00::5"
+    end
+
+    test "only equally strong candidates tie-break: the stored primary, then the lowest" do
+      assert Address.best(["198.51.100.6", "192.0.2.6"]) == "192.0.2.6"
+      assert Address.best(["192.0.2.6", "198.51.100.6"], "198.51.100.6") == "198.51.100.6"
+      assert Address.best(["fe80::9", "169.254.1.9"]) == "169.254.1.9"
+      # Never across ranks: a stored private address yields to a global one.
+      assert Address.best(["10.1.0.5", "203.0.113.5"], "10.1.0.5") == "203.0.113.5"
+    end
+
     test "returns nil when nothing is usable, so callers keep what they have" do
       assert Address.best(["127.0.0.1", "::1", "0.0.0.0", "junk"]) == nil
       assert Address.best([]) == nil
@@ -128,6 +144,11 @@ defmodule ServiceRadar.Inventory.Identity.AddressTest do
     test "an equal-ranked candidate does not displace the current address" do
       # Ties must not swap, or two same-class addresses flap on every update.
       assert Address.preferred_primary("10.0.0.1", ["192.168.1.1"]) == "10.0.0.1"
+    end
+
+    test "a higher-rank IPv6 never displaces a usable IPv4" do
+      assert Address.preferred_primary("192.168.0.3", ["2001:db8::3"]) == "192.168.0.3"
+      assert Address.preferred_primary("169.254.1.5", ["2001:db8::5"]) == "2001:db8::5"
     end
 
     test "a nil current address is replaced by any usable candidate" do

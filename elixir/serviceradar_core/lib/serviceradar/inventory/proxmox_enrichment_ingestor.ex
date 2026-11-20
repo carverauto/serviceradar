@@ -439,7 +439,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
             uptime_seconds: integer_value(guest, "uptime"),
             metadata:
               guest
-              |> Map.take(["id", "config", "runtime_status", "filesystems"])
+              |> Map.take(["id", "config", "runtime_status", "runtime_state", "filesystems"])
               |> sanitize_metadata()
               |> maybe_put_metadata("integration_id", integration_id),
             observed_at: observed_at

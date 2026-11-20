@@ -11,6 +11,7 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -122,6 +123,93 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
     assert result[ip].canonical_device_id == survivor_uid
   end
 
+  # Which holder an address resolves to (DeviceLookup.batch_resolve_by_ip/2). Each test runs
+  # in its own partition, so rows elsewhere in the shared database cannot hold its addresses.
+  describe "holder selection" do
+    setup do
+      {:ok, partition: "lookup-#{System.unique_integer([:positive])}"}
+    end
+
+    test "a live device whose primary IP is the address beats a deleted alias holder", %{
+      actor: actor,
+      partition: partition
+    } do
+      ip = "192.0.2.10"
+      live = device!(actor, partition, ip)
+      deleted = device!(actor, partition, "198.51.100.10", deleted: true)
+      hold_alias!(deleted, ip, :confirmed)
+
+      assert %{^ip => %{canonical_device_id: uid}} = lookup(actor, partition, [ip])
+      assert uid == live.uid
+
+      # The single-key lookup picks the same holder.
+      assert {:ok, %{found: true, record: %{canonical_device_id: single_uid}}} =
+               DeviceLookup.get_canonical_device([%{kind: :ip, value: ip}],
+                 actor: actor,
+                 include_deleted: true,
+                 partition: partition
+               )
+
+      assert single_uid == live.uid
+    end
+
+    test "a live alias holder beats a deleted device whose primary IP is the address", %{
+      actor: actor,
+      partition: partition
+    } do
+      ip = "192.0.2.20"
+      _deleted = device!(actor, partition, ip, deleted: true)
+      holder = device!(actor, partition, "198.51.100.20")
+      hold_alias!(holder, ip, :detected)
+
+      assert %{^ip => %{canonical_device_id: uid}} = lookup(actor, partition, [ip])
+      assert uid == holder.uid
+    end
+
+    test "a live alias holder seen within the recency window beats one seen before it", %{
+      actor: actor,
+      partition: partition
+    } do
+      stale = device!(actor, partition, "198.51.100.40")
+      fresh = device!(actor, partition, "198.51.100.41")
+
+      # A confirmed alias outside the window against a detected one inside it.
+      hold_alias!(stale, "192.0.2.40", :confirmed, days_ago: 60)
+      hold_alias!(fresh, "192.0.2.40", :detected)
+
+      # Two detected aliases: sightings do not outrank recency.
+      hold_alias!(stale, "192.0.2.41", :detected, days_ago: 60, sightings: 5)
+      hold_alias!(fresh, "192.0.2.41", :detected)
+
+      # A stale alias with no fresher live holder still resolves: age never drops it.
+      hold_alias!(stale, "192.0.2.42", :confirmed, days_ago: 60)
+
+      resolved =
+        actor
+        |> lookup(partition, ["192.0.2.40", "192.0.2.41", "192.0.2.42"])
+        |> Map.new(fn {ip, record} -> {ip, record.canonical_device_id} end)
+
+      assert resolved == %{
+               "192.0.2.40" => fresh.uid,
+               "192.0.2.41" => fresh.uid,
+               "192.0.2.42" => stale.uid
+             }
+    end
+
+    # Rows written before aliases were validated (AliasPolicy) may still hold such values.
+    test "a leftover link-local alias resolves nothing", %{actor: actor, partition: partition} do
+      holder = device!(actor, partition, "198.51.100.50")
+      %DeviceAliasState{id: id} = hold_alias!(holder, "192.0.2.50", :confirmed)
+
+      Repo.query!(
+        "UPDATE platform.device_alias_states SET alias_value = '169.254.10.20' WHERE id = $1",
+        [Ecto.UUID.dump!(id)]
+      )
+
+      assert lookup(actor, partition, ["169.254.10.20"]) == %{}
+    end
+  end
+
   test "batch lookup ignores stale identity cache by default", %{actor: actor} do
     ip = unique_ip("batch-stale")
     stale_record = stale_record("sr:" <> Ecto.UUID.generate(), ip)
@@ -212,6 +300,77 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
              )
 
     assert IdentityCache.get(alias_ip) == nil
+  end
+
+  defp lookup(actor, partition, ips) do
+    DeviceLookup.batch_lookup_by_ip(ips,
+      actor: actor,
+      include_deleted: true,
+      partition: partition
+    )
+  end
+
+  defp device!(actor, partition, ip, opts \\ []) do
+    uid = "sr:" <> Ecto.UUID.generate()
+
+    assert {:ok, device} =
+             Device
+             |> Ash.Changeset.for_create(:create, %{
+               uid: uid,
+               ip: ip,
+               partition: partition,
+               hostname: "host-" <> String.slice(uid, 3, 8)
+             })
+             |> Ash.create(actor: actor)
+
+    if Keyword.get(opts, :deleted, false) do
+      assert {:ok, deleted} =
+               device
+               |> Ash.Changeset.for_update(:soft_delete, %{
+                 deleted_reason: "test",
+                 deleted_by: "device_lookup_alias_test"
+               })
+               |> Ash.update(actor: actor)
+
+      deleted
+    else
+      device
+    end
+  end
+
+  # An IP alias of `device` in `state`, last seen `days_ago` days ago.
+  defp hold_alias!(device, ip, state, opts \\ []) do
+    actor = SystemActor.system(:device_lookup_alias_test)
+
+    assert {:ok, alias_state} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: device.uid,
+                 partition: device.partition,
+                 alias_type: :ip,
+                 alias_value: ip,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+
+    Repo.query!(
+      """
+      UPDATE platform.device_alias_states
+      SET state = $2,
+          sighting_count = $3,
+          last_seen_at = (now() AT TIME ZONE 'utc') - make_interval(days => $4)
+      WHERE id = $1
+      """,
+      [
+        Ecto.UUID.dump!(alias_state.id),
+        Atom.to_string(state),
+        Keyword.get(opts, :sightings, 1),
+        Keyword.get(opts, :days_ago, 0)
+      ]
+    )
+
+    alias_state
   end
 
   defp stale_record(uid, ip) do

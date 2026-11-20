@@ -10,11 +10,13 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+async-nats = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 config-bootstrap = { path = "../config-bootstrap" }
 env_logger = { workspace = true }
 kvutil = { path = "../kvutil" }
 flowgger = { package = "serviceradar-flowgger", path = "../flowgger", default-features = false }
+futures = { workspace = true }
 log = { workspace = true }
 otel = { path = "../otel", optional = true }
 rustls = { workspace = true }
@@ -26,8 +28,13 @@ tonic = { workspace = true }
 tonic-health = { workspace = true }
 
 [dev-dependencies]
+async-nats = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
 rcgen = { workspace = true }
 runfiles = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -230,7 +230,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   test "retains the survivor's replaced primary address as a detected alias when taking the successor's address",
        %{actor: actor} do
     world = rekeyed(actor)
-    old_ip = "192.0.2.#{rem(System.unique_integer([:positive, :monotonic]), 250) + 1}"
+    # Weaker than the successor's IPv4, so the hand-over takes the successor's address.
+    old_ip = "2001:db8::#{Integer.to_string(System.unique_integer([:positive, :monotonic]), 16)}"
     successor_ip = device(world.successor, actor).ip
 
     assert %{num_rows: 1} =
@@ -257,6 +258,25 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
                 }
               }
             ]} = DeviceAliasState.lookup_for_device(world.predecessor, :ip, old_ip, actor: actor)
+  end
+
+  test "the hand-over never swaps a survivor's link-local for an equally strong one",
+       %{actor: actor} do
+    world = rekeyed(actor)
+    n = Integer.to_string(System.unique_integer([:positive, :monotonic]), 16)
+    survivor_ip = "fe80::1:#{n}"
+
+    for {uid, ip} <- [{world.predecessor, survivor_ip}, {world.successor, "fe80::2:#{n}"}] do
+      assert %{num_rows: 1} =
+               Repo.query!("UPDATE platform.ocsf_devices SET ip = $1 WHERE uid = $2", [ip, uid])
+    end
+
+    assert {:ok, %{merged: 1, skipped: 0, deferred: 0}} =
+             SourceSuccession.run(actor: actor, max_successions: 10)
+
+    assert device(world.predecessor, actor).ip == survivor_ip
+    assert {:ok, [audit]} = MergeAudit.get_merged_to(world.successor, actor: actor)
+    refute audit.details["succession"]["ip_transferred"]
   end
 
   test "a successor created first survives, keeping the current id and its address",

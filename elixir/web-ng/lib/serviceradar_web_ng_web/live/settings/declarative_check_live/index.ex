@@ -295,6 +295,15 @@ defmodule ServiceRadarWebNGWeb.Settings.DeclarativeCheckLive.Index do
 
             <div class="flex flex-wrap items-center gap-2">
               <.ui_button
+                id="view-live-results-link"
+                size="sm"
+                variant="outline"
+                navigate={~p"/services/checks"}
+              >
+                <.icon name="hero-table-cells" class="w-4 h-4 mr-1" /> View Live Results
+              </.ui_button>
+
+              <.ui_button
                 :if={@can_manage}
                 id="open-import-declarative-check-btn"
                 type="button"

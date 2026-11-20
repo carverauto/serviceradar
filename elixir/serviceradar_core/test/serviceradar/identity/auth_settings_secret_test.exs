@@ -86,22 +86,4 @@ defmodule ServiceRadar.Identity.AuthSettingsSecretTest do
     assert is_nil(cleared.encrypted_oidc_client_secret_encrypted)
     assert is_nil(AuthSettings.get_oidc_client_secret(cleared))
   end
-
-  test "update encrypts the SAML private key and the decrypt calc round-trips it" do
-    system = SystemActor.system(:auth_settings_secret_test_seed)
-    settings = ensure_settings(system)
-    actor = admin()
-
-    key = "saml-private-key-#{System.unique_integer([:positive])}"
-
-    assert {:ok, %AuthSettings{} = updated} =
-             AuthSettings.update(settings, %{saml_private_key: key}, actor: actor)
-
-    assert is_binary(updated.encrypted_saml_private_key_encrypted)
-    refute updated.encrypted_saml_private_key_encrypted == key
-    assert AuthSettings.get_saml_private_key(updated) == key
-
-    assert {:ok, fetched} = AuthSettings.get_settings(actor: actor)
-    assert AuthSettings.get_saml_private_key(fetched) == key
-  end
 end

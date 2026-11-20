@@ -123,8 +123,12 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert html =~ "Dashboard &amp; Report Library"
     assert html =~ "Security Findings"
     assert html =~ "Endpoint Inventory"
+    assert html =~ "Network Performance"
+    assert html =~ "Web RUM"
     assert has_element?(view, "a[href='/dashboards/security-findings']")
     assert has_element?(view, "a[href='/dashboards/endpoint-inventory']")
+    assert has_element?(view, "a[href='/dashboards/network-performance']")
+    assert has_element?(view, "a[href='/dashboards/web-rum']")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -144,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
   } do
     timezone = user.timezone || "Etc/UTC"
 
-    for route_slug <- ["security-findings", "endpoint-inventory"] do
+    for route_slug <- ["security-findings", "endpoint-inventory", "network-performance", "web-rum"] do
       {:ok, view, _html} = live(conn, ~p"/dashboards/#{route_slug}")
       html = render_async(view, 5_000)
 
@@ -197,6 +201,48 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
                "endpoint_inventory_findings_latest",
                "powerdns_dns_latest"
              ])
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "network-performance dashboard mounts built_in Blueprint host payload", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboards/network-performance")
+    _ = render_async(view, 5_000)
+
+    [host_json] =
+      view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[phx-hook='DashboardWasmHost']")
+      |> LazyHTML.attribute("data-host")
+
+    host = Jason.decode!(host_json)
+    assert get_in(host, ["package", "dashboard_id"]) == "cloud.serviceradar.network-performance"
+    assert get_in(host, ["package", "source_type"]) == "first_party"
+    assert get_in(host, ["package", "renderer", "kind"]) == "built_in"
+    assert get_in(host, ["package", "renderer", "interface_version"]) == "dashboard-built-in-v1"
+    assert get_in(host, ["package", "renderer", "entrypoint"]) == "network_performance"
+    assert get_in(host, ["instance", "route_slug"]) == "network-performance"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "web-rum dashboard mounts built_in Blueprint host payload", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/dashboards/web-rum")
+    _ = render_async(view, 5_000)
+
+    [host_json] =
+      view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[phx-hook='DashboardWasmHost']")
+      |> LazyHTML.attribute("data-host")
+
+    host = Jason.decode!(host_json)
+    assert get_in(host, ["package", "dashboard_id"]) == "cloud.serviceradar.web-rum"
+    assert get_in(host, ["package", "source_type"]) == "first_party"
+    assert get_in(host, ["package", "renderer", "kind"]) == "built_in"
+    assert get_in(host, ["package", "renderer", "interface_version"]) == "dashboard-built-in-v1"
+    assert get_in(host, ["package", "renderer", "entrypoint"]) == "web_rum"
+    assert get_in(host, ["instance", "route_slug"]) == "web-rum"
   end
 
   defp insert_trivy_finding!(event_uuid, finding_uuid) do

@@ -110,8 +110,15 @@ This is deliberate. Clearing every profile that no mapping accounted for would
 strip access from users who have no mapping at all, which is most of them.
 
 Revocation is recorded as a `role_mapping` authentication event, alongside the
-grants that were applied and which mappings matched. Claim payloads are not
-recorded: a claim set carries far more about a person than the decision needs.
+grants that were applied and which mappings matched. The event does not record
+claim payloads: a claim set carries far more about a person than the decision
+needs.
+
+Each SSO sign-in also writes one log line with the mapped role, the number of
+configured mappings, which ones matched, and the values of the role-relevant
+claims (`groups`, `group`, `roles`, `role`, and any claim a mapping names; at
+most 25 values per claim, never tokens). It is logged as a warning when
+mappings are configured but none matched.
 
 ## Testing A Mapping Before You Trust It
 
@@ -121,6 +128,15 @@ mappings matched -- without signing in as anybody.
 
 Use it whenever a mapping does not appear to do anything. The usual cause is
 that the claim never arrived, not that the mapping is wrong.
+
+To see what a real sign-in sent, the user opens **Settings -> Profile**. For an
+SSO session, the **Access** panel has an **SSO sign-in** section listing the
+identity and group/role claims from their current session and which mappings
+matched and what each granted. When nothing matched, it says so explicitly
+instead of looking like a mapping that grants the default role. It also flags
+Entra group overage, and a collapsed **All claims** block lists the session's
+full claim set (`nonce`, `sid` and the token-hash claims are hidden). Role
+changes apply at the next sign-in.
 
 ## Microsoft Entra ID
 
@@ -160,7 +176,7 @@ Overview -> Object ID**.
 
 ### Group Overage
 
-If a user is a member of more than roughly 150 groups (200 for SAML), Entra
+If a user is a member of more than roughly 150 groups, Entra
 omits the `groups` claim entirely and sends a Graph API pointer instead:
 
 ```
@@ -171,7 +187,7 @@ omits the `groups` claim entirely and sends a Graph API pointer instead:
 ServiceRadar does not follow that pointer, so **every groups mapping stops
 matching for that user** and they fall back to the default role. This is easy
 to miss: it affects only the users in many groups, so most sign-ins keep
-working.
+working. The affected user's **Settings -> Profile** page flags it.
 
 Avoid it by emitting only groups assigned to the application rather than all
 security groups. If a user reports losing access after a directory change while

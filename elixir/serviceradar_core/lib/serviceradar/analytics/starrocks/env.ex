@@ -35,7 +35,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     otel: 365,
     traces: 365,
     bmp: 365,
-    attribution: 30
+    attribution: 30,
+    rum: 30
   ]
 
   # How far an hourly materialized view may lag its source table before a

@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.Remediation.AgentLinks
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -125,7 +126,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
       """
       UPDATE platform.ocsf_devices
       SET hostname = $1, ip = $2, identity_purged_at = NULL, agent_id = NULL,
-          metadata = jsonb_build_object('_seed_successor', $4::text)
+          metadata = jsonb_build_object('_seed_successor', $4::text),
+          attribute_provenance = '{"name": {"source": "hypervisor_enrichment", "strength": 5}}'::jsonb
       WHERE uid = $3
       """,
       [host, recorded_ip, tombstone.uid, successor_uid]
@@ -173,6 +175,32 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinksTest do
       assert restored.ip == if(takes_ip?, do: agent_ip)
       assert restored.metadata["_seed_successor"] == successor_uid
       assert restored.metadata["created_by"] == "dire_remediation"
+      assert restored.name == host
+
+      assert restored.attribute_provenance == %{
+               "name" => %{"source" => "agent", "strength" => 0}
+             }
+
+      sys_name = "sw-sysname-#{System.unique_integer([:positive])}.example.com"
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   %{
+                     "device_id" => tombstone.uid,
+                     "ip" => restored.ip || TestSupport.unique_device_ip(),
+                     "partition" => "default",
+                     "source" => "mapper",
+                     "hostname" => sys_name,
+                     "metadata" => %{}
+                   }
+                 ],
+                 actor: actor
+               )
+
+      assert {:ok, renamed} = Device.get_by_uid(tombstone.uid, false, actor: actor)
+      assert renamed.name == sys_name
+      assert renamed.hostname == sys_name
       assert {:ok, %Agent{device_uid: device_uid}} = Ash.get(Agent, agent.uid, actor: actor)
       assert device_uid == tombstone.uid
       assert {:ok, kept} = Device.get_by_uid(holder.uid, false, actor: actor)

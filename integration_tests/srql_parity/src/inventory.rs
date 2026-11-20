@@ -327,7 +327,7 @@ mod tests {
             "flows",
             "timeseries_metrics",
             "snmp_metrics",
-            "rperf_metrics",
+            "netperf_metrics",
             "logs",
             "events",
             "security_findings",
@@ -339,6 +339,7 @@ mod tests {
             "otel_trace_summaries",
             "bmp_events",
             "device_availability_history",
+            "rum",
         ] {
             assert!(
                 inventory.entries.iter().any(|e| e.entity() == Some(entity)),

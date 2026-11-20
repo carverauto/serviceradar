@@ -106,7 +106,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.census("i2", "p2")
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.purge("d1")
-    |> Trace.by_uid("d1", "p3")
+    # The source reports the survivor's own address: an equally strong other address would
+    # not move a primary the census recorded and still sights.
+    |> Trace.by_uid("d1", "p2")
     |> Trace.assert_golden!()
   end
 
@@ -123,7 +125,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.purge("d1")
     |> Trace.sweep("p1")
-    |> Trace.by_uid("d1", "p3")
+    |> Trace.by_uid("d1", "p2")
     |> Trace.assert_golden!()
   end
 

@@ -96,7 +96,7 @@ fn validate_other_rollup_request(
             | Entity::AttributedFlows
             | Entity::TimeseriesMetrics
             | Entity::SnmpMetrics
-            | Entity::RperfMetrics
+            | Entity::NetperfMetrics
     ) {
         return Err(ServiceError::InvalidRequest(
             "other:true is currently supported only for flow or timeseries stats".into(),
@@ -307,7 +307,11 @@ fn parse_bool_str(value: &str) -> Result<bool> {
 fn entity_uses_telemetry_ids(entity: &Entity) -> bool {
     matches!(
         entity,
-        Entity::Traces | Entity::Logs | Entity::OtelMetrics | Entity::TraceSummaries
+        Entity::Traces
+            | Entity::Logs
+            | Entity::OtelMetrics
+            | Entity::TraceSummaries
+            | Entity::RumBeacons
     )
 }
 

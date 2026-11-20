@@ -1,0 +1,98 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [],
+    "priority": 3,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Confirms that at least one Proxmox host was reported in the last hour, so the other checks in this pack are judging current data.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "fresh_hosts",
+      "source_handle": "signal",
+      "target": "assert_fresh",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_fresh",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [],
+  "managed": true,
+  "name": "Proxmox Inventory Freshness",
+  "nodes": [
+    {
+      "config": {
+        "limit": 100,
+        "query": "in:virtualization_hosts time:last_1h limit:1",
+        "result_mode": "count"
+      },
+      "id": "fresh_hosts",
+      "kind": "srql_query",
+      "label": "Hosts Reported"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": "<",
+          "value": 1
+        },
+        "field": "count"
+      },
+      "id": "assert_fresh",
+      "kind": "threshold_assert",
+      "label": "At Least One Host"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "down": "inventory_stale",
+          "healthy": "inventory_current",
+          "unknown": "inventory_state_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Inventory Freshness Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.proxmox-monitoring",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "proxmox-inventory-freshness",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_fresh": {
+        "x": 380,
+        "y": 120
+      },
+      "fresh_hosts": {
+        "x": 80,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      }
+    }
+  }
+}

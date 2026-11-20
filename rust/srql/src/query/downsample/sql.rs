@@ -58,7 +58,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
             // A device-filtered chart request is safe to route as long as every filter and
             // the optional series grouping only reference those CAGG group keys, the agg has a
             // pre-materialized column, and the bucket is hourly-or-coarser (the CAGG resolution).
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => {
                 downsample.bucket_seconds >= 3600
                     && downsample.bucket_seconds % 3600 == 0
                     && matches!(
@@ -74,7 +74,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let (raw_table, raw_ts_col, forced_metric_type) = match plan.entity {
         Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
         Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", Some("snmp")),
-        Entity::RperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
+        Entity::NetperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
         _ => {
             return Err(ServiceError::InvalidRequest(
                 "downsample is only supported for metric entities".into(),
@@ -107,7 +107,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let timeseries_cagg = use_hourly_cagg
         && matches!(
             plan.entity,
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics
         );
     let value_col = if timeseries_cagg {
         match downsample.agg {
@@ -138,7 +138,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let hour_grained = !use_hourly_cagg
         && matches!(
             plan.entity,
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics
         )
         && bucket_secs >= 3600
         && bucket_secs % 3600 == 0
@@ -190,7 +190,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         // metric tables (cpu/memory/disk/process) keep the legacy drop-on-decrease behavior.
         let has_counter_width = matches!(
             plan.entity,
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics
         );
 
         let (counter_width_select, rate_case) = if has_counter_width {
@@ -292,7 +292,7 @@ fn timeseries_cagg_weighted_avg(avg_col: &str) -> String {
 fn rate_partition_expr(plan: &QueryPlan, display_series_expr: &str) -> String {
     if matches!(
         plan.entity,
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics
     ) {
         "gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key".to_string()
     } else {
@@ -362,7 +362,7 @@ pub(super) fn build_bind_values(plan: &QueryPlan) -> Result<Vec<SqlBindValue>> {
 
     if matches!(plan.entity, Entity::SnmpMetrics) {
         binds.push(SqlBindValue::Text("snmp".to_string()));
-    } else if matches!(plan.entity, Entity::RperfMetrics) {
+    } else if matches!(plan.entity, Entity::NetperfMetrics) {
         binds.push(SqlBindValue::Text("rperf".to_string()));
     }
 

@@ -84,7 +84,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"name":"cephfs"}]}`),
 		}, nil
-	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu"):
+	case qemuGuestList(req.URL, "/api2/json/nodes/pve-a/qemu"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"id":"qemu/100","node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048,"disk":1024,"maxdisk":4096}]}`),
@@ -123,6 +123,12 @@ type staticHTTPClient struct {
 	response *sdk.HTTPResponse
 }
 
+// qemuGuestList reports whether url is a node's QEMU guest list, with or without
+// the runtime-state query. Proxmox answers both.
+func qemuGuestList(url, pathSuffix string) bool {
+	return strings.HasSuffix(strings.TrimSuffix(url, qemuRuntimeStateQuery), pathSuffix)
+}
+
 type inventoryHTTPFunc func(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
 
 func (f inventoryHTTPFunc) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
@@ -151,7 +157,7 @@ func TestInventorySubmitsAllHostsBeforeGuests(t *testing.T) {
 			body = `{"data":[{"node":"host01","status":"online"},{"node":"host02","status":"online"}]}`
 		case strings.HasSuffix(req.URL, "/host01/network"):
 			body = `{"data":[{"iface":"vmbr0","address":"192.0.2.41","cidr":"192.0.2.41/24"}]}`
-		case strings.HasSuffix(req.URL, "/host01/qemu"):
+		case qemuGuestList(req.URL, "/host01/qemu"):
 			body = `{"data":[{"vmid":501,"name":"guest01","status":"stopped"}]}`
 		case strings.HasSuffix(req.URL, "/501/config"):
 			body = `{"data":{"net0":"virtio=00:00:5e:00:53:41,ip=192.0.2.42/24"}}`
@@ -253,8 +259,14 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if !strings.Contains(result.Summary, "1 node(s), 1 guest(s)") {
 		t.Fatalf("expected aggregate counts in summary, got %q", result.Summary)
 	}
-	if len(client.requests) != 13 {
-		t.Fatalf("expected thirteen Proxmox API requests, got %d", len(client.requests))
+	// One poll reads each Proxmox endpoint once. A second read of the same URL
+	// is a wasted call on every check.
+	requested := map[string]struct{}{}
+	for _, req := range client.requests {
+		if _, repeated := requested[req.URL]; repeated {
+			t.Fatalf("endpoint requested more than once in one poll: %s", req.URL)
+		}
+		requested[req.URL] = struct{}{}
 	}
 	for _, req := range client.requests {
 		if strings.Contains(req.URL, "/api2/json/cluster/resources") {
@@ -399,7 +411,7 @@ func (c *nodeScopedGuestHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, 
 	c.urls = append(c.urls, req.URL)
 
 	switch {
-	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/qemu"):
+	case qemuGuestList(req.URL, "/api2/json/nodes/pve-a/qemu"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
 			Body:   []byte(`{"data":[{"vmid":100,"name":"vm-100","status":"stopped","maxcpu":4,"maxmem":2048,"maxdisk":4096}]}`),

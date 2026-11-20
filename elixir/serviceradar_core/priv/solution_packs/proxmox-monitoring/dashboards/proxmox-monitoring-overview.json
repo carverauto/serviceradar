@@ -1,0 +1,73 @@
+{
+  "default_time_range": "last_24h",
+  "description": "Proxmox check verdicts, the fullest datastores, paused guests and guests whose runtime state is not reported.",
+  "metadata": {
+    "category": "Infrastructure"
+  },
+  "panels": [
+    {
+      "data_binding": {},
+      "display_config": {},
+      "layout": {
+        "h": 3,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "position": 0,
+      "srql_query": "in:declarative_check_results check_slug:(proxmox-datastore-capacity,proxmox-paused-guests,proxmox-inventory-freshness) sort:check_slug:asc limit:10",
+      "title": "Proxmox Check Verdicts",
+      "visual_config": {},
+      "visual_type": "table"
+    },
+    {
+      "data_binding": {},
+      "display_config": {},
+      "layout": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 3
+      },
+      "position": 1,
+      "srql_query": "in:virtualization_datastores time:last_1h sort:used_percent:desc limit:10",
+      "title": "Fullest Datastores",
+      "visual_config": {},
+      "visual_type": "table"
+    },
+    {
+      "data_binding": {},
+      "display_config": {},
+      "layout": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "position": 2,
+      "srql_query": "in:virtualization_guests status:paused time:last_1h limit:50",
+      "title": "Paused Guests",
+      "visual_config": {},
+      "visual_type": "table"
+    },
+    {
+      "data_binding": {},
+      "display_config": {},
+      "layout": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "position": 3,
+      "srql_query": "in:virtualization_guests status:running runtime_state:unknown time:last_1h limit:50",
+      "title": "Running Guests Without A Runtime State",
+      "visual_config": {},
+      "visual_type": "table"
+    }
+  ],
+  "slug": "proxmox-monitoring-overview",
+  "title": "Proxmox Monitoring",
+  "variables": {},
+  "version": 1
+}

@@ -74,6 +74,12 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/declarative-check-runner:main.go",
         "tags": [],
     },
+    {
+        "name": "http_synthetic_journey",
+        "srcs": ["//go/cmd/wasm-plugins/http-synthetic-journey:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/http-synthetic-journey:main.go",
+        "tags": [],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -275,6 +281,17 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/declarative-check-runner:plugin.yaml"),
             ("plugin.wasm", ":declarative_check_runner_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/declarative-check-runner:config.schema.json"),
+        ],
+    },
+    {
+        "name": "http_synthetic_journey_bundle",
+        "plugin_id": "http-synthetic-journey",
+        "repository_name": "wasm-plugin-http-synthetic-journey",
+        "wasm_target": ":http_synthetic_journey_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/http-synthetic-journey:plugin.yaml"),
+            ("plugin.wasm", ":http_synthetic_journey_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/http-synthetic-journey:config.schema.json"),
         ],
     },
 ]

@@ -558,6 +558,94 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
              }
     end
 
+    test "a recycled alias address compiles to its one live holder on every compile", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      # Two devices hold a live alias of one address: the earlier holder never
+      # re-sighted it, the later one did. The target belongs to the later holder
+      # only, so the attribution cannot follow SRQL row order between compiles.
+      recycled_ip = "192.0.2.#{rem(unique_id, 200) + 20}"
+
+      [earlier, later] =
+        for {label, offset} <- [{"earlier", 41}, {"later", 42}] do
+          {:ok, device} =
+            Device
+            |> Ash.Changeset.for_create(
+              :create,
+              %{
+                uid: "sr:alias-holder-#{label}-#{unique_id}",
+                ip: unique_device_ip(unique_id, offset),
+                hostname: "alias-holder-#{label}-#{unique_id}.example.com",
+                partition: "default"
+              },
+              actor: actor
+            )
+            |> Ash.create()
+
+          {:ok, _alias} =
+            DeviceAliasState.create_detected(
+              %{
+                device_id: device.uid,
+                partition: "default",
+                alias_type: :ip,
+                alias_value: recycled_ip
+              },
+              actor: actor
+            )
+
+          device
+        end
+
+      Repo.query!(
+        """
+        UPDATE platform.device_alias_states SET last_seen_at = last_seen_at - interval '1 hour'
+        WHERE device_id = $1 AND alias_value = $2
+        """,
+        [earlier.uid, recycled_ip]
+      )
+
+      groups =
+        for device <- [earlier, later] do
+          {:ok, group} =
+            SweepGroup
+            |> Ash.Changeset.for_create(
+              :create,
+              %{
+                name: "Alias Holder Group #{device.uid}",
+                partition: "default",
+                interval: "15m",
+                target_query: ~s(in:devices hostname:"#{device.hostname}"),
+                enabled: true
+              },
+              actor: actor
+            )
+            |> Ash.create()
+
+          {device, group}
+        end
+
+      compile_targets = fn ->
+        ConfigCache.invalidate(:sweep)
+        assert {:ok, config} = SweepCompiler.compile("default", nil, actor: actor)
+
+        Map.new(groups, fn {device, group} ->
+          compiled = Enum.find(config["groups"], &(&1["id"] == group.id))
+          {device.uid, compiled["device_targets"]}
+        end)
+      end
+
+      first = compile_targets.()
+      assert compile_targets.() == first
+
+      refute recycled_ip in Enum.map(first[earlier.uid], & &1["network"])
+
+      assert %{"metadata" => %{"device_uid" => later_uid}} =
+               Enum.find(first[later.uid], &(&1["network"] == recycled_ip))
+
+      assert later_uid == later.uid
+    end
+
     test "ignores integration network blacklist settings when compiling sweep targets", %{
       actor: actor,
       unique_id: unique_id

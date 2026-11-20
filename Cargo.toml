@@ -34,8 +34,6 @@ members = [
     "rust/netprobe",
     "rust/workload-identity",
     "rust/powerdns",
-    "rust/rperf-client",
-    "third_party/rust_patches/rperf-0.1.25",
     "rust/flow-collector",
     "rust/srql",
     "integration_tests/srql",
@@ -84,6 +82,9 @@ base64 = "0.22"
 bb8 = "0.8"
 bgpkit-parser = { version = "0.20", default-features = false }
 bytes = "1"
+candle-core = { version = "0.11", default-features = false }
+candle-nn = { version = "0.11", default-features = false }
+candle-transformers = { version = "0.11", default-features = false }
 capnp = "0.27"
 capnpc = "0.27"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -130,7 +131,7 @@ kafka = { version = "0.10", default-features = false }
 lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
-longshore_s3 = { git = "https://github.com/carverauto/longshore", rev = "8759583fd1888f292f290a5adbe883c8c6eb6aee" }
+longshore_s3 = "0.2.0"
 may = { version = "~0.3", default-features = false }
 # Test-only: the MySQL-protocol client the SRQL dialect parity harness
 # (//integration_tests/srql_parity) uses to reach a StarRocks FE. "minimal-rust" is the
@@ -191,6 +192,7 @@ runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
 rustls-pemfile = "2"
+safetensors = "0.8"
 serde = { version = "1.0", default-features = false, features = ["std"] }
 serde_json = "1.0"
 serial_test = "3.2"
@@ -215,6 +217,7 @@ tonic-prost-build = "0.14"
 tonic-reflection = "0.14"
 tower = "0.5"
 tower-http = { version = "0.7", default-features = false }
+trackforge = { version = "0.5", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
 ultragraph = "0.9"

@@ -13,7 +13,6 @@ PUBLISHABLE_IMAGES = [
     {"image": "dgraph_migrate_image_amd64", "chart_service": "dgraphMigrate", "push_image": "dgraph_migrate_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate"},
     {"image": "flow_collector_image_amd64", "chart_service": "flowCollector", "push_image": "flow_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-flow-collector"},
     {"image": "bmp_collector_image_amd64", "chart_service": "bmpCollector", "push_image": "bmp_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/arancini"},
-    {"image": "rperf_client_image_amd64", "chart_service": "rperfClient", "push_image": "rperf_client_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "chart_service": "agentGateway", "push_image": "agent_gateway_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "chart_service": "faker", "push_image": "faker_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-faker"},
     {"image": "config_updater_image_amd64", "push_image": "config_updater_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-config-updater"},

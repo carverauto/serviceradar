@@ -45,6 +45,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.Remediation.Decisions
   alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -292,10 +293,13 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   defp restore_attrs(plan, row) do
     agent = plan.agent
+    hostname = agent.host || agent.name
 
     Map.merge(
       %{
-        hostname: agent.host || agent.name,
+        hostname: hostname,
+        name: hostname,
+        attribute_provenance: restore_provenance(hostname),
         agent_id: agent.uid,
         last_seen_time: DateTime.utc_now(),
         discovery_sources: ["agent"],
@@ -305,6 +309,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       agent_ip_attrs(agent, row.uid, row.partition)
     )
   end
+
+  defp restore_provenance(hostname) when is_binary(hostname) and hostname != "",
+    do: %{"name" => AttributeStrength.tag("name", :agent_check_in, "agent")}
+
+  defp restore_provenance(_hostname), do: %{}
 
   defp create_attrs(agent) do
     %{

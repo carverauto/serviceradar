@@ -15,7 +15,6 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude release-artifacts
 # gazelle:exclude target
 # gazelle:exclude rust
-# gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 # gazelle:exclude go/pkg/agent/testdata
 #
@@ -49,6 +48,7 @@ exports_files([
     ".github/workflows/native-addons.yml",
     ".github/workflows/publish-oci.yml",
     ".github/workflows/release.yml",
+    ".github/workflows/solution-packs.yml",
     ".github/workflows/source-security.yml",
     ".github/workflows/wasm-plugins.yml",
     "MODULE.bazel",

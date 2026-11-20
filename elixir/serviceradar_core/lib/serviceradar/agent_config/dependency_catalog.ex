@@ -10,6 +10,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias Ash.Notifier.Notification
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.MapperCompiler
+  alias ServiceRadar.AgentConfig.Compilers.NetperfCompiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.AgentConfig.Compilers.VisibilityCompiler
@@ -286,6 +287,33 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         VisibilityProfile,
         :visibility,
         VisibilityCompiler
+      ),
+      config_server_entry(
+        :netperf_profile_config,
+        ServiceRadar.Monitoring.NetperfProfile,
+        :netperf,
+        NetperfCompiler
+      ),
+      config_server_entry(
+        :netperf_responder_config,
+        ServiceRadar.Monitoring.NetperfResponder,
+        :netperf,
+        NetperfCompiler,
+        action_names: [:create, :update, :destroy, :enable, :disable, :bump_authority_epoch]
+      ),
+      config_server_entry(
+        :netperf_policy_config,
+        ServiceRadar.Monitoring.NetperfPolicy,
+        :netperf,
+        NetperfCompiler,
+        action_names: [:create, :update, :destroy, :enable, :disable]
+      ),
+      config_server_entry(
+        :netperf_policy_responder_config,
+        ServiceRadar.Monitoring.NetperfPolicyResponder,
+        :netperf,
+        NetperfCompiler,
+        action_names: [:create, :attach, :destroy]
       ),
       config_server_entry(
         :config_instance_config,

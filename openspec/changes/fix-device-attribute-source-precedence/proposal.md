@@ -104,7 +104,10 @@ inventory state rather than of nondeterministic compilation.
   weaker write fills the attribute only when no strength has been recorded,
   so a recorded clear stays. A populated value with no recorded strength (written before
   rollout) may be replaced once by a write of any tier above the weakest, which
-  records its strength, and never by a weakest-tier write. There is no second
+  records its strength, and never by a weakest-tier write. A
+  `management_device_id` that names a deleted or missing device counts as
+  empty, so with no recorded strength any tier may fill it; one that names a
+  live device is populated. There is no second
   test (such as "the stored name equals the stored address"): the recorded
   strength alone decides.
   - `name`, weakest to strongest (sources sharing a tier are settled by the
@@ -170,7 +173,9 @@ inventory state rather than of nondeterministic compilation.
   exception. Every such writer (hypervisor and Proxmox enrichment, camera
   inventory, WiFi-map ingestion, endpoint inventory) goes through the same
   strength decision, with no bypassing update. The agent gateway check-in's
-  hostname and type are corroboration and no longer write identity fields,
+  hostname and type are corroboration and no longer write identity fields
+  on an existing device (a device the check-in creates records them at an
+  agent check-in tier below every other tier, design.md decision 13),
   and a defaulted vendor (such as a WiFi-map batch filler) never writes
   `vendor_name`. A write
   decides a multi-field value as a whole, and a field it does not carry

@@ -369,9 +369,9 @@ A producer that holds no grant for its contract (before the first config, after
 a revocation, or in a partition with no row) or that has no open spool treats it
 exactly like a spool refusal. It never sends that data on the status path:
 
-- Sysmon, SNMP, ICMP and periodic sweep summary samples, and plugin telemetry
-  signals, wait in the producer's bounded queue. When the queue overflows, the
-  oldest entries are dropped and counted as
+- Sysmon, SNMP, ICMP, netperf and periodic sweep summary samples, and
+  plugin telemetry signals, wait in the producer's bounded queue. When the queue
+  overflows, the oldest entries are dropped and counted as
   `agent_edge_record_dropped_samples_total{reason="awaiting_grant"}`.
 - Flow attribution stops draining the netprobe sidecar. The sidecar keeps the
   events that still fit and counts what its channel drops; the next batch
@@ -379,7 +379,7 @@ exactly like a spool refusal. It never sends that data on the status path:
 - Every other producer stops reading its source, which keeps the data: plugin
   results, mapper and netprobe discovery, workload identity,
   Kubernetes public endpoint, endpoint inventory and bumblebee snapshots,
-  unleased sweep results, rperf, and OTLP relay frames (which stay unacked in
+  unleased sweep results, and OTLP relay frames (which stay unacked in
   the add-on's own spool). MTR checks do not run without both their grants, and
   a sync run does not start without its grant.
 - Each push cycle a producer spends holding for a grant is counted as
@@ -394,7 +394,7 @@ Core issues standing grants for these contracts (all version 1):
 
 | Contract | Data |
 | --- | --- |
-| `serviceradar.metrics.batch` | sysmon, SNMP, ICMP, rperf and MTR metrics, the periodic sweep summary, and the metrics of unleased sweep results |
+| `serviceradar.metrics.batch` | sysmon, SNMP, ICMP, netperf and MTR metrics, the periodic sweep summary, and the metrics of unleased sweep results |
 | `serviceradar.sweep.unleased_results` | results of sweep groups the agent runs from its own config |
 | `serviceradar.telemetry.batch` | Wasm plugin and native add-on telemetry (metrics, OCSF events, OTel logs, add-on discovery) |
 | `serviceradar.mtr.scheduled_trace` | full MTR traces, from agent-scheduled checks and sweep groups with `mtr` mode |

@@ -166,6 +166,11 @@ decision, so the property must fail.
 environment: a census reports a MAC at an address an Armis record holds, the census's record has
 no identity-bearing observation, and the Armis record keeps the address. `ObservedAddressHeld`
 allows that after a census only, so the property must fail, or that allowance is vacuous.
+`ObservedAddressHeld` also lets an agent check-in leave the record it landed on with the primary
+address it already holds: the check-in moves a primary only when its address is strictly
+stronger or the recorded one is no longer sighted by the source that recorded it
+(`DeviceWrites.direct_write_takes_primary?/3`), and the model has no address strength, recording
+source or clock, so `AgentObserve` chooses either.
 
 `resolution_vacuity_agent_links_known_host` checks `NeverAgentOnDiscoveredRecord` in the
 `agent_known_host` environment: the agent lands on the record discovery identified, so the property
@@ -393,13 +398,15 @@ The resolution traces of the alias fixes (D16, #5135):
   sightings; it leaves the address and an Armis device is synced there. The Armis device takes
   the address, and the sync's alias pass, looking under the device's partition, invalidates the
   first device's alias and records it (`armis_alias_pass_blind`).
-- `armis_dhcp_two_holders`: two devices in turn confirm an alias of one address and leave it; an
-  Armis device synced there takes the address, and the alias pass invalidates both aliases,
-  recording each. The pass used to handle only the first holder.
+- `armis_dhcp_two_holders`: two devices in turn confirm an alias of one address and leave it;
+  the second device's confirmation expires the first device's alias (one live holder per
+  address). An Armis device synced there takes the address, and the alias pass invalidates the
+  remaining alias and records it. The pass used to handle only the first holder.
 - `mapper_prior_alias_holder`: a device confirms an alias of an address and leaves it; a second
-  device leases the address and is sighted there often enough to be its first holder, and the
-  mapper polls it. AliasGuard skips the polled device's own row and invalidates the first
-  device's alias. Reading only the first holder, it found the device's own row and stopped.
+  device leases the address and is sighted there often enough to be its first holder, which
+  confirms its own row and expires the first device's alias in the same write. The mapper then
+  polls it, and AliasGuard skips the polled device's own row. Reading only the first holder, it
+  used to find the device's own row and stop.
 - `src_rekey_succession`: Armis re-keys a device. The new id gets its own record, which takes the
   address, while the old record keeps the MAC. Matching hostnames record the pair for
   de-duplication review. The new record's sightings of the address confirm a row of its own;
@@ -447,8 +454,11 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
 - `agent_known_host_shared_mac`: a hypervisor integration syncs a node, which it reports with no
   MAC; the census sees the node's second NIC; the node's agent, with an FQDN hostname, announces
   the first NIC's address and reports both NICs. The agent lands on the census record through the
-  second NIC's MAC, which takes the announced address from the integration record. The
-  integration record shares no strong identifier with the host and stays its own record.
+  second NIC's MAC. That record keeps the address the census recorded and still sights, since a
+  check-in moves a primary only when its address is strictly stronger or the recorded one is no
+  longer sighted (`DeviceWrites.direct_write_takes_primary?/3`), so the integration record keeps
+  the announced address. The integration record shares no strong identifier with the host and
+  stays its own record.
 - `agent_same_name_two_sites`: two same-named nodes at two sites, each synced by its own
   integration and each running an agent with its own MAC. Each agent gets a record of its own and
   nothing joins the two sites.
@@ -559,10 +569,10 @@ already explores both arrival orders under `EvidenceConverges`.
   best-ranked alias row of a live device and reactivates the row when it is stale
   (`MapperResultsIngestor.find_device_uid_by_alias/3`). The model's mapper resolves through the
   Resolver only, and an invalidated alias never comes back.
-- The sweep's fallback to a pending alias. For an address no record holds and no confirmed
-  alias names, the sweep looks up pending aliases and confirms one
-  (`DeviceLookup.lookup_detected_aliases_by_ip`, `confirm_from_sweep`); the model's sweep seeds
-  a record there instead.
+- The sweep's use of a pending alias. The sweep ranks a live device's pending alias among the
+  address's holders and confirms it when that device wins and the address answered
+  (`DeviceLookup.batch_resolve_by_ip/2`, `confirm_from_sweep`); the model's sweep seeds a
+  record where no record or confirmed alias holds the address instead.
 - The sweep reaching a tombstone through an alias. The sweep resolves an address with deleted
   records included, so a confirmed alias of a deleted record can resolve it there; the
   resolution model's sweep reads live records only, and the lifecycle model's matches a

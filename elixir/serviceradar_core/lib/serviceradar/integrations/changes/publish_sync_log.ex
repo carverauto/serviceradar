@@ -26,7 +26,7 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
     error_message = Ash.Changeset.get_argument(changeset, :error_message)
 
     AfterAction.after_action(changeset, fn source ->
-      case opts.stage do
+      case Keyword.fetch!(opts, :stage) do
         :started ->
           SyncLogWriter.write_start(source, device_count: device_count)
 
@@ -41,5 +41,6 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  # An atomic update never calls change/3, so the hook is registered here too.
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 end

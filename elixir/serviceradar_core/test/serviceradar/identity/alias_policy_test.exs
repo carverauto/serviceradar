@@ -4,7 +4,6 @@ defmodule ServiceRadar.Identity.AliasPolicyTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Identity.AliasPolicy
-  alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.Sync.Lookups
@@ -121,13 +120,6 @@ defmodule ServiceRadar.Identity.AliasPolicyTest do
                  %{ip: "255.255.255.255", partition: "default"},
                  nil
                )
-    end
-
-    test "DeviceLookup skips leftover link-local and broadcast alias values" do
-      assert DeviceLookup.lookup_detected_aliases_by_ip(
-               ["fe80::1", "169.254.0.1", "255.255.255.255", "192.0.2.255/24"],
-               []
-             ) == %{}
     end
 
     test "Lookups skips leftover link-local and broadcast alias values" do

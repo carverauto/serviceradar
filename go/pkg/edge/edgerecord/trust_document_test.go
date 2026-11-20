@@ -154,3 +154,70 @@ func TestTrustDocumentRefusesCrossAgentAndPartialAuthority(t *testing.T) {
 		}
 	}
 }
+
+func TestTrustSnapshotResolvePermitKey(t *testing.T) {
+	var nilSnap *TrustSnapshot
+	if nilSnap.Epoch() != 0 || nilSnap.ClockToleranceNano() != 0 {
+		t.Fatal("nil snapshot returned non-zero epoch or tolerance")
+	}
+	if _, status, _, ok := nilSnap.ResolvePermitKey([]byte("issuer"), []byte("key")); ok || status != KeyUnavailable {
+		t.Fatalf("nil snapshot ResolvePermitKey = (%v, %v), want (KeyUnavailable, false)", status, ok)
+	}
+
+	r := metricBatchRecord(t, 1, 1)
+	capability := r.GetProductionCapability()
+	doc := recordTrustDocument(r)
+	doc.ClockToleranceNano = 300_000_000_000
+
+	revokedKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, ed25519.SeedSize))
+	doc.Keys = append(doc.Keys, trustDocumentKey{
+		IssuerID: capability.IssuerId,
+		KeyID:    []byte("synthetic-revoked-key"),
+		Public:   revokedKey.Public().(ed25519.PublicKey),
+		Purposes: []string{"production"},
+		Status:   "historically_revoked",
+	})
+	deliveryOnlyKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
+	doc.Keys = append(doc.Keys, trustDocumentKey{
+		IssuerID: capability.IssuerId,
+		KeyID:    []byte("synthetic-delivery-only-key"),
+		Public:   deliveryOnlyKey.Public().(ed25519.PublicKey),
+		Purposes: []string{"delivery"},
+		Status:   "valid",
+	})
+
+	snap := parseRecordTrust(t, r, doc, 9)
+	if snap.Epoch() != 9 {
+		t.Fatalf("Epoch() = %d, want 9", snap.Epoch())
+	}
+	if snap.ClockToleranceNano() != 300_000_000_000 {
+		t.Fatalf("ClockToleranceNano() = %d, want 300_000_000_000", snap.ClockToleranceNano())
+	}
+
+	pub, status, tol, ok := snap.ResolvePermitKey(capability.IssuerId, capability.IssuerKeyId)
+	if !ok || status != KeyValid || tol != 300_000_000_000 || len(pub) != ed25519.PublicKeySize {
+		t.Fatalf("valid key ResolvePermitKey = (len=%d, %v, %d, %v)", len(pub), status, tol, ok)
+	}
+
+	// Returning a clone must not allow callers to mutate the snapshot.
+	pub[0] ^= 0xff
+	pub2, status2, _, ok2 := snap.ResolvePermitKey(capability.IssuerId, capability.IssuerKeyId)
+	if !ok2 || status2 != KeyValid || pub2[0] == pub[0] {
+		t.Fatal("ResolvePermitKey did not return an isolated key clone")
+	}
+
+	_, revStatus, _, revOK := snap.ResolvePermitKey(capability.IssuerId, []byte("synthetic-revoked-key"))
+	if !revOK || revStatus != KeyHistoricallyRevoked {
+		t.Fatalf("revoked key ResolvePermitKey = (%v, %v), want (KeyHistoricallyRevoked, true)", revStatus, revOK)
+	}
+
+	_, delStatus, _, delOK := snap.ResolvePermitKey(capability.IssuerId, []byte("synthetic-delivery-only-key"))
+	if delOK || delStatus != KeyInvalid {
+		t.Fatalf("delivery-only key ResolvePermitKey = (%v, %v), want (KeyInvalid, false)", delStatus, delOK)
+	}
+
+	_, missStatus, _, missOK := snap.ResolvePermitKey(capability.IssuerId, []byte("missing-key"))
+	if missOK || missStatus != KeyInvalid {
+		t.Fatalf("missing key ResolvePermitKey = (%v, %v), want (KeyInvalid, false)", missStatus, missOK)
+	}
+}

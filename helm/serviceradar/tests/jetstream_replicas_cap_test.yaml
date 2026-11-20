@@ -248,6 +248,18 @@ tests:
         template: templates/core.yaml
         documentSelector: {path: kind, value: Deployment}
 
+  # --- the Zen rule bucket core creates holds what the datasvc bucket held -----
+  - it: replicates the Zen rule bucket as configured for the datasvc bucket
+    set:
+      nats.replicas: 3
+      datasvc.jetstreamReplicas: 2
+    template: templates/core.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_REPLICAS, value: "2"}
+
   # --- external NATS: the chart does not know its size, so nothing is capped --
   - it: keeps the configured replicas against an external NATS
     set:

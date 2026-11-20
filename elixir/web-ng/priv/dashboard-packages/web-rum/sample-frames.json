@@ -1,0 +1,378 @@
+[
+  {
+    "id": "rum_cwv_summary",
+    "query": "in:rum time:last_24h stats:\"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(fcp_ms) as p75_fcp_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(page_load_ms) as p75_page_load_ms, sum(has_error) as error_beacons\" limit:1",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "beacons": 1240,
+        "p75_lcp_ms": 2180,
+        "p75_inp_ms": 145,
+        "p75_cls": 0.08,
+        "p75_fcp_ms": 1120,
+        "p75_ttfb_ms": 290,
+        "p75_page_load_ms": 2450,
+        "error_beacons": 24
+      }
+    ]
+  },
+  {
+    "id": "rum_latency_breakdown",
+    "query": "in:rum time:last_24h stats:\"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(dom_ready_ms) as p75_dom_ready_ms, p75(page_load_ms) as p75_page_load_ms, p75(lcp_ms) as p75_lcp_ms by time:1h\" limit:48",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "bucket": "2026-11-18T02:00:00Z",
+        "beacons": 410,
+        "p75_edge_rtt_ms": 22,
+        "p75_origin_rtt_ms": 165,
+        "p75_ttfb_ms": 240,
+        "p75_dom_ready_ms": 1320,
+        "p75_page_load_ms": 2050,
+        "p75_lcp_ms": 1950
+      },
+      {
+        "bucket": "2026-11-18T03:00:00Z",
+        "beacons": 480,
+        "p75_edge_rtt_ms": 28,
+        "p75_origin_rtt_ms": 245,
+        "p75_ttfb_ms": 310,
+        "p75_dom_ready_ms": 1540,
+        "p75_page_load_ms": 2480,
+        "p75_lcp_ms": 2340
+      },
+      {
+        "bucket": "2026-11-18T04:00:00Z",
+        "beacons": 350,
+        "p75_edge_rtt_ms": 24,
+        "p75_origin_rtt_ms": 188,
+        "p75_ttfb_ms": 265,
+        "p75_dom_ready_ms": 1410,
+        "p75_page_load_ms": 2190,
+        "p75_lcp_ms": 2110
+      }
+    ]
+  },
+  {
+    "id": "rum_site_asn_summary",
+    "query": "in:rum time:last_24h stats:\"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, sum(has_error) as error_beacons by prefix_tag, asn, as_org\" sort:beacons:desc limit:100",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "prefix_tag": "branch-east",
+        "asn": 64512,
+        "as_org": "Example Branch ISP A",
+        "beacons": 760,
+        "p75_lcp_ms": 1820,
+        "p75_inp_ms": 110,
+        "p75_ttfb_ms": 210,
+        "p75_edge_rtt_ms": 18,
+        "p75_origin_rtt_ms": 145,
+        "error_beacons": 6
+      },
+      {
+        "prefix_tag": "branch-west",
+        "asn": 64513,
+        "as_org": "Example Transit B",
+        "beacons": 480,
+        "p75_lcp_ms": 4280,
+        "p75_inp_ms": 540,
+        "p75_ttfb_ms": 485,
+        "p75_edge_rtt_ms": 38,
+        "p75_origin_rtt_ms": 390,
+        "error_beacons": 18
+      }
+    ]
+  },
+  {
+    "id": "rum_cdn_summary",
+    "query": "in:rum time:last_24h stats:\"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms by cdn_provider, cdn_cache_status\" sort:beacons:desc limit:20",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "HIT",
+        "beacons": 920,
+        "p75_edge_rtt_ms": 20,
+        "p75_origin_rtt_ms": 0,
+        "p75_ttfb_ms": 185
+      },
+      {
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "MISS",
+        "beacons": 260,
+        "p75_edge_rtt_ms": 29,
+        "p75_origin_rtt_ms": 290,
+        "p75_ttfb_ms": 420
+      },
+      {
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "BYPASS",
+        "beacons": 60,
+        "p75_edge_rtt_ms": 25,
+        "p75_origin_rtt_ms": 340,
+        "p75_ttfb_ms": 495
+      }
+    ]
+  },
+  {
+    "id": "rum_route_summary",
+    "query": "in:rum time:last_24h stats:\"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(ttfb_ms) as p75_ttfb_ms, sum(has_error) as error_beacons by canonical_origin, metric_path\" sort:beacons:desc limit:100",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "canonical_origin": "https://portal.example.com",
+        "metric_path": "/overview",
+        "beacons": 720,
+        "p75_lcp_ms": 1750,
+        "p75_inp_ms": 105,
+        "p75_cls": 0.04,
+        "p75_ttfb_ms": 195,
+        "error_beacons": 4
+      },
+      {
+        "canonical_origin": "https://checkout.example.com",
+        "metric_path": "/cart/:id",
+        "beacons": 520,
+        "p75_lcp_ms": 4350,
+        "p75_inp_ms": 530,
+        "p75_cls": 0.28,
+        "p75_ttfb_ms": 510,
+        "error_beacons": 20
+      }
+    ]
+  },
+  {
+    "id": "rum_recent_beacons",
+    "query": "in:rum time:last_24h sort:observed_at:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "beacon_id": "01J00000000000000000000101",
+        "observed_at": "2026-11-18T03:58:00Z",
+        "web_property_id": "01J00000000000000000000001",
+        "canonical_origin": "https://portal.example.com",
+        "environment": "production",
+        "url": "https://portal.example.com/overview",
+        "host": "portal.example.com",
+        "path": "/overview",
+        "metric_path": "/overview",
+        "referrer": "https://portal.example.com/",
+        "page_group": "/overview",
+        "initiator": "document",
+        "trace_id": "0000000000000000000000000000a1b2",
+        "span_id": "000000000000a1b2",
+        "session_id": "sess-example-01",
+        "device_type": "desktop",
+        "browser": "Chrome",
+        "os": "macOS",
+        "lcp_ms": 1750,
+        "inp_ms": 105,
+        "cls": 0.04,
+        "fcp_ms": 920,
+        "ttfb_ms": 195,
+        "page_load_ms": 2050,
+        "dns_ms": 12,
+        "connect_ms": 24,
+        "tls_ms": 36,
+        "dom_ready_ms": 1310,
+        "rage_clicks": 0,
+        "js_errors": 0,
+        "http_status": 200,
+        "has_error": false,
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "HIT",
+        "cdn_edge_rtt_ms": 18,
+        "cdn_origin_rtt_ms": 0,
+        "cdn_pop": "iad",
+        "client_ip": "192.0.2.0",
+        "country": "US",
+        "region": "VA",
+        "city": "Ashburn",
+        "asn": 64512,
+        "as_org": "Example Branch ISP A",
+        "prefix_tag": "branch-east"
+      },
+      {
+        "beacon_id": "01J00000000000000000000102",
+        "observed_at": "2026-11-18T03:55:00Z",
+        "web_property_id": "01J00000000000000000000002",
+        "canonical_origin": "https://checkout.example.com",
+        "environment": "production",
+        "url": "https://checkout.example.com/cart/42",
+        "host": "checkout.example.com",
+        "path": "/cart/42",
+        "metric_path": "/cart/:id",
+        "referrer": "https://checkout.example.com/catalog",
+        "page_group": "/cart/:id",
+        "initiator": "spa",
+        "trace_id": "0000000000000000000000000000c3d4",
+        "span_id": "000000000000c3d4",
+        "session_id": "sess-example-02",
+        "device_type": "mobile",
+        "browser": "Safari",
+        "os": "iOS",
+        "lcp_ms": 4350,
+        "inp_ms": 540,
+        "cls": 0.28,
+        "fcp_ms": 1680,
+        "ttfb_ms": 510,
+        "page_load_ms": 4620,
+        "dns_ms": 28,
+        "connect_ms": 52,
+        "tls_ms": 68,
+        "dom_ready_ms": 2840,
+        "rage_clicks": 3,
+        "js_errors": 2,
+        "http_status": 502,
+        "has_error": true,
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "MISS",
+        "cdn_edge_rtt_ms": 38,
+        "cdn_origin_rtt_ms": 390,
+        "cdn_pop": "sjc",
+        "client_ip": "198.51.100.0",
+        "country": "US",
+        "region": "CA",
+        "city": "San Jose",
+        "asn": 64513,
+        "as_org": "Example Transit B",
+        "prefix_tag": "branch-west"
+      },
+      {
+        "beacon_id": "01J00000000000000000000103",
+        "observed_at": "2026-11-18T03:50:00Z",
+        "web_property_id": "01J00000000000000000000002",
+        "canonical_origin": "https://checkout.example.com",
+        "environment": "staging",
+        "url": "https://checkout.example.com/payment",
+        "host": "checkout.example.com",
+        "path": "/payment",
+        "metric_path": "/payment",
+        "referrer": "https://checkout.example.com/cart/42",
+        "page_group": "/payment",
+        "initiator": "fetch",
+        "trace_id": "0000000000000000000000000000e5f6",
+        "span_id": "000000000000e5f6",
+        "session_id": "sess-example-03",
+        "device_type": "desktop",
+        "browser": "Firefox",
+        "os": "Linux",
+        "lcp_ms": 2820,
+        "inp_ms": 240,
+        "cls": 0.14,
+        "fcp_ms": 1240,
+        "ttfb_ms": 340,
+        "page_load_ms": 3080,
+        "dns_ms": 14,
+        "connect_ms": 29,
+        "tls_ms": 41,
+        "dom_ready_ms": 1820,
+        "rage_clicks": 0,
+        "js_errors": 0,
+        "http_status": 200,
+        "has_error": false,
+        "cdn_provider": "akamai",
+        "cdn_cache_status": "BYPASS",
+        "cdn_edge_rtt_ms": 25,
+        "cdn_origin_rtt_ms": 270,
+        "cdn_pop": "ord",
+        "client_ip": "203.0.113.0",
+        "country": "US",
+        "region": "IL",
+        "city": "Chicago",
+        "asn": 64512,
+        "as_org": "Example Branch ISP A",
+        "prefix_tag": "branch-east"
+      }
+    ]
+  },
+  {
+    "id": "web_properties",
+    "query": "in:websites sort:name:asc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "id": "01J00000000000000000000001",
+        "name": "Example Customer Portal",
+        "canonical_origin": "https://portal.example.com",
+        "environment": "production",
+        "edge_provider": "akamai",
+        "rum_enabled": true,
+        "prefix_tags": ["branch-east"],
+        "observed_asns": [64512],
+        "tls_not_after": "2027-06-01T00:00:00Z"
+      },
+      {
+        "id": "01J00000000000000000000002",
+        "name": "Example Checkout App",
+        "canonical_origin": "https://checkout.example.com",
+        "environment": "production",
+        "edge_provider": "akamai",
+        "rum_enabled": true,
+        "prefix_tags": ["branch-west", "branch-east"],
+        "observed_asns": [64513, 64512],
+        "tls_not_after": "2027-08-15T00:00:00Z"
+      }
+    ]
+  },
+  {
+    "id": "rum_netperf_samples",
+    "query": "in:rperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 92500000,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.loss_percent",
+        "value": 0.1,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.jitter_ms",
+        "value": 1.4,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.available",
+        "value": 1,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      }
+    ]
+  }
+]

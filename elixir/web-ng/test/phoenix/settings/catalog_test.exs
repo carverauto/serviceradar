@@ -617,6 +617,39 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert :history in sibling_ids
       assert :audit_trail in sibling_ids
     end
+
+    test "Network Performance view and sub-pages resolve and enforce settings.networks.manage" do
+      view = Catalog.view(:netperf)
+      assert view.route == "/settings/networks/netperf"
+      assert view.live_view == ServiceRadarWebNGWeb.Settings.NetperfLive.Index
+      assert view.permission == "settings.networks.manage"
+      assert view.has_own_stats == false
+      assert Enum.map(view.tabs, & &1.tab) == ~w(policies responders profiles)
+      assert view.live_view.supported_tabs() == ~w(policies responders profiles)
+
+      for path <- [
+            "/settings/networks/netperf",
+            "/settings/networks/netperf/policies/new",
+            "/settings/networks/netperf/policies/abc-123/edit",
+            "/settings/networks/netperf/responders/new",
+            "/settings/networks/netperf/responders/abc-123/edit",
+            "/settings/networks/netperf/profiles/new",
+            "/settings/networks/netperf/profiles/abc-123/edit"
+          ] do
+        assert %{id: :netperf} = Catalog.view_for_path(path)
+      end
+
+      unpermitted_scope = %Scope{permissions: MapSet.new(["devices.view"])}
+      refute :netperf in Enum.map(Catalog.visible_views(unpermitted_scope, :network_services), & &1.id)
+      refute Enum.any?(Catalog.palette_index(unpermitted_scope), &(&1.route == "/settings/networks/netperf"))
+
+      permitted_scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
+      assert :netperf in Enum.map(Catalog.visible_views(permitted_scope, :network_services), & &1.id)
+
+      palette = Catalog.palette_index(permitted_scope)
+      assert Enum.any?(palette, &(&1.route == "/settings/networks/netperf"))
+      assert Enum.any?(palette, &(&1.route == "/settings/networks/netperf?tab=responders"))
+    end
   end
 
   # --- helpers ---------------------------------------------------------------

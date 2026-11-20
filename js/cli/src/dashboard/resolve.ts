@@ -100,6 +100,30 @@ export interface ReactAliases {
   "react-dom/client": string
 }
 
+export const BLUEPRINT_PACKAGES = [
+  "@blueprintjs/core",
+  "@blueprintjs/icons",
+  "@blueprintjs/select",
+] as const
+
+export type BlueprintPackage = (typeof BLUEPRINT_PACKAGES)[number]
+
+/**
+ * Resolves installed Blueprint v6 packages from the dashboard project's Node
+ * resolution graph (local or hoisted). Packages that are not installed are
+ * omitted so non-Blueprint dashboards never require `@blueprintjs/*`.
+ */
+export function projectBlueprintAliases(projectDir: string): Partial<Record<BlueprintPackage, string>> {
+  const aliases: Partial<Record<BlueprintPackage, string>> = {}
+  for (const pkg of BLUEPRINT_PACKAGES) {
+    const manifestPath = resolveProjectPackageManifest(projectDir, pkg)
+    if (manifestPath) {
+      aliases[pkg] = dirname(manifestPath)
+    }
+  }
+  return aliases
+}
+
 /**
  * The React alias replacements `build` and `dev` both need. Shared so the two
  * commands cannot drift apart on how React is located.
@@ -137,6 +161,29 @@ export function normalizeViteAlias(alias: any): ViteAliasEntry[] {
 }
 
 /**
+ * The full `resolve.alias` array for `dashboard build`, in precedence order:
+ *  1. the author's entries from `dashboard.config.mjs` (object or array form)
+ *  2. the project's React, resolved through Node
+ *  3. optional Blueprint v6 packages resolved from the project (when present)
+ */
+export function buildViteAliases(projectDir: string, configAlias?: any): ViteAliasEntry[] {
+  const react = projectReactAliases(projectDir)
+  const blueprint = projectBlueprintAliases(projectDir)
+  const blueprintEntries: ViteAliasEntry[] = []
+  for (const pkg of BLUEPRINT_PACKAGES) {
+    const dir = blueprint[pkg]
+    if (dir) blueprintEntries.push({find: pkg, replacement: dir})
+  }
+  return [
+    ...normalizeViteAlias(configAlias),
+    {find: "react", replacement: react.react},
+    {find: "react-dom/client", replacement: react["react-dom/client"]},
+    {find: "react-dom", replacement: react["react-dom"]},
+    ...blueprintEntries,
+  ]
+}
+
+/**
  * The full `resolve.alias` array for `dashboard dev`, in precedence order.
  *
  * Alias matching is first-match-wins, so ORDER IS THE CONTRACT here:
@@ -146,7 +193,8 @@ export function normalizeViteAlias(alias: any): ViteAliasEntry[] {
  *     the CLI's own `react` entry shadowed them and overriding React in `dev` was
  *     silently impossible (while the same override worked in `build`).
  *  2. the project's React, resolved through Node.
- *  3. the packages that ship with the CLI rather than with the project.
+ *  3. optional Blueprint v6 packages resolved from the project (when present).
+ *  4. the packages that ship with the CLI rather than with the project.
  *
  * Extracted from the command body so the ordering can be asserted in a test
  * rather than re-verified by hand.
@@ -157,16 +205,54 @@ export function devViteAliases(
   cliResolve: (specifier: string) => string,
 ): ViteAliasEntry[] {
   const react = projectReactAliases(projectDir)
+  const blueprint = projectBlueprintAliases(projectDir)
+  const blueprintEntries: ViteAliasEntry[] = []
+  for (const pkg of BLUEPRINT_PACKAGES) {
+    const dir = blueprint[pkg]
+    if (dir) blueprintEntries.push({find: pkg, replacement: dir})
+  }
   return [
     ...normalizeViteAlias(configAlias),
     {find: /^react$/, replacement: react.react},
     {find: /^react-dom\/client$/, replacement: react["react-dom/client"]},
     {find: /^react-dom$/, replacement: react["react-dom"]},
+    ...blueprintEntries,
     {find: /^mapbox-gl\/dist\/mapbox-gl\.css$/, replacement: cliResolve("mapbox-gl/dist/mapbox-gl.css")},
     {find: /^mapbox-gl$/, replacement: cliResolve("mapbox-gl")},
     {find: /^@deck\.gl\/layers$/, replacement: cliResolve("@deck.gl/layers")},
     {find: /^@deck\.gl\/mapbox$/, replacement: cliResolve("@deck.gl/mapbox")},
   ]
+}
+
+const MODULE_RESOLVE_ERROR_RE =
+  /(?:failed to resolve import|cannot find (?:package|module)|could not resolve|does not provide an export)/i
+
+/**
+ * Translates an unresolved `@blueprintjs/*` Rollup/Vite error into an
+ * actionable install hint when the package is genuinely missing from the project.
+ */
+export function explainBlueprintResolveError(projectDir: string, error: unknown): Error | null {
+  const message = error instanceof Error ? error.message : String(error || "")
+  const code = error && typeof error === "object" && "code" in error ? String((error as any).code || "") : ""
+  const plugin = error && typeof error === "object" && "plugin" in error ? String((error as any).plugin || "") : ""
+  const isResolveFailure =
+    MODULE_RESOLVE_ERROR_RE.test(message)
+    || code === "MODULE_NOT_FOUND"
+    || code === "ERR_MODULE_NOT_FOUND"
+    || plugin === "vite:resolve"
+  if (!isResolveFailure) return null
+
+  const match = message.match(/(@blueprintjs\/(?:core|icons|select))(?=["'\s/]|$)/)
+  if (!match) return null
+  const pkg = match[1] as BlueprintPackage
+  if (resolveProjectPackageManifest(projectDir, pkg)) return null
+  const rel = relativePath(process.cwd(), projectDir)
+  const proj = rel === "." ? projectDir : rel
+  return new Error(
+    `cannot resolve "${pkg}" from dashboard project at ${proj}\n` +
+      `→ run \`npm install @blueprintjs/core@^6.16.0 @blueprintjs/icons@^6.16.0 @blueprintjs/select@^6.4.2\``,
+    {cause: error instanceof Error ? error : undefined},
+  )
 }
 
 /**

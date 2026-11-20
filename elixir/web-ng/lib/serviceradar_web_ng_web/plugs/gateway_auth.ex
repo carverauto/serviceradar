@@ -40,7 +40,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
-  alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.UserAuth
 
   require Logger
@@ -218,17 +217,17 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   end
 
   defp fetch_jwks(url) do
-    with {:ok, _uri} <- OutboundURLPolicy.validate(url),
-         {:ok, response} <- Req.get(url, OutboundURLPolicy.req_opts()) do
-      case response do
-        %{status: 200, body: %{"keys" => keys}} ->
-          {:ok, keys}
+    case Palisade.OutboundFetch.get(url) do
+      {:ok, response} ->
+        case response do
+          %{status: 200, body: %{"keys" => keys}} ->
+            {:ok, keys}
 
-        %{status: status} ->
-          Logger.error("JWKS fetch failed: status=#{status}")
-          {:error, :jwks_fetch_failed}
-      end
-    else
+          %{status: status} ->
+            Logger.error("JWKS fetch failed: status=#{status}")
+            {:error, :jwks_fetch_failed}
+        end
+
       {:error, :disallowed_scheme} ->
         {:error, :jwks_fetch_failed}
 

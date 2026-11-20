@@ -13,11 +13,18 @@ path = "src/lib.rs"
 name = "serviceradar-media-worker"
 path = "src/main.rs"
 
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+
 [dependencies]
 anyhow = { workspace = true }
 async-nats = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
+candle-transformers = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive", "env"] }
 futures = { workspace = true }
@@ -27,11 +34,13 @@ longshore_s3 = { workspace = true }
 parking_lot = { workspace = true }
 prometheus = { workspace = true }
 rustls = { workspace = true }
+safetensors = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serviceradar-cert-policy = { path = "../cert-policy" }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+trackforge = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 ureq = { workspace = true, features = ["json"] }

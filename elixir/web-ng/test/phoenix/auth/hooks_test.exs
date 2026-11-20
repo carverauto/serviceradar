@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
 
     test "handles different source types" do
       user = user_fixture()
-      assert :ok = Hooks.on_user_created(user, :saml)
       assert :ok = Hooks.on_user_created(user, :gateway)
       assert :ok = Hooks.on_user_created(user, :password)
     end
@@ -43,10 +42,6 @@ defmodule ServiceRadarWebNG.Auth.HooksTest do
       # OIDC-style claims
       oidc_claims = %{"iss" => "https://idp.example.com", "aud" => "client123"}
       assert :ok = Hooks.on_user_authenticated(user, oidc_claims)
-
-      # SAML-style claims
-      saml_claims = %{"assertion" => "encoded_assertion"}
-      assert :ok = Hooks.on_user_authenticated(user, saml_claims)
     end
   end
 

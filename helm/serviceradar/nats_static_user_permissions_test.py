@@ -198,5 +198,32 @@ class NormalizedLogSubjectTest(unittest.TestCase):
                 self.assertTrue(may_publish(users[name], subject))
 
 
+class RumBeaconAndPolicyPermissionsTest(unittest.TestCase):
+    def test_rum_collectors_and_core_hold_expected_rum_permissions(self):
+        users = {user["user"].split(",")[0]: user for user in render_static_users()}
+        for collector in ("CN=serviceradar-log-collector", "CN=serviceradar-otel"):
+            with self.subTest(collector=collector):
+                self.assertTrue(may_publish(users[collector], "rum.beacons.prop-01"))
+                self.assertTrue(may_publish(users[collector], "metrics.rum.prop-01"))
+                self.assertTrue(may_publish(users[collector], "config.rum.policy.snapshot"))
+                self.assertTrue(may(users[collector], "subscribe", "config.rum.policy.updates"))
+
+        core = users["CN=serviceradar-core"]
+        self.assertTrue(may_publish(core, "config.rum.policy.updates"))
+        self.assertTrue(may(core, "subscribe", "config.rum.policy.snapshot"))
+        self.assertTrue(may(core, "subscribe", "rum.beacons.prop-01"))
+
+    def test_unrelated_identities_cannot_publish_rum_beacons(self):
+        users = {user["user"].split(",")[0]: user for user in render_static_users()}
+        for identity in (
+            "CN=serviceradar-agent",
+            "CN=serviceradar-flowgger",
+            "CN=serviceradar-trapd",
+        ):
+            with self.subTest(identity=identity):
+                self.assertFalse(may_publish(users[identity], "rum.beacons.prop-01"))
+                self.assertFalse(may_publish(users[identity], "metrics.rum.prop-01"))
+
+
 if __name__ == "__main__":
     unittest.main()

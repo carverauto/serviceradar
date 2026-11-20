@@ -25,6 +25,6 @@ pub use inventory::{
 };
 pub use metrics::{OtelMetricPointRow, OtelMetricRow, TimeseriesMetricRow};
 pub use observability::{
-    CapacityForecastRow, LogRow, MtrHopRow, MtrTraceRow, OtelServiceRow, TraceSpanRow,
-    TraceSummaryRow,
+    CapacityForecastRow, LogRow, MtrHopRow, MtrTraceRow, OtelServiceRow, RumBeaconRow,
+    TraceSpanRow, TraceSummaryRow,
 };

@@ -19,8 +19,6 @@ func normalizeServiceType(serviceType string) string {
 
 	// Map known aliases to standard types
 	switch serviceType {
-	case "rperf", "rperf-service", "perf":
-		return "rperf-checker"
 	case "system", "system-monitor", "sysmonitor", "systemmon":
 		return "sysmon"
 	case "snmpchecker", "snmp-service":

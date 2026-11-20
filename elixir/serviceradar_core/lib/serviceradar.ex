@@ -12,11 +12,13 @@ defmodule ServiceRadar do
     deps: [
       Flowpb,
       Monitoring,
+      Netperf.V1,
       Serviceradar.Agent.Addon.V1,
       Serviceradar.Agent.Discovery.V1,
       Serviceradar.Agent.Netprobe.V1,
       Serviceradar.Edge.V1,
       Serviceradar.Metric.V1,
+      Serviceradar.Rum.V1,
       ServiceRadarSRQL
     ],
     exports: :all

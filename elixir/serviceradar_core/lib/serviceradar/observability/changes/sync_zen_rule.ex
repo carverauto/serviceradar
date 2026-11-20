@@ -39,8 +39,12 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
     end
   end
 
+  # An atomic update rebuilds the changeset and never calls change/3, so the
+  # sync hook has to be registered here as well. Returning a bare :ok told Ash
+  # there was nothing to do, and a rule saved through an atomic update was not
+  # published until the next reconcile.
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
   defp key_fields_changed?(old_rule, new_rule) do
     {old_rule.agent_id, old_rule.stream_name, old_rule.subject, old_rule.name} !=

@@ -11,8 +11,9 @@ Full-stack ServiceRadar Solution Pack (`io.serviceradar.storage-and-nvr-health`)
 - `camera-continuous-recording-silence` -- Evaluates `camera.continuous_recording_silence` across enabled continuous recording policies.
 
 ### Stateful Alert Rules (2)
-- `storage_entitlement_hard_cap` -- Opens a high-priority alert when storage entitlement hard-cap or critical utilization transitions to down.
-- `camera_continuous_recording_silence` -- Opens a high-priority alert when an enabled continuous camera recording policy seals zero blocks across the configured window.
+Each rule is the only alert for its condition: the check it watches opens no alert of its own.
+- `storage_entitlement_hard_cap` -- Opens a critical alert when the storage entitlement check transitions to down (hard cap active or critical utilization).
+- `camera_continuous_recording_silence` -- Opens a high alert when the continuous recording check transitions to down (an enabled policy sealed zero blocks across the configured window).
 
 ### Authored Dashboards (1)
 - `storage-and-nvr-overview` -- Unified SRQL overview dashboard tracking posture check availability, silent camera policy alerts, and storage health transitions.

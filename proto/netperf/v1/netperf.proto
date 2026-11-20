@@ -1,0 +1,168 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package netperf.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/netperf/v1;netperfpb";
+
+enum NetperfProtocol {
+  NETPERF_PROTOCOL_UNSPECIFIED = 0;
+  NETPERF_PROTOCOL_TCP = 1;
+  NETPERF_PROTOCOL_UDP = 2;
+}
+
+enum NetperfDirection {
+  NETPERF_DIRECTION_UNSPECIFIED = 0;
+  NETPERF_DIRECTION_UPLOAD = 1;
+  NETPERF_DIRECTION_DOWNLOAD = 2;
+  NETPERF_DIRECTION_BIDIRECTIONAL = 3;
+}
+
+enum NetperfExecutionSource {
+  NETPERF_EXECUTION_SOURCE_UNSPECIFIED = 0;
+  NETPERF_EXECUTION_SOURCE_SCHEDULED_POLICY = 1;
+  NETPERF_EXECUTION_SOURCE_ON_DEMAND = 2;
+}
+
+// NetworkPerfPeerService runs directly between authorized serviceradar-agent
+// endpoints on 5199/TCP mTLS without traversing agent-gateway or ERTS.
+service NetworkPerfPeerService {
+  rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
+  rpc StreamTest(stream TestStreamChunk) returns (stream TestStreamChunk);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+}
+
+// NetperfPermitV1 is an Ed25519-signed capability authorizing a specific
+// Sender agent to execute bounded network performance tests against a
+// specific Hub Responder agent.
+message NetperfPermitV1 {
+  uint32 permit_version = 1;
+  string permit_id = 2;
+  string partition_id = 3;
+  string sender_agent_id = 4;
+  string responder_agent_id = 5;
+  string policy_id = 6;
+  uint64 max_bandwidth_bps = 7;
+  uint32 max_duration_sec = 8;
+  uint32 max_parallel = 9;
+  repeated NetperfProtocol allowed_protocols = 10;
+  repeated NetperfDirection allowed_directions = 11;
+  int64 issued_at_unix = 12;
+  int64 expires_at_unix = 13;
+  // Plain monotonic uint64 responder fencing epoch (>= 1), directly comparable
+  // against NetperfResponderConfig.min_authority_epoch without bit-packing.
+  // Hub Responders MUST reject permits where permit.authority_epoch < responder.min_authority_epoch.
+  uint64 authority_epoch = 14;
+  string issuer_id = 15;
+  bytes issuer_key_id = 16;
+  string algorithm = 17;
+  bytes signature = 18;
+}
+
+message NetperfResponderConfig {
+  bool enabled = 1;
+  uint32 listen_port = 2;
+  bool udp_enabled = 3;
+  uint32 max_concurrent_sessions = 4;
+  uint64 max_total_bandwidth_bps = 5;
+  string advertise_address = 6;
+  // Plain monotonic uint64 fencing floor sourced from NetperfResponder.authority_epoch.
+  // Permits must satisfy NetperfPermitV1.authority_epoch >= min_authority_epoch.
+  uint64 min_authority_epoch = 7;
+}
+
+message NetperfTargetAssignment {
+  string policy_id = 1;
+  string policy_name = 2;
+  string profile_id = 3;
+  string profile_name = 4;
+  string responder_agent_id = 5;
+  string responder_label = 6;
+  string target_address = 7;
+  uint32 target_port = 8;
+  NetperfProtocol protocol = 9;
+  NetperfDirection direction = 10;
+  uint64 bandwidth_bps = 11;
+  uint32 duration_sec = 12;
+  uint32 omit_sec = 13;
+  uint32 parallel = 14;
+  uint32 packet_length = 15;
+  uint32 interval_seconds = 16;
+  NetperfPermitV1 permit = 17;
+}
+
+message NetperfConfig {
+  NetperfResponderConfig responder = 1;
+  repeated NetperfTargetAssignment targets = 2;
+  uint64 config_epoch = 3;
+}
+
+message OpenSessionRequest {
+  NetperfPermitV1 permit = 1;
+  NetperfProtocol protocol = 2;
+  NetperfDirection direction = 3;
+  uint64 bandwidth_bps = 4;
+  uint32 duration_sec = 5;
+  uint32 omit_sec = 6;
+  uint32 parallel = 7;
+  uint32 packet_length = 8;
+  NetperfExecutionSource execution_source = 9;
+}
+
+message OpenSessionResponse {
+  bool accepted = 1;
+  bytes session_id = 2;
+  bytes udp_session_key = 3;
+  uint32 udp_port = 4;
+  uint32 retry_after_ms = 5;
+  string reject_reason = 6;
+}
+
+message TestStreamChunk {
+  bytes session_id = 1;
+  uint32 stream_index = 2;
+  NetperfDirection phase = 3;
+  bytes data = 4;
+  uint64 sequence = 5;
+  bool end_of_phase = 6;
+}
+
+message TestSummary {
+  double duration_seconds = 1;
+  uint64 duration_ns = 2;
+  uint64 bytes_sent = 3;
+  uint64 bytes_received = 4;
+  double bits_per_second = 5;
+  uint64 packets_sent = 6;
+  uint64 packets_received = 7;
+  uint64 packets_lost = 8;
+  uint64 out_of_order_packets = 9;
+  double loss_percent = 10;
+  double jitter_ms = 11;
+}
+
+message CloseSessionRequest {
+  bytes session_id = 1;
+  TestSummary sender_summary = 2;
+}
+
+message CloseSessionResponse {
+  TestSummary responder_summary = 1;
+  TestSummary upload_summary = 2;
+  TestSummary download_summary = 3;
+}

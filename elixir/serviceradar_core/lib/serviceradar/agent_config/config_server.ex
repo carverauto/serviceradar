@@ -298,6 +298,13 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
     end
   end
 
+  defp cache_scope(:netperf, opts) do
+    case Keyword.get(opts, :agent_id) do
+      agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id}
+      _ -> nil
+    end
+  end
+
   defp cache_scope(config_type, opts) when config_type in [:mapper, :sysmon, :visibility] do
     case Keyword.get(opts, :device_uid) do
       device_uid when is_binary(device_uid) and device_uid != "" ->

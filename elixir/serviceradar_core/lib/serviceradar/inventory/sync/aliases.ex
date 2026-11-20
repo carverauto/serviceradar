@@ -28,10 +28,10 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
   @doc """
   The primary addresses the batch's declarative updates may replace, keyed by device uid.
 
-  A device's record is built from the batch's last update for its uid (`DeviceRecords`), so
-  that update's source decides: a declarative update that wins keeps the address it replaces
-  even after an observed sighting of the device earlier in the batch, and an observed update
-  that wins keeps nothing.
+  A device's record takes the strongest address any of the batch's updates for its uid
+  submitted (`DeviceRecords`), so the update that submitted it decides: a declarative update
+  that wins keeps the address it replaces even after an observed sighting of the device in the
+  same batch, and an observed update that wins keeps nothing.
 
   A declarative source (`SourcePolicy.observed_address_source?/1` is false: a hypervisor API,
   NetBox, AWX, a generic integration) reports the address it is configured with, which is
@@ -46,11 +46,11 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
   """
   @spec held_addresses([map()], [{map(), String.t()}]) :: %{String.t() => map()}
   def held_addresses(device_records, resolved_updates) do
-    winning_updates = Map.new(resolved_updates, fn {update, uid} -> {uid, update} end)
+    updates_by_uid = Enum.group_by(resolved_updates, &elem(&1, 1), &elem(&1, 0))
 
     uids =
       for record <- device_records,
-          declarative_write?(Map.get(winning_updates, record.uid)),
+          declarative_write?(winning_update(Map.get(updates_by_uid, record.uid, []), record)),
           present_ip?(Map.get(record, :ip)),
           uniq: true,
           do: record.uid
@@ -66,6 +66,13 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
       |> Enum.filter(fn {_uid, ip, _partition} -> AliasPolicy.valid_alias_ip?(ip) end)
       |> Map.new(fn {uid, ip, partition} -> {uid, %{ip: ip, partition: partition}} end)
     end
+  end
+
+  # The update whose address the record carries; the last one when none matches.
+  defp winning_update([], _record), do: nil
+
+  defp winning_update(updates, record) do
+    Enum.find(Enum.reverse(updates), List.last(updates), &(&1.ip == Map.get(record, :ip)))
   end
 
   defp declarative_write?(nil), do: false

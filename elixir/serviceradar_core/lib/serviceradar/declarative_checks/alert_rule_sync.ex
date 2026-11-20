@@ -135,8 +135,23 @@ defmodule ServiceRadar.DeclarativeChecks.AlertRuleSync do
             :ok
 
           {:ok, rule} ->
-            _ = Ash.destroy(rule, actor: @system_actor, domain: ServiceRadar.Observability)
-            :ok
+            # StatefulAlertRule has no primary destroy action; it must be named.
+            case Ash.destroy(rule,
+                   action: :destroy,
+                   actor: @system_actor,
+                   domain: ServiceRadar.Observability
+                 ) do
+              :ok ->
+                :ok
+
+              {:error, reason} ->
+                Logger.warning("Failed to delete declarative check alert rule",
+                  rule_name: rname,
+                  reason: inspect(reason)
+                )
+
+                :ok
+            end
 
           {:error, reason} ->
             Logger.warning("Failed to load declarative check alert rule for deletion",

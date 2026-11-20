@@ -29,7 +29,6 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
-	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
@@ -50,7 +49,6 @@ const (
 var (
 	errEdgeMetricsRecordTooLarge = errors.New("metric item exceeds one edge record")
 	errRperfNoMetricPoints       = errors.New("rperf payload has no metric points")
-	errRperfSchemaVersion        = errors.New("unexpected rperf metric batch schema_version")
 )
 
 // edgeProducer names an edge-record producer in drop telemetry.
@@ -268,6 +266,12 @@ func icmpEdgeMetrics() edgeMetricsProducer[icmpCheckResult] {
 func mtrEdgeMetrics() edgeMetricsProducer[mtrCheckResult] {
 	return edgeMetricsProducer[mtrCheckResult]{
 		producer: edgeProducerMTR, feed: "mtr", build: buildMTRMetricBatch, nothing: errMTRNoMetricPoints,
+	}
+}
+
+func netperfEdgeMetrics() edgeMetricsProducer[netperfSample] {
+	return edgeMetricsProducer[netperfSample]{
+		producer: edgeProducerRperf, feed: "rperf", build: buildNetperfMetricBatch, nothing: errRperfNoMetricPoints,
 	}
 }
 
@@ -662,145 +666,28 @@ func (p *PushLoop) metricEnvelopeContext() metricEnvelopeContext {
 	}
 }
 
-// rperfEdgePending is at most one drained rperf metrics status on its way to
-// the spool: held unbuilt while the agent has no metrics grant, then its built
-// record(s) while the spool refuses admission. While either is pending, the
-// push loop pauses polling the rperf service rather than buffering or dropping
-// statuses.
-type rperfEdgePending struct {
-	mu    sync.Mutex
-	held  *rperfHeldStatus
-	built []edgeMetricsBuilt
+func (p *PushLoop) netperfEdgePendingCount() int {
+	p.netperfEdge.mu.Lock()
+	defer p.netperfEdge.mu.Unlock()
+	return len(p.netperfEdge.pending)
 }
 
-// rperfHeldStatus is a drained rperf metrics status not yet built into records,
-// with the routing and poll time its records are built with.
-type rperfHeldStatus struct {
-	status      *proto.StatusResponse
-	serviceName string
-	serviceType string
-	polledAt    time.Time
-}
-
-func (r *rperfEdgePending) hasPending() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.held != nil || len(r.built) > 0
-}
-
-// flushRperfEdgeMetrics builds a held rperf status under the current metrics
-// grant and appends any unsent parts to the edge metrics spool. It returns true
-// when nothing remains pending; without a grant a held status stays held.
-func (p *PushLoop) flushRperfEdgeMetrics(now time.Time) bool {
-	p.rperfEdge.mu.Lock()
-	defer p.rperfEdge.mu.Unlock()
-
-	if held := p.rperfEdge.held; held != nil {
-		capability := p.edgeMetricsCapability(now)
-		if capability == nil {
-			p.holdForGrant(edgeProducerRperf)
-			return false
-		}
-		p.rperfEdge.held = nil
-		p.rperfEdge.built = p.buildRperfEdgeParts(held, capability)
-	}
-	if len(p.rperfEdge.built) == 0 {
-		return true
-	}
-
-	m := edgeMetricsProducer[struct{}]{producer: edgeProducerRperf, feed: "rperf"}
-	_, rest := appendEdgeMetricsParts(p, m, p.rperfEdge.built, 1)
-	p.rperfEdge.built = rest
-	if len(rest) > 0 {
+func (p *PushLoop) commitNetperfSamples(samples []netperfSample) bool {
+	if len(samples) == 0 && p.netperfEdgePendingCount() == 0 {
 		return false
 	}
-
-	p.logger.Debug().Str("producer", edgeProducerRperf.label()).Int("count", 1).
-		Msg("Spooled metrics as edge records")
-	return true
+	capability := p.edgeMetricsCapability(time.Now())
+	if capability == nil {
+		holdEdgeMetrics(p, netperfEdgeMetrics(), &p.netperfEdge, samples)
+		return false
+	}
+	return spoolEdgeMetrics(p, netperfEdgeMetrics(), &p.netperfEdge, samples, capability)
 }
 
-// spoolRperfMetricsStatus takes an rperf metrics status off the status push and
-// onto the edge metrics spool: built and appended under the metrics grant, or
-// held unbuilt until one is held.
-func (p *PushLoop) spoolRperfMetricsStatus(
-	statusResp *proto.StatusResponse,
-	serviceName string,
-	serviceType string,
-	now time.Time,
-) {
-	if statusResp == nil || len(statusResp.GetMessage()) == 0 {
-		return
+func (p *PushLoop) pushNetperfMetrics() bool {
+	var samples []netperfSample
+	if svc := p.netperfService(); svc != nil {
+		samples = svc.DrainSamples()
 	}
-	p.rperfEdge.mu.Lock()
-	p.rperfEdge.held = &rperfHeldStatus{status: statusResp, serviceName: serviceName, serviceType: serviceType, polledAt: now}
-	p.rperfEdge.mu.Unlock()
-	p.flushRperfEdgeMetrics(now)
-}
-
-// buildRperfEdgeParts builds a held rperf status into metrics batch records under
-// capability, splitting a batch no record holds; what no record can hold is
-// dropped and counted.
-func (p *PushLoop) buildRperfEdgeParts(held *rperfHeldStatus, capability *edgev1.EdgeSignedCapabilityV1) []edgeMetricsBuilt {
-	batch, err := p.buildRperfMetricBatch(held.status, held.serviceName, held.serviceType, held.polledAt)
-	if err != nil {
-		p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, 1, err)
-		return nil
-	}
-
-	claims := capability.GetProduction()
-	maxRows := min(uint64(claims.GetMaxProjectedRowCount()), claims.GetMaxProjectedWriteBytes()/edgeMetricsProjectedRowBytes)
-	if record, recErr := metricsEdgeRecord(batch, capability, maxRows); recErr == nil {
-		return []edgeMetricsBuilt{record}
-	}
-	parts, dropped := splitMetricBatch(batch, capability, maxRows)
-	if len(parts) == 0 && dropped == 0 {
-		dropped = 1
-	}
-	p.dropEdgeMetrics(edgeProducerRperf, edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
-	return parts
-}
-
-func (p *PushLoop) buildRperfMetricBatch(
-	statusResp *proto.StatusResponse,
-	serviceName string,
-	serviceType string,
-	now time.Time,
-) (*metricpb.MetricBatch, error) {
-	var batch metricpb.MetricBatch
-	if err := gproto.Unmarshal(statusResp.GetMessage(), &batch); err != nil {
-		return nil, fmt.Errorf("decode rperf metric batch: %w", err)
-	}
-	if batch.GetSchemaVersion() != "" && batch.GetSchemaVersion() != metricEnvelopeSchemaVersion {
-		return nil, fmt.Errorf("%w %q", errRperfSchemaVersion, batch.GetSchemaVersion())
-	}
-	if len(batch.GetMetrics()) == 0 {
-		return nil, errRperfNoMetricPoints
-	}
-
-	ctx := p.metricEnvelopeContext()
-	res := batch.GetResource()
-	meta := currentRuntimeMetadata()
-	batch.SchemaVersion = metricEnvelopeSchemaVersion
-	batch.Resource = metricResource(
-		firstMetricNonEmpty(ctx.AgentID, statusResp.GetAgentId(), res.GetAgentId()),
-		firstMetricNonEmpty(ctx.GatewayID, statusResp.GetGatewayId(), res.GetGatewayId()),
-		firstMetricNonEmpty(ctx.Partition, res.GetPartition()),
-		firstMetricNonEmpty(res.GetServiceName(), statusResp.GetServiceName(), serviceName, rperfServiceType),
-		firstMetricNonEmpty(res.GetServiceType(), statusResp.GetServiceType(), serviceType, rperfServiceType),
-		firstMetricNonEmpty(res.GetHostId(), meta.Hostname),
-		firstMetricNonEmpty(res.GetHostIp(), p.getSourceIP()),
-		firstMetricNonEmpty(ctx.KvStoreID, res.GetKvStoreId()),
-	)
-	ingest := batch.GetIngestIdentity()
-	batch.IngestIdentity = metricIngest(
-		rperfMetricsSource,
-		rperfCheckerName,
-		firstMetricNonEmpty(ctx.AgentID, statusResp.GetAgentId(), ingest.GetProducerId()),
-		firstMetricNonEmpty(ctx.GatewayID, statusResp.GetGatewayId(), ingest.GetAttestedBy()),
-	)
-	if batch.GetEmittedAtUnixNano() == 0 {
-		batch.EmittedAtUnixNano = timeToUnixNano(now, time.Now())
-	}
-	return &batch, nil
+	return p.commitNetperfSamples(samples)
 }

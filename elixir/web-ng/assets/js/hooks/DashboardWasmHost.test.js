@@ -1,4 +1,8 @@
 import {afterEach, beforeEach, describe, expect, test, vi} from "vitest"
+import React, {useEffect} from "react"
+import {Card} from "@blueprintjs/core"
+import {Window} from "happy-dom"
+import {mountBlueprintDashboard} from "@carverauto/serviceradar-dashboard-sdk/blueprint"
 
 import DashboardWasmHost from "./DashboardWasmHost"
 
@@ -564,6 +568,62 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook.connectFrameStream).not.toHaveBeenCalled()
   }, COLD_IMPORT_TIMEOUT_MS)
 
+  test("a superseded boot's mount failure leaves the newer boot's host state intact", async () => {
+    const hook = hookContext()
+    hook._bootGen = 1
+    let rejectStaleMount
+    const staleMount = vi.fn(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectStaleMount = reject
+        }),
+    )
+
+    const staleBoot = hook.mountExternalRenderer(baseHost(), 1, {}, staleMount)
+    await vi.waitFor(() => expect(staleMount).toHaveBeenCalled())
+
+    hook._bootGen = 2
+    const liveCallback = vi.fn()
+    const liveEvents = {clear: vi.fn()}
+    const liveActions = {}
+    hook._frameUpdateCallbacks = [liveCallback]
+    hook._eventsApi = liveEvents
+    hook._actionsApi = liveActions
+    const liveCamera = {closeAll: vi.fn()}
+    hook._cameraApi = liveCamera
+
+    rejectStaleMount(new Error("stale mount failed"))
+    await expect(staleBoot).rejects.toThrow("stale mount failed")
+
+    expect(hook._frameUpdateCallbacks).toEqual([liveCallback])
+    expect(hook._eventsApi).toBe(liveEvents)
+    expect(liveEvents.clear).not.toHaveBeenCalled()
+    expect(hook._actionsApi).toBe(liveActions)
+    expect(hook._cameraApi).toBe(liveCamera)
+    expect(liveCamera.closeAll).not.toHaveBeenCalled()
+  })
+
+  test("a current boot's mount failure clears the host state it registered", async () => {
+    const hook = hookContext()
+    hook._bootGen = 1
+    const events = {clear: vi.fn()}
+    hook._frameUpdateCallbacks = [vi.fn()]
+    hook._eventsApi = events
+    hook._actionsApi = {}
+
+    await expect(
+      hook.mountExternalRenderer(baseHost(), 1, {}, () => {
+        throw new Error("mount failed")
+      }),
+    ).rejects.toThrow("mount failed")
+
+    expect(hook._frameUpdateCallbacks).toEqual([])
+    expect(hook._eventsApi).toBeNull()
+    expect(events.clear).toHaveBeenCalled()
+    expect(hook._actionsApi).toBeNull()
+    expect(hook._cameraApi).toBeNull()
+  })
+
   test("reconnects the frame stream when a browser module host update changes the stream token", () => {
     const rendererUrl = "data:text/javascript,export function mountDashboard() {}"
     const frames = [
@@ -615,6 +675,341 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(hook._host.package.frames.map((frame) => frame.id)).toEqual(["sites", "devices"])
   })
 
+  test("updates built-in first-party dashboards incrementally when entrypoint matches", () => {
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        status: "ok",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000}],
+      },
+    ]
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const nextHost = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-2", metric_name: "rperf.bits_per_second", value: 420_000_000}],
+          },
+          {
+            id: "spoke_history",
+            query: "in:netperf_metrics agent_id:\"agent-spoke-2\" time:last_24h sort:timestamp:desc limit:200",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-2", metric_name: "rperf.loss_percent", value: 0.4}],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(nextHost, "built-in-v2")).toEqual(true)
+    expect(hook._hostPayloadSignature).toEqual("built-in-v2")
+    expect(hook._host.package.frames).toBe(frames)
+    expect(frames.map((frame) => frame.id)).toEqual(["netperf_recent_samples", "spoke_history"])
+    expect(notified).toHaveLength(1)
+    expect(notified[0].payload.host_update).toBe(true)
+    expect(hook.disconnectFrameStream).not.toHaveBeenCalled()
+
+    const mismatchedEntrypointHost = baseHost({
+      package: {
+        ...nextHost.package,
+        renderer: {
+          ...nextHost.package.renderer,
+          entrypoint: "security_findings",
+          artifact: "security-findings",
+        },
+      },
+    })
+    expect(hook.updateBrowserModuleHost(mismatchedEntrypointHost, "built-in-v3")).toEqual(false)
+  })
+
+  test("preserves loaded frames and optional frames across pending_frames host updates", () => {
+    const arrowPayload = new Uint8Array([9, 8, 7])
+    const frames = [
+      {
+        id: "netperf_recent_samples",
+        query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
+        encoding: "json_rows",
+        status: "ok",
+        row_count: 1,
+        truncated: false,
+        refreshed_at: "2026-11-18T04:00:00Z",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000}],
+      },
+      {
+        id: "netperf_arrow_summary",
+        query: "in:netperf_metrics limit:10",
+        encoding: "arrow_ipc",
+        payload_transport: "channel_binary",
+        payload: arrowPayload,
+        payload_encoding: "arraybuffer",
+        status: "ok",
+        row_count: 4,
+        truncated: true,
+      },
+      {
+        id: "netperf_responder_capacity",
+        required: false,
+        status: "ok",
+        results: [{agent_id: "agent-hub-east-01", metric_name: "rperf.responder_active_sessions", value: 2}],
+      },
+      {
+        id: "netperf_agents",
+        required: false,
+        status: "ok",
+        results: [{uid: "agent-hub-east-01", name: "hub-east-01"}],
+      },
+      {
+        id: "spoke_history",
+        required: false,
+        status: "ok",
+        results: [{agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 910_000_000}],
+      },
+    ]
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v1",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const pendingHost = baseHost({
+      data_provider: {
+        stream_topic: "dashboards:network-performance",
+        stream_token: "token-v2",
+        refresh_interval_ms: 30_000,
+      },
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "network-performance",
+          entrypoint: "network_performance",
+        },
+        // LiveView push_patch sends only required frames in loading state and omits optional frames
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
+            encoding: "json_rows",
+            required: true,
+            status: "loading",
+            results: [],
+          },
+          {
+            id: "netperf_arrow_summary",
+            query: "in:netperf_metrics limit:10",
+            encoding: "json_rows",
+            required: true,
+            status: "loading",
+            results: [],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(pendingHost, "built-in-v2")).toEqual(true)
+    expect(notified).toHaveLength(1)
+    expect(hook.disconnectFrameStream).toHaveBeenCalledTimes(1)
+    expect(hook.connectFrameStream).toHaveBeenCalledWith(hook._host)
+
+    const updatedFrames = hook._host.package.frames
+    expect(updatedFrames.map((f) => f.id)).toEqual([
+      "netperf_recent_samples",
+      "netperf_arrow_summary",
+      "netperf_responder_capacity",
+      "netperf_agents",
+      "spoke_history",
+    ])
+    const samplesFrame = updatedFrames.find((f) => f.id === "netperf_recent_samples")
+    expect(samplesFrame.status).toBe("loading")
+    expect(samplesFrame.results).toEqual([
+      {agent_id: "agent-spoke-1", metric_name: "rperf.bits_per_second", value: 940_000_000},
+    ])
+    expect(samplesFrame.row_count).toBe(1)
+    expect(samplesFrame.truncated).toBe(false)
+
+    const arrowFrame = updatedFrames.find((f) => f.id === "netperf_arrow_summary")
+    expect(arrowFrame.encoding).toBe("arrow_ipc")
+    expect(arrowFrame.payload).toBe(arrowPayload)
+    expect(arrowFrame.row_count).toBe(4)
+    expect(arrowFrame.truncated).toBe(true)
+  })
+
+  test("drops previous frame rows when a pending host update changes the frame query", () => {
+    const renderer = {
+      kind: "built_in",
+      interface_version: "dashboard-built-in-v1",
+      trust: "first_party",
+      artifact: "network-performance",
+      entrypoint: "network_performance",
+    }
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute"],
+        renderer,
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:netperf_metrics time:last_24h limit:500",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-1", value: 1}],
+          },
+          {
+            id: "spoke_history",
+            required: false,
+            query: "in:netperf_metrics agent_id:agent-spoke-1",
+            status: "ok",
+            results: [{agent_id: "agent-spoke-1", value: 2}],
+          },
+          {
+            id: "netperf_agents",
+            required: false,
+            query: "in:agents",
+            status: "ok",
+            results: [{uid: "agent-hub-east-01"}],
+          },
+        ],
+      },
+    })
+    hook._hostPayloadSignature = "built-in-v1"
+
+    const pendingHost = baseHost({
+      package: {
+        name: "Network Performance",
+        source_type: "first_party",
+        capabilities: ["srql.execute"],
+        renderer,
+        data_frames: [
+          {id: "netperf_recent_samples", query: "in:netperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500"},
+          {id: "spoke_history", query: "in:netperf_metrics agent_id:agent-spoke-2"},
+          {id: "netperf_agents", query: "in:agents"},
+        ],
+        frames: [
+          {
+            id: "netperf_recent_samples",
+            query: "in:netperf_metrics agent_id:agent-spoke-2 time:last_24h limit:500",
+            status: "loading",
+            results: [],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(pendingHost, "built-in-v2")).toEqual(true)
+    const updatedFrames = hook._host.package.frames
+    expect(updatedFrames.map((f) => f.id)).toEqual(["netperf_recent_samples", "netperf_agents"])
+    expect(updatedFrames[0].status).toBe("loading")
+    expect(updatedFrames[0].results).toEqual([])
+    expect(updatedFrames[1].results).toEqual([{uid: "agent-hub-east-01"}])
+  })
+
+  test("reboots built-in and browser-module hosts when settings, capabilities, or permissions change", () => {
+    const baseBuiltIn = () =>
+      baseHost({
+        instance: {
+          settings: {lossAlertThresholdPct: 1.0},
+        },
+        permissions: {actions_invoke: false},
+        package: {
+          name: "Network Performance",
+          source_type: "first_party",
+          capabilities: ["srql.execute"],
+          renderer: {
+            kind: "built_in",
+            interface_version: "dashboard-built-in-v1",
+            trust: "first_party",
+            artifact: "network-performance",
+            entrypoint: "network_performance",
+          },
+          frames: [{id: "netperf_recent_samples", status: "ok", results: []}],
+        },
+      })
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseBuiltIn()
+    hook._hostPayloadSignature = "v1"
+
+    const changedSettings = baseBuiltIn()
+    changedSettings.instance.settings = {lossAlertThresholdPct: 2.5}
+    expect(hook.updateBrowserModuleHost(changedSettings, "v2")).toBe(false)
+
+    const changedCapabilities = baseBuiltIn()
+    changedCapabilities.package.capabilities = ["srql.execute", "navigation.open"]
+    expect(hook.updateBrowserModuleHost(changedCapabilities, "v3")).toBe(false)
+
+    const changedPermissions = baseBuiltIn()
+    changedPermissions.permissions = {actions_invoke: true}
+    expect(hook.updateBrowserModuleHost(changedPermissions, "v4")).toBe(false)
+  })
+
   test("mounts trusted browser modules with the bounded host API", async () => {
     const hook = hookContext()
     const rendererUrl = new URL("./__fixtures__/trusted_dashboard_module.js", import.meta.url).href
@@ -634,4 +1029,745 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(typeof hook._moduleDestroy).toEqual("function")
     expect(hook.connectFrameStream).toHaveBeenCalled()
   })
+
+  test("routes built_in web-rum renderer and updates frames in place", async () => {
+    const {builtInDashboardRenderers} = await import("../dashboards")
+    expect(typeof builtInDashboardRenderers.web_rum).toBe("function")
+    expect(typeof builtInDashboardRenderers["web-rum"]).toBe("function")
+
+    const frames = [
+      {
+        id: "rum_cwv_summary",
+        query: 'in:rum time:last_24h stats:"count() as beacons" limit:1',
+        status: "ok",
+        results: [{beacons: 10}],
+      },
+    ]
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      instance: {
+        route_slug: "web-rum",
+        settings: {},
+      },
+      package: {
+        dashboard_id: "cloud.serviceradar.web-rum",
+        name: "Web RUM",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "web-rum",
+          entrypoint: "web_rum",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "web-rum-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const nextHost = baseHost({
+      instance: {
+        route_slug: "web-rum",
+        settings: {},
+      },
+      package: {
+        ...hook._host.package,
+        frames: [
+          {
+            id: "rum_cwv_summary",
+            query: 'in:rum time:last_24h stats:"count() as beacons" limit:1',
+            status: "ok",
+            results: [{beacons: 25}],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(nextHost, "web-rum-v2")).toEqual(true)
+    expect(notified).toHaveLength(1)
+    expect(frames[0].results).toEqual([{beacons: 25}])
+    expect(hook.disconnectFrameStream).not.toHaveBeenCalled()
+  })
+})
+
+describe("DashboardWasmHost async boot/updated/destroyed race hardening", () => {
+  function createLifecycleHookContext() {
+    const children = []
+    let innerHtmlValue = ""
+    const el = {
+      dataset: {},
+      classList: {add: vi.fn()},
+      children,
+      appendChild: vi.fn((node) => {
+        children.push(node)
+        return node
+      }),
+      removeChild: vi.fn((node) => {
+        const index = children.indexOf(node)
+        if (index >= 0) children.splice(index, 1)
+      }),
+      get innerHTML() {
+        return innerHtmlValue
+      },
+      set innerHTML(value) {
+        innerHtmlValue = String(value)
+        children.length = 0
+      },
+    }
+
+    globalThis.window = {
+      ...globalThis.window,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }
+    globalThis.document = {
+      ...globalThis.document,
+      visibilityState: "visible",
+      documentElement: {},
+      body: {},
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      querySelector: vi.fn(() => null),
+    }
+    globalThis.MutationObserver = class {
+      observe() {}
+      disconnect() {}
+    }
+
+    return hookContext({
+      el,
+      teardownMap: vi.fn(),
+      disconnectFrameStream: vi.fn(),
+      applyThemeStyle: vi.fn(),
+      resizeMap: vi.fn(),
+    })
+  }
+
+  function deferred() {
+    let resolve
+    let reject
+    const promise = new Promise((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return {promise, resolve, reject}
+  }
+
+  async function flushMicrotasks(turns = 12) {
+    for (let i = 0; i < turns; i += 1) {
+      await Promise.resolve()
+    }
+  }
+
+  test("updated() mid-import() cancels stale boot without mounting stale module", async () => {
+    const mountCalls = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5RaceHooks = {
+      mod1(el) {
+        mountCalls.push("mod1")
+        const node = {id: "child-1"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("mod1")
+            el.removeChild(node)
+          },
+        }
+      },
+      mod2(el) {
+        mountCalls.push("mod2")
+        const node = {id: "child-2"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("mod2")
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+
+    const url1 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceHooks.mod1(el,host)}"
+    const url2 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceHooks.mod2(el,host)}"
+
+    try {
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url1}}),
+      )
+      hook.mounted()
+
+      // Immediately trigger updated() while boot1 is suspended at await import(url1)
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url2}}),
+      )
+      hook.updated()
+
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["mod2"])
+      expect(hook.el.children).toEqual([{id: "child-2"}])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+
+      hook.destroyed()
+      expect(destroyCalls).toEqual(["mod2"])
+      expect(hook.el.children).toEqual([])
+    } finally {
+      delete globalThis.__t5RaceHooks
+    }
+  }, 30_000)
+
+  test("updated() mid-mountDashboard() destroys out-of-order stale handle without overwriting live handle", async () => {
+    const d1 = deferred()
+    const d2 = deferred()
+    const entered1 = deferred()
+    const entered2 = deferred()
+    const mountCalls = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5RaceMount = {
+      async slow1(el) {
+        mountCalls.push("slow1")
+        entered1.resolve()
+        const handle = await d1.promise
+        const node = {id: "slow-node-1"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("slow1")
+            el.removeChild(node)
+            handle?.onDestroy?.()
+          },
+        }
+      },
+      async slow2(el) {
+        mountCalls.push("slow2")
+        entered2.resolve()
+        const handle = await d2.promise
+        const node = {id: "slow-node-2"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("slow2")
+            el.removeChild(node)
+            handle?.onDestroy?.()
+          },
+        }
+      },
+    }
+
+    const url1 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceMount.slow1(el,host)}"
+    const url2 =
+      "data:text/javascript,export function mountDashboard(el, host){return globalThis.__t5RaceMount.slow2(el,host)}"
+
+    try {
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url1}}),
+      )
+      hook.mounted()
+      await entered1.promise
+
+      // Trigger updated() while slow1's mountDashboard() is still pending
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: url2}}),
+      )
+      hook.updated()
+      await entered2.promise
+
+      // Resolve slow2 BEFORE slow1 (out-of-order)
+      d2.resolve({})
+      await flushMicrotasks()
+      expect(hook.el.children).toEqual([{id: "slow-node-2"}])
+      expect(destroyCalls).toEqual([])
+
+      // Now slow1 settles late: must immediately destroy its stale handle and leave slow2 intact
+      d1.resolve({})
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["slow1", "slow2"])
+      expect(destroyCalls).toEqual(["slow1"])
+      expect(hook.el.children).toEqual([{id: "slow-node-2"}])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+
+      hook.destroyed()
+      expect(destroyCalls).toEqual(["slow1", "slow2"])
+      expect(hook.el.children).toEqual([])
+    } finally {
+      delete globalThis.__t5RaceMount
+    }
+  }, 30_000)
+
+  test("destroyed() mid-import() and mid-mountDashboard() prevents late mount or leaks", async () => {
+    const mountCalls = []
+    const destroyCalls = []
+
+    // Case A: destroyed() mid-import()
+    const hookA = createLifecycleHookContext()
+    globalThis.__t5DestroyImport = {
+      mount() {
+        mountCalls.push("import-mount")
+        return {destroy: () => destroyCalls.push("import-destroy")}
+      },
+    }
+    const urlA =
+      "data:text/javascript,export function mountDashboard(){return globalThis.__t5DestroyImport.mount()}"
+
+    try {
+      hookA.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: urlA}}),
+      )
+      hookA.mounted()
+      hookA.destroyed()
+
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual([])
+      expect(hookA.connectFrameStream).not.toHaveBeenCalled()
+    } finally {
+      delete globalThis.__t5DestroyImport
+    }
+
+    // Case B: destroyed() mid-mountDashboard()
+    const dPending = deferred()
+    const entered = deferred()
+    const hookB = createLifecycleHookContext()
+    globalThis.__t5DestroyMount = {
+      async mount(el) {
+        mountCalls.push("pending-mount")
+        entered.resolve()
+        await dPending.promise
+        const node = {id: "zombie-node"}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push("pending-destroy")
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+    const urlB =
+      "data:text/javascript,export function mountDashboard(el){return globalThis.__t5DestroyMount.mount(el)}"
+
+    try {
+      hookB.el.dataset.host = JSON.stringify(
+        baseHost({package: {...baseHost().package, renderer_url: urlB}}),
+      )
+      hookB.mounted()
+      await entered.promise
+
+      hookB.destroyed()
+      dPending.resolve()
+      await flushMicrotasks()
+
+      expect(mountCalls).toEqual(["pending-mount"])
+      expect(destroyCalls).toEqual(["pending-destroy"])
+      expect(hookB.el.children).toEqual([])
+      expect(hookB._moduleDestroy).toBeUndefined()
+      expect(hookB.connectFrameStream).not.toHaveBeenCalled()
+    } finally {
+      delete globalThis.__t5DestroyMount
+    }
+  }, 30_000)
+
+  test("same-renderer updated() mid-mount() with updated frames and rotated/cleared stream_token reboots cleanly", async () => {
+    const d1 = deferred()
+    const d2 = deferred()
+    const entered1 = deferred()
+    const entered2 = deferred()
+    const mountRecords = []
+    const destroyCalls = []
+    const hook = createLifecycleHookContext()
+
+    globalThis.__t5SameRendererUpdate = {
+      async mount(el, host, api) {
+        const callId = host.data_provider?.stream_token ?? "cleared"
+        const record = {
+          callId,
+          initialFrames: api.frames(),
+          receivedUpdates: [],
+          abortedAtMount: Boolean(api.signal?.aborted),
+        }
+        mountRecords.push(record)
+        api.onFrameUpdate?.((upd) => record.receivedUpdates.push(upd))
+
+        if (mountRecords.length === 1) {
+          entered1.resolve()
+          await d1.promise
+        } else {
+          entered2.resolve()
+          await d2.promise
+        }
+
+        const node = {id: `node-${callId}`}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push(callId)
+            el.removeChild(node)
+          },
+        }
+      },
+    }
+
+    const sameRendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5SameRendererUpdate.mount(el, host, api)}"
+
+    try {
+      // host1 omits package.frames and sets initial stream_token: "tok-1"
+      const host1 = baseHost({
+        data_provider: {
+          stream_topic: "dashboards:test",
+          stream_token: "tok-1",
+          refresh_interval_ms: 10_000,
+        },
+        package: {
+          name: "Test Dashboard",
+          capabilities: [],
+          renderer_url: sameRendererUrl,
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+        },
+      })
+
+      hook.el.dataset.host = JSON.stringify(host1)
+      hook.mounted()
+      await entered1.promise
+
+      // host._host must NOT be prematurely assigned while mount() #1 is pending
+      expect(hook._host).toBeUndefined()
+
+      // Same-renderer updated() arrives mid-mount() with frames and rotated stream_token: "tok-2"
+      const host2 = baseHost({
+        data_provider: {
+          stream_topic: "dashboards:test",
+          stream_token: "tok-2",
+          refresh_interval_ms: 10_000,
+        },
+        package: {
+          ...host1.package,
+          frames: [{id: "f1", status: "ok", results: [{v: 42}]}],
+        },
+      })
+      hook.el.dataset.host = JSON.stringify(host2)
+      hook.updated()
+      await entered2.promise
+
+      // Resolve mount #2 first, then let stale mount #1 settle late
+      d2.resolve()
+      await flushMicrotasks()
+      d1.resolve()
+      await flushMicrotasks()
+
+      expect(mountRecords).toHaveLength(2)
+      expect(mountRecords[0].initialFrames).toEqual([])
+      expect(mountRecords[0].receivedUpdates).toEqual([])
+      expect(mountRecords[1].initialFrames).toEqual([{id: "f1", status: "ok", results: [{v: 42}]}])
+      expect(destroyCalls).toEqual(["tok-1"])
+      expect(hook.connectFrameStream).toHaveBeenCalledTimes(1)
+      expect(hook.connectFrameStream.mock.calls[0][0].data_provider.stream_token).toBe("tok-2")
+      expect(hook._host.package.frames).toEqual([{id: "f1", status: "ok", results: [{v: 42}]}])
+
+      // Also verify cleared stream_token mid-mount() prevents connectFrameStream on stale token
+      const d3 = deferred()
+      const d4 = deferred()
+      const entered3 = deferred()
+      const entered4 = deferred()
+      const hookCleared = createLifecycleHookContext()
+      let clearedSeq = 0
+      globalThis.__t5SameRendererUpdate.mount = async (el) => {
+        clearedSeq += 1
+        const seq = clearedSeq
+        if (seq === 1) {
+          entered3.resolve()
+          await d3.promise
+        } else {
+          entered4.resolve()
+          await d4.promise
+        }
+        const node = {id: `cleared-${seq}`}
+        el.appendChild(node)
+        return {
+          destroy() {
+            destroyCalls.push(`cleared-${seq}`)
+            el.removeChild(node)
+          },
+        }
+      }
+
+      const hostWithTok = baseHost({
+        data_provider: {stream_topic: "dashboards:test", stream_token: "stale-tok"},
+        package: {...host1.package},
+      })
+      const hostClearedTok = baseHost({
+        data_provider: {stream_topic: "dashboards:test"},
+        package: {...host1.package, frames: [{id: "f2", status: "ok", results: [{v: 99}]}]},
+      })
+
+      hookCleared.el.dataset.host = JSON.stringify(hostWithTok)
+      hookCleared.mounted()
+      await entered3.promise
+
+      hookCleared.el.dataset.host = JSON.stringify(hostClearedTok)
+      hookCleared.updated()
+      await entered4.promise
+
+      d4.resolve()
+      await flushMicrotasks()
+      d3.resolve()
+      await flushMicrotasks()
+
+      expect(hookCleared.connectFrameStream).toHaveBeenCalledTimes(1)
+      expect(hookCleared.connectFrameStream.mock.calls[0][0].data_provider.stream_token).toBeUndefined()
+      expect(hookCleared._host.package.frames).toEqual([{id: "f2", status: "ok", results: [{v: 99}]}])
+
+      hook.destroyed()
+      hookCleared.destroyed()
+    } finally {
+      delete globalThis.__t5SameRendererUpdate
+    }
+  }, 30_000)
+
+  test("withTimeout rejection aborts pending waitForReady mountBlueprintDashboard and leaks zero MutationObservers after destroyed()", async () => {
+    const win = new Window({url: "https://dashboard.serviceradar.test/"})
+    const keys = [
+      "window",
+      "document",
+      "HTMLElement",
+      "HTMLDivElement",
+      "Element",
+      "Node",
+      "Text",
+      "SVGElement",
+      "DocumentFragment",
+      "MutationObserver",
+      "ResizeObserver",
+      "IntersectionObserver",
+      "Event",
+      "CustomEvent",
+      "MouseEvent",
+      "KeyboardEvent",
+      "FocusEvent",
+      "getComputedStyle",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "matchMedia",
+    ]
+    const previous = new Map()
+    for (const key of keys) {
+      previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key))
+      const value = key === "window" ? win : win[key]
+      if (value !== undefined) {
+        Object.defineProperty(globalThis, key, {
+          configurable: true,
+          writable: true,
+          value:
+            typeof value === "function" &&
+            key !== "MutationObserver" &&
+            key !== "ResizeObserver" &&
+            key !== "IntersectionObserver" &&
+            !/^[A-Z]/.test(key)
+              ? value.bind(win)
+              : value,
+        })
+      }
+    }
+
+    const activeObservers = new Set()
+    const NativeMutationObserver = win.MutationObserver
+    globalThis.MutationObserver = class TrackedMutationObserver extends NativeMutationObserver {
+      constructor(cb) {
+        super(cb)
+        this._observing = false
+      }
+      observe(target, opts) {
+        this._observing = true
+        activeObservers.add(this)
+        return super.observe(target, opts)
+      }
+      disconnect() {
+        this._observing = false
+        activeObservers.delete(this)
+        return super.disconnect()
+      }
+    }
+
+    let effectCleanups = 0
+    function NeverReadyDashboard() {
+      useEffect(() => () => {
+        effectCleanups += 1
+      }, [])
+      return React.createElement(Card, null, "never-ready")
+    }
+
+    globalThis.__t5TimeoutBlueprintMount = (el, host, api) =>
+      mountBlueprintDashboard(NeverReadyDashboard, {waitForReady: true})(el, host, api)
+
+    const rendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5TimeoutBlueprintMount(el, host, api)}"
+
+    try {
+      const root = win.document.createElement("div")
+      win.document.body.appendChild(root)
+
+      const hook = {
+        ...DashboardWasmHost,
+        el: root,
+        _frameUpdateCallbacks: [],
+        connectFrameStream: vi.fn(),
+        disconnectFrameStream: vi.fn(),
+        pushEvent: vi.fn(),
+        isDarkMode: vi.fn(() => false),
+      }
+      root.dataset.host = JSON.stringify(
+        baseHost({
+          package: {
+            ...baseHost().package,
+            renderer_url: rendererUrl,
+            renderer: {
+              ...baseHost().package.renderer,
+              timeout_ms: 100,
+            },
+          },
+        }),
+      )
+
+      hook.mounted()
+
+      // Wait for the 100ms timeout to fire and React passive cleanups to run
+      await new Promise((resolve) => setTimeout(resolve, 260))
+      await flushMicrotasks()
+
+      expect(hook.el.innerHTML).toContain("Dashboard renderer failed")
+      expect(hook.el.innerHTML).toContain("dashboard renderer timed out after 100ms")
+      expect(hook._host).toBeUndefined()
+      expect(hook.connectFrameStream).not.toHaveBeenCalled()
+      expect(effectCleanups).toBe(1)
+      // Only hook._themeObserver remains active while the hook is still mounted
+      expect(activeObservers.size).toBe(1)
+
+      hook.destroyed()
+      await flushMicrotasks()
+      expect(activeObservers.size).toBe(0)
+    } finally {
+      delete globalThis.__t5TimeoutBlueprintMount
+      await win.happyDOM.close()
+      for (const [key, desc] of previous.entries()) {
+        if (desc) Object.defineProperty(globalThis, key, desc)
+        else delete globalThis[key]
+      }
+    }
+  }, 30_000)
+
+  test("api.frames(), api.frame(), and api.srql.query() reflect updated() and replaceBinaryFramePayload() when initial package.frames is omitted", async () => {
+    const hook = createLifecycleHookContext()
+    let capturedApi = null
+    const updates = []
+
+    globalThis.__t5OmittedFramesMount = (_el, _host, api) => {
+      capturedApi = api
+      api.onFrameUpdate((upd) => updates.push(upd))
+      return {destroy() {}}
+    }
+
+    const rendererUrl =
+      "data:text/javascript,export function mountDashboard(el, host, api){return globalThis.__t5OmittedFramesMount(el, host, api)}"
+
+    try {
+      const initialHost = baseHost({
+        package: {
+          name: "Test Dashboard",
+          capabilities: [],
+          renderer_url: rendererUrl,
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+        },
+      })
+
+      hook.el.dataset.host = JSON.stringify(initialHost)
+      hook.mounted()
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      await flushMicrotasks()
+
+      expect(capturedApi).not.toBeNull()
+      expect(capturedApi.frames()).toEqual([])
+      expect(capturedApi.frame("f1")).toBeUndefined()
+      expect(capturedApi.srql.query("f1")).toBe("")
+
+      const updatedFrames = [{id: "f1", query: "in:devices", status: "ok", results: [{v: 99}]}]
+      hook.el.dataset.host = JSON.stringify(
+        baseHost({
+          package: {
+            ...initialHost.package,
+            frames: updatedFrames,
+          },
+        }),
+      )
+      hook.updated()
+
+      expect(capturedApi.frames()).toEqual(updatedFrames)
+      expect(capturedApi.frame("f1")).toEqual(updatedFrames[0])
+      expect(capturedApi.srql.query("f1")).toBe("in:devices")
+      expect(updates).toHaveLength(1)
+
+      // Also verify replaceBinaryFramePayload updates this._host.package.frames when frames were initially omitted
+      const binHook = hookContext({
+        _host: baseHost({
+          package: {
+            name: "Test Dashboard",
+            capabilities: [],
+            renderer: {
+              kind: "browser_module",
+              interface_version: "dashboard-browser-module-v1",
+              trust: "trusted",
+            },
+          },
+        }),
+      })
+      const binApi = binHook.browserModuleApi(binHook._host)
+      expect(binApi.frames()).toEqual([])
+
+      const enc = new TextEncoder()
+      const idBytes = enc.encode("f2")
+      const metaBytes = enc.encode(JSON.stringify({query: "in:flows limit:5", encoding: "arrow_ipc", status: "ok"}))
+      const payloadBytes = new Uint8Array([10, 20, 30])
+      const buf = new Uint8Array(10 + idBytes.length + metaBytes.length + payloadBytes.length)
+      buf.set(enc.encode("DFB1"), 0)
+      const dv = new DataView(buf.buffer)
+      dv.setUint16(4, idBytes.length, false)
+      dv.setUint32(6, metaBytes.length, false)
+      buf.set(idBytes, 10)
+      buf.set(metaBytes, 10 + idBytes.length)
+      buf.set(payloadBytes, 10 + idBytes.length + metaBytes.length)
+
+      binHook.replaceBinaryFramePayload(buf.buffer)
+
+      expect(Array.isArray(binHook._host.package.frames)).toBe(true)
+      expect(binApi.frames()).toHaveLength(1)
+      expect(binApi.frame("f2")).toMatchObject({id: "f2", query: "in:flows limit:5", encoding: "arrow_ipc"})
+      expect(binApi.srql.query("f2")).toBe("in:flows limit:5")
+      expect(Array.from(binApi.arrow.frameBytes("f2"))).toEqual([10, 20, 30])
+
+      hook.destroyed()
+    } finally {
+      delete globalThis.__t5OmittedFramesMount
+    }
+  }, 30_000)
 })

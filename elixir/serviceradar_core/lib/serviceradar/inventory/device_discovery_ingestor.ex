@@ -43,6 +43,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.Mac
@@ -1231,7 +1232,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
               |> Enum.filter(&present?/1)
               |> Enum.uniq()
 
-            ip = Map.get(update, "ip") || List.first(guest.ips)
+            # The guest's strongest address (`Address.best/1`: a usable IPv4 over any
+            # IPv6, a link-local only when nothing is routable), not its first.
+            ip = Map.get(update, "ip") || Address.best(guest.ips)
 
             updated_metadata =
               if macs == [] do

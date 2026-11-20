@@ -1,0 +1,139 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 600,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 43200,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Inspects TLS leaf certificate remaining validity days against warning and critical expiry thresholds.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "tls_1",
+      "source_handle": "signal",
+      "target": "assert_expiry",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_expiry",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "tls_warn_days"
+      },
+      "description": "Warning threshold for remaining TLS leaf certificate days",
+      "key": "tls_warn_days",
+      "max": 365,
+      "min": 1,
+      "type": "integer"
+    },
+    {
+      "default": {
+        "$pack_param": "tls_crit_days"
+      },
+      "description": "Critical threshold for remaining TLS leaf certificate days",
+      "key": "tls_crit_days",
+      "max": 365,
+      "min": 1,
+      "type": "integer"
+    }
+  ],
+  "managed": true,
+  "name": "TLS Certificate Expiry Posture",
+  "nodes": [
+    {
+      "config": {
+        "host": {
+          "$pack_param": "tls_target_host"
+        },
+        "min_days_remaining": {
+          "$pack_param": "tls_crit_days"
+        },
+        "port": 443,
+        "sni": {
+          "$pack_param": "tls_target_host"
+        },
+        "timeout_ms": 5000
+      },
+      "id": "tls_1",
+      "kind": "tls_handshake",
+      "label": "TLS Handshake Probe"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": "<=",
+          "value": "{{inputs.tls_crit_days}}"
+        },
+        "field": "leaf_days_remaining",
+        "warn": {
+          "op": "<=",
+          "value": "{{inputs.tls_warn_days}}"
+        }
+      },
+      "id": "assert_expiry",
+      "kind": "threshold_assert",
+      "label": "Leaf Expiry Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "tls_certificate_expiring_soon",
+          "down": "tls_certificate_expiry_critical",
+          "healthy": "tls_certificate_valid",
+          "unknown": "tls_handshake_inconclusive"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "TLS Posture Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.http-api-and-tls-posture",
+  "pack_version": "0.1.1",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "tls-certificate-expiry-posture",
+  "state": "enabled",
+  "target_binding": {
+    "host": "api.example.com",
+    "mode": "service_targets",
+    "port": 443,
+    "target_ids": [
+      "api.example.com:443"
+    ]
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_expiry": {
+        "x": 380,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      },
+      "tls_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

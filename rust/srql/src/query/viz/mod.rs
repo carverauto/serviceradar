@@ -79,7 +79,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
             Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::SnmpMetrics
-                | Entity::RperfMetrics
+                | Entity::NetperfMetrics
                 | Entity::CpuMetrics
                 | Entity::MemoryMetrics
                 | Entity::DiskMetrics
@@ -166,7 +166,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::TimeseriesMetrics
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::SnmpMetrics
-        | Entity::RperfMetrics => metrics::timeseries_metrics(),
+        | Entity::NetperfMetrics => metrics::timeseries_metrics(),
         Entity::TimeseriesMetricDiskHourly => metrics::timeseries_metric_disk_hourly(),
         Entity::CpuMetrics => metrics::cpu_metrics(),
         Entity::MemoryMetrics => metrics::memory_metrics(),
@@ -178,6 +178,8 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::Flows | Entity::AttributedFlows => network::flows(),
         Entity::PublicEndpoints => network::public_endpoints(),
         Entity::CameraSources => network::camera_sources(),
+        Entity::Websites => network::websites(),
+        Entity::RumBeacons => observability::rum_beacons(),
         Entity::ThreatIntelMatches => network::threat_intel_matches(),
         Entity::SourceFactDisagreements => inventory::source_fact_disagreements(),
         Entity::SweepGroups => inventory::sweep_groups(),

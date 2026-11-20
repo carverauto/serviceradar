@@ -12,4 +12,8 @@ func RunManagedCertificateUpdater(_ context.Context, _ string, _ io.Reader, _ io
 	return fmt.Errorf("%w: service installation currently requires Linux systemd", errManagedCertificates)
 }
 
-func (p *PushLoop) startManagedLocalNATS(_ context.Context) {}
+// managedLocalNATSConfigured is always false off Linux: the managed local
+// NATS supervisor only runs on Linux hosts.
+func managedLocalNATSConfigured() bool { return false }
+
+func (p *PushLoop) managedLocalNATSLoop(_ context.Context) {}

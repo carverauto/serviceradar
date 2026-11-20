@@ -46,11 +46,20 @@ defmodule ServiceRadar.Identity.RoleMapping do
   @spec resolve(map(), keyword()) :: resolution()
   def resolve(claims, opts \\ []) when is_map(claims) do
     case AuthorizationSettings.get_settings(opts) do
-      {:ok, nil} -> empty_resolution(@default_role)
-      {:ok, settings} -> resolve_from_settings(settings, claims)
+      {:ok, settings} -> resolve_with_settings(settings, claims)
       {:error, _reason} -> empty_resolution(@default_role)
     end
   end
+
+  @doc """
+  `resolve/2` against settings the caller already holds, so a caller that also
+  needs the mappings themselves reads the settings once.
+  """
+  @spec resolve_with_settings(map() | nil, map()) :: resolution()
+  def resolve_with_settings(nil, claims) when is_map(claims), do: empty_resolution(@default_role)
+
+  def resolve_with_settings(settings, claims) when is_map(claims),
+    do: resolve_from_settings(settings, claims)
 
   defp empty_resolution(role) do
     %{role: role, role_profile_ids: [], user_group_ids: [], matched: []}

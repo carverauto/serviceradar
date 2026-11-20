@@ -1,0 +1,110 @@
+{
+  "author": "ServiceRadar",
+  "categories": [
+    "Infrastructure",
+    "Virtualization"
+  ],
+  "config": [
+    {
+      "default": 80.0,
+      "description": "Datastore used-space percentage that raises a warning.",
+      "key": "storage_warn_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 90.0,
+      "description": "Datastore used-space percentage that raises a critical alert.",
+      "key": "storage_crit_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    }
+  ],
+  "credential_slots": [],
+  "description": "Watches Proxmox VE datastore capacity, paused or failed guests, and inventory freshness using the inventory reported by the Proxmox plugin.",
+  "files": {
+    "README.md": "753af0949f679c2f234e4b979037ad56fb5eb47d19ac868075e5866824465b04",
+    "assets/architecture.svg": "2b21a553cb4e41732d1f95b26c41fb7260eb11970e2b5e9722e8bd0ec739bedc",
+    "checks/datastore-capacity.json": "663405ef1c98b6ffe482fa074979c52639c146e4d8dcff2c6adf7ce8f7ea3483",
+    "checks/inventory-freshness.json": "c9a85b39b2dde838c37cefbe580497f64433ef8293e6066b09e825e1c45a716d",
+    "checks/paused-guests.json": "1a6c74411520c9b268d5a4ce2e43126c0a8b6337edb9c75c61a9061d7ddb9d70",
+    "dashboards/proxmox-monitoring-overview.json": "415a2abb51872cb2914c676cd5acf7e65c3545ee2e7c0b1cc27dcf52a46bf3e0",
+    "rules/datastore-filling-alert.json": "9195ee1f67ea87bddd3fcbb5f8891557e3d03f450ba22722102b731db8f5f028",
+    "rules/datastore-nearly-full-alert.json": "93b24700bf0eb00a00e18ebe556f1c27b4c2fc108290ce58370e0ffd80220a7c",
+    "rules/guests-paused-alert.json": "377efe81aad393f348004e49891e76e2547d6ecd5cfcb6d272de19c29228982c",
+    "rules/inventory-stale-alert.json": "02ebca5a6d8ac9b0bb02039b370e0f8510f92696a30df67ce3612da87fb08a08",
+    "rules/runtime-state-unavailable-alert.json": "211670328c4cc77d9d2c7cdc0acb220ec9bbeddf813a3510f3c41b0a61232d06"
+  },
+  "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxyZWN0IHg9IjEzIiB5PSIxNCIgd2lkdGg9IjIyIiBoZWlnaHQ9IjYiIHJ4PSIyIiBmaWxsPSIjZjk3MzE2Ii8+PHJlY3QgeD0iMTMiIHk9IjIyIiB3aWR0aD0iMjIiIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiNmYjkyM2MiLz48cmVjdCB4PSIxMyIgeT0iMzAiIHdpZHRoPSIyMiIgaGVpZ2h0PSI2IiByeD0iMiIgZmlsbD0iI2ZkYmE3NCIvPjwvc3ZnPg==",
+  "id": "io.serviceradar.proxmox-monitoring",
+  "license": "Apache-2.0",
+  "min_serviceradar_version": "1.5.9",
+  "name": "Proxmox Monitoring",
+  "pack_format_version": 1,
+  "plugin_dependencies": [
+    {
+      "package_id": "proxmox-inventory",
+      "version_constraint": ">=0.1.14"
+    }
+  ],
+  "resources": {
+    "checks": [
+      {
+        "file": "checks/datastore-capacity.json",
+        "slug": "proxmox-datastore-capacity"
+      },
+      {
+        "file": "checks/paused-guests.json",
+        "slug": "proxmox-paused-guests"
+      },
+      {
+        "file": "checks/inventory-freshness.json",
+        "slug": "proxmox-inventory-freshness"
+      }
+    ],
+    "dashboards": [
+      {
+        "file": "dashboards/proxmox-monitoring-overview.json",
+        "slug": "proxmox-monitoring-overview"
+      }
+    ],
+    "rules": [
+      {
+        "file": "rules/datastore-nearly-full-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "proxmox_datastore_nearly_full"
+      },
+      {
+        "file": "rules/datastore-filling-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "proxmox_datastore_filling"
+      },
+      {
+        "file": "rules/guests-paused-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "proxmox_guests_paused"
+      },
+      {
+        "file": "rules/runtime-state-unavailable-alert.json",
+        "install_state": "paused",
+        "kind": "stateful_alert_rule",
+        "name": "proxmox_guest_runtime_state_unavailable"
+      },
+      {
+        "file": "rules/inventory-stale-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "proxmox_inventory_stale"
+      }
+    ]
+  },
+  "slug": "proxmox-monitoring",
+  "version": "0.1.0"
+}

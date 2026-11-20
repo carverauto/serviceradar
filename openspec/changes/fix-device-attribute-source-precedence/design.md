@@ -96,7 +96,9 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    address, because it is the same source rewriting its own value. A weaker write fills the
    attribute only when no strength has been recorded; a recorded clear (an
    empty value with a recorded strength, such as a platform inventory's
-   `nil` `management_device_id`) is a stored decision. Nothing else decides:
+   `nil` `management_device_id`) is a stored decision. An identity scrub is
+   not a clear: it resets the recorded strengths together with the values it
+   nulls, so any write may refill a scrubbed attribute. Nothing else decides:
    there is no test comparing the stored name with the stored address. A
    populated value without a recorded strength (rows written before this
    change) is kept against a weakest-tier write; the next write of any tier
@@ -112,10 +114,12 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
    name and hostname at a stronger recorded value, or unset. A recorded
    address-fallback name follows the non-link-local address the device
    keeps. An
-   address-fallback write carries the kept address in both `name` and
-   `hostname`, so the same source rewriting its own value moves the pair;
-   the rule that a field a write does not carry stays stored (decision 8)
-   applies to writers that omit a field, not to this derivation.
+   address-fallback write sets `name` only and never writes `hostname`:
+   a hostname is identity evidence (hostname-agreement adoption), so
+   writing a bare address into it lets a different device later polled at
+   that address merge into this record. A stored hostname is left as it is
+   by an address-fallback write; the same source rewriting its own
+   fallback `name` still moves it to the kept address.
 8. The upsert compares strength with the stored row inside the `ON CONFLICT`
    update, the same place the `ip` rank guard lives, so concurrent writers
    cannot race a read-then-write in Elixir. The decision accepts or rejects
@@ -160,7 +164,7 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     | `proxmox_candidate`, `proxmox_tls_sans_recorded`, `proxmox_tls_san_ips` | plugin inputs, `ProxmoxHostAuthority`, credential-rule target queries | owner: mapper Proxmox candidate probe |
     | `management_device_id` | SNMP compiler (polling host) | ranked: platform inventory (camera) > mapper; a platform clear to none is the stronger value and the mapper's empty-fill does not refill it |
     | tags / labels | target queries | merged maps (union), not single-valued |
-    | `name` / `hostname` / `type` / `type_id` / `device_role` from `AgentGatewaySync` | - | non-writer: the agent check-in hostname and type are corroboration, not identity |
+    | `name` / `hostname` / `type` / `type_id` / `device_role` from `AgentGatewaySync` | - | non-writer on an existing device: the agent check-in hostname and type are corroboration, not identity; a device the check-in creates records them at the agent check-in tier below every other tier |
     | defaulted vendor (for example a WiFi-map batch filler when the row has none) | - | non-writer: not vendor evidence |
 
 13. Any integration inventory that reports a device's identity is platform
@@ -178,8 +182,15 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     UniFi Protect), the WiFi-map controller and batch ingestion
     (`WifiMap.BatchIngestor`), and `EndpointInventoryIngestor`.
     `AgentGatewaySync` is not one of them: its check-in hostname and type
-    are corroboration, and it no longer writes `name`, `hostname`, `type`,
-    `type_id` or `device_role`. A defaulted or guessed vendor (such as
+    are corroboration, and on an existing device it no longer writes `name`,
+    `hostname`, `type`, `type_id` or `device_role`. A device the check-in
+    creates takes the check-in hostname as `name` / `hostname` and its host
+    type as `type` / `type_id`, recorded at a dedicated agent check-in tier
+    (strength 0) below every other tier of the `name` and `type` ladders,
+    including the address fallback, so any other source replaces them. The
+    agent-link remediation that restores a device whose identity was purged
+    (`:gateway_restore`) records the check-in hostname as `name` /
+    `hostname` at the same agent check-in tier. A defaulted or guessed vendor (such as
     `WifiMap.BatchIngestor`'s default when the row has none) is not vendor
     evidence and never writes `vendor_name`. Writers that share a tier are
     settled by the same-source tie-break (decision 6).
@@ -212,7 +223,15 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     address it reported for the device in the snapshot or window including
     candidates its chooser did not submit, no longer contains it, or it
     aged out of that source's window); a single-address update from another
-    source never counts as absence. The recording source and last-sighted
+    source never counts as absence. An absence lets only an address of the
+    same class or a stronger class replace the stored primary (a same-family
+    re-IP replaces it); a weaker class (usable IPv4 to IPv6, routable to
+    link-local) replaces it only once the stored address has also aged out of
+    the recording source's window, so a census snapshot that briefly lists only
+    a device's IPv6 (its ARP row aged out, NDP still present) does not move the
+    primary off its IPv4 and back. A direct writer (agent check-in, camera,
+    mapper address move) records itself as the source and its sighting time
+    when it sets the primary. The recording source and last-sighted
     time of the primary are stored (decision 1); every source that feeds
     the primary passes its full per-device address set to the batch
     builder, and absence is computed from that set and window in the
@@ -255,7 +274,11 @@ address rank, #3905, which ties a global IPv6 with a private IPv4) and manual
     IPv4, then routable IPv6, then link-local, then higher rank within the
     family); only among candidates of equal class and equal rank do they
     tie-break deterministically, the stored primary first if present among
-    them, then the lowest address, never across ranks, so a stored
+    them, then the lowest address, never across ranks (two documented
+    exceptions order equally strong candidates first: the hypervisor host
+    selection by `management_ip_score`, a gateway, a private address or a
+    Linux bridge, and `GuestAddress` by the guest's NIC preference order,
+    hypervisor-attached NICs by configured index, then report order), so a stored
     `10.1.0.5` (rank 40) yields to `203.0.113.5` (rank 50) and a stored ULA
     to a global IPv6 on an IPv6-only device. `best/1` takes the stored
     primary as an optional input used only for that tie-break. No chooser
