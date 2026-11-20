@@ -80,7 +80,8 @@ Not in this change:
 - Row targets for edge probes. A row is not something an agent can reach.
 - Per-row parameter overrides or per-row alert silencing.
 - Resolving `selector_query` for `service_targets` bindings. Until that
-  lands, a binding with a selector and no `target_ids` evaluates nothing,
+  lands, a binding with a selector and no `target_ids` (absent, null or
+  empty) evaluates nothing,
   prunes nothing and is reported on the check.
 - Any Solution Pack content. The Proxmox Monitoring pack moves its datastore
   and paused-guest checks to row targets in its own change once this lands.
@@ -105,8 +106,17 @@ Not in this change:
   come from the pack instead. If this change is approved, that change is
   revised to drop them; its guest-stopped and OOM-kill requirements are
   one-off events, not queryable state, and stay as they are.
-- No behaviour change for existing checks, except two for `srql_devices` and
-  `service_targets`: a departed device or service target with an open alert
-  now has that alert closed, even when the device is out of service; and a
-  target still in scope whose evaluation fails now keeps its instance and last
-  status, where today its instance is deleted.
+- No verdict change for existing checks. For `srql_devices` and
+  `service_targets` four things change:
+  - A device or service target that is absent from a complete, successful,
+    non-truncated scope read and had an open alert now has that alert closed,
+    even when the device is out of service. Its instance is pruned only once
+    the closing event is accepted for delivery.
+  - A target still in scope whose evaluation fails keeps its instance and last
+    status, where today its instance is deleted.
+  - An `srql_devices` stream whose last page is full is truncated and prunes
+    and closes nothing, including when the remaining scope is exactly one
+    page; today a missing cursor ends the stream and the rest is pruned.
+  - A `service_targets` binding with a selector and no `target_ids` evaluates,
+    prunes and closes nothing; today it resolves to an empty list and every
+    instance is deleted.

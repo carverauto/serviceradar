@@ -91,7 +91,9 @@ same title, the check name followed by `unhealthy`.
 
 ### D5. Bounds
 
-- `max_targets` defaults to 200 and may not exceed 1,000, the page size device
+- `max_targets` defaults to 200 and must be between 1 and 1,000 inclusive; 0 or
+  a negative value is refused, because SRQL coerces a non-positive limit to 1.
+  1,000 is the page size device
   fan-out already uses. The scope query is run once with limit `max_targets`,
   never more than 1,000. Completeness is decided by row count alone (D6): the
   scope is complete only when the page that came back has fewer rows than the
@@ -129,6 +131,22 @@ Today a departed instance is deleted and nothing is published. If its status
 was `degraded`, `down` or `unknown`, the pass now first publishes a transition
 to `healthy` with verdict `target_departed` and the departure marker (D9),
 which the alert engine treats as recovery-only. Then it prunes.
+
+The closing transition is published inside the pass, before the prune, by
+calling the publisher directly. It is not appended to the transition list that
+`Evaluation.run/1` writes after `run_for_mode` returns, because by then the
+instance is already gone. A `degraded`, `down` or `unknown` departed instance
+is pruned only after its closing event is accepted for delivery: the publisher
+returns `{:ok, _}`, which covers both published and queued for retry. A
+rejected publish (`{:error, _}`) leaves the instance in place; the next
+scheduled pass finds it departed again and tries again. There is no retry
+worker, and the writer's log-and-continue `:ok` is not acceptance.
+
+Emission disabled is not rejection. When the check's
+`alert_policy.emit_ocsf_transition` is false, the check has never published a
+transition, so no alert can have been opened from it; its departed instances
+are pruned with no event, exactly as today. A healthy departed instance is
+likewise pruned with no event.
 
 This is done for all fan-out modes. The gap exists for devices today and a
 row-only fix would leave two behaviours for the same event.
@@ -208,10 +226,11 @@ alert, including for a check whose `open_on_statuses` contains `healthy`.
 
 ### D10. An unread selector is not a resolution
 
-A `service_targets` binding may name a `selector_query` and no `target_ids`,
-and validation accepts it. Evaluation does not read `selector_query` today:
+A `service_targets` binding may name a `selector_query` and no `target_ids` (the key absent, null or an empty list),
+and validation accepts it in all three forms. Evaluation does not read `selector_query` today:
 it resolves `target_ids` and otherwise returns an empty list. That empty list
-is not a successful resolution, because the selector was ignored, not run.
+is not a successful resolution, because the selector was ignored, not run. A
+non-empty `target_ids` list stays a successful resolution.
 
 Such a pass evaluates nothing, prunes nothing and publishes no transition,
 closing or otherwise. It records a pass diagnostic on the check saying the

@@ -4,7 +4,7 @@
       `key_fields`, `label_template` and `max_targets` in
       `DeclarativeChecks.SchemaValidator`; refuse a missing or empty
       `key_fields`, a missing `scope_query`, a scope query with template
-      placeholders, and `max_targets` outside 1..1000.
+      placeholders, and `max_targets` outside 1..1000 (including 0).
 - [ ] 1.2 Add the `target_row` node kind; refuse it outside an `srql_rows`
       check, and refuse edge signal nodes and credential slots inside one.
 - [ ] 1.3 Mirror 1.1 and 1.2 in `js/cli/src/pack/validate.ts`.
@@ -61,7 +61,12 @@
       `target_departed` and the boolean `target_departed: true`; add the
       marker to `VerdictEventWriter`'s `unmapped` allowlist next to
       `to_status` and `to_verdict` so it is on the stored event.
-      Other transitions keep the default predicate.
+      Other transitions keep the default predicate. Publish it inside the
+      pass, before the prune, not by appending to the list `Evaluation.run/1`
+      writes afterwards; prune the instance only when the publisher returns
+      `{:ok, _}`, leave it on `{:error, _}` for the next pass (no retry
+      worker), and when `alert_policy.emit_ocsf_transition` is false prune
+      without an event as today.
 - [ ] 4.3 A target in scope whose graph evaluation fails keeps its instance
       and status, publishes nothing, is not pruned, and is counted in the
       pass diagnostics (3.3).
@@ -91,12 +96,17 @@
       targets, one removed and one added, prunes the removed one and publishes
       its closing transition.
 - [ ] 4.10 A `service_targets` binding with `selector_query` and no
-      `target_ids` is not a successful resolution: evaluate nothing, prune
+      `target_ids` (absent, null or `[]`) is not a successful resolution: evaluate nothing, prune
       nothing, publish nothing, and record a "selector not evaluated" pass
       diagnostic. Validation keeps accepting the binding.
 - [ ] 4.11 Test: a `service_targets` check with a `down` instance and an open
-      alert, rebound to `selector_query` only, keeps the instance and alert,
-      publishes nothing and reports the diagnostic.
+      alert, rebound to `selector_query` with `target_ids` absent, null and
+      `[]` in turn, keeps the instance and alert, publishes nothing and
+      reports the diagnostic.
+- [ ] 4.12 Test: a departed `down` target whose closing publish is rejected
+      by a stub publisher keeps its instance and is published again on the
+      next pass; with `emit_ocsf_transition` false it is pruned with no
+      event.
 
 ## 5. Events and alerts
 
