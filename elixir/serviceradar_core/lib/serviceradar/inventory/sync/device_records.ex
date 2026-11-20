@@ -10,6 +10,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   require Logger
 
+  @address_fallback_strength AttributeStrength.strength("name", :address_fallback)
+
   def build_device_upsert_records(resolved_updates, timestamp) do
     # One query for the whole batch rather than one per device: SyncIngestor
     # works in chunks of 500, so a per-device lookup would be 500 round trips
@@ -174,7 +176,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     }
 
     merged = merge_primary(merged, existing, incoming)
-    merged = AttributeStrength.fold_ranked(existing, incoming, merged)
+
+    merged =
+      AttributeStrength.fold_ranked(
+        fallback_to_primary(existing, merged.ip),
+        fallback_to_primary(incoming, merged.ip),
+        merged
+      )
 
     # The later identity-bearing observation of the two
     # (DeviceWrites.observed_after?/2).
@@ -297,6 +305,27 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     |> Map.put(:ip_source, source)
     |> Map.put(:ip_seen_at, seen_at)
     |> Map.put(:ip_sightings, sightings)
+  end
+
+  # Each record was built alone, so its address-fallback name is its own address. The
+  # fallback names the device after the primary the merge keeps, as in one build.
+  defp fallback_to_primary(record, primary_ip) do
+    provenance = Map.get(record, :attribute_provenance) || %{}
+
+    case Map.get(provenance, "name") do
+      %{"strength" => strength, "source" => source} = tag
+      when strength == @address_fallback_strength ->
+        {name, _hostname, new_tag} =
+          AttributeStrength.name_write(%{hostname: nil, ip: primary_ip, source: source})
+
+        provenance =
+          if new_tag, do: Map.put(provenance, "name", tag), else: Map.delete(provenance, "name")
+
+        %{record | name: name, attribute_provenance: provenance}
+
+      _ ->
+        record
+    end
   end
 
   defp update_source(update),
