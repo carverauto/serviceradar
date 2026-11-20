@@ -99,6 +99,27 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
       end
     end
 
+    test "a failed guest query never hides an observed pause or reads as an old agent" do
+      check = proxmox_check("proxmox-paused-guests")
+
+      for {failing, guests, status, verdict} <- [
+            {"limit:1", %{running: 3, paused: 2, unreported: 0}, :down, "guests_paused"},
+            {"runtime_state:unknown", %{running: 3, paused: 0, unreported: 0}, :unknown,
+             "runtime_state_query_failed"},
+            {"status:paused", %{running: 3, paused: 0, unreported: 0}, :unknown,
+             "paused_guest_query_failed"}
+          ] do
+        rows_for = fn query ->
+          if String.contains?(query, failing),
+            do: {:error, :timeout},
+            else: guest_rows(query, guests)
+        end
+
+        assert {:ok, result} = evaluate_with_inventory(check, rows_for)
+        assert {failing, result.status, result.verdict} == {failing, status, verdict}
+      end
+    end
+
     test "inventory freshness fails when no host was reported" do
       check = proxmox_check("proxmox-inventory-freshness")
       host = [%{"payload" => %{"name" => "pve-a"}}]
@@ -628,7 +649,12 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
   end
 
   defp evaluate_with_inventory(check, rows_for) do
-    runner = fn query, _opts -> {:ok, %{rows: rows_for.(query)}} end
+    runner = fn query, _opts ->
+      case rows_for.(query) do
+        {:error, _reason} = error -> error
+        rows -> {:ok, %{rows: rows}}
+      end
+    end
     DAGEngine.evaluate_target(check, %{}, srql_runner: runner)
   end
 

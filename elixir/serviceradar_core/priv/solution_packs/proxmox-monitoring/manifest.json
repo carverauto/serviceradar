@@ -27,11 +27,11 @@
   "credential_slots": [],
   "description": "Watches Proxmox VE datastore capacity, paused or failed guests, and inventory freshness using the inventory reported by the Proxmox plugin.",
   "files": {
-    "README.md": "13f2f8c021ed48eaf915af2c8131fc0dae7e9d24981521fb38470679f48be94c",
+    "README.md": "7277359bb46d78619177abef2191f5dc5f1a366341f890308f0c33100c80c463",
     "assets/architecture.svg": "2b21a553cb4e41732d1f95b26c41fb7260eb11970e2b5e9722e8bd0ec739bedc",
     "checks/datastore-capacity.json": "663405ef1c98b6ffe482fa074979c52639c146e4d8dcff2c6adf7ce8f7ea3483",
     "checks/inventory-freshness.json": "c9a85b39b2dde838c37cefbe580497f64433ef8293e6066b09e825e1c45a716d",
-    "checks/paused-guests.json": "54981e4b8e163f5812012554d2f640bcfd0be5ac44c1e14e8587d63b982d7f99",
+    "checks/paused-guests.json": "8cbdcb08afa9933d6266953c1e9817e7006490c35904703ae58b5a6b88a6cbd6",
     "dashboards/proxmox-monitoring-overview.json": "415a2abb51872cb2914c676cd5acf7e65c3545ee2e7c0b1cc27dcf52a46bf3e0",
     "rules/datastore-filling-alert.json": "9195ee1f67ea87bddd3fcbb5f8891557e3d03f450ba22722102b731db8f5f028",
     "rules/datastore-nearly-full-alert.json": "93b24700bf0eb00a00e18ebe556f1c27b4c2fc108290ce58370e0ffd80220a7c",

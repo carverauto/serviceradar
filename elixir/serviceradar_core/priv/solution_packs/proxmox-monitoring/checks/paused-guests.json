@@ -95,18 +95,6 @@
         ],
         "rules": [
           {
-            "id": "no_inventory",
-            "match": {
-              "fresh": [
-                "0",
-                "unknown"
-              ]
-            },
-            "status": "unknown",
-            "summary": "No Proxmox guest was reported in the last hour, so paused guests cannot be detected.",
-            "verdict": "no_fresh_guest_inventory"
-          },
-          {
             "id": "paused_unreadable",
             "match": {
               "paused": "unknown"
@@ -114,6 +102,29 @@
             "status": "unknown",
             "summary": "The paused-guest query returned no result.",
             "verdict": "paused_guest_query_failed"
+          },
+          {
+            "id": "no_inventory",
+            "match": {
+              "fresh": [
+                "0",
+                "unknown"
+              ],
+              "paused": "0"
+            },
+            "status": "unknown",
+            "summary": "No Proxmox guest was reported in the last hour, so paused guests cannot be detected.",
+            "verdict": "no_fresh_guest_inventory"
+          },
+          {
+            "id": "runtime_state_unreadable",
+            "match": {
+              "paused": "0",
+              "unreported": "unknown"
+            },
+            "status": "unknown",
+            "summary": "The query for running guests without a runtime state returned no result.",
+            "verdict": "runtime_state_query_failed"
           },
           {
             "id": "all_running",

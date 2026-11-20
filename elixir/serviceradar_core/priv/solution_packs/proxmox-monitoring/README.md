@@ -27,8 +27,11 @@ the last hour. None of them contacts Proxmox.
   `datastore_nearly_full`, `no_fresh_datastore_inventory`.
 - `proxmox-paused-guests` -- Counts virtual machines that are paused, stopped on
   an I/O error or panicked. Proxmox lists such a guest as running, so only the
-  runtime state shows it. Verdicts: `no_paused_guests`, `guests_paused`,
-  `runtime_state_not_reported`, `no_fresh_guest_inventory`.
+  runtime state shows it. A paused guest that was seen is reported as
+  `guests_paused` even when another of the check's queries failed. Verdicts:
+  `no_paused_guests`, `guests_paused`, `runtime_state_not_reported`,
+  `no_fresh_guest_inventory`, `paused_guest_query_failed`,
+  `runtime_state_query_failed`.
 - `proxmox-inventory-freshness` -- Fails when no Proxmox host was reported in
   the last hour. Verdicts: `inventory_current`, `inventory_stale`.
 
