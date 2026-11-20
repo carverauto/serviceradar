@@ -49,7 +49,7 @@ pub enum Entity {
     Gateways,
     OtelMetrics,
     OtelMetricPoints,
-    RperfMetrics,
+    NetperfMetrics,
     CpuMetrics,
     MemoryMetrics,
     DiskMetrics,

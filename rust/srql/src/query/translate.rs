@@ -119,7 +119,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
             Entity::OtelMetricPoints => otel_metric_points::to_sql_and_params(&plan)?,
-            Entity::RperfMetrics
+            Entity::NetperfMetrics
             | Entity::TimeseriesMetrics
             | Entity::TimeseriesMetricInterfaceHourly
             | Entity::TimeseriesMetricDiskHourly

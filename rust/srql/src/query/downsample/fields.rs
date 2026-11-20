@@ -14,7 +14,7 @@ pub(super) fn resolve_value_column(
 
     if use_hourly_cagg {
         return match entity {
-            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => match field {
                 None | Some("value") => Ok("avg_value".to_string()),
                 Some(other) => Err(ServiceError::InvalidRequest(format!(
                     "unsupported value_field '{other}' for timeseries_metrics_hourly"
@@ -27,7 +27,7 @@ pub(super) fn resolve_value_column(
     }
 
     match entity {
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => match field {
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => match field {
             None | Some("value") => Ok("value".to_string()),
             Some(other) => Err(ServiceError::InvalidRequest(format!(
                 "unsupported value_field '{other}' for timeseries metrics"
@@ -51,7 +51,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
     let series = series.trim().to_lowercase();
 
     let expr = match plan.entity {
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => {
             match series.as_str() {
                 "metric_name" => "metric_name".to_string(),
                 "metric_type" => "metric_type".to_string(),

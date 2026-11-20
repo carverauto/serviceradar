@@ -166,7 +166,7 @@ impl QueryEngine {
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
                 Entity::OtelMetricPoints => otel_metric_points::execute(&mut conn, &plan).await?,
-                Entity::RperfMetrics
+                Entity::NetperfMetrics
                 | Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::TimeseriesMetricDiskHourly

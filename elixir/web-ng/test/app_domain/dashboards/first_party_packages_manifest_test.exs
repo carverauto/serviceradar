@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackagesManifestTest do
     assert manifest.renderer["entrypoint"] == "network_performance"
     assert Regex.match?(~r/^[0-9a-f]{64}$/, manifest.renderer["sha256"])
 
-    for entity <- ["netperf", "netperf_metrics", "rperf", "rperf_metrics", "agents"] do
+    for entity <- ["netperf", "netperf_metrics", "agents"] do
       rewritten =
         manifest_json
         |> Jason.decode!()

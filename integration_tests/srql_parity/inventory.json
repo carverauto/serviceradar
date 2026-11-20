@@ -338,19 +338,19 @@
       "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:1h agg:sum limit:10"
     },
     {
-      "id": "metrics.rperf.avg_by_metric_name",
-      "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name limit:500"
+      "id": "metrics.netperf.avg_by_metric_name",
+      "query": "in:netperf_metrics {window_main} bucket:10m agg:avg series:metric_name limit:500"
     },
     {
-      "id": "metrics.rperf.avg_by_metric_name_newest",
-      "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
+      "id": "metrics.netperf.avg_by_metric_name_newest",
+      "query": "in:netperf_metrics {window_main} bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
       "sources": [
         "elixir/web-ng/priv/dashboard-packages/network-performance/manifest.json"
       ]
     },
     {
-      "id": "metrics.rperf.throughput_by_agent",
-      "query": "in:rperf_metrics {window_main} metric_name:rperf.bandwidth_bps stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+      "id": "metrics.netperf.throughput_by_agent",
+      "query": "in:netperf_metrics {window_main} metric_name:rperf.bandwidth_bps stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
       "sources": [
         "elixir/web-ng/priv/dashboard-packages/network-performance/manifest.json"
       ]

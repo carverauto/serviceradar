@@ -11,7 +11,7 @@ pub(super) fn filter_clause(
     filter: &Filter,
 ) -> Result<(String, Vec<SqlBindValue>)> {
     match entity {
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
+        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::NetperfMetrics => {
             timeseries_filter_clause(filter)
         }
         _ => Err(ServiceError::InvalidRequest(

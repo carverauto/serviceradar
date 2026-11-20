@@ -1,7 +1,7 @@
 [
   {
     "id": "netperf_recent_samples",
-    "query": "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+    "query": "in:netperf_metrics time:last_24h sort:timestamp:desc limit:500",
     "encoding": "json_rows",
     "status": "ok",
     "refreshed_at": "2026-11-18T04:00:00Z",
@@ -214,7 +214,7 @@
   },
   {
     "id": "netperf_metric_trends",
-    "query": "in:rperf_metrics time:last_24h bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
+    "query": "in:netperf_metrics time:last_24h bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
     "encoding": "json_rows",
     "status": "ok",
     "refreshed_at": "2026-11-18T04:00:00Z",
@@ -265,7 +265,7 @@
   },
   {
     "id": "netperf_spoke_summary",
-    "query": "in:rperf_metrics time:last_24h metric_name:rperf.bits_per_second stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+    "query": "in:netperf_metrics time:last_24h metric_name:rperf.bits_per_second stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
     "encoding": "json_rows",
     "status": "ok",
     "refreshed_at": "2026-11-18T04:00:00Z",
@@ -289,7 +289,7 @@
   },
   {
     "id": "netperf_responder_capacity",
-    "query": "in:rperf_metrics metric_name:(rperf.responder_active_sessions,rperf.responder_sessions_total,rperf.responder_busy_rejections_total,rperf.responder_bytes_total) time:last_24h sort:timestamp:desc limit:200",
+    "query": "in:netperf_metrics metric_name:(rperf.responder_active_sessions,rperf.responder_sessions_total,rperf.responder_busy_rejections_total,rperf.responder_bytes_total) time:last_24h sort:timestamp:desc limit:200",
     "encoding": "json_rows",
     "status": "ok",
     "refreshed_at": "2026-11-18T04:00:00Z",
@@ -457,7 +457,7 @@
   },
   {
     "id": "spoke_history",
-    "query": "in:rperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
+    "query": "in:netperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
     "encoding": "json_rows",
     "status": "ok",
     "refreshed_at": "2026-11-18T04:00:00Z",

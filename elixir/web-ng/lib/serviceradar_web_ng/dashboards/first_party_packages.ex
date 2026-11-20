@@ -88,8 +88,6 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     endpoint_packages
     netperf
     netperf_metrics
-    rperf
-    rperf_metrics
     rum
     rum_beacon
     rum_beacons

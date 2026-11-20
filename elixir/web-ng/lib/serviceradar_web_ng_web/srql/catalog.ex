@@ -2520,8 +2520,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ]
     },
     %{
-      id: "rperf_metrics",
-      label: "rPerf Metrics",
+      id: "netperf_metrics",
+      label: "Netperf Metrics",
       route: "/dashboard",
       default_time: "last_24h",
       default_sort_field: "timestamp",
@@ -2696,9 +2696,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",
     "processes" => "process_metrics",
-    "rperf" => "rperf_metrics",
-    "netperf" => "rperf_metrics",
-    "netperf_metrics" => "rperf_metrics",
+    "netperf" => "netperf_metrics",
     # Sweep diagnostics (issue 4167). Every alias here is one the SRQL parser
     # already accepts (`rust/srql/src/parser/entity.rs`) and `EntityAccess`
     # already gates. Without the mapping, `entity/1` falls through to the

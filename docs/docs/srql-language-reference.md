@@ -398,7 +398,7 @@ fields; using a field that the entity does not support returns an
 | `timeseries_metric_interface_hourly` | `timeseries_metrics_interface_hourly`, `interface_metrics_hourly` | Hourly interface counter rollups keyed by device and `if_index` (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
 | `timeseries_metric_disk_hourly` | `timeseries_metrics_disk_hourly` | Hourly `sysmon.disk` gauge rollups keyed by device and mount point (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
 | `snmp_metrics` | `snmp` | SNMP-collected metrics |
-| `rperf_metrics` | `rperf`, `netperf`, `netperf_metrics` | netperf/rperf network performance metrics (shares the time-series schema) |
+| `netperf_metrics` | `netperf` | active network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
 | `otel_trace_summaries` | `trace_summaries`, `traces_summaries` | One row per trace. `service_name` matches any participating span (`service_set`). |
@@ -963,7 +963,7 @@ Sortable fields: `timestamp`, `cpu_usage`, `memory_usage`, `pid`, `name`.
 
 ### timeseries_metrics
 
-`in:timeseries_metrics` (and the `snmp_metrics` / `rperf` / `netperf` aliases that share this
+`in:timeseries_metrics` (and the `snmp_metrics` / `netperf` aliases that share this
 schema) cover generic time-series data, including SNMP counters.
 
 | Field | Description |

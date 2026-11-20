@@ -730,22 +730,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     end
   end
 
-  test "rperf and netperf aliases resolve to canonical rperf_metrics catalog entry" do
-    for alias_name <- ~w(rperf_metrics rperf netperf_metrics netperf) do
+  test "netperf aliases resolve to canonical netperf_metrics catalog entry" do
+    for alias_name <- ~w(netperf_metrics netperf) do
       entry = Catalog.entity(alias_name)
-      assert entry.id == "rperf_metrics"
+      assert entry.id == "netperf_metrics"
       assert entry.downsample == true
       assert entry.default_sort_field == "timestamp"
       assert "metric_name" in entry.filter_fields
       assert "device_id" in entry.filter_fields
 
       state = Builder.default_state(alias_name, 50)
-      assert state["entity"] == "rperf_metrics"
-      assert Builder.build(state) =~ "in:rperf_metrics"
+      assert state["entity"] == "netperf_metrics"
+      assert Builder.build(state) =~ "in:netperf_metrics"
 
       assert {:ok, parsed} = Builder.parse("in:#{alias_name} metric_name:rperf.bits_per_second limit:25")
-      assert parsed["entity"] == "rperf_metrics"
-      assert Builder.build(parsed) =~ "in:rperf_metrics"
+      assert parsed["entity"] == "netperf_metrics"
+      assert Builder.build(parsed) =~ "in:netperf_metrics"
     end
   end
 end

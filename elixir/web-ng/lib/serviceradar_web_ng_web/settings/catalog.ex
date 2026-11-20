@@ -2056,7 +2056,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       match_prefixes: nil,
       keywords: [
         "netperf",
-        "rperf",
         "throughput",
         "bandwidth",
         "jitter",
