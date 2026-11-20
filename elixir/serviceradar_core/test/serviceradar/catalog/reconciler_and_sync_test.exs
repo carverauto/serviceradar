@@ -354,11 +354,22 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
     end
 
     test "thresholds tuned under the earlier seeder's parameter names carry over to the pack's names" do
+      earlier_silence_check = %{
+        inputs: [
+          %{"key" => "silence_window_minutes", "type" => "integer", "min" => 1, "max" => 1440}
+        ],
+        parameter_overrides: %{"silence_window_minutes" => 2}
+      }
+
+      [earlier_silence_input] = earlier_silence_check.inputs
+      stored_silence = earlier_silence_check.parameter_overrides["silence_window_minutes"]
+      assert stored_silence in earlier_silence_input["min"]..earlier_silence_input["max"]
+
       tuned = [
         %{parameter_overrides: %{"warn_percent" => 70, "crit_percent" => 88}},
         %{parameter_overrides: %{"warn_share_percent" => 40}},
         %{parameter_overrides: %{"max_report_age_hours" => 48}},
-        %{parameter_overrides: %{"silence_window_minutes" => 2}},
+        earlier_silence_check,
         %{parameter_overrides: %{}}
       ]
 
