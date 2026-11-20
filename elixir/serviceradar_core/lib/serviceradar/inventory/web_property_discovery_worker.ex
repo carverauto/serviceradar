@@ -179,7 +179,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
 
   defp fetch_active_public_endpoints do
     query =
-      from(pe in {"public_endpoints_current", :platform},
+      from(pe in "public_endpoints_current",
         prefix: "platform",
         where: is_nil(pe.deleted_at) and fragment("coalesce(btrim(?), '') <> ''", pe.hostname),
         select: %{
@@ -768,7 +768,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDiscoveryWorker do
 
   defp fetch_live_device_uids_by_ips(ips) do
     query =
-      from(d in {"ocsf_devices", :platform},
+      from(d in "ocsf_devices",
         prefix: "platform",
         where: is_nil(d.deleted_at) and d.ip in ^ips,
         select: d.uid

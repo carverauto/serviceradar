@@ -130,6 +130,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
       |> Ash.Changeset.for_create(:create, %{
         uid: device_uid,
         ip: "198.51.100.40",
+        partition: "wp-bound-#{System.unique_integer([:positive])}",
         hostname: "origin-host"
       })
       |> Ash.create(actor: actor)
@@ -184,10 +185,13 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     assert is_nil(check.device_uid)
     assert check.web_property_id == wp.id
 
-    {:ok, [^check]} =
+    {:ok, [found_check]} =
       ServiceCheck
       |> Ash.Query.for_read(:by_web_property, %{web_property_id: wp.id})
       |> Ash.read(actor: actor)
+
+    assert found_check.id == check.id
+    assert found_check.web_property_id == wp.id
 
     assert :ok = Ash.destroy(wp, actor: actor)
 
@@ -227,7 +231,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     end
 
     devices_count_before =
-      Repo.aggregate(from(d in {"ocsf_devices", :platform}, prefix: "platform"), :count)
+      Repo.aggregate(from(d in "ocsf_devices", prefix: "platform"), :count)
 
     now = DateTime.utc_now()
 
@@ -336,7 +340,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
       }
     ]
 
-    Repo.insert_all({"public_endpoints_current", :platform}, endpoints, prefix: "platform")
+    Repo.insert_all("public_endpoints_current", endpoints, prefix: "platform")
 
     mixed_origin = "https://mixed-#{unique}.example.com"
 
@@ -378,7 +382,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     assert stats.properties_created >= 4
 
     devices_count_after =
-      Repo.aggregate(from(d in {"ocsf_devices", :platform}, prefix: "platform"), :count)
+      Repo.aggregate(from(d in "ocsf_devices", prefix: "platform"), :count)
 
     assert devices_count_after == devices_count_before
 
@@ -417,7 +421,7 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
 
     # Soft-delete ep-shop and confirm stale :k8s_discovery binding is pruned
     Repo.update_all(
-      from(pe in {"public_endpoints_current", :platform},
+      from(pe in "public_endpoints_current",
         prefix: "platform",
         where: pe.endpoint_key == ^"ep-shop-#{unique}"
       ),
