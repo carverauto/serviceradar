@@ -1,4 +1,6 @@
-# ServiceRadar Unreleased
+# ServiceRadar v1.6.0
+
+This release introduces L7 **Web Properties (`in:websites`) and Akamai Boomerang Real User Monitoring (RUM)**, **embedded agent `netperf`** (retiring standalone `rperf`), the **Dashboard SDK Blueprint** runtime with first-party **Web RUM** and **Network Performance** dashboards, **Wasm Synthetic Journeys**, the **Proxmox Monitoring Solution Pack**, and collector-side Zen syslog normalization backed by NATS KV rule buckets.
 
 ## Upgrade Notes
 
@@ -22,6 +24,37 @@
   Docker Compose keeps using it; it will be removed in a later release.
   Upgrade core before the collector: until core has created the bucket, the
   collector has no ruleset and publishes raw syslog as described above.
+- **Standalone `rperf` is retired in favor of embedded agent `netperf`.**
+  Configure responders, profiles, and policies under
+  **Settings -> Networks -> Netperf** (`/settings/networks/netperf`) and roll
+  agents forward to `v1.6.0` so they advertise the `netperf` capability (#6767).
+
+## Highlights
+
+- **L7 Web Properties (`in:websites`) and Boomerang RUM (`in:rum`)**: sibling L7
+  inventory isolated from `ocsf_devices`/DIRE, bundled `boomerang-sr.min.js`
+  with W3C `traceparent` injection and Akamai mPulse tee support, public-safe
+  `/rum/v1/beacon` Rust ingest gate with `Origin`/site-key validation, PII
+  query stripping, Akamai `Server-Timing` + `Akamai-Edgescape` + `prefix_tags`
+  enrichment, single-active-store StarRocks/CNPG persistence (30d retention),
+  adaptive-bucket trendlines, `/websites` LiveViews, conditional `/dashboard`
+  RUM summary, and dedicated `rumHostname` Helm `HTTPRoute` (#6853, #6876,
+  #6877, #6879, #6881, #6882, #6883).
+- **Embedded agent `netperf` and Network Performance dashboard**: in-agent
+  mTLS TCP / HMAC UDP throughput, loss, and jitter testing with hub-and-spoke
+  and hub-mesh policies and the first-party `Network Performance` Blueprint
+  dashboard (#6856, #6852).
+- **Wasm Synthetic Journeys and Proxmox Monitoring Solution Pack**: multi-step
+  synthetic HTTP/TLS journeys with `httptrace` phase breakdown and a built-in
+  Proxmox monitoring pack (#6855, #6865).
+- **Collector-side Zen syslog normalization and NATS KV rule buckets**: moves
+  syslog normalization into the Rust log collector and distributes rule bundles
+  via NATS KV with refused-ack error handling and atomic-update publishing
+  (#6863, #6871, #6872, #6875, #6880).
+- **UI and reliability fixes**: improved `Declarative Check Runner` plugin
+  guidance banner (#6879), SSO profile claims (#6861), local login denial
+  without IdP redirect (#6866), Longshore `0.2.0` update (#6874), and agent
+  plugin load retry backoff (#6858).
 
 # ServiceRadar v1.5.10
 
