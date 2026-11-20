@@ -1608,7 +1608,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert identifiers(identifier.device_id, actor) == [{:integration_id, integration_id}]
       review = decision(:policy_block, [agent_uid, identifier.device_id], actor)
       assert review.reason == "hostname_agreement_not_identity"
-      assert review.evidence["refusal"] == "agent_bound_holder"
     end
 
     test "shared eligible MACs do not create corroboration for an operator-distinct pair",

@@ -623,9 +623,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # Seeded the way the CSV importer seeds it: source "manual", operator-chosen
     # type. A "Router" is used rather than "rids" so type_id carries a known,
     # non-catch-all value and the assertion below can tell the two apart.
+    # Both writes carry one MAC, which joins them: a hostname is not identity.
     manual = %{
       "ip" => ip,
       "hostname" => "manual-type-test",
+      "mac" => "00:00:5e:00:53:61",
       "source" => "manual",
       "type" => "Router"
     }
@@ -643,6 +645,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     armis = %{
       "ip" => ip,
       "hostname" => "manual-type-test",
+      "mac" => "00:00:5e:00:53:61",
       "source" => "armis",
       "metadata" => %{
         "integration_id" => integration_id,
@@ -669,6 +672,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                  %{
                    "ip" => ip,
                    "hostname" => "rids-type-test",
+                   "mac" => "00:00:5e:00:53:63",
                    "source" => "manual",
                    "type" => "rids"
                  }
@@ -684,6 +688,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                  %{
                    "ip" => ip,
                    "hostname" => "rids-type-test",
+                   "mac" => "00:00:5e:00:53:63",
                    "source" => "armis",
                    "metadata" => %{
                      "integration_id" => "armis-rids-#{System.unique_integer([:positive])}",
@@ -709,29 +714,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # stronger writes (fix-device-attribute-source-precedence, decision 6): two
     # integrations that disagree must not flip the type on every cycle.
     #
-    # ORDER IS LOAD-BEARING, and not incidentally. `integration_id` is a strong
-    # identifier for netbox but explicitly NOT for armis
-    # (`SourcePolicy.identifier_types/2`). So armis resolves this address by IP
-    # and merges onto whatever already holds it, while netbox arrives with a
-    # strong identity of its own.
-    #
-    # Two DIFFERENT strong identities claiming one IP do not converge, by
-    # design: the later one keeps its identity, loses the address, and a
-    # SourceIdentityConflict is recorded instead
-    # (`sync/device_writes.ex:556-581`, pinned by
-    # `sync_batch_resolution_test.exs:161`). Writing this armis-first would
-    # therefore assert the opposite of a deliberate, separately-tested
-    # invariant -- and it would fail by minting a second, IP-less device rather
-    # than by refusing the reclassification, which is a confusing way to learn
-    # that.
-    #
-    # netbox-first is the ordering that keeps both writes on one device.
+    # Both writes carry one MAC, which joins them into one device. Their shared
+    # hostname would not: a hostname is not identity
+    # (stop-name-as-identity-evidence), so without the MAC the armis record
+    # would be written as a device of its own.
     assert :ok =
              SyncIngestor.ingest_updates(
                [
                  %{
                    "ip" => ip,
                    "hostname" => "integration-type-test",
+                   "mac" => "00:00:5e:00:53:70",
                    "source" => "netbox",
                    "metadata" => %{
                      "integration_id" =>
@@ -752,6 +745,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                  %{
                    "ip" => ip,
                    "hostname" => "integration-type-test",
+                   "mac" => "00:00:5e:00:53:70",
                    "source" => "armis",
                    "metadata" => %{
                      "integration_id" => "armis-reclass-#{System.unique_integer([:positive])}",
@@ -766,22 +760,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     reclassified = fetch_device_by_ip!(actor, ip)
     assert reclassified.type == "Switch"
 
-    # One device, not two: the armis write landed on the netbox row rather than
-    # forking. This is what regresses if the exemption above is dropped.
+    # One device, not two: the armis write landed on the netbox row through the
+    # shared MAC rather than forking.
     assert "netbox" in reclassified.discovery_sources
     assert "armis" in reclassified.discovery_sources
   end
 
-  test "a later strong integration converges when hostname agrees and no third identity claims it",
+  test "a later strong integration with an agreeing hostname is written as its own device and reviewed",
        %{actor: actor} do
     # The reverse arrival order of the test above (GitHub #4059): armis
     # classifies first, then a strong-identified netbox record claims the same
-    # IP. Same hostname on both sides and neither strong identifier registered
-    # anywhere else, so the netbox record adopts the armis row instead of
-    # forking an IP-less duplicate. Both are platform inventories, so the type
-    # armis recorded first stays (same tier, different source).
-    ip = unique_ip()
-    hostname = "converge-type-test-#{System.unique_integer([:positive])}"
+    # IP with the same hostname. A hostname is not identity
+    # (stop-name-as-identity-evidence), so the netbox record does not adopt the
+    # armis row: it is written as its own device, the address is decided as if
+    # the names differed (a declarative inventory does not displace a live
+    # holder), and the pair goes to review.
+    ip = "192.0.2.86"
+    hostname = "converge-type.example.com"
+    netbox_id = "netbox:source-a:device:netbox-converge-#{System.unique_integer([:positive])}"
 
     assert :ok =
              SyncIngestor.ingest_updates(
@@ -800,7 +796,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                actor: actor
              )
 
-    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
+    holder = fetch_device_by_ip!(actor, ip)
+    assert holder.type == "Tablet"
 
     assert :ok =
              SyncIngestor.ingest_updates(
@@ -810,8 +807,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                    "hostname" => hostname,
                    "source" => "netbox",
                    "metadata" => %{
-                     "integration_id" =>
-                       "netbox:source-a:device:netbox-converge-#{System.unique_integer([:positive])}",
+                     "integration_id" => netbox_id,
                      "integration_type" => "netbox",
                      "netbox_device_type" => "Switch"
                    }
@@ -820,11 +816,31 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                actor: actor
              )
 
-    reclassified = fetch_device_by_ip!(actor, ip)
-    assert reclassified.type == "Tablet"
-    assert reclassified.type_id == 4
-    assert "netbox" in reclassified.discovery_sources
-    assert "armis" in reclassified.discovery_sources
+    holder_now = fetch_device_by_ip!(actor, ip)
+    assert holder_now.uid == holder.uid
+    assert holder_now.type == "Tablet"
+    refute "netbox" in holder_now.discovery_sources
+
+    assert %{rows: [[netbox_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [netbox_id]
+             )
+
+    refute netbox_uid == holder.uid
+
+    assert {:ok, %Device{deleted_at: nil} = netbox_device} =
+             Device.get_by_uid(netbox_uid, false, actor: actor)
+
+    assert netbox_device.type == "Switch"
+    evidence = assert_hostname_pair_recorded(netbox_uid, holder.uid, ip, actor)
+
+    assert evidence == %{
+             "hostname" => hostname,
+             "incoming_device_uid" => netbox_uid,
+             "existing_device_uid" => holder.uid,
+             "ip" => ip
+           }
   end
 
   test "an existing IP-less integration duplicate is not merged on hostname agreement", %{
@@ -1072,9 +1088,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   test "a later strong integration still forks when hostnames disagree", %{actor: actor} do
-    # The guardrail on the convergence above: different hostnames mean no
-    # agreement, so the strong-identity fork rule still fires and the two
-    # identities stay distinct devices.
+    # The arrival order of the test above with different hostnames: the
+    # strong-identity fork rule decides alone, exactly as it does when the
+    # hostnames agree, and the two identities stay distinct devices.
     ip = unique_ip()
 
     assert :ok =
@@ -2009,23 +2025,26 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   # The hostname-agreement pair was recorded as a decision and opened a
-  # de-duplication task for an operator.
+  # de-duplication task for an operator. Returns the decision's evidence.
   defp assert_hostname_pair_recorded(uid_a, uid_b, ip, actor) do
     pair = Enum.sort([uid_a, uid_b])
     {:ok, decisions} = IdentityDecision.for_device(uid_a, actor: actor)
 
-    assert Enum.any?(
-             decisions,
-             &(&1.decision_kind == :policy_block and
-                 &1.reason == "hostname_agreement_not_identity" and
-                 &1.device_uids == pair and &1.subject == ip)
-           ),
+    assert [decision | _] =
+             Enum.filter(
+               decisions,
+               &(&1.decision_kind == :policy_block and
+                   &1.reason == "hostname_agreement_not_identity" and
+                   &1.device_uids == pair and &1.subject == ip)
+             ),
            "the hostname-agreement pair was not recorded as a decision"
 
     {:ok, tasks} = DeduplicationTask.for_device(uid_a, actor: actor)
 
     assert Enum.any?(tasks, &(&1.device_uids == pair and &1.status == :open)),
            "no open de-duplication task for the pair"
+
+    decision.evidence
   end
 
   defp new_device!(actor) do

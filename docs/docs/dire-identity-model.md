@@ -58,9 +58,8 @@ agent's, and it shares no eligible MAC with the agent, the pair is recorded as a
 `agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
 different sites never fuse on hostname or address alone, in either arrival order. For
 certificate-based linking of Proxmox hosts, see [Hypervisor nodes](#hypervisor-nodes). A later
-integration record cannot adopt an agent-bound holder by hostname: it records
-`hostname_agreement_not_identity` with refusal `agent_bound_holder`. Source-authoritative
-refusal takes precedence; mapper/MAC holders remain eligible for adoption. An agent enrolled
+integration record never adopts an address holder by hostname, agent-bound or not: it is
+written as its own device and records `hostname_agreement_not_identity`. An agent enrolled
 before Proxmox inventory therefore remains separate from its node record without shared strong
 identity, at the cost of an operator de-duplication task.
 
@@ -123,8 +122,7 @@ in `SourcePolicy.sufficient_to_create?/1`.
 5. Deterministic (IP-seeded) or random UID
 
 A source-authoritative identifier (`armis_device_id`, `netbox_device_id`)
-decides identity. An `integration_id` is not source-authoritative; its role in
-hostname-adoption refusals is described below. An update carrying a
+decides identity. An `integration_id` is not source-authoritative. An update carrying a
 source-authoritative identifier never resolves, through a shared MAC or any
 other identifier, onto a record that
 holds a different one of the same type in the same scope (the identifier
@@ -208,38 +206,24 @@ The holder keeps the address, and the incoming record drops it, in these cases
   gone, or with no agent, such as an Armis device, still releases a stale
   address to a newer check-in.
 
-Two further cases adopt the holder's uid instead of moving the address: an
-anchorless provisional seed at the address, and a holder whose hostname agrees,
-under narrow conditions. Both apply only to an incoming record that is not yet
-a device: an existing device that moves onto a seeded address takes it under
-the rules above, and the seed releases it (below). A hostname is evidence,
-like the address, never identity, so hostname agreement
-adopts the holder only when the incoming record is not yet a device and
-neither side holds a source-authoritative identifier (`armis_device_id`,
-`netbox_device_id`), with no disagreeing
-hardware serial, no disjoint integration identifiers under the same provider
-prefix (`conflicting_integration_identity`), and no third device claiming
-either side's identity. It never merges two existing devices. For an AWX
-inventory host, host-name agreement only corroborates
-an exact `ansible_host` address match with the device holding that address; it
-is never identity on its own (see [Ansible](./ansible.md)). When the hostnames agree
-but adoption is refused, the two stay separate devices, the address is
-decided as above, and the pair is recorded as
-a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
-which opens a de-duplication task for an operator to merge, mark distinct or
-dismiss.
+One further case adopts the holder's uid instead of moving the address: an
+anchorless provisional seed at the address. It applies only to an incoming
+record that is not yet a device: an existing device that moves onto a seeded
+address takes it under the rules above, and the seed releases it (below).
 
-The integration conflict check compares incoming claims with the holder's map
-claims and live registered `integration_id` rows in the same partition. It
-groups IDs by the normalized prefix before the first colon and refuses adoption
-if any shared provider has disjoint nonempty sets, recording
-`evidence["refusal"] == "conflicting_integration_identity"`. Different providers
-and IDs without a provider prefix do not trigger this refusal. Overlap through
-`legacy_integration_ids` preserves eligibility for adoption, subject to the
-other guards. A node moved between clusters of the same provider with a new ID
-and no legacy overlap is also refused automatic hostname adoption if it retains
-the hostname and IP in the same partition; operator review is the intentional
-trade-off for keeping distinct cluster nodes separate.
+A hostname is not identity. A strong-identified record at an address a live
+device with the same hostname holds never adopts that holder, whatever either
+side holds or lacks: it is written as its own device, the address is decided
+by the rules above exactly as if the names differed, and the pair is recorded
+as a `policy_block` identity decision (reason `hostname_agreement_not_identity`,
+source `sync_ip_hostname_agreement`) naming both records, with the hostname,
+the address and both uids in its evidence. The decision opens a
+de-duplication task for an operator to merge, mark distinct or dismiss, so the
+record never forks from the holder silently. Hostname agreement never merges
+two existing devices either. For an AWX inventory host, host-name agreement
+only corroborates an exact `ansible_host` address match with the device
+holding that address; it is never identity on its own (see
+[Ansible](./ansible.md)).
 
 A sweep seed that releases its address is soft-deleted in the same
 transaction, with `deleted_reason` `seed_released`, when the address is all it
@@ -539,8 +523,8 @@ for dry-run review, execution gates, and device/source allowlists.
   tombstone that was not merged away, holds no other id of the type in the id's scope, shares a
   hardware MAC with the update (its own, its MAC identifiers, its interface MACs, or the MAC
   the source last reported for the id before it retired), and agrees with the update on the
-  source first-seen time, or on the hostname when the update was first seen no earlier than the
-  id was last seen. The return moves the newest archived row and its integration id back,
+  source first-seen time. A hostname never qualifies a record, whatever the source times: a
+  shared MAC and hostname without first-seen agreement re-issues the id. The return moves the newest archived row and its integration id back,
   restores a tombstone through the audited restore path (releasing an address another live
   record holds), clears the mark and records `source_id_reactivated`, in one transaction.
   Otherwise the id is re-issued: the update is written as a new record, never to a record that
@@ -586,7 +570,7 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :alias, :invalidated]` | IP alias conflicted with agent identity |
 | `[:serviceradar, :identity_reconciler, :source_identity, :source_override]` | a source-authoritative identifier overrode identifier matches on records holding a different one (also persisted as a `source_authoritative_override` conflict) |
 | `[:serviceradar, :identity_reconciler, :agent_colocation, :refused]` | second agent refused onto an agent-bound device |
-| `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` | a sync declined to adopt an address holder whose hostname agrees (also recorded as a `policy_block` decision) |
+| `[:serviceradar, :identity_reconciler, :hostname_agreement, :refused]` | a strong-identified sync record agreed on hostname with the live holder of its address and was written as its own device (also recorded as a `policy_block` decision) |
 | `[:serviceradar, :inventory, :source_retirement, :refused]` | the mass guard refused a source id retirement pass |
 | `[:serviceradar, :inventory, :source_retirement, :retired]` | source ids retired from one record |
 | `[:serviceradar, :inventory, :source_retired_expiry, :refused]` | the mass guard refused a pass deleting `source_retired` records |

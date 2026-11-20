@@ -445,14 +445,6 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
-tlc_test(
-    name = "resolution_vacuity_hostname_succession_test",
-    cfg = "resolution_vacuity_hostname_succession.cfg",
-    expect = "violation:NeverSucceeds",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
 # ---- Rejected alternatives: each design alternative in Unsafe merges two devices ----
 
 tlc_test(
@@ -476,9 +468,29 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_unsafe_hostname_corroborates_test",
+    size = "medium",
+    cfg = "resolution_unsafe_hostname_corroborates.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_unsafe_overlapping_hostname_corroborates_test",
     size = "medium",
     cfg = "resolution_unsafe_overlapping_hostname_corroborates.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_unsafe_hostname_adopts_test",
+    size = "medium",
+    cfg = "resolution_unsafe_hostname_adopts.cfg",
     expect = "violation:NoFalseMerge",
     spec = "MCDireResolution.tla",
     workers = 8,

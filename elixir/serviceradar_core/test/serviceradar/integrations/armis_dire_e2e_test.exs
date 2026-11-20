@@ -508,12 +508,11 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
     now = DateTime.truncate(DateTime.utc_now(), :second)
     devices = rekey_devices(pages, source.id, now)
     [p1, p2, p3, p4, p5, p6, p7] = picks = rekey_picks!(devices, pages)
-    last_seen = &seen(&1, "last_seen_time", 0)
     first_seen = &seen(&1, "first_seen_time", 0)
 
     scenarios = [
-      # Class 2: the MAC, and the hostname, first seen when the predecessor was last seen.
-      %{predecessor: p1, outcome: :merged, successors: [rekeyed(p1, source.id, last_seen.(p1))]},
+      # Class 2: the MAC, the hostname and the same first-seen time.
+      %{predecessor: p1, outcome: :merged, successors: [rekeyed(p1, source.id, first_seen.(p1))]},
       # Class 3: the MAC, and the same first-seen time under another hostname.
       %{
         predecessor: p2,
@@ -526,7 +525,7 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         outcome: "mac_only",
         successors: [rekeyed(p3, source.id, seen(p3, "last_seen_time", 3_600), renamed: true)]
       },
-      # The MAC and the hostname, but first seen while the predecessor was still reported.
+      # The MAC and the hostname without first-seen agreement: a hostname never corroborates.
       %{
         predecessor: p4,
         outcome: "overlapping_hostname",

@@ -30,48 +30,48 @@ invented uids and names). Unboxed database tests delete every row they create.
       `archive/`) and fix any other pending delta that states a name as identity evidence.
 
 ## 1. Sync active-IP adoption (A1, D2)
-- [ ] 1.1 In `DeviceWrites.resolve_record_active_ip/7`, remove the hostname-agreement adoption
+- [x] 1.1 In `DeviceWrites.resolve_record_active_ip/7`, remove the hostname-agreement adoption
       branch; delete `adopt_on_hostname_agreement?/4`, `hostname_adoption_refusal/4` and every
       helper only they call (check each for other callers first).
-- [ ] 1.2 When a new strong record collides on an address with a live holder whose hostname
+- [x] 1.2 When a new strong record collides on an address with a live holder whose hostname
       agrees and the holder is not adopted as a provisional seed, write the record as its own
       device (never refuse or drop it) and record the `policy_block` /
       `hostname_agreement_not_identity` decision naming both; evidence carries the hostname,
       address and both uids, no `refusal`. **Regression**: spec scenario "A new record colliding
       with a same-hostname address holder opens a review".
-- [ ] 1.3 **Regression**: invert `sync_ingestor_vendor_type_test.exs` "a later strong
+- [x] 1.3 **Regression**: invert `sync_ingestor_vendor_type_test.exs` "a later strong
       integration converges when hostname agrees and no third identity claims it" (line 767):
       the two stay separate and a decision names both.
-- [ ] 1.4 **Regression**: invert `sync_batch_resolution_test.exs` "overlapping same-provider
+- [x] 1.4 **Regression**: invert `sync_batch_resolution_test.exs` "overlapping same-provider
       integration ids still attach to the holder" (line 1036) to: hostname agreement does not
       attach; a decision names both.
-- [ ] 1.5 **Regression**: same-named record and holder at one address with no other evidence on
+- [x] 1.5 **Regression**: same-named record and holder at one address with no other evidence on
       either side stay separate with one open de-duplication task (spec scenario "Same-named
       devices at one address stay separate with a review").
-- [ ] 1.6 Keep the existing refusal tests that assert separation; drop only their assertions on
+- [x] 1.6 Keep the existing refusal tests that assert separation; drop only their assertions on
       the `refusal` value.
 
 ## 2. Succession, reactivation and corroboration (A2-A4, D3)
-- [ ] 2.1 `SourceCorroboration.corroboration/2` returns `{:ok, :first_seen}` or `:error`; remove
+- [x] 2.1 `SourceCorroboration.corroboration/2` returns `{:ok, :first_seen}` or `:error`; remove
       the hostname branch and the time guard; update the moduledoc.
-- [ ] 2.2 `SourceSuccession`: `corroborate/4` keeps only first-seen; remove
+- [x] 2.2 `SourceSuccession`: `corroborate/4` keeps only first-seen; remove
       `@hostname_holders_sql`, `hostname_holders/2` and `unique_names/3`; `review_reason/1`
       classifies `overlapping_hostname` on any shared hostname with a linking MAC and no
       first-seen agreement; the merge audit's corroborating field is always `first_seen`.
-- [ ] 2.3 **Regression**: replace `source_succession_test.exs` "a hostname alone corroborates
+- [x] 2.3 **Regression**: replace `source_succession_test.exs` "a hostname alone corroborates
       only when the new id was first seen after the old one was last seen" (line 389) with the
       spec scenario "A re-key whose only second factor is the hostname goes to review".
-- [ ] 2.4 Remove the tests that only exercise the retired time guard (lines 398, 405, 808) and
+- [x] 2.4 Remove the tests that only exercise the retired time guard (lines 398, 405, 808) and
       `source_corroboration_test.exs` line 97; **regression**: a shared hostname with the later id
       first seen after the earlier one was last seen returns `:error`.
-- [ ] 2.5 `SourceReactivation.qualify/4` drops hostnames from both observations.
+- [x] 2.5 `SourceReactivation.qualify/4` drops hostnames from both observations.
       **Regression**: invert `source_reactivation_test.exs` "returns on a shared hostname first
       seen no earlier than the id was last seen" (line 142): a new record and a
       `source_id_reissued` decision.
-- [ ] 2.6 Remediation step `source-succession` (`SourceSuccessionMerge`): class 2 merges only
+- [x] 2.6 Remediation step `source-succession` (`SourceSuccessionMerge`): class 2 merges only
       with an agreeing first-seen time and otherwise records the `overlapping_hostname` review.
       **Regression**: a class 2 pair whose first-seen times differ is reviewed, not merged.
-- [ ] 2.7 Bump `BlockFingerprint` `@rule_version` from 2 to 3; **guard**: the existing
+- [x] 2.7 Bump `BlockFingerprint` `@rule_version` from 2 to 3; **guard**: the existing
       rule-version test still re-evaluates a blocked component once.
 
 ## 3. AWX inventory hosts and legacy ids (A5, A7, D4, D5)
@@ -194,10 +194,10 @@ invented uids and names). Unboxed database tests delete every row they create.
       `sw01.*` devices in the partition is unresolved. **Guard**: a chassis MAC still resolves.
 
 ## 10. Guards and in-code wording (B, D13)
-- [ ] 10.1 Rewrite the comment above `provisional_ip_seed?/2` in `DeviceWrites` ("a hostname or
+- [x] 10.1 Rewrite the comment above `provisional_ip_seed?/2` in `DeviceWrites` ("a hostname or
       MAC is identity evidence") to say that a hostname or MAC on the holder only keeps it from
       being adopted, which prevents a merge and never causes one; leave `ip_only_holder?/1` as is.
-- [ ] 10.2 Update the `IdentityDecision` moduledoc entry for `hostname_agreement_not_identity`
+- [x] 10.2 Update the `IdentityDecision` moduledoc entry for `hostname_agreement_not_identity`
       to cover every path in D1.
 
 ## 11. Docs and formal model (follow-up within this change, not in the proposal PR)
@@ -207,23 +207,23 @@ invented uids and names). Unboxed database tests delete every row they create.
       the agent paragraph's "integration record cannot adopt an agent-bound holder by hostname"
       wording, and the telemetry table row for `hostname_agreement.refused`.
 - [ ] 11.2 `docs/docs/ansible.md` step 4: host-name agreement opens a review and never merges.
-- [ ] 11.3 `formal/dire/DireResolution.tla`: remove `hostAgree`/`hostAdopt` from the write
+- [x] 11.3 `formal/dire/DireResolution.tla`: remove `hostAgree`/`hostAdopt` from the write
       action (adoption is `seedHold` only); make `CorroboratedBy` first-seen only; add the unsafe
       alternatives `hostname_corroborates` (hostname under the time guard) and `hostname_adopts`
       (adoption under its former refusals), keeping `overlapping_hostname_corroborates` and
       `hostname_adopts_across_integration_ids`, which re-enable hostname behavior and stay as
       negative configurations; add a goal property that no succession, adoption or reactivation
       was decided by a hostname.
-- [ ] 11.4 Configurations: add `resolution_unsafe_hostname_corroborates.cfg` (an environment
+- [x] 11.4 Configurations: add `resolution_unsafe_hostname_corroborates.cfg` (an environment
       where a second device with the first's MAC and hostname enters Armis after the first has
       left it) and `resolution_unsafe_hostname_adopts.cfg` (two same-named devices of different
       integration providers at one address); delete `resolution_vacuity_hostname_succession.cfg`;
       change `resolution_goal_armis_rekey_new_first_seen.cfg` to expect separate records and a
       review; update `formal/dire/BUILD.bazel`.
-- [ ] 11.5 Traces: re-record `Trace_src_rekey_new_first_seen` (now a review, no merge) and
+- [x] 11.5 Traces: re-record `Trace_src_rekey_new_first_seen` (now a review, no merge) and
       re-check `Trace_integration_hostname_conflict`, `Trace_agent_first_same_name` and
       `Trace_agent_same_name_two_sites` against the new write action.
-- [ ] 11.6 `formal/dire/README.md`: the `Succeed` description, the environment table rows
+- [x] 11.6 `formal/dire/README.md`: the `Succeed` description, the environment table rows
       (`armis_clones`, `armis_rekey_new_first_seen`, `integration_clones`), the rejected
       alternatives table and the trace descriptions.
 
@@ -243,7 +243,7 @@ other deployment before relying on them there.
 - [ ] 12.5 Record counts only; never paste hostnames, addresses or uids from the deployment.
 
 ## 13. Validation
-- [ ] 13.1 `openspec validate stop-name-as-identity-evidence --strict`.
+- [x] 13.1 `openspec validate stop-name-as-identity-evidence --strict`.
 - [ ] 13.2 `mix format` and the `elixir-quality` lint for `serviceradar_core` and `web-ng`; `gofmt`
       and the AWX plugin's Go tests.
 - [ ] 13.3 The focused database tests of groups 1-9 through the srql-fixtures scratch database or

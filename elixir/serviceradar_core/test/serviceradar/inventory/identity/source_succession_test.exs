@@ -124,17 +124,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     |> Enum.filter(&(Enum.sort(&1.device_uids) == uids))
   end
 
-  # Removes a time the sync stored for an id, as a source that never reported it leaves it.
-  defp remove_time!(table, uid, key) do
-    assert %{num_rows: 1} =
-             Repo.query!(
-               "UPDATE platform.#{table} SET metadata = metadata - CAST($2 AS text) " <>
-                 "WHERE device_id = $1 AND identifier_type = 'armis_device_id' " <>
-                 "AND metadata ->> CAST($2 AS text) IS NOT NULL",
-               [uid, key]
-             )
-  end
-
   # Moves a record's creation an hour before another's, as when another source created the
   # record that the source's new id later landed on.
   defp created_before!(uid, other) do
@@ -406,27 +395,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     assert device(world.successor, actor).deleted_at
   end
 
-  test "a hostname alone corroborates only when the new id was first seen after the old one was last seen",
-       %{actor: actor} do
-    later = rekeyed(actor, %{new_first_seen_ids: ["a2"]})
-    assert {:ok, %{merged: 1}} = SourceSuccession.run(actor: actor, max_successions: 10)
-    assert {:ok, [audit]} = MergeAudit.get_merged_to(later.successor, actor: actor)
-    assert [%{"field" => "hostname"}] = audit.details["corroboration"]
-  end
-
-  # Each world below merges on its hostname while the times are in place (the test above).
-  test "a missing first-seen time fails the time guard, so the hostname does not corroborate",
-       %{actor: actor} do
+  # Spec scenario "A re-key whose only second factor is the hostname goes to review": Armis
+  # first saw a2 after it last saw a1, with a first-seen time of its own. The two records share
+  # m1 and the hostname, and a hostname never corroborates, whatever the source times.
+  test "a re-key whose only second factor is the hostname goes to review", %{actor: actor} do
     world = rekeyed(actor, %{new_first_seen_ids: ["a2"]})
-    remove_time!("device_identifiers", world.successor, "source_first_seen_time")
     assert_overlapping_hostname(world, actor)
-  end
-
-  test "a missing last-seen time fails the time guard, so the hostname does not corroborate",
-       %{actor: actor} do
-    world = rekeyed(actor, %{new_first_seen_ids: ["a2"]})
-    remove_time!("device_identifier_archive", world.predecessor, "source_last_seen_time")
-    assert_overlapping_hostname(world, actor)
+    assert {:ok, []} = MergeAudit.get_merged_to(world.predecessor, actor: actor)
+    assert {:ok, []} = MergeAudit.get_merged_to(world.successor, actor: actor)
   end
 
   # Two cloned machines share m1 and a hostname: Armis reports A under a1 and B under a2, then
@@ -455,7 +431,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
 
     DireTrace.stop(trace)
 
-    # B was first seen while A was still being seen, so the hostname fails the time guard.
+    # Their first-seen times differ, and the shared hostname corroborates nothing.
     assert_overlapping_hostname(
       %{predecessor: uid!(trace, "a1"), successor: uid!(trace, "a2")},
       actor
@@ -825,24 +801,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
                review.decision.evidence["pairs"]
     end
 
-    test "a hostname another current record of the source holds does not corroborate" do
-      retired = retired_record("sr:retired", ["00:00:5E:00:53:0A"])
-      successor = current_record("sr:current-1", ["00:00:5E:00:53:0A"], "host-a", @later)
-      holder = current_record("sr:current-2", ["00:00:5E:00:53:0B"], "host-a", @later)
-
-      assert %{successive: [%{successor: "sr:current-1", survivor: "sr:retired"}], reviews: []} =
-               SourceSuccession.classify(snapshot([retired], [successor]))
-
-      assert %{successive: [], reviews: [review]} =
-               SourceSuccession.classify(snapshot([retired], [successor, holder]))
-
-      assert review.reason == :overlapping_hostname
-      assert review.device_uids == ["sr:current-1", "sr:retired"]
-    end
-
     test "the record created first survives, whichever side it is on, and of two created together the lower uid" do
       retired = retired_record("sr:retired", ["00:00:5E:00:53:0A"])
-      current = current_record("sr:current-1", ["00:00:5E:00:53:0A"], "host-a", @later)
+      current = current_record("sr:current-1", ["00:00:5E:00:53:0A"], "host-a", @first_seen)
 
       survivor = fn retired_created, current_created ->
         predecessors = [put_in(retired.device.created_time, retired_created)]
@@ -940,6 +901,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
         |> Ash.create!(actor: actor)
       end
 
+      # Pairs 1-4 agree on the first-seen time, which corroborates them; a hostname never
+      # would (stop-name-as-identity-evidence).
       # 1. Matched via ocsf_devices.mac (formatted with colons/lowercase)
       m1 = mac_for.(1)
       pred1 = create_test_device!.(@first_seen, formatted_mac.(m1), "arm1-host-#{suffix}")
@@ -950,7 +913,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
         "source_last_seen_time" => DateTime.to_iso8601(@last_seen)
       })
 
-      register_live_armis_id!.(succ1.uid, "new-1-#{suffix}", later_iso)
+      register_live_armis_id!.(succ1.uid, "new-1-#{suffix}", first_seen_iso)
 
       # 2. Matched via device_identifiers (identifier_type = 'mac')
       m2 = mac_for.(2)
@@ -962,7 +925,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
         "source_last_seen_time" => DateTime.to_iso8601(@last_seen)
       })
 
-      register_live_armis_id!.(succ2.uid, "new-2-#{suffix}", later_iso)
+      register_live_armis_id!.(succ2.uid, "new-2-#{suffix}", first_seen_iso)
 
       DeviceIdentifier
       |> Ash.Changeset.for_create(:register, %{
@@ -984,7 +947,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
         "source_last_seen_time" => DateTime.to_iso8601(@last_seen)
       })
 
-      register_live_armis_id!.(succ3.uid, "new-3-#{suffix}", later_iso)
+      register_live_armis_id!.(succ3.uid, "new-3-#{suffix}", first_seen_iso)
 
       for uid <- [pred3.uid, succ3.uid] do
         Repo.query!(
@@ -1010,7 +973,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
         "source_last_seen_time" => DateTime.to_iso8601(@last_seen)
       })
 
-      register_live_armis_id!.(succ4.uid, "new-4-#{suffix}", later_iso)
+      register_live_armis_id!.(succ4.uid, "new-4-#{suffix}", first_seen_iso)
 
       observe!(source_instance, pred4.uid, "old-4-#{suffix}", formatted_mac.(m4), @first_seen)
       observe!(source_instance, succ4.uid, "new-4-#{suffix}", formatted_mac.(m4), @later)
@@ -1147,8 +1110,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
           rows: [
             %{id: "#{uid}-row", value: "#{uid}-id", partition: @partition, archived_at: @later}
           ],
-          firsts: [%{time: @first_seen, basis: "source"}],
-          last_seen: @last_seen
+          firsts: [%{time: @first_seen, basis: "source"}]
         }
       }
     }
@@ -1162,22 +1124,14 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
       macs: SourceCorroboration.hardware_macs(macs),
       names: MapSet.new([name]),
       agents: MapSet.new(),
-      scopes: %{@partition => %{firsts: [first_seen], first_seen: first_seen}}
+      scopes: %{@partition => %{firsts: [first_seen]}}
     }
   end
 
-  # The hostname holders are the current records, as the pass reads them.
   defp snapshot(retired, current) do
-    holders =
-      current
-      |> Enum.flat_map(fn record -> Enum.map(record.names, &{{@partition, &1}, record.uid}) end)
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {key, uids} -> {key, MapSet.new(uids)} end)
-
     %{
       predecessors: Map.new(retired, &{&1.uid, &1}),
       currents: Map.new(current, &{&1.uid, &1}),
-      hostname_holders: holders,
       distinct: MapSet.new()
     }
   end
