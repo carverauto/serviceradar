@@ -3,6 +3,8 @@ sidebar_position: 1
 title: Web Properties and RUM Overview
 ---
 
+import RumDataFlowDiagram from '@site/src/components/RumDataFlowDiagram';
+
 # Web Properties and Real User Monitoring (RUM)
 
 ServiceRadar Real User Monitoring (RUM) pairs a sibling L7 **Web Property**
@@ -35,28 +37,7 @@ still linking each website down to underlying infrastructure via
 
 ## Data flow
 
-```text
-Browser (boomerang-sr.min.js or Akamai mPulse tee)
-   |
-   | POST https://rum.example.com/rum/v1/beacon?key=sr_rum_...
-   v
-Gateway API HTTPRoute / Akamai CDN
-   |
-   v
-Rust Collector (/rum/v1/beacon)
-   |-- Validate rum_site_key + Origin against NATS-synced policy cache
-   |-- Enforce 64 KiB body cap and per-key / per-subnet token buckets
-   |-- Strip URL query strings and fragments (keep allowlisted non-PII keys)
-   |-- Parse W3C Server-Timing (Akamai cdn-cache, edge, origin, ak_p)
-   |-- Resolve prefix_tags and Geo/ASN in memory, then truncate client IP
-   |-- Publish RumBeaconV1 -> NATS JetStream (rum.beacons.<web_property_id>)
-   +-- Publish MetricBatch -> NATS JetStream (metrics.rum.>)
-                                  |
-                                  v
-                  ServiceRadar EventWriter
-                   |-- StarRocks enabled  -> StarRocks rum_beacons + timeseries_metrics
-                   +-- StarRocks disabled -> CNPG rum_beacons + timeseries_metrics
-```
+<RumDataFlowDiagram />
 
 All telemetry flows through NATS JetStream first and writes to the single
 active telemetry store (StarRocks when enabled, CNPG otherwise; never both).
