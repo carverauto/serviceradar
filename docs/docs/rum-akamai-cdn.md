@@ -79,15 +79,51 @@ If you also front your beacon hostname (`rum.example.com`) with Akamai:
    Spoofed `Akamai-Edgescape` and `X-Forwarded-For` headers from untrusted
    peers are ignored by default.
 
-## 3. Correlate branch offices and synthetic checks
+## 3. Correlate branch offices, remote vantage points, and `netperf`
 
-- **Branch WAN correlation (`prefix_tags`)**: Register corporate egress CIDRs
-  in [Prefix Tags](./prefix-tags.md) (for example `198.51.100.0/24` tagged
-  `site:branch-01`). The collector matches each beacon's client IP against
-  `prefix_tags` in memory **before** IP truncation, letting you filter **Web
-  RUM** by branch office and compare against `mtr` and `netperf` telemetry.
-- **Active HTTP and TLS posture**: Install the built-in
-  `io.serviceradar.http-api-and-tls-posture` Solution Pack targeting your
-  website URL (`api_target_url`) and hostname (`tls_target_host`) to track
-  synthetic latency and TLS leaf certificate expiry alongside passive RUM
-  beacons.
+Combining passive browser RUM with active edge probes answers whether slow
+page loads come from your CDN/origin or from a branch office WAN link.
+
+### A. Tag branch and site egress CIDRs (`prefix_tags`)
+
+1. Open **Settings -> Networks -> Prefix Tags** (`/settings/networks/prefix-tags`).
+2. Add each branch or campus public egress CIDR with a consistent site tag
+   (for example `198.51.100.0/24` -> `site:branch-01`, `203.0.113.0/24` ->
+   `site:hq-west`).
+3. The Rust RUM collector matches every incoming beacon's client IP against
+   `prefix_tags` in memory **before** IP truncation and stamps `prefix_tag` on
+   the stored beacon. Click any `prefix_tag` row in **Dashboards -> Web RUM**
+   to isolate that site's Core Web Vitals.
+
+### B. External L7 HTTP/TLS + MTR vantage points (no inbound ports)
+
+Rather than exposing bandwidth test ports to the public internet, deploy an
+outbound-only `serviceradar-agent` on an external VPS (such as an Akamai
+Linode instance in a remote region):
+
+1. Enroll the agent via **Settings -> Agents -> Deploy** so it dials outbound
+   mTLS to your `agent-gateway` (`50052/TCP`) with zero inbound ports required.
+2. Open **Solution Packs Catalog** (`/catalog`) and install
+   **HTTP API & TLS Certificate Posture** (`io.serviceradar.http-api-and-tls-posture`)
+   targeting your website URL (`api_target_url`) and hostname
+   (`tls_target_host`), assigned to that remote agent.
+3. Optionally attach an **MTR Profile** (`/settings/networks/mtr`) to track
+   hop-by-hop internet path latency and packet loss alongside passive RUM.
+
+### C. Private WAN throughput & jitter (`netperf` over WireGuard)
+
+For site-to-site WAN links (such as a branch office or remote cluster linked
+over WireGuard or MPLS), use the embedded `netperf` runner inside
+`serviceradar-agent` over your private overlay:
+
+1. Open **Settings -> Networks -> Netperf** (`/settings/networks/netperf`).
+2. Create **Netperf Responders** on two enrolled agents using their private
+   LAN or WireGuard addresses (port `5199/TCP` mTLS + optional `5199/UDP`
+   HMAC -- never expose `5199` publicly).
+3. Create a bounded **Netperf Profile** (for example TCP bidirectional, 100
+   Mbps ceiling, 5s duration, 1s omit, 300s interval).
+4. Create a **Netperf Policy** (`hub_mesh` or `hub_and_spoke`) linking the
+   profile and responders. Results stream into **Dashboards -> Network
+   Performance** (`/dashboards/network-performance`), letting you compare
+   site WAN throughput, loss, and jitter directly against `prefix_tag`-filtered
+   LCP and TTFB in **Web RUM**.
