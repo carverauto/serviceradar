@@ -154,7 +154,10 @@ Each step ships on its own and is measured before and after.
    settles task 3.1a of `accelerate-log-ingestion`. One release later, core
    drops Zen for `logs.otel`.
 5. Trap daemon: final fields emitted natively, binary batches through the
-   publish crate, no rules. One release later, core drops Zen for `logs.snmp`.
+   publish crate, no rules. The rule editor stops offering the trap subject in
+   that release. One release later, core drops Zen for `logs.snmp` and the
+   seeded trap rules, including `snmp_severity`, are removed in the same
+   release.
 6. BMP collector: binary batches through the publish crate in place of JSON.
 7. Receive crate, adopted first by syslog, then the trap daemon and the flow
    collector. The flow collector adopts only this crate; it already publishes
@@ -194,7 +197,10 @@ trap storm, before and after.
   Mitigation: the collector exposes its ruleset status, and the stored row
   shows whether rules ran.
 - **A custom rule on the trap subject stops working.** Mitigation: the upgrade
-  note says so, and the rule editor stops offering that subject.
+  note says so, and the rule editor stops offering that subject when the new
+  trap publisher ships. The seeded trap rules stay until the release that stops
+  Zen on `logs.snmp`, so the previous trap daemon's records are stored as today
+  during the one-release window.
 - **Zero-copy backends need kernel features and privileges.** They stay
   optional and off by default, as `add-zero-copy-log-receivers` requires.
 - **Three crates is more surface than one collector.** Mitigation: each crate

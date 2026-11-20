@@ -24,8 +24,9 @@ The system SHALL persist Zen rule definitions in the tenant schema and SHALL pub
 ### Requirement: Default Zen Rules and Reconciliation
 The system SHALL seed baseline Zen rules into each tenant schema during onboarding (including the platform tenant)
 and SHALL reconcile stored Zen rules to datasvc KV from core-elx.
-Reconciliation SHALL also republish the effective rule bundle for each subject to the NATS rules bucket, in addition
-to datasvc, until no consumer reads bundles from datasvc.
+Reconciliation SHALL also republish the effective rule bundle for each subject to the NATS rules bucket. It SHALL
+keep republishing bundles to datasvc as well until no consumer reads bundles from datasvc, and not before one release
+after the collector's NATS rules reader ships. Per-rule keys and the subject index are unaffected.
 During reconciliation, the system SHALL treat datasvc connectivity issues as transient and avoid per-rule warning spam,
 while still reporting actionable rule failures with rule identifiers and reasons.
 
@@ -37,7 +38,8 @@ while still reporting actionable rule failures with rule identifiers and reasons
 #### Scenario: Core-elx reconciles Zen rules
 - **WHEN** core-elx starts or performs a scheduled reconciliation
 - **THEN** active Zen rules in the database SHALL be re-published to KV
-- **AND** the bundle for each subject SHALL be republished to the rules bucket as well as to datasvc
+- **AND** the bundle for each subject SHALL be republished to the rules bucket
+- **AND** while a consumer still reads bundles from datasvc, or until one release after the collector's NATS rules reader ships, the bundle SHALL also be republished to datasvc
 
 #### Scenario: Rules bucket lost a bundle
 - **GIVEN** a subject's bundle is missing from the rules bucket

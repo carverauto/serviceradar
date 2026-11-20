@@ -60,7 +60,7 @@ The binary path SHALL preserve log fields, normalization, redaction, provenance 
 - **AND** it records that no ruleset was applied
 
 ### Requirement: Trusted normalization and durable acknowledgment
-EventWriter SHALL skip Zen for a schema-header batch on `logs.normalized.<kind>` from an authorized publisher, whether or not it carries a ruleset digest, SHALL NOT let a flag in a record body skip Zen on any other subject, use the selected StarRocks or CNPG backend, and acknowledge a batch only after successful persistence under its replay contract.
+EventWriter SHALL skip Zen for a schema-header batch on `logs.normalized.<kind>` from an authorized publisher, whether or not it carries a ruleset digest, and SHALL NOT let a flag in a record body skip Zen on any other subject. EventWriter SHALL use the selected StarRocks or CNPG backend and SHALL acknowledge a batch only after successful persistence under its replay contract.
 
 #### Scenario: An untrusted body claims normalization
 - **WHEN** log content supplies a normalized flag
