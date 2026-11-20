@@ -20,11 +20,14 @@ tests:
           path: data["log-collector.toml"]
           pattern: '\[otel\]\nenabled = true'
 
-  - it: points the collector at datasvc for its Zen ruleset
+  - it: points the collector at the NATS rule bucket, and older collectors at datasvc
     template: templates/log-collector.yaml
     release: {namespace: sr-logs}
     documentSelector: {path: metadata.name, value: serviceradar-log-collector-config}
     asserts:
+      - matchRegex:
+          path: data["log-collector.toml"]
+          pattern: '(?m)^\[rules\.nats\]\nurl = "tls://serviceradar-nats\.sr-logs\.svc\.cluster\.local:4222"\ncreds_file = "/etc/serviceradar/creds/platform\.creds"\n\n\[rules\.nats\.tls\]\ncert_file = "/etc/serviceradar/certs/log-collector\.pem"\nkey_file = "/etc/serviceradar/certs/log-collector-key\.pem"\nca_file = "/etc/serviceradar/certs/root\.pem"$'
       - matchRegex:
           path: data["log-collector.toml"]
           pattern: '(?m)^\[rules\.datasvc\]\naddress = "serviceradar-datasvc\.sr-logs\.svc\.cluster\.local:50057"\n\n\[rules\.datasvc\.tls\]\ncert_file = "/etc/serviceradar/certs/log-collector\.pem"\nkey_file = "/etc/serviceradar/certs/log-collector-key\.pem"\nca_file = "/etc/serviceradar/certs/root\.pem"\nserver_name = "datasvc\.serviceradar"$'

@@ -75,7 +75,6 @@ generate_cert "web" "serviceradar-web-ng" "DNS:serviceradar-web-ng,DNS:web-ng,DN
 generate_cert "kv" "serviceradar-datasvc" "DNS:serviceradar-datasvc,DNS:kv,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "gateway" "serviceradar-agent-gateway" "DNS:serviceradar-agent-gateway,DNS:agent-gateway,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1{{- if .Values.agentGateway.publicHostname }},DNS:{{ .Values.agentGateway.publicHostname }}{{- end }}"
-generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:serviceradar-rperf-client.{{ .Release.Namespace }}.svc.cluster.local,DNS:serviceradar-rperf.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:serviceradar-log-collector.{{ .Release.Namespace }}.svc.cluster.local,DNS:serviceradar-log-collector-tcp.{{ .Release.Namespace }}.svc.cluster.local,DNS:serviceradar-otlp.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:serviceradar-flow-collector.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "serviceradar-bmp-collector" "DNS:serviceradar-bmp-collector,DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
@@ -129,14 +128,6 @@ fi
 if [ -f "$CERT_DIR/log-collector-key.pem" ] && { [ ! -f "$CERT_DIR/otel-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
   chmod 600 "$CERT_DIR/otel-key.pem"
-fi
-if [ -f "$CERT_DIR/rperf-client.pem" ] && { [ ! -f "$CERT_DIR/rperf-checker.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
-  cp "$CERT_DIR/rperf-client.pem" "$CERT_DIR/rperf-checker.pem"
-  chmod 644 "$CERT_DIR/rperf-checker.pem"
-fi
-if [ -f "$CERT_DIR/rperf-client-key.pem" ] && { [ ! -f "$CERT_DIR/rperf-checker-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
-  cp "$CERT_DIR/rperf-client-key.pem" "$CERT_DIR/rperf-checker-key.pem"
-  chmod 600 "$CERT_DIR/rperf-checker-key.pem"
 fi
 if [ ! -f "$CERT_DIR/cnpg-client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
   openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-client-key.pem"
