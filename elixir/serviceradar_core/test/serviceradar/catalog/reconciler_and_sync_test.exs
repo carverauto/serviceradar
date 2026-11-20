@@ -19,6 +19,7 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
   alias ServiceRadar.Catalog.UploadSignature
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.DeclarativeChecks.DeclarativeCheck
+  alias ServiceRadar.DeclarativeChecks.PackSeeder
   alias ServiceRadar.Identity.RBAC.Catalog, as: RBACCatalog
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.StatefulAlertRule
@@ -283,6 +284,139 @@ defmodule ServiceRadar.Catalog.ReconcilerAndSyncTest do
       )
 
     refreshed_tree
+  end
+
+  describe "PackSeeder installs the shipped pack files through the reconciler" do
+    @storage_pack "io.serviceradar.storage-and-nvr-health"
+
+    test "a deployment with nothing installed gets the pack, its checks and its rules" do
+      store = start_mem_store()
+      {:ok, shipped} = BuiltinPacks.get_pack("storage-and-nvr-health")
+
+      assert {:ok, [%{slug: "storage-and-nvr-health", action: :installed}]} =
+               PackSeeder.seed_builtin_packs(state_store: store)
+
+      state = Agent.get(store, & &1)
+      installed = state.packs[@storage_pack]
+
+      assert installed.pack_version == shipped.manifest["version"]
+      assert installed.source_type == :builtin
+
+      assert state.checks |> Map.keys() |> Enum.sort() ==
+               shipped.checks |> Enum.map(& &1.normalized["slug"]) |> Enum.sort()
+
+      assert state.rules |> Map.keys() |> Enum.sort() ==
+               shipped.rules
+               |> Enum.map(&{"stateful_alert_rule", &1.normalized["name"]})
+               |> Enum.sort()
+    end
+
+    test "seeding again keeps every check and rule as installed, and then settles" do
+      store = start_mem_store()
+      {:ok, _} = PackSeeder.seed_builtin_packs(state_store: store)
+      first = Agent.get(store, & &1)
+
+      assert {:ok, [%{action: :reapplied}]} = PackSeeder.seed_builtin_packs(state_store: store)
+      second = Agent.get(store, & &1)
+
+      assert second.checks == first.checks
+
+      # A re-apply records each rule's enabled state as an operator override;
+      # nothing that decides when the rule fires may change.
+      for {key, rule} <- first.rules do
+        assert Map.delete(second.rules[key], "parameter_overrides") ==
+                 Map.delete(rule, "parameter_overrides")
+      end
+
+      assert {:ok, [%{action: :reapplied}]} = PackSeeder.seed_builtin_packs(state_store: store)
+      third = Agent.get(store, & &1)
+
+      assert third.checks == second.checks
+      assert third.rules == second.rules
+    end
+
+    test "a newer pack the operator installed from a catalog is left alone" do
+      store = start_mem_store()
+      {:ok, _} = PackSeeder.seed_builtin_packs(state_store: store)
+
+      Agent.update(store, fn state ->
+        update_in(state, [:packs, @storage_pack], fn pack ->
+          %{pack | pack_version: "9.0.0", source_type: :release_catalog}
+        end)
+      end)
+
+      before = Agent.get(store, & &1)
+
+      assert {:ok, [%{action: :kept_installed}]} =
+               PackSeeder.seed_builtin_packs(state_store: store)
+
+      assert Agent.get(store, & &1) == before
+    end
+
+    test "thresholds tuned under the earlier seeder's parameter names carry over to the pack's names" do
+      earlier_silence_check = %{
+        inputs: [
+          %{"key" => "silence_window_minutes", "type" => "integer", "min" => 1, "max" => 1440}
+        ],
+        parameter_overrides: %{"silence_window_minutes" => 2}
+      }
+
+      [earlier_silence_input] = earlier_silence_check.inputs
+      stored_silence = earlier_silence_check.parameter_overrides["silence_window_minutes"]
+      assert stored_silence in earlier_silence_input["min"]..earlier_silence_input["max"]
+
+      tuned = [
+        %{parameter_overrides: %{"warn_percent" => 70, "crit_percent" => 88}},
+        %{parameter_overrides: %{"warn_share_percent" => 40}},
+        %{parameter_overrides: %{"max_report_age_hours" => 48}},
+        earlier_silence_check,
+        %{parameter_overrides: %{}}
+      ]
+
+      carried = PackSeeder.carried_config(tuned)
+
+      assert carried == %{
+               "utilization_warn_pct" => 70,
+               "utilization_crit_pct" => 88,
+               "hold_warn_share_pct" => 40,
+               "max_report_age_hours" => 48,
+               "silence_window_minutes" => 2
+             }
+
+      # The carried values are ones the shipped pack accepts as configuration.
+      store = start_mem_store()
+      {:ok, shipped} = BuiltinPacks.get_pack("storage-and-nvr-health")
+
+      assert {:ok, _} =
+               Reconciler.reconcile(shipped, %{"config" => carried},
+                 actor: operator_actor(),
+                 state_store: store
+               )
+
+      utilization = Agent.get(store, & &1.checks["storage-entitlement-utilization"])
+
+      assert utilization["parameter_overrides"] == %{
+               "utilization_warn_pct" => 70,
+               "utilization_crit_pct" => 88
+             }
+
+      silence = Agent.get(store, & &1.checks["camera-continuous-recording-silence"])
+      assert silence["parameter_overrides"] == %{"silence_window_minutes" => 2}
+    end
+
+    test "the seeder never moves an installed pack backwards or takes over another source's install" do
+      for {installed, shipped, expected} <- [
+            {nil, "0.1.1", :installed},
+            {%{pack_version: "0.1.0", source_type: :builtin}, "0.1.1", :upgraded},
+            {%{pack_version: "0.1.0", source_type: :release_catalog}, "0.1.1", :upgraded},
+            {%{pack_version: "0.1.1", source_type: :builtin}, "0.1.1", :reapplied},
+            {%{pack_version: "0.1.1", source_type: :release_catalog}, "0.1.1", :kept_installed},
+            {%{pack_version: "0.2.0", source_type: :builtin}, "0.1.1", :kept_installed},
+            {%{pack_version: "not-a-version", source_type: :builtin}, "0.1.1", :kept_installed}
+          ] do
+        assert PackSeeder.seed_action(installed, shipped) == expected
+      end
+    end
   end
 
   describe "DependencyChecker Wasm plugin approval enforcement" do

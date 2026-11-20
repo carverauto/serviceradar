@@ -57,7 +57,9 @@ Every instance materializes its verdict (`healthy`, `degraded`, `down`, or `unkn
 
 ### Built-in Pack #1: Storage Entitlements & NVR Recording Health
 
-ServiceRadar ships **Built-in Pack #1** (`io.serviceradar.storage-and-nvr-health`) offline inside `serviceradar_core` using the standard `pack_format_version: 1` format. It monitors SaaS Storage Entitlements (PR `#6760`) and NVR continuous recording liveness through four `platform_posture` evaluators, companion `StatefulAlertRule` templates, and an overview authored dashboard:
+ServiceRadar ships **Built-in Pack #1** (`io.serviceradar.storage-and-nvr-health`) offline inside `serviceradar_core` using the standard `pack_format_version: 1` format. It monitors SaaS Storage Entitlements (PR `#6760`) and NVR continuous recording liveness through four `platform_posture` evaluators, companion `StatefulAlertRule` templates, and an overview authored dashboard.
+
+Core installs this pack from its pack files at startup, through the same reconciler a catalog install uses, so it appears in the catalog as installed with source `builtin`. Startup installs the pack when it is absent, upgrades an older version, and leaves a newer version or another source's install alone. Operator `parameter_overrides` and paused rules survive the upgrade.
 
 | Evaluator | Check Slug | What It Monitors |
 | --- | --- | --- |

@@ -55,7 +55,7 @@
       "description": "Minutes with zero sealed blocks on an enabled continuous recording policy before alerting.",
       "key": "silence_window_minutes",
       "max": 1440,
-      "min": 5,
+      "min": 1,
       "required": false,
       "type": "integer"
     }
@@ -65,10 +65,10 @@
   "files": {
     "README.md": "990031029af8c10414752a93bff4f5a01d88fe2246944027d127da5ba0edb384",
     "assets/architecture.svg": "b3108812b243005d43b5284aa74e58ae254c519db9b890b6982bd1c0f80e1f78",
-    "checks/archive-storage-posture.json": "829a47849214fc62b63081124e612edc6df320c001612dd369f236518535fe4d",
-    "checks/camera-recording-silence.json": "2b07c2c0178547c44a9b532775555080a80c916d5fe706071c3b7b5812ebe014",
-    "checks/entitlement-utilization.json": "7ff46edb425872580cb583c9c6b8df68eee21dc5cff4156e0c0d56f12e6d6c3f",
-    "checks/hold-pin-pressure.json": "e841d960e5de99103e95851241e6feb5a9287c12b0db2f2dc6e9c0f7b8a6cfd1",
+    "checks/archive-storage-posture.json": "1447322d388231ec8016959afcaa5617610224d3e237140705f8adc1f26460c4",
+    "checks/camera-recording-silence.json": "603677e896317724c1d3cfefb0866b82855d1814a7cd7b149037f26a7e5550ee",
+    "checks/entitlement-utilization.json": "886300f0eacbc3086c522d1f549afca030b9ea009ba040b7f8679d2034ac68e0",
+    "checks/hold-pin-pressure.json": "239c13353d03203b1b664bebbb9b755df4894dbaa364847313c2cda3bb161860",
     "dashboards/storage-and-nvr-overview.json": "d46401780e60cc73240472222880bd3ac152aed72d91cb2ef4e8151e0f8a0fa4",
     "rules/camera-silence-alert.json": "a4f8c5ed2a93db29cd646094dc22a0f5c328f3fa38c4f3b1d95d03b3349d0286",
     "rules/storage-hard-cap-alert.json": "28a6c211df95b22d9355b1eba3cd41584559b2dba02bfdd9cb4dbe0bd7055eb8"
@@ -121,5 +121,5 @@
     ]
   },
   "slug": "storage-and-nvr-health",
-  "version": "0.1.1"
+  "version": "0.1.2"
 }

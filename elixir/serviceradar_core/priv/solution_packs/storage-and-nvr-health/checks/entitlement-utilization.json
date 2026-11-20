@@ -92,7 +92,7 @@
     }
   ],
   "pack_id": "io.serviceradar.storage-and-nvr-health",
-  "pack_version": "0.1.1",
+  "pack_version": "0.1.2",
   "parameter_overrides": {},
   "schedule": {
     "interval_seconds": 300,
