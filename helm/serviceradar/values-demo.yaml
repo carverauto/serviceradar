@@ -288,10 +288,17 @@ logCollector:
       externalTrafficPolicy: Local
       http:
         enabled: true
-    # Public otlp-demo HTTPRoute/TLSRoute removed (unauthenticated ingest was
-    # internet-reachable). OTLP is LAN-only on 192.168.6.93.
+    # Public OTLP/HTTP (/v1/*) and OTLP/gRPC remain LAN-only on 192.168.6.93
+    # (unauthenticated OTLP ingest must not be internet-reachable). Expose only
+    # the public-safe, site-key- and Origin-gated /rum/v1/beacon endpoint via
+    # the shared gateway on rum-demo.serviceradar.cloud.
     gateway:
-      enabled: false
+      enabled: true
+      httpHostname: ""
+      grpcHostname: ""
+      rum:
+        enabled: true
+      rumHostname: "rum-demo.serviceradar.cloud"
 
 agentGateway:
   enabled: true
