@@ -47,9 +47,6 @@ defmodule ServiceRadar.Plugins.Changes.RevokeDirectLeafAccess do
     end
   end
 
-  @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
-
   defp previous_identity?(previous) when is_map(previous) do
     is_binary(Map.get(previous, :direct_certificate_fingerprint)) or
       is_binary(Map.get(previous, :direct_identity_component_id))

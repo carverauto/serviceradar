@@ -1,4 +1,5 @@
 source	module	case_kind	mode	reason	evidence
+test/credo/atomic_drops_change_hook_test.exs	-	not_selected	load_only	not_selected	Pure async unit coverage runs the Credo check over in-memory source strings; no app, database, :integration or :requires_app identities.
 test/credo/direct_telemetry_write_test.exs	-	not_selected	load_only	not_selected	Pure async unit coverage runs the Credo check over in-memory source strings; no app, database, :integration or :requires_app identities.
 test/external/armis_northbound_live_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/external/flow_attribution_correlation_live_test.exs	-	not_selected	load_only	not_selected	Live StarRocks warehouse test, excluded by default (:external); no app, database, :integration or :requires_app identities.

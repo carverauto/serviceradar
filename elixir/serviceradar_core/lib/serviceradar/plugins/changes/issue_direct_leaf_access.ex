@@ -36,9 +36,6 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     end
   end
 
-  @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
-
   defp ready(changeset, identity) do
     changeset
     |> Ash.Changeset.change_attribute(:direct_access_status, :ready)
