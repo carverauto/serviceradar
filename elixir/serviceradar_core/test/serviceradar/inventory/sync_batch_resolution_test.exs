@@ -154,6 +154,44 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert resolved != existing.uid
   end
 
+  # The test above with agreeing hostnames: a name is not identity
+  # (stop-name-as-identity-evidence). With no source-authoritative id, agent or
+  # MAC on either side, the new record still takes none of the holder's
+  # identity, and the pair opens exactly one de-duplication task.
+  test "a same-named holder at the address is not adopted and the pair opens one review",
+       %{actor: actor} do
+    ip = unique_ip()
+    hostname = "host01-#{System.unique_integer([:positive])}.example.com"
+
+    {:ok, existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: hostname,
+        ip: ip
+      })
+      |> Ash.create(actor: actor)
+
+    integration_id = "plugin-a:inst-1:obj-#{System.unique_integer([:positive])}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates([integration_update(integration_id, ip, hostname)],
+               actor: actor
+             )
+
+    resolved = device_for_integration_id(integration_id, actor)
+    assert is_binary(resolved)
+    assert resolved != existing.uid, "the record was adopted onto the holder by its hostname"
+
+    assert {:ok, %Device{deleted_at: nil, hostname: ^hostname}} =
+             Device.get_by_uid(existing.uid, false, actor: actor)
+
+    assert_hostname_pair_recorded(existing.uid, resolved, ip, actor)
+
+    {:ok, tasks} = DeduplicationTask.for_device(resolved, actor: actor)
+    assert [%{status: :open}] = tasks
+  end
+
   test "weak update still adopts an existing device by IP", %{actor: actor} do
     ip = unique_ip()
 
@@ -1019,21 +1057,14 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert uid_a != uid_b, "the second cluster's node was fused into the first cluster's device"
     assert device_for_integration_id(id_a, actor) == uid_a
     assert_hostname_pair_recorded(uid_a, uid_b, ip, actor)
-
-    {:ok, decisions} = IdentityDecision.for_device(uid_b, actor: actor)
-
-    assert Enum.any?(
-             decisions,
-             &(&1.decision_kind == :policy_block and
-                 &1.evidence["refusal"] == "conflicting_integration_identity")
-           ),
-           "the refusal was not recorded as a conflicting integration identity"
   end
 
-  # Negative: when the incoming record's integration ids overlap the
-  # holder's under the same provider, the claims agree about identity and
-  # the record still attaches to the holder instead of splitting.
-  test "overlapping same-provider integration ids still attach to the holder", %{actor: actor} do
+  # A hostname is not identity (stop-name-as-identity-evidence): a new record
+  # whose integration id the holder only lists among its legacy ids, with no
+  # identifier row behind it, is not adopted onto the holder because their
+  # hostnames agree. It is written as its own device and the pair is reviewed.
+  test "hostname agreement does not attach an integration id the holder lists only as legacy",
+       %{actor: actor} do
     n = System.unique_integer([:positive])
     ip = benchmark_ip()
     hostname = "virt-overlap-#{n}"
@@ -1081,17 +1112,11 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
                actor: actor
              )
 
-    assert device_for_integration_id(shared_id, actor) == holder
+    incoming = device_for_integration_id(shared_id, actor)
+    assert is_binary(incoming)
+    assert incoming != holder, "the record was adopted onto the holder on hostname agreement"
     assert device_for_integration_id(other_id, actor) == holder
-
-    {:ok, decisions} = IdentityDecision.for_device(holder, actor: actor)
-
-    refute Enum.any?(
-             decisions,
-             &(&1.decision_kind == :policy_block and
-                 &1.reason == "hostname_agreement_not_identity" and &1.subject == ip)
-           ),
-           "overlapping integration ids must not be refused as a hostname-only match"
+    assert_hostname_pair_recorded(holder, incoming, ip, actor)
   end
 
   test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do

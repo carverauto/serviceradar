@@ -54,8 +54,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   ]
 
   # Source-authoritative identifier types, one list shared with resolution and
-  # merging (`SourceAuthorityGuard`). A record or holder carrying one is never
-  # adopted on hostname agreement: that identifier decides its identity.
+  # merging (`SourceAuthorityGuard`). A record carrying one is a source's own
+  # sighting, and a holder whose rows of them are all archived is retired
+  # (`claim_address_from_holder/5`).
   @source_authoritative_types SourceAuthorityGuard.source_identifier_types()
 
   # Tombstones the upsert never writes to (device_upsert_update_query/1): a merged-away
@@ -1083,37 +1084,23 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
-    # Registration owners, the holders' source-authoritative identifier rows,
-    # and which colliding records already exist, with their last
-    # identity-bearing observation, for the adoption and address rules below.
-    # Loaded once per batch and only when a strong record actually collides
-    # with a different holder; batches without such collisions pay no extra
-    # query.
+    # The retired holders, and which colliding records already exist, with
+    # their last identity-bearing observation, for the adoption and address
+    # rules below. Loaded once per batch and only when a strong record actually
+    # collides with a different holder; batches without such collisions pay no
+    # extra query.
     colliding = Enum.filter(records, &strong_ip_collision?(&1, strong_uids, active_holders))
 
     identity_regs =
       if colliding == [] do
-        %{
-          registrations: %{},
-          source_authoritative: MapSet.new(),
-          retired: MapSet.new(),
-          existing_uids: MapSet.new(),
-          identity_times: %{},
-          agent_bound_holders: MapSet.new(),
-          holder_integration_ids: %{}
-        }
+        %{retired: MapSet.new(), existing_uids: MapSet.new(), identity_times: %{}}
       else
-        {source_authoritative, retired} = load_source_authoritative_holders(existing_by_ip)
         identity_times = load_identity_times(colliding)
 
         %{
-          registrations: load_identity_registrations(records, existing_by_ip),
-          source_authoritative: source_authoritative,
-          retired: retired,
+          retired: load_retired_holders(existing_by_ip),
           existing_uids: identity_times |> Map.keys() |> MapSet.new(),
-          identity_times: identity_times,
-          agent_bound_holders: load_agent_bound_holders(existing_by_ip),
-          holder_integration_ids: load_holder_integration_ids(existing_by_ip)
+          identity_times: identity_times
         }
       end
 
@@ -1263,8 +1250,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          identity_regs,
          {remap, conflicts, anchors, stale_releases}
        ) do
-    ip = Map.get(record, :ip)
-
     case Map.get(active_holders, record_ip_key(record)) do
       nil ->
         {resolved, {remap, conflicts}} =
@@ -1286,23 +1271,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
-            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) do
-              Logger.info(
-                "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
-                  "strong-identified device #{record.uid} (hostname agreement)"
-              )
+            maybe_record_hostname_agreement(record, existing)
 
-              {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
-            else
-              claim_address_from_holder(
-                record,
-                existing,
-                incoming_ip_owners,
-                identity_regs,
-                {remap, conflicts, anchors, stale_releases}
-              )
-            end
+            claim_address_from_holder(
+              record,
+              existing,
+              incoming_ip_owners,
+              identity_regs,
+              {remap, conflicts, anchors, stale_releases}
+            )
           end
         else
           {Map.put(record, :uid, existing_uid),
@@ -1509,55 +1486,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       end
   end
 
-  # Owners of every anchor identifier claimed by this batch's records and by
-  # the holders they may collide with, keyed by {type, value, partition}.
-  # One query per batch, only on batches with a strong collision.
-  defp load_identity_registrations(records, existing_by_ip) do
-    record_pairs = Enum.flat_map(records, &record_identity_pairs(&1, record_partition(&1)))
-
-    holder_pairs =
-      Enum.flat_map(existing_by_ip, fn {{partition, _ip}, holder} ->
-        record_identity_pairs(holder, partition)
-      end)
-
-    case Enum.uniq(record_pairs ++ holder_pairs) do
-      [] ->
-        %{}
-
-      pairs ->
-        # Composite `in` over a runtime pair list is not expressible to the
-        # Ecto query planner, so match the triple through unnest arrays, the
-        # same shape the release-clear below uses for (uid, ip).
-        {types, values, partitions} =
-          Enum.reduce(pairs, {[], [], []}, fn {type, value, partition},
-                                              {types, values, partitions} ->
-            {[to_string(type) | types], [value | values], [partition | partitions]}
-          end)
-
-        DeviceIdentifier
-        |> where(
-          [i],
-          fragment(
-            "(?::text, ?::text, ?::text) IN (SELECT * FROM unnest(?::text[], ?::text[], ?::text[]))",
-            i.identifier_type,
-            i.identifier_value,
-            i.partition,
-            ^types,
-            ^values,
-            ^partitions
-          )
-        )
-        |> select([i], {i.identifier_type, i.identifier_value, i.partition, i.device_id})
-        |> Repo.all()
-        |> Enum.group_by(
-          # Raw Ecto select bypasses Ash type casting, so the atom column
-          # arrives as text; key on strings to match the pairs below.
-          fn {type, value, partition, _uid} -> {to_string(type), value, partition} end,
-          fn {_type, _value, _partition, uid} -> uid end
-        )
-    end
-  end
-
   # Anchor identifier claims on a record or holder map, extracted with the
   # same vocabulary registrations are written in (`Ids`). Values the
   # extractor rejects (integration compatibility echoes, placeholder serials,
@@ -1576,82 +1504,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         do: {Atom.to_string(type), value, partition}
   end
 
-  # Hostname-agreement adoption. A hostname is evidence, like the address,
-  # never identity: agreement may only attach a record that is not yet a
-  # device to the holder, and only when neither side carries a
-  # source-authoritative identifier (`@source_authoritative_types`), no
-  # hardware serial or partition disagrees, the two sides do not claim
-  # disjoint integration ids under one provider prefix
-  # (`conflicting_integration_identity?/5`), and no third device claims
-  # either side's strong identity (the over-merge shape -- a collector's
-  # agent_id, a re-pointed integration id -- the fork rule exists to
-  # refuse). Either hostname blank is not agreement: two records that say
-  # nothing about a name are merely silent.
-  #
-  # Agreement never merges two existing devices and never overrides a
-  # source-authoritative identifier. When the hostnames agree but adoption is
-  # refused, the incoming record is written as its own device through
-  # `claim_address_from_holder/5`, and the pair is recorded as a
-  # `:policy_block` decision, which opens a de-duplication task for an
-  # operator to merge, mark distinct or dismiss.
-  defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
+  # Hostname agreement is not identity. A strong record that collides on an
+  # address with a live holder whose hostname agrees is never adopted onto the
+  # holder for it: it is written as its own device, and the address is decided
+  # by `claim_address_from_holder/5` exactly as it would be if the names
+  # differed. Many unrelated hosts share a name (lab nodes, cloned images,
+  # default appliance names), so the pair is recorded as a `:policy_block`
+  # decision, which opens a de-duplication task for an operator to merge, mark
+  # distinct or dismiss, and the record never forks from the holder silently.
+  # Either hostname blank is not agreement: two records that say nothing about
+  # a name are merely silent.
+  defp maybe_record_hostname_agreement(record, holder) do
     if hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) do
-      case hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
-        nil ->
-          true
-
-        refusal ->
-          record_hostname_agreement(record, holder, holder_uid, refusal)
-          false
-      end
-    else
-      false
+      record_hostname_agreement(record, holder)
     end
-  end
 
-  defp hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
-    partition = record_partition(record)
-
-    cond do
-      MapSet.member?(identity_regs.existing_uids, record.uid) ->
-        "existing_device"
-
-      source_authoritative?(record_identity_pairs(record, partition)) or
-        source_authoritative?(record_identity_pairs(holder, partition)) or
-          MapSet.member?(identity_regs.source_authoritative, holder_uid) ->
-        "source_authoritative_identifier"
-
-      MapSet.member?(identity_regs.agent_bound_holders, holder_uid) or
-        Ids.present_id?(Map.get(holder, :agent_id)) or
-          Enum.any?(record_identity_pairs(holder, partition), fn {type, _value, _partition} ->
-            type == "agent_id"
-          end) ->
-        "agent_bound_holder"
-
-      not compatible_identity_claims?(record, holder) ->
-        "incompatible_identity_claims"
-
-      conflicting_integration_identity?(
-        record,
-        holder,
-        holder_uid,
-        partition,
-        identity_regs
-      ) ->
-        "conflicting_integration_identity"
-
-      third_party_identity_claim?(
-        record,
-        holder,
-        holder_uid,
-        partition,
-        identity_regs.registrations
-      ) ->
-        "third_party_identity_claim"
-
-      true ->
-        nil
-    end
+    :ok
   end
 
   # The colliding records whose uid already names a device row (live or
@@ -1672,15 +1540,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Enum.any?(pairs, fn {type, _value, _partition} -> type in types end)
   end
 
-  # Holders with a source-authoritative identifier row, current or archived: a
-  # retired id still decides its record's identity (`SourceAuthorityGuard`). The
-  # holder map's metadata may not carry the identifier the row does.
-  #
-  # Returns that set, and the retired holders among it: those whose
-  # source-authoritative rows are all archived. The source has stopped
-  # reporting a retired holder, so it yields its address to a record the
-  # source still reports (`claim_address_from_holder/5`).
-  defp load_source_authoritative_holders(existing_by_ip) do
+  # The retired holders: those with archived source-authoritative identifier
+  # rows and no live one. The holder map's metadata may not carry the
+  # identifier the row does. The source has stopped reporting a retired holder,
+  # so it yields its address to a record the source still reports
+  # (`claim_address_from_holder/5`).
+  defp load_retired_holders(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
 
     live =
@@ -1699,21 +1564,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       |> archived_identifier_holders(@source_authoritative_types)
       |> MapSet.new()
 
-    {MapSet.union(live, archived), MapSet.difference(archived, live)}
+    MapSet.difference(archived, live)
   end
 
-  defp record_hostname_agreement(record, holder, holder_uid, refusal) do
+  defp record_hostname_agreement(record, %{uid: holder_uid} = holder) do
     ip = Map.get(record, :ip)
 
     Logger.info(
-      "SyncIngestor: not adopting active IP #{ip} holder #{holder_uid} for device " <>
-        "#{record.uid} on hostname agreement (#{refusal}); recording a de-duplication decision"
+      "SyncIngestor: device #{record.uid} agrees on hostname with active IP #{ip} holder " <>
+        "#{holder_uid}; a hostname is not identity, recording a de-duplication decision"
     )
 
     :telemetry.execute(
       [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
       %{count: 1},
-      %{incoming_device_uid: record.uid, existing_device_uid: holder_uid, refusal: refusal}
+      %{incoming_device_uid: record.uid, existing_device_uid: holder_uid}
     )
 
     DecisionLog.record(:policy_block, "hostname_agreement_not_identity", [record.uid, holder_uid],
@@ -1723,132 +1588,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         "incoming_device_uid" => record.uid,
         "existing_device_uid" => holder_uid,
         "hostname" => Map.get(holder, :hostname),
-        "ip" => ip,
-        "refusal" => refusal
+        "ip" => ip
       }
     )
-  end
-
-  defp compatible_identity_claims?(record, holder) do
-    partition = record_partition(record)
-    incoming = record_identity_pairs(record, partition)
-    existing = record_identity_pairs(holder, partition)
-
-    partitions = Enum.uniq(Enum.map(incoming ++ existing, &elem(&1, 2)))
-    incoming_serials = for {"hardware_serial", value, _} <- incoming, do: value
-    existing_serials = for {"hardware_serial", value, _} <- existing, do: value
-
-    length(partitions) <= 1 and
-      (incoming_serials == [] or existing_serials == [] or
-         Enum.any?(incoming_serials, &(&1 in existing_serials)))
-  end
-
-  # Two same-named hypervisor nodes in different clusters collide on an
-  # address with one integration id each from the same provider (for
-  # example two `proxmox:v3:...` ids) and no MAC, serial or
-  # source-authoritative id to discriminate them. An integration id is
-  # strong identity within its provider's namespace, so when both sides
-  # claim ids under one provider prefix and share none, the name and the
-  # address are the coincidence and the ids are the evidence: refuse the
-  # adoption instead of fusing the nodes. A node genuinely moved between
-  # clusters lands here too and goes to the operator as a de-duplication
-  # task; that is the accepted cost of never auto-merging two nodes.
-  #
-  # The holder's claimed ids are its map claims plus its live registered
-  # `integration_id` rows (`identity_regs.holder_integration_ids`): the
-  # holder map's metadata may not carry the identifier the row does, the
-  # same gap `load_source_authoritative_holders/1` covers.
-  defp conflicting_integration_identity?(record, holder, holder_uid, partition, identity_regs) do
-    incoming =
-      record
-      |> record_identity_pairs(partition)
-      |> integration_id_values()
-
-    registered =
-      identity_regs
-      |> Map.get(:holder_integration_ids, %{})
-      |> Map.get({holder_uid, partition}, [])
-
-    existing =
-      holder
-      |> record_identity_pairs(partition)
-      |> integration_id_values()
-      |> Kernel.++(registered)
-      |> Enum.uniq()
-
-    incoming_by_prefix = integration_ids_by_prefix(incoming)
-    existing_by_prefix = integration_ids_by_prefix(existing)
-
-    Enum.any?(incoming_by_prefix, fn {prefix, incoming_set} ->
-      case Map.fetch(existing_by_prefix, prefix) do
-        {:ok, existing_set} -> MapSet.disjoint?(incoming_set, existing_set)
-        :error -> false
-      end
-    end)
-  end
-
-  defp integration_id_values(pairs) do
-    for {"integration_id", value, _partition} <- pairs, do: value
-  end
-
-  defp integration_ids_by_prefix(ids) do
-    Enum.reduce(ids, %{}, fn id, acc ->
-      case integration_provider_prefix(id) do
-        nil -> acc
-        prefix -> Map.update(acc, prefix, MapSet.new([id]), &MapSet.put(&1, id))
-      end
-    end)
-  end
-
-  # The provider namespace of a minted integration id: the segment before
-  # the first colon (`proxmox:v3:...`, `netbox:...`). Values without a
-  # provider segment claim no namespace and never conflict.
-  defp integration_provider_prefix(value) when is_binary(value) do
-    case String.split(value, ":", parts: 2) do
-      [prefix, _rest] ->
-        case prefix |> String.trim() |> String.downcase() do
-          "" -> nil
-          normalized -> normalized
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp integration_provider_prefix(_value), do: nil
-
-  # Holders' live registered `integration_id` rows, keyed by
-  # `{device_uid, partition}`. Loaded once per colliding batch with the
-  # other identity registrations.
-  defp load_holder_integration_ids(existing_by_ip) do
-    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
-
-    if uids == [] do
-      %{}
-    else
-      DeviceIdentifier
-      |> where(
-        [i],
-        i.device_id in ^uids and i.identifier_type == :integration_id
-      )
-      |> select([i], {i.device_id, i.partition, i.identifier_value})
-      |> Repo.all()
-      |> Enum.group_by(
-        fn {uid, partition, _value} -> {uid, partition} end,
-        fn {_uid, _partition, value} -> value end
-      )
-    end
-  end
-
-  defp load_agent_bound_holders(existing_by_ip) do
-    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
-
-    DeviceIdentifier
-    |> where([i], i.device_id in ^uids and i.identifier_type == :agent_id)
-    |> select([i], i.device_id)
-    |> Repo.all()
-    |> MapSet.new()
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
@@ -1858,19 +1600,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp hostnames_agree?(_, _), do: false
-
-  defp third_party_identity_claim?(record, holder, holder_uid, partition, identity_regs) do
-    allowed = MapSet.new([Map.get(record, :uid), holder_uid])
-
-    [record, holder]
-    |> Enum.flat_map(&record_identity_pairs(&1, partition))
-    |> Enum.any?(fn pair ->
-      case Map.get(identity_regs, pair) do
-        nil -> false
-        uids -> Enum.any?(uids, &(not MapSet.member?(allowed, &1)))
-      end
-    end)
-  end
 
   defp ensure_anchored_uids(:not_loaded, existing_by_ip) do
     set = anchored_device_uids(existing_by_ip)
@@ -1930,9 +1659,14 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   #      was left with `ip: nil`, re-collided on the next sync, and the conflict
   #      was re-detected forever instead of converging.
   #
-  # Case 2 is deliberately narrow: a hostname or MAC is identity evidence;
-  # an IP alone is not, because IPs move. Established holders instead use the
-  # separate hostname-agreement and identifier-ownership guard above.
+  # Case 2 is deliberately narrow. A hostname or MAC on the holder only keeps
+  # it from being adopted here: it then keeps its own record, and the incoming
+  # record takes the address under `claim_address_from_holder/5`. That prevents
+  # a merge and never causes one, so it does not make a hostname identity
+  # (requirement "Hostname Agreement Is Not Identity"). An IP alone is not
+  # identity either, because IPs move; a hostname that agrees with an
+  # established holder's is recorded for review only
+  # (`maybe_record_hostname_agreement/2`).
   #
   # Adoption does not discard the seed. The incoming record takes the *existing*
   # uid, so an operator-added "something is at this IP" row survives and gains
