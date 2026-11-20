@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vendor syslog profiles — OpenSpec proposal</title>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search).get("theme");
+  var stored = null;
+  try { stored = localStorage.getItem("sr-theme"); } catch (e) {}
+  var theme = q || stored;
+  if (theme !== "light" && theme !== "dark") {
+    theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
+<style>
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f7f9f8;
+  --surface: #fcfdfd;
+  --raised: #ffffff;
+  --subtle: #eff4f1;
+  --ink: #0b1720;
+  --muted: #5d6977;
+  --line: #dde4e1;
+  --line-strong: #c8d3ce;
+  --brand: #0b824d;
+  --brand-strong: #076b3e;
+  --on-brand: #f8fffb;
+  --warn: #754700;
+  --warn-bg: #fff4d8;
+  --info: #245c77;
+  --info-bg: #e9f4f8;
+  --shadow: 0 10px 30px rgb(23 48 38 / 0.055);
+  --font: "Avenir Next", Avenir, "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0a1114;
+  --surface: #10191d;
+  --raised: #152126;
+  --subtle: #17252a;
+  --ink: #edf5f1;
+  --muted: #aab8b2;
+  --line: #26363a;
+  --line-strong: #3b4c50;
+  --brand: #3ecf87;
+  --brand-strong: #5bde9b;
+  --on-brand: #062b1a;
+  --warn: #f1ca78;
+  --warn-bg: #2a2416;
+  --info: #8bc8e0;
+  --info-bg: #102934;
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font: 16.5px/1.55 var(--font);
+}
+img, svg, table, pre { max-width: 100%; }
+a { color: var(--brand-strong); }
+[data-theme="dark"] a { color: var(--brand); }
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 22px 80px;
+}
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--brand);
+}
+h1 {
+  font-size: clamp(30px, 4.2vw, 44px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  margin: 8px 0 12px;
+  max-width: 18ch;
+}
+.lede { margin: 0; max-width: 62ch; color: var(--ink); }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.meta li, .pill {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+button.theme {
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+h2 {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  margin: 40px 0 10px;
+}
+h3 { font-size: 16px; margin: 0 0 6px; }
+p { margin: 0 0 12px; }
+.grid, .trio, .pair, .options {
+  display: grid;
+  gap: 12px;
+}
+.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.options { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr) minmax(0, 0.85fr); }
+.card, .figure, .callout {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 16px 16px 14px;
+  min-width: 0;
+}
+.card p:last-child, .callout p:last-child { margin-bottom: 0; }
+.kicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.figure { padding: 14px 14px 8px; overflow-x: auto; }
+.figure svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.card:has(table) { overflow-x: auto; }
+.figure figcaption {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 4px 2px 8px;
+}
+svg .box { fill: var(--raised); stroke: var(--line-strong); }
+svg .box.hot { stroke: var(--brand); stroke-width: 2; }
+svg .label { fill: var(--ink); font: 600 14px var(--font); }
+svg .sub { fill: var(--muted); font: 12px var(--font); }
+svg .edge { stroke: var(--brand); fill: none; stroke-width: 1.6; }
+svg .etag { fill: var(--muted); font: 11px var(--font); }
+.rec { outline: 2px solid var(--brand); }
+.badge {
+  display: inline-block;
+  background: var(--brand);
+  color: var(--on-brand);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+th { color: var(--muted); font-weight: 650; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre, code {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+pre {
+  background: var(--subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+.callout.warn { background: var(--warn-bg); border-color: transparent; }
+.callout.info { background: var(--info-bg); border-color: transparent; }
+ol.steps { margin: 0; padding-left: 1.2em; }
+ol.steps li { margin: 0 0 8px; }
+ul.clean { margin: 0; padding-left: 1.1em; }
+ul.clean li { margin: 0 0 6px; }
+.tasks { columns: 1; }
+.task {
+  break-inside: avoid;
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+.task strong { display: block; }
+.task span { color: var(--muted); font-size: 14px; }
+footer.note { color: var(--muted); font-size: 13px; margin-top: 28px; }
+@media (max-width: 860px) {
+  .grid, .pair, .options { grid-template-columns: 1fr; }
+  h1 { max-width: none; }
+  .top { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div>
+      <p class="eyebrow">OpenSpec · add-syslog-vendor-profiles</p>
+      <h1>Vendor syslog becomes filterable fields</h1>
+      <p class="lede">ServiceRadar already stores the raw syslog body. This proposal adds the vendor fields inside that body (interface, BGP peer, alarm, user) by turning the napalm-logs device profiles into installable Solution Packs. This pull request is the proposal. The matcher and the packs wait until the proposal is approved.</p>
+      <ul class="meta">
+        <li>Base staging</li>
+        <li>napalm-logs 1f7b06f</li>
+        <li>10 platforms · 109 messages · 133 fixtures</li>
+        <li>Apache-2.0</li>
+      </ul>
+    </div>
+    <button class="theme" type="button" id="theme-toggle">Theme</button>
+  </div>
+
+  <h2>Goal</h2>
+  <div class="grid">
+    <section class="card">
+      <p class="kicker">Now</p>
+      <h3>A line is a log</h3>
+      <p>Flowgger parses the header (RFC 3164, RFC 5424, ClearPass) and publishes GELF fields. Zen then runs passthrough, Coraza, strip-full-message, syslog severity, and CEF severity. The body stays text.</p>
+    </section>
+    <section class="card">
+      <p class="kicker">Wanted</p>
+      <h3>The same log, with fields</h3>
+      <p>A tenant installs the platform they run. A matching line keeps its body and gains attributes such as <code>network.interface.name</code> and <code>syslog.event</code>. An unmatched line is stored as it is today.</p>
+    </section>
+    <section class="card">
+      <p class="kicker">Constraint</p>
+      <h3>One engine, both processes</h3>
+      <p>The collector and core both compile rules through <code>rust/zen-normalize</code>. Collectors do not read the catalog database. A profile has to live inside the published <code>logs.syslog</code> bundle.</p>
+    </section>
+  </div>
+
+  <h2>Worked example</h2>
+  <p>Junos interface-down, from the napalm-logs corpus. The tag sits in the body, after the process name, so Flowgger’s <code>application_name</code> is <code>mib2d</code> and the tag is the first token of <code>short_message</code>.</p>
+  <div class="pair">
+    <section class="card">
+      <p class="kicker">Incoming line</p>
+      <pre>&lt;28&gt;Jul 20 21:45:59 vmx01 mib2d[2424]: SNMP_TRAP_LINK_DOWN: ifIndex 502, ifAdminStatus down(2), ifOperStatus down(2), ifName xe-0/0/0</pre>
+    </section>
+    <section class="card">
+      <p class="kicker">After the Junos pack</p>
+      <table>
+        <tbody>
+          <tr><th>syslog.os</th><td>junos</td></tr>
+          <tr><th>syslog.event</th><td>INTERFACE_DOWN</td></tr>
+          <tr><th>syslog.tag</th><td>SNMP_TRAP_LINK_DOWN</td></tr>
+          <tr><th>network.interface.name</th><td>xe-0/0/0</td></tr>
+          <tr><th>admin / oper status</th><td>DOWN / DOWN</td></tr>
+          <tr><th>short_message</th><td>unchanged</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <h2>How a line picks up fields</h2>
+  <figure class="figure">
+    <svg viewBox="0 0 980 250" width="100%" role="img" aria-labelledby="live-title live-desc">
+      <title id="live-title">Live syslog path</title>
+      <desc id="live-desc">A device line is header-parsed, matched by the installed profile at order 112, severity-mapped at order 115, and stored as a log.</desc>
+      <g id="node-device">
+        <title>Network device</title>
+        <rect class="box" x="16" y="78" width="160" height="78" rx="12" />
+        <text class="label" x="96" y="112" text-anchor="middle">Network device</text>
+        <text class="sub" x="96" y="132" text-anchor="middle">Junos, EOS, IOS</text>
+      </g>
+      <g id="node-collector">
+        <title>Log collector</title>
+        <rect class="box" x="214" y="78" width="160" height="78" rx="12" />
+        <text class="label" x="294" y="112" text-anchor="middle">Log collector</text>
+        <text class="sub" x="294" y="132" text-anchor="middle">Flowgger header</text>
+      </g>
+      <g id="node-profile">
+        <title>syslog_profile custom node</title>
+        <rect class="box hot" x="412" y="78" width="176" height="78" rx="12" />
+        <text class="label" x="500" y="108" text-anchor="middle">syslog_profile</text>
+        <text class="sub" x="500" y="128" text-anchor="middle">order 112</text>
+        <text class="sub" x="500" y="144" text-anchor="middle">rust/zen-normalize</text>
+      </g>
+      <g id="node-severity">
+        <title>Existing syslog severity rule</title>
+        <rect class="box" x="626" y="78" width="160" height="78" rx="12" />
+        <text class="label" x="706" y="112" text-anchor="middle">syslog_severity</text>
+        <text class="sub" x="706" y="132" text-anchor="middle">order 115</text>
+      </g>
+      <g id="node-logs">
+        <title>Stored log row</title>
+        <rect class="box" x="824" y="78" width="140" height="78" rx="12" />
+        <text class="label" x="894" y="112" text-anchor="middle">CNPG logs</text>
+        <text class="sub" x="894" y="132" text-anchor="middle">body kept</text>
+      </g>
+      <g id="edge-raw">
+        <title>Raw syslog</title>
+        <path class="edge" d="M176 117 H206" />
+        <polygon points="206,112 214,117 206,122" fill="var(--brand)" />
+        <text class="etag" x="191" y="68" text-anchor="middle">raw syslog</text>
+      </g>
+      <g id="edge-parsed">
+        <title>Parsed record</title>
+        <path class="edge" d="M374 117 H404" />
+        <polygon points="404,112 412,117 404,122" fill="var(--brand)" />
+        <text class="etag" x="389" y="68" text-anchor="middle">parsed record</text>
+      </g>
+      <g id="edge-fields">
+        <title>Added fields, body unchanged</title>
+        <path class="edge" d="M588 117 H618" />
+        <polygon points="618,112 626,117 618,122" fill="var(--brand)" />
+        <text class="etag" x="603" y="68" text-anchor="middle">fields</text>
+      </g>
+      <g id="edge-row">
+        <title>Log row</title>
+        <path class="edge" d="M786 117 H816" />
+        <polygon points="816,112 824,117 816,122" fill="var(--brand)" />
+        <text class="etag" x="801" y="68" text-anchor="middle">log row</text>
+      </g>
+      <text class="sub" x="16" y="196">strip_full_message is order 110. The profile runs after it and before severity, so severity still reads the original level.</text>
+      <text class="sub" x="16" y="216">A second pass in core sees syslog.matched and leaves the first match alone.</text>
+    </svg>
+    <figcaption>Question this figure answers: where do vendor fields get attached, and why does the line stay a log?</figcaption>
+  </figure>
+
+  <h2>How a pack reaches the collector</h2>
+  <figure class="figure">
+    <svg viewBox="0 0 980 210" width="100%" role="img" aria-labelledby="pack-title pack-desc">
+      <title id="pack-title">Pack install path</title>
+      <desc id="pack-desc">Installing a platform pack compiles the profile into the logs.syslog bundle the collector and core already share.</desc>
+      <g id="node-pack">
+        <title>Solution pack syslog-os</title>
+        <rect class="box" x="16" y="64" width="180" height="78" rx="12" />
+        <text class="label" x="106" y="96" text-anchor="middle">Solution pack</text>
+        <text class="sub" x="106" y="116" text-anchor="middle">syslog-&lt;os&gt;</text>
+      </g>
+      <g id="node-compiler">
+        <title>Zen template compiler</title>
+        <rect class="box" x="262" y="64" width="200" height="78" rx="12" />
+        <text class="label" x="362" y="96" text-anchor="middle">Profile compiler</text>
+        <text class="sub" x="362" y="116" text-anchor="middle">builder_config to JDM</text>
+      </g>
+      <g id="node-bundle">
+        <title>Published logs.syslog rule bundle</title>
+        <rect class="box" x="528" y="64" width="200" height="78" rx="12" />
+        <text class="label" x="628" y="96" text-anchor="middle">logs.syslog bundle</text>
+        <text class="sub" x="628" y="116" text-anchor="middle">zen/rulesets/events</text>
+      </g>
+      <g id="node-matcher">
+        <title>Same syslog_profile node</title>
+        <rect class="box hot" x="794" y="64" width="170" height="78" rx="12" />
+        <text class="label" x="879" y="96" text-anchor="middle">syslog_profile</text>
+        <text class="sub" x="879" y="116" text-anchor="middle">collector and core</text>
+      </g>
+      <g id="edge-install">
+        <title>Install pack</title>
+        <path class="edge" d="M196 103 H254" />
+        <polygon points="254,98 262,103 254,108" fill="var(--brand)" />
+      </g>
+      <g id="edge-jdm">
+        <title>Compiled JDM</title>
+        <path class="edge" d="M462 103 H520" />
+        <polygon points="520,98 528,103 520,108" fill="var(--brand)" />
+      </g>
+      <g id="edge-ruleset">
+        <title>Shared rule set</title>
+        <path class="edge" d="M728 103 H786" />
+        <polygon points="786,98 794,103 786,108" fill="var(--brand)" />
+      </g>
+      <text class="sub" x="16" y="176">The catalog row is not enough. The compiled profile rides inside the custom node so a collector never looks up the pack.</text>
+    </svg>
+    <figcaption>Question this figure answers: why a Solution Pack still has to become a Zen rule in the existing bundle.</figcaption>
+  </figure>
+
+  <h2>Where the rules live</h2>
+  <p>The decision is which object carries a napalm-logs profile. Packs already distinguish <code>stateful_alert_rule</code>, <code>event_rule</code>, and <code>zen_rule</code>. No built-in pack ships a <code>zen_rule</code> today, and <code>ZenRuleTemplates.compile/2</code> loads a static JSON file and ignores <code>builder_config</code>.</p>
+  <div class="options">
+    <article class="card rec" id="option-template">
+      <p class="kicker">Proposal <span class="badge">Use this</span></p>
+      <h3>Template syslog_profile</h3>
+      <p>One built-in pack per platform. Each pack installs one <code>zen_rule</code> named <code>syslog_profile_&lt;os&gt;</code>, subject <code>logs.syslog</code>, order 112. <code>builder_config</code> is the profile JSON. Compile embeds that JSON in a single custom node, <code>syslog_profile</code>, implemented once in <code>rust/zen-normalize</code> and registered from <code>RuleSet::compile</code>.</p>
+      <p>Cost: one new template branch, one custom node, and pack validation for that template. The reconciler, provenance columns, and bundle publisher stay as they are.</p>
+    </article>
+    <article class="card" id="option-kind">
+      <p class="kicker">Rejected for 0.1.0</p>
+      <h3>New pack kind</h3>
+      <p>A resource kind <code>syslog_profile</code> with its own table. That repeats the Zen rule row, the exporter, and the publisher. Collectors would still need the compiled document in the bundle, so the new kind does not remove the engine work.</p>
+    </article>
+    <article class="card" id="option-jdm">
+      <p class="kicker">Rejected for 0.1.0</p>
+      <h3>109 hand-written graphs</h3>
+      <p>Each message becomes Zen expression nodes. The expression language has no capture-group replacement, <code>compile/2</code> ignores <code>builder_config</code>, and 109 graphs are not a reviewable port of the YAML.</p>
+    </article>
+  </div>
+
+  <h2>What a pack contains</h2>
+  <div class="pair">
+    <section class="card">
+      <p class="kicker">Rule shape</p>
+      <pre>kind: zen_rule
+name: syslog_profile_junos
+subject: logs.syslog
+stream_name: events
+format: json
+template: syslog_profile
+order: 112
+builder_config: serviceradar.syslog.profile.v1</pre>
+    </section>
+    <section class="card">
+      <p class="kicker">On a match</p>
+      <ul class="clean">
+        <li><code>syslog.os</code>, <code>syslog.event</code>, <code>syslog.tag</code>, <code>syslog.profile</code>, <code>syslog.matched</code></li>
+        <li>Canonical keys such as <code>network.bgp.peer.address</code> and <code>alarm.severity</code></li>
+        <li><code>syslog.fields</code> and <code>syslog.yang</code> for the napalm mapping</li>
+        <li>Body, host, application name, and severity fields stay put</li>
+      </ul>
+    </section>
+  </div>
+  <p>Match is tag-indexed, then a case-insensitive search. A single space in a line template matches a run of whitespace, the same rule napalm-logs uses. Transforms stay closed: <code>upper</code>, <code>str</code>, <code>int</code>, <code>bgp_state_convert</code>, <code>bfd_state_convert</code>, <code>color_to_severity</code>. Pack validation rejects any other transform, a pattern that does not compile, and nested unbounded repetition.</p>
+  <p>A compile error or a node error increments <code>zen_syslog_profile_errors</code> and leaves the log in place. A miss is not an error.</p>
+
+  <h2>Platforms in the snapshot</h2>
+  <div class="card" style="padding: 8px 8px 4px;">
+    <table>
+      <thead>
+        <tr><th>Platform</th><th class="num">Profile files</th><th class="num">Messages</th><th>Pack id</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>eos</td><td class="num">16</td><td class="num">17</td><td>io.serviceradar.syslog-eos</td></tr>
+        <tr><td>fortinet</td><td class="num">3</td><td class="num">2</td><td>io.serviceradar.syslog-fortinet</td></tr>
+        <tr><td>huawei</td><td class="num">3</td><td class="num">2</td><td>io.serviceradar.syslog-huawei</td></tr>
+        <tr><td>ios</td><td class="num">6</td><td class="num">6</td><td>io.serviceradar.syslog-ios</td></tr>
+        <tr><td>iosxr</td><td class="num">8</td><td class="num">8</td><td>io.serviceradar.syslog-iosxr</td></tr>
+        <tr><td>junos</td><td class="num">40</td><td class="num">52</td><td>io.serviceradar.syslog-junos</td></tr>
+        <tr><td>netiron</td><td class="num">6</td><td class="num">8</td><td>io.serviceradar.syslog-netiron</td></tr>
+        <tr><td>nxos</td><td class="num">5</td><td class="num">6</td><td>io.serviceradar.syslog-nxos</td></tr>
+        <tr><td>opengear</td><td class="num">6</td><td class="num">5</td><td>io.serviceradar.syslog-opengear</td></tr>
+        <tr><td>sonic</td><td class="num">4</td><td class="num">3</td><td>io.serviceradar.syslog-sonic</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>NX-OS <code>USER_LOGIN.py</code> is the only Python profile. The generator records it as one message (tag <code>AUTHPRIV-6-SYSTEM_MSG</code>, event <code>USER_LOGIN</code>) and does not execute Python. Profiles are generated from commit <code>1f7b06f808156812bab07d1c622fa1d0ba91f2d5</code> and committed. Runtime does not depend on napalm-logs.</p>
+
+  <h2>Files, when implementation starts</h2>
+  <div class="card" style="padding: 8px 8px 4px;">
+    <table>
+      <thead><tr><th>Piece</th><th>Path</th></tr></thead>
+      <tbody>
+        <tr><td>Matcher</td><td><code>rust/zen-normalize</code> custom node, registered in <code>RuleSet::compile</code></td></tr>
+        <tr><td>Template</td><td><code>ZenRuleTemplates.compile/2</code> when the template is <code>syslog_profile</code></td></tr>
+        <tr><td>Validation</td><td><code>pack_manifest.ex</code> and <code>js/cli/src/pack/validate.ts</code></td></tr>
+        <tr><td>Packs</td><td><code>elixir/serviceradar_core/priv/solution_packs/syslog-&lt;os&gt;/</code></td></tr>
+        <tr><td>Generator</td><td><code>tools/syslog_profiles/</code></td></tr>
+        <tr><td>Corpus</td><td>Rust tests against the 133 <code>syslog.msg</code> / <code>yang.json</code> pairs</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Requirements this change adds</h2>
+  <div class="card">
+    <p><strong>syslog-vendor-normalization</strong> (new). Profile document, tag-indexed match, raw-prefix fallback, closed transforms, attributes beside the raw body, first match wins, errors do not drop the log, corpus equivalence with napalm-logs.</p>
+    <p><strong>solution-packs-catalog</strong> (added only). Packs use the existing <code>zen_rule</code> kind, stay catalog entries until a tenant installs them, and fail validation on a bad profile.</p>
+    <p><strong>observability-signals</strong> (added only). A match stays a log. Profile rules run after strip-full-message and before syslog severity. The active change <code>improve-syslog-ingestion-fidelity</code> still owns header detection, lossless fallback, and <code>source_ip</code>.</p>
+  </div>
+
+  <h2>Implementation tasks</h2>
+  <div class="tasks card">
+    <div class="task"><strong>1. Generator</strong><span>Read the pinned YAML and the one Python profile. Emit <code>serviceradar.syslog.profile.v1</code>. Fail on an unknown transform or a capture with nowhere to land.</span></div>
+    <div class="task"><strong>2. Matcher</strong><span>Custom node in <code>rust/zen-normalize</code>. Tag index, transforms, <code>syslog.matched</code> short-circuit, fail-open counter.</span></div>
+    <div class="task"><strong>3. Template and packs</strong><span>Compile <code>builder_config</code> into the node. Ten catalog packs, order 112, napalm-logs credit in each README. Install and uninstall go through the existing reconciler. No tenant is seeded.</span></div>
+    <div class="task"><strong>4. Corpus and docs</strong><span>133 fixtures plus a parsed-record test per platform, a collision test across all profiles, and updates to <code>docs/docs/syslog.md</code> and <code>docs/docs/solution-packs.md</code>.</span></div>
+    <div class="task"><strong>5. Checks</strong><span><code>openspec validate add-syslog-vendor-profiles --strict</code>, then remote Bazel for <code>//rust/zen-normalize:zen_normalize_test</code> and the pack-manifest tests.</span></div>
+  </div>
+
+  <h2>Failure and migration</h2>
+  <div class="pair">
+    <section class="card">
+      <p class="kicker">Failure modes</p>
+      <ul class="clean">
+        <li>Two installed packs match one line. First rule at order 112 wins. The corpus loads every profile and fails if two of them match one fixture.</li>
+        <li>A bad regex or transform never reaches the hot path. Pack validation rejects it.</li>
+        <li>A node error keeps the original record and counts <code>zen_syslog_profile_errors</code>.</li>
+        <li>Uninstall removes the rule from the bundle. Logs already stored keep the attributes they have.</li>
+      </ul>
+    </section>
+    <section class="card">
+      <p class="kicker">Rollout</p>
+      <ol class="steps">
+        <li>Land the matcher and validation with no pack installed. Behavior stays today’s.</li>
+        <li>Add the ten packs to the built-in catalog. Operators install the ones they run.</li>
+        <li>Document the attribute keys.</li>
+        <li>Rollback is uninstall. There is no new database write path.</li>
+      </ol>
+    </section>
+  </div>
+
+  <h2>Settled for version 0.1.0</h2>
+  <div class="pair">
+    <section class="callout info">
+      <h3>One pack per platform</h3>
+      <p>A Junos site does not carry the Fortinet regexes. A pack has no pack-to-pack dependency, so a combined pack would be a later catalog entry, not a change to this design.</p>
+    </section>
+    <section class="callout info">
+      <h3>Fortinet traffic stays a log</h3>
+      <p><code>FORWARD_TRAFFIC</code> and <code>LOCAL_TRAFFIC</code> land as log attributes. Feeding them into the flow pipeline is outside this change.</p>
+    </section>
+  </div>
+
+  <div class="callout warn" style="margin-top: 16px;">
+    <h3>This pull request stops at the proposal</h3>
+    <p><code>openspec validate add-syslog-vendor-profiles --strict</code> passed on the change. Tasks in <code>tasks.md</code> are unchecked. Implementation starts after the proposal is approved.</p>
+  </div>
+
+  <footer class="note">
+    Visual system: ServiceRadar web-ng tokens in <code>elixir/web-ng/assets/css/app.css</code> (Avenir Next, brand green, canvas <code>#f7f9f8</code> / <code>#0a1114</code>).
+    Counts and paths follow <code>openspec/changes/add-syslog-vendor-profiles/</code> on this branch, checked against napalm-logs <code>napalm_logs/config</code> at <code>1f7b06f</code> and against <code>origin/staging</code> for the Zen engine, Flowgger fields, and Solution Pack kinds.
+    The architecture diagram in the pull request is <code>docs/architecture/syslog-vendor-profiles.html</code>.
+  </footer>
+</main>
+<script>
+document.getElementById("theme-toggle").addEventListener("click", function () {
+  var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("sr-theme", next); } catch (e) {}
+  this.textContent = next === "dark" ? "Light" : "Dark";
+});
+document.getElementById("theme-toggle").textContent =
+  document.documentElement.getAttribute("data-theme") === "dark" ? "Light" : "Dark";
+</script>
+</body>
+</html>

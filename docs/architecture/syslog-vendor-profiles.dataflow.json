@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Vendor syslog profiles",
+    "subtitle": "napalm-logs profiles become one Zen rule per platform",
+    "output": "docs/architecture/syslog-vendor-profiles.html",
+    "viewBox": [1080, 580],
+    "animation": "none",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "live-log",
+        "label": "Live syslog",
+        "focus": ["device", "collector", "matcher", "severity", "logs"],
+        "note": "A device line is header-parsed, matched by the installed profile, then severity-mapped and stored as a log."
+      },
+      {
+        "id": "pack-install",
+        "label": "Pack install",
+        "focus": ["catalog", "zenrule", "bundle", "matcher"],
+        "note": "Installing a platform pack compiles the profile into the logs.syslog Zen bundle the collector and core already share."
+      }
+    ]
+  },
+  "stages": [
+    { "label": "Sources" },
+    { "label": "Parse and publish" },
+    { "label": "Rule bundle" },
+    { "label": "Normalize" },
+    { "label": "Store" }
+  ],
+  "nodes": [
+    {
+      "id": "device",
+      "type": "external",
+      "label": "Network device",
+      "sublabel": "Junos, EOS, IOS, NX-OS",
+      "stage": 0,
+      "row": 0,
+      "tag": "syslog UDP/TCP"
+    },
+    {
+      "id": "catalog",
+      "type": "frontend",
+      "label": "Solution pack",
+      "sublabel": "syslog-<os>",
+      "stage": 0,
+      "row": 2,
+      "tag": "zen_rule template"
+    },
+    {
+      "id": "collector",
+      "type": "backend",
+      "label": "Log collector",
+      "sublabel": "Flowgger header parse",
+      "stage": 1,
+      "row": 0,
+      "tag": "short_message"
+    },
+    {
+      "id": "zenrule",
+      "type": "backend",
+      "label": "Profile compiler",
+      "sublabel": "builder_config to JDM",
+      "stage": 1,
+      "row": 2,
+      "tag": "order 112"
+    },
+    {
+      "id": "bundle",
+      "type": "messagebus",
+      "label": "logs.syslog bundle",
+      "sublabel": "zen/rulesets/events",
+      "stage": 2,
+      "row": 1,
+      "tag": "shared by collector and core"
+    },
+    {
+      "id": "matcher",
+      "type": "backend",
+      "label": "syslog_profile",
+      "sublabel": "rust/zen-normalize",
+      "stage": 3,
+      "row": 0,
+      "tag": "tag index, then regex"
+    },
+    {
+      "id": "severity",
+      "type": "backend",
+      "label": "syslog_severity",
+      "sublabel": "order 115",
+      "stage": 3,
+      "row": 2,
+      "tag": "existing rule"
+    },
+    {
+      "id": "logs",
+      "type": "database",
+      "label": "CNPG logs",
+      "sublabel": "body kept",
+      "stage": 4,
+      "row": 1,
+      "tag": "still a log"
+    }
+  ],
+  "flows": [
+    {
+      "from": "device",
+      "to": "collector",
+      "label": "raw syslog",
+      "classification": "RFC 3164 / 5424",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "collector",
+      "to": "matcher",
+      "label": "parsed record",
+      "classification": "GELF fields",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "catalog",
+      "to": "zenrule",
+      "label": "install pack",
+      "classification": "managed zen_rule",
+      "variant": "default",
+      "route": "straight"
+    },
+    {
+      "from": "zenrule",
+      "to": "bundle",
+      "label": "compiled JDM",
+      "classification": "profile inside node",
+      "variant": "default",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "bundle",
+      "to": "matcher",
+      "label": "rule set",
+      "classification": "same engine",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "matcher",
+      "to": "severity",
+      "label": "fields",
+      "classification": "body unchanged",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDy": 24
+    },
+    {
+      "from": "severity",
+      "to": "logs",
+      "label": "log row",
+      "classification": "JetStream then event_writer",
+      "variant": "emphasis",
+      "route": "vertical-channel",
+      "labelDy": 110
+    }
+  ]
+}
