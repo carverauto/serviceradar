@@ -34,9 +34,11 @@ in #6863. Three things stop it from being the shape of every collector:
   collector's datasvc client, its datasvc role and its `[rules.datasvc]`
   configuration are removed. **BREAKING** for hand-maintained collector
   configuration.
-- **Edge leaves carry a read-only mirror of the rules bucket.** An edge
-  collector reads the mirror on its local leaf, so rules work while the site is
-  disconnected and nothing new is exposed to the edge.
+- **Edge collectors read the hub's rules bucket through their leaf.** The
+  leaf connection already reaches the hub's JetStream; the collector addresses
+  the hub's JetStream domain over its local leaf. Nothing is replicated and
+  nothing new is exposed to the edge. A running collector keeps its active
+  ruleset while the site is disconnected.
 - **A collector without a ruleset passes records through.** It publishes them
   in the binary batch format with the built-in field mapping and no rules, as
   an ordinary syslog collector would, on the same `logs.normalized.<kind>`
@@ -88,8 +90,8 @@ which named datasvc as the transport.
 - Affected code: `rust/zen-normalize`, `rust/flowgger`, `rust/log-collector`,
   `rust/otel`, `rust/trapd`, `rust/bmp-collector`, `rust/flow-collector`, new
   crates under `rust/`; `ServiceRadar.Observability.ZenRuleSync` and
-  `Zen.RuleBundle`; `EventWriter.Processors.Logs`; edge leaf configuration and
-  collector bundle generators; NATS users and permissions in the chart and
-  Compose.
+  `Zen.RuleBundle`; `EventWriter.Processors.Logs`; edge permission and collector
+  bundle generators; NATS users and permissions in the chart and Compose; the
+  chart hub's JetStream domain.
 - Not affected: Falco ingestion (an external falcosidekick publishes it), the
   agent-relayed OTLP path, and core's internal logs.

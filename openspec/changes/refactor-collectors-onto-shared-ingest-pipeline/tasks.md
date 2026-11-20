@@ -9,10 +9,11 @@
 
 ## 2. Edge
 
-- [ ] 2.1 Prove on a real managed leaf that a key-value mirror of the rules bucket can be created in the leaf's domain with the permissions a managed leaf has, survives a disconnect and catches up. Record the result, and the fallback if it fails, in `design.md` before continuing.
-- [ ] 2.2 Generate the mirror in the edge leaf configuration.
-- [ ] 2.3 Add the rules subject to edge log-collector bundles.
-- [ ] 2.4 Verify on an edge site: syslog is normalized at the edge, with the hub connection up and with it down.
+- [ ] 2.1 Verify on a real managed leaf that a client connected to the leaf can read and watch the rules bucket in the hub's JetStream domain with the permissions a managed leaf has, and that it keeps working after the leaf reconnects. Record the result in `design.md` before continuing.
+- [ ] 2.2 Give the chart's hub NATS the JetStream domain the packaged configuration already uses, after confirming on a deployment that adding it leaves existing streams and consumers working.
+- [ ] 2.3 Edge permission generators grant an edge collector read access to the rules bucket in the hub domain, and nothing else there.
+- [ ] 2.4 Add the rules subject and the hub domain to edge log-collector bundles.
+- [ ] 2.5 Verify on an edge site: syslog is normalized at the edge; a running collector keeps its ruleset while the hub connection is down; a collector started while it is down passes records through and picks up rules after reconnect.
 
 ## 3. Pass-through and core
 

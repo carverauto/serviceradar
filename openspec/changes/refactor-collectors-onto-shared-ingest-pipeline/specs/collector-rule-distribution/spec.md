@@ -17,18 +17,23 @@ Core SHALL publish each effective rule bundle to a NATS key-value bucket that ho
 - **WHEN** a collector's NATS user is granted read access to rule bundles
 - **THEN** that grant gives it no access to agent configuration or any other key-value data
 
-### Requirement: Edge collectors read rules from their local leaf
-An edge leaf SHALL hold a read-only mirror of the rules bucket in its own JetStream domain, and an edge collector SHALL read rules from that mirror.
+### Requirement: Edge collectors read rules through their local leaf
+An edge collector SHALL read and watch the hub's rules bucket through its local leaf by addressing the hub's JetStream domain, and the system SHALL NOT replicate rule bundles to the edge.
 
 #### Scenario: An edge site is provisioned
-- **WHEN** an edge site's leaf and collector bundles are generated
-- **THEN** the leaf configuration provides the rules mirror
-- **AND** the collector configuration names the rules subject it follows
+- **WHEN** an edge site's collector bundle is generated
+- **THEN** the collector configuration names the rules subject it follows and the hub's JetStream domain
+- **AND** the collector's NATS permissions allow it to read the rules bucket in that domain and nothing else there
 
 #### Scenario: The site loses its connection to the hub
-- **WHEN** an edge leaf is disconnected from the hub
-- **THEN** the edge collector keeps applying the last mirrored bundle
-- **AND** it activates newer bundles after the leaf reconnects and the mirror catches up
+- **WHEN** an edge leaf is disconnected from the hub while a collector is running
+- **THEN** the collector keeps applying its active ruleset and reports that it may be stale
+- **AND** it activates newer bundles after the leaf reconnects
+
+#### Scenario: A collector starts while the site is disconnected
+- **WHEN** an edge collector starts and cannot reach the hub's rules bucket
+- **THEN** it passes records through as a collector without a ruleset does
+- **AND** it activates its ruleset after the leaf reconnects
 
 #### Scenario: Nothing new is exposed to the edge
 - **WHEN** an edge collector follows its rules
