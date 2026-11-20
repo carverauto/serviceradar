@@ -53,15 +53,19 @@ A collector that has no active ruleset SHALL publish records in the binary batch
 - **THEN** it runs as a pass-through collector and reports that it follows no ruleset
 
 ### Requirement: Core runs no rules on collector data
-EventWriter SHALL store records published by a collector without evaluating Zen rules, and SHALL evaluate Zen rules only for records core itself produces.
+EventWriter SHALL store records published by a collector without evaluating Zen rules, and SHALL evaluate Zen rules only for records core itself produces. For each legacy collector subject (`logs.syslog`, `logs.otel`, `logs.snmp`), EventWriter SHALL keep evaluating Zen on JSON, and the seeded rules for that subject SHALL stay, through the release in which that subject's replacement publisher ships; EventWriter SHALL stop evaluating Zen on that subject in the following release.
 
 #### Scenario: A normalized batch arrives
 - **WHEN** EventWriter receives a collector's binary batch
 - **THEN** it stores the records without running rules
 - **AND** it records the ruleset digest the batch carries, if any
 
-#### Scenario: An older collector still publishes JSON
-- **WHEN** EventWriter receives a JSON record on a collector subject during an upgrade
+#### Scenario: An older collector publishes JSON in the release its replacement ships
+- **WHEN** EventWriter receives a JSON record on a legacy collector subject in the release in which that subject's replacement publisher ships
+- **THEN** it evaluates Zen on the record with the seeded and configured rules for that subject, as before
+
+#### Scenario: An older collector publishes JSON after the removal release
+- **WHEN** EventWriter receives a JSON record on a legacy collector subject in a release after the one in which that subject's replacement publisher shipped
 - **THEN** it stores the record with the built-in field mapping and no rules
 
 #### Scenario: Core's own logs

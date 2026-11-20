@@ -60,8 +60,11 @@ while still reporting actionable rule failures with rule identifiers and reasons
 
 ### Requirement: Default Passthrough Rules
 The system SHALL seed a default passthrough rule and template for every supported Zen subject and SHALL label them
-as the baseline option. The SNMP trap subject (`logs.snmp`) is not a supported Zen subject: the trap daemon emits its
-final fields itself, so no passthrough rule or template is seeded for it.
+as the baseline option. The SNMP trap subject (`logs.snmp`) stops being a supported Zen subject in the release that
+stops EventWriter evaluating Zen on it, one release after the trap daemon's binary publisher ships. In that release the
+system SHALL remove the seeded trap passthrough rule and template and the seeded `snmp_severity` rule, and SHALL no
+longer seed them. The rule editor SHALL stop offering the trap subject in the earlier release, when the trap daemon's
+binary publisher ships.
 
 #### Scenario: Passthrough defaults are seeded
 - **WHEN** a tenant is onboarded
@@ -72,7 +75,12 @@ final fields itself, so no passthrough rule or template is seeded for it.
 - **WHEN** an operator reviews Zen rules or templates
 - **THEN** passthrough defaults SHALL be labeled as the baseline option via name or description
 
-#### Scenario: No passthrough default for SNMP traps
-- **WHEN** a tenant is onboarded
-- **THEN** no passthrough rule or template SHALL be seeded for the SNMP trap subject
-- **AND** the rule editor SHALL NOT offer to create a rule for that subject
+#### Scenario: The trap daemon's binary publisher ships
+- **WHEN** the release that ships the trap daemon's binary publisher is installed
+- **THEN** the rule editor SHALL NOT offer to create a rule for the SNMP trap subject
+- **AND** the seeded trap passthrough rule and template and the seeded `snmp_severity` rule SHALL remain
+
+#### Scenario: Zen stops on the trap subject
+- **WHEN** the release that stops EventWriter evaluating Zen on `logs.snmp` is installed
+- **THEN** the seeded trap passthrough rule and template and the seeded `snmp_severity` rule SHALL be removed
+- **AND** no passthrough rule, template or `snmp_severity` rule SHALL be seeded for the SNMP trap subject when a tenant is onboarded

@@ -75,7 +75,7 @@ This change builds on `accelerate-log-ingestion` (rules at the collector,
 binary batches) and `add-zero-copy-log-receivers` (receive backends) and
 widens their scope from the log collector to every collector. It amends the
 "Versioned ruleset activation" requirement in `accelerate-log-ingestion`,
-which names datasvc as the transport.
+which named datasvc as the transport.
 
 ## Impact
 

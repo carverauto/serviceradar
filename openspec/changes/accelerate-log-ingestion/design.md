@@ -33,14 +33,15 @@ NIC-lease string extension is a separately measured upstreamable change.
 Conformance must cover numeric conversion boundaries, error behavior, aliases,
 custom JDM and JavaScript nodes before removing intermediate conversions.
 
-### Immutable rules through datasvc
+### Immutable rules through the rule store
 
 Publish a self-versioned bundle with effective scope, ordered keys/content and
 digest. Validate and compile the entire candidate before activation. If a
 bundle exceeds configured KV limits, use immutable documents with a manifest
 pinning content digests, never mutable unversioned references.
 
-Collectors use datasvc with existing authenticated identity. Watch currently
+Collectors read rules from the rule store and over the transport defined by
+`collector-rule-distribution`, with existing authenticated identity. Watch
 carries bytes without replay cursors: supervise reconnection and reconcile
 through Get. No record-path RPC and no watch per sending host. Reconcile the
 current agent/stream/subject scope differences in compiler/conformance work.
