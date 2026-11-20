@@ -521,7 +521,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     result = ingest_device_updates(device_updates, actor)
     metas = updates |> Enum.map(fn update -> extract_sync_meta([update]) end) |> Enum.uniq()
 
-    result =
+    committed =
       case {result, control_failure} do
         {:ok, nil} ->
           SyncRunLedger.committed(metas)
@@ -535,11 +535,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
           error
       end
 
-    result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
+    result = maybe_activate_source_snapshot(committed, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
     status = record_sync_status(updates, actor, result, sync_meta, control_failure)
     log_sync_progress("finished", updates, sync_meta, result)
+    if committed == :ok, do: activate_late_completed_run(sync_meta, actor)
 
     handled_control_failure(result, control_failure, status)
   rescue
@@ -916,7 +917,39 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp select_max(left, right), do: max(left, right)
 
   defp maybe_activate_source_snapshot(:ok, updates, %{is_final: true} = sync_meta, actor) do
-    case ArmisSourceSnapshot.activate(updates, sync_meta, actor: actor) do
+    updates
+    |> ArmisSourceSnapshot.activate(sync_meta, actor: actor)
+    |> snapshot_activation_result()
+  end
+
+  defp maybe_activate_source_snapshot(result, _updates, _sync_meta, _actor), do: result
+
+  # A run whose final chunk committed before an earlier chunk did is activated by the
+  # chunk that completes it, and that run's status is recorded then.
+  defp activate_late_completed_run(sync_meta, actor) do
+    case ArmisSourceSnapshot.activate_completed_run(sync_meta, actor: actor) do
+      {:activated, final_meta, activation} ->
+        result = snapshot_activation_result(activation)
+
+        Logger.info(
+          "Sync run completed after its final chunk: " <>
+            "sync_service_id=#{inspect(final_meta.sync_service_id)} " <>
+            "sync_run_id=#{inspect(final_meta.sync_run_id)} result=#{inspect(result)}"
+        )
+
+        record_sync_status([], actor, result, final_meta, nil)
+
+      :none ->
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Late sync run activation failed: #{inspect(error)}")
+      {:error, error}
+  end
+
+  defp snapshot_activation_result(activation) do
+    case activation do
       :ok ->
         :ok
 
@@ -931,8 +964,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         {:error, {:source_snapshot_activation_failed, reason}}
     end
   end
-
-  defp maybe_activate_source_snapshot(result, _updates, _sync_meta, _actor), do: result
 
   defp get_integer(map, keys) do
     Enum.find_value(keys, fn key ->

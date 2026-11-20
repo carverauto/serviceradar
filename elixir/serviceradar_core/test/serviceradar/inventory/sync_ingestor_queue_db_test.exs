@@ -139,6 +139,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
     assert snapshot_count(source.id, run) == 0
     assert snapshot_count(source.id, previous_run) == 1
     assert present_count(source.id) == 1
+    # A run with a rejected chunk can never complete, so its final chunk keeps nothing.
+    refute final_meta_kept?(source.id, run)
 
     # A separate complete run must recover normally; the failure is run-scoped.
     recovered = "recovered-#{Ecto.UUID.generate()}"
@@ -471,6 +473,38 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
              )
   end
 
+  test "a final chunk that commits before an earlier chunk activates when that chunk lands",
+       %{source: source} do
+    actor = SystemActor.system(:sync_queue_regression)
+    run = "late-#{Ecto.UUID.generate()}"
+    chunk_0 = Jason.encode!([device_update(source.id, run, 111, 0, 0, false, nil)])
+    final = Jason.encode!([device_update(source.id, run, 112, 1, 2, true, population(2))])
+
+    assert {:error, {:source_snapshot_activation_failed, :sync_run_incomplete}} =
+             SyncIngestorQueue.ingest_sync_results(final)
+
+    assert snapshot_count(source.id, run) == 0
+    assert final_meta_kept?(source.id, run)
+    {:ok, early} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert early.sync_status == :failed
+
+    assert :ok = SyncIngestorQueue.ingest_sync_results(chunk_0)
+
+    assert snapshot_count(source.id, run) == 1
+    assert present_count(source.id) == 2
+    refute final_meta_kept?(source.id, run)
+    {:ok, completed} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert completed.sync_status == :success
+    assert completed.last_device_count == 2
+
+    # A redelivery of the completing chunk records its start again but finds nothing
+    # left to claim, so the run is not activated or reported successful a second time.
+    assert :ok = SyncIngestorQueue.ingest_sync_results(chunk_0)
+    assert snapshot_count(source.id, run) == 1
+    {:ok, redelivered} = IntegrationSource.get_by_id(source.id, actor: actor)
+    assert redelivered.sync_status == :running
+  end
+
   test "an aborted partial run with a failure control marker rejects the run and marks IntegrationSource failed",
        %{source: source} do
     actor = SystemActor.system(:sync_queue_regression)
@@ -716,6 +750,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueDbTest do
       )
 
     count
+  end
+
+  defp final_meta_kept?(source, run) do
+    %{rows: [[kept]]} =
+      Repo.query!(
+        "SELECT final_meta IS NOT NULL FROM platform.sync_ingest_runs WHERE sync_service_id = $1 AND sync_run_id = $2",
+        [Ecto.UUID.dump!(source), run]
+      )
+
+    kept
   end
 
   defp present_count(source) do

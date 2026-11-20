@@ -162,7 +162,13 @@ survive failed starts and are released after worker exit is observed.
 
 Sync run receipts are control-plane records, not telemetry. Missing indices,
 conflicting totals, and known rejected chunks block snapshot activation and
-retirement. A rejection remains absorbing across replay and restart; a separate
+retirement. Chunks may commit out of index order: a final chunk that commits
+while earlier indices are missing records the run as failed and keeps its
+activation inputs on the receipt (`final_meta`), and the chunk that completes the
+run claims them once, activates the snapshot, and records success. A source can
+therefore show a failed run briefly before it succeeds; a chunk that never
+arrives leaves the failure in place. Runs with a rejected chunk keep nothing.
+A rejection remains absorbing across replay and restart; a separate
 complete run may recover normally. Receipts are retained until the integration
 source is deleted (the foreign key cascades). Time-based expiry would allow a
 late replay to forget an incomplete run and is deliberately absent.

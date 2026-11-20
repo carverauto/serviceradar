@@ -24,6 +24,83 @@ defmodule ServiceRadar.Inventory.SyncRunLedger do
     end
   end
 
+  @doc """
+  Keeps a final chunk's activation inputs on its run while earlier chunks are still
+  missing, so the chunk that completes the run can activate it.
+
+  Chunks are not delivered in index order, so the final chunk can commit before an
+  earlier one. A run that has rejected a chunk is incomplete for good and keeps
+  nothing.
+  """
+  def defer_final(meta, %DateTime{} = observed_at) do
+    with {:ok, source, run} <- identity(meta),
+         total when is_integer(total) and total > 0 <- value(meta, :total_chunks),
+         population when is_map(population) <- value(meta, :population) do
+      Repo.query!(
+        """
+        UPDATE platform.sync_ingest_runs SET final_meta = $3
+        WHERE sync_service_id = $1 AND sync_run_id = $2 AND NOT incomplete
+        """,
+        [
+          Ecto.UUID.dump!(source),
+          run,
+          %{
+            "total_chunks" => total,
+            "total_devices" => value(meta, :total_devices),
+            "population" => population,
+            "observed_at" => DateTime.to_iso8601(observed_at)
+          }
+        ]
+      )
+
+      :ok
+    else
+      _ -> :ok
+    end
+  end
+
+  @doc """
+  Claims the inputs `defer_final/2` kept, once every chunk of the run has committed.
+
+  The claim clears them in the same statement, so a redelivered chunk of an already
+  activated run claims nothing. Returns the final chunk's sync meta and observation
+  time, or `:none`.
+  """
+  def claim_completed_final(meta) do
+    with {:ok, source, run} <- identity(meta),
+         %{rows: [[%{} = final]]} <-
+           Repo.query!(
+             """
+             UPDATE platform.sync_ingest_runs AS r SET final_meta = NULL
+             FROM (
+               SELECT final_meta FROM platform.sync_ingest_runs
+               WHERE sync_service_id = $1 AND sync_run_id = $2
+               FOR UPDATE
+             ) AS previous
+             WHERE r.sync_service_id = $1 AND r.sync_run_id = $2
+               AND r.final_meta IS NOT NULL AND NOT r.incomplete
+               AND r.total_chunks BETWEEN 1 AND $3
+               AND r.received_chunks = ARRAY(SELECT generate_series(0, r.total_chunks - 1))
+             RETURNING previous.final_meta
+             """,
+             [Ecto.UUID.dump!(source), run, @max_chunks]
+           ),
+         {:ok, observed_at, _offset} <- DateTime.from_iso8601(final["observed_at"] || "") do
+      {:ok,
+       %{
+         sync_service_id: source,
+         sync_run_id: run,
+         chunk_index: nil,
+         total_chunks: final["total_chunks"],
+         total_devices: final["total_devices"],
+         is_final: true,
+         population: final["population"]
+       }, observed_at}
+    else
+      _ -> :none
+    end
+  end
+
   def with_newest_run(meta, fun), do: with_run_status_lock(meta, fun, false)
 
   def with_open_newest_run(meta, fun), do: with_run_status_lock(meta, fun, true)
