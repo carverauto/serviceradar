@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLive do
 
   @plugin_assignment_manage_permission "settings.plugins.manage"
   @credential_manage_permission "settings.credentials.manage"
+  @declarative_check_runner_plugin_id "io.serviceradar.declarative-check-runner"
   @policy_recovery_poll_delay_ms 2_000
   @policy_recovery_poll_attempt_limit 30
 
@@ -398,23 +399,28 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLive do
   end
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
-    if producer_schedule_provisioned?(socket.assigns.selected_package) do
-      {:noreply, put_flash(socket, :error, producer_schedule_assignment_message())}
-    else
-      scope = socket.assigns.current_scope
+    cond do
+      producer_schedule_provisioned?(socket.assigns.selected_package) ->
+        {:noreply, put_flash(socket, :error, producer_schedule_assignment_message())}
 
-      case parse_assignment_params(params, socket.assigns.selected_package) do
-        {:ok, attrs} ->
-          handle_assignment_upsert(socket, scope, attrs)
+      declarative_check_managed?(socket.assigns.selected_package) ->
+        {:noreply, put_flash(socket, :error, declarative_check_assignment_message())}
 
-        {:error, {:invalid_json, message}} ->
-          Logger.error("Plugin assignment failed - invalid JSON: #{message}")
-          {:noreply, put_flash(socket, :error, message)}
+      true ->
+        scope = socket.assigns.current_scope
 
-        {:error, error} ->
-          Logger.error("Plugin assignment failed: #{inspect(error)}")
-          {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
-      end
+        case parse_assignment_params(params, socket.assigns.selected_package) do
+          {:ok, attrs} ->
+            handle_assignment_upsert(socket, scope, attrs)
+
+          {:error, {:invalid_json, message}} ->
+            Logger.error("Plugin assignment failed - invalid JSON: #{message}")
+            {:noreply, put_flash(socket, :error, message)}
+
+          {:error, error} ->
+            Logger.error("Plugin assignment failed: #{inspect(error)}")
+            {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+        end
     end
   end
 
@@ -1429,17 +1435,57 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLive do
 
           <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assign to Agent</div>
+            <div
+              :if={declarative_check_managed?(@package)}
+              id="declarative-check-managed-banner"
+              class={ui_alert_class(variant: "info", class: "flex-col items-start gap-3")}
+            >
+              <div class="space-y-1">
+                <div class="font-semibold">
+                  Managed automatically by Solution Packs &amp; Declarative Checks
+                </div>
+                <p class="text-xs leading-relaxed">
+                  <strong>Declarative Check Runner</strong>
+                  is an internal compiled Wasm runtime.
+                  You do not need to enter <code class="font-mono">check_id</code>, <code class="font-mono">nodes</code>, or
+                  <code class="font-mono">edges</code>
+                  manually. Install a Solution Pack (for example <em>HTTP API &amp; TLS Certificate Posture</em>) or author a Declarative Check,
+                  pick your target agent there, and ServiceRadar compiles and assigns this runtime
+                  automatically.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <.ui_button navigate={~p"/catalog"} size="xs" variant="primary">
+                  Open Solution Packs Catalog
+                </.ui_button>
+                <.ui_button navigate={~p"/settings/declarative-checks"} size="xs" variant="outline">
+                  Open Declarative Checks
+                </.ui_button>
+                <.ui_button navigate={~p"/websites"} size="xs" variant="ghost">
+                  Websites
+                </.ui_button>
+                <a
+                  href="https://docs.serviceradar.cloud/docs/solution-packs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs font-medium text-sr-brand underline-offset-2 hover:underline px-2 py-1"
+                >
+                  Read Docs &rarr;
+                </a>
+              </div>
+            </div>
             <.credential_rule_assignment_banner
               :if={
-                producer_schedule_provisioned?(@package) or
-                  (is_list(@credential_fields) and @credential_fields != [])
+                not declarative_check_managed?(@package) and
+                  (producer_schedule_provisioned?(@package) or
+                     (is_list(@credential_fields) and @credential_fields != []))
               }
               plugin_id={@package.plugin_id}
               coverage={@credential_coverage}
               producer_schedule?={producer_schedule_provisioned?(@package)}
             />
             <form
-              :if={!producer_schedule_provisioned?(@package)}
+              :if={!manual_assignment_disabled?(@package)}
               phx-submit="create_assignment"
               phx-change="assignment_change"
               class="space-y-3"
@@ -1599,12 +1645,12 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLive do
                 </.ui_button>
               </div>
             </form>
-            <%= if not producer_schedule_provisioned?(@package) and @package.status != :approved do %>
+            <%= if not manual_assignment_disabled?(@package) and @package.status != :approved do %>
               <p class="text-xs text-sr-muted">
                 Approve the package before assigning it to agents.
               </p>
             <% end %>
-            <%= if not producer_schedule_provisioned?(@package) and @package.status == :approved and
+            <%= if not manual_assignment_disabled?(@package) and @package.status == :approved and
                     not blob_present?(@blob_present) do %>
               <p class="text-xs text-warning">
                 Upload the Wasm blob before assigning this package.
@@ -2228,8 +2274,19 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLive do
 
   defp producer_schedule_provisioned?(package), do: match?(%{}, first_producer_schedule(package))
 
+  defp declarative_check_managed?(%{plugin_id: @declarative_check_runner_plugin_id}), do: true
+  defp declarative_check_managed?(_package), do: false
+
+  defp manual_assignment_disabled?(package) do
+    producer_schedule_provisioned?(package) or declarative_check_managed?(package)
+  end
+
   defp producer_schedule_assignment_message do
     "This plugin is assigned from a credential rule under Settings → Networks → Credentials. Pick the agent as the rule Scope Value; do not assign it here."
+  end
+
+  defp declarative_check_assignment_message do
+    "Declarative Check Runner is managed automatically by Solution Packs and Declarative Checks. Install a Solution Pack or create a Declarative Check instead of assigning it manually here."
   end
 
   defp schedule_get(nil, _key), do: nil

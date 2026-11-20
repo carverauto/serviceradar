@@ -667,8 +667,11 @@ export function WebRumDashboard() {
             <GlobeNetworkIcon size={18} />
             <h1>Web RUM</h1>
             <Tag minimal intent="primary">
-              p75 Core Web Vitals
+              {selectedPropertyOption?.origin
+                ? `${selectedPropertyOption.label} (${selectedPropertyOption.origin})`
+                : "All Web Properties"}
             </Tag>
+            <Tag minimal>p75 Core Web Vitals</Tag>
             <Tag minimal>{INT_FORMATTER.format(totalBeacons)} beacons</Tag>
           </div>
           <p className="sr-rum-subtitle">
@@ -677,6 +680,29 @@ export function WebRumDashboard() {
         </div>
 
         <div className="sr-rum-header-actions">
+          <Select
+            items={propertyOptions}
+            filterable={false}
+            onItemSelect={handlePropertySelect}
+            popoverProps={{portalContainer: portalContainer ?? undefined}}
+            itemRenderer={(item, {handleClick, modifiers}) => (
+              <MenuItem
+                key={item.id || "all"}
+                active={modifiers.active}
+                selected={item.id === filters.state.webPropertyId}
+                text={item.label}
+                label={item.origin || undefined}
+                onClick={handleClick}
+              />
+            )}
+          >
+            <Button
+              variant="outlined"
+              icon={<GlobeNetworkIcon size={14} />}
+              endIcon={<CaretDownIcon size={14} />}
+              text={selectedPropertyOption?.label || "All Web Properties"}
+            />
+          </Select>
           <SegmentedControl
             small
             aria-label="Time window"
@@ -923,28 +949,6 @@ export function WebRumDashboard() {
             value={filters.state.search}
             onChange={(event) => filters.setFilter("search", event.target.value)}
           />
-          <Select
-            items={propertyOptions}
-            filterable={false}
-            onItemSelect={handlePropertySelect}
-            popoverProps={{portalContainer: portalContainer ?? undefined}}
-            itemRenderer={(item, {handleClick, modifiers}) => (
-              <MenuItem
-                key={item.id || "all"}
-                active={modifiers.active}
-                selected={item.id === filters.state.webPropertyId}
-                text={item.label}
-                label={item.origin || undefined}
-                onClick={handleClick}
-              />
-            )}
-          >
-            <Button
-              variant="outlined"
-              endIcon={<CaretDownIcon size={14} />}
-              text={selectedPropertyOption?.label || "All Web Properties"}
-            />
-          </Select>
           <SegmentedControl
             small
             aria-label="Beacon error filter"
