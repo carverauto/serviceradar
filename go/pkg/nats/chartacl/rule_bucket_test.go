@@ -26,10 +26,12 @@ import (
 )
 
 const (
+	datasvcSubject      = "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 	logCollectorSubject = "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
 
-	ruleBucket = "serviceradar-zen-rules"
-	ruleKey    = "zen/rulesets/events/logs.syslog.json"
+	ruleBucket    = "serviceradar-zen-rules"
+	datasvcBucket = "serviceradar-datasvc"
+	ruleKey       = "zen/rulesets/events/logs.syslog.json"
 )
 
 // TestChartRuleBucketPermissions checks the Zen rule bucket grants on the
@@ -37,7 +39,8 @@ const (
 // identity does: core creates the bucket and writes bundles, web-ng writes the
 // bundle of a rule saved there, and the log collector reads and watches its
 // bundle while it keeps creating, updating and publishing to the events
-// stream. The collector cannot write bundles.
+// stream. The collector reaches no other key-value bucket and cannot write
+// bundles.
 func TestChartRuleBucketPermissions(t *testing.T) {
 	pki := newTestPKI(t)
 	rendered := renderChart(t, pki, nil)
@@ -67,6 +70,17 @@ func TestChartRuleBucketPermissions(t *testing.T) {
 
 	if _, err := webNgRules.Put(t.Context(), ruleKey, []byte(`{"digest":"sha256:web-ng"}`)); err != nil {
 		t.Fatalf("web-ng writes a bundle: %v", err)
+	}
+
+	agentConfig := jetStreamAs(t, pki, srv, datasvcSubject)
+
+	datasvc, err := agentConfig.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: datasvcBucket, MaxBytes: 1 << 20})
+	if err != nil {
+		t.Fatalf("create the datasvc bucket: %v", err)
+	}
+
+	if _, err := datasvc.Put(t.Context(), "agents/agent01/config.json", []byte(`{"synthetic":true}`)); err != nil {
+		t.Fatalf("write agent configuration: %v", err)
 	}
 
 	collectorConn, denied := pki.connectTracked(t, srv, logCollectorSubject)
@@ -167,6 +181,18 @@ func assertCollectorDenied(t *testing.T, collector jetstream.JetStream, denied *
 		{"$KV." + ruleBucket + "." + ruleKey, func(ctx context.Context) error {
 			_, err := collector.Publish(ctx, "$KV."+ruleBucket+"."+ruleKey, []byte(`{"forged":true}`))
 			return err
+		}},
+		{"$JS.API.STREAM.INFO.KV_" + datasvcBucket, func(ctx context.Context) error {
+			_, err := collector.KeyValue(ctx, datasvcBucket)
+			return err
+		}},
+		{"$JS.API.STREAM.PURGE.KV_" + ruleBucket, func(ctx context.Context) error {
+			stream, err := collector.Stream(ctx, "KV_"+ruleBucket)
+			if err != nil {
+				return err
+			}
+
+			return stream.Purge(ctx)
 		}},
 	}
 
