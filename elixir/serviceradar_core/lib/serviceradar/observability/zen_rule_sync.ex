@@ -219,7 +219,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
         {:error, reason} ->
           Logger.warning(
             "Zen rule bundle for #{stream_name}/#{subject} was not republished: #{format_reason(reason)}",
-            stream_name: stream_name,
+            stream: stream_name,
             subject: subject,
             reason: format_reason(reason)
           )
