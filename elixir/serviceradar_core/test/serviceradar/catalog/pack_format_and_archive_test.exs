@@ -84,39 +84,17 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
       assert {result.status, result.verdict} == {:unknown, "no_fresh_datastore_inventory"}
     end
 
-    test "paused guests are critical, and an unread runtime state is never reported healthy" do
+    test "paused guests are critical and every unreadable guest state is reported unknown" do
       check = proxmox_check("proxmox-paused-guests")
+      outcomes = [:zero, :some, :error]
 
-      for {guests, status, verdict} <- [
-            {%{running: 3, paused: 0, unreported: 0}, :healthy, "no_paused_guests"},
-            {%{running: 3, paused: 2, unreported: 0}, :down, "guests_paused"},
-            {%{running: 3, paused: 0, unreported: 3}, :unknown, "runtime_state_not_reported"},
-            {%{running: 3, paused: 1, unreported: 2}, :down, "guests_paused"},
-            {%{running: 0, paused: 0, unreported: 0}, :unknown, "no_fresh_guest_inventory"}
-          ] do
+      for fresh <- outcomes, paused <- outcomes, unreported <- outcomes do
+        guests = %{fresh: fresh, paused: paused, unreported: unreported}
+
         assert {:ok, result} = evaluate_with_inventory(check, &guest_rows(&1, guests))
-        assert {result.status, result.verdict} == {status, verdict}
-      end
-    end
 
-    test "a failed guest query never hides an observed pause or reads as an old agent" do
-      check = proxmox_check("proxmox-paused-guests")
-
-      for {failing, guests, status, verdict} <- [
-            {"limit:1", %{running: 3, paused: 2, unreported: 0}, :down, "guests_paused"},
-            {"runtime_state:unknown", %{running: 3, paused: 0, unreported: 0}, :unknown,
-             "runtime_state_query_failed"},
-            {"status:paused", %{running: 3, paused: 0, unreported: 0}, :unknown,
-             "paused_guest_query_failed"}
-          ] do
-        rows_for = fn query ->
-          if String.contains?(query, failing),
-            do: {:error, :timeout},
-            else: guest_rows(query, guests)
-        end
-
-        assert {:ok, result} = evaluate_with_inventory(check, rows_for)
-        assert {failing, result.status, result.verdict} == {failing, status, verdict}
+        assert {guests, {result.status, result.verdict}} ==
+                 {guests, expected_paused_guest_verdict(guests)}
       end
     end
 
@@ -655,18 +633,45 @@ defmodule ServiceRadar.Catalog.PackFormatAndArchiveTest do
         rows -> {:ok, %{rows: rows}}
       end
     end
+
     DAGEngine.evaluate_target(check, %{}, srql_runner: runner)
   end
 
-  # A stand-in for the guest inventory: answers the filters the checks use.
-  defp guest_rows(query, %{running: running, paused: paused, unreported: unreported}) do
-    count =
+  # A stand-in for the guest inventory: each of the check's three queries
+  # returns no rows, some rows or a timeout.
+  defp guest_rows(query, guests) do
+    outcome =
       cond do
-        String.contains?(query, "status:paused") -> paused
-        String.contains?(query, "runtime_state:unknown") -> unreported
-        true -> running + paused
+        String.contains?(query, "status:paused") -> guests.paused
+        String.contains?(query, "runtime_state:unknown") -> guests.unreported
+        true -> guests.fresh
       end
 
-    List.duplicate(%{"payload" => %{"name" => "vm-a"}}, count)
+    case outcome do
+      :zero -> []
+      :some -> List.duplicate(%{"payload" => %{"name" => "vm-a"}}, 2)
+      :error -> {:error, :timeout}
+    end
   end
+
+  # The paused-guest precedence, first match wins: an observed pause, then
+  # each query failure or missing inventory, then old agents, then healthy.
+  defp expected_paused_guest_verdict(%{paused: :some}), do: {:down, "guests_paused"}
+
+  defp expected_paused_guest_verdict(%{paused: :error}),
+    do: {:unknown, "paused_guest_query_failed"}
+
+  defp expected_paused_guest_verdict(%{fresh: fresh}) when fresh in [:zero, :error],
+    do: {:unknown, "no_fresh_guest_inventory"}
+
+  defp expected_paused_guest_verdict(%{unreported: :error}),
+    do: {:unknown, "runtime_state_query_failed"}
+
+  defp expected_paused_guest_verdict(%{unreported: :some}),
+    do: {:unknown, "runtime_state_not_reported"}
+
+  defp expected_paused_guest_verdict(%{fresh: :some, paused: :zero, unreported: :zero}),
+    do: {:healthy, "no_paused_guests"}
+
+  defp expected_paused_guest_verdict(_guests), do: {:unknown, "paused_guest_state_unknown"}
 end

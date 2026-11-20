@@ -15,25 +15,46 @@
       "id": "e1",
       "source": "fresh_guests",
       "source_handle": "signal",
-      "target": "decide",
-      "target_handle": "in:fresh"
+      "target": "assert_fresh",
+      "target_handle": "in"
     },
     {
       "id": "e2",
       "source": "paused_guests",
       "source_handle": "signal",
-      "target": "decide",
-      "target_handle": "in:paused"
+      "target": "assert_paused",
+      "target_handle": "in"
     },
     {
       "id": "e3",
       "source": "unreported_guests",
       "source_handle": "signal",
+      "target": "assert_unreported",
+      "target_handle": "in"
+    },
+    {
+      "id": "e4",
+      "source": "assert_fresh",
+      "source_handle": "verdict",
+      "target": "decide",
+      "target_handle": "in:fresh"
+    },
+    {
+      "id": "e5",
+      "source": "assert_paused",
+      "source_handle": "verdict",
+      "target": "decide",
+      "target_handle": "in:paused"
+    },
+    {
+      "id": "e6",
+      "source": "assert_unreported",
+      "source_handle": "verdict",
       "target": "decide",
       "target_handle": "in:unreported"
     },
     {
-      "id": "e4",
+      "id": "e7",
       "source": "decide",
       "source_handle": "verdict",
       "target": "out_1",
@@ -76,24 +97,69 @@
     },
     {
       "config": {
+        "crit": {
+          "op": "<",
+          "value": 1
+        },
+        "field": "count"
+      },
+      "id": "assert_fresh",
+      "kind": "threshold_assert",
+      "label": "Guests Were Reported"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": 1
+        },
+        "field": "count"
+      },
+      "id": "assert_paused",
+      "kind": "threshold_assert",
+      "label": "No Guest Paused"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": 1
+        },
+        "field": "count"
+      },
+      "id": "assert_unreported",
+      "kind": "threshold_assert",
+      "label": "Every Runtime State Reported"
+    },
+    {
+      "config": {
         "inputs": [
           {
-            "field": "count",
+            "field": "status",
             "key": "fresh",
             "label": "Guests reported in the last hour"
           },
           {
-            "field": "count",
+            "field": "status",
             "key": "paused",
             "label": "Paused guests"
           },
           {
-            "field": "count",
+            "field": "status",
             "key": "unreported",
             "label": "Running guests without a runtime state"
           }
         ],
         "rules": [
+          {
+            "id": "paused",
+            "match": {
+              "paused": "down"
+            },
+            "status": "down",
+            "summary": "At least one Proxmox guest is paused. A full datastore is the usual cause.",
+            "verdict": "guests_paused"
+          },
           {
             "id": "paused_unreadable",
             "match": {
@@ -107,10 +173,9 @@
             "id": "no_inventory",
             "match": {
               "fresh": [
-                "0",
+                "down",
                 "unknown"
-              ],
-              "paused": "0"
+              ]
             },
             "status": "unknown",
             "summary": "No Proxmox guest was reported in the last hour, so paused guests cannot be detected.",
@@ -119,7 +184,6 @@
           {
             "id": "runtime_state_unreadable",
             "match": {
-              "paused": "0",
               "unreported": "unknown"
             },
             "status": "unknown",
@@ -127,34 +191,35 @@
             "verdict": "runtime_state_query_failed"
           },
           {
-            "id": "all_running",
-            "match": {
-              "paused": "0",
-              "unreported": "0"
-            },
-            "status": "healthy",
-            "summary": "Every running guest reported a healthy runtime state.",
-            "verdict": "no_paused_guests"
-          },
-          {
             "id": "cannot_tell",
             "match": {
-              "paused": "0"
+              "unreported": "down"
             },
             "status": "unknown",
             "summary": "Some running guests have no runtime state. The agent that runs the Proxmox plugin is too old to read it; upgrade that agent.",
             "verdict": "runtime_state_not_reported"
           },
           {
-            "id": "paused",
+            "id": "all_running",
+            "match": {
+              "fresh": "healthy",
+              "paused": "healthy",
+              "unreported": "healthy"
+            },
+            "status": "healthy",
+            "summary": "Every running guest reported a healthy runtime state.",
+            "verdict": "no_paused_guests"
+          },
+          {
+            "id": "undetermined",
             "match": {
               "fresh": "*",
               "paused": "*",
               "unreported": "*"
             },
-            "status": "down",
-            "summary": "At least one Proxmox guest is paused. A full datastore is the usual cause.",
-            "verdict": "guests_paused"
+            "status": "unknown",
+            "summary": "The paused-guest state could not be determined.",
+            "verdict": "paused_guest_state_unknown"
           }
         ]
       },
@@ -185,8 +250,20 @@
   },
   "ui_layout": {
     "nodes": {
+      "assert_fresh": {
+        "x": 340,
+        "y": 60
+      },
+      "assert_paused": {
+        "x": 340,
+        "y": 200
+      },
+      "assert_unreported": {
+        "x": 340,
+        "y": 340
+      },
       "decide": {
-        "x": 400,
+        "x": 600,
         "y": 200
       },
       "fresh_guests": {
@@ -194,7 +271,7 @@
         "y": 60
       },
       "out_1": {
-        "x": 700,
+        "x": 860,
         "y": 200
       },
       "paused_guests": {
