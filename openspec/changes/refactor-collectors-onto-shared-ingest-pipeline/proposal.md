@@ -46,10 +46,11 @@ in #6863. Three things stop it from being the shape of every collector:
   batches, is what authorizes it. It no longer publishes JSON
   for core to normalize.
 - **Core stops running Zen on collector data.** `EventWriter` stores what
-  collectors publish. Zen stays in core only for records core produces itself
-  (`logs.internal.*`). **BREAKING**: a Zen rule authored for the trap subject
-  is no longer evaluated. For each subject, core drops Zen one release after
-  the collector that makes it unnecessary.
+  collectors publish. Once each subject's overlap release has passed, Zen
+  stays in core only for records core produces itself (`logs.internal.*`).
+  **BREAKING**: a Zen rule authored for the trap subject stops being evaluated
+  in the release after the new trap daemon ships. For each subject, core drops
+  Zen one release after the collector that makes it unnecessary.
 - **Shared Rust crates** hold what every collector needs: receive (portable
   batched sockets, with io_uring and AF_XDP backends where verified), rules
   (fetch, watch, verify, compile, apply) and publish (binary batches into NATS
@@ -63,7 +64,8 @@ in #6863. Three things stop it from being the shape of every collector:
   collector, then the flow collector's receive path.
 - **The trap daemon emits final fields itself and runs no rules.** Its seeded
   rule is fixed field mapping, not rule logic, so it does not use the rules
-  crate and no passthrough rule is seeded for the trap subject. It adopts the
+  crate, and the trap passthrough seed is removed in the release after the new
+  trap daemon ships. It adopts the
   receive crate (io_uring and AF_XDP available) and publishes binary batches
   through the publish crate. The daemon emits today's stored row: severity,
   derived `source_ip`, `source` and `service_name` set to `snmp`, the rule's
