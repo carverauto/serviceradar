@@ -300,6 +300,7 @@ pub trait FragmentStore: Send + Sync {
 pub struct LongshoreArchiveReader {
     concurrency: usize,
     timeout: Duration,
+    portable: bool,
     fallback_credentials: Option<EphemeralS3Credentials>,
 }
 
@@ -308,6 +309,7 @@ impl Default for LongshoreArchiveReader {
         Self {
             concurrency: 2,
             timeout: Duration::from_secs(15),
+            portable: false,
             fallback_credentials: None,
         }
     }
@@ -318,8 +320,14 @@ impl LongshoreArchiveReader {
         Self {
             concurrency: concurrency.clamp(1, 4),
             timeout,
+            portable: false,
             fallback_credentials: None,
         }
+    }
+
+    pub fn with_portable(mut self, portable: bool) -> Self {
+        self.portable = portable;
+        self
     }
 
     pub fn with_fallback_credentials(mut self, creds: EphemeralS3Credentials) -> Self {
@@ -397,8 +405,11 @@ impl LongshoreArchiveReader {
         let plan_clone = plan.clone();
         let archive_clone = archive.clone();
         let scope_clone = scope.clone();
-        let concurrency = self.concurrency;
-        let timeout = self.timeout;
+        let options = LongshoreReadOptions {
+            concurrency: self.concurrency,
+            timeout: self.timeout,
+            portable: self.portable,
+        };
 
         tokio::task::spawn_blocking(move || {
             execute_longshore_ranged_reads(
@@ -407,8 +418,7 @@ impl LongshoreArchiveReader {
                 &scope_clone,
                 &creds,
                 &coalesced,
-                concurrency,
-                timeout,
+                options,
             )
         })
         .await
@@ -564,15 +574,26 @@ fn split_host_port(host_port: &str, default_port: u16) -> Result<(String, u16), 
     Ok((host_port.to_string(), default_port))
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LongshoreReadOptions {
+    concurrency: usize,
+    timeout: Duration,
+    portable: bool,
+}
+
 fn execute_longshore_ranged_reads(
     plan: &ReadGrantPlan,
     archive: &ArchiveGrantTarget,
     scope: &BrokerGrantScope,
     creds: &EphemeralS3Credentials,
     coalesced: &[CoalescedRange],
-    concurrency: usize,
-    timeout: Duration,
+    options: LongshoreReadOptions,
 ) -> Result<VerifiedKeyframeBlock, MediaWorkerError> {
+    let LongshoreReadOptions {
+        concurrency,
+        timeout,
+        portable,
+    } = options;
     let init_key = plan.init().key().unwrap_or_else(|| archive.init_key());
     let media_key = plan
         .media()
@@ -623,6 +644,7 @@ fn execute_longshore_ranged_reads(
     builder.bucket_in_path = Some(archive.bucket().to_string());
     builder.address = parsed.ip_addr.map(|ip| SocketAddr::new(ip, parsed.port));
     builder.threads = 1;
+    builder.portable = portable;
     builder.buffers = concurrency as u32;
     builder.connections = concurrency as u32;
     builder.operations = concurrency as u32;
@@ -641,15 +663,6 @@ fn execute_longshore_ranged_reads(
 
     let client = match builder.build() {
         Ok(c) => c,
-        #[cfg(not(target_os = "linux"))]
-        Err(BuildError::Unsupported) => {
-            // macOS XNU has no io_uring; execute identical ranged HTTP GET + If-Match + SHA-256
-            // verification after validating longshore_s3::Credentials, Builder, and Expect above.
-            return execute_non_linux_ranged_http_fallback(
-                &parsed, archive, plan, init_key, media_key, coalesced, timeout,
-            );
-        }
-        #[cfg(target_os = "linux")]
         Err(BuildError::Unsupported) => {
             return Err(MediaWorkerError::storage_transport(
                 "longshore_s3 I/O backend unsupported on host",
@@ -1131,100 +1144,6 @@ fn redact_query_from_error(err_msg: &str, raw_url: &str) -> String {
         sanitized = sanitized.replace(query, "[REDACTED]");
     }
     sanitized
-}
-
-#[cfg(not(target_os = "linux"))]
-fn execute_non_linux_ranged_http_fallback(
-    parsed: &ParsedEndpoint,
-    archive: &ArchiveGrantTarget,
-    plan: &ReadGrantPlan,
-    init_key: &str,
-    media_key: &str,
-    coalesced: &[CoalescedRange],
-    timeout: Duration,
-) -> Result<VerifiedKeyframeBlock, MediaWorkerError> {
-    let scheme = if parsed.tls { "https" } else { "http" };
-    let base = format!(
-        "{scheme}://{}:{}/{}",
-        parsed.host,
-        parsed.port,
-        archive.bucket()
-    );
-    let agent = ureq::config::Config::builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(timeout))
-        .build()
-        .new_agent();
-
-    let init_etag = plan.init().etag().or_else(|| archive.init_etag());
-    let init_url = format!("{base}/{}", init_key.trim_start_matches('/'));
-    let init_bytes =
-        fetch_http_range_slice(&agent, &init_url, 0, plan.init().length() - 1, init_etag)?;
-    verify_sha256_hex(&init_bytes, plan.init_sha256(), "init.mp4")?;
-
-    let media_etag = plan
-        .media()
-        .and_then(|m| m.etag())
-        .or_else(|| archive.media_etag());
-    let media_url = format!("{base}/{}", media_key.trim_start_matches('/'));
-    let mut verified_fragments = Vec::with_capacity(plan.fragments().len());
-
-    for range in coalesced {
-        let chunk_bytes =
-            fetch_http_range_slice(&agent, &media_url, range.first(), range.last(), media_etag)?;
-        let mut verified_slices = extract_and_verify_slices(&chunk_bytes, range)?;
-        verified_fragments.append(&mut verified_slices);
-    }
-    verified_fragments.sort_by_key(VerifiedFragmentBytes::sequence);
-
-    Ok(VerifiedKeyframeBlock {
-        init_bytes,
-        fragments: verified_fragments,
-    })
-}
-
-#[cfg(not(target_os = "linux"))]
-fn fetch_http_range_slice(
-    agent: &ureq::Agent,
-    url: &str,
-    first: u64,
-    last: u64,
-    etag: Option<&str>,
-) -> Result<Vec<u8>, MediaWorkerError> {
-    let expected_len = usize::try_from(last - first + 1)
-        .map_err(|_| MediaWorkerError::storage_transport("range length overflow"))?;
-    let mut req = agent
-        .get(url)
-        .header("Range", &format!("bytes={first}-{last}"));
-    if let Some(tag) = etag {
-        req = req.header("If-Match", tag);
-    }
-    let mut resp = req.call().map_err(|err| {
-        MediaWorkerError::storage_transport(format!("S3 fallback GET '{url}' failed: {err}"))
-    })?;
-    let status = resp.status().as_u16();
-    if status != 200 && status != 206 {
-        return Err(MediaWorkerError::storage_transport(format!(
-            "S3 fallback GET '{url}' returned HTTP {status}"
-        )));
-    }
-    let mut buf = Vec::new();
-    resp.body_mut()
-        .as_reader()
-        .take((expected_len + 1) as u64)
-        .read_to_end(&mut buf)
-        .map_err(|err| {
-            MediaWorkerError::storage_transport(format!(
-                "failed reading S3 fallback response '{url}': {err}"
-            ))
-        })?;
-    if buf.len() != expected_len {
-        return Err(MediaWorkerError::storage_transport(format!(
-            "S3 fallback response length {} != expected {expected_len}",
-            buf.len()
-        )));
-    }
-    Ok(buf)
 }
 
 fn build_expect(
