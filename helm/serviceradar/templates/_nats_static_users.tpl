@@ -24,6 +24,9 @@ Add or change a built-in identity's subjects only here.
 */ -}}
 {{- define "serviceradar.natsStaticUsers" -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
+{{- /* ServiceRadar.Observability.Zen.RuleBucket.bucket/0 and the collector's
+     default [rules.nats] bucket. */ -}}
+{{- $zenRuleBucket := "serviceradar-zen-rules" -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- $webNg := default (dict) .Values.webNg -}}
@@ -94,6 +97,9 @@ Add or change a built-in identity's subjects only here.
              sweeps (Edge.SweepHostMetrics), whose retries reach this queue. */}}
       - "availability.transitions.device"
       - "metrics.sweep.>"
+      {{- /* Zen rule bundles (Zen.RuleBucket). Saving a rule in web-ng writes
+           its subject's bundle from web-ng, as core's reconcile does. */}}
+      - "$KV.{{ $zenRuleBucket }}.>"
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
@@ -214,6 +220,9 @@ Add or change a built-in identity's subjects only here.
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
+      {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
+           the bucket through the JetStream API and writes each bundle here. */}}
+      - "$KV.{{ $zenRuleBucket }}.>"
       - "$JS.API.>"
       - "$JS.ACK.>"
       - "_INBOX.>"
@@ -231,6 +240,7 @@ Add or change a built-in identity's subjects only here.
       - "flows.*.processed"
       - "logs.>"
       - "metrics.>"
+      - "rum.beacons.>"
       - "pdns.ocsf"
       - "pdns.ocsf.>"
       - "signals.analytics.>"
@@ -323,11 +333,14 @@ Add or change a built-in identity's subjects only here.
       - "$JS.ACK.>"
       - "_INBOX.>"
     deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
+{{- /* The log collector follows its Zen ruleset in the rule bucket through
+     the JetStream API; it also replies to the flow control of the ordered
+     consumer that watches the bucket, which is not under $JS.API. */}}
 - user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "rum.beacons.>", "metrics.rum.>", "config.rum.policy.snapshot", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>", "$JS.FC.KV_{{ $zenRuleBucket }}.>"]
   subscribe:
-    allow: ["$JS.API.>", "_INBOX.>"]
+    allow: ["config.rum.policy.updates", "$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
@@ -335,9 +348,9 @@ Add or change a built-in identity's subjects only here.
     allow: ["$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["otel.>", "logs.otel", "$JS.API.>"]
+    allow: ["otel.>", "logs.otel", "rum.beacons.>", "metrics.rum.>", "config.rum.policy.snapshot", "$JS.API.>"]
   subscribe:
-    allow: ["$JS.API.>", "_INBOX.>"]
+    allow: ["config.rum.policy.updates", "$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]

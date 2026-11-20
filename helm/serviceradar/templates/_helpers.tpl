@@ -1725,7 +1725,7 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- define "serviceradar.componentServiceAccount" -}}
 {{- $component := .component -}}
 {{- $values := .values -}}
-{{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "rperfChecker" "serviceradar-rperf-checker" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
+{{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
 {{- $neutral := get (default (dict) $values.serviceAccounts) $component -}}
 {{- $fallback := get $defaults $component -}}
 {{- if eq $component "agent" -}}
