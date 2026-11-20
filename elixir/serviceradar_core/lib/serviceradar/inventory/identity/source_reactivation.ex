@@ -16,10 +16,11 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
       MAC, its MAC identifiers, its interface MACs, or the MAC the source last reported for the
       id before it retired;
     * the update corroborates it (`SourceCorroboration.corroboration/2`): the same source
-      first-seen time, or a shared hostname (the one the source last reported or the record's
-      own) when the update was first seen no earlier than the id was last seen. The source times
-      are the ones the identifier row carried into the archive. A row archived before rows
-      carried them is compared on the record's `first_seen_time`, for equality only.
+      first-seen time. A hostname never qualifies a holder, whatever the source times
+      (requirement "Hostname Agreement Is Not Identity"): a shared MAC and hostname without an
+      agreeing first-seen time re-issues the id and records `source_id_reissued`. The source
+      first-seen time is the one the identifier row carried into the archive. A row archived
+      before rows carried it is compared on the record's `first_seen_time`, for equality only.
 
   Returning moves the newest archived row of the identifier, and the integration id derived
   from it, back to the holder; restores a tombstone through `Device :restore` (releasing an
@@ -94,7 +95,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
   """
 
   @observations_sql """
-  SELECT o.partition, o.source_instance, o.source_object_id, o.hostname, o.mac, o.last_observed_at
+  SELECT o.partition, o.source_instance, o.source_object_id, o.mac, o.last_observed_at
   FROM platform.device_source_observations AS o
   JOIN unnest($1::text[], $2::text[], $3::text[]) AS k(partition, source_instance, source_object_id)
     ON o.partition = k.partition AND o.source = 'armis' AND o.source_instance = k.source_instance
@@ -427,7 +428,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
     |> Ash.Query.filter(uid in ^uids)
     |> Ash.Query.select([
       :uid,
-      :hostname,
       :mac,
       :partition,
       :deleted_at,
@@ -478,9 +478,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
             Enum.map(scoped, &elem(&1, 2))
           ])
 
-        Map.new(rows, fn [partition, instance, value, hostname, mac, last_observed_at] ->
-          {{partition, instance, value},
-           %{hostname: hostname, mac: mac, last_observed_at: last_observed_at}}
+        Map.new(rows, fn [partition, instance, value, mac, last_observed_at] ->
+          {{partition, instance, value}, %{mac: mac, last_observed_at: last_observed_at}}
         end)
     end
   end
@@ -534,12 +533,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
       |> SourceCorroboration.hardware_macs()
       |> MapSet.intersection(record_macs)
 
-    {earlier, basis} = earlier_observation(holder.row, device, observation)
+    {earlier, basis} = earlier_observation(holder.row, device)
 
-    later = %{
-      first_seen: Map.get(candidate.update, :first_seen_time),
-      hostnames: [Map.get(candidate.update, :hostname)]
-    }
+    later = %{first_seen: Map.get(candidate.update, :first_seen_time)}
 
     with {:macs, true} <- {:macs, MapSet.size(matched) > 0},
          {:ok, corroboration} <- SourceCorroboration.corroboration(earlier, later) do
@@ -571,22 +567,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivation do
 
   defp observation(_candidate, _row, _loaded), do: nil
 
-  # The times the source last reported for the id, as its identifier row carried them into the
-  # archive. A row archived before rows carried them has no last-seen time, so only an equal
-  # first-seen time, the record's own, corroborates it.
-  defp earlier_observation(row, device, observation) do
-    hostnames = [observation && observation.hostname, device.hostname]
-
+  # The first-seen time the source last reported for the id, as its identifier row carried it
+  # into the archive. A row archived before rows carried it is compared on the record's own.
+  defp earlier_observation(row, device) do
     case row.metadata do
       %{"source_first_seen_time" => first_seen} when is_binary(first_seen) ->
-        {%{
-           first_seen: first_seen,
-           last_seen: Map.get(row.metadata, "source_last_seen_time"),
-           hostnames: hostnames
-         }, "source"}
+        {%{first_seen: first_seen}, "source"}
 
       _metadata ->
-        {%{first_seen: device.first_seen_time, last_seen: nil, hostnames: hostnames}, "record"}
+        {%{first_seen: device.first_seen_time}, "record"}
     end
   end
 

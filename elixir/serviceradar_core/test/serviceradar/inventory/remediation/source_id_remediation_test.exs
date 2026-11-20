@@ -11,7 +11,8 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
     * C1 (class 1) holds two Armis ids, and the source stopped reporting one of them.
     * P, P2 and P3 each hold one id the source stopped reporting, and S, S2 and S3 the current
       id of the same device, sharing its MAC: P and S also share a first-seen time (class 3),
-      P2 and S2 a hostname (class 2), and P3 and S3 nothing more (class 4, a review).
+      P2 and S2 a first-seen time and a hostname (class 2), and P3 and S3 nothing more (class 4,
+      a review).
     * R5 (class 5) was left holding only a retired id, unmarked, and has no successor.
     * D1 and D2 (class 8) carry one Armis id in their metadata.
     * X (class 7) is a released-seed shell.
@@ -19,6 +20,9 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
   A second world holds three records left holding only a retired id, unmarked, as R5 is: P6,
   whose successor S6 shares its MAC and first-seen time, P7, whose successor S7 shares only
   its MAC, and R8, with no successor.
+
+  A third world holds P9 and S9, which share a MAC and a hostname, with S9 first seen after the
+  source last saw P9: a hostname never corroborates, so the pair is a review, not class 2.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -663,6 +667,38 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
       end
     end
 
+    # A name is not identity (stop-name-as-identity-evidence): a shared MAC and hostname with
+    # S9 first seen after the source last saw P9 used to merge as class 2.
+    test "a pair sharing a MAC and a hostname whose first-seen times differ is reviewed, not merged",
+         ctx do
+      w = hostname_rekey_world!(ctx)
+
+      assert {:ok, %{reports: %{"source-succession" => plan}}} =
+               DireRemediation.run(mode: :dry_run, steps: ["source-succession"], actor: ctx.actor)
+
+      assert %{
+               class_2_pairs: 0,
+               class_3_pairs: 0,
+               class_4_reviews: 1,
+               review_reasons: %{overlapping_hostname: 1}
+             } = plan
+
+      assert {:ok, %{reports: %{"source-succession" => executed}}} =
+               DireRemediation.run(
+                 mode: :execute,
+                 steps: ["source-succession"],
+                 manifest_path: path(ctx, "hostname-rekey"),
+                 actor: ctx.actor
+               )
+
+      assert %{merged: 0, reviews_recorded: 1} = executed
+      assert reload(ctx, w.s9).deleted_at == nil
+      assert held_by(ctx, w.s9b) == w.s9.uid
+
+      assert [%IdentityDecision{reason: "overlapping_hostname"}] =
+               reviews([w.p9.uid, w.s9.uid], ctx.actor)
+    end
+
     test "rolls a retirement back when its manifest entry cannot be written, and stops", ctx do
       w = world!(ctx)
       before = state(w)
@@ -1045,7 +1081,7 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
             {p, :pa, -7, -1},
             {s, :sb, -7, 0},
             {p2, :p2a, -6, -2},
-            {s2, :s2b, -1, 0},
+            {s2, :s2b, -6, 0},
             {p3, :p3a, -5, -1},
             {s3, :s3b, -3, 0},
             {r5, :r5a, -4, -1}
@@ -1135,6 +1171,30 @@ defmodule ServiceRadar.Inventory.Remediation.SourceIdRemediationTest do
       )
 
     Map.merge(ids, %{p6: p6, s6: s6, p7: p7, s7: s7, r8: r8})
+  end
+
+  # The third world of the moduledoc: P9's id retired, and S9 holds the device's current id.
+  defp hostname_rekey_world!(ctx) do
+    ids = %{p9a: "#{ctx.n}21", s9b: "#{ctx.n}22"}
+    p9 = record!(ctx, hostname: "host93.example.com", mac: mac(93))
+
+    s9 =
+      record!(ctx, hostname: "host93.example.com", mac: mac(93), created_time: at(ctx, -20))
+
+    reported = [source_id!(ctx, p9, ids.p9a, -6, -2), source_id!(ctx, s9, ids.s9b, -1, 0)]
+    backdate(ctx)
+    collect(ctx, 1, reported, hours: 0)
+    for k <- 2..4, do: collect(ctx, k, [List.last(reported)], hours: k)
+
+    assert {:ok, %{status: :completed, retired: 1}} =
+             SourceRetirement.run(ctx.instance,
+               settings: @settings,
+               now: DateTime.shift(ctx.t0, hour: 100),
+               actor: ctx.actor,
+               uids: [p9.uid]
+             )
+
+    Map.merge(ids, %{p9: p9, s9: s9})
   end
 
   # What the remediation can change on the world's records: their deletion, marks and identity

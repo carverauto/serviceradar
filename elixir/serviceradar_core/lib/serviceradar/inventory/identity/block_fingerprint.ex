@@ -49,7 +49,9 @@ defmodule ServiceRadar.Inventory.Identity.BlockFingerprint do
   #
   # 2: `GuestIdentityGuard` (distinct hypervisor guest identities). It reads the live
   # `integration_id` rows, which the identifier rows below already cover.
-  @rule_version 2
+  # 3: a name no longer corroborates source-id succession or reactivation, and no longer adopts
+  # an address holder at sync (change `stop-name-as-identity-evidence`).
+  @rule_version 3
 
   @db_prefix "platform"
   @archive_table "device_identifier_archive"

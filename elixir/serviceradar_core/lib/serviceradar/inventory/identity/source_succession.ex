@@ -15,10 +15,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
       interface MACs and the MACs the source last reported for its ids before they retired; a
       current record carries the same, with what the source reports now;
     * the source corroborates the pair in each of those partitions
-      (`SourceCorroboration.corroboration/2`): an equal source first-seen time, or a shared
-      hostname when the current id was first seen no earlier than the retired one was last seen.
-      A hostname another current record of the source holds in the partition does not
-      corroborate. The current record's times are the source's own; a retired row archived
+      (`SourceCorroboration.corroboration/2`): an equal source first-seen time. A hostname never
+      corroborates, whatever the source times (requirement "Hostname Agreement Is Not
+      Identity"). The current record's times are the source's own; a retired row archived
       before rows carried them is compared on the record's `first_seen_time`, for equality only.
 
   The pair is successive when neither side is paired with another record, no distinct assertion
@@ -33,7 +32,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
 
   A pair that shares a MAC, or an equal first-seen time and a hostname, and is not successive is
   recorded as `succession_review`, which opens a de-duplication task naming the pair and the
-  records it competes with. A review touching a record that merges in the run waits for the next
+  records it competes with. A hostname may classify a review (`overlapping_hostname`: a linking
+  MAC and a shared hostname without first-seen agreement); it never decides a merge. A review touching a record that merges in the run waits for the next
   run. A pair that is asserted distinct, or carries different agent ids, is left alone.
 
   Telemetry: `[:serviceradar, :inventory, :source_succession, :merged | :reviewed | :skipped]`.
@@ -164,30 +164,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     ON di.partition = k.partition AND di.metadata ->> 'source_first_seen_time' = k.first_seen
   JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
   WHERE di.identifier_type = $1
-  """
-
-  # The current records of the partitions whose hostname, or the one the source reports for
-  # their id, has one of the keys: the hostname with every character but a letter or a digit
-  # removed, lower-cased. `hostname_key/1` is the same key; the match is re-checked on the
-  # normalized hostname.
-  @hostname_holders_sql """
-  SELECT di.device_id, di.partition, d.hostname, o.hostname
-  FROM platform.device_identifiers AS di
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  LEFT JOIN platform.device_source_observations AS o
-    ON o.source = 'armis' AND o.source_object_id = di.identifier_value
-   AND di.partition = o.partition || ':armis:' || o.source_instance
-  WHERE di.identifier_type = $1 AND di.partition = ANY (CAST($2 AS text[]))
-    AND (
-      translate(regexp_replace(replace(replace(d.hostname, chr(8490), 'k'), chr(304), 'i'),
-                               '[^A-Za-z0-9]+', '', 'g'),
-                'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
-        = ANY (CAST($3 AS text[]))
-      OR translate(regexp_replace(replace(replace(o.hostname, chr(8490), 'k'), chr(304), 'i'),
-                                  '[^A-Za-z0-9]+', '', 'g'),
-                   'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')
-        = ANY (CAST($3 AS text[]))
-    )
   """
 
   @identifiers_sql """
@@ -327,8 +303,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
 
   @doc """
   Classifies the pairs of a snapshot into successive pairs and reviews. Pure: the snapshot holds
-  the predecessors and current records by uid, the hostname holders by partition and normalized
-  hostname, and the asserted-distinct pairs as sorted uid tuples.
+  the predecessors and current records by uid and the asserted-distinct pairs as sorted uid
+  tuples.
   """
   @spec classify(map()) :: %{successive: [pair()], reviews: [review()]}
   def classify(%{predecessors: predecessors, currents: currents} = snapshot) do
@@ -638,18 +614,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     end)
   end
 
-  # The source's times for the retired ids of each partition, as their rows carried them into
-  # the archive. The last-seen time is the latest, and unknown when a row has none.
+  # The source's first-seen times for the retired ids of each partition, as their rows carried
+  # them into the archive.
   defp predecessor_scopes(rows, device) do
     rows
     |> Enum.group_by(& &1.partition)
     |> Map.new(fn {partition, rows} ->
-      {partition,
-       %{
-         rows: rows,
-         firsts: Enum.map(rows, &retired_first_seen(&1, device)),
-         last_seen: latest(Enum.map(rows, &time(&1.metadata, "source_last_seen_time")))
-       }}
+      {partition, %{rows: rows, firsts: Enum.map(rows, &retired_first_seen(&1, device))}}
     end)
   end
 
@@ -704,19 +675,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     end)
   end
 
-  # The source's own first-seen times for the current ids of each partition; the earliest is
-  # unknown when a row has none.
+  # The source's own first-seen times for the current ids of each partition.
   defp current_scopes(rows) do
     rows
     |> Enum.group_by(& &1.partition)
     |> Map.new(fn {partition, rows} ->
       times = Enum.map(rows, &time(&1.metadata, "source_first_seen_time"))
-
-      {partition,
-       %{
-         firsts: Enum.reject(times, &is_nil/1),
-         first_seen: if(Enum.any?(times, &is_nil/1), do: nil, else: Enum.min(times, DateTime))
-       }}
+      {partition, %{firsts: Enum.reject(times, &is_nil/1)}}
     end)
   end
 
@@ -724,7 +689,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     %{
       predecessors: predecessors,
       currents: currents,
-      hostname_holders: hostname_holders(predecessors, currents),
       distinct:
         Deduplication.asserted_distinct_pairs(Map.keys(predecessors) ++ Map.keys(currents))
     }
@@ -859,49 +823,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     end
   end
 
-  # The current records of each partition holding each hostname a predecessor and a current
-  # record of the partition share; a hostname held by two does not corroborate.
-  defp hostname_holders(predecessors, currents) do
-    pred_names =
-      predecessors |> Map.values() |> Enum.reduce(MapSet.new(), &MapSet.union(&2, &1.names))
-
-    pred_partitions =
-      predecessors |> Map.values() |> Enum.flat_map(&Map.keys(&1.scopes)) |> MapSet.new()
-
-    keys =
-      for current <- Map.values(currents),
-          partition <- Map.keys(current.scopes),
-          MapSet.member?(pred_partitions, partition),
-          name <- MapSet.intersection(current.names, pred_names),
-          uniq: true,
-          do: {partition, name}
-
-    case keys do
-      [] ->
-        %{}
-
-      keys ->
-        %{rows: rows} =
-          Repo.query!(@hostname_holders_sql, [
-            type_name(),
-            keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq(),
-            keys |> Enum.map(&hostname_key(elem(&1, 1))) |> Enum.uniq()
-          ])
-
-        Enum.reduce(rows, %{}, fn [uid, partition | hostnames], acc ->
-          hostnames
-          |> Enum.map(&SourceCorroboration.normalize_hostname/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.uniq()
-          |> Enum.reduce(acc, fn name, acc ->
-            Map.update(acc, {partition, name}, MapSet.new([uid]), &MapSet.put(&1, uid))
-          end)
-        end)
-    end
-  end
-
-  defp hostname_key(name), do: String.replace(name, ~r/[^a-z0-9]+/, "")
-
   defp macs(device, ids, interface_macs, observations) do
     SourceCorroboration.hardware_macs(
       [device.mac] ++
@@ -966,7 +887,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
 
       partitions ->
         shared = pred.macs |> MapSet.intersection(current.macs) |> Enum.sort()
-        checks = Enum.map(partitions, &corroborate(pred, current, &1, snapshot))
+        checks = Enum.map(partitions, &corroborate(pred, current, &1))
 
         [
           %{
@@ -985,10 +906,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     end
   end
 
-  defp corroborate(pred, current, partition, snapshot) do
-    earlier = Map.fetch!(pred.scopes, partition)
-    later = Map.fetch!(current.scopes, partition)
-
+  # A pair corroborates in a partition only on an equal source first-seen time, the rule of
+  # `SourceCorroboration.corroboration/2`; a shared hostname never does.
+  defp corroborate(pred, current, partition) do
     case equal_first_seen(pred, current, partition) do
       %{time: time, basis: basis} ->
         {:ok,
@@ -1000,25 +920,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
          }}
 
       nil ->
-        unique = unique_names(current, partition, Map.get(snapshot, :hostname_holders, %{}))
-
-        case SourceCorroboration.corroboration(
-               %{last_seen: earlier.last_seen, hostnames: MapSet.to_list(pred.names)},
-               %{first_seen: later.first_seen, hostnames: unique}
-             ) do
-          {:ok, :hostname} ->
-            {:ok,
-             %{
-               "partition" => partition,
-               "field" => "hostname",
-               "hostname" => pred.names |> MapSet.intersection(MapSet.new(unique)) |> Enum.min(),
-               "predecessor_last_seen" => iso8601(earlier.last_seen),
-               "successor_first_seen" => iso8601(later.first_seen)
-             }}
-
-          _no ->
-            :error
-        end
+        :error
     end
   end
 
@@ -1031,15 +933,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
     |> Enum.find(fn
       %{time: %DateTime{} = time} -> Enum.any?(later.firsts, &(DateTime.compare(&1, time) == :eq))
       _unknown -> false
-    end)
-  end
-
-  defp unique_names(current, partition, hostname_holders) do
-    Enum.filter(current.names, fn name ->
-      hostname_holders
-      |> Map.get({partition, name}, MapSet.new())
-      |> MapSet.delete(current.uid)
-      |> MapSet.size() == 0
     end)
   end
 
@@ -1250,10 +1143,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
   end
 
   defp time(metadata, key), do: SourceCorroboration.parse_time(Map.get(metadata || %{}, key))
-
-  defp latest(times) do
-    if Enum.any?(times, &is_nil/1), do: nil, else: Enum.max(times, DateTime)
-  end
 
   defp type_name, do: Atom.to_string(@identifier_type)
 

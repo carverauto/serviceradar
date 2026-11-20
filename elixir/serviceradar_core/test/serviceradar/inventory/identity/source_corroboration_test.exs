@@ -94,54 +94,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceCorroborationTest do
       assert SourceCorroboration.corroboration(%{first_seen: nil}, %{first_seen: nil}) == :error
     end
 
-    test "a shared hostname corroborates when the later one was first seen after the earlier one was last seen" do
+    # A name is not identity (stop-name-as-identity-evidence): a shared hostname corroborates
+    # nothing, even when the later id was first seen after the earlier one was last seen.
+    test "a shared hostname first seen after the earlier one was last seen does not corroborate" do
       earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["host01"])
       later = observation("2026-02-02T00:00:00Z", nil, ["host01"])
 
-      assert SourceCorroboration.corroboration(earlier, later) == {:ok, :hostname}
-    end
-
-    test "a later first-seen time equal to the earlier last-seen time passes the guard" do
-      earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["host01"])
-      later = observation("2026-02-01T00:00:00Z", nil, ["host01"])
-
-      assert SourceCorroboration.corroboration(earlier, later) == {:ok, :hostname}
-    end
-
-    # Cloned machines share a hostname while both are in the source.
-    test "a shared hostname first seen while the earlier one was still seen does not corroborate" do
-      earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["host01"])
-      later = observation("2026-01-31T23:59:59Z", nil, ["host01"])
-
-      assert SourceCorroboration.corroboration(earlier, later) == :error
-    end
-
-    test "a missing time fails the guard" do
-      earlier = observation("2026-01-01T00:00:00Z", nil, ["host01"])
-      later = observation("2026-02-02T00:00:00Z", nil, ["host01"])
-      assert SourceCorroboration.corroboration(earlier, later) == :error
-
-      earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["host01"])
-      later = observation(nil, nil, ["host01"])
-      assert SourceCorroboration.corroboration(earlier, later) == :error
-    end
-
-    test "hostnames are compared normalized, and any shared one counts" do
-      earlier =
-        observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["Host01.Example.com."])
-
-      later = observation("2026-02-02T00:00:00Z", nil, [nil, "host02", "host01.example.com"])
-
-      assert SourceCorroboration.corroboration(earlier, later) == {:ok, :hostname}
-    end
-
-    test "blank hostnames are not shared, and different ones do not corroborate" do
-      earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["", nil])
-      later = observation("2026-02-02T00:00:00Z", nil, ["  ", nil])
-      assert SourceCorroboration.corroboration(earlier, later) == :error
-
-      earlier = observation("2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", ["host01"])
-      later = observation("2026-02-02T00:00:00Z", nil, ["host02"])
       assert SourceCorroboration.corroboration(earlier, later) == :error
     end
   end
