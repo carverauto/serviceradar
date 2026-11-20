@@ -42,8 +42,37 @@ defmodule ServiceRadar.Plugins.Changes.SetDirectLeafAccess do
     end
   end
 
+  # An atomic update keeps the attribute changes made in change/3 and drops the
+  # hook it registered, so the identity an update replaces or clears would stay
+  # valid on the gateway. Register the revocation here, deciding from the saved
+  # record whether the previous identity is still the current one.
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, _opts, _context) do
+    previous = changeset.data
+
+    if previous_identity?(previous) do
+      {:ok,
+       AfterAction.after_action(changeset, fn record ->
+         if identity_replaced?(previous, record) do
+           revoke(previous, replaced_reason(record))
+         end
+       end)}
+    else
+      {:ok, changeset}
+    end
+  end
+
+  defp identity_replaced?(previous, record) do
+    Map.get(previous, :direct_certificate_fingerprint) !=
+      Map.get(record, :direct_certificate_fingerprint) or
+      Map.get(previous, :direct_identity_component_id) !=
+        Map.get(record, :direct_identity_component_id)
+  end
+
+  defp replaced_reason(%{direct_access_status: :not_requested}),
+    do: "direct leaf transport disabled"
+
+  defp replaced_reason(_record), do: "direct leaf identity rotated"
 
   defp set_direct_access_metadata(changeset, params) do
     {scope, error} =
@@ -118,22 +147,22 @@ defmodule ServiceRadar.Plugins.Changes.SetDirectLeafAccess do
 
   defp revoke_previous_identity(changeset, previous, reason) do
     if previous_identity?(previous) do
-      previous = Map.put(previous, :agent_uid, Map.get(previous, :agent_uid))
-
-      AfterAction.after_action(changeset, fn _record ->
-        case DirectLeafIdentityIssuer.revoke(previous, reason: reason) do
-          :ok ->
-            :ok
-
-          {:error, revoke_error} ->
-            Logger.warning(
-              "Direct-leaf identity revocation could not reach the gateway: " <>
-                "assignment=#{Map.get(previous, :id)} reason=#{inspect(revoke_error)}"
-            )
-        end
-      end)
+      AfterAction.after_action(changeset, fn _record -> revoke(previous, reason) end)
     else
       changeset
+    end
+  end
+
+  defp revoke(previous, reason) do
+    case DirectLeafIdentityIssuer.revoke(previous, reason: reason) do
+      :ok ->
+        :ok
+
+      {:error, revoke_error} ->
+        Logger.warning(
+          "Direct-leaf identity revocation could not reach the gateway: " <>
+            "assignment=#{Map.get(previous, :id)} reason=#{inspect(revoke_error)}"
+        )
     end
   end
 
