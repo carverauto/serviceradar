@@ -45,6 +45,12 @@ import {canonicalUtcInstant, formatUserTime} from "../../js/utils/user_time"
 const DEFAULT_TIME_ZONE = "Etc/UTC"
 const DEFAULT_WINDOW = "last_24h"
 const ALLOWED_WINDOWS = ["last_1h", "last_6h", "last_24h", "last_7d"]
+const WINDOW_BUCKET_CONFIG = {
+  last_1h: {bucket: "5m", limit: 24, label: "1h · 5m buckets"},
+  last_6h: {bucket: "15m", limit: 32, label: "6h · 15m buckets"},
+  last_24h: {bucket: "1h", limit: 48, label: "24h · 1h buckets"},
+  last_7d: {bucket: "6h", limit: 48, label: "7d · 6h buckets"},
+}
 
 const INT_FORMATTER = new Intl.NumberFormat("en-US", {maximumFractionDigits: 0})
 const DECIMAL_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -305,6 +311,7 @@ export function deriveLatencyBreakdown(row) {
 
 export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
   const safeWindow = ALLOWED_WINDOWS.includes(timeWindow) ? timeWindow : DEFAULT_WINDOW
+  const bucketCfg = WINDOW_BUCKET_CONFIG[safeWindow] || WINDOW_BUCKET_CONFIG[DEFAULT_WINDOW]
   const clauses = ["in:rum", `time:${safeWindow}`]
 
   if (webPropertyId && String(webPropertyId).trim() !== "") {
@@ -316,7 +323,7 @@ export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
 
   const prefix = clauses.join(" ")
   const rum_cwv_summary = `${prefix} stats:"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(fcp_ms) as p75_fcp_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(page_load_ms) as p75_page_load_ms, sum(has_error) as error_beacons" limit:1`
-  const rum_latency_breakdown = `${prefix} stats:"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(dom_ready_ms) as p75_dom_ready_ms, p75(page_load_ms) as p75_page_load_ms, p75(lcp_ms) as p75_lcp_ms by time:1h" limit:48`
+  const rum_latency_breakdown = `${prefix} stats:"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(dom_ready_ms) as p75_dom_ready_ms, p75(page_load_ms) as p75_page_load_ms, p75(lcp_ms) as p75_lcp_ms by time:${bucketCfg.bucket}" limit:${bucketCfg.limit}`
   const rum_site_asn_summary = `${prefix} stats:"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(ttfb_ms) as p75_ttfb_ms, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, sum(has_error) as error_beacons by prefix_tag, asn, as_org" sort:beacons:desc limit:100`
   const rum_cdn_summary = `${prefix} stats:"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms by cdn_provider, cdn_cache_status" sort:beacons:desc limit:20`
   const rum_route_summary = `${prefix} stats:"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(ttfb_ms) as p75_ttfb_ms, sum(has_error) as error_beacons by canonical_origin, metric_path" sort:beacons:desc limit:100`
@@ -333,6 +340,108 @@ export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
       rum_recent_beacons,
     },
   }
+}
+
+function LatencyTrendChart({rows, hasCdnTiming}) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+
+  const points = rows.map((row, idx) => {
+    const split = deriveLatencyBreakdown(row)
+    return {
+      idx,
+      bucket: row.bucket || `#${idx + 1}`,
+      lcp: numericValue(row.p75_lcp_ms),
+      ttfb: split.ttfbMs,
+      edge: split.edgeRttMs,
+      origin: split.originRttMs,
+    }
+  })
+
+  const series = [
+    {key: "lcp", label: "LCP p75", color: "#238551"},
+    {key: "ttfb", label: "TTFB p75", color: "#2d72d2"},
+    ...(hasCdnTiming
+      ? [
+          {key: "edge", label: "Edge RTT", color: "#00a396"},
+          {key: "origin", label: "Origin RTT", color: "#c87619"},
+        ]
+      : []),
+  ]
+
+  const allValues = points.flatMap((p) =>
+    series.map((s) => p[s.key]).filter((v) => v !== null && Number.isFinite(v)),
+  )
+  if (allValues.length === 0) return null
+
+  const width = 560
+  const height = 112
+  const padX = 12
+  const padY = 12
+  const maxVal = Math.max(100, ...allValues)
+  const xFor = (idx) =>
+    points.length === 1
+      ? width / 2
+      : padX + (idx / (points.length - 1)) * (width - padX * 2)
+  const yFor = (val) => height - padY - (Math.max(0, val) / maxVal) * (height - padY * 2)
+
+  return (
+    <div style={{margin: "6px 0 8px"}}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height="112"
+        role="img"
+        aria-label="Latency trendline chart"
+        style={{display: "block", overflow: "visible"}}
+      >
+        <line
+          x1={padX}
+          y1={height - padY}
+          x2={width - padX}
+          y2={height - padY}
+          stroke="currentColor"
+          strokeOpacity="0.16"
+          strokeWidth="1"
+        />
+        <line
+          x1={padX}
+          y1={padY}
+          x2={width - padX}
+          y2={padY}
+          stroke="currentColor"
+          strokeOpacity="0.08"
+          strokeDasharray="3 3"
+          strokeWidth="1"
+        />
+        {series.map((s) => {
+          const coords = points
+            .map((p) => (p[s.key] !== null ? {x: xFor(p.idx), y: yFor(p[s.key]), val: p[s.key], bucket: p.bucket} : null))
+            .filter(Boolean)
+          if (coords.length === 0) return null
+          const poly = coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ")
+          return (
+            <g key={s.key}>
+              {coords.length > 1 ? (
+                <polyline
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  points={poly}
+                />
+              ) : null}
+              {coords.map((c, i) => (
+                <circle key={i} cx={c.x} cy={c.y} r="3" fill={s.color}>
+                  <title>{`${s.label}: ${formatMs(c.val)} (${c.bucket})`}</title>
+                </circle>
+              ))}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
 }
 
 function UserTimeLabel({value, timeZone, style = "compact"}) {
@@ -650,10 +759,42 @@ export function WebRumDashboard() {
       ? Math.min(1, Math.max(0, selectedBeaconLcpMs / thresholds.lcpPoor))
       : 0
 
-  const latencyStackTotal =
-    (latestLatency.edgeRttMs ?? 0) +
-    (latestLatency.originRttMs ?? 0) +
-    (latestLatency.browserRenderMs ?? 0)
+  const activeBucketConfig =
+    WINDOW_BUCKET_CONFIG[filters.state.timeWindow] || WINDOW_BUCKET_CONFIG[DEFAULT_WINDOW]
+
+  const hasCdnTiming = useMemo(() => {
+    const hasCdnSummary = cdnSummaryRows.some(
+      (row) =>
+        numericValue(row.p75_edge_rtt_ms) !== null ||
+        numericValue(row.p75_origin_rtt_ms) !== null ||
+        (row.cdn_provider && String(row.cdn_provider).trim() !== "") ||
+        (row.cdn_cache_status &&
+          String(row.cdn_cache_status).trim() !== "" &&
+          String(row.cdn_cache_status).toUpperCase() !== "UNKNOWN"),
+    )
+    const hasBreakdownCdn = latencyBreakdownRows.some(
+      (row) =>
+        numericValue(row.p75_edge_rtt_ms) !== null || numericValue(row.p75_origin_rtt_ms) !== null,
+    )
+    return hasCdnSummary || hasBreakdownCdn
+  }, [cdnSummaryRows, latencyBreakdownRows])
+
+  const hasSiteAsnData = useMemo(
+    () =>
+      filteredSiteAsnRows.some(
+        (row) =>
+          (row.prefix_tag && String(row.prefix_tag).trim() !== "") ||
+          (numericValue(row.asn) !== null && numericValue(row.asn) > 0) ||
+          (row.as_org && String(row.as_org).trim() !== ""),
+      ),
+    [filteredSiteAsnRows],
+  )
+
+  const latencyStackTotal = hasCdnTiming
+    ? (latestLatency.edgeRttMs ?? 0) +
+      (latestLatency.originRttMs ?? 0) +
+      (latestLatency.browserRenderMs ?? 0)
+    : (latestLatency.ttfbMs ?? 0) + (latestLatency.browserRenderMs ?? 0)
 
   return (
     <div
@@ -805,49 +946,83 @@ export function WebRumDashboard() {
         </Card>
       </div>
 
-      {/* Edge vs Origin vs Browser Render + Akamai Cache Split */}
-      <div className="sr-rum-split-grid">
+      {/* Latency Trend + Optional Akamai CDN Cache Split */}
+      <div
+        className="sr-rum-split-grid"
+        style={hasCdnTiming ? undefined : {gridTemplateColumns: "1fr"}}
+      >
         <Card compact className="sr-rum-section-card">
           <div className="sr-rum-section-head">
             <span className="sr-rum-section-title">
-              Edge vs Origin RTT vs Browser Render (p75)
+              {hasCdnTiming
+                ? "Edge vs Origin RTT vs Browser Render (p75)"
+                : "TTFB vs Browser Render & LCP Trend (p75)"}
             </span>
-            <Tag minimal icon={<PulseIcon size={12} />}>
-              Page Load {formatMs(latestLatency.totalMs)}
-            </Tag>
+            <div style={{display: "flex", alignItems: "center", gap: "6px"}}>
+              <Tag minimal>{activeBucketConfig.label}</Tag>
+              <Tag minimal icon={<PulseIcon size={12} />}>
+                Page Load {formatMs(latestLatency.totalMs)}
+              </Tag>
+            </div>
           </div>
+
+          <LatencyTrendChart rows={latencyBreakdownRows} hasCdnTiming={hasCdnTiming} />
 
           <div className="sr-rum-stack-bar" aria-label="Latency breakdown bar">
             {latencyStackTotal > 0 ? (
-              <>
-                <div
-                  className="sr-rum-stack-seg-edge"
-                  style={{width: `${((latestLatency.edgeRttMs ?? 0) / latencyStackTotal) * 100}%`}}
-                  title={`Edge RTT: ${formatMs(latestLatency.edgeRttMs)}`}
-                />
-                <div
-                  className="sr-rum-stack-seg-origin"
-                  style={{width: `${((latestLatency.originRttMs ?? 0) / latencyStackTotal) * 100}%`}}
-                  title={`Origin RTT: ${formatMs(latestLatency.originRttMs)}`}
-                />
-                <div
-                  className="sr-rum-stack-seg-browser"
-                  style={{width: `${((latestLatency.browserRenderMs ?? 0) / latencyStackTotal) * 100}%`}}
-                  title={`Browser Render: ${formatMs(latestLatency.browserRenderMs)}`}
-                />
-              </>
+              hasCdnTiming ? (
+                <>
+                  <div
+                    className="sr-rum-stack-seg-edge"
+                    style={{width: `${((latestLatency.edgeRttMs ?? 0) / latencyStackTotal) * 100}%`}}
+                    title={`Edge RTT: ${formatMs(latestLatency.edgeRttMs)}`}
+                  />
+                  <div
+                    className="sr-rum-stack-seg-origin"
+                    style={{width: `${((latestLatency.originRttMs ?? 0) / latencyStackTotal) * 100}%`}}
+                    title={`Origin RTT: ${formatMs(latestLatency.originRttMs)}`}
+                  />
+                  <div
+                    className="sr-rum-stack-seg-browser"
+                    style={{width: `${((latestLatency.browserRenderMs ?? 0) / latencyStackTotal) * 100}%`}}
+                    title={`Browser Render: ${formatMs(latestLatency.browserRenderMs)}`}
+                  />
+                </>
+              ) : (
+                <>
+                  <div
+                    className="sr-rum-stack-seg-edge"
+                    style={{width: `${((latestLatency.ttfbMs ?? 0) / latencyStackTotal) * 100}%`}}
+                    title={`TTFB: ${formatMs(latestLatency.ttfbMs)}`}
+                  />
+                  <div
+                    className="sr-rum-stack-seg-browser"
+                    style={{width: `${((latestLatency.browserRenderMs ?? 0) / latencyStackTotal) * 100}%`}}
+                    title={`Browser Render: ${formatMs(latestLatency.browserRenderMs)}`}
+                  />
+                </>
+              )
             ) : null}
           </div>
 
           <div className="sr-rum-legend">
-            <span className="sr-rum-legend-item">
-              <span className="sr-rum-dot" style={{background: "#2d72d2"}} />
-              Edge RTT: <strong>{formatMs(latestLatency.edgeRttMs)}</strong>
-            </span>
-            <span className="sr-rum-legend-item">
-              <span className="sr-rum-dot" style={{background: "#c87619"}} />
-              Origin RTT: <strong>{formatMs(latestLatency.originRttMs)}</strong>
-            </span>
+            {hasCdnTiming ? (
+              <>
+                <span className="sr-rum-legend-item">
+                  <span className="sr-rum-dot" style={{background: "#00a396"}} />
+                  Edge RTT: <strong>{formatMs(latestLatency.edgeRttMs)}</strong>
+                </span>
+                <span className="sr-rum-legend-item">
+                  <span className="sr-rum-dot" style={{background: "#c87619"}} />
+                  Origin RTT: <strong>{formatMs(latestLatency.originRttMs)}</strong>
+                </span>
+              </>
+            ) : (
+              <span className="sr-rum-legend-item">
+                <span className="sr-rum-dot" style={{background: "#2d72d2"}} />
+                TTFB: <strong>{formatMs(latestLatency.ttfbMs)}</strong>
+              </span>
+            )}
             <span className="sr-rum-legend-item">
               <span className="sr-rum-dot" style={{background: "#238551"}} />
               Browser Render: <strong>{formatMs(latestLatency.browserRenderMs)}</strong>
@@ -860,8 +1035,14 @@ export function WebRumDashboard() {
                 <tr>
                   <th>Bucket</th>
                   <th>Beacons</th>
-                  <th>Edge RTT</th>
-                  <th>Origin RTT</th>
+                  {hasCdnTiming ? (
+                    <>
+                      <th>Edge RTT</th>
+                      <th>Origin RTT</th>
+                    </>
+                  ) : (
+                    <th>TTFB</th>
+                  )}
                   <th>Browser Render</th>
                   <th>LCP p75</th>
                 </tr>
@@ -875,8 +1056,14 @@ export function WebRumDashboard() {
                         <UserTimeLabel value={row.bucket} timeZone={timeZone} />
                       </td>
                       <td>{INT_FORMATTER.format(numericValue(row.beacons) ?? 0)}</td>
-                      <td>{formatMs(split.edgeRttMs)}</td>
-                      <td>{formatMs(split.originRttMs)}</td>
+                      {hasCdnTiming ? (
+                        <>
+                          <td>{formatMs(split.edgeRttMs)}</td>
+                          <td>{formatMs(split.originRttMs)}</td>
+                        </>
+                      ) : (
+                        <td>{formatMs(split.ttfbMs)}</td>
+                      )}
                       <td>{formatMs(split.browserRenderMs)}</td>
                       <td>{formatMs(row.p75_lcp_ms)}</td>
                     </tr>
@@ -887,18 +1074,12 @@ export function WebRumDashboard() {
           ) : null}
         </Card>
 
-        <Card compact className="sr-rum-section-card">
-          <div className="sr-rum-section-head">
-            <span className="sr-rum-section-title">Akamai CDN Cache Status &amp; Edge Latency</span>
-            <Tag minimal>Server-Timing</Tag>
-          </div>
-          {cdnSummaryRows.length === 0 ? (
-            <NonIdealState
-              icon={<PulseIcon size={24} />}
-              title="No CDN timing data"
-              description="Waiting for beacons containing Server-Timing CDN headers."
-            />
-          ) : (
+        {hasCdnTiming ? (
+          <Card compact className="sr-rum-section-card">
+            <div className="sr-rum-section-head">
+              <span className="sr-rum-section-title">Akamai CDN Cache Status &amp; Edge Latency</span>
+              <Tag minimal>Server-Timing</Tag>
+            </div>
             <HTMLTable compact striped className="sr-rum-table">
               <thead>
                 <tr>
@@ -936,8 +1117,8 @@ export function WebRumDashboard() {
                 ))}
               </tbody>
             </HTMLTable>
-          )}
-        </Card>
+          </Card>
+        ) : null}
       </div>
 
       {/* Filter Bar */}
@@ -975,20 +1156,18 @@ export function WebRumDashboard() {
         </div>
       </Card>
 
-      {/* Branch Prefix & ASN Cohorts + Route Hotspots */}
-      <div className="sr-rum-split-grid">
-        <Card compact className="sr-rum-table-card">
-          <div className="sr-rum-section-card">
-            <div className="sr-rum-section-head">
-              <span className="sr-rum-section-title">Branch Prefixes &amp; ISP ASNs</span>
-              <span className="sr-rum-cell-sub">Click a row to filter by prefix_tag</span>
-            </div>
-            {filteredSiteAsnRows.length === 0 ? (
-              <NonIdealState
-                icon={<SearchIcon size={24} />}
-                title="No matching prefix_tag or ASN cohorts"
-              />
-            ) : (
+      {/* Optional Branch Prefix & ASN Cohorts + Route Hotspots */}
+      <div
+        className="sr-rum-split-grid"
+        style={hasSiteAsnData ? undefined : {gridTemplateColumns: "1fr"}}
+      >
+        {hasSiteAsnData ? (
+          <Card compact className="sr-rum-table-card">
+            <div className="sr-rum-section-card">
+              <div className="sr-rum-section-head">
+                <span className="sr-rum-section-title">Branch Prefixes &amp; ISP ASNs</span>
+                <span className="sr-rum-cell-sub">Click a row to filter by prefix_tag</span>
+              </div>
               <HTMLTable interactive striped compact className="sr-rum-table">
                 <thead>
                   <tr>
@@ -996,7 +1175,7 @@ export function WebRumDashboard() {
                     <th>ASN / Org</th>
                     <th>Beacons</th>
                     <th>LCP p75</th>
-                    <th>Edge / Origin</th>
+                    {hasCdnTiming ? <th>Edge / Origin</th> : <th>TTFB p75</th>}
                     <th>Errors</th>
                   </tr>
                 </thead>
@@ -1041,7 +1220,9 @@ export function WebRumDashboard() {
                           </Tag>
                         </td>
                         <td className="sr-rum-cell-sub">
-                          {formatMs(row.p75_edge_rtt_ms)} / {formatMs(row.p75_origin_rtt_ms)}
+                          {hasCdnTiming
+                            ? `${formatMs(row.p75_edge_rtt_ms)} / ${formatMs(row.p75_origin_rtt_ms)}`
+                            : formatMs(row.p75_ttfb_ms)}
                         </td>
                         <td>
                           <Tag
@@ -1056,9 +1237,9 @@ export function WebRumDashboard() {
                   })}
                 </tbody>
               </HTMLTable>
-            )}
-          </div>
-        </Card>
+            </div>
+          </Card>
+        ) : null}
 
         <Card compact className="sr-rum-table-card">
           <div className="sr-rum-section-card">

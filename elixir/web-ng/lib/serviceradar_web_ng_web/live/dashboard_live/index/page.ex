@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.QueryResults
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.RumPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel
@@ -74,6 +75,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
             timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         </section>
+
+        <RumPanel.render dashboard={assigns} />
       </div>
     </Layouts.app>
     """
