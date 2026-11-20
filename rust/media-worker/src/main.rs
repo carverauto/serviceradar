@@ -1,7 +1,8 @@
 use clap::Parser;
 use serviceradar_media_worker::{
-    CliArgs, ReadinessState, SystemGpuEnvironmentProbe, WorkerMetrics, run_nats_worker_loops,
-    serve_http_probes, verify_startup_capabilities,
+    CliArgs, ReadinessState, SystemGpuEnvironmentProbe, WorkerMetrics, build_inference_backend,
+    run_nats_worker_loops_with_backend, serve_http_probes,
+    verify_startup_capabilities_with_backend,
 };
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -40,7 +41,25 @@ async fn main() -> ExitCode {
             }
         };
 
-    let manifest = match verify_startup_capabilities(&config, &SystemGpuEnvironmentProbe) {
+    let backend = match build_inference_backend(&config) {
+        Ok(b) => b,
+        Err(err) => {
+            readiness.mark_not_ready(err.to_string());
+            error!(
+                error = %err,
+                backend = %config.backend_kind(),
+                "failed initializing inference backend; refusing to pull visual indexing jobs"
+            );
+            let _ = shutdown_tx.send(true);
+            return ExitCode::from(1);
+        }
+    };
+
+    let manifest = match verify_startup_capabilities_with_backend(
+        &config,
+        &SystemGpuEnvironmentProbe,
+        Arc::clone(&backend),
+    ) {
         Ok(man) => man,
         Err(err) => {
             // Fail closed with zero silent CPU fallback (`2.2`).
@@ -59,6 +78,11 @@ async fn main() -> ExitCode {
     info!(
         listen = %bound_addr,
         architecture = %manifest.architecture(),
+        inference_backend = %manifest.inference_backend(),
+        inference_device = %manifest.inference_device(),
+        detector_enabled = manifest.detector_enabled(),
+        tracker = %manifest.tracker(),
+        dedup_track_crops = manifest.dedup_track_crops(),
         execution_provider = %manifest.execution_provider(),
         gpu_sharing_mode = %manifest.gpu_sharing_mode(),
         embedder_model_id = %manifest.embedder_model_id(),
@@ -66,7 +90,12 @@ async fn main() -> ExitCode {
         "serviceradar-media-worker startup capability admission verified"
     );
 
-    let worker_task = tokio::spawn(run_nats_worker_loops(config, metrics, shutdown_rx));
+    let worker_task = tokio::spawn(run_nats_worker_loops_with_backend(
+        config,
+        backend,
+        metrics,
+        shutdown_rx,
+    ));
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {

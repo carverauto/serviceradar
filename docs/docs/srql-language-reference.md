@@ -379,6 +379,8 @@ fields; using a field that the entity does not support returns an
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
 | `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
 | `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
+| `websites` | `website`, `web_properties`, `web_property` | L7 web property inventory (canonical origin, edge provider, TLS posture, RUM settings). Kept separate from `devices`. Requires `devices.view`. |
+| `rum` | `rum_beacons`, `rum_beacon` | Boomerang Real User Monitoring beacons. Read from StarRocks when it is enabled, otherwise from CNPG. Requires `observability.metrics.view`. |
 | `camera_sources` | `camera_source`, `cameras`, `camera` | Camera inventory with availability and viewable stream profiles. Requires `devices.view`. |
 | `services` | `service` | Observed services and their availability |
 | `gateways` | `gateway` | Gateway/agent operational state |
@@ -396,7 +398,7 @@ fields; using a field that the entity does not support returns an
 | `timeseries_metric_interface_hourly` | `timeseries_metrics_interface_hourly`, `interface_metrics_hourly` | Hourly interface counter rollups keyed by device and `if_index` (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
 | `timeseries_metric_disk_hourly` | `timeseries_metrics_disk_hourly` | Hourly `sysmon.disk` gauge rollups keyed by device and mount point (configurable retention, default 395 days; see `core.observabilityRetention.hourlyRollupDays`) |
 | `snmp_metrics` | `snmp` | SNMP-collected metrics |
-| `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
+| `rperf_metrics` | `rperf`, `netperf`, `netperf_metrics` | netperf/rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
 | `otel_trace_summaries` | `trace_summaries`, `traces_summaries` | One row per trace. `service_name` matches any participating span (`service_set`). |
@@ -961,7 +963,7 @@ Sortable fields: `timestamp`, `cpu_usage`, `memory_usage`, `pid`, `name`.
 
 ### timeseries_metrics
 
-`in:timeseries_metrics` (and the `snmp_metrics` / `rperf` aliases that share this
+`in:timeseries_metrics` (and the `snmp_metrics` / `rperf` / `netperf` aliases that share this
 schema) cover generic time-series data, including SNMP counters.
 
 | Field | Description |
@@ -1079,6 +1081,60 @@ maximum is 500. `stats:"count() as total"` is the only aggregation.
 
 ```text
 in:otel_services signal:traces service_name:%pay% sort:last_seen:desc limit:50
+```
+
+### websites
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `id` | | Web property UUID |
+| `name` | | Display name |
+| `canonical_origin` | `origin` | Canonical origin URL |
+| `environment` | `env` | `production`, `staging`, `development` or `internal` |
+| `edge_provider` | `provider` | `akamai`, `cloudflare`, `fastly`, `cloudfront`, `envoy_gateway` or `direct` |
+| `tls_issuer` | | Observed certificate issuer |
+| `rum_enabled` / `anonymize_client_ip` | | Booleans |
+| `allowed_origins` | `allowed_origin` | Array; matches any element |
+| `observed_vips` | `vip` | Array of observed VIP addresses; matches any element |
+| `tag` / `tags.<key>` | `tags` | Tag key presence, or the value of one tag key |
+| `tls_not_after` / `last_posture_checked_at` / `created_at` | | Timestamps |
+| `updated_at` | `time` | Last update (default `time:` field) |
+
+Sortable fields: `name` (default, ascending), `canonical_origin`, `environment`,
+`edge_provider`, `rum_enabled`, `tls_not_after`, `last_posture_checked_at`,
+`created_at`, `updated_at`.
+
+```text
+in:websites edge_provider:akamai rum_enabled:true sort:name:asc
+```
+
+### rum
+
+`in:rum` returns one row per Boomerang beacon. The filter, sort and `stats:`
+vocabulary is the same on CNPG and StarRocks.
+
+| Field | Description |
+|-------|-------------|
+| `web_property_id`, `beacon_id`, `canonical_origin`, `environment` | Beacon identity and owning web property |
+| `url`, `host`, `path`, `metric_path`, `referrer`, `page_group`, `initiator` | Page context; `metric_path` is the normalized path used for grouping |
+| `trace_id`, `span_id`, `session_id` | Correlation identifiers |
+| `device_type`, `browser`, `os` | Client classification |
+| `cdn_provider`, `cdn_cache_status`, `cdn_pop` | CDN enrichment (Akamai `Server-Timing`) |
+| `client_ip`, `country`, `region`, `city`, `as_org`, `prefix_tag` | Client network and geo enrichment |
+| `has_error`, `client_ip_anonymized` | Booleans |
+| `lcp_ms`, `inp_ms`, `cls`, `fcp_ms`, `ttfb_ms`, `page_load_ms`, `dns_ms`, `connect_ms`, `tls_ms`, `dom_ready_ms`, `cdn_edge_rtt_ms`, `cdn_origin_rtt_ms` | Timings; support numeric comparisons |
+| `rage_clicks`, `js_errors`, `http_status`, `asn` | Integer counters; support numeric comparisons |
+| `observed_at` | Beacon time (`time:` field; aliases `time`, `timestamp`) |
+
+Sortable fields: `observed_at` (default, descending), `created_at`, the Core Web
+Vitals and timing fields, `http_status`, `js_errors`, `rage_clicks`,
+`cdn_edge_rtt_ms` and `cdn_origin_rtt_ms`. `stats:` accepts `count()`, `sum`,
+`avg`, `min`, `max` and `p75` over the timing and counter fields (plus
+`has_error`), grouped by page, client, CDN or geo fields or by
+`time:<duration>`. `bucket:`, `rollup_stats:` and `other:true` are refused.
+
+```text
+in:rum time:last_24h stats:"p75(lcp_ms) as p75_lcp by metric_path"
 ```
 
 ### endpoint_packages

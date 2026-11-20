@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   use ServiceRadarWebNG.DataCase, async: true
 
+  import ExUnit.CaptureLog
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadar.Actors.SystemActor
@@ -8,26 +9,24 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadarWebNGWeb.Auth.ClaimDiagnostics
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
   describe "record_successful_authentication/3" do
     @tag :web_ng_shared_fixture_db
-    test "persists the trusted OIDC and SAML authentication method" do
+    test "persists the trusted OIDC authentication method" do
       actor = SystemActor.system(:test)
+      user = user_fixture(%{email: "oidc-login@example.com"})
 
-      for provider <- [:oidc, :saml] do
-        user = user_fixture(%{email: "#{provider}-login@example.com"})
+      assert {:ok, recorded} =
+               SSOProvisioning.record_successful_authentication(user, :oidc, actor)
 
-        assert {:ok, recorded} =
-                 SSOProvisioning.record_successful_authentication(user, provider, actor)
+      assert recorded.authenticated_at
+      assert recorded.last_login_at
+      assert recorded.last_auth_method == :oidc
 
-        assert recorded.authenticated_at
-        assert recorded.last_login_at
-        assert recorded.last_auth_method == provider
-
-        assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
-        assert persisted.last_auth_method == provider
-      end
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.last_auth_method == :oidc
     end
 
     @tag :web_ng_shared_fixture_db
@@ -67,8 +66,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
           %{
             email: "sso-existing@example.com",
             display_name: "Original Name",
-            external_id: "saml|existing",
-            provider: :saml
+            external_id: "oidc|existing",
+            provider: :oidc
           },
           actor: actor
         )
@@ -78,15 +77,15 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
                  %{
                    email: "different@example.com",
                    name: "Updated Name",
-                   external_id: "saml|existing"
+                   external_id: "oidc|existing"
                  },
-                 %{"sub" => "saml|existing"},
-                 :saml,
+                 %{"sub" => "oidc|existing"},
+                 :oidc,
                  actor
                )
 
       assert found.id == existing.id
-      assert found.external_id == "saml|existing"
+      assert found.external_id == "oidc|existing"
     end
 
     @tag :web_ng_shared_fixture_db
@@ -113,9 +112,9 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
 
       assert {:error, :no_local_account} =
                SSOProvisioning.find_or_create_user(
-                 %{email: "newcomer2@example.com", name: "Newcomer", external_id: "saml|new-2"},
-                 %{"sub" => "saml|new-2", "email" => "newcomer2@example.com"},
-                 :saml,
+                 %{email: "newcomer2@example.com", name: "Newcomer", external_id: "oidc|new-2"},
+                 %{"sub" => "oidc|new-2", "email" => "newcomer2@example.com"},
+                 :oidc,
                  actor
                )
 
@@ -244,6 +243,82 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert user.id == existing.id
       assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
       assert persisted.role == :helpdesk
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "warns at sign-in when mappings are configured but the token matched none", %{actor: actor} do
+      settings!([mapping("example-admins", %{"role" => "admin"})], actor)
+
+      log =
+        capture_log(fn ->
+          {:ok, user} = sign_in("unmatched@example.com", "oidc|unmatched", ["example-readers"], actor)
+          assert {:ok, %{role: :viewer}} = Ash.get(User, user.id, actor: actor)
+        end)
+
+      assert log =~ "SSO sign-in matched no role mapping"
+      assert log =~ "groups=[example-readers]"
+    end
+  end
+
+  describe "claim diagnostics against stored mappings" do
+    setup do
+      %{actor: SystemActor.system(:claim_diagnostics_test)}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "reports the role claims, identity and the mapping an app role matched", %{actor: actor} do
+      settings!([%{"source" => "groups", "value" => "example-admins", "role" => "admin"}], actor)
+
+      diagnosis =
+        ClaimDiagnostics.diagnose(
+          %{
+            "iss" => "https://idp.example.com/v2.0",
+            "preferred_username" => "alex@example.com",
+            "roles" => ["example-admins"],
+            "groups" => ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"]
+          },
+          actor: actor
+        )
+
+      assert diagnosis.mapping_count == 1
+      assert diagnosis.resolution.role == :admin
+      assert [%{"value" => "example-admins"}] = diagnosis.resolution.matched
+      assert {"roles", ["example-admins"]} in diagnosis.role_claims
+      assert {"groups", ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"]} in diagnosis.role_claims
+      assert {"iss", "https://idp.example.com/v2.0"} in diagnosis.identity
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "includes a claim a mapping names explicitly", %{actor: actor} do
+      settings!(
+        [%{"source" => "claim", "claim" => "department", "value" => "network", "role" => "operator"}],
+        actor
+      )
+
+      diagnosis = ClaimDiagnostics.diagnose(%{"department" => "network"}, actor: actor)
+
+      assert {"department", ["network"]} in diagnosis.role_claims
+      assert diagnosis.resolution.role == :operator
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "the sign-in log never carries token values from the claim set", %{actor: actor} do
+      claims = %{
+        "roles" => ["example-readers"],
+        "id_token" => "header.payload.signature-value",
+        "access_token" => "opaque-access-token-value",
+        "nonce" => "nonce-value"
+      }
+
+      {_level, message} =
+        claims
+        |> ClaimDiagnostics.diagnose(actor: actor)
+        |> ClaimDiagnostics.log_entry(:oidc)
+
+      assert message =~ "roles=[example-readers]"
+      refute message =~ "signature-value"
+      refute message =~ "opaque-access-token-value"
+      refute message =~ "nonce-value"
     end
   end
 

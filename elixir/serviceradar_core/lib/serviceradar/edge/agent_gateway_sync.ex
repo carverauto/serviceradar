@@ -41,6 +41,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
@@ -856,6 +857,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:os, os_info)
       |> maybe_put(:zone, partition)
       |> compact_attrs()
+      |> Map.put(:attribute_provenance, check_in_provenance(hostname))
 
     # DB connection's search_path determines the schema. The check-in is an
     # identity-bearing observation (DeviceWrites.observed_after?/2), which
@@ -879,6 +881,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           allow_conflict_release?
         )
     end
+  end
+
+  defp check_in_provenance(hostname) do
+    type = %{"type" => AttributeStrength.tag("type", :agent_check_in, "agent")}
+
+    if present_string?(hostname),
+      do: Map.put(type, "name", AttributeStrength.tag("name", :agent_check_in, "agent")),
+      else: type
   end
 
   defp maybe_adopt_existing_active_ip_device(
@@ -1300,20 +1310,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  # The check-in's hostname and host type are corroboration, not identity
+  # (fix-device-attribute-source-precedence, design decision 13): writing them
+  # here replaced the inventory's name and a hypervisor guest's or SNMP device's
+  # type on every check-in. Only a device the check-in creates takes them, at the
+  # weakest tier, so any other source replaces them.
   defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now) do
-    hostname = Map.get(attrs, :hostname)
     source_ip = agent_source_ip(attrs)
 
     # Merge discovery_sources with capability-based sources
     existing_sources = device.discovery_sources || []
     capability_sources = build_discovery_sources(capabilities)
     new_sources = Enum.uniq(capability_sources ++ existing_sources)
-    {device_type, device_type_id} = agent_host_device_type(device)
 
     update_attrs =
       %{
-        type_id: device_type_id,
-        type: device_type,
         agent_id: agent_id,
         is_available: true,
         is_managed: true,
@@ -1322,7 +1333,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         last_seen_time: now,
         identity_observed_at: now
       }
-      |> maybe_put(:hostname, hostname)
       |> Map.merge(checkin_primary_attrs(device, source_ip, now))
       |> compact_attrs()
 
@@ -1381,23 +1391,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # one (refuse_retained_device/2), which :gateway_restore also refuses.
   defp gateway_update_action(%Device{deleted_at: %DateTime{}}), do: :gateway_restore
   defp gateway_update_action(%Device{}), do: :gateway_sync
-
-  defp agent_host_device_type(%Device{} = device) do
-    if hypervisor_device?(device) do
-      {"Hypervisor", 99}
-    else
-      {"Server", 1}
-    end
-  end
-
-  defp hypervisor_device?(%Device{} = device) do
-    metadata = device.metadata || %{}
-    role = metadata |> Map.get("device_role") |> to_string() |> String.downcase()
-
-    role == "hypervisor" or
-      device.type == "Hypervisor" or
-      Enum.any?(device.discovery_sources || [], &(&1 in ["proxmox-api", "proxmox-candidate"]))
-  end
 
   # Build discovery_sources list based on agent capabilities
   defp build_discovery_sources(capabilities) when is_list(capabilities) do

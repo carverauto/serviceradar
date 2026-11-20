@@ -215,8 +215,6 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Plugs.SecurityHeaders,
   csp_mode: :report_only,
   csp_report_uri: "/api/security/csp-report"
 
-config :serviceradar_web_ng, :allow_insecure_metadata_urls, false
-
 # Local-login break-glass + SSO toggle. Overridden at runtime from
 # SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN / SERVICERADAR_AUTH_DISABLE_SSO (see
 # config/runtime.exs). Default off: server-side local-login policy is governed by the
@@ -322,16 +320,6 @@ config :serviceradar_web_ng, :plugin_verification,
     "serviceradar-first-party-v1" => "L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=",
     "serviceradar-first-party-v2" => "2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
   }
-
-# IdP-initiated (unsolicited) SAML responses have no request to bind to and so
-# permit login CSRF. Rejected unless explicitly enabled; see
-# ServiceRadarWebNGWeb.SAMLController.
-config :serviceradar_web_ng, :saml_allow_idp_initiated, false
-config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
-
-# How long an SP-initiated SAML login may take at the IdP: the pending
-# AuthnRequest stored under its RelayState (SAMLPendingRequest) expires after this.
-config :serviceradar_web_ng, :saml_authn_request_ttl_seconds, 600
 
 config :serviceradar_web_ng, :scopes,
   user: [

@@ -12,7 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHIdentityIssuer do
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadar.Events.AuditWriter
 
-  @trusted_auth_methods [:oidc, :saml]
+  @trusted_auth_methods [:oidc]
   @identity_claim_keys [:claims, "claims", :idp_claims, "idp_claims"]
 
   @spec issue(map() | struct(), map(), keyword()) :: {:ok, map()} | {:error, term()}

@@ -1,0 +1,116 @@
+{
+  "author": "ServiceRadar",
+  "categories": [
+    "Network & WAN",
+    "Security & Posture"
+  ],
+  "config": [
+    {
+      "default": "agent-dmz-01",
+      "description": "Edge agent identifier representing the DMZ vantage point.",
+      "key": "dmz_vantage_agent_id",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "default": "agent-core-01",
+      "description": "Edge agent identifier representing the core vantage point.",
+      "key": "core_vantage_agent_id",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "default": "192.0.2.50",
+      "description": "Protected internal host IP (RFC 5737 test range) verified for segmentation isolation.",
+      "key": "protected_target_host",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "default": 5432,
+      "description": "Protected internal service TCP port verified across vantage points.",
+      "key": "protected_target_port",
+      "max": 65535,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": "example.com",
+      "description": "Hostname queried for WAN DNS resolution latency and answer posture.",
+      "key": "dns_target_hostname",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "default": 150,
+      "description": "Warning threshold in milliseconds for WAN DNS resolution latency.",
+      "key": "dns_latency_warn_ms",
+      "max": 5000,
+      "min": 10,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 500,
+      "description": "Critical threshold in milliseconds for WAN DNS resolution latency.",
+      "key": "dns_latency_crit_ms",
+      "max": 10000,
+      "min": 20,
+      "required": false,
+      "type": "integer"
+    }
+  ],
+  "credential_slots": [],
+  "description": "Verifies multi-vantage network segmentation isolation across DMZ and core edge agents alongside WAN DNS resolution latency and answer posture.",
+  "files": {
+    "README.md": "de1355ee5fa36f4f44f5de76af6b96a48545bdb7c5d31ccc52397ac9c4587c36",
+    "assets/architecture.svg": "83e68f3d003303f981eeaad7e935c496b83aa9596f1c0d9a91c2078ca584b75c",
+    "checks/multi-vantage-segmentation-isolation.json": "e60f566a1ef264af570693914c5e61c10dc4cbb6258effcf67d36ab60b2bae7f",
+    "checks/wan-dns-resolution-posture.json": "b5be370699c36ac16d240c6d7a58a1204d91427cd31d84530bfd4b6b61cc9858",
+    "dashboards/network-segmentation-and-wan-overview.json": "26b4b38ede2ce99f0e94eb631d36605b8ed1fce7778a8e9c81ed9ecd95938943",
+    "rules/segmentation-breach-alert.json": "1db3758409e225d8e683b21451321098b8e4dbe59907c461b4d36c4e0106663a",
+    "rules/wan-dns-degraded-alert.json": "d24c5dba4323377d2cfcbec45efe912c7cbcc1393da6d79a5cc0b0c8c6f051b5"
+  },
+  "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTgiIHI9IjQiIGZpbGw9IiNmNDNmNWUiLz48Y2lyY2xlIGN4PSIxNiIgY3k9IjMwIiByPSI0IiBmaWxsPSIjMzhiZGY4Ii8+PGNpcmNsZSBjeD0iMzMiIGN5PSIyNCIgcj0iNSIgZmlsbD0iIzEwYjk4MSIvPjxsaW5lIHgxPSIyMCIgeTE9IjE5IiB4Mj0iMjgiIHkyPSIyMyIgc3Ryb2tlPSIjZjQzZjVlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1kYXNoYXJyYXk9IjMgMiIvPjxsaW5lIHgxPSIyMCIgeTE9IjI5IiB4Mj0iMjgiIHkyPSIyNSIgc3Ryb2tlPSIjMzhiZGY4IiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=",
+  "id": "io.serviceradar.network-segmentation-and-wan",
+  "license": "Apache-2.0",
+  "min_serviceradar_version": "1.0.70",
+  "name": "Network Segmentation & WAN Resilience",
+  "pack_format_version": 1,
+  "plugin_dependencies": [],
+  "resources": {
+    "checks": [
+      {
+        "file": "checks/multi-vantage-segmentation-isolation.json",
+        "slug": "multi-vantage-segmentation-isolation"
+      },
+      {
+        "file": "checks/wan-dns-resolution-posture.json",
+        "slug": "wan-dns-resolution-posture"
+      }
+    ],
+    "dashboards": [
+      {
+        "file": "dashboards/network-segmentation-and-wan-overview.json",
+        "slug": "network-segmentation-and-wan-overview"
+      }
+    ],
+    "rules": [
+      {
+        "file": "rules/segmentation-breach-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "network_segmentation_breach"
+      },
+      {
+        "file": "rules/wan-dns-degraded-alert.json",
+        "install_state": "paused",
+        "kind": "stateful_alert_rule",
+        "name": "wan_dns_resolution_degraded"
+      }
+    ]
+  },
+  "slug": "network-segmentation-and-wan",
+  "version": "0.1.1"
+}

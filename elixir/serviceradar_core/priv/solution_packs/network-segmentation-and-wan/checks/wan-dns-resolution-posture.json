@@ -1,0 +1,155 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Verifies WAN DNS resolution latency and answer presence for example.com from edge agents.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "dns_1",
+      "source_handle": "signal",
+      "target": "extract_dns",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "extract_dns",
+      "source_handle": "value",
+      "target": "assert_dns",
+      "target_handle": "in"
+    },
+    {
+      "id": "e3",
+      "source": "assert_dns",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "dns_latency_warn_ms"
+      },
+      "description": "Warning threshold in milliseconds for WAN DNS resolution latency",
+      "key": "dns_latency_warn_ms",
+      "max": 5000,
+      "min": 10,
+      "type": "integer"
+    },
+    {
+      "default": {
+        "$pack_param": "dns_latency_crit_ms"
+      },
+      "description": "Critical threshold in milliseconds for WAN DNS resolution latency",
+      "key": "dns_latency_crit_ms",
+      "max": 10000,
+      "min": 20,
+      "type": "integer"
+    }
+  ],
+  "managed": true,
+  "name": "WAN DNS Resolution Posture",
+  "nodes": [
+    {
+      "config": {
+        "hostname": {
+          "$pack_param": "dns_target_hostname"
+        },
+        "record_type": "A",
+        "timeout_ms": 3000
+      },
+      "id": "dns_1",
+      "kind": "dns_lookup",
+      "label": "WAN DNS Lookup"
+    },
+    {
+      "config": {
+        "cast": "number",
+        "field": "latency_ms",
+        "output_key": "dns_latency_ms",
+        "source_type": "field"
+      },
+      "id": "extract_dns",
+      "kind": "extract_field",
+      "label": "Extract DNS Latency"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.dns_latency_crit_ms}}"
+        },
+        "fail_closed_field": "answer_missing",
+        "field": "dns_latency_ms",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.dns_latency_warn_ms}}"
+        }
+      },
+      "id": "assert_dns",
+      "kind": "threshold_assert",
+      "label": "DNS Latency & Answer Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "wan_dns_slow",
+          "down": "wan_dns_resolution_failed",
+          "healthy": "wan_dns_healthy",
+          "unknown": "wan_dns_inconclusive"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "WAN DNS Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.network-segmentation-and-wan",
+  "pack_version": "0.1.1",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 60,
+    "jitter_seconds": 10,
+    "timeout_seconds": 20
+  },
+  "schema_version": 1,
+  "slug": "wan-dns-resolution-posture",
+  "state": "enabled",
+  "target_binding": {
+    "host": "example.com",
+    "mode": "service_targets",
+    "target_ids": [
+      "example.com"
+    ]
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_dns": {
+        "x": 640,
+        "y": 120
+      },
+      "dns_1": {
+        "x": 80,
+        "y": 120
+      },
+      "extract_dns": {
+        "x": 360,
+        "y": 120
+      },
+      "out_1": {
+        "x": 920,
+        "y": 120
+      }
+    }
+  }
+}

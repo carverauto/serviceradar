@@ -1239,6 +1239,23 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc """
+  Boomerang RUM beacons published by `log-collector` on `rum.beacons.>`.
+  Shares the `events` JetStream stream to preserve tenant stream memory budgets.
+  """
+  @spec rum_beacons_stream() :: stream_config()
+  def rum_beacons_stream do
+    %{
+      name: "RUM_BEACONS",
+      stream_name: "events",
+      subject: "rum.beacons.>",
+      processor: ServiceRadar.EventWriter.Processors.RumBeacons,
+      batch_size: 200,
+      batch_timeout: 1_000,
+      consumer_max_deliver: 5
+    }
+  end
+
   @doc "Assessment after-images on the stream owned by the transactional outbox relay."
   @spec exposure_transitions_stream() :: stream_config()
   def exposure_transitions_stream do
@@ -1392,6 +1409,7 @@ defmodule ServiceRadar.EventWriter.Config do
       scan_results_stream(),
       mtr_results_stream(),
       availability_transitions_stream(),
+      rum_beacons_stream(),
       exposure_transitions_stream(),
       exposure_dimensions_stream(),
       exposure_snapshots_stream(),

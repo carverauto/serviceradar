@@ -13,6 +13,7 @@ mod flow_filters;
 mod flow_spread;
 mod mtr;
 mod otel_metrics;
+mod rum_beacons;
 mod traces;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
@@ -77,6 +78,9 @@ fn translate_inner(
     // dialect answers the queries the CNPG builder answers.
     if matches!(plan.entity, Entity::DeviceAvailabilityHistory) {
         return device_availability_history::translate(plan, database);
+    }
+    if matches!(plan.entity, Entity::RumBeacons) {
+        return rum_beacons::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {
@@ -5295,6 +5299,17 @@ AND milliseconds_diff({home}, start_time) > 0)"
         )
         .expect("rperf");
         assert!(rperf.sql.contains("metric_type = 'rperf'"));
+
+        let netperf =
+            translate(&plan("in:netperf time:last_1h limit:5"), "serviceradar").expect("netperf");
+        assert!(netperf.sql.contains("metric_type = 'rperf'"));
+
+        let netperf_metrics = translate(
+            &plan("in:netperf_metrics time:last_1h limit:5"),
+            "serviceradar",
+        )
+        .expect("netperf_metrics");
+        assert!(netperf_metrics.sql.contains("metric_type = 'rperf'"));
 
         // The unscoped entity spans every family, exactly as it does on CNPG.
         let all = translate(

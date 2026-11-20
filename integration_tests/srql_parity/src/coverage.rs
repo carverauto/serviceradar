@@ -46,7 +46,7 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "disk_metrics" | "disk" => "disk_metrics",
         "process_metrics" | "processes" => "process_metrics",
         "snmp_metrics" | "snmp" => "snmp_metrics",
-        "rperf_metrics" | "rperf" => "rperf_metrics",
+        "rperf_metrics" | "rperf" | "netperf_metrics" | "netperf" => "rperf_metrics",
         "logs" => "logs",
         "events" | "activity" => "events",
         "security_findings" | "security_finding" | "findings" | "finding" => "security_findings",
@@ -66,6 +66,7 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "device_availability_history"
         | "device_availability_transitions"
         | "availability_history" => "device_availability_history",
+        "rum" | "rum_beacons" | "rum_beacon" => "rum",
         _ => return None,
     })
 }
@@ -163,6 +164,9 @@ mod tests {
     #[test]
     fn aliases_resolve_to_the_canonical_warehouse_entity() {
         assert_eq!(warehouse_entity("snmp"), Some("snmp_metrics"));
+        assert_eq!(warehouse_entity("rperf"), Some("rperf_metrics"));
+        assert_eq!(warehouse_entity("netperf"), Some("rperf_metrics"));
+        assert_eq!(warehouse_entity("netperf_metrics"), Some("rperf_metrics"));
         assert_eq!(warehouse_entity("mtr_hop_stats"), Some("mtr_hops"));
         assert_eq!(warehouse_entity("pdns"), Some("dns_activity"));
         assert_eq!(warehouse_entity("bmp_event"), Some("bmp_events"));

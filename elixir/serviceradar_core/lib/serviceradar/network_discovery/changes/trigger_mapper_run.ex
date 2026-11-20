@@ -18,7 +18,8 @@ defmodule ServiceRadar.NetworkDiscovery.Changes.TriggerMapperRun do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  # An atomic update never calls change/3, so the hook is registered here too.
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
   defp dispatch_mapper_job(job, opts) do
     case AgentCommandBus.run_mapper_job(job, opts) do

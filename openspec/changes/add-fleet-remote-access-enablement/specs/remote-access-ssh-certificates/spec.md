@@ -139,7 +139,7 @@ When both devices hold a device account for the same Unix account, the survivor 
 - **THEN** new principals are generated
 
 ### Requirement: Identity required for certificate mode
-The system SHALL issue user certificates only to an actor authenticated through a configured OIDC or SAML identity provider, unless the deployment's runtime setting for local certificate identity is enabled.
+The system SHALL issue user certificates only to an actor authenticated through a configured OIDC identity provider, unless the deployment's runtime setting for local certificate identity is enabled.
 The setting is off by default, is changed in Settings or through the API by an administrator, is audited, and needs no restart. When it is on, a locally authenticated actor can obtain a certificate, and an actor-use policy admits that actor only through its principal and role selectors: a group selector is never satisfied by a locally authenticated actor. When it is off, a locally authenticated actor is denied with the classified reason `sso_identity_required`. System-initiated readiness probes are not user certificates and are governed by the enrollment capability.
 
 #### Scenario: Deployment without an identity provider, setting off

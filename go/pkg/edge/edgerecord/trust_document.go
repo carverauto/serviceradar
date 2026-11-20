@@ -265,6 +265,42 @@ func (s *TrustSnapshot) PolicyFor(record *edgev1.EdgeRecordV1, nowUnixNano int64
 	return policy, nil
 }
 
+// Epoch returns the local install transaction epoch pinned to this snapshot.
+func (s *TrustSnapshot) Epoch() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.epoch
+}
+
+// ClockToleranceNano returns the clock-skew tolerance in nanoseconds carried by
+// the trust document.
+func (s *TrustSnapshot) ClockToleranceNano() int64 {
+	if s == nil {
+		return 0
+	}
+	return s.tolerance
+}
+
+// ResolvePermitKey resolves an Ed25519 signing key authorized for
+// EDGE_CAPABILITY_PURPOSE_PRODUCTION at this snapshot's epoch, returning the
+// cloned public key, its status (such as KeyValid or KeyHistoricallyRevoked),
+// the snapshot's clock-skew tolerance in nanoseconds, and whether a matching
+// production key was found.
+func (s *TrustSnapshot) ResolvePermitKey(issuerID, issuerKeyID []byte) (ed25519.PublicKey, KeyStatus, int64, bool) {
+	if s == nil || s.epoch == 0 {
+		return nil, KeyUnavailable, 0, false
+	}
+	res := s.ResolveKey(issuerID, issuerKeyID, KeyEvidence{
+		Purpose:          edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_PRODUCTION,
+		TrustPolicyEpoch: s.epoch,
+	})
+	if len(res.Public) != ed25519.PublicKeySize {
+		return nil, res.Status, s.tolerance, false
+	}
+	return res.Public, res.Status, s.tolerance, true
+}
+
 func (s *TrustSnapshot) ResolveKey(issuerID, issuerKeyID []byte, evidence KeyEvidence) KeyResolution {
 	result := KeyResolution{Status: KeyUnavailable, Purpose: evidence.Purpose}
 	if s == nil {

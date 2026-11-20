@@ -16,7 +16,6 @@ defmodule ServiceRadar.Identity.User do
   Users can authenticate via:
   - Password (with bcrypt hashing)
   - OIDC (Google, Azure AD, Okta)
-  - SAML 2.0 (enterprise IdPs)
   - Gateway JWT (Kong, Ambassador)
 
   Authentication is handled by Guardian + Ueberauth, not AshAuthentication.
@@ -212,7 +211,7 @@ defmodule ServiceRadar.Identity.User do
 
       argument :provider, :atom do
         allow_nil? false
-        constraints one_of: [:oidc, :saml, :gateway]
+        constraints one_of: [:oidc, :gateway]
       end
 
       # Set default role and mark as confirmed (SSO = verified email)
@@ -348,7 +347,7 @@ defmodule ServiceRadar.Identity.User do
 
       argument :auth_method, :atom do
         allow_nil? false
-        constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+        constraints one_of: [:password, :oidc, :gateway, :api_token, :oauth_client]
       end
 
       change set_attribute(:last_login_at, &DateTime.utc_now/0)
@@ -570,7 +569,7 @@ defmodule ServiceRadar.Identity.User do
 
     attribute :last_auth_method, :atom do
       public? true
-      constraints one_of: [:password, :oidc, :saml, :gateway, :api_token, :oauth_client]
+      constraints one_of: [:password, :oidc, :gateway, :api_token, :oauth_client]
       description "Last authentication method used by the user"
     end
 

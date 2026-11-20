@@ -68,6 +68,8 @@ type MTLSProvider struct {
 	serverCreds       credentials.TransportCredentials
 	clientCert        atomic.Pointer[tls.Certificate]
 	serverCert        atomic.Pointer[tls.Certificate]
+	rootCAs           *x509.CertPool
+	clientCAs         *x509.CertPool
 	peerPolicy        *certpolicy.Store
 	peerPolicyEnabled bool
 	nowFunc           func() time.Time
@@ -75,6 +77,24 @@ type MTLSProvider struct {
 	needsClient       bool
 	needsServer       bool
 	logger            logger.Logger
+}
+
+// NewPeerMTLSProvider creates an MTLSProvider suitable for agent-to-agent peer
+// mTLS connections. Empty Role defaults to models.RoleAgent (matching host-trust
+// enrollment configs), and any gateway-specific ServerName pin is cleared on the
+// provider's copy so peer verification validates the target peer identity instead.
+func NewPeerMTLSProvider(config *models.SecurityConfig, log logger.Logger, options ...MTLSOption) (*MTLSProvider, error) {
+	if config == nil {
+		return nil, errSecurityConfigRequired
+	}
+
+	cfgCopy := *config
+	if cfgCopy.Role == "" {
+		cfgCopy.Role = models.RoleAgent
+	}
+	cfgCopy.ServerName = ""
+
+	return NewMTLSProvider(&cfgCopy, log, options...)
 }
 
 // NewMTLSProvider creates a new MTLSProvider with the given configuration.
@@ -339,6 +359,7 @@ func (p *MTLSProvider) loadClientCredentials() (credentials.TransportCredentials
 	if !caPool.AppendCertsFromPEM(caCert) {
 		return nil, fmt.Errorf("%w: failed to parse CA certificate from %s", errFailedToAppendCACert, caPath)
 	}
+	p.rootCAs = caPool
 
 	tlsConfig := &tls.Config{
 		GetClientCertificate: p.getClientCertificate,
@@ -364,6 +385,7 @@ func (p *MTLSProvider) loadServerCredentials() (credentials.TransportCredentials
 	if err != nil {
 		return nil, err
 	}
+	p.clientCAs = clientCaPool
 
 	tlsConfig := &tls.Config{
 		GetCertificate: p.getServerCertificate,
@@ -373,6 +395,74 @@ func (p *MTLSProvider) loadServerCredentials() (credentials.TransportCredentials
 	}
 
 	return p.withPeerPolicy(credentials.NewTLS(tlsConfig)), nil
+}
+
+// PeerServerTLSConfig returns a fresh *tls.Config for peer-to-peer mTLS server
+// listeners backed by this provider's live server certificate callback and CA
+// pool, without pinning any gateway ServerName.
+func (p *MTLSProvider) PeerServerTLSConfig() (*tls.Config, error) {
+	if p == nil || !p.needsServer || p.clientCAs == nil {
+		return nil, errServiceNotServer
+	}
+
+	return &tls.Config{
+		GetCertificate: p.getServerCertificate,
+		ClientCAs:      p.clientCAs,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
+		MinVersion:     tls.VersionTLS13,
+	}, nil
+}
+
+// PeerClientTLSConfig returns a fresh *tls.Config for peer-to-peer mTLS clients
+// backed by this provider's live client certificate callback and RootCAs, using
+// the supplied peer serverName instead of p.config.ServerName.
+func (p *MTLSProvider) PeerClientTLSConfig(serverName string) (*tls.Config, error) {
+	if p == nil || !p.needsClient || p.rootCAs == nil {
+		return nil, errServiceNotClient
+	}
+
+	if err := p.CheckClientCertificateExpiry(); err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		GetClientCertificate: p.getClientCertificate,
+		RootCAs:              p.rootCAs,
+		ServerName:           serverName,
+		MinVersion:           tls.VersionTLS13,
+	}, nil
+}
+
+// PeerServerCredentials wraps a peer server *tls.Config (optionally customized
+// by configure) in gRPC TransportCredentials with any configured peer policy.
+func (p *MTLSProvider) PeerServerCredentials(configure ...func(*tls.Config)) (credentials.TransportCredentials, error) {
+	tlsCfg, err := p.PeerServerTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	for _, fn := range configure {
+		if fn != nil {
+			fn(tlsCfg)
+		}
+	}
+
+	return p.withPeerPolicy(credentials.NewTLS(tlsCfg)), nil
+}
+
+// PeerClientCredentials wraps a peer client *tls.Config (optionally customized
+// by configure) in gRPC TransportCredentials with any configured peer policy.
+func (p *MTLSProvider) PeerClientCredentials(serverName string, configure ...func(*tls.Config)) (credentials.TransportCredentials, error) {
+	tlsCfg, err := p.PeerClientTLSConfig(serverName)
+	if err != nil {
+		return nil, err
+	}
+	for _, fn := range configure {
+		if fn != nil {
+			fn(tlsCfg)
+		}
+	}
+
+	return p.withPeerPolicy(credentials.NewTLS(tlsCfg)), nil
 }
 
 func (p *MTLSProvider) withPeerPolicy(creds credentials.TransportCredentials) credentials.TransportCredentials {

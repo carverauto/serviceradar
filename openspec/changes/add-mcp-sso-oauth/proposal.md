@@ -22,7 +22,7 @@ receives a Guardian JWT. Client credentials stay for non-SSO installs.
 - Publish MCP resource metadata (RFC 9728) and authorization-server metadata
   (RFC 8414) so clients can discover `/oauth/authorize` and `/oauth/token`.
 - Add `GET /oauth/authorize` (authorization-code + PKCE S256). Unauthenticated
-  browsers follow the existing log-in path (OIDC/SAML/password per
+  browsers follow the existing log-in path (OIDC/password per
   LoginPolicy). After sign-in, a consent page names the client and scopes.
 - Extend `POST /oauth/token` with `authorization_code` and `refresh_token`.
   Access tokens remain Guardian JWTs with `mcp` (and `read`) and the
@@ -55,8 +55,8 @@ demo by default (flag stays off; demo enablement is an operator choice).
   - `elixir/serviceradar_core` (authorization codes, refresh tokens, MCP
     OAuth grants with IdP session binding, `SecurityEvent` kinds, rate-limit
     buckets)
-  - OIDC/SAML login: persist IdP `sid` / SessionIndex (and IdP refresh if
-    issued) onto the MCP grant; honor back-channel / SLO logout by revoking
+  - OIDC login: persist IdP `sid` (and IdP refresh if
+    issued) onto the MCP grant; honor back-channel logout by revoking
     those grants
   - `docs/docs/mcp-integration.md`
   - Helm values for redirect allowlists and optional

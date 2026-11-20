@@ -61,7 +61,6 @@ templates/
   └── checkers/
       ├── sysmon.json        # Template for Linux sysmon checker (seeded)
       ├── sysmon-osx.json    # Template for macOS sysmon checker (seeded)
-      ├── rperf.json         # Template for rperf network checker (seeded)
       ├── snmp.json          # Template for SNMP checker (seeded)
       └── dusk.json          # Template for Dusk browser checker (seeded)
 
@@ -69,8 +68,7 @@ agents/
   └── {agent-id}/
       └── checkers/
           ├── sysmon.json    # Instance config (written by edge onboarding)
-          ├── snmp.json      # Instance config (never overwritten)
-          └── rperf.json     # Instance config (user can modify via web UI)
+          └── snmp.json      # Instance config (never overwritten)
 ```
 
 ### Write Rules

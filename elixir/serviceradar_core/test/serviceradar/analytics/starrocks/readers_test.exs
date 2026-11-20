@@ -265,6 +265,8 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       assert Readers.mode_for("timeseries_metrics") == "starrocks"
       assert Readers.mode_for("snmp") == "starrocks"
       assert Readers.mode_for("rperf_metrics") == "starrocks"
+      assert Readers.mode_for("netperf") == "starrocks"
+      assert Readers.mode_for("netperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
       assert Readers.mode_for("flows") == {:error, :starrocks_required}
 
@@ -276,6 +278,8 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
 
       assert Readers.mode_for("timeseries_metrics") == nil
       assert Readers.mode_for("snmp") == nil
+      assert Readers.mode_for("netperf") == nil
+      assert Readers.mode_for("netperf_metrics") == nil
       assert Readers.backend(:metrics) == :cnpg
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)

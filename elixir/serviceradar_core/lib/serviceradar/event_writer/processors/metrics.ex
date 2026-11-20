@@ -201,7 +201,10 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   defp backfill_device_ids(rows) do
     ips =
       rows
-      |> Enum.filter(fn row -> is_nil(row[:device_id]) and is_binary(row[:target_device_ip]) end)
+      |> Enum.filter(fn row ->
+        is_nil(row[:device_id]) and is_binary(row[:target_device_ip]) and
+          not web_property_metric?(row)
+      end)
       |> Enum.map(& &1[:target_device_ip])
       |> Enum.uniq()
 
@@ -213,12 +216,23 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
         resolved = resolve_device_ids(ips)
 
         Enum.map(rows, fn row ->
-          case {row[:device_id], Map.get(resolved, row[:target_device_ip])} do
-            {nil, device_id} when is_binary(device_id) -> %{row | device_id: device_id}
-            _ -> row
+          if web_property_metric?(row) do
+            row
+          else
+            case {row[:device_id], Map.get(resolved, row[:target_device_ip])} do
+              {nil, device_id} when is_binary(device_id) -> %{row | device_id: device_id}
+              _ -> row
+            end
           end
         end)
     end
+  end
+
+  defp web_property_metric?(row) do
+    tags = row[:tags]
+
+    is_map(tags) and is_binary(tags["web_property_id"]) and
+      String.trim(tags["web_property_id"]) != ""
   end
 
   defp resolve_device_ids(ips) do

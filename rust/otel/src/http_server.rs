@@ -15,7 +15,7 @@
 
 use std::convert::Infallible;
 use std::io::Read;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -49,6 +49,7 @@ const MAX_CONNECTION_AGE: Duration = Duration::from_secs(300);
 // Allow for compressed bytes, expanded bytes and decoded data. Admission is
 // shared by every connection/HTTP2 stream, including anonymous deployments.
 const REQUEST_MEMORY_BUDGET: usize = 128 * 1024 * 1024;
+const RUM_REQUEST_CONCURRENCY: usize = 64;
 
 fn request_concurrency(max_request_bytes: usize) -> usize {
     (REQUEST_MEMORY_BUDGET / max_request_bytes.saturating_mul(3).max(1)).clamp(1, 16)
@@ -73,6 +74,8 @@ pub struct HttpServerOptions {
     /// Ingestion-token authentication shared with the gRPC listener
     /// (`[auth]`); [`IngestAuth::disabled`] when enforcement is off.
     pub auth: Arc<IngestAuth>,
+    /// Public Boomerang RUM ingestion runtime (`/rum/v1/beacon`).
+    pub rum: Arc<crate::rum::RumRuntime>,
 }
 
 impl HttpServerOptions {
@@ -116,12 +119,18 @@ impl HttpServerOptions {
         let auth = IngestAuth::from_config(&config.auth)
             .map_err(|e| format!("invalid [auth] configuration: {e}"))?;
 
+        let rum = Arc::new(crate::rum::RumRuntime::new(
+            config.rum.clone(),
+            Arc::new(crate::rum::policy::RumPolicyCache::default()),
+        ));
+
         Ok(Some(Self {
             addr,
             allowed_origins: config.server.http.allowed_origins.clone(),
             max_request_bytes: config.server.max_request_bytes,
             tls_identity,
             auth: Arc::new(auth),
+            rum,
         }))
     }
 }
@@ -148,6 +157,7 @@ pub async fn start_http_server(
     let requests = Arc::new(Semaphore::new(request_concurrency(
         options.max_request_bytes,
     )));
+    let rum_requests = Arc::new(Semaphore::new(RUM_REQUEST_CONCURRENCY));
     let shared = Arc::new((options, collector));
 
     loop {
@@ -157,17 +167,26 @@ pub async fn start_http_server(
             continue;
         };
         let requests = Arc::clone(&requests);
+        let rum_requests = Arc::clone(&rum_requests);
         let shared = Arc::clone(&shared);
         let tls_acceptor = tls_acceptor.clone();
 
         tokio::spawn(async move {
             let _connection_permit = connection_permit;
+            let peer_ip = peer.ip();
             let service = service_fn(move |req: Request<Incoming>| {
                 let shared = Arc::clone(&shared);
                 let requests = Arc::clone(&requests);
+                let rum_requests = Arc::clone(&rum_requests);
                 async move {
                     let (options, collector) = &*shared;
-                    Ok::<_, Infallible>(handle_request(req, options, collector, &requests).await)
+                    let limits = RequestLimits {
+                        otlp: &requests,
+                        rum: &rum_requests,
+                    };
+                    Ok::<_, Infallible>(
+                        handle_request(req, options, collector, limits, Some(peer_ip)).await,
+                    )
                 }
             });
 
@@ -231,24 +250,55 @@ fn build_tls_acceptor(identity: &TlsIdentityPem) -> Result<tokio_rustls::TlsAcce
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
 
+#[derive(Clone, Copy)]
+struct RequestLimits<'a> {
+    otlp: &'a Semaphore,
+    rum: &'a Semaphore,
+}
+
 async fn handle_request<B>(
     req: Request<B>,
     options: &HttpServerOptions,
     collector: &ServiceRadarCollector,
-    requests: &Semaphore,
+    limits: RequestLimits<'_>,
+    peer_ip: Option<IpAddr>,
 ) -> Response<Full<Bytes>>
 where
     B: hyper::body::Body<Data = Bytes> + Send,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
-    let origin = req
-        .headers()
+    let (parts, body) = req.into_parts();
+    if parts.uri.path() == crate::rum::RUM_BEACON_PATH {
+        let Ok(_permit) = limits.rum.try_acquire() else {
+            return retryable_error_response("RUM request capacity exhausted".to_owned(), None);
+        };
+        let query = parts.uri.query().map(str::to_owned);
+        let operation = crate::rum::handle_rum_request(
+            &parts.method,
+            query.as_deref(),
+            &parts.headers,
+            body,
+            peer_ip,
+            &options.rum,
+            collector,
+        );
+        return match timeout(REQUEST_TIMEOUT, operation).await {
+            Ok(response) => response,
+            Err(_) => error_response(
+                StatusCode::REQUEST_TIMEOUT,
+                "request timed out while reading body".to_owned(),
+                None,
+            ),
+        };
+    }
+
+    let origin = parts
+        .headers
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let cors_origin = resolve_cors_origin(&options.allowed_origins, origin.as_deref());
 
-    let (parts, body) = req.into_parts();
     if let Err(response) = admit_request(
         &parts.method,
         parts.uri.path(),
@@ -258,7 +308,7 @@ where
     ) {
         return *response;
     }
-    let Ok(_permit) = requests.try_acquire() else {
+    let Ok(_permit) = limits.otlp.try_acquire() else {
         return retryable_error_response(
             "OTLP/HTTP request capacity exhausted".to_owned(),
             cors_origin,
@@ -623,6 +673,10 @@ mod tests {
             max_request_bytes: 1024 * 1024,
             tls_identity: None,
             auth: Arc::new(IngestAuth::disabled()),
+            rum: Arc::new(crate::rum::RumRuntime::new(
+                crate::config::RumConfig::default(),
+                Arc::new(crate::rum::policy::RumPolicyCache::default()),
+            )),
         }
     }
 
@@ -737,7 +791,17 @@ mod tests {
                 .header(header::CONTENT_ENCODING, encoding)
                 .body(UnreadBody)
                 .unwrap();
-            let response = handle_request(request, options, &collector, &requests).await;
+            let response = handle_request(
+                request,
+                options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests,
+                },
+                None,
+            )
+            .await;
             assert_eq!(response.status(), expected);
             assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
         }
@@ -749,9 +813,18 @@ mod tests {
             .body(UnreadBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &anonymous, &collector, &requests)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &anonymous,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
         drop(held);
@@ -763,9 +836,18 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &enforced, &collector, &requests)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &enforced,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
         assert_eq!(requests.available_permits(), 1);
@@ -797,9 +879,18 @@ mod tests {
             .body(PendingBody)
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::REQUEST_TIMEOUT
         );
         assert_eq!(requests.available_permits(), 1);
@@ -810,9 +901,18 @@ mod tests {
             .body(Full::new(empty_traces_body()))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
     }
@@ -830,9 +930,18 @@ mod tests {
             .body(Full::new(Bytes::from_static(b"synthetic")))
             .unwrap();
         assert_eq!(
-            handle_request(request, &options, &collector, &requests)
-                .await
-                .status(),
+            handle_request(
+                request,
+                &options,
+                &collector,
+                RequestLimits {
+                    otlp: &requests,
+                    rum: &requests
+                },
+                None
+            )
+            .await
+            .status(),
             StatusCode::PAYLOAD_TOO_LARGE
         );
         assert_eq!(requests.available_permits(), 1);
@@ -1144,6 +1253,22 @@ mod tests {
             self.record(ctx);
             Ok(Default::default())
         }
+
+        async fn publish_rum_beacon(
+            &self,
+            _web_property_id: &str,
+            _beacon: &crate::rum_proto::RumBeaconV1,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            Ok(Default::default())
+        }
+
+        async fn publish_rum_metrics(
+            &self,
+            _web_property_id: &str,
+            _metrics: &serviceradar_metric_proto::pb::MetricBatch,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            Ok(Default::default())
+        }
     }
 
     fn empty_traces_body() -> Bytes {
@@ -1361,5 +1486,111 @@ mod tests {
         let mut bad = Config::default();
         bad.auth.enabled = true;
         assert!(HttpServerOptions::from_config(&bad).is_err());
+    }
+
+    #[tokio::test]
+    async fn rum_beacon_route_bypasses_otlp_auth_while_v1_traces_stays_gated() {
+        use crate::rum::policy::RumPolicyCache;
+        use crate::rum_proto::{WebPropertyRumPolicy, WebPropertyRumPolicySnapshot};
+
+        let collector = test_collector().await;
+        let mut options = test_options_with_auth();
+        let cache = Arc::new(RumPolicyCache::from_snapshot(
+            WebPropertyRumPolicySnapshot {
+                version: 1,
+                generated_at_unix_ms: 0,
+                properties: vec![WebPropertyRumPolicy {
+                    web_property_id: "01JWEBPROP0000000000000001".to_string(),
+                    name: "shop".to_string(),
+                    canonical_origin: "https://shop.example".to_string(),
+                    allowed_origins: vec!["https://shop.example".to_string()],
+                    allowed_query_keys: vec![],
+                    trace_propagate_origins: vec![],
+                    rum_site_key: "sr_rum_live_testkey".to_string(),
+                    rum_enabled: true,
+                    rum_sample_rate: 1.0,
+                    anonymize_client_ip: true,
+                    environment: "production".to_string(),
+                    prefix_tags: vec![],
+                }],
+                global_prefix_tags: vec![],
+            },
+        ));
+        options.rum = Arc::new(crate::rum::RumRuntime::new(
+            crate::config::RumConfig::default(),
+            cache,
+        ));
+
+        let requests = Semaphore::new(4);
+        let rum_requests = Semaphore::new(4);
+        let limits = RequestLimits {
+            otlp: &requests,
+            rum: &rum_requests,
+        };
+
+        // Unauthenticated OTLP /v1/traces still fails 401.
+        let otlp_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .body(UnreadBody)
+            .unwrap();
+        let otlp_resp = handle_request(otlp_req, &options, &collector, limits, None).await;
+        assert_eq!(otlp_resp.status(), StatusCode::UNAUTHORIZED);
+
+        // A beacon without a site key in the header or query is refused before its body is read.
+        for uri in ["/rum/v1/beacon", "/rum/v1/beacon?key=sr_rum_live_unknown"] {
+            let keyless = Request::builder()
+                .method(Method::POST)
+                .uri(uri)
+                .header(header::ORIGIN, "https://shop.example")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(UnreadBody)
+                .unwrap();
+            let resp = handle_request(keyless, &options, &collector, limits, None).await;
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        // Saturated RUM admission does not consume OTLP request slots.
+        let held_rum = rum_requests.acquire_many(4).await.unwrap();
+        let rum_req = Request::builder()
+            .method(Method::POST)
+            .uri("/rum/v1/beacon?key=sr_rum_live_testkey")
+            .header(header::ORIGIN, "https://shop.example")
+            .body(UnreadBody)
+            .unwrap();
+        let rum_resp = handle_request(rum_req, &options, &collector, limits, None).await;
+        assert_eq!(rum_resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let otlp_req = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/traces")
+            .header(header::CONTENT_TYPE, CONTENT_TYPE_PROTOBUF)
+            .header("x-serviceradar-ingestion-key", "secret-a")
+            .body(Full::new(empty_traces_body()))
+            .unwrap();
+        let otlp_resp = handle_request(otlp_req, &options, &collector, limits, None).await;
+        assert_eq!(otlp_resp.status(), StatusCode::OK);
+        drop(held_rum);
+
+        // /rum/v1/beacon with valid rum_site_key & allowed Origin succeeds without OTLP token.
+        let rum_req = Request::builder()
+            .method(Method::POST)
+            .uri("/rum/v1/beacon?key=sr_rum_live_testkey")
+            .header(header::ORIGIN, "https://shop.example")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Full::new(Bytes::from_static(
+                b"u=https%3A%2F%2Fshop.example%2F&t_page=420",
+            )))
+            .unwrap();
+        let rum_resp = handle_request(rum_req, &options, &collector, limits, None).await;
+        assert_eq!(rum_resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            rum_resp
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .unwrap(),
+            "https://shop.example"
+        );
+        assert_eq!(rum_resp.headers().get(header::VARY).unwrap(), "Origin");
     }
 }

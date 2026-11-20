@@ -339,6 +339,7 @@ mod tests {
             "otel_trace_summaries",
             "bmp_events",
             "device_availability_history",
+            "rum",
         ] {
             assert!(
                 inventory.entries.iter().any(|e| e.entity() == Some(entity)),

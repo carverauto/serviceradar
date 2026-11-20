@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "id": "cloud.serviceradar.network-performance",
+  "name": "Network Performance",
+  "version": "0.1.0",
+  "vendor": "ServiceRadar",
+  "description": "Hub & Spoke active network performance dashboard for throughput, packet loss, UDP jitter, availability, and Hub Responder capacity.",
+  "capabilities": [
+    "srql.execute",
+    "dashboard.preferences.read",
+    "dashboard.preferences.write",
+    "navigation.open"
+  ],
+  "data_frames": [
+    {
+      "id": "netperf_recent_samples",
+      "query": "in:rperf_metrics time:last_24h sort:timestamp:desc limit:500",
+      "encoding": "json_rows",
+      "limit": 500,
+      "refresh_interval_ms": 30000,
+      "required": true,
+      "fields": [
+        "timestamp",
+        "agent_id",
+        "gateway_id",
+        "uid",
+        "device_id",
+        "metric_name",
+        "value",
+        "unit",
+        "target_device_ip",
+        "tags",
+        "partition"
+      ]
+    },
+    {
+      "id": "netperf_metric_trends",
+      "query": "in:rperf_metrics time:last_24h bucket:10m agg:avg series:metric_name sort:timestamp:desc limit:500",
+      "encoding": "json_rows",
+      "limit": 500,
+      "refresh_interval_ms": 30000,
+      "required": true,
+      "fields": [
+        "timestamp",
+        "series",
+        "metric_name",
+        "value"
+      ]
+    },
+    {
+      "id": "netperf_spoke_summary",
+      "query": "in:rperf_metrics time:last_24h metric_name:rperf.bits_per_second stats:\"avg(value) as avg_bps, count(*) as samples by agent_id\" sort:avg_bps:desc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "refresh_interval_ms": 30000,
+      "required": true,
+      "fields": [
+        "agent_id",
+        "avg_bps",
+        "samples"
+      ]
+    },
+    {
+      "id": "netperf_responder_capacity",
+      "query": "in:rperf_metrics metric_name:(rperf.responder_active_sessions,rperf.responder_sessions_total,rperf.responder_busy_rejections_total,rperf.responder_bytes_total) time:last_24h sort:timestamp:desc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "refresh_interval_ms": 30000,
+      "required": false,
+      "fields": [
+        "timestamp",
+        "agent_id",
+        "gateway_id",
+        "uid",
+        "device_id",
+        "metric_name",
+        "value",
+        "unit",
+        "target_device_ip",
+        "tags",
+        "partition"
+      ]
+    },
+    {
+      "id": "netperf_agents",
+      "query": "in:agents sort:last_seen:desc limit:500",
+      "encoding": "json_rows",
+      "limit": 500,
+      "refresh_interval_ms": 60000,
+      "required": false,
+      "fields": [
+        "uid",
+        "name",
+        "display_name",
+        "host",
+        "ip",
+        "status",
+        "capabilities",
+        "gateway_id",
+        "version",
+        "last_seen"
+      ]
+    },
+    {
+      "id": "spoke_history",
+      "query": "in:rperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "refresh_interval_ms": 30000,
+      "required": false,
+      "fields": [
+        "timestamp",
+        "agent_id",
+        "uid",
+        "device_id",
+        "metric_name",
+        "value",
+        "unit",
+        "target_device_ip",
+        "tags"
+      ]
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "lossAlertThresholdPct": {
+        "type": "number",
+        "title": "Packet loss alert threshold (%)",
+        "default": 1.0
+      },
+      "jitterAlertThresholdMs": {
+        "type": "number",
+        "title": "UDP jitter alert threshold (ms)",
+        "default": 20.0
+      }
+    }
+  },
+  "renderer": {
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "network-performance",
+    "trust": "first_party",
+    "entrypoint": "network_performance",
+    "sha256": "48150e10c3f6a0bd4365d4a67ca48020b1c2dbd6dc1f232cc44837229f107583"
+  }
+}

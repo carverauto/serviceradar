@@ -230,6 +230,9 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
     assert ap_update["metadata"]["device_role"] == "ap_bridge"
     assert ap_update["metadata"]["site_code"] == "ZZA"
     assert ap_update["metadata"]["serial_number"] == "SN0000000001"
+    # The row names no vendor, and a defaulted vendor is not vendor evidence: it
+    # would overwrite a vendor another source recorded.
+    refute Map.has_key?(ap_update["metadata"], "vendor_name")
     assert String.starts_with?(ap_update["device_id"], "sr:")
 
     controller_update =

@@ -32,6 +32,7 @@ alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
+alias ServiceRadar.Observability.Zen.RuleBucket
 alias ServiceRadar.Security.AuditVersionRetentionWorker
 
 for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
@@ -1230,6 +1231,21 @@ if config_env() == :prod do
         ExposureTransitionRelay.default_max_bytes()
       )
 
+  # The NATS bucket collectors read Zen rule bundles from. Unset or blank means a
+  # 1 MiB cap and one replica (the chart sets the datasvc bucket's replica count);
+  # an invalid value fails boot naming the variable.
+  config :serviceradar_core, RuleBucket,
+    max_bytes:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_MAX_BYTES",
+        RuleBucket.default_max_bytes()
+      ),
+    replicas:
+      StateBucketSizing.replicas_from_env!(
+        "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_REPLICAS",
+        RuleBucket.default_replicas()
+      )
+
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
 
   # Notification firehose stream size and replica count (a discard-old buffer,
@@ -1955,6 +1971,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.availability_transitions_stream(),
+        Config.rum_beacons_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
         Config.exposure_snapshots_stream(),

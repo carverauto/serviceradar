@@ -885,6 +885,33 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "netperf_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_netperf/profile.json",
+        "generated_netperf/responder.json",
+        "generated_netperf/policy.json",
+        "generated_netperf/policy_responder.json",
+        "generated_netperf/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:netperf_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_netperf_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.netperf_profiles/20261118025710.json": ":generated_netperf/profile.json",
+        "priv/resource_snapshots/repo/platform.netperf_responders/20261118025710.json": ":generated_netperf/responder.json",
+        "priv/resource_snapshots/repo/platform.netperf_policies/20261118025710.json": ":generated_netperf/policy.json",
+        "priv/resource_snapshots/repo/platform.netperf_policy_responders/20261118025710.json": ":generated_netperf/policy_responder.json",
+        "priv/repo/migrations/20261118025710_add_netperf_monitoring_resources.exs": ":generated_netperf/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
@@ -1041,6 +1068,7 @@ _TEST_RUNTIME_DATA = glob(
     "//go/cmd/wasm-plugins/axis:srcs",
     "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/http-synthetic-journey:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",
@@ -1117,6 +1145,7 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/axis:srcs",
     "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/http-synthetic-journey:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",

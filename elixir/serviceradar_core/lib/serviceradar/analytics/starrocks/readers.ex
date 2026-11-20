@@ -177,7 +177,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
         :flows
 
       e
-      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf
+      when e in ~w(timeseries_metrics timeseries snmp_metrics snmp rperf_metrics rperf netperf_metrics netperf
                    cpu_metrics cpu memory_metrics memory disk_metrics disk process_metrics processes) ->
         :metrics
 
@@ -189,6 +189,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
 
       e when e in ~w(bmp_events bmp_event bmp_routing_events) ->
         :bmp
+
+      e when e in ~w(rum rum_beacons rum_beacon) ->
+        :rum
 
       e
       when e in ~w(device_availability_history device_availability_transitions
@@ -249,6 +252,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # BMP routing events follow the same rule: AnalyticsSignals writes them to
   # the warehouse only when it is enabled (`store_routing_events/1`).
   def mode_for(:bmp), do: if(enabled?(), do: "starrocks")
+
+  # Boomerang RUM beacons follow the same rule: EventWriter.Processors.RumBeacons
+  # writes them exclusively to the warehouse when StarRocks is enabled, and
+  # exclusively to CNPG otherwise.
+  def mode_for(:rum), do: if(enabled?(), do: "starrocks")
+  def mode_for(:rum_beacons), do: if(enabled?(), do: "starrocks")
 
   # Interface counters and the other sysmon series use the same switch. A stale
   # `cutover_datasets` entry does not select StarRocks while the warehouse is off,

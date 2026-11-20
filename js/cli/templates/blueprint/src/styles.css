@@ -1,0 +1,51 @@
+.sr-bp-template-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-height: 100%;
+  box-sizing: border-box;
+  font-family: var(--sr-font-sans, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif);
+}
+
+.sr-bp-template-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sr-bp-template-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sr-bp-template-title h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.sr-bp-template-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sr-bp-template-table-wrap {
+  overflow-x: auto;
+}
+
+.sr-bp-template-table {
+  width: 100%;
+}
+
+.sr-bp-template-drawer-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

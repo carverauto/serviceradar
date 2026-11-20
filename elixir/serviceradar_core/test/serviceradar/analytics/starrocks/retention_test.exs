@@ -17,6 +17,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
     SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP
     SERVICERADAR_STARROCKS_RETENTION_DAYS_ATTRIBUTION
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_RUM
   )
 
   # The settings rows as CNPG would hold them, keyed by dataset name. Stands in
@@ -146,7 +147,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
                otel: 365,
                traces: 365,
                bmp: 365,
-               attribution: 30
+               attribution: 30,
+               rum: 30
              ]
 
       System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")

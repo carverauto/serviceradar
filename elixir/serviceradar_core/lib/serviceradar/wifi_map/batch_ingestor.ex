@@ -1101,7 +1101,6 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       "site_code" => site_code,
       "device_type" => wifi_device_type(kind),
       "device_role" => wifi_device_role(kind),
-      "vendor_name" => string_value(row, ["vendor_name", "vendorName", "vendor"]) || "Aruba",
       "model" => string_value(row, ["model"]),
       "serial_number" =>
         string_value(row, [
@@ -1114,6 +1113,9 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
       "status" => string_value(row, ["status"]),
       "collection_timestamp" => DateTime.to_iso8601(collection_timestamp)
     }
+    # Only a vendor the row reports: a defaulted vendor is not vendor evidence and
+    # would overwrite a recorded one (fix-device-attribute-source-precedence).
+    |> maybe_put("vendor_name", string_value(row, ["vendor_name", "vendorName", "vendor"]))
     |> maybe_put("observed_ip", observed_ip)
     |> maybe_put("aos_version", string_value(row, ["aos_version", "aosVersion", "version"]))
     |> maybe_put("aaa_profile", string_value(row, ["aaa_profile", "aaaProfile"]))

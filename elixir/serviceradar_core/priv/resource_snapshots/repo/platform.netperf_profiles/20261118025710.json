@@ -1,0 +1,257 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"gen_random_uuid()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "name",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "description",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"tcp\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "protocol",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "\"upload\"",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "direction",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "50000000",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "bandwidth_bps",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "5",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "duration_sec",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "omit_sec",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "parallel",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1200",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "packet_length",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "900",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "interval_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "protocol"
+      ],
+      "base_filter": null,
+      "check": "protocol IN ('tcp', 'udp')",
+      "name": "netperf_profiles_protocol_check"
+    },
+    {
+      "attribute": [
+        "direction"
+      ],
+      "base_filter": null,
+      "check": "direction IN ('upload', 'download', 'bidirectional')",
+      "name": "netperf_profiles_direction_check"
+    },
+    {
+      "attribute": [
+        "bandwidth_bps"
+      ],
+      "base_filter": null,
+      "check": "bandwidth_bps >= 100000 AND bandwidth_bps <= 10000000000",
+      "name": "netperf_profiles_bandwidth_bps_check"
+    },
+    {
+      "attribute": [
+        "duration_sec"
+      ],
+      "base_filter": null,
+      "check": "duration_sec >= 1 AND duration_sec <= 30",
+      "name": "netperf_profiles_duration_sec_check"
+    },
+    {
+      "attribute": [
+        "omit_sec"
+      ],
+      "base_filter": null,
+      "check": "omit_sec >= 0 AND omit_sec <= 5 AND omit_sec < duration_sec",
+      "name": "netperf_profiles_omit_sec_check"
+    },
+    {
+      "attribute": [
+        "parallel"
+      ],
+      "base_filter": null,
+      "check": "parallel >= 1 AND parallel <= 8",
+      "name": "netperf_profiles_parallel_check"
+    },
+    {
+      "attribute": [
+        "packet_length"
+      ],
+      "base_filter": null,
+      "check": "packet_length >= 64 AND packet_length <= 65507",
+      "name": "netperf_profiles_packet_length_check"
+    },
+    {
+      "attribute": [
+        "interval_seconds"
+      ],
+      "base_filter": null,
+      "check": "interval_seconds >= 60 AND interval_seconds <= 86400",
+      "name": "netperf_profiles_interval_seconds_check"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "917767A3BDA26FD439318CC380902308EA3902FFAA8EBEF89831C6C808BFE7B4",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "netperf_profiles_unique_name_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "name"
+        }
+      ],
+      "name": "unique_name",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "netperf_profiles",
+  "temporal": null
+}

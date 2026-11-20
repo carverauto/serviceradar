@@ -38,6 +38,11 @@ otlp.demo.serviceradar.cloud.
 {{- $gatewayName := default "serviceradar-shared-gateway" $otlpGateway.gatewayName -}}
 {{- $gatewayNamespace := default "serviceradar-system" $otlpGateway.gatewayNamespace -}}
 {{- $otlpHttp := default (dict) $otlpService.http -}}
+{{- $rumGateway := default (dict) $otlpGateway.rum -}}
+{{- $rumEnabled := true -}}
+{{- if hasKey $rumGateway "enabled" -}}
+{{- $rumEnabled = $rumGateway.enabled -}}
+{{- end -}}
 {{- if $otlpGateway.httpHostname }}
 {{- if not $otlpHttp.enabled }}
 {{- fail "logCollector.otlp.gateway.httpHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)" }}
@@ -75,6 +80,56 @@ spec:
         - path:
             type: PathPrefix
             value: /v1
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: serviceradar-otlp
+          port: {{ default 4318 $otlpHttp.port }}
+          weight: 1
+    {{- if $rumEnabled }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /rum/v1/beacon
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: serviceradar-otlp
+          port: {{ default 4318 $otlpHttp.port }}
+          weight: 1
+    {{- end }}
+{{- end }}
+{{- if and $rumEnabled $otlpGateway.rumHostname }}
+{{- if not $otlpHttp.enabled }}
+{{- fail "logCollector.otlp.gateway.rumHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)" }}
+{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: serviceradar-rum-http
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-otlp
+    app.kubernetes.io/component: rum-ingest
+  {{- if $otlpGatewayDnsEnabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $otlpGateway.rumHostname | quote }}
+  {{- end }}
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName | quote }}
+      namespace: {{ $gatewayNamespace | quote }}
+      sectionName: {{ default "https-web" $otlpGateway.httpSectionName | quote }}
+  hostnames:
+    - {{ $otlpGateway.rumHostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /rum/v1/beacon
       backendRefs:
         - group: ""
           kind: Service

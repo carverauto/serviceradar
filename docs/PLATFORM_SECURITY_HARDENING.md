@@ -38,12 +38,12 @@ Land + observe in this order. Each step is independently revertible.
    credential paths in `migrate-controllers-to-security-pipelines`
    and finished in `migrate-dashboard-cli-to-pipelines`). The HTML
    auth routes (`POST /auth/sign-in`, `POST /auth/local/sign-in`,
-   password reset), the OIDC and SAML callbacks, the OAuth `/token`
+   password reset), the OIDC callback, the OAuth `/token`
    inline calls, the CLI device-auth `POST /api/v1/cli/auth/device`
    endpoint, and the dashboard publish routes all route through the
    central `ServiceRadar.Security.RateLimiter`; the HTML pipelines
    also include `LockoutCheck` and emit a flash + 303 redirect on
-   denial. OIDC and SAML feed `Lockouts.record_failed_login/2` on
+   denial. OIDC feeds `Lockouts.record_failed_login/2` on
    validated-identity failures so cross-IP failed-SSO attempts trip
    the same lockout threshold as local password failures. The CLI
    `POST /api/v1/cli/auth/token` endpoint still calls the limiter

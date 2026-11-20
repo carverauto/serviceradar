@@ -31,16 +31,16 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdP do
     %{
       auth_method: auth_method(method),
       idp_iss: blank_to_nil(claims["iss"] || claims[:iss]),
-      idp_sid: blank_to_nil(claims["sid"] || claims["SessionIndex"] || claims[:sid]),
+      idp_sid: blank_to_nil(claims["sid"] || claims[:sid]),
       idp_refresh_token: blank_to_nil(refresh)
     }
   end
 
   defp auth_method("oidc"), do: :oidc
   defp auth_method(:oidc), do: :oidc
-  defp auth_method("saml"), do: :saml
-  defp auth_method(:saml), do: :saml
-  defp auth_method(_), do: :password
+  defp auth_method("password"), do: :password
+  defp auth_method(:password), do: :password
+  defp auth_method(_), do: nil
 
   defp blank_to_nil(value) when is_binary(value) and value != "", do: value
   defp blank_to_nil(_), do: nil

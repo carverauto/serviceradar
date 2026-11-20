@@ -55,11 +55,35 @@ defmodule Palisade.OutboundFetch do
   fetches. Short connect + receive timeouts; redirects disabled
   so an attacker can't steer the request away from the validated
   host.
+
+  Retries are limited to a stale pooled connection. Req's default
+  policy (`:safe_transient`, up to three retries with backoff) turns
+  one 10 s receive timeout into about 47 s of waiting and logs a
+  transport error per attempt. A timeout means the upstream is slow,
+  so retrying only makes the caller wait longer. A `:closed` socket on
+  a GET or HEAD means the pooled connection died before the request
+  was written, so one retry on a fresh connection recovers it. POST is
+  never retried: a caller that can safely repeat a POST (an OAuth
+  token exchange, for example) owns that retry itself.
+
+  Pass `retry:` to `get/2`, `post/2` or `request/3` to use a different
+  policy for one call.
   """
   @spec req_opts() :: keyword()
   def req_opts do
-    [connect_options: [timeout: 5_000], receive_timeout: 10_000, redirect: false]
+    [
+      connect_options: [timeout: 5_000],
+      receive_timeout: 10_000,
+      redirect: false,
+      retry: &retry_stale_connection?/2,
+      retry_log_level: false
+    ]
   end
+
+  defp retry_stale_connection?(%{method: method}, %Req.TransportError{reason: :closed}),
+    do: method in [:get, :head]
+
+  defp retry_stale_connection?(_request, _response_or_exception), do: false
 
   @doc false
   @spec build_request(atom(), String.t(), keyword()) ::

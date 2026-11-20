@@ -691,44 +691,6 @@ declare_multiarch_image_index(
 )
 
 declare_service_container_amd64(
-    name = "rperf_client_image_amd64",
-    cmd = [
-        "/usr/local/bin/serviceradar-rperf-checker",
-        "--config",
-        "/etc/serviceradar/checkers/rperf.json",
-    ],
-    empty_dirs = [
-        "etc/serviceradar/checkers",
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    exposed_ports = ["50059/tcp"],
-    files = {
-        "//rust/rperf-server:rperf": "usr/local/bin/serviceradar-rperf",
-        "//rust/rperf-client:rperf_checker": "usr/local/bin/serviceradar-rperf-checker",
-        "//docker/compose:entrypoint-rperf-client.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:rperf-client.docker.json": "tmp/rperf-client.docker.json",
-    },
-    image_title = "serviceradar-rperf-client",
-    modes = {
-        "usr/local/bin/serviceradar-rperf": "0755",
-        "usr/local/bin/serviceradar-rperf-checker": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "tmp/rperf-client.docker.json": "0644",
-    },
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-rperf-client:local"],
-    runtime = "ubuntu",
-    workdir = "/var/lib/serviceradar",
-)
-
-declare_multiarch_image_index(
-    name = "rperf_client_image_multiarch",
-    image = ":rperf_client_image_amd64",
-)
-
-declare_service_container_amd64(
     name = "faker_image_amd64",
     cmd = [
         "/usr/local/bin/serviceradar-faker",
@@ -965,7 +927,6 @@ _MULTIARCH_INDEXES = [
     "log_collector_image_multiarch",
     "media_worker_image_multiarch",
     "nvr_image_multiarch",
-    "rperf_client_image_multiarch",
     "tools_image_multiarch",
     "trapd_image_multiarch",
     "trivy_sidecar_image_multiarch",

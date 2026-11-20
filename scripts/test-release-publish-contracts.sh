@@ -12,6 +12,8 @@ verify_script="${repo_root}/scripts/verify-oci-publish.sh"
 release_workflow="${repo_root}/.github/workflows/release.yml"
 native_addons_workflow="${repo_root}/.github/workflows/native-addons.yml"
 wasm_plugins_workflow="${repo_root}/.github/workflows/wasm-plugins.yml"
+solution_packs_workflow="${repo_root}/.github/workflows/solution-packs.yml"
+publish_solution_packs="${repo_root}/scripts/publish-solution-packs-release.sh"
 source_security_workflow="${repo_root}/.github/workflows/source-security.yml"
 image_security_workflow="${repo_root}/.github/workflows/image-security.yml"
 upload_release_asset="${repo_root}/scripts/upload-forgejo-release-asset.sh"
@@ -340,6 +342,8 @@ python3 - \
   "${release_workflow}" \
   "${native_addons_workflow}" \
   "${wasm_plugins_workflow}" \
+  "${solution_packs_workflow}" \
+  "${publish_solution_packs}" \
   "${source_security_workflow}" \
   "${image_security_workflow}" \
   "${upload_release_asset}" \
@@ -352,12 +356,14 @@ from pathlib import Path
 workflow = Path(sys.argv[1]).read_text()
 native_addons_workflow = Path(sys.argv[2]).read_text()
 wasm_plugins_workflow = Path(sys.argv[3]).read_text()
-source_security_workflow = Path(sys.argv[4]).read_text()
-image_security_workflow = Path(sys.argv[5]).read_text()
-upload_release_asset = Path(sys.argv[6]).read_text()
-cut_release = Path(sys.argv[7]).read_text()
-sign_oci_publish = Path(sys.argv[8]).read_text()
-demo_prod_application = Path(sys.argv[9]).read_text()
+solution_packs_workflow = Path(sys.argv[4]).read_text()
+publish_solution_packs = Path(sys.argv[5]).read_text()
+source_security_workflow = Path(sys.argv[6]).read_text()
+image_security_workflow = Path(sys.argv[7]).read_text()
+upload_release_asset = Path(sys.argv[8]).read_text()
+cut_release = Path(sys.argv[9]).read_text()
+sign_oci_publish = Path(sys.argv[10]).read_text()
+demo_prod_application = Path(sys.argv[11]).read_text()
 
 required_workflow_fragments = [
     "id: source",
@@ -505,7 +511,7 @@ finalize_job = workflow[finalizer_job:]
 if "runs-on: serviceradar-signing" not in publish_job:
     raise SystemExit("release publication must remain on the signing runner")
 if "runs-on: ubuntu-24.04" not in finalize_job or \
-   "needs: [publish, image-security-dispatch]" not in finalize_job:
+   "needs: [publish, image-security-dispatch, solution-packs]" not in finalize_job:
     raise SystemExit("release finalization must run after publication on a generic runner")
 if "timeout-minutes: 95" not in finalize_job or "environment: release" not in finalize_job:
     raise SystemExit("release finalizer must have a bounded wait and release credentials")
@@ -513,11 +519,25 @@ if "timeout-minutes: 95" not in finalize_job or "environment: release" not in fi
 finalizer_guard = (
     "if: ${{ !cancelled() && needs.publish.result == 'success' && "
     "needs.image-security-dispatch.result == 'success' && "
+    "needs.solution-packs.result == 'success' && "
     "needs.publish.outputs.dry_run != 'true' && "
     "needs.publish.outputs.draft != 'true' }}"
 )
 if finalizer_guard not in finalize_job:
     raise SystemExit("dry-run and requested-draft releases must skip parallel asset finalization")
+
+solution_packs_job = workflow[
+    workflow.index("  solution-packs:"):finalizer_job
+]
+for fragment in (
+    "needs: publish",
+    "uses: ./.github/workflows/solution-packs.yml",
+    "release_tag: ${{ needs.publish.outputs.tag }}",
+    "release_id: ${{ needs.publish.outputs.release_id }}",
+    "secrets: inherit",
+):
+    if fragment not in solution_packs_job:
+        raise SystemExit(f"release workflow solution-packs job is missing: {fragment}")
 
 parallel_asset_step = workflow[parallel_asset_verification:finalization]
 native_upload_step = native_addons_workflow[
@@ -537,6 +557,7 @@ image_security_upload_step = image_security_workflow[
 required_parallel_assets = (
     ("serviceradar-native-addon-index.json", native_upload_step),
     ("serviceradar-wasm-plugin-index.json", wasm_upload_step),
+    ("serviceradar-pack-index.json", publish_solution_packs),
     ("serviceradar-source-security.tar.gz", source_security_upload_step),
     ("serviceradar-image-security-${RELEASE_TAG}.tar.gz", image_security_upload_step),
 )
@@ -545,6 +566,37 @@ for asset, publisher in required_parallel_assets:
         raise SystemExit(f"release finalizer does not require parallel asset: {asset}")
     if asset not in publisher:
         raise SystemExit(f"parallel publisher does not upload its required release asset: {asset}")
+
+for fragment in (
+    "workflow_call:",
+    "workflow_dispatch:",
+    "release_tag:",
+    "runs-on: serviceradar-signing",
+    "environment: release",
+    './scripts/validate-release-tag.sh "${release_tag}"',
+    'file_version="$(git show "${tag_commit}:VERSION")"',
+    'git merge-base --is-ancestor "${tag_commit}" "${RELEASE_BASE_REF}"',
+    "PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY",
+    "PLUGIN_UPLOAD_SIGNING_KEY_ID",
+    "source ./scripts/ci/prepare-openbao-cosign-env.sh",
+    './scripts/publish-solution-packs-release.sh "${publish_args[@]}"',
+):
+    if fragment not in solution_packs_workflow:
+        raise SystemExit(f"solution-packs workflow is missing contract fragment: {fragment}")
+
+for fragment in (
+    "pack validate",
+    "pack build",
+    "pack sign",
+    "pack verify",
+    "pack index",
+    "--require-signatures",
+    "serviceradar-pack-index.json",
+    "releases?per_page=100",
+    "is published and immutable; cannot replace",
+):
+    if fragment not in publish_solution_packs:
+        raise SystemExit(f"publish-solution-packs-release.sh is missing contract fragment: {fragment}")
 for fragment in (
     'PARALLEL_ASSET_WAIT_TIMEOUT_SECONDS: "5400"',
     'PARALLEL_ASSET_POLL_SECONDS: "10"',
@@ -781,8 +833,6 @@ required = {
     "flow-collector",
     "bmp-collector",
     "trapd",
-    "rperf",
-    "rperf-checker",
 }
 if set(names) != required:
     raise SystemExit(f"RELEASE_PACKAGES mismatch: got {sorted(names)}, want {sorted(required)}")

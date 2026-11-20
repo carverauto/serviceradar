@@ -10,7 +10,7 @@ import {spawn} from "node:child_process"
 import {credentialsDir, credentialsPath, normalizeInstanceUrl, readCredentials, resolveCredentialToken} from "./auth/credentials.js"
 import {loadConfig, resolveConfigPath} from "./config.js"
 import {DEFAULT_RENDERER_ENTRY} from "./manifest.js"
-import {resolveProjectPackageManifest} from "./dashboard/resolve.js"
+import {BLUEPRINT_PACKAGES, type BlueprintPackage, resolveProjectPackageManifest} from "./dashboard/resolve.js"
 import {CLI_ROOT, HARNESS_DIR, TEMPLATES_DIR} from "./paths.js"
 import {defaultCaBundlePath, formatFetchFailure, resolveExtraCaFile} from "./tls_ca.js"
 import {relativePath} from "./utils.js"
@@ -81,6 +81,14 @@ export async function doctorCommand(options: Record<string, any>): Promise<void>
     }
   } else {
     console.log("  dashboard config:     (none — `serviceradar-cli dashboard init <name>` to scaffold)")
+  }
+
+  const blueprintVersions = resolveBlueprintVersions(projectDir)
+  if (Object.values(blueprintVersions).some(Boolean)) {
+    for (const pkg of BLUEPRINT_PACKAGES) {
+      const version = blueprintVersions[pkg]
+      console.log(`  ${`${pkg}:`.padEnd(22)}${version || "(not installed — optional)"}`)
+    }
   }
 
   console.log("")
@@ -171,6 +179,29 @@ function resolveSdkVersion(projectDir: string): string | null {
     }
   }
   return null
+}
+
+export function resolveBlueprintVersions(projectDir: string): Record<BlueprintPackage, string | null> {
+  const result = {} as Record<BlueprintPackage, string | null>
+  for (const pkg of BLUEPRINT_PACKAGES) {
+    let version: string | null = null
+    for (const candidate of [
+      resolveProjectPackageManifest(projectDir, pkg),
+      join(projectDir, "node_modules", pkg, "package.json"),
+    ]) {
+      if (candidate && existsSync(candidate)) {
+        try {
+          const payload = JSON.parse(readFileSync(candidate, "utf8"))
+          if (payload?.version) {
+            version = payload.version
+            break
+          }
+        } catch (_) { /* fall through */ }
+      }
+    }
+    result[pkg] = version
+  }
+  return result
 }
 
 async function dynamicVersion(packageName: string): Promise<string | null> {

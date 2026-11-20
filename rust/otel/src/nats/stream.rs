@@ -98,6 +98,7 @@ fn required_subjects(config: &NATSConfig) -> Vec<String> {
     vec![
         format!("{}.traces.>", config.subject),
         format!("{}.metrics.>", config.subject),
+        "rum.beacons.>".to_string(),
         logs_subject,
     ]
 }

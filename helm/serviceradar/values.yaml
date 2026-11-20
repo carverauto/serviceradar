@@ -75,9 +75,7 @@ image:
     flowgger: *appTag
     flowCollector: *appTag
     bmpCollector: *appTag
-    rperfClient: *appTag
     faker: *appTag
-    rperfChecker: *appTag
     tools: *appTag
     trivySidecar: *appTag
     k8sInventory: *appTag
@@ -1048,7 +1046,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261118193000"
+    expectedVersion: "20261119001000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -2123,6 +2121,11 @@ logCollector:
       # Gateway listener (sectionName) the HTTPRoute attaches to. Must be an
       # HTTPS (Terminate) or HTTP listener whose hostname matches httpHostname.
       httpSectionName: "https-web"
+      # Expose public-safe /rum/v1/beacon ingestion on the OTLP/HTTP HTTPRoute
+      # and optionally on a dedicated hostname (rumHostname).
+      rum:
+        enabled: true
+      rumHostname: ""
       # Hostname for OTLP/gRPC via the gateway's TLS passthrough listener,
       # e.g. <name>.grpc.serviceradar.cloud (external port 50052). With
       # passthrough, envoy does NOT terminate TLS: the collector's [grpc_tls]
@@ -2379,9 +2382,6 @@ bmpCollector:
     limits:
       memory: "512Mi"
       cpu: "500m"
-rperfChecker:
-  enabled: true
-  replicaCount: 1
 configSync:
   logCollector:
     enabled: true
@@ -2407,7 +2407,6 @@ serviceAccounts:
   datasvc: ""
   agent: ""
   logCollector: ""
-  rperfChecker: ""
   trapd: ""
   flowCollector: ""
   bmpCollector: ""
@@ -2753,8 +2752,11 @@ networkPolicy:
         port: 50053
       - protocol: TCP
         port: 50057
+      # Agent netperf Hub Responder control (mTLS gRPC) and UDP probes.
       - protocol: TCP
-        port: 50081
+        port: 5199
+      - protocol: UDP
+        port: 5199
       - protocol: TCP
         port: 5432
       - protocol: TCP

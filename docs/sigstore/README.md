@@ -50,8 +50,7 @@ keys, so no installation depends on the log being up.
   signature, is accepted for a reused one only when the receipt was integrated
   before the cutover pinned in `cutover.json` (the v1.5.8 tag time), and is not
   accepted at import or shipped in the web-ng image. The transparency-log
-  monitor will watch only the self-hosted log (pending: lands with the monitor
-  PR).
+  monitor watches only the self-hosted log.
 
 - `pre-cutover-first-party-digests.json`: the frozen list of first-party Wasm
   plugin and native add-on digests published through v1.5.7, before the cutover
@@ -73,13 +72,58 @@ was fetched on 2026-11-18 at 17:04 UTC with
 head from `GET /api/v1/log` (tree `7401445772329872027`, size 46) verified under it
 with `openssl dgst -sha256 -verify` and named it by key hint (`a8839837`).
 
-Updating the keys: when the self-hosted log's key changes (the monitor will alert
-when `/api/v1/log/publicKey` no longer returns `rekor.pub`; pending: lands with the
-monitor PR), fetch the new key the same
+Updating the keys: when the self-hosted log's key changes (the monitor alerts
+when `/api/v1/log/publicKey` no longer returns `rekor.pub`), fetch the new key the same
 way, add it as `rekor-keys/<logID>.pub` in a reviewed PR, keep every key an
 accepted receipt names, and point `rekor.pub` at the new key. Never drop a key
 from `rekor-keys/` that a published receipt names: verification of that receipt
 would then fail.
+
+### The signing monitor
+
+`.github/workflows/rekor-signing-monitor.yml` runs every hour on `arc-runner-set`
+(`build/ci/rekor_signing_monitor.py`). The log holds only ServiceRadar's entries, so each run
+reads all of them (46 entries, about 280 KB, one second on 2026-11-18), recomputes the RFC 6962
+root, and checks it against the signed tree head, which must verify under `rekor.pub`. The
+previous run's checkpoint (kept as the `rekor-signing-monitor-state` artifact) must be a prefix
+of the log, and `/api/v1/log/publicKey` must still return `rekor.pub`. Every entry in the log
+signed by the release key, including those integrated before the first checkpoint, is then
+decided against the signing ledgers of the release-key signing workflows that were running when
+it was integrated:
+
+- pending while such a run is still in progress;
+- explained when its payload hash is in one of their ledgers, or it is listed in
+  `rekor-acknowledged-entries.json`;
+- otherwise unexplained: one GitHub issue (`security`, `signing-monitor`; the monitor creates
+  the `signing-monitor` label if it is missing) per entry UUID and a post to
+  `CI_FAILURE_DISCORD_WEBHOOK_URL`, retried every run until Discord accepts it. The issue is
+  closed when a later run finds the entry explained.
+
+The blindness canary opens an issue when a signing ledger records an entry in this log (its
+`logged` line names this log's ID) that was integrated after the first checkpoint's time, kept
+in the checkpoint, from a run that ended more than two hours ago, and that entry is not among
+the entries seen. Every signing run that ended after the first checkpoint (including one that
+started before it), within the 90-day ledger retention, is checked after it ends until every entry it ledgered is seen (again if a re-run ends
+later), so a monitor outage is caught up on the next successful run. Each unseen entry is kept in
+the checkpoint, named on the open canary issue (or a new one, if it was closed) and posted to
+Discord every run until it appears in the log or its log index is listed in
+`rekor-acknowledged-entries.json`; the issue gets a comment as each named entry resolves and is
+closed once all of them have. A run that cannot vouch for the log (unreachable, a
+signature or root mismatch, a rewritten or replaced tree, a changed key, a missing checkpoint)
+fails, opens an issue and posts to Discord. Only a checkpoint from a successful scheduled or
+dispatched run on `staging` is used. The daily scheduled job watch reports the monitor when its
+last successful scan (such a run that kept its checkpoint; a self-test keeps none) is older than
+three hours.
+
+Every run judges every release-key entry in the log, including those made before the first
+monitor run, and keeps each decision in its checkpoint. The first run is dispatched by hand with `bootstrap: true`,
+and a dispatch with `self_test: true` proves the alert path. Acknowledge a benign entry (for
+example a signature made by hand) in `rekor-acknowledged-entries.json` in a reviewed PR, with
+its UUID, log index, the run or event that made it, and why it is benign.
+
+The release checksum (`SHA256SUMS.sigstore.json`) is still logged through the public-good
+signing config, not the self-hosted log, so it is outside this monitor; the OpenBao audit watch
+covers every release-key signing call regardless of log.
 
 ### Operating the self-hosted log
 

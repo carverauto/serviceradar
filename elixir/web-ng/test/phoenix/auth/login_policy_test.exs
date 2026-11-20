@@ -113,28 +113,13 @@ defmodule ServiceRadarWebNGWeb.Auth.LoginPolicyTest do
     end
   end
 
-  describe "disable_sso?/0 and sso_entry_path/1" do
+  describe "disable_sso?/0" do
     test "disable_sso? reflects the switch" do
       set_auth(force_local_login: false, disable_sso: true)
       assert LoginPolicy.disable_sso?()
 
       set_auth(force_local_login: false, disable_sso: false)
       refute LoginPolicy.disable_sso?()
-    end
-
-    test "sso_entry_path points at SSO entry only for active SSO modes with SSO enabled" do
-      set_auth(force_local_login: false, disable_sso: false)
-
-      assert LoginPolicy.sso_entry_path(@active_sso) == "/auth/oidc"
-      assert LoginPolicy.sso_entry_path(@passive_proxy) == "/auth/oidc"
-      assert LoginPolicy.sso_entry_path(@password_only) == "/users/log-in"
-      assert LoginPolicy.sso_entry_path(@sso_disabled) == "/users/log-in"
-      assert LoginPolicy.sso_entry_path(nil) == "/users/log-in"
-    end
-
-    test "sso_entry_path falls back to local login when SSO button is disabled" do
-      set_auth(force_local_login: false, disable_sso: true)
-      assert LoginPolicy.sso_entry_path(@active_sso) == "/users/log-in"
     end
   end
 end

@@ -13,12 +13,16 @@ import test, {describe} from "node:test"
 
 import {
   assertReactResolvable,
-  resolveProjectPackageManifest,
+  BLUEPRINT_PACKAGES,
+  buildViteAliases,
   devViteAliases,
+  explainBlueprintResolveError,
   normalizeViteAlias,
+  projectBlueprintAliases,
   projectReactAliases,
   resolveProjectPackage,
   resolveProjectPackageDir,
+  resolveProjectPackageManifest,
 } from "../dist/dashboard/resolve.js"
 
 /** Picks the winning alias entry the way vite/rollup do: first match wins. */
@@ -302,5 +306,89 @@ describe("packages whose exports map omits ./package.json", () => {
     const root = await tempRoot("sr-sealed-missing-")
     const projectDir = await makeProject(root)
     assert.equal(resolveProjectPackageManifest(projectDir, "@carverauto/serviceradar-dashboard-sdk"), null)
+  })
+})
+
+describe("Blueprint v6 resolution and alias precedence", () => {
+  const cliResolve = (specifier) => `/cli/node_modules/${specifier}`
+
+  test("projectBlueprintAliases resolves local and hoisted Blueprint packages and omits absent ones", async () => {
+    const emptyRoot = await tempRoot("sr-bp-empty-")
+    const emptyProject = await makeProject(emptyRoot)
+    assert.deepEqual(projectBlueprintAliases(emptyProject), {})
+
+    const root = await tempRoot("sr-bp-hoisted-")
+    const modules = join(root, "node_modules")
+    const coreDir = await installPackage(modules, "@blueprintjs/core", "6.23.0")
+    const iconsDir = await installPackage(modules, "@blueprintjs/icons", "6.16.0")
+    // Omit @blueprintjs/select to verify partial install omission.
+    const projectDir = await makeProject(join(root, "dashboards"), "netperf")
+
+    assert.deepEqual(projectBlueprintAliases(projectDir), {
+      "@blueprintjs/core": coreDir,
+      "@blueprintjs/icons": iconsDir,
+    })
+  })
+
+  test("buildViteAliases and devViteAliases honor object and array author overrides over CLI defaults", async () => {
+    const root = await tempRoot("sr-bp-alias-prec-")
+    const modules = join(root, "node_modules")
+    await installPackage(modules, "react", "19.2.9")
+    await installPackage(modules, "react-dom", "19.2.9")
+    for (const pkg of BLUEPRINT_PACKAGES) {
+      await installPackage(modules, pkg, "6.16.0")
+    }
+    const projectDir = await makeProject(join(root, "dashboards"), "netperf")
+
+    const objOverrides = {
+      react: "/author/react",
+      "@blueprintjs/core": "/author/bp-core",
+    }
+    const buildFromObj = buildViteAliases(projectDir, objOverrides)
+    const devFromObj = devViteAliases(projectDir, objOverrides, cliResolve)
+
+    assert.equal(firstMatch(buildFromObj, "react").replacement, "/author/react")
+    assert.equal(firstMatch(buildFromObj, "@blueprintjs/core").replacement, "/author/bp-core")
+    assert.equal(firstMatch(buildFromObj, "@blueprintjs/icons/next").replacement, join(modules, "@blueprintjs/icons"))
+    assert.equal(firstMatch(buildFromObj, "react-dom/client").replacement, join(modules, "react-dom", "client"))
+
+    assert.equal(firstMatch(devFromObj, "react").replacement, "/author/react")
+    assert.equal(firstMatch(devFromObj, "@blueprintjs/core").replacement, "/author/bp-core")
+    assert.equal(firstMatch(devFromObj, "@blueprintjs/select").replacement, join(modules, "@blueprintjs/select"))
+    assert.equal(firstMatch(devFromObj, "mapbox-gl").replacement, "/cli/node_modules/mapbox-gl")
+
+    const arrayOverrides = [
+      {find: /^react$/, replacement: "/array/react"},
+      {find: "@blueprintjs/icons", replacement: "/array/bp-icons"},
+    ]
+    const buildFromArr = buildViteAliases(projectDir, arrayOverrides)
+    const devFromArr = devViteAliases(projectDir, arrayOverrides, cliResolve)
+
+    assert.equal(firstMatch(buildFromArr, "react").replacement, "/array/react")
+    assert.equal(firstMatch(buildFromArr, "@blueprintjs/icons/next").replacement, "/array/bp-icons")
+    assert.equal(firstMatch(devFromArr, "react").replacement, "/array/react")
+    assert.equal(firstMatch(devFromArr, "@blueprintjs/icons/next").replacement, "/array/bp-icons")
+  })
+
+  test("explainBlueprintResolveError explains missing Blueprint packages with install hint", async () => {
+    const root = await tempRoot("sr-bp-explain-")
+    const projectDir = await makeProject(root)
+
+    const explained = explainBlueprintResolveError(
+      projectDir,
+      new Error('Rollup failed to resolve import "@blueprintjs/core" from "src/main.jsx"'),
+    )
+    assert.ok(explained)
+    assert.match(explained.message, /cannot resolve "@blueprintjs\/core"/)
+    assert.match(explained.message, /@blueprintjs\/select@\^6\.4\.2/)
+
+    assert.equal(explainBlueprintResolveError(projectDir, new Error('Cannot resolve "lodash"')), null)
+    assert.equal(
+      explainBlueprintResolveError(
+        projectDir,
+        new Error('non-inlineable SVG font reference -> import from "@blueprintjs/icons"'),
+      ),
+      null,
+    )
   })
 })

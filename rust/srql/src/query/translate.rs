@@ -6,10 +6,10 @@ use super::{
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, gateways, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs,
     mtr_hops, mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints,
-    security_events, services, source_fact_disagreements, starrocks, sweep_coverage,
+    rum_beacons, security_events, services, source_fact_disagreements, starrocks, sweep_coverage,
     sweep_executions, sweep_groups, sweep_profiles, sweep_results, threat_intel_matches,
     timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
-    wifi_map,
+    websites, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -66,6 +66,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::PublicEndpoints => public_endpoints::to_sql_and_params(&plan)?,
             Entity::CameraSources => camera_sources::to_sql_and_params(&plan)?,
+            Entity::Websites => websites::to_sql_and_params(&plan)?,
             Entity::SecurityEvents => security_events::to_sql_and_params(&plan)?,
             Entity::MergeAudit => identity::merge_audit::to_sql_and_params(&plan)?,
             Entity::DeviceRevivalAudit => identity::device_revival_audit::to_sql_and_params(&plan)?,
@@ -92,6 +93,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
             Entity::MtrHops => mtr_hops::to_sql_and_params(&plan)?,
             Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
+            Entity::RumBeacons => rum_beacons::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,
             Entity::DeclarativeCheckResults => declarative_check_results::to_sql_and_params(&plan)?,

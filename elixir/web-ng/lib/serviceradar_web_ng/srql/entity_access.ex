@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       interfaces interface discovered_interfaces interface_settings
       public_endpoints public_endpoint k8s_public_endpoints k8s_endpoints vip_inventory
       camera_sources camera_source cameras camera
+      websites website web_properties web_property
       endpoint_inventory_scans endpoint_inventory_scan endpoint_inventory_status
       endpoint_inventory_statuses endpoint_inventory_freshness
       endpoint_packages endpoint_package endpoint_inventory_packages endpoint_inventory packages
@@ -90,7 +91,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       interface_timeseries_metrics_hourly interface_metrics_hourly
       timeseries_metric_disk_hourly timeseries_metrics_disk_hourly
       snmp_metrics snmp
-      rperf_metrics rperf
+      rperf_metrics rperf netperf_metrics netperf
       cpu_metrics cpu
       memory_metrics memory
       disk_metrics disk
@@ -98,6 +99,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       otel_metrics metrics
       otel_metric_points metric_points
       capacity_forecasts capacity_forecast forecasts forecast
+      rum rum_beacons rum_beacon
     ),
     "observability.traces.view" => ~w(
       otel_traces traces trace_spans

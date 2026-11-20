@@ -18,9 +18,7 @@ SERVICE_TAG_KEYS = [
     "trapd",
     "flowgger",
     "sync",
-    "rperfClient",
     "faker",
-    "rperfChecker",
     "tools",
     "srql",
 ]

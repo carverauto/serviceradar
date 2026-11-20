@@ -284,7 +284,6 @@ generate_cert "db-superuser" "$DB_SUPERUSER" "DNS:${DB_SUPERUSER},DNS:localhost,
 generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Other services
-generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:rperf-client.serviceradar,DNS:serviceradar-rperf-client,DNS:agent.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "log-collector" "log-collector.serviceradar" "DNS:log-collector,DNS:log-collector.serviceradar,DNS:serviceradar-log-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "flow-collector" "flow-collector.serviceradar" "DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:serviceradar-flow-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "bmp-collector.serviceradar" "DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector,DNS:localhost,IP:127.0.0.1"

@@ -25,6 +25,7 @@ alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
+alias ServiceRadar.Observability.Zen.RuleBucket
 alias ServiceRadar.Security.AuditVersionRetentionWorker
 
 for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
@@ -598,6 +599,21 @@ config :serviceradar_core, ExposureTransitionRelay,
     StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
       ExposureTransitionRelay.default_max_bytes()
+    )
+
+# The NATS bucket collectors read Zen rule bundles from. Unset or blank means a
+# 1 MiB cap and one replica (the chart sets the datasvc bucket's replica count);
+# an invalid value fails boot naming the variable.
+config :serviceradar_core, RuleBucket,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_MAX_BYTES",
+      RuleBucket.default_max_bytes()
+    ),
+  replicas:
+    StateBucketSizing.replicas_from_env!(
+      "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_REPLICAS",
+      RuleBucket.default_replicas()
     )
 
 # ---------------------------------------------------------------------------
@@ -1327,6 +1343,7 @@ if config_env() == :prod do
       topology_projection: String.to_integer(System.get_env("OBAN_QUEUE_TOPOLOGY_PROJECTION") || "2"),
       alerts: String.to_integer(System.get_env("OBAN_QUEUE_ALERTS") || "5"),
       monitoring: String.to_integer(System.get_env("OBAN_QUEUE_MONITORING") || "5"),
+      declarative_checks: String.to_integer(System.get_env("OBAN_QUEUE_DECLARATIVE_CHECKS") || "5"),
       service_checks: String.to_integer(System.get_env("OBAN_QUEUE_SERVICE_CHECKS") || "10"),
       notifications: String.to_integer(System.get_env("OBAN_QUEUE_NOTIFICATIONS") || "5"),
       onboarding: String.to_integer(System.get_env("OBAN_QUEUE_ONBOARDING") || "3"),
@@ -1821,6 +1838,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.availability_transitions_stream(),
+        Config.rum_beacons_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
         Config.exposure_snapshots_stream(),

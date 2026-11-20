@@ -147,5 +147,37 @@ defmodule Palisade.OutboundFetchTest do
       assert Keyword.get(opts, :receive_timeout) == 10_000
       assert get_in(opts, [:connect_options, :timeout]) == 5_000
     end
+
+    test "retries a GET or HEAD whose pooled connection was closed" do
+      retry = OutboundFetch.req_opts()[:retry]
+
+      assert retry.(%{method: :get}, %Req.TransportError{reason: :closed})
+      assert retry.(%{method: :head}, %Req.TransportError{reason: :closed})
+    end
+
+    test "never retries a POST" do
+      retry = OutboundFetch.req_opts()[:retry]
+
+      refute retry.(%{method: :post}, %Req.TransportError{reason: :closed})
+    end
+
+    test "does not retry a timeout, a refused connection, a 503 or a policy error" do
+      retry = OutboundFetch.req_opts()[:retry]
+
+      refute retry.(%{method: :get}, %Req.TransportError{reason: :timeout})
+      refute retry.(%{method: :get}, %Req.TransportError{reason: :econnrefused})
+      refute retry.(%{method: :get}, %Req.Response{status: 503})
+      refute retry.(%{method: :get}, :dns_resolution_failed)
+    end
+
+    test "a built request carries the retry policy and logs no retry chatter" do
+      assert {:ok, request} =
+               OutboundFetch.build_request(:get, "https://1.1.1.1/jwks",
+                 resolved_address: {1, 1, 1, 1}
+               )
+
+      assert is_function(Req.Request.get_option(request, :retry), 2)
+      assert Req.Request.get_option(request, :retry_log_level) == false
+    end
   end
 end

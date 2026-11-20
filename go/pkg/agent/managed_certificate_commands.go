@@ -62,6 +62,20 @@ func (p *PushLoop) handleManagedCertificateCommand(ctx context.Context, cmd *pro
 	}
 }
 
+// startManagedLocalNATS runs at most one managed local NATS loop at a time.
+func (p *PushLoop) startManagedLocalNATS(ctx context.Context) {
+	if !managedLocalNATSConfigured() {
+		return
+	}
+	if !p.managedLocalNATSRunning.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer p.managedLocalNATSRunning.Store(false)
+		p.managedLocalNATSLoop(ctx)
+	}()
+}
+
 // A root-pinned policy key opts a host into managed policy refresh. It can be
 // provisioned while the agent runs; absent keys do not produce network traffic.
 func (p *PushLoop) managedCertificatePolicyLoop(ctx context.Context) {

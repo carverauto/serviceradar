@@ -41,9 +41,29 @@ defmodule ServiceRadar.Catalog.Reconciler do
 
   @reconciler_actor SystemActor.system(:solution_pack_reconciler)
 
+  @transaction_resources [
+    DeclarativeCheck,
+    DeclarativeCheckCredentialBinding,
+    StatefulAlertRule,
+    EventRule,
+    ZenRule,
+    AuthoredDashboard,
+    DashboardPanel,
+    InstalledSolutionPack,
+    InstalledSolutionPackCredentialBinding
+  ]
+
   @stateful_rule_structural_fields ~w(signal match group_by event alert)
   @event_rule_structural_fields ~w(source_type source match event)
   @zen_rule_structural_fields ~w(stream_name subject format template builder_config jdm_definition)
+
+  @doc """
+  The installed record for `pack_id`, or `nil` when the pack is not installed.
+  """
+  @spec installed_pack(String.t(), keyword()) :: map() | nil
+  def installed_pack(pack_id, opts \\ []) when is_binary(pack_id) and is_list(opts) do
+    load_existing_pack(pack_id, opts)
+  end
 
   @doc """
   Computes a dry-run installation or upgrade preview without mutating CNPG.
@@ -906,15 +926,15 @@ defmodule ServiceRadar.Catalog.Reconciler do
     end
 
     if is_pid(Process.whereis(Repo)) do
-      case Repo.transaction(fn ->
-             case tx_fun.() do
-               {:ok, res} -> res
-               {:error, err} -> Repo.rollback(err)
-             end
-           end) do
-        {:ok, res} -> {:ok, res}
-        {:error, err} -> {:error, err}
-      end
+      # Ash.transact, not Repo.transaction: it delivers the resources'
+      # notifications once the transaction commits. Without them an installed
+      # check is never scheduled and its alert rule is never reconciled.
+      Ash.transact(@transaction_resources, fn ->
+        case tx_fun.() do
+          {:ok, res} -> res
+          {:error, err} -> {:error, err}
+        end
+      end)
     else
       tx_fun.()
     end
@@ -1888,7 +1908,6 @@ defmodule ServiceRadar.Catalog.Reconciler do
 
   defp check_doc_to_ash_attrs(doc, include_slug?) do
     base = %{
-      schema_version: 1,
       name: doc["name"],
       description: doc["description"],
       state: String.to_existing_atom(to_string(doc["state"] || "enabled")),
@@ -1906,7 +1925,10 @@ defmodule ServiceRadar.Catalog.Reconciler do
       parameter_overrides: doc["parameter_overrides"] || %{}
     }
 
-    if include_slug?, do: Map.put(base, :slug, doc["slug"]), else: base
+    # The update action accepts neither: a check keeps its slug and schema version.
+    if include_slug?,
+      do: Map.merge(base, %{schema_version: 1, slug: doc["slug"]}),
+      else: base
   end
 
   defp normalize_decisions(map) when is_map(map) do

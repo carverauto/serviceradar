@@ -1,0 +1,39 @@
+{
+  "alert": {
+    "severity": "warning",
+    "title": "Proxmox datastore is filling"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Warns when the fullest Proxmox datastore crosses the warning threshold, before guests are at risk of pausing.",
+  "event": {
+    "log_name": "alert.proxmox_monitoring.proxmox_datastore_filling",
+    "message": "Proxmox datastore is filling"
+  },
+  "group_by": [
+    "check_slug",
+    "target_key"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "attribute_equals": {
+      "check_slug": "proxmox-datastore-capacity",
+      "to_status": "degraded"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "proxmox-datastore-capacity",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
+  },
+  "name": "proxmox_datastore_filling",
+  "priority": 30,
+  "renotify_seconds": 86400,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

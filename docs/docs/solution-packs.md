@@ -57,7 +57,9 @@ Every instance materializes its verdict (`healthy`, `degraded`, `down`, or `unkn
 
 ### Built-in Pack #1: Storage Entitlements & NVR Recording Health
 
-ServiceRadar ships **Built-in Pack #1** (`io.serviceradar.storage-and-nvr-health`) offline inside `serviceradar_core` using the standard `pack_format_version: 1` format. It monitors SaaS Storage Entitlements (PR `#6760`) and NVR continuous recording liveness through four `platform_posture` evaluators, companion `StatefulAlertRule` templates, and an overview authored dashboard:
+ServiceRadar ships **Built-in Pack #1** (`io.serviceradar.storage-and-nvr-health`) offline inside `serviceradar_core` using the standard `pack_format_version: 1` format. It monitors SaaS Storage Entitlements (PR `#6760`) and NVR continuous recording liveness through four `platform_posture` evaluators, companion `StatefulAlertRule` templates, and an overview authored dashboard.
+
+Core installs this pack from its pack files at startup, through the same reconciler a catalog install uses, so it appears in the catalog as installed with source `builtin`. Startup installs the pack when it is absent, upgrades an older version, and leaves a newer version or another source's install alone. Operator `parameter_overrides` and paused rules survive the upgrade.
 
 | Evaluator | Check Slug | What It Monitors |
 | --- | --- | --- |
@@ -94,7 +96,7 @@ packs/storage-and-nvr-health/
 
 - **`manifest.json`**: Declares `pack_format_version: 1`, reverse-DNS `id`, `slug`, `name`, SemVer `version`, `author`, `license`, `min_serviceradar_version`, `categories`, sanitized inline SVG `icon`, `description`, typed `config` parameters, abstract `credential_slots`, optional Wasm `plugin_dependencies`, `resources` references, and a complete `files` SHA-256 digest map.
 - **`checks/*.json`**: Canonical `schema_version: 1` `DeclarativeCheck` DAG definitions.
-- **`rules/*.json`**: `StatefulAlertRule`, `EventRule`, and `ZenRule` definitions. Each rule entry supports `"install_state": "enabled" | "paused"` so high-sensitivity detection rules can install paused for baseline inspection without being re-enabled on upgrade.
+- **`rules/*.json`**: `StatefulAlertRule`, `EventRule`, and `ZenRule` definitions. Each rule entry supports `"install_state": "enabled" | "paused"` so high-sensitivity detection rules can install paused for baseline inspection without being re-enabled on upgrade. A `StatefulAlertRule` `match` (and its `recovery` clause) may only use keys the alert engine reads, such as `subject_prefix` and `attribute_equals`; to alert on a check transition, match `subject_prefix: "declarative_check.health.state_change"` with `attribute_equals: {"check_slug": ..., "to_status": ...}`. Validation rejects any other key (`unknown_match_key`), because the engine would ignore it and match every event. A rule that covers a status should not also have that status in the check's `alert_policy.open_on_statuses`, or one condition raises two alerts.
 - **`dashboards/*.json`**: Portable authored dashboard JSON documents.
 - **`README.md` and `assets/*`**: Documentation and sanitized SVG/image previews rendered in the Catalog Gallery.
 

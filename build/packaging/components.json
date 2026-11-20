@@ -11,8 +11,7 @@
           "trapd",
           "flow-collector",
           "nats",
-          "snmp",
-          "rperf-checker"
+          "snmp"
         ],
         "root_dir": "/etc/serviceradar/certs"
       }
@@ -230,97 +229,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-datasvc.service",
       "source": "build/packaging/datasvc/systemd/serviceradar-datasvc.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "additional_dirs": [
-      "/var/log/rperf"
-    ],
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-rperf"
-    },
-    "conffiles": [],
-    "config_files": [],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "rust/rperf-server/Dockerfile-deb"
-    },
-    "description": "ServiceRadar RPerf Network Performance Testing Tool",
-    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
-    "name": "rperf",
-    "package_name": "serviceradar-rperf",
-    "postinst": {
-      "source": "build/packaging/rperf/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/rperf/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.rperf",
-      "release": "1"
-    },
-    "section": "net",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-rperf.service",
-      "source": "build/packaging/rperf/systemd/serviceradar-rperf.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "docker_output_path": "/output/serviceradar-rperf-checker",
-      "output_path": "/usr/local/bin/serviceradar-rperf-checker",
-      "source_path": "rust/rperf-client"
-    },
-    "conffiles": [
-      "/etc/serviceradar/checkers/rperf.json.example"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/checkers/rperf.json.example",
-        "source": "build/packaging/rperf-checker/config/checkers/rperf.json"
-      }
-    ],
-    "custom_steps": [],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "rust/rperf-client/Dockerfile"
-    },
-    "description": "ServiceRadar RPerf Network Performance Test Checker",
-    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-    "name": "rperf-checker",
-    "package_name": "serviceradar-rperf-checker",
-    "postinst": {
-      "source": "build/packaging/rperf-checker/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/rperf-checker/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
-      "release": "1"
-    },
-    "section": "net",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-rperf-checker.service",
-      "source": "build/packaging/rperf-checker/systemd/serviceradar-rperf-checker.service"
     },
     "version": "1.0.58"
   },

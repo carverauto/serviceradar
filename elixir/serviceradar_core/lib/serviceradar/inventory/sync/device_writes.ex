@@ -426,9 +426,40 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       |> ParameterChunking.insert_all_chunks(extra_parameters: @upsert_extra_parameters)
       |> Enum.each(&insert_device_chunk/1)
 
+      follow_kept_address_names(records)
+
       _written = LegacyWrites.record(legacy_values)
       :ok
     end)
+  end
+
+  # An address-fallback name (AttributeStrength tier 1: the write had no
+  # hostname) names the device by the address it KEEPS, which only the upsert's
+  # address guard decides -- a fallback built from an address the guard refused
+  # would otherwise rename the device to it. So after the upsert, a recorded
+  # fallback name that differs from the kept primary takes it, unless the kept
+  # primary is link-local or absent (rank below a ULA's 30), in which case the
+  # fallback is unset: a link-local never names a device.
+  defp follow_kept_address_names([]), do: :ok
+
+  defp follow_kept_address_names(records) do
+    uids = records |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices AS d
+      SET name = CASE WHEN platform.sr_address_rank(d.ip) >= 30 THEN d.ip END,
+          attribute_provenance =
+            CASE WHEN platform.sr_address_rank(d.ip) >= 30 THEN d.attribute_provenance
+                 ELSE d.attribute_provenance - 'name' END
+      WHERE d.uid = ANY($1::text[])
+        AND d.attribute_provenance -> 'name' ->> 'strength' = '1'
+        AND d.name IS DISTINCT FROM d.ip
+      """,
+      [uids]
+    )
+
+    :ok
   end
 
   defp route_legacy_availability(records) do
@@ -2286,8 +2317,53 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.ip_seen_at
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
-          hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
-          name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          # name, hostname, vendor_name, model, type, type_id, metadata
+          # device_role and metadata integration_type are RANKED, not
+          # last-writer-wins: each write carries the source and evidence strength
+          # of the groups it writes in EXCLUDED.attribute_provenance
+          # (DeviceRecords, AttributeStrength), and
+          # platform.sr_attribute_write_accepted/4 decides each group against the
+          # strength the stored row recorded. Before this, a hostname-less passive
+          # census sighting renamed an SNMP-named device to its address and an
+          # OUI vendor replaced the SNMP vendor every two minutes, and the mapper
+          # wrote them back: every flip re-versioned the agent configs compiled
+          # from them. A group is accepted or rejected as one value; a field of
+          # an accepted group the write does not carry stays stored.
+          # DeviceRecords.merge_records_by_uid/1 applies the same rule in-batch,
+          # and an address-fallback name follows the address the device keeps
+          # (follow_kept_address_names/1).
+          hostname:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.hostname, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.hostname,
+              d.hostname
+            ),
+          name:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.name, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.name,
+              d.name
+            ),
           # Classification ownership is separate from discovery provenance:
           # an untyped manual duplicate must not freeze the survivor's inference.
           # An explicit false marker overrides legacy manual-source fallback;
@@ -2303,12 +2379,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
-                ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+                ELSE ?
               END
               """,
               d.metadata,
               d.discovery_sources,
               d.type,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
               d.type,
               d.type
             ),
@@ -2322,6 +2405,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
                 WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0
+                     AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
                   THEN EXCLUDED.type_id
                 ELSE ?
               END
@@ -2330,10 +2415,43 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.discovery_sources,
               d.type,
               d.type_id,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
               d.type_id
             ),
-          vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
-          model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
+          vendor_name:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.vendor_name, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.vendor_name,
+              d.vendor_name
+            ),
+          model:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.model, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.model,
+              d.model
+            ),
           os:
             fragment(
               "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.os, '{}'::jsonb)",
@@ -2351,10 +2469,46 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             ),
           is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
+          # The ranked metadata keys follow their group's decision: the OUI
+          # provenance keys follow the kept vendor, device_role the kept type
+          # (manual type ownership included), integration_type its own rank. An
+          # owned key (AttributeStrength.owned_metadata_keys/0) is replaced only
+          # by its owning source; any other writer only fills it when absent.
           metadata:
             fragment(
               """
-              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb) ||
+              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason'
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                     THEN ARRAY['mac_vendor', 'mac_vendor_source', 'mac_vendor_oui_prefix', 'mac_vendor_oui_snapshot_id']
+                     ELSE ARRAY[]::text[] END)
+              || (COALESCE(EXCLUDED.metadata, '{}'::jsonb)
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['mac_vendor', 'mac_vendor_source', 'mac_vendor_oui_prefix', 'mac_vendor_oui_snapshot_id'] END
+                 - CASE WHEN NOT (COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                                    'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                                  AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                                  AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown')
+                         AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['device_role'] END
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'integration_type',
+                          NULLIF(btrim(?->>'integration_type'), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['integration_type'] END
+                 - CASE WHEN 'hypervisor_enrichment' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY(SELECT k FROM jsonb_object_keys(COALESCE(?, '{}'::jsonb)) AS k
+                                WHERE k IN ('hypervisor_provider_ref', 'proxmox_node', 'proxmox_cluster',
+                                            'hypervisor_guest_type', 'hypervisor_vmid', 'proxmox_base_url')) END
+                 - CASE WHEN 'mapper' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY(SELECT k FROM jsonb_object_keys(COALESCE(?, '{}'::jsonb)) AS k
+                                WHERE k IN ('proxmox_candidate', 'proxmox_tls_sans_recorded', 'proxmox_tls_san_ips')) END)
+              ||
               jsonb_build_object('type_manually_set',
                 CASE
                   WHEN 'manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
@@ -2365,10 +2519,74 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                        AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                 END)
               """,
+              # stored side: classification strip, vendor decision
               d.metadata,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              # incoming side: vendor decision
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              # incoming side: manual type guard, then type decision
+              d.metadata,
+              d.discovery_sources,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
+              # incoming side: integration_type decision
+              d.attribute_provenance,
+              d.metadata,
+              # incoming side: owned keys
+              d.metadata,
+              d.metadata,
+              # type_manually_set
               d.metadata,
               d.discovery_sources,
               d.type
+            ),
+          attribute_provenance:
+            fragment(
+              """
+              COALESCE(?, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+                'name',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'name' END,
+                'vendor',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'vendor' END,
+                'type',
+                CASE WHEN NOT (COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                                 'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                               AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                               AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown')
+                      AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'type' END,
+                'integration_type',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'integration_type',
+                       NULLIF(btrim(?->>'integration_type'), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'integration_type' END
+              ))
+              """,
+              d.attribute_provenance,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.metadata,
+              d.discovery_sources,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
+              d.attribute_provenance,
+              d.metadata
             ),
           identity_revision:
             fragment(

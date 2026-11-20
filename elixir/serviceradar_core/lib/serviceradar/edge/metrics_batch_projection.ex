@@ -50,7 +50,7 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
     "sysmon-metrics" => {"sysmon", "agent"},
     "snmp-metrics" => {"snmp", "agent"},
     "icmp-metrics" => {"icmp", "agent"},
-    "rperf-metrics" => {"rperf", "rperf-checker"},
+    "rperf-metrics" => {"rperf", "agent"},
     "mtr-metrics" => {"mtr", "mtr-checker"},
     "sweep-metrics" => {"sweep", "sweep"}
   }

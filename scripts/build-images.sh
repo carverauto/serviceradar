@@ -26,7 +26,6 @@ declare -A SERVICE_GROUPS=(
     ["core"]="core web agent-gateway agent"
     ["data"]="datasvc"
     ["observability"]="log-collector flow-collector trapd"
-    ["checkers"]="rperf-client"
     ["tools"]="tools"
 )
 
@@ -83,7 +82,6 @@ SERVICE GROUPS:
   core:          core, web, agent-gateway, agent
   data:          datasvc
   observability: log-collector, flow-collector, trapd
-  checkers:      rperf-client
   tools:         tools
   all:           Build all services (default if no services specified)
 
@@ -91,11 +89,11 @@ SERVICES:
   You can specify individual services to build:
   cert-generator, config-updater, core, web, agent-gateway, agent,
   datasvc, log-collector, flow-collector, trapd,
-  rperf-client, tools
+  tools
 
 EXAMPLES:
   $0 --local core
-  $0 --platform-amd64 rperf-client
+  $0 --platform-amd64 agent
   $0 --group core
   $0 --tag local-test core web agent
 
@@ -283,7 +281,6 @@ declare -A SERVICE_DOCKERFILES=(
     ["log-collector"]="docker/compose/Dockerfile.log-collector"
     ["flow-collector"]="rust/flow-collector/Dockerfile"
     ["trapd"]="docker/compose/Dockerfile.trapd"
-    ["rperf-client"]="docker/compose/Dockerfile.rperf-client"
     ["tools"]="docker/compose/Dockerfile.tools"
 )
 

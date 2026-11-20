@@ -254,6 +254,49 @@ pub(super) fn camera_sources() -> VizMeta {
     }
 }
 
+pub(super) fn websites() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("canonical_origin", ColumnType::Text, None),
+            col("allowed_origins", ColumnType::TextArray, None),
+            col("allowed_query_keys", ColumnType::TextArray, None),
+            col("trace_propagate_origins", ColumnType::TextArray, None),
+            col("environment", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("tags", ColumnType::Jsonb, None),
+            col("prefix_tags", ColumnType::Jsonb, None),
+            col("rum_enabled", ColumnType::Bool, None),
+            col("rum_site_key", ColumnType::Text, None),
+            col("rum_sample_rate", ColumnType::Float, None),
+            col("anonymize_client_ip", ColumnType::Bool, None),
+            col("edge_provider", ColumnType::Text, None),
+            col("observed_vips", ColumnType::TextArray, None),
+            col("observed_asns", ColumnType::IntArray, None),
+            col("tls_not_after", ColumnType::Timestamptz, None),
+            col("tls_issuer", ColumnType::Text, None),
+            col("last_posture_checked_at", ColumnType::Timestamptz, None),
+            col(
+                "created_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("binding_count", ColumnType::Int, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

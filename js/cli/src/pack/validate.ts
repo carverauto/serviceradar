@@ -51,6 +51,35 @@ const ALLOWED_CHECK_NODE_KINDS = new Set([
 const ALLOWED_RULE_KINDS = new Set(["stateful_alert_rule", "event_rule", "zen_rule"])
 const ALLOWED_INSTALL_STATES = new Set(["enabled", "paused"])
 
+// The keys the alert engine reads from a stateful rule's `match`. It ignores any
+// other key, so a rule written with one matches every record instead of none.
+// Mirrors ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher.
+const STATEFUL_RULE_MATCH_KEYS = new Set([
+  "always",
+  "recovery",
+  "subject_prefix",
+  "service_name",
+  "body_contains",
+  "severity_number_min",
+  "severity_number_max",
+  "severity_text",
+  "attribute_equals",
+  "resource_attribute_equals",
+  "metric_name",
+  "metric_type",
+  "unit",
+  "device_id",
+  "agent_id",
+  "gateway_id",
+  "partition",
+  "series_key",
+  "tag_equals",
+  "metadata_equals",
+  "condition",
+  "metric_condition",
+  "threshold_condition",
+])
+
 const ALLOWED_DASHBOARD_VISUAL_TYPES = new Set([
   "table",
   "stat",
@@ -1085,6 +1114,25 @@ function validateRuleFile(
       code: "invalid_install_state",
       message: `rule install_state ${JSON.stringify(doc.install_state)} must be "enabled" or "paused"`,
     })
+  }
+
+  if (expectedKind === "stateful_alert_rule" && isPlainObject(doc.match)) {
+    const clauses: Array<[string, Record<string, unknown>, boolean]> = [["$.match", doc.match, true]]
+    if (isPlainObject(doc.match.recovery)) {
+      clauses.push(["$.match.recovery", doc.match.recovery, false])
+    }
+    for (const [path, clause, allowRecovery] of clauses) {
+      for (const key of Object.keys(clause).sort()) {
+        if (!STATEFUL_RULE_MATCH_KEYS.has(key) || (key === "recovery" && !allowRecovery)) {
+          issues.push({
+            file,
+            path: `${path}.${key}`,
+            code: "unknown_match_key",
+            message: `the alert engine does not read match key ${JSON.stringify(key)}; put record fields under attribute_equals`,
+          })
+        }
+      }
+    }
   }
 
   if (expectedKind === "zen_rule") {

@@ -23,7 +23,8 @@ defmodule ServiceRadar.Infrastructure.Changes.EnsureStateMonitor do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  # An atomic update never calls change/3, so the hook is registered here too.
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 
   defp ensure_state_monitor_running do
     # In schema-agnostic mode, StateMonitor is a singleton started by the supervisor

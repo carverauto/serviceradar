@@ -51,7 +51,7 @@ ServiceRadar is designed with security in mind:
 1. **Automated service and agent identity** - Platform TLS and agent enrollment
    credentials are provisioned for you on Cloud and in standard Helm/Compose
    installs; day-1 agent onboarding does not require hand-built CAs
-2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied
+2. **User Authentication** - Password login, Direct SSO (OIDC), or gateway-proxied
    JWT auth
 3. **Session Management** - Secure, expirable sessions for the web UI and API access
 4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions

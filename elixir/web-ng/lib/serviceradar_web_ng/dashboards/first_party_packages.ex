@@ -26,6 +26,8 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   @service_availability_noc :service_availability_noc
   @security_findings :security_findings
   @endpoint_inventory :endpoint_inventory
+  @network_performance :network_performance
+  @web_rum :web_rum
   @first_party_dashboard_packages [
     %{
       key: @service_availability_noc,
@@ -53,9 +55,28 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
       renderer_artifact: "endpoint-inventory",
       first_party_object_key: "first-party://built-in/endpoint-inventory",
       default?: false
+    },
+    %{
+      key: @network_performance,
+      dashboard_id: "cloud.serviceradar.network-performance",
+      route_slug: "network-performance",
+      package_dir: "dashboard-packages/network-performance",
+      renderer_artifact: "network-performance",
+      first_party_object_key: "first-party://built-in/network-performance",
+      default?: false
+    },
+    %{
+      key: @web_rum,
+      dashboard_id: "cloud.serviceradar.web-rum",
+      route_slug: "web-rum",
+      package_dir: "dashboard-packages/web-rum",
+      renderer_artifact: "web-rum",
+      first_party_object_key: "first-party://built-in/web-rum",
+      default?: false
     }
   ]
   @supported_first_party_frame_entities ~w(
+    agents
     dashboards
     devices
     dns_activity
@@ -65,12 +86,23 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     endpoint_inventory_status
     endpoint_inventory_statuses
     endpoint_packages
+    netperf
+    netperf_metrics
+    rperf
+    rperf_metrics
+    rum
+    rum_beacon
+    rum_beacons
     service_availability
     scan_activity
     security_findings
     monitored_services
     slo_evaluations
     services
+    web_properties
+    web_property
+    website
+    websites
   )
 
   @type seed_result :: %{
@@ -156,6 +188,16 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   @spec ensure_endpoint_inventory(keyword()) :: {:ok, seed_result()} | {:error, term()}
   def ensure_endpoint_inventory(opts \\ []) do
     ensure_package!(opts, @endpoint_inventory)
+  end
+
+  @spec ensure_network_performance(keyword()) :: {:ok, seed_result()} | {:error, term()}
+  def ensure_network_performance(opts \\ []) do
+    ensure_package!(opts, @network_performance)
+  end
+
+  @spec ensure_web_rum(keyword()) :: {:ok, seed_result()} | {:error, term()}
+  def ensure_web_rum(opts \\ []) do
+    ensure_package!(opts, @web_rum)
   end
 
   defp ensure_package!(opts, key) do

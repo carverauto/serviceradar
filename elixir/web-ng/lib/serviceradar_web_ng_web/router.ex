@@ -75,22 +75,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:set_ash_actor)
   end
 
-  # The SAML assertion consumer. The IdP's form POST is a cross-site request: it
-  # carries no Phoenix CSRF token, and under the SameSite=Lax session cookie the
-  # browser usually sends no session either, so `:protect_from_forgery` would
-  # refuse every real login. Forgery protection comes from the server-side,
-  # one-use AuthnRequest bound to RelayState and InResponseTo, plus the
-  # assertion replay ledger (see SAMLController). Also excluded: GatewayAuth and
-  # the current-user plugs, which need a session this request does not have.
-  # The session is still fetched so a successful login can write one.
-  pipeline :saml_acs do
-    plug(:accepts, ["html"])
-    plug(:fetch_session)
-    plug(:fetch_live_flash)
-    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
-    plug(SecurityHeaders)
-  end
-
   # Authenticated browser pipeline without content negotiation.
   # Used for binary endpoints where clients may send non-HTML Accept headers.
   # The policy is the @csp attribute, which the scanner cannot evaluate. Every
@@ -339,24 +323,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :rate_limit_auth_oidc do
     plug(RateLimit,
       bucket: :auth_oidc_callback,
-      subject: :ip,
-      response_mode: :auto,
-      html_redirect_to: "/users/log-in"
-    )
-  end
-
-  pipeline :rate_limit_auth_saml do
-    plug(RateLimit,
-      bucket: :auth_saml_callback,
-      subject: :ip,
-      response_mode: :auto,
-      html_redirect_to: "/users/log-in"
-    )
-  end
-
-  pipeline :rate_limit_auth_saml_request do
-    plug(RateLimit,
-      bucket: :auth_saml_request,
       subject: :ip,
       response_mode: :auto,
       html_redirect_to: "/users/log-in"
@@ -1185,9 +1151,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/password-reset", AuthController, :new_reset_request)
     get("/password-reset/:token", AuthController, :show_reset_form)
 
-    # SSO initiation + non-callback metadata
+    # SSO initiation
     get("/oidc", OIDCController, :request)
-    get("/saml/metadata", SAMLController, :metadata)
   end
 
   # Local password sign-in — rate limited + lockout-gated.
@@ -1211,21 +1176,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:browser, :rate_limit_auth_oidc])
 
     get("/oidc/callback", OIDCController, :callback)
-  end
-
-  # SAML login start persists a pending AuthnRequest row, so it is metered.
-  scope "/auth", ServiceRadarWebNGWeb do
-    pipe_through([:browser, :rate_limit_auth_saml_request])
-
-    get("/saml", SAMLController, :request)
-  end
-
-  # SAML assertion consumer — rate limited, no CSRF token or session required
-  # (see `:saml_acs`).
-  scope "/auth", ServiceRadarWebNGWeb do
-    pipe_through([:saml_acs, :rate_limit_auth_saml])
-
-    post("/saml/consume", SAMLController, :consume)
   end
 
   ## Authenticated routes
@@ -1329,6 +1279,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Kubernetes public VIP / Gateway ownership inventory
       live("/inventory/public-endpoints", PublicEndpointsLive.Index, :index)
+      live("/websites", WebPropertyLive.Index, :index)
+      live("/websites/:id", WebPropertyLive.Show, :show)
       live("/events", EventLive.Index, :index)
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)
@@ -1358,6 +1310,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/logs", LogLive.Index, :logs)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
+      live("/services/checks", ServiceLive.Checks, :index)
       live("/services/check", ServiceLive.Show, :show)
       live("/topology", TopologyLive.GodView, :index)
       live("/spatial", SpatialLive.Index, :index)
@@ -1444,6 +1397,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/mtr", Settings.MtrProfilesLive.Index, :index)
       live("/settings/networks/mtr/new", Settings.MtrProfilesLive.Index, :new_profile)
       live("/settings/networks/mtr/:id/edit", Settings.MtrProfilesLive.Index, :edit_profile)
+      live("/settings/networks/netperf", Settings.NetperfLive.Index, :index)
+      live("/settings/networks/netperf/policies/new", Settings.NetperfLive.Index, :new_policy)
+      live("/settings/networks/netperf/policies/:id/edit", Settings.NetperfLive.Index, :edit_policy)
+      live("/settings/networks/netperf/responders/new", Settings.NetperfLive.Index, :new_responder)
+      live("/settings/networks/netperf/responders/:id/edit", Settings.NetperfLive.Index, :edit_responder)
+      live("/settings/networks/netperf/profiles/new", Settings.NetperfLive.Index, :new_profile)
+      live("/settings/networks/netperf/profiles/:id/edit", Settings.NetperfLive.Index, :edit_profile)
 
       # Flow settings (directionality + enrichment configuration)
       live("/settings/flows", Settings.NetflowLive.Index, :index)

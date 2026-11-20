@@ -239,6 +239,7 @@ function MonacoJsonPane({
   validationErrors,
   isDark,
   readOnly,
+  isFullscreen = false,
   onFormatCanonical,
 }) {
   const containerRef = useRef(null)
@@ -378,7 +379,7 @@ function MonacoJsonPane({
           data-testid="monaco-editor-host"
           style={{
             flex: 1,
-            minHeight: 420,
+            minHeight: isFullscreen ? 0 : 420,
             border: "1px solid var(--bp-surface-border-color-default, #d3d8de)",
             borderRadius: 4,
             display: monacoMounted ? "block" : "none",
@@ -396,7 +397,7 @@ function MonacoJsonPane({
           spellCheck={false}
           style={{
             flex: 1,
-            minHeight: 420,
+            minHeight: isFullscreen ? 0 : 420,
             width: "100%",
             fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
             fontSize: 12,
@@ -453,6 +454,9 @@ export function DeclarativeCheckBuilderCanvas({
   })
   const [portalContainer, setPortalContainer] = useState(null)
   const [isDark, setIsDark] = useState(() => detectServiceRadarDarkTheme(initialTheme))
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showPalette, setShowPalette] = useState(true)
+  const [showInspector, setShowInspector] = useState(true)
 
   const baselineManagedSigRef = useRef(defaultDoc.managed ? structuralSignature(defaultDoc) : null)
   const debounceTimerRef = useRef(null)
@@ -496,6 +500,39 @@ export function DeclarativeCheckBuilderCanvas({
   useEffect(() => () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
   }, [])
+
+  useEffect(() => {
+    if (!isFullscreen || typeof document === "undefined") return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isFullscreen])
+
+  useEffect(() => {
+    if (!isFullscreen || typeof window === "undefined") return undefined
+    const handleKeyDown = event => {
+      if (event.key !== "Escape") return
+      if (traceDrawerOpen || confirmDetachState.pendingNextDoc) return
+      const target = event.target
+      const tagName = (target?.tagName || "").toUpperCase()
+      if (
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        tagName === "SELECT" ||
+        target?.isContentEditable ||
+        (typeof target?.closest === "function" &&
+          (target.closest(".monaco-editor") || target.closest(".bp6-overlay-open")))
+      ) {
+        return
+      }
+      event.preventDefault()
+      setIsFullscreen(false)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [confirmDetachState.pendingNextDoc, isFullscreen, traceDrawerOpen])
 
   const applyValidatedDoc = useCallback(
     (nextRawDoc, {syncJson = true, bypassManagedGuard = false} = {}) => {
@@ -915,19 +952,48 @@ export function DeclarativeCheckBuilderCanvas({
     pushEvent?.("export_json", {slug: doc.slug, canonical_json: canonical})
   }, [doc, onExportJson, pushEvent])
 
+  const workspaceGridTemplateColumns = [
+    showPalette ? "250px" : null,
+    "minmax(0, 1fr)",
+    showInspector ? "360px" : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+
   return (
     <div
-      className={`sr-bp6-scope${isDark ? " bp6-dark" : ""}`}
+      className={`sr-bp6-scope${isDark ? " bp6-dark" : ""}${isFullscreen ? " sr-declarative-builder-fullscreen" : ""}`}
       data-bp-color-scheme={isDark ? "dark" : "light"}
+      data-fullscreen={isFullscreen ? "true" : "false"}
+      data-palette-open={showPalette ? "true" : "false"}
+      data-inspector-open={showInspector ? "true" : "false"}
       data-testid="declarative-check-builder-scope"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        minHeight: 680,
-        width: "100%",
-        position: "relative",
-      }}
+      style={
+        isFullscreen
+          ? {
+              position: "fixed",
+              inset: 0,
+              zIndex: 50,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              height: "100vh",
+              width: "100vw",
+              minHeight: 0,
+              padding: 12,
+              boxSizing: "border-box",
+              overflow: "hidden",
+              background: isDark ? "#111418" : "#f6f7f9",
+            }
+          : {
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              minHeight: 680,
+              width: "100%",
+              position: "relative",
+            }
+      }
     >
       {/* Dedicated Blueprint v6 portal container strictly inside .sr-bp6-scope */}
       <div
@@ -943,6 +1009,7 @@ export function DeclarativeCheckBuilderCanvas({
           icon="lock"
           title={`Managed by Solution Pack (${doc.pack_id || "built-in"} ${doc.pack_version || ""})`}
           data-testid="managed-pack-banner"
+          style={{flexShrink: 0}}
         >
           <div style={{fontSize: 12}}>
             Tuning <code>parameter_overrides</code> and dragging nodes in <code>ui_layout</code>{" "}
@@ -1002,7 +1069,7 @@ export function DeclarativeCheckBuilderCanvas({
       </Overlay2>
 
       {/* Builder Top Chrome */}
-      <Card style={{padding: "8px 12px"}}>
+      <Card style={{padding: "8px 12px", flexShrink: 0}}>
         <div
           style={{
             display: "flex",
@@ -1070,6 +1137,42 @@ export function DeclarativeCheckBuilderCanvas({
             >
               Auto-Layout
             </Button>
+
+            <ButtonGroup>
+              <Button
+                active={showPalette}
+                icon="drawer-left"
+                aria-pressed={showPalette}
+                aria-label={showPalette ? "Hide Node Palette" : "Show Node Palette"}
+                title={showPalette ? "Hide Node Palette" : "Show Node Palette"}
+                onClick={() => setShowPalette(prev => !prev)}
+                data-testid="toggle-palette-btn"
+              >
+                Palette
+              </Button>
+              <Button
+                active={showInspector}
+                icon="drawer-right"
+                aria-pressed={showInspector}
+                aria-label={showInspector ? "Hide Inspector Panel" : "Show Inspector Panel"}
+                title={showInspector ? "Hide Inspector Panel" : "Show Inspector Panel"}
+                onClick={() => setShowInspector(prev => !prev)}
+                data-testid="toggle-inspector-btn"
+              >
+                Inspector
+              </Button>
+              <Button
+                active={isFullscreen}
+                icon={isFullscreen ? "minimize" : "fullscreen"}
+                aria-pressed={isFullscreen}
+                aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                title={isFullscreen ? "Exit Fullscreen (Esc)" : "Enter Fullscreen"}
+                onClick={() => setIsFullscreen(prev => !prev)}
+                data-testid="toggle-fullscreen-btn"
+              >
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </Button>
+            </ButtonGroup>
           </div>
 
           <div style={{display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap"}}>
@@ -1146,7 +1249,12 @@ export function DeclarativeCheckBuilderCanvas({
       </Card>
 
       {canvasError && (
-        <Callout intent="danger" title="Canvas Validation Guard" data-testid="canvas-guard-callout">
+        <Callout
+          intent="danger"
+          title="Canvas Validation Guard"
+          data-testid="canvas-guard-callout"
+          style={{flexShrink: 0}}
+        >
           <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
             <span>{canvasError}</span>
             <Button size="small" minimal icon="cross" onClick={() => setCanvasError(null)} />
@@ -1154,33 +1262,50 @@ export function DeclarativeCheckBuilderCanvas({
         </Callout>
       )}
 
-      {/* Main Workspace: Visual Canvas OR Monaco JSON */}
-      {activeTab === "json" ? (
-        <Card style={{flex: 1, minHeight: 540, padding: 12}}>
-          <MonacoJsonPane
-            jsonText={jsonText}
-            onJsonChange={handleJsonChange}
-            validationErrors={jsonErrors}
-            isDark={isDark}
-            readOnly={!canManage}
-            onFormatCanonical={() => setJsonText(formatCanonicalCheckJson(doc))}
-          />
-        </Card>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "250px minmax(0, 1fr) 360px",
-            gap: 10,
-            minHeight: 560,
-          }}
-        >
-          {/* Left-hand Blueprint v6 Node Palette */}
+      {/* Main Workspace: Visual Canvas OR Monaco JSON with collapsible side panels */}
+      <div
+        data-testid="builder-workspace-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: workspaceGridTemplateColumns,
+          gap: 10,
+          flex: 1,
+          minHeight: isFullscreen ? 0 : 560,
+          height: isFullscreen ? "100%" : undefined,
+        }}
+      >
+        {/* Left-hand Blueprint v6 Node Palette */}
+        {showPalette && (
           <Card
-            style={{padding: 10, overflowY: "auto", maxHeight: 680}}
+            key="node-palette"
+            style={{
+              padding: 10,
+              overflowY: "auto",
+              maxHeight: isFullscreen ? "100%" : 680,
+              height: isFullscreen ? "100%" : undefined,
+              minHeight: 0,
+            }}
             data-testid="node-palette"
           >
-            <div style={{fontWeight: 600, fontSize: 13, marginBottom: 8}}>Node Palette</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+              }}
+            >
+              <div style={{fontWeight: 600, fontSize: 13}}>Node Palette</div>
+              <Button
+                size="small"
+                minimal
+                icon="double-chevron-left"
+                aria-label="Hide Node Palette"
+                title="Hide Node Palette"
+                onClick={() => setShowPalette(false)}
+                data-testid="collapse-palette-btn"
+              />
+            </div>
 
             {NODE_PALETTE_CATEGORIES.map(category => (
               <div key={category.id} style={{marginBottom: 12}}>
@@ -1236,10 +1361,42 @@ export function DeclarativeCheckBuilderCanvas({
               </div>
             ))}
           </Card>
+        )}
 
-          {/* Center @xyflow/react DAG Canvas */}
+        {/* Center Editor: Visual Canvas OR Monaco JSON */}
+        {activeTab === "json" ? (
           <Card
-            style={{padding: 0, position: "relative", minHeight: 560, overflow: "hidden"}}
+            key="monaco-json-editor"
+            data-testid="monaco-json-wrapper"
+            style={{
+              padding: 12,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: isFullscreen ? 0 : 560,
+              height: isFullscreen ? "100%" : 560,
+              overflow: "hidden",
+            }}
+          >
+            <MonacoJsonPane
+              jsonText={jsonText}
+              onJsonChange={handleJsonChange}
+              validationErrors={jsonErrors}
+              isDark={isDark}
+              readOnly={!canManage}
+              isFullscreen={isFullscreen}
+              onFormatCanonical={() => setJsonText(formatCanonicalCheckJson(doc))}
+            />
+          </Card>
+        ) : (
+          <Card
+            key="xyflow-canvas"
+            style={{
+              padding: 0,
+              position: "relative",
+              minHeight: isFullscreen ? 0 : 560,
+              height: isFullscreen ? "100%" : 560,
+              overflow: "hidden",
+            }}
             data-testid="xyflow-canvas-wrapper"
             onDragOver={event => {
               event.preventDefault()
@@ -1256,7 +1413,7 @@ export function DeclarativeCheckBuilderCanvas({
               })
             }}
           >
-            <div style={{width: "100%", height: 560}}>
+            <div style={{width: "100%", height: "100%"}}>
               <ReactFlowProvider>
                 <ReactFlow
                   nodes={rfNodes}
@@ -1272,17 +1429,57 @@ export function DeclarativeCheckBuilderCanvas({
                 >
                   <Background gap={18} size={1} />
                   <Controls />
-                  <MiniMap pannable zoomable />
+                  <MiniMap
+                    pannable
+                    zoomable
+                    bgColor={isDark ? "#0f172a" : "#f8fafc"}
+                    maskColor={isDark ? "rgba(15, 23, 42, 0.72)" : "rgba(241, 245, 249, 0.72)"}
+                    nodeColor={isDark ? "#38bdf8" : "#0284c7"}
+                    nodeStrokeColor={isDark ? "#0ea5e9" : "#0369a1"}
+                    style={{
+                      border: isDark ? "1px solid #334155" : "1px solid #cbd5e1",
+                      borderRadius: 6,
+                    }}
+                  />
                 </ReactFlow>
               </ReactFlowProvider>
             </div>
           </Card>
+        )}
 
-          {/* Right-hand Blueprint v6 Property Inspector */}
+        {/* Right-hand Blueprint v6 Property Inspector */}
+        {showInspector && (
           <Card
-            style={{padding: 12, overflowY: "auto", maxHeight: 680}}
+            key="property-inspector"
+            style={{
+              padding: 12,
+              overflowY: "auto",
+              maxHeight: isFullscreen ? "100%" : 680,
+              height: isFullscreen ? "100%" : undefined,
+              minHeight: 0,
+            }}
             data-testid="property-inspector"
           >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
+            >
+              <div style={{fontWeight: 600, fontSize: 13}}>Inspector</div>
+              <Button
+                size="small"
+                minimal
+                icon="double-chevron-right"
+                aria-label="Hide Inspector Panel"
+                title="Hide Inspector Panel"
+                onClick={() => setShowInspector(false)}
+                data-testid="collapse-inspector-btn"
+              />
+            </div>
+
             <Tabs
               id="declarative-check-inspector-tabs"
               selectedTabId={inspectorTab}
@@ -1358,8 +1555,8 @@ export function DeclarativeCheckBuilderCanvas({
               />
             </Tabs>
           </Card>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Scoped Blueprint Drawer for Expanded Trace Inspection */}
       <Drawer
@@ -1438,46 +1635,37 @@ function NodeInspectorPanel({
       {node.kind === "platform_posture" && (
         <>
           <FormGroup label="Posture Evaluator (#6760 Registry)" labelFor="inspector-posture-evaluator">
-            <div style={{display: "flex", flexDirection: "column", gap: 6}}>
-              <Select
-                items={evaluatorItems}
-                filterable={false}
-                disabled={!canManage}
-                popoverProps={{
-                  usePortal: Boolean(portalContainer),
-                  portalContainer: portalContainer || undefined,
-                }}
-                itemRenderer={(item, {handleClick, modifiers}) => (
-                  <MenuItem
-                    key={item.id}
-                    active={modifiers.active}
-                    text={item.label || item.id}
-                    label={item.id}
-                    onClick={handleClick}
-                  />
-                )}
-                onItemSelect={item => onUpdateConfig({evaluator: item.id})}
-              >
-                <Button
-                  fill
-                  alignText="left"
-                  endIcon="double-caret-vertical"
-                  disabled={!canManage}
-                  data-testid="posture-evaluator-select-btn"
-                >
-                  {cfg.evaluator || "storage.entitlement_utilization"}
-                </Button>
-              </Select>
-              <HTMLSelect
+            <Select
+              items={evaluatorItems}
+              filterable={false}
+              disabled={!canManage}
+              popoverProps={{
+                usePortal: Boolean(portalContainer),
+                portalContainer: portalContainer || undefined,
+              }}
+              itemRenderer={(item, {handleClick, modifiers}) => (
+                <MenuItem
+                  key={item.id}
+                  active={modifiers.active}
+                  text={item.label || item.id}
+                  label={item.id}
+                  data-testid={`posture-evaluator-option-${item.id}`}
+                  onClick={handleClick}
+                />
+              )}
+              onItemSelect={item => onUpdateConfig({evaluator: item.id})}
+            >
+              <Button
                 id="inspector-posture-evaluator"
-                data-testid="inspector-posture-evaluator"
                 fill
+                alignText="left"
+                endIcon="double-caret-vertical"
                 disabled={!canManage}
-                value={cfg.evaluator || "storage.entitlement_utilization"}
-                onChange={e => onUpdateConfig({evaluator: e.target.value})}
-                options={evaluatorItems.map(ev => ({value: ev.id, label: ev.label || ev.id}))}
-              />
-            </div>
+                data-testid="posture-evaluator-select-btn"
+              >
+                {cfg.evaluator || "storage.entitlement_utilization"}
+              </Button>
+            </Select>
           </FormGroup>
 
           {cfg.evaluator === "camera.continuous_recording_silence" && (

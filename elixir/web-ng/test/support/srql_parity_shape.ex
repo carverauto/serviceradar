@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "disk_metrics" => ~w(disk_metrics disk),
     "process_metrics" => ~w(process_metrics processes),
     "snmp_metrics" => ~w(snmp_metrics snmp),
-    "rperf_metrics" => ~w(rperf_metrics rperf),
+    "rperf_metrics" => ~w(rperf_metrics rperf netperf_metrics netperf),
     "logs" => ~w(logs),
     "events" => ~w(events activity),
     "security_findings" => ~w(security_findings security_finding findings finding),
@@ -46,7 +46,8 @@ defmodule ServiceRadarWebNG.SRQLParityShape do
     "traces" => ~w(otel_traces traces trace_spans),
     "otel_trace_summaries" => ~w(otel_trace_summaries trace_summaries traces_summaries),
     "bmp_events" => ~w(bmp_events bmp_event bmp_routing_events),
-    "device_availability_history" => ~w(device_availability_history device_availability_transitions availability_history)
+    "device_availability_history" => ~w(device_availability_history device_availability_transitions availability_history),
+    "rum" => ~w(rum rum_beacons rum_beacon)
   }
   @spellings for {canonical, spellings} <- @canonical, spelling <- spellings, into: %{}, do: {spelling, canonical}
 

@@ -206,6 +206,10 @@ state—for example, the KV bucket `serviceradar-datasvc` holds rule definitions
 and runtime settings, and the object store carries larger payloads. Routing this
 state through one service keeps NATS KV/object access consistent and avoids
 components manipulating JetStream buckets directly.
+The exception is Zen rule bundles: core also writes each bundle to the NATS
+key-value bucket `serviceradar-zen-rules`, and the log collector reads and
+watches that bucket directly when its configuration has a `[rules.nats]`
+section, as the Helm chart renders it.
 
 ## CNPG (System Of Record)
 

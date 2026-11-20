@@ -477,3 +477,54 @@ pub(super) fn security_events() -> VizMeta {
         }],
     }
 }
+
+pub(super) fn rum_beacons() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "observed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "web_property_id",
+                ColumnType::Text,
+                Some(ColumnSemantic::Id),
+            ),
+            col("beacon_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("metric_path", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("lcp_ms", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("ms"),
+            col("inp_ms", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("ms"),
+            col("cls", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("fcp_ms", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("ms"),
+            col("ttfb_ms", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("ms"),
+            col(
+                "page_load_ms",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("ms"),
+            col(
+                "cdn_edge_rtt_ms",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("ms"),
+            col(
+                "cdn_origin_rtt_ms",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("ms"),
+            col("has_error", ColumnType::Bool, None),
+            col("prefix_tag", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("country", ColumnType::Text, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}

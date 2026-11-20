@@ -126,7 +126,7 @@ Top-level commands:
   doctor      Print runtime + project diagnostics (Node, npm, SDK, Vite, config path, auth state).
 
 Common dashboard subcommands:
-  serviceradar-cli dashboard init <name> [--template react-map|react-table|react-blank] [--package-id com.example.foo] [--no-install]
+  serviceradar-cli dashboard init <name> [--template react-map|react-table|react-blank|blueprint] [--package-id com.example.foo] [--no-install]
   serviceradar-cli dashboard build [--config dashboard.config.mjs] [--out-dir dist]
   serviceradar-cli dashboard manifest [--config dashboard.config.mjs] [--out-dir dist]
   serviceradar-cli dashboard validate [--config dashboard.config.mjs]
@@ -177,7 +177,8 @@ Commands:
             chosen template, swizzles project name + identifier, runs npm
             install, and prints next steps. Templates: react-map (default —
             useDeckMap reference), react-table (frame-driven table),
-            react-blank (minimum viable).
+            react-blank (minimum viable), blueprint (Palantir Blueprint v6 +
+            scoped styles).
   build     Build renderer.js with SDK Vite defaults, write manifest, and copy samples.
             Runs validate first; refuses to write dist/ on validation failure.
   manifest  Compute renderer SHA256 and write dist/manifest.json.

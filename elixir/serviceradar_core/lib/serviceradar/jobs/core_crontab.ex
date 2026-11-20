@@ -19,7 +19,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Edge.SweepHostGaugeSweeper
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureTerminalCompactionWorker
-  alias ServiceRadar.Identity.SAMLAssertionCleanupWorker
   alias ServiceRadar.Inventory.Availability.ExpiryWorker
   alias ServiceRadar.Inventory.Availability.PinSilenceWorker
   alias ServiceRadar.Inventory.Availability.ResolverWorker
@@ -27,6 +26,7 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
+  alias ServiceRadar.Inventory.WebPropertyDiscoveryWorker
   alias ServiceRadar.Jobs.AlertsRetentionWorker
   alias ServiceRadar.Jobs.PruneStaleAgentsWorker
   alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
@@ -84,7 +84,6 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
       {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
       {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
-      {"29 * * * *", SAMLAssertionCleanupWorker, queue: :maintenance},
       {"*/10 * * * *", RemoteAccessRecordingReaperWorker, queue: :maintenance},
       {"*/5 * * * *", RemoteAccessSessionReaperWorker, queue: :maintenance},
       {"31 3 * * *", RemoteAccessVersionRetentionWorker, queue: :maintenance},
@@ -98,7 +97,8 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"* * * * *", ManagedCertificateReconcileWorker, queue: :maintenance},
       {"* * * * *", TickWorker, queue: :monitoring},
       {"* * * * *", DeclarativeCheckTickWorker, queue: :monitoring},
-      {"*/5 * * * *", LeasePassWorker, queue: :maintenance}
+      {"*/5 * * * *", LeasePassWorker, queue: :maintenance},
+      {"*/5 * * * *", WebPropertyDiscoveryWorker, queue: :maintenance}
     ] ++
       object_store_retention_entries(fetch) ++
       capacity_forecasting_entries(fetch) ++

@@ -566,6 +566,10 @@ spec:
           value: {{ $coreJs.exposureDimensions.maxBytes | quote }}
         - name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES
           value: {{ $coreJs.threatIntel.maxBytes | quote }}
+        {{- /* The Zen rule bucket (Zen.RuleBucket) is replicated like the datasvc
+             bucket that held the same bundles before it. */}}
+        - name: SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_REPLICAS
+          value: {{ $coreJs.datasvcKV.replicas | quote }}
 
         {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
         {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}

@@ -1342,15 +1342,26 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     metadata = placeholder_device_metadata(record, role, macs_by_ref)
 
+    # The inventory record's name is the platform-inventory name
+    # (AttributeStrength); a provider_ref is a reference, never a name, so a
+    # record without a name leaves the update hostname-less and the device is
+    # named by its address at the weakest tier until something stronger names it.
     %{
-      "hostname" => Map.get(record, :name) || provider_ref,
       "partition" => partition,
       "source" => "hypervisor_enrichment",
       "is_available" => available_status?(Map.get(record, :status)),
       "metadata" => metadata
     }
+    |> maybe_put("hostname", record_name(record))
     |> maybe_put("ip", ip)
     |> maybe_put("mac", device_mac(device_macs, provider_ref, macs))
+  end
+
+  defp record_name(record) do
+    case Map.get(record, :name) do
+      name when is_binary(name) -> if String.trim(name) == "", do: nil, else: name
+      _ -> nil
+    end
   end
 
   # A virtual guest only earns a device when we discovered an IP the reconciler
@@ -1394,6 +1405,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
               "source" => "hypervisor_enrichment",
               "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
             }
+            # Without the record's name this repeating update was hostname-less,
+            # so it renamed the node to its address every cycle against the
+            # automation inventory's name.
+            |> maybe_put("hostname", record_name(record))
             |> maybe_put("ip", ip)
             |> maybe_put("mac", device_mac(device_macs, provider_ref, macs))
           ]
