@@ -37,6 +37,10 @@ defmodule ServiceRadar.Inventory.SyncIngestRun do
     attribute :received_chunks, {:array, :integer}, allow_nil?: false, default: []
     attribute :total_chunks, :integer, allow_nil?: false, default: 0
     attribute :incomplete, :boolean, allow_nil?: false, default: false
+
+    # Activation inputs a final chunk leaves for a later chunk that completes the run.
+    # Written and claimed only by SyncRunLedger.defer_final/2 and claim_completed_final/1.
+    attribute :final_meta, :map, allow_nil?: true
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

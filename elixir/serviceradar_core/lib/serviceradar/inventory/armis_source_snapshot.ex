@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.ArmisSourceSnapshot do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
+  alias ServiceRadar.Inventory.SyncRunLedger
   alias ServiceRadar.Repo
 
   @source "armis"
@@ -28,16 +29,48 @@ defmodule ServiceRadar.Inventory.ArmisSourceSnapshot do
          {:ok, population} <- validate_population(map_value(sync_meta, :population)),
          {:ok, source} <- IntegrationSource.get_by_id(source_id, actor: actor),
          :ok <- require_armis_source(source),
-         :ok <- ServiceRadar.Inventory.SyncRunLedger.complete(sync_meta),
+         observed_at = Keyword.get_lazy(opts, :observed_at, fn -> observed_at(updates) end),
+         :ok <- complete_or_defer(sync_meta, observed_at),
          rows = collection_rows(source_id, run_id),
          :ok <- require_distinct_count(rows, population.distinct_source_ids) do
-      snapshot = build_snapshot(source, run_id, population, rows, updates)
+      snapshot = build_snapshot(source, run_id, population, rows, observed_at)
       observations = build_observations(snapshot, rows)
       DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
     end
   end
 
   def activate(_updates, _sync_meta, _opts), do: {:error, :invalid_sync_snapshot}
+
+  @doc """
+  Activates a run whose final chunk committed before an earlier chunk did.
+
+  Call after a chunk commits. When that chunk completed a run whose final chunk was
+  deferred, this activates the run from the final chunk's retained inputs and returns
+  `{:activated, final_sync_meta, result}`; otherwise `:none`.
+  """
+  @spec activate_completed_run(map(), keyword()) ::
+          :none | {:activated, map(), :ok | {:error, term()}}
+  def activate_completed_run(sync_meta, opts \\ []) do
+    case SyncRunLedger.claim_completed_final(sync_meta) do
+      {:ok, final_meta, observed_at} ->
+        {:activated, final_meta,
+         activate([], final_meta, Keyword.put(opts, :observed_at, observed_at))}
+
+      :none ->
+        :none
+    end
+  end
+
+  defp complete_or_defer(sync_meta, observed_at) do
+    case SyncRunLedger.complete(sync_meta) do
+      :ok ->
+        :ok
+
+      {:error, :sync_run_incomplete} = error ->
+        :ok = SyncRunLedger.defer_final(sync_meta, observed_at)
+        error
+    end
+  end
 
   @doc false
   def validate_population(population) when is_map(population) do
@@ -120,8 +153,7 @@ defmodule ServiceRadar.Inventory.ArmisSourceSnapshot do
       else: {:error, {:source_membership_mismatch, expected, actual}}
   end
 
-  defp build_snapshot(source, run_id, population, rows, updates) do
-    observed_at = observed_at(updates)
+  defp build_snapshot(source, run_id, population, rows, observed_at) do
     content_hash = content_hash(rows)
 
     %{
