@@ -248,13 +248,15 @@ defmodule ServiceRadarWebNG.MixProject do
       "assets.build": [
         "compile",
         "cmd --cd assets bun run build:css",
-        "cmd --cd assets env NODE_PATH=#{dev_node_path} bun run build:js"
+        "cmd --cd assets env NODE_PATH=#{dev_node_path} bun run build:js",
+        "cmd --cd assets node rum_bundle.mjs ../priv/static/assets/rum/boomerang-sr.min.js"
       ],
       "assets.deploy": [
         "cmd --cd assets bun install",
         "cmd --cd assets/component bun install --frozen-lockfile",
         "cmd --cd assets bun run build:css:minify",
         "cmd --cd assets env NODE_PATH=#{prod_node_path} bun run build:js:minify",
+        "cmd --cd assets node rum_bundle.mjs ../priv/static/assets/rum/boomerang-sr.min.js",
         "phx.react.bun.bundle --component-base=assets/component/src --output=#{bundle_output} --cd=#{bundle_cd}",
         "phx.digest"
       ],

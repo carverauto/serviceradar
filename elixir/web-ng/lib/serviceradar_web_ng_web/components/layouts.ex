@@ -225,6 +225,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   }
                 />
               </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/websites"}
+                  label="Websites"
+                  icon="hero-globe-alt"
+                  active={@current_path && String.starts_with?(@current_path, "/websites")}
+                />
+              </li>
               <li :if={FeatureFlags.god_view_enabled?()}>
                 <.sidebar_link
                   href={~p"/topology"}
@@ -336,6 +344,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/dashboards", label: "Dashboards", icon: "hero-squares-2x2"},
       %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
       %{href: "/services", label: "Services", icon: "hero-bolt"},
+      %{href: "/websites", label: "Websites", icon: "hero-globe-alt"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
       %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
       %{href: "/catalog", label: "Solution Packs", icon: "hero-cube-transparent"},
@@ -580,6 +589,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/security"), do: "Security"
   defp operations_page_title("/catalog"), do: "Solution Packs"
   defp operations_page_title("/spatial"), do: "FieldSurvey"
+  defp operations_page_title("/websites"), do: "Websites"
 
   defp operations_page_title(path) when is_binary(path) do
     cond do
@@ -588,6 +598,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       String.starts_with?(path, "/dashboards") -> "Dashboards"
       String.starts_with?(path, "/devices") -> "Devices"
       String.starts_with?(path, "/services") -> "Services"
+      String.starts_with?(path, "/websites") -> "Websites"
       String.starts_with?(path, "/diagnostics") -> "Diagnostics"
       String.starts_with?(path, "/settings") -> "Settings"
       String.starts_with?(path, "/observability") -> "Observability"
@@ -752,6 +763,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("observability"), do: "Observability"
   defp section_label("security"), do: "Security"
   defp section_label("services"), do: "Services"
+  defp section_label("websites"), do: "Websites"
   defp section_label("netflows"), do: "Network Flows"
   defp section_label("admin"), do: "Settings"
   defp section_label("settings"), do: "Settings"
@@ -771,6 +783,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
   defp section_icon("security"), do: "hero-shield-check-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
+  defp section_icon("websites"), do: "hero-globe-alt-micro"
   defp section_icon("netflows"), do: "hero-arrow-path-micro"
   defp section_icon(_), do: nil
 

@@ -7,7 +7,8 @@
 //! execution path.
 
 use super::{
-    camera_sources, field_survey, plan_for, public_endpoints, threat_intel_matches, wifi_map,
+    camera_sources, field_survey, plan_for, public_endpoints, threat_intel_matches, websites,
+    wifi_map,
 };
 use diesel::{debug_query, pg::Pg};
 
@@ -33,6 +34,10 @@ fn raw_sql_execute_queries_use_postgres_placeholders() {
         (
             "threat_intel_matches",
             threat_intel_matches::execution_query(&plan_for("in:threat_intel_matches limit:10")),
+        ),
+        (
+            "websites",
+            websites::execution_query(&plan_for("in:websites limit:10")),
         ),
     ];
 

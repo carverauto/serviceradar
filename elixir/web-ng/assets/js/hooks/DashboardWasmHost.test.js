@@ -1029,6 +1029,69 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     expect(typeof hook._moduleDestroy).toEqual("function")
     expect(hook.connectFrameStream).toHaveBeenCalled()
   })
+
+  test("routes built_in web-rum renderer and updates frames in place", async () => {
+    const {builtInDashboardRenderers} = await import("../dashboards")
+    expect(typeof builtInDashboardRenderers.web_rum).toBe("function")
+    expect(typeof builtInDashboardRenderers["web-rum"]).toBe("function")
+
+    const frames = [
+      {
+        id: "rum_cwv_summary",
+        query: 'in:rum time:last_24h stats:"count() as beacons" limit:1',
+        status: "ok",
+        results: [{beacons: 10}],
+      },
+    ]
+
+    const hook = hookContext({disconnectFrameStream: vi.fn()})
+    hook._host = baseHost({
+      instance: {
+        route_slug: "web-rum",
+        settings: {},
+      },
+      package: {
+        dashboard_id: "cloud.serviceradar.web-rum",
+        name: "Web RUM",
+        source_type: "first_party",
+        capabilities: ["srql.execute", "navigation.open"],
+        renderer: {
+          kind: "built_in",
+          interface_version: "dashboard-built-in-v1",
+          trust: "first_party",
+          artifact: "web-rum",
+          entrypoint: "web_rum",
+        },
+        frames,
+      },
+    })
+    hook._hostPayloadSignature = "web-rum-v1"
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    const nextHost = baseHost({
+      instance: {
+        route_slug: "web-rum",
+        settings: {},
+      },
+      package: {
+        ...hook._host.package,
+        frames: [
+          {
+            id: "rum_cwv_summary",
+            query: 'in:rum time:last_24h stats:"count() as beacons" limit:1',
+            status: "ok",
+            results: [{beacons: 25}],
+          },
+        ],
+      },
+    })
+
+    expect(hook.updateBrowserModuleHost(nextHost, "web-rum-v2")).toEqual(true)
+    expect(notified).toHaveLength(1)
+    expect(frames[0].results).toEqual([{beacons: 25}])
+    expect(hook.disconnectFrameStream).not.toHaveBeenCalled()
+  })
 })
 
 describe("DashboardWasmHost async boot/updated/destroyed race hardening", () => {

@@ -304,7 +304,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # never be created for these.
   def telemetry_subject?(subject) when is_binary(subject) do
     String.starts_with?(subject, "otel.") or String.starts_with?(subject, "logs.") or
-      String.starts_with?(subject, "metrics.")
+      String.starts_with?(subject, "metrics.") or String.starts_with?(subject, "rum.")
   end
 
   def telemetry_subject?(_subject), do: false
@@ -664,6 +664,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     :trivy,
     :mtr_results,
     :availability_transitions,
+    :rum_beacons,
     :bmp_causal,
     :arancini_causal,
     :siem_causal,
@@ -819,6 +820,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:scan_results, &scan_results_subject?/1},
       {:mtr_results, &mtr_results_subject?/1},
       {:availability_transitions, &String.starts_with?(&1, "availability.transitions.")},
+      {:rum_beacons, &String.starts_with?(&1, "rum.beacons.")},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
@@ -928,6 +930,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:k8s_nodes), do: ServiceRadar.EventWriter.Processors.K8sNodes
   defp get_processor(:scan_results), do: ServiceRadar.EventWriter.Processors.AdhocScan
   defp get_processor(:mtr_results), do: ServiceRadar.EventWriter.Processors.Mtr
+  defp get_processor(:rum_beacons), do: ServiceRadar.EventWriter.Processors.RumBeacons
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals

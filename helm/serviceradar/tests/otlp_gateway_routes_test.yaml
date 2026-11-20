@@ -164,3 +164,57 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "logCollector.otlp.gateway.httpHostname requires logCollector.otlp.service.http.enabled=true (the HTTPRoute backend is the serviceradar-otlp Service OTLP/HTTP port)"
+
+  - it: exposes /rum/v1/beacon as spec.rules[1] on serviceradar-otlp-http by default
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 1
+      - lengthEqual:
+          path: spec.rules
+          count: 2
+      - equal:
+          path: spec.rules[1].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[1].matches[0].path.value
+          value: /rum/v1/beacon
+      - equal:
+          path: spec.rules[1].backendRefs[0].name
+          value: serviceradar-otlp
+      - equal:
+          path: spec.rules[1].backendRefs[0].port
+          value: 4318
+
+  - it: omits /rum/v1/beacon rule when gateway rum.enabled is false
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.httpHostname: otlp-demo.serviceradar.cloud
+      logCollector.otlp.gateway.rum.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - lengthEqual:
+          path: spec.rules
+          count: 1
+
+  - it: renders dedicated serviceradar-rum-http HTTPRoute when rumHostname is set
+    set:
+      logCollector.otlp.service.http.enabled: true
+      logCollector.otlp.gateway.enabled: true
+      logCollector.otlp.gateway.rumHostname: rum-demo.serviceradar.cloud
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: metadata.name
+          value: serviceradar-rum-http
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /rum/v1/beacon

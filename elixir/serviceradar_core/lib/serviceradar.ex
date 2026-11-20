@@ -18,6 +18,7 @@ defmodule ServiceRadar do
       Serviceradar.Agent.Netprobe.V1,
       Serviceradar.Edge.V1,
       Serviceradar.Metric.V1,
+      Serviceradar.Rum.V1,
       ServiceRadarSRQL
     ],
     exports: :all

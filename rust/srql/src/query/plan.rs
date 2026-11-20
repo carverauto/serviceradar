@@ -307,7 +307,11 @@ fn parse_bool_str(value: &str) -> Result<bool> {
 fn entity_uses_telemetry_ids(entity: &Entity) -> bool {
     matches!(
         entity,
-        Entity::Traces | Entity::Logs | Entity::OtelMetrics | Entity::TraceSummaries
+        Entity::Traces
+            | Entity::Logs
+            | Entity::OtelMetrics
+            | Entity::TraceSummaries
+            | Entity::RumBeacons
     )
 }
 

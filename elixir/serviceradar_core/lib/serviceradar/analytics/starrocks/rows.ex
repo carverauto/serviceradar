@@ -22,6 +22,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :exposure_package_dim
           | :exposure_retired_ordinals
           | :device_availability_transitions
+          | :rum_beacons
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -150,6 +151,61 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "reporter_agent_id" => stringify(value(row, :reporter_agent_id)),
       "rule" => stringify(value(row, :rule)),
       "conflict" => value(row, :conflict) == true,
+      "created_at" => created_at(row)
+    }
+  end
+
+  # priv/starrocks/0043: Boomerang RUM beacons.
+  defp encode_row(:rum_beacons, row) do
+    %{
+      "web_property_id" => stringify(value(row, :web_property_id)),
+      "observed_at" => datetime(value(row, :observed_at)),
+      "beacon_id" => stringify(value(row, :beacon_id)),
+      "canonical_origin" => stringify(value(row, :canonical_origin)),
+      "environment" => stringify(value(row, :environment)),
+      "url" => stringify(value(row, :url)),
+      "host" => stringify(value(row, :host)),
+      "path" => stringify(value(row, :path)),
+      "metric_path" => stringify(value(row, :metric_path)),
+      "referrer" => stringify(value(row, :referrer)),
+      "page_group" => stringify(value(row, :page_group)),
+      "initiator" => stringify(value(row, :initiator)),
+      "trace_id" => stringify(value(row, :trace_id)),
+      "span_id" => stringify(value(row, :span_id)),
+      "session_id" => stringify(value(row, :session_id)),
+      "user_agent" => stringify(value(row, :user_agent)),
+      "device_type" => stringify(value(row, :device_type)),
+      "browser" => stringify(value(row, :browser)),
+      "os" => stringify(value(row, :os)),
+      "lcp_ms" => value(row, :lcp_ms),
+      "inp_ms" => value(row, :inp_ms),
+      "cls" => value(row, :cls),
+      "fcp_ms" => value(row, :fcp_ms),
+      "ttfb_ms" => value(row, :ttfb_ms),
+      "page_load_ms" => value(row, :page_load_ms),
+      "dns_ms" => value(row, :dns_ms),
+      "connect_ms" => value(row, :connect_ms),
+      "tls_ms" => value(row, :tls_ms),
+      "dom_ready_ms" => value(row, :dom_ready_ms),
+      "rage_clicks" => value(row, :rage_clicks) || 0,
+      "js_errors" => value(row, :js_errors) || 0,
+      "http_status" => value(row, :http_status) || 0,
+      "has_error" => value(row, :has_error) == true,
+      "cdn_provider" => stringify(value(row, :cdn_provider)),
+      "cdn_cache_status" => stringify(value(row, :cdn_cache_status)),
+      "cdn_edge_rtt_ms" => value(row, :cdn_edge_rtt_ms),
+      "cdn_origin_rtt_ms" => value(row, :cdn_origin_rtt_ms),
+      "cdn_pop" => stringify(value(row, :cdn_pop)),
+      "server_timing_raw" => stringify(value(row, :server_timing_raw)),
+      "client_ip" => stringify(value(row, :client_ip)),
+      "client_ip_anonymized" => value(row, :client_ip_anonymized) != false,
+      "country" => stringify(value(row, :country)),
+      "region" => stringify(value(row, :region)),
+      "city" => stringify(value(row, :city)),
+      "asn" => value(row, :asn),
+      "as_org" => stringify(value(row, :as_org)),
+      "prefix_tag" => stringify(value(row, :prefix_tag)),
+      "attributes" => json_document(value(row, :attributes)) || %{},
       "created_at" => created_at(row)
     }
   end

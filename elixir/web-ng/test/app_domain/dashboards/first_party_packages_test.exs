@@ -15,7 +15,8 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackagesTest do
     "../../../priv/dashboard-packages/service-availability-noc/manifest.json",
     "../../../priv/dashboard-packages/security-findings/manifest.json",
     "../../../priv/dashboard-packages/endpoint-inventory/manifest.json",
-    "../../../priv/dashboard-packages/network-performance/manifest.json"
+    "../../../priv/dashboard-packages/network-performance/manifest.json",
+    "../../../priv/dashboard-packages/web-rum/manifest.json"
   ]
   @manifest_path @manifest_paths |> List.first() |> Path.expand(__DIR__)
 
@@ -128,6 +129,34 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackagesTest do
 
     assert {:ok, %{package: same_package, instance: same_instance}} =
              FirstPartyPackages.ensure_network_performance(actor: actor)
+
+    assert same_package.id == package.id
+    assert same_instance.id == instance.id
+  end
+
+  test "web-rum first-party package seeds cleanly as non-default and idempotently" do
+    actor = SystemActor.system(:first_party_dashboard_web_rum_test)
+
+    assert {:ok, %{package: package, instance: instance}} =
+             FirstPartyPackages.ensure_web_rum(actor: actor)
+
+    assert package.dashboard_id == "cloud.serviceradar.web-rum"
+    assert package.status == :enabled
+    assert package.source_type == :first_party
+    assert package.wasm_object_key == "first-party://built-in/web-rum"
+    assert package.renderer["kind"] == "built_in"
+    assert package.renderer["entrypoint"] == "web_rum"
+    assert instance.route_slug == "web-rum"
+    assert instance.enabled
+    refute instance.is_default
+
+    assert {:ok, %{packages: seeded}} = FirstPartyPackages.seed_all(actor: actor)
+
+    seeded_ids = Enum.map(seeded, & &1.package.dashboard_id)
+    assert "cloud.serviceradar.web-rum" in seeded_ids
+
+    assert {:ok, %{package: same_package, instance: same_instance}} =
+             FirstPartyPackages.ensure_web_rum(actor: actor)
 
     assert same_package.id == package.id
     assert same_instance.id == instance.id

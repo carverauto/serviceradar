@@ -27,5 +27,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(false)
         .build_client(true)
         .compile_protos(&[std::path::Path::new(kv_proto_path)], &[kv_proto_dir])?;
+
+    // Compile RUM beacon & policy snapshot protos
+    let (rum_proto_path, rum_proto_root) =
+        if std::path::Path::new("proto/rum/v1/rum.proto").exists() {
+            ("proto/rum/v1/rum.proto", "proto")
+        } else {
+            ("../../proto/rum/v1/rum.proto", "../../proto")
+        };
+    println!("cargo:rerun-if-changed={rum_proto_path}");
+    tonic_prost_build::configure()
+        .protoc_arg("--experimental_allow_proto3_optional")
+        .build_server(false)
+        .build_client(false)
+        .disable_comments(["."])
+        .compile_protos(&[rum_proto_path], &[rum_proto_root])?;
     Ok(())
 }

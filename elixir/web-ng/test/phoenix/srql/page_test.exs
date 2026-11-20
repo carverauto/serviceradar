@@ -369,6 +369,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
              "/devices"
            ) == {"/inventory/public-endpoints", %{}}
 
+    assert Page.route_target_for_query(
+             "in:websites environment:production",
+             "/devices"
+           ) == {"/websites", %{}}
+
     assert Page.route_target_for_query("in:security_events severity:critical", "/devices") ==
              {"/devices", %{}}
 

@@ -157,6 +157,21 @@ data:
     [grpc_tls]
     cert_file = "/etc/serviceradar/certs/log-collector.pem"
     key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+
+{{- $rumCfg := default (dict) (default (dict) .Values.logCollector.otlp).rum }}
+{{- $rumCfgEnabled := true }}
+{{- if hasKey $rumCfg "enabled" }}
+{{- $rumCfgEnabled = $rumCfg.enabled }}
+{{- end }}
+    [rum]
+    enabled = {{ ternary "true" "false" $rumCfgEnabled }}
+    max_body_bytes = {{ default 65536 $rumCfg.maxBodyBytes }}
+{{- if $rumCfg.trustedProxies }}
+    trusted_proxies = [{{ range $i, $cidr := $rumCfg.trustedProxies }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+{{- end }}
+{{- if $rumCfg.cdnPeers }}
+    cdn_peers = [{{ range $i, $cidr := $rumCfg.cdnPeers }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+{{- end }}
 {{- if and $logCollectorDataEnabled (not $logCollectorData.existingClaim) }}
 ---
 apiVersion: v1

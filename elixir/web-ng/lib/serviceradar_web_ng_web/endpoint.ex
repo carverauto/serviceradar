@@ -50,6 +50,20 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: false
 
+  # Serve Boomerang RUM bundle with CORS, Timing-Allow-Origin, and cache headers
+  # so third-party/external sites can load it with crossorigin="anonymous".
+  @rum_static_headers %{
+    "access-control-allow-origin" => "*",
+    "timing-allow-origin" => "*",
+    "cache-control" => "public, max-age=300, stale-while-revalidate=86400"
+  }
+
+  plug Plug.Static,
+    at: "/assets/rum",
+    from: {:serviceradar_web_ng, "priv/static/assets/rum"},
+    gzip: not code_reloading?,
+    headers: @rum_static_headers
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

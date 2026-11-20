@@ -291,6 +291,22 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
     end
 
+    for alias <- ~w(websites website web_properties web_property) do
+      assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
+      assert {:ok, _ast} = Native.parse_ast("in:#{alias} limit:1")
+    end
+
+    metrics_scope = %Scope{permissions: MapSet.new(["observability.metrics.view"])}
+    devices_scope = %Scope{permissions: MapSet.new(["devices.view"])}
+
+    for alias <- ~w(rum rum_beacons rum_beacon) do
+      assert {:ok, "observability.metrics.view"} = EntityAccess.permission_for_entity(alias)
+      assert :ok = EntityAccess.authorize("in:#{alias} limit:1", metrics_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{alias} limit:1", devices_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{alias} limit:1", nil)
+      assert {:ok, _ast} = Native.parse_ast("in:#{alias} limit:1")
+    end
+
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")

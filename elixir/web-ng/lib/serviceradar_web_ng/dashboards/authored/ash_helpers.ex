@@ -122,6 +122,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.AshHelpers do
           "security-findings",
           "endpoint-inventory",
           "network-performance",
+          "web-rum",
           "new-devices"
         ])
       end

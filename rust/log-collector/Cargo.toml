@@ -26,8 +26,13 @@ tonic = { workspace = true }
 tonic-health = { workspace = true }
 
 [dev-dependencies]
+async-nats = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
 rcgen = { workspace = true }
 runfiles = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

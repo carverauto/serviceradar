@@ -51,6 +51,9 @@
     "process_metrics": "process_metrics",
     "processes": "process_metrics",
     "otel_traces": "traces",
+    "rum": "rum",
+    "rum_beacons": "rum",
+    "rum_beacon": "rum",
     "timeseries_metric_interface_hourly": null,
     "timeseries_metric_disk_hourly": null
   },

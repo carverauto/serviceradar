@@ -231,6 +231,7 @@ Add or change a built-in identity's subjects only here.
       - "flows.*.processed"
       - "logs.>"
       - "metrics.>"
+      - "rum.beacons.>"
       - "pdns.ocsf"
       - "pdns.ocsf.>"
       - "signals.analytics.>"
@@ -325,9 +326,9 @@ Add or change a built-in identity's subjects only here.
     deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
 - user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "rum.beacons.>", "metrics.rum.>", "config.rum.policy.snapshot", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
   subscribe:
-    allow: ["$JS.API.>", "_INBOX.>"]
+    allow: ["config.rum.policy.updates", "$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
@@ -335,9 +336,9 @@ Add or change a built-in identity's subjects only here.
     allow: ["$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["otel.>", "logs.otel", "$JS.API.>"]
+    allow: ["otel.>", "logs.otel", "rum.beacons.>", "metrics.rum.>", "config.rum.policy.snapshot", "$JS.API.>"]
   subscribe:
-    allow: ["$JS.API.>", "_INBOX.>"]
+    allow: ["config.rum.policy.updates", "$JS.API.>", "_INBOX.>"]
 - user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]

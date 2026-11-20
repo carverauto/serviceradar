@@ -3134,6 +3134,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       raw_settings
       |> stringify_keys()
       |> maybe_put_device_uid(check.device_uid)
+      |> maybe_put_web_property_id(check.web_property_id)
 
     %{
       check_id: to_string(check.id),
@@ -3181,6 +3182,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp maybe_put_device_uid(settings, _device_uid), do: settings
+
+  defp maybe_put_web_property_id(settings, web_property_id)
+       when is_map(settings) and is_binary(web_property_id) and web_property_id != "" do
+    Map.put(settings, "web_property_id", web_property_id)
+  end
+
+  defp maybe_put_web_property_id(settings, _web_property_id), do: settings
+
+  @doc false
+  @spec check_to_config(ServiceCheck.t()) :: map()
+  def check_to_config(%ServiceCheck{} = check), do: convert_check_to_config(check)
 
   # Compute SHA256 hash of the config for versioning.
   @doc false

@@ -13,8 +13,9 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 use crate::opentelemetry::proto::common::v1::any_value;
 use crate::output::{
     DEVICE_ID_ATTRIBUTE, INGEST_IDENTITY_HEADER, IngestContext, PerformanceMetric, PublishOutcome,
-    SR_DEVICE_ID_HEADER, TelemetryOutput, encode_derived_metric_batch,
+    SR_DEVICE_ID_HEADER, SR_WEB_PROPERTY_ID_HEADER, TelemetryOutput, encode_derived_metric_batch,
 };
+use serviceradar_metric_proto::pb::MetricBatch;
 
 use super::NATSOutput;
 use super::chunker::{
@@ -405,6 +406,62 @@ impl TelemetryOutput for NATSOutput {
         Ok(PublishOutcome {
             published: data_point_count.saturating_sub(rejected),
             rejected,
+        })
+    }
+
+    async fn publish_rum_beacon(
+        &self,
+        web_property_id: &str,
+        beacon: &crate::rum_proto::RumBeaconV1,
+    ) -> Result<PublishOutcome> {
+        if self.disabled {
+            debug!("NATS output disabled; dropping RUM beacon");
+            return Ok(PublishOutcome {
+                published: 1,
+                rejected: 0,
+            });
+        }
+
+        let mut payload = Vec::with_capacity(beacon.encoded_len());
+        beacon.encode(&mut payload)?;
+        let subject = format!("rum.beacons.{web_property_id}");
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(SR_WEB_PROPERTY_ID_HEADER, web_property_id);
+
+        self.publish_chunk(&subject, payload, "rum_beacon", Some(headers))
+            .await?;
+
+        Ok(PublishOutcome {
+            published: 1,
+            rejected: 0,
+        })
+    }
+
+    async fn publish_rum_metrics(
+        &self,
+        web_property_id: &str,
+        metrics: &MetricBatch,
+    ) -> Result<PublishOutcome> {
+        if self.disabled {
+            debug!("NATS output disabled; dropping RUM metrics");
+            return Ok(PublishOutcome {
+                published: 1,
+                rejected: 0,
+            });
+        }
+
+        let mut payload = Vec::with_capacity(metrics.encoded_len());
+        metrics.encode(&mut payload)?;
+        let subject = format!("metrics.rum.{web_property_id}");
+        let mut headers = async_nats::HeaderMap::new();
+        headers.insert(SR_WEB_PROPERTY_ID_HEADER, web_property_id);
+
+        self.publish_chunk(&subject, payload, "rum_metrics", Some(headers))
+            .await?;
+
+        Ok(PublishOutcome {
+            published: 1,
+            rejected: 0,
         })
     }
 }

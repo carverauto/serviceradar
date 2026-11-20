@@ -56,6 +56,33 @@ js_run_binary(
     outs = ["plugin_config_cli.mjs"],
 )
 
+filegroup(
+    name = "rum_srcs",
+    srcs = glob(
+        [
+            "vendor/boomerang/**",
+            "js/rum/*.js",
+        ],
+        exclude = ["js/rum/*.test.js"],
+        allow_empty = False,
+    ),
+)
+
+js_binary(
+    name = "rum_bundler",
+    entry_point = "rum_bundle.mjs",
+    data = [":node_modules/esbuild"],
+)
+
+js_run_binary(
+    name = "rum_bundle",
+    tool = ":rum_bundler",
+    srcs = [":rum_srcs"],
+    outs = ["static/assets/rum/boomerang-sr.min.js"],
+    args = ["static/assets/rum/boomerang-sr.min.js"],
+    chdir = package_name(),
+)
+
 # Production JavaScript inputs scanned by the timestamp formatter inventory guard.
 # Keep this broad enough to catch new dashboard and hook modules while excluding
 # test-only, vendored, generated, and static trees.
@@ -281,6 +308,22 @@ eslint_bin.eslint_test(
     tags = ["unit_test"],
 )
 
+eslint_bin.eslint_test(
+    name = "rum_lint_test",
+    size = "small",
+    args = ["js/rum/*.js", "js/dashboards/web_rum.js"],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        ":rum_srcs",
+        "eslint.config.js",
+        "js/dashboards/web_rum.js",
+        "js/rum/serviceradar_trace.test.js",
+        "package.json",
+    ],
+    tags = ["unit_test"],
+)
+
 directory_path(
     name = "typescript_compiler",
     directory = ":node_modules/typescript/dir",
@@ -360,10 +403,45 @@ vitest_bin.vitest_test(
         "js/lib/dashboard_runtime/*.js",
     ]) + [
         "component/src/NetworkPerformanceDashboard.jsx",
+        "component/src/WebRumDashboard.jsx",
         "js/hooks/DashboardWasmHost.js",
         "js/hooks/DashboardWasmHost.test.js",
         "js/utils/dashboard_user_time.js",
         "js/utils/user_time.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "rum_boomerang_test",
+    args = [
+        "run",
+        "js/rum/serviceradar_trace.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        ":rum_bundle",
+        ":rum_srcs",
+        "js/rum/serviceradar_trace.test.js",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "web_rum_dashboard_test",
+    args = [
+        "run",
+        "component/test/WebRumDashboard.test.jsx",
+    ],
+    chdir = package_name(),
+    data = [
+        "component/src/WebRumDashboard.jsx",
+        "component/test/WebRumDashboard.test.jsx",
+        "js/dashboards/web_rum.js",
+        "js/utils/user_time.js",
+        "//elixir/web-ng:web_rum_sample_fixtures",
         ":node_modules",
     ],
     tags = ["unit_test"],
@@ -703,6 +781,7 @@ copy_to_directory(
     srcs = [
         ":css_bundle",
         ":js_bundle",
+        ":rum_bundle",
         "//elixir/web-ng:static_files",
     ],
     replace_prefixes = {

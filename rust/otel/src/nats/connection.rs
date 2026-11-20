@@ -26,7 +26,7 @@ pub(super) struct ConnectionState {
 }
 
 impl NATSOutput {
-    pub(super) async fn connect(
+    pub(crate) async fn connect(
         config: &NATSConfig,
     ) -> Result<(
         Client,

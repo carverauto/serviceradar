@@ -1279,6 +1279,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Kubernetes public VIP / Gateway ownership inventory
       live("/inventory/public-endpoints", PublicEndpointsLive.Index, :index)
+      live("/websites", WebPropertyLive.Index, :index)
+      live("/websites/:id", WebPropertyLive.Show, :show)
       live("/events", EventLive.Index, :index)
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)
