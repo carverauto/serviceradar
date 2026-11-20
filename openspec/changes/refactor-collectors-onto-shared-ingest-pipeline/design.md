@@ -175,17 +175,14 @@ Which crates each collector adopts:
 
 ### 8. Traps need no rules
 
-The seeded trap rule (`snmp_severity`) copies severity; derives `source_ip`
-from the source address; copies source, version, community and varbinds into
-`attributes.snmp.source`, `.version`, `.community` and `.varbinds`; derives
-`attributes.snmp.trap_oid` from the snmpTrapOID varbind and
-`attributes.snmp.detail` from the first non-numeric, non-uptime varbind; builds
-`body` as "SNMP trap <oid> from <ip>: <detail>" (with its shorter fallbacks when
-a part is missing, and the original body when there are no varbinds); and sets
-`source` and `service_name` to `snmp`. That is field mapping. The daemon
-produces all of those fields when it builds the record, so the stored row is
-today's row except `attributes.snmp.community`, which is a credential and is no
-longer stored.
+The seeded trap rule (`snmp_severity`) sets severity, derived `source_ip`,
+`source` and `service_name` set to `snmp`, the rule's `body` text, and
+`attributes.snmp` source, version, community, varbinds, trap OID and detail.
+That is field mapping. The daemon produces all of those fields when it builds
+the record, except `attributes.snmp.community`, which is a credential and is no
+longer stored. The exact expressions are those in
+`elixir/serviceradar_core/priv/zen/rules/snmp_severity.json`; task 6.2's
+comparison with today's stored row is the authority on what the daemon emits.
 
 The trap daemon therefore does not use the rules crate. It does adopt the
 receive crate, with the io_uring and AF_XDP backends available to it as for any
