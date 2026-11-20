@@ -410,7 +410,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
       |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{spoke_uid}']")
       |> render_click()
 
-      policy_lv |> element("#agent-picker-modal button[phx-click='close_agent_picker']") |> render_click()
+      policy_lv |> element("#agent-picker-modal button[phx-click='close_agent_picker']", "Done") |> render_click()
 
       policy_lv
       |> form("#netperf-policy-form", policy: %{"mode" => "hub_mesh"})
