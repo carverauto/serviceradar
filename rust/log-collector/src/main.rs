@@ -86,19 +86,34 @@ async fn run() -> Result<()> {
         health_server = health_server.tls_config(tls)?;
     }
 
-    // --- Zen ruleset from datasvc ---
-    let rules = cfg.rules.as_ref().map(|rules_cfg| {
-        let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
-            rules_cfg.stream_name.clone(),
-            rules_cfg.subject.clone(),
-        ));
-        info!("Following Zen ruleset {}", active.key());
-        tokio::spawn(rules::follow(
-            rules::Datasvc(rules_cfg.datasvc.endpoint()),
-            std::sync::Arc::clone(&active),
-        ));
-        active
-    });
+    // --- Zen ruleset from the NATS rule bucket, or datasvc ---
+    let rules = cfg
+        .rules
+        .as_ref()
+        .map(|rules_cfg| -> Result<_> {
+            let source = rules_cfg.source()?;
+            let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
+                rules_cfg.stream_name.clone(),
+                rules_cfg.subject.clone(),
+            ));
+            let following = std::sync::Arc::clone(&active);
+            match source {
+                config::RulesSource::Nats(nats) => {
+                    info!(
+                        "Following Zen ruleset {} in NATS bucket {}",
+                        active.key(),
+                        nats.bucket
+                    );
+                    tokio::spawn(rules::follow(rules::NatsBucket(nats.clone()), following));
+                }
+                config::RulesSource::Datasvc(datasvc) => {
+                    info!("Following Zen ruleset {} in datasvc", active.key());
+                    tokio::spawn(rules::follow(rules::Datasvc(datasvc.endpoint()), following));
+                }
+            }
+            Ok(active)
+        })
+        .transpose()?;
     let normalize_syslog =
         cfg.normalize_syslog(std::env::var(config::NORMALIZE_SYSLOG_ENV).ok().as_deref())?;
 

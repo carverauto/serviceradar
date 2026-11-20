@@ -13,6 +13,15 @@
   Docker Compose installs keep the old behaviour for now: the collector there
   publishes with the shared platform credential, which may not publish the
   normalized subject.
+- **The log collector reads its Zen ruleset from a NATS bucket.** Core
+  now also writes each rule bundle to the key-value bucket
+  `serviceradar-zen-rules` (it creates the bucket on reconcile), and with
+  `kv.enabled` the chart renders a `[rules.nats]` section that the collector
+  uses instead of `[rules.datasvc]`. The chart grants core and web-ng write
+  access to `$KV.serviceradar-zen-rules.>`. `[rules.datasvc]` still works and
+  Docker Compose keeps using it; it will be removed in a later release.
+  Upgrade core before the collector: until core has created the bucket, the
+  collector has no ruleset and publishes raw syslog as described above.
 
 # ServiceRadar v1.5.10
 
