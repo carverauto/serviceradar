@@ -387,7 +387,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
            :ok <- validate_broker_request(grant, request),
            {:ok, resolved} <-
              resolve_broker_grant_material(grant, actor, agent_id) do
-        {:ok, credential_material(resolved)}
+        {:ok, credential_material(resolved, grant)}
       end
     end
   end
@@ -2160,7 +2160,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          {:ok, grant} <- issue_binding_grant(attrs, actor),
          :ok <- validate_broker_request(grant, request),
          {:ok, resolved} <- resolve_broker_grant_material(grant, actor, agent_id) do
-      {:ok, credential_material(resolved)}
+      {:ok, credential_material(resolved, grant)}
     else
       {:binding_denied, reason, attrs} ->
         audit_binding_denial(request, agent_id, attrs, reason)
@@ -2304,7 +2304,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp expire_broker_grant(_grant, _actor), do: :ok
 
-  defp credential_material(resolved) do
+  defp credential_material(resolved, grant) do
     secret = Map.get(resolved, :secret)
     value = resolved |> Map.get(:value) |> string_value() |> format_credential_value(secret)
     fields = credential_material_fields(value, secret)
@@ -2313,9 +2313,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       value: value,
       fields: fields,
       source_type: string_value(Map.get(resolved, :source_type)),
-      lease_expires_at_unix: unix_seconds(Map.get(resolved, :lease_expires_at)),
+      lease_expires_at_unix: material_lease_unix(Map.get(resolved, :lease_expires_at), grant),
       cache_status: string_value(Map.get(resolved, :cache_status))
     }
+  end
+
+  # The lease is the latest moment the agent may still use this material: the
+  # provider lease or the grant's expiry, whichever comes first. A local CNPG
+  # secret has no provider lease, and a grant resolved by binding reaches the
+  # agent as scope only, without an expiry, so without the grant's expiry here
+  # an agent cache would be bounded by nothing core issued.
+  defp material_lease_unix(provider_lease, %CredentialBrokerGrant{expires_at: expiry}) do
+    case provider_lease do
+      %DateTime{} = lease -> [lease, expiry] |> Enum.min(DateTime) |> DateTime.to_unix()
+      _no_provider_lease -> DateTime.to_unix(expiry)
+    end
   end
 
   # The agent sends this value verbatim after `PVEAPIToken=`, so a secret that
@@ -2360,9 +2372,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         fields
     end
   end
-
-  defp unix_seconds(%DateTime{} = value), do: DateTime.to_unix(value)
-  defp unix_seconds(_value), do: 0
 
   defp present_required(value, field) do
     if value == "" do

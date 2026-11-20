@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.GrantCachePolicy
   alias ServiceRadar.Edge.AgentCommandRecordPolicy
   alias ServiceRadar.Plugins.SecretRefs
 
@@ -315,10 +316,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
     target = broker["target"] || %{}
     allow = broker["allow"] || %{}
 
-    MapSet.new(Map.keys(broker)) ==
+    MapSet.new(Map.keys(Map.delete(broker, "cache"))) ==
       MapSet.new(
         ~w(schema grant_id grant_type credential_secret_ref consumer target resolution_location inject allow ttl_seconds expires_at)
       ) and
+      (not Map.has_key?(broker, "cache") or
+         GrantCachePolicy.valid_payload?(broker["cache"], broker["ttl_seconds"])) and
       broker["schema"] == expected_broker_schema(scope.request_body_policy) and
       uuid?(broker["grant_id"]) and
       broker["grant_type"] == "awx_oauth2_token" and

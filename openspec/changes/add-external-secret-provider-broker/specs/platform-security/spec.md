@@ -29,6 +29,8 @@ Credential consumers SHALL fail closed when required external secrets cannot be 
 ### Requirement: Broker credential material caching is explicit and bounded
 Credential consumers SHALL default to no cache for resolved credential material unless a broker grant explicitly allows short memory-only caching.
 
+Core decides which grants allow caching; see the requirement "Core sets the broker grant cache policy" added by `enable-host-authority-credential-cache`.
+
 #### Scenario: Agent resolves a broker grant without cache policy
 - **GIVEN** an agent-owned plugin host function resolves a credential broker grant
 - **WHEN** the grant does not include an explicit memory cache policy
@@ -39,5 +41,5 @@ Credential consumers SHALL default to no cache for resolved credential material 
 - **GIVEN** an agent-owned plugin host function resolves a credential broker grant with memory-only caching enabled
 - **WHEN** the grant is reused before the cache TTL and grant expiry
 - **THEN** the agent MAY reuse memory-only credential material
-- **AND** the cache TTL SHALL be bounded by the grant expiry and a short maximum TTL
+- **AND** the cache TTL SHALL be bounded by the grant expiry, the lease core returns with the material, and a short maximum TTL
 - **AND** expired cached material SHALL be discarded before reuse
