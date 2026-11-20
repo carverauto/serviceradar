@@ -454,6 +454,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/timeseries_metrics_compression_db_test.exs": 1,
     "test/serviceradar/observability/timeseries_series_identity_integration_test.exs": 1,
     "test/serviceradar/observability/zen_rule_seeder_test.exs": 1,
+    "test/serviceradar/observability/zen_rule_sync_bucket_repair_test.exs": 1,
     "test/serviceradar/plugins/addon_assignment_dedupe_migration_db_test.exs": 1,
     "test/serviceradar/plugins/addon_profile_action_test.exs": 1,
     "test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs": 1,

@@ -21,6 +21,7 @@ defmodule ServiceRadar.Observability.Zen.RuleBucket do
   the bundle, instead of that node creating the bucket with its own settings.
   """
 
+  alias Gnat.Jetstream.API.KV
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetStreamPublish
   alias ServiceRadar.NATS.StateBucketSizing
@@ -78,6 +79,14 @@ defmodule ServiceRadar.Observability.Zen.RuleBucket do
     end
   catch
     :exit, reason -> {:error, {:nats_connection_died, reason}}
+  end
+
+  @doc """
+  Lists the keys the bucket holds a bundle under.
+  """
+  @spec keys() :: {:ok, [String.t()]} | {:error, term()}
+  def keys do
+    with_connection(&KV.keys(&1, @bucket))
   end
 
   defp stream_name, do: @stream
