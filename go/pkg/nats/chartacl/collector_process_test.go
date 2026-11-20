@@ -99,7 +99,7 @@ type refusals struct {
 	lines []string
 }
 
-func (r *refusals) record(format string, args ...any) {
+func (r *refusals) recordf(format string, args ...any) {
 	line := fmt.Sprintf(format, args...)
 	if !strings.Contains(line, "Violation") {
 		return
@@ -118,10 +118,10 @@ func (r *refusals) all() []string {
 	return append([]string(nil), r.lines...)
 }
 
-func (r *refusals) Noticef(format string, args ...any) { r.record(format, args...) }
-func (r *refusals) Warnf(format string, args ...any)   { r.record(format, args...) }
-func (r *refusals) Errorf(format string, args ...any)  { r.record(format, args...) }
-func (r *refusals) Fatalf(format string, args ...any)  { r.record(format, args...) }
+func (r *refusals) Noticef(format string, args ...any) { r.recordf(format, args...) }
+func (r *refusals) Warnf(format string, args ...any)   { r.recordf(format, args...) }
+func (r *refusals) Errorf(format string, args ...any)  { r.recordf(format, args...) }
+func (r *refusals) Fatalf(format string, args ...any)  { r.recordf(format, args...) }
 func (*refusals) Debugf(string, ...any)                {}
 func (*refusals) Tracef(string, ...any)                {}
 
@@ -361,7 +361,7 @@ func consume(t *testing.T, stream jetstream.Stream) <-chan jetstream.Msg {
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve a TCP port: %v", err)
 	}
