@@ -39,7 +39,7 @@ while still reporting actionable rule failures with rule identifiers and reasons
 - **WHEN** core-elx starts or performs a scheduled reconciliation
 - **THEN** active Zen rules in the database SHALL be re-published to KV
 - **AND** the bundle for each subject SHALL be republished to the rules bucket
-- **AND** while a consumer still reads bundles from datasvc, or until one release after the collector's NATS rules reader ships, the bundle SHALL also be republished to datasvc
+- **AND** when a consumer still reads bundles from datasvc, or one release has not yet passed since the collector's NATS rules reader shipped, the bundle SHALL also be republished to datasvc
 
 #### Scenario: Rules bucket lost a bundle
 - **GIVEN** a subject's bundle is missing from the rules bucket

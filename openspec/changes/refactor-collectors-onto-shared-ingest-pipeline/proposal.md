@@ -65,8 +65,11 @@ in #6863. Three things stop it from being the shape of every collector:
   rule is fixed field mapping, not rule logic, so it does not use the rules
   crate and no passthrough rule is seeded for the trap subject. It adopts the
   receive crate (io_uring and AF_XDP available) and publishes binary batches
-  through the publish crate. The mapping stops copying the SNMP community
-  string into stored log attributes.
+  through the publish crate. The daemon emits today's stored row: severity,
+  derived `source_ip`, `source` and `service_name` set to `snmp`, the rule's
+  `body` text, and `attributes.snmp` source, version, varbinds, trap OID and
+  detail. The one difference is that it stops storing the SNMP community
+  string (`attributes.snmp.community`).
 
 This change builds on `accelerate-log-ingestion` (rules at the collector,
 binary batches) and `add-zero-copy-log-receivers` (receive backends) and
