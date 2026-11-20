@@ -108,7 +108,8 @@ defmodule ServiceRadar.Credentials.GrantCachePolicy do
   @spec valid_payload?(term(), term()) :: boolean()
   def valid_payload?(%{"mode" => "memory_ttl", "ttl_seconds" => ttl} = cache, grant_ttl_seconds)
       when map_size(cache) == 2 and is_integer(ttl) and ttl in 1..@max_ttl_seconds and
-             is_integer(grant_ttl_seconds) and ttl <= grant_ttl_seconds,
+             is_integer(grant_ttl_seconds) and
+             ttl <= grant_ttl_seconds,
       do: true
 
   def valid_payload?(_cache, _grant_ttl_seconds), do: false

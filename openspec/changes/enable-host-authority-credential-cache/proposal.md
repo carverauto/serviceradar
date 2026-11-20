@@ -60,8 +60,11 @@ Accepted trade-offs:
 - Affected code: `CredentialBrokerGrant` (attributes, issue action, payload,
   reuse), new `GrantCachePolicy` and `ApplyGrantCachePolicy`,
   `PluginAssignmentMaterializer` (loads each rule's secret policy),
-  `ProxmoxHostAuthority.host_injected_consumer?/2`, and
-  `AgentGatewaySync` (resolve lease).
+  `ProxmoxHostAuthority.host_injected_consumer?/2`,
+  `AgentGatewaySync` (resolve lease), and the AWX secure-execution and
+  callback command contracts, whose persisted broker payload check accepts an
+  optional `cache` only in the exact shape core emits
+  (`GrantCachePolicy.valid_payload?/2`).
 - Migration: adds `cache_mode` and `cache_ttl_seconds` to
   `platform.credential_broker_grants`, with a check constraint on the pair.
 - Rollout: the cache policy changes each Proxmox assignment's template once, so
