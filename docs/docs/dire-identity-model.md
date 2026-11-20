@@ -394,8 +394,9 @@ identified devices.
   sync's batch lookup, the resolver and the SNMP credential lookup) takes the
   most recently seen holder, then the one with the most sightings, then the
   lowest device id. The mapper ranks by alias state first and, within a
-  state, in the same order. The sweep's fallback to a pending alias prefers
-  the most sightings.
+  state, in the same order. IP attribution (sweep results, ICMP and SNMP
+  metrics) ranks live holders by alias state, recency and primary IP first;
+  [Network Sweeps](network-sweeps.md#execution-notes) gives that order.
 - When a declarative source (hypervisor enrichment, NetBox, AWX, generic
   integrations) replaces a device's own primary address, the replaced address
   is kept as a `detected` alias of the device (metadata `source`

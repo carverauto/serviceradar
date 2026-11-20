@@ -1542,6 +1542,97 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert restored.is_available
   end
 
+  # A soft-deleted device is the holder of last resort: with no live holder, the address still
+  # resolves to it, through any of its holds (here a detected alias, the last one considered),
+  # so the sweep restores it and does not seed a new device. The answer is evidence for a
+  # deleted device, so it does not confirm that device's detected alias.
+  test "a sweep restores the soft-deleted alias holder of an address without confirming the alias",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
+    unique_id = Ash.UUID.generate()
+    ip = doc_ip("tombstone-alias-#{unique_id}", "192.0.2")
+
+    tombstone =
+      reporter_device!(actor, unique_id, "tombstone-alias", false,
+        ip: doc_ip("tombstone-primary-#{unique_id}", "198.51.100"),
+        discovery_sources: ["armis"]
+      )
+
+    assert {:ok, detected} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: tombstone.uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: ip,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+
+    assert {:ok, _deleted} =
+             Device.soft_delete(tombstone, "test", "sweep_results_flow_e2e", actor: actor)
+
+    register_reporter!(actor, agent_id)
+    group = reporter_group!(actor, unique_id, "tombstone-alias", [], %{static_targets: [ip]})
+
+    assert {:ok, stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
+
+    assert %{devices_created: 0, devices_updated: 1} = stats
+    assert [] = devices_at(actor, ip)
+
+    restored = include_deleted_device!(actor, tombstone.uid)
+
+    assert Map.take(restored, [:deleted_at, :deleted_by, :deleted_reason, :is_available]) ==
+             %{deleted_at: nil, deleted_by: nil, deleted_reason: nil, is_available: true}
+
+    assert {:ok, alias_after} = Ash.get(DeviceAliasState, detected.id, actor: actor)
+
+    assert Map.take(alias_after, [:state, :sighting_count]) ==
+             Map.take(detected, [:state, :sighting_count])
+  end
+
+  test "an unanswered probe neither confirms nor refreshes a detected alias", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = doc_ip("unanswered-alias-#{unique_id}", "192.0.2")
+
+    holder =
+      reporter_device!(actor, unique_id, "unanswered-alias", true,
+        ip: doc_ip("unanswered-primary-#{unique_id}", "198.51.100")
+      )
+
+    assert {:ok, detected} =
+             DeviceAliasState.create_detected(
+               %{
+                 device_id: holder.uid,
+                 partition: "default",
+                 alias_type: :ip,
+                 alias_value: ip,
+                 metadata: %{}
+               },
+               actor: actor
+             )
+
+    register_reporter!(actor, agent_id)
+    group = reporter_group!(actor, unique_id, "unanswered-alias", [])
+
+    assert {:ok, _stats} = ingest_report(actor, group.id, agent_id, unavailable_result(ip))
+
+    assert {:ok, after_unanswered} = Ash.get(DeviceAliasState, detected.id, actor: actor)
+
+    assert Map.take(after_unanswered, [:state, :sighting_count, :last_seen_at]) ==
+             Map.take(detected, [:state, :sighting_count, :last_seen_at])
+
+    # The same reporter's answer does confirm it, so the gate above is the answer.
+    assert {:ok, _stats} = ingest_report(actor, group.id, agent_id, available_result(ip))
+    assert {:ok, %{state: :confirmed}} = Ash.get(DeviceAliasState, detected.id, actor: actor)
+  end
+
   # #4617: the IP lookup falls back to a tombstone, so a sweep of a merged-away device's old
   # address reaches it; the sweep must leave it deleted and record the skip, and
   # (add-source-id-succession D12) write nothing to it.

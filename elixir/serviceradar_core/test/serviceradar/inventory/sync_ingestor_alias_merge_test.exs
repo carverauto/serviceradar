@@ -579,8 +579,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
       node_uid = node.uid
 
-      assert %{^held_ip => {%{canonical_device_id: ^node_uid}, _alias}} =
-               DeviceLookup.lookup_detected_aliases_by_ip([held_ip],
+      assert %{^held_ip => {%{canonical_device_id: ^node_uid}, %DeviceAliasState{}}} =
+               DeviceLookup.batch_resolve_by_ip([held_ip],
                  actor: actor,
                  partition: "default"
                )

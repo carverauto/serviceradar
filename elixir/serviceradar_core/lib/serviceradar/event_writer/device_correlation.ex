@@ -314,12 +314,14 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
           [%{kind: :ip, value: ip}]
         end
 
+      # Confirmed aliases only: the answer is cached and keys alerts and findings to a
+      # device, so an unconfirmed detected alias must not decide it.
       case bounded_lookup(:ip_canonical_device, fn ->
              DeviceLookup.get_canonical_device(keys,
                actor: actor,
                ip_hint: ip,
                use_cache: false,
-               include_detected: true
+               confirmed_aliases_only: true
              )
            end) do
         {:ok, %{record: %{canonical_device_id: uid}}} when is_binary(uid) and uid != "" -> uid

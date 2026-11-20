@@ -559,10 +559,10 @@ already explores both arrival orders under `EvidenceConverges`.
   best-ranked alias row of a live device and reactivates the row when it is stale
   (`MapperResultsIngestor.find_device_uid_by_alias/3`). The model's mapper resolves through the
   Resolver only, and an invalidated alias never comes back.
-- The sweep's fallback to a pending alias. For an address no record holds and no confirmed
-  alias names, the sweep looks up pending aliases and confirms one
-  (`DeviceLookup.lookup_detected_aliases_by_ip`, `confirm_from_sweep`); the model's sweep seeds
-  a record there instead.
+- The sweep's use of a pending alias. The sweep ranks a live device's pending alias among the
+  address's holders and confirms it when that device wins and the address answered
+  (`DeviceLookup.batch_resolve_by_ip/2`, `confirm_from_sweep`); the model's sweep seeds a
+  record where no record or confirmed alias holds the address instead.
 - The sweep reaching a tombstone through an alias. The sweep resolves an address with deleted
   records included, so a confirmed alias of a deleted record can resolve it there; the
   resolution model's sweep reads live records only, and the lifecycle model's matches a
