@@ -55,14 +55,14 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
     end)
   end
 
-  test "a bundle the bucket's cap cannot hold is reported as not stored", ctx do
+  test "a bundle the bucket's cap cannot hold is refused with the broker's error", ctx do
     Application.put_env(:serviceradar_core, RuleBucket, max_bytes: 4_096, replicas: 1)
 
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
       assert :ok = RuleBucket.ensure()
       assert :ok = RuleBucket.put(@key, ~s({"digest":"sha256:small"}))
 
-      assert {:error, :not_stored} =
+      assert {:error, {:jetstream, %{"description" => "maximum bytes exceeded"}}} =
                RuleBucket.put("zen/rulesets/events/logs.otel.json", String.duplicate("x", 8_192))
 
       assert KV.get_value(conn, RuleBucket.bucket(), @key) == ~s({"digest":"sha256:small"})
