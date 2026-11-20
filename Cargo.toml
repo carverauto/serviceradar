@@ -131,7 +131,7 @@ kafka = { version = "0.10", default-features = false }
 lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
-longshore_s3 = { git = "https://github.com/carverauto/longshore", rev = "8759583fd1888f292f290a5adbe883c8c6eb6aee" }
+longshore_s3 = "0.2.0"
 may = { version = "~0.3", default-features = false }
 # Test-only: the MySQL-protocol client the SRQL dialect parity harness
 # (//integration_tests/srql_parity) uses to reach a StarRocks FE. "minimal-rust" is the
