@@ -3,6 +3,7 @@
 - [ ] 1.1 Core writes each rule bundle to a dedicated NATS key-value bucket, alongside the existing datasvc write, on rule changes and on reconcile. Per-rule keys, the subject index and the stored KV revision are unchanged. Bundle format and digest unchanged.
 - [ ] 1.2 Add a NATS key-value implementation of the `Connector` and `Session` traits in `rust/log-collector/src/rules.rs`, with the same fetch-then-watch, timeout and backoff behaviour.
 - [ ] 1.3 Grant the collector's NATS user read access to the rules bucket only, in the chart, Compose and the edge permission generators.
+- [ ] 1.3a Narrow the chart log-collector user from $JS.API.> to named grants for every stream and store the collector process uses (events, the rules bucket, and the RUM streams and object store), verified with the Rust client against a real broker.
 - [ ] 1.4 Switch the log collector to the NATS reader.
 - [ ] 1.5 One release after 1.4 ships, remove `[rules.datasvc]`, the collector's datasvc client dependency and its datasvc role.
 - [ ] 1.6 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart.
