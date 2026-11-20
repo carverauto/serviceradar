@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
 
   alias Gnat.Jetstream.API.KV
   alias ServiceRadar.Observability.Zen.RuleBucket
+  alias ServiceRadar.Reload.TaskSupervisor
   alias ServiceRadar.TestSupport.ExposureBroker
 
   @moduletag :db_free
@@ -18,8 +19,8 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
   @key "zen/rulesets/events/logs.syslog.json"
 
   setup do
-    if is_nil(Process.whereis(ServiceRadar.Reload.TaskSupervisor)),
-      do: start_supervised!({Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor})
+    if is_nil(Process.whereis(TaskSupervisor)),
+      do: start_supervised!({Task.Supervisor, name: TaskSupervisor})
 
     original = Application.get_env(:serviceradar_core, RuleBucket)
 
@@ -81,7 +82,7 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
       assert {:error, :timeout} = RuleBucket.keys()
       assert System.monotonic_time(:millisecond) - started < 15_000
 
-      assert Task.Supervisor.children(ServiceRadar.Reload.TaskSupervisor) == []
+      assert Task.Supervisor.children(TaskSupervisor) == []
     after
       Gnat.stop(conn)
     end
