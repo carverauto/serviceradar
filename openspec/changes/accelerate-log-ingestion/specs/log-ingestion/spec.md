@@ -30,16 +30,16 @@ Collector and NIF normalization SHALL share one Rust implementation preserving o
 - **AND** no field is removed because of it
 
 ### Requirement: Versioned ruleset activation
-The collector SHALL receive effective rules through datasvc, validate complete snapshots before activation, and bind each batch to one version without per-record control-plane requests.
+The collector SHALL receive effective rules from the rule store, validate complete snapshots before activation, and bind each batch to one version without per-record control-plane requests. The store and transport are defined by `collector-rule-distribution`.
 
 #### Scenario: An update fails compilation
 - **WHEN** a candidate snapshot fails compilation
 - **THEN** the previous validated snapshot remains active
 - **AND** stale/error status is exposed
 
-#### Scenario: A collector starts while datasvc is unreachable
+#### Scenario: A collector starts while the rule store is unreachable
 - **WHEN** the collector has no validated snapshot
-- **THEN** it accepts syslog and publishes each record as JSON for EventWriter to normalize
+- **THEN** it accepts syslog and publishes it as `collector-rule-distribution` requires for a collector without a ruleset
 - **AND** it publishes normalized batches from the first record after a snapshot is active
 
 #### Scenario: A watch reconnects
