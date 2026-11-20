@@ -82,6 +82,10 @@ defmodule ServiceRadar.EventWriter.Config do
   # EventWriter fallback below; flow-collector owns the shape once it claims it.
   @default_flows_stream_max_age_ns 21_600_000_000_000
   @default_events_stream_max_age_ns 86_400_000_000_000
+  # bmp-collector's default age (24h). Without one, a stream bmp-collector later
+  # claims keeps no age limit under its discard-new policy and never frees space
+  # once full.
+  @default_arancini_stream_max_age_ns 86_400_000_000_000
 
   # Streams only EventWriter creates, keyed by JetStream stream name: their
   # compiled default `max_bytes` (design D3). Each is overridden by
@@ -129,7 +133,8 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @fallback_max_age_ns %{
     "events" => @default_events_stream_max_age_ns,
-    "flows" => @default_flows_stream_max_age_ns
+    "flows" => @default_flows_stream_max_age_ns,
+    "ARANCINI_CAUSAL" => @default_arancini_stream_max_age_ns
   }
 
   @default_ownership_reconcile_interval_ms 300_000
@@ -808,7 +813,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
   A stream only EventWriter creates gets its `max_bytes`. Every consumer of a
   stream a collector may own (`events`, `flows`, `ARANCINI_CAUSAL`) gets the
-  EventWriter fallback shape (discard-old, the fallback size and replicas) and
+  EventWriter fallback shape (discard-old, the fallback size, replicas and age) and
   the `event-writer` claim, which replaces `reconcile_stream_shape`: EventWriter
   creates the stream with that claim when it is absent and reconciles the shape
   only of a stream that carries it (design D6). A consumer that never creates

@@ -32,7 +32,12 @@ authenticate a BMP peer: restrict TCP ingress to trusted routers.
 A full stream rejects incoming telemetry instead of evicting older sources'
 records. New legitimate events also fail while full, until retention expiry
 or operator removal frees capacity. Limits-retained records remain after consumer
-acknowledgement; a healthy consumer alone cannot drain this storage.
+acknowledgement; a healthy consumer alone cannot drain this storage, so age
+expiry is the only automatic recovery. `stream_max_age_secs` (default 86400,
+24 hours; zero is rejected) sets the age on creation and is a ceiling on
+reconciliation: an existing stream with no age limit or a longer one is lowered
+to it, and a shorter age that an operator set is kept. The collector refuses to
+create or update a discard-new, limits-retained stream without an age limit.
 An explicit `"old"` override restores rolling retention and accepts the risk of flood-driven eviction. Reconciliation retains
 other metadata and existing subjects. Review stored usage before lowering the
 byte cap, which can affect existing data independently of ingress policy.
