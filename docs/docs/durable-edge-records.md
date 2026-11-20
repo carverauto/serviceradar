@@ -185,7 +185,7 @@ rejected, and the agent moves it to a local spool quarantine.
 | Stream | Subject | What it holds | Read by |
 | --- | --- | --- | --- |
 | `TELEMETRY_EDGE_RECORD_V1_BULK` | `telemetry.edge-record.v1.bulk.pNN` | authoritative records | EventWriter `EDGE_RECORD`: ledger and domain rows |
-| `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
+| `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`), and late records core's late-admission grant decided AUDIT (`LATE_ADMISSION`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
 | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | records signed by a compromise-revoked key | logged and counted, nothing written |
 | `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` | `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>` | records whose projection kept failing | replay only |
 | `TELEMETRY_EDGE_RECORD_RECOVERY_V1` | `telemetry.edge-record-recovery.v1` | frozen recovery pages and tombstones | EventWriter recovery consumer: durable receipt and repair effects |
@@ -662,6 +662,15 @@ ledger's disk use. Rows pruned before the raise stay pruned:
 `platform.edge_ledger_coverage.complete_since` records how far back the ledger
 is complete, and a late record produced earlier than that (plus the tolerance)
 is delivered as AUDIT rather than PRIMARY.
+
+A late record reaches EventWriter with core's signed late-admission grant in the
+`Sr-Edge-Late-Admission-Grant` header. EventWriter verifies that grant before it
+stores the record, and refuses a late PRIMARY record whose authority a
+certificate revocation has ended since the grant was issued. The ledger row a
+late record claims records it: `admission` is `late`, and `late_produced_at`,
+`late_publication`, `late_reason`, `late_grant_issuer_key_id` and
+`late_gateway_id` hold its production time, core's decision and the gateway
+that published it. Every other row is `admission = 'live'`.
 
 There are no Helm values for these settings. The only pipeline sizes Helm
 controls are the JetStream stream byte limits described under

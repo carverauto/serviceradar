@@ -32,8 +32,9 @@ holds records that could not be projected or that EventWriter refused.
      `core.eventWriter.streams.telemetry_edge_record_dlq_v1_bulk`);
    - body: the record's exact original bytes;
    - headers: its original transport headers (`Sr-Edge-Delivery-Id`,
-     `Sr-Edge-Transport-Provenance`, `Sr-Edge-Gateway-Id`) and the failure
-     headers below.
+     `Sr-Edge-Transport-Provenance`, `Sr-Edge-Gateway-Id`, and
+     `Sr-Edge-Late-Admission-Grant` on a late record) and the failure headers
+     below.
 3. Only after the PubAck does EventWriter ACK the source delivery. If the copy
    is not stored (the stream is full, missing or unreachable), the source is
    NAKed and retried, and the next delivery tries the copy again. Nothing is

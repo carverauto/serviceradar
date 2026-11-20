@@ -9,8 +9,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
     * A projector's side effect outside the database (`publish/3`, for example a republish to
       the metrics stream) runs BEFORE the transaction, only for a fresh primary delivery, so no
-      network call runs inside a database transaction. A replay or a late-fenced delivery is
-      not published. `{:settled, reason}` skips domain writes, commits the delivery slot and
+      network call runs inside a database transaction. A replay or an audit delivery is not
+      published. `{:settled, reason}` skips domain writes, commits the delivery slot and
       ledger row, and counts `:settled` in `PipelineStats`. `{:refused, reason}` fails with
       `EdgeRecordRefusedError` for first-delivery dead-lettering; any `{:error, reason}` raises
       so JetStream redelivers. A republish the broker denied raises
@@ -28,15 +28,29 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   `ServiceRadar.Dgraph.TransientError` (a Dgraph timeout or leader election).
     * A projector's database writes (`project/4`) run inside the transaction, told whether the
       delivery is primary. Completed projection replays make no domain changes; a deferred
-      recovery projection revisits its durable state. Late-fenced deliveries remain ledger-only.
+      recovery projection revisits its durable state. Audit deliveries remain ledger-only.
       A deferred projection commits its receipt and audit before requesting redelivery.
 
   Recovery control deliveries have no dead-letter route. Refusals and committed deferrals
   retain their broker delivery, even beyond the ordinary delivery-count threshold.
 
-  The same processor consumes the audit route (`telemetry.edge-record-audit.v1.*`), where the
-  gateway publishes only `LATE_FENCED_DELIVERY` records: they claim their slot and ledger row
-  and project nothing, and a record there without that stamp is refused.
+  An audit delivery claims its slot and ledger row and projects nothing. It is a
+  `LATE_FENCED_DELIVERY` record, or a `LATE_ADMISSION` record whose grant decided AUDIT. The
+  same processor consumes the audit route (`telemetry.edge-record-audit.v1.*`), where the gateway
+  publishes only audit deliveries, and a record there that is not one is refused.
+
+  ## Late admission
+
+  A `LATE_ADMISSION` delivery (openspec add-edge-production-time-admission, Decision 7) carries
+  core's signed late-admission grant in `Sr-Edge-Late-Admission-Grant`. Before anything else
+  reads the record, `ServiceRadar.Edge.LateAdmission.verify_delivered/3` checks that the grant
+  digests to the provenance proof, is signed by core's issuer key and binds this record, and the
+  publication it decided must match the route: PRIMARY on the primary route, AUDIT on the audit
+  route. A PRIMARY record whose authority interval has since ended `certificate_revoked` or
+  `revoked_cause_unknown` is refused, as a live record whose grant was revoked is. The ledger row
+  the delivery claims records the late audit trail: admission `late`, `produced_at`, publication,
+  reason, the grant's issuer key id and the publishing gateway. A grant header on any other
+  delivery is refused.
 
   The gateway owns signature verification; projectors check the persisted authority again
   before writing authoritative domain state.
@@ -69,6 +83,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   alias ServiceRadar.Ash.NotificationQueue
   alias ServiceRadar.Dgraph.TransientError
   alias ServiceRadar.Edge.ContractCatalog
+  alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.LateAdmission
   alias ServiceRadar.Edge.PipelineStats
   alias ServiceRadar.Edge.PublicationIdentity
   alias Serviceradar.Edge.V1.EdgeRecordV1
@@ -247,7 +263,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   defp contract_of({:ok, record}), do: PipelineStats.contract_ref(record)
   defp contract_of({:error, _reason}), do: nil
 
-  # The audit route carries only late-fenced deliveries; `ingest/4` refuses anything else there.
+  # The audit route carries only audit deliveries; `ingest/4` refuses anything else there.
   defp publication_of(%{subject: "telemetry.edge-record-audit." <> _}), do: :audit
   defp publication_of(_metadata), do: :primary
 
@@ -277,34 +293,37 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   end
 
   defp ingest_decoded_with_disposition(record_bytes, decoded, headers, repo, opts) do
+    route = Keyword.get(opts, :publication, :primary)
+    record_sha256 = :crypto.hash(:sha256, record_bytes)
+
     with {:ok, header_set} <- PublicationIdentity.extract_header_set(headers),
          {:ok, provenance} <-
            PublicationIdentity.decode_transport_provenance(header_set.provenance),
          {:edge, slot} <- {provenance.kind, provenance.slot},
-         :ok <- audit_delivery(Keyword.get(opts, :publication, :primary), provenance),
+         :ok <- audit_route_mode(route, provenance),
          {:ok, %EdgeRecordV1{} = record} <- decoded,
          :ok <- check_slot_matches_record(slot, record),
+         {:ok, late} <-
+           late_admission(repo, header_set, provenance, record, record_sha256, route),
+         delivery = delivery(provenance, late, header_set.gateway_id),
          {:ok, projector} <- projector_for(record),
          {:ok, body} <- projector.decode(record),
          {:ok, publish_disposition} <-
            publish_fresh(
              repo,
-             provenance,
+             delivery,
              record,
              projector,
              body,
              Keyword.put(opts, :gateway_id, header_set.gateway_id)
            ) do
-      record_sha256 = :crypto.hash(:sha256, record_bytes)
-
       run_transaction(
         repo,
-        provenance,
+        delivery,
         record,
         {projector, body},
         publish_disposition,
         record_sha256,
-        header_set.gateway_id,
         opts
       )
     else
@@ -313,15 +332,94 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  # A record on the audit route reaches the ledger only. The late-fenced stamp is what keeps it
-  # there, so a record on that route without it is refused rather than projected.
-  defp audit_delivery(:audit, provenance) do
-    if provenance.delivery_mode == PublicationIdentity.mode_late_fenced(),
-      do: :ok,
-      else: {:error, :audit_not_late_fenced}
+  # A record on the audit route reaches the ledger only, kept there by a non-authoritative stamp:
+  # LATE_FENCED_DELIVERY, or LATE_ADMISSION under a grant that decided AUDIT (`late_admission/6`
+  # checks the grant). A record on that route without either stamp is refused rather than
+  # projected.
+  defp audit_route_mode(:audit, provenance) do
+    if provenance.delivery_mode in [
+         PublicationIdentity.mode_late_fenced(),
+         PublicationIdentity.mode_late_admission()
+       ],
+       do: :ok,
+       else: {:error, :audit_delivery_mode}
   end
 
-  defp audit_delivery(:primary, _provenance), do: :ok
+  defp audit_route_mode(:primary, _provenance), do: :ok
+
+  # The decision a LATE_ADMISSION record is ingested under is the one in core's signed grant, never
+  # the gateway's word: the grant must verify and bind this record, and its publication must be the
+  # route's. A PRIMARY record whose interval a revocation has since ended is refused, as a live
+  # record whose grant was revoked is (`OutputGrants.check_current/5`). Every other delivery
+  # carries no grant.
+  defp late_admission(repo, header_set, provenance, record, record_sha256, route) do
+    late_mode? = provenance.delivery_mode == PublicationIdentity.mode_late_admission()
+
+    case {late_mode?, header_set.late_admission_grant} do
+      {false, nil} ->
+        {:ok, nil}
+
+      {false, _grant} ->
+        {:error, :late_admission_grant_unexpected}
+
+      {true, nil} ->
+        {:error, :late_admission_grant_missing}
+
+      {true, header} ->
+        delivery = %{
+          record: record,
+          record_sha256: record_sha256,
+          slot: provenance.slot,
+          proof: provenance.delivery_proof
+        }
+
+        with {:ok, grant} <- PublicationIdentity.decode_late_admission_grant(header),
+             {:ok, late} <- LateAdmission.verify_delivered(grant, delivery, issuer_key!()),
+             :ok <- late_route(late, route) do
+          late_authority(repo, record, late)
+        end
+    end
+  end
+
+  defp late_route(%{publication: route}, route), do: :ok
+  defp late_route(_late, _route), do: {:error, :late_admission_publication_route}
+
+  defp late_authority(
+         repo,
+         %{producer_context: %{producer_assignment_id: <<_::128>> = assignment_id} = context},
+         %{publication: :primary} = late
+       ) do
+    if LateAdmission.revoked_interval?(repo, assignment_id, context.authority_epoch),
+      do: {:error, :certificate_revoked_interval},
+      else: {:ok, late}
+  end
+
+  defp late_authority(_repo, _record, %{publication: :primary}),
+    do: {:error, {:late_admission_grant, :binding}}
+
+  defp late_authority(_repo, _record, late), do: {:ok, late}
+
+  # The key core signs late grants with. A key that cannot be read now is not the record's fault,
+  # so the record is redelivered rather than refused.
+  defp issuer_key! do
+    case IssuerKey.configured() do
+      {:ok, key} -> key
+      {:error, reason} -> raise EdgeRecordTransientError, reason: {:issuer_key, reason}
+    end
+  end
+
+  # How this delivery is ingested: its transport slot, whether it is an audit delivery (ledger
+  # only), its late-admission decision, and the publishing gateway.
+  defp delivery(provenance, late, gateway_id) do
+    %{
+      slot: provenance.slot,
+      audit?:
+        provenance.delivery_mode == PublicationIdentity.mode_late_fenced() or
+          match?(%{publication: :audit}, late),
+      late: late,
+      gateway_id: gateway_id
+    }
+  end
 
   defp check_slot_matches_record(slot, %EdgeRecordV1{producer_context: producer_context} = record) do
     cond do
@@ -352,8 +450,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   # A projector's side effect outside the database runs before the ledger transaction, so the
   # transaction never holds a connection across a network round trip. It runs only for a fresh
-  # primary delivery: not for a record the ledger already holds (a replay) and not for a
-  # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
+  # primary delivery: not for a record the ledger already holds (a replay) and not for an audit
+  # delivery. A refusal is returned like a projection refusal; any other failure
   # raises, so the record fails and JetStream redelivers it.
   defp publish_opts(repo, opts) do
     [repo: repo, gateway_id: Keyword.get(opts, :gateway_id)] ++
@@ -371,12 +469,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       ])
   end
 
-  defp publish_fresh(repo, provenance, record, projector, body, opts) do
+  defp publish_fresh(repo, delivery, record, projector, body, opts) do
     cond do
       not function_exported?(projector, :publish, 3) ->
         {:ok, :projected}
 
-      provenance.delivery_mode == PublicationIdentity.mode_late_fenced() ->
+      delivery.audit? ->
         {:ok, :projected}
 
       fetch_ledger(repo, record.network_scope_id, record.event_id) != nil ->
@@ -405,12 +503,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp run_transaction(
          repo,
-         provenance,
+         delivery,
          record,
          {projector, body},
          publish_disposition,
          record_sha256,
-         gateway_id,
          opts
        ) do
     network_scope_id = record.network_scope_id
@@ -426,23 +523,28 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
           with {:ok, _slot_outcome} <-
                  upsert_delivery_slot(
                    repo,
-                   provenance.slot,
+                   delivery.slot,
                    record_sha256,
                    event_id,
                    semantic_digest
                  ),
                {:ok, ledger_outcome} <-
-                 upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
+                 upsert_ledger(
+                   repo,
+                   {network_scope_id, event_id},
+                   semantic_digest,
+                   record_sha256,
+                   delivery
+                 ),
                {:ok, outcome} <-
                  transaction_projection_step(
                    repo,
-                   provenance,
+                   delivery,
                    record,
                    projector,
                    body,
                    publish_disposition,
-                   ledger_outcome,
-                   gateway_id
+                   ledger_outcome
                  ) do
             run_test_hook(test_hook, :before_commit, event_id, {:ok, hook_outcome(outcome)})
             outcome
@@ -459,12 +561,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
         deferred
 
       {:ok, {disposition, ledger_outcome}} when disposition in [:projected, :settled] ->
-        if primary?(provenance, ledger_outcome) and function_exported?(projector, :committed, 3) do
+        if primary?(delivery, ledger_outcome) and function_exported?(projector, :committed, 3) do
           projector.committed(record, body, %{
             ledger: ledger_outcome,
             primary?: true,
-            late_fenced?: false,
-            gateway_id: gateway_id,
+            audit?: false,
+            gateway_id: delivery.gateway_id,
             projection: disposition,
             projector_opts: opts
           })
@@ -492,29 +594,27 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp transaction_projection_step(
          _repo,
-         _provenance,
+         _delivery,
          _record,
          _projector,
          _body,
          :settled,
-         ledger_outcome,
-         _gateway_id
+         ledger_outcome
        ) do
     {:ok, {:settled, ledger_outcome}}
   end
 
   defp transaction_projection_step(
          repo,
-         provenance,
+         delivery,
          record,
          projector,
          body,
          :projected,
-         ledger_outcome,
-         gateway_id
+         ledger_outcome
        ) do
     projection_outcome(
-      project(repo, provenance, record, projector, body, ledger_outcome, gateway_id),
+      project(repo, delivery, record, projector, body, ledger_outcome),
       ledger_outcome
     )
   end
@@ -553,13 +653,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   defp describe_failure(reason) when is_exception(reason), do: Exception.message(reason)
   defp describe_failure(reason), do: inspect(reason, limit: 8, printable_limit: 256)
 
-  defp project(repo, provenance, record, projector, body, ledger_outcome, gateway_id) do
+  defp project(repo, delivery, record, projector, body, ledger_outcome) do
     if function_exported?(projector, :project, 4) do
       projector.project(repo, record, body, %{
         ledger: ledger_outcome,
-        primary?: primary?(provenance, ledger_outcome),
-        late_fenced?: provenance.delivery_mode == PublicationIdentity.mode_late_fenced(),
-        gateway_id: gateway_id
+        primary?: primary?(delivery, ledger_outcome),
+        audit?: delivery.audit?,
+        gateway_id: delivery.gateway_id
       })
     else
       :ok
@@ -579,11 +679,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp projection_outcome({:error, _} = error, _ledger_outcome), do: error
 
-  # A fresh, non-late-fenced delivery is the one that writes domain state.
-  defp primary?(provenance, ledger_outcome) do
-    ledger_outcome == :inserted and
-      provenance.delivery_mode != PublicationIdentity.mode_late_fenced()
-  end
+  # A fresh delivery that is not an audit delivery is the one that writes domain state.
+  defp primary?(delivery, ledger_outcome), do: ledger_outcome == :inserted and not delivery.audit?
 
   defp run_test_hook(nil, _point, _event_id, _result), do: :ok
 
@@ -652,17 +749,25 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256) do
+  # The row a delivery claims carries its late-admission audit trail when it was admitted late. A
+  # replay leaves the row that first claimed the event id as it is, live or late.
+  defp upsert_ledger(repo, {network_scope_id, event_id}, semantic_digest, record_sha256, delivery) do
     sql = """
-    INSERT INTO platform.event_ledger (network_scope_id, event_id, semantic_envelope_sha256, record_sha256)
-    VALUES ($1::uuid, $2::uuid, $3::bytea, $4::bytea)
+    INSERT INTO platform.event_ledger
+      (network_scope_id, event_id, semantic_envelope_sha256, record_sha256, admission,
+       late_produced_at, late_publication, late_reason, late_grant_issuer_key_id, late_gateway_id)
+    VALUES ($1::uuid, $2::uuid, $3::bytea, $4::bytea, $5, $6, $7, $8, $9::bytea, $10)
     ON CONFLICT (network_scope_id, event_id) DO UPDATE
       SET semantic_envelope_sha256 = platform.event_ledger.semantic_envelope_sha256
     WHERE platform.event_ledger.semantic_envelope_sha256 = EXCLUDED.semantic_envelope_sha256
     RETURNING (xmax = 0) AS fresh_insert
     """
 
-    case repo.query!(sql, [network_scope_id, event_id, semantic_digest, record_sha256]) do
+    params =
+      [network_scope_id, event_id, semantic_digest, record_sha256] ++
+        ledger_admission(delivery)
+
+    case repo.query!(sql, params) do
       %{rows: [[true]]} ->
         {:ok, :inserted}
 
@@ -672,6 +777,19 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       %{rows: []} ->
         {:error, {:event_id_conflict, fetch_ledger(repo, network_scope_id, event_id)}}
     end
+  end
+
+  defp ledger_admission(%{late: nil}), do: ["live", nil, nil, nil, nil, nil]
+
+  defp ledger_admission(%{late: late, gateway_id: gateway_id}) do
+    [
+      "late",
+      late.produced_at,
+      Atom.to_string(late.publication),
+      Atom.to_string(late.reason),
+      late.issuer_key_id,
+      gateway_id
+    ]
   end
 
   defp fetch_ledger(repo, network_scope_id, event_id) do

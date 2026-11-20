@@ -828,8 +828,15 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
           vector_publication()
           |> Map.put(:delivery_mode, mode)
           |> Map.put(:delivery_proof, proof)
+          |> put_late_admission_grant(name, cap)
       end
     end
+
+    # A LATE_ADMISSION publication carries the grant its proof digests; no other mode carries one.
+    defp put_late_admission_grant(publication, :mode_late_admission, cap),
+      do: Map.put(publication, :late_admission_grant, cap)
+
+    defp put_late_admission_grant(publication, _name, _cap), do: publication
 
     # The normative set, stated once. Compared BIDIRECTIONALLY against reflection below.
     @normative_modes [
@@ -878,7 +885,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
              "two delivery modes produced identical provenance"
     end
 
-    test "the header key multiset is EXACTLY five keys once each, in EVERY delivery mode" do
+    test "the header key multiset is EXACT, once each, in EVERY delivery mode" do
       # EVERY mode, from the same derived set. Checking fresh alone let a renewal-only extra
       # header survive the whole publisher file; checking fresh and renewal alone would still
       # have missed a rollover- or late-fenced-only one. Distinct provenance (above) is
@@ -893,18 +900,50 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
         {:ok, planned} = JetStreamPublisher.plan(pub)
         keys = Enum.map(planned.headers, &elem(&1, 0))
 
-        assert Enum.sort(keys) == [
-                 "Nats-Expected-Stream",
-                 "Nats-Msg-Id",
-                 "Sr-Edge-Delivery-Id",
-                 "Sr-Edge-Gateway-Id",
-                 "Sr-Edge-Transport-Provenance"
-               ],
+        # Only LATE_ADMISSION adds the grant its proof digests.
+        grant_keys = if label == :mode_late_admission, do: ["Sr-Edge-Late-Admission-Grant"], else: []
+
+        assert Enum.sort(keys) ==
+                 Enum.sort(
+                   [
+                     "Nats-Expected-Stream",
+                     "Nats-Msg-Id",
+                     "Sr-Edge-Delivery-Id",
+                     "Sr-Edge-Gateway-Id",
+                     "Sr-Edge-Transport-Provenance"
+                   ] ++ grant_keys
+                 ),
                "#{label} mode emitted #{inspect(Enum.sort(keys))}"
 
         assert header(planned.headers, "Sr-Edge-Gateway-Id") == "gw-at-publish"
         assert length(keys) == length(Enum.uniq(keys)), "#{label} mode repeated a header key"
       end
+    end
+
+    # EventWriter verifies core's late-admission decision from the grant itself, so the grant must
+    # travel with exactly the publication its proof digests, and with no other.
+    test "a late-admission publication carries the grant its proof digests, and only it does" do
+      mode = PublicationIdentity.mode_late_admission()
+      grant = capability_for(:mode_late_admission)
+      late = publication_in_mode(:mode_late_admission, mode)
+
+      {:ok, planned} = JetStreamPublisher.plan(late)
+      value = header(planned.headers, "Sr-Edge-Late-Admission-Grant")
+      assert PublicationIdentity.decode_late_admission_grant(value) == {:ok, grant}
+
+      assert JetStreamPublisher.plan(Map.delete(late, :late_admission_grant)) ==
+               {:error, {:derivation, :late_admission_grant_missing}}
+
+      assert JetStreamPublisher.plan(%{late | delivery_proof: :binary.copy(<<0x5A>>, 32)}) ==
+               {:error, {:derivation, :late_admission_grant_proof}}
+
+      late_fenced =
+        :mode_late_fenced
+        |> publication_in_mode(PublicationIdentity.mode_late_fenced())
+        |> Map.put(:late_admission_grant, grant)
+
+      assert JetStreamPublisher.plan(late_fenced) ==
+               {:error, {:derivation, :late_admission_grant_unexpected}}
     end
 
     test "the provenance value is EXACT for a fresh delivery, not merely nonempty" do

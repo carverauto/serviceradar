@@ -193,7 +193,29 @@ Status: implemented in PR #6692 except where a task says otherwise.
 - [ ] 2.7 EventWriter: accept `LATE_ADMISSION` on the primary and audit routes,
       add audit-trail columns to the ledger, let projectors authorize from the
       grant decision, and make current-state projectors apply by
-      `produced_at` without regressing state.
+      `produced_at` without regressing state. Delivered as three PRs, with the
+      advertisement held at 0 until the last (owner decision 2026-11-17; design
+      Decision 7, "EventWriter and projectors"):
+  - [x] 2.7a EventWriter, ledger audit columns and the grant header: the
+        gateway sends the late grant in `Sr-Edge-Late-Admission-Grant`;
+        EventWriter verifies it (proof digest, issuer key, binding, publication
+        matches the route), accepts `LATE_ADMISSION` on both routes (AUDIT is
+        ledger only), refuses a late PRIMARY record whose interval has since
+        ended `certificate_revoked` or `revoked_cause_unknown`, and records
+        admission, `produced_at`, publication, reason, issuer key id and
+        gateway on the ledger row.
+  - [ ] 2.7b Projector late authorization and current-state gating: the
+        grant's decision replaces `OutputGrants.check_current` and the sweep
+        assignment check for a late PRIMARY record;
+        `edge_projection_watermarks` per `(contract, network scope,
+        producer_assignment_id)`; an older late record settles as
+        `superseded_by_newer_state`; `apply_current_state?` lets the mixed
+        contracts keep their time-series rows.
+  - [ ] 2.7c The three agent tests from 1.8 that the advertisement turns on (a
+        foreign-principal record routed to its hold, a hold frame without a
+        grant not stalling the agent's own late records, and the live-session
+        `LATE_ADMISSION_REQUIRED` version gating), the switch of
+        `edge_late_admission_protocol_version` to 1, and task 2.8.
 - [ ] 2.8 Write database tests on srql-fixtures: a raw upsert records history,
       a delete closes the interval without opening a successor, history rows
       are immutable, a same-principal record naming a `certificate_revoked`

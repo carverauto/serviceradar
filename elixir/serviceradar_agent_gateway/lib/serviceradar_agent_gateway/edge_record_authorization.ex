@@ -119,7 +119,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
           delivery_mode: pos_integer(),
           delivery_proof: binary() | nil,
           grant: :none | :renewal | :rollover | :late_admission,
-          late_reason: atom() | nil
+          late_reason: atom() | nil,
+          late_grant: struct() | nil
         }
   @type refusal :: {:error, :permanent | :retryable | :paused, term(), binary()}
 
@@ -545,7 +546,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
            ),
          {:ok, proof} <- late_grant_proof(PublicationIdentity.delivery_proof_digest(dc, mode)) do
       {publication, reason} = late_publication(late)
-      {:ok, decision(record, publication, mode, proof, :late_admission, reason)}
+
+      # The grant travels on with the record, so EventWriter verifies core's decision itself
+      # rather than taking the gateway's word for it.
+      {:ok, %{decision(record, publication, mode, proof, :late_admission, reason) | late_grant: dc}}
     end
   end
 
@@ -631,7 +635,8 @@ defmodule ServiceRadarAgentGateway.EdgeRecordAuthorization do
       delivery_mode: mode,
       delivery_proof: proof,
       grant: grant,
-      late_reason: late_reason
+      late_reason: late_reason,
+      late_grant: nil
     }
   end
 
