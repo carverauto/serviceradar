@@ -329,5 +329,50 @@
         "tls_not_after": "2027-08-15T00:00:00Z"
       }
     ]
+  },
+  {
+    "id": "rum_netperf_samples",
+    "query": "in:rperf_metrics time:last_24h metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "refreshed_at": "2026-11-18T04:00:00Z",
+    "results": [
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.bits_per_second",
+        "value": 92500000,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.loss_percent",
+        "value": 0.1,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.jitter_ms",
+        "value": 1.4,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      },
+      {
+        "timestamp": "2026-11-18T03:58:00Z",
+        "agent_id": "agent-branch-east-01",
+        "metric_name": "rperf.available",
+        "value": 1,
+        "target_device_ip": "198.51.100.21",
+        "partition": "branch-east",
+        "tags": "{\"responder_agent_id\":\"agent-hub-01\",\"direction\":\"upload\",\"protocol\":\"tcp\"}"
+      }
+    ]
   }
 ]

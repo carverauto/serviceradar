@@ -6,6 +6,7 @@ import {
   deriveLatencyBreakdown,
   evaluateCwvThreshold,
   numericValue,
+  summarizeNetperfLinks,
 } from "../src/WebRumDashboard.jsx"
 import sampleFrames from "../../../priv/dashboard-packages/web-rum/sample-frames.json"
 import sampleSettings from "../../../priv/dashboard-packages/web-rum/sample-settings.json"
@@ -421,5 +422,43 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     await flushUi()
     expect(root.textContent).not.toContain("2.18 s")
     expect(root.textContent).toContain("No Data")
+  })
+
+  test("renders correlated Active Network Performance (Netperf) section and navigates to /dashboards/network-performance", async () => {
+    const built = buildRumFrameQueries({timeWindow: "last_6h", prefixTag: "site:branch-east"})
+    expect(built.frames.rum_netperf_samples).toContain("in:rperf_metrics time:last_6h")
+
+    const links = summarizeNetperfLinks(
+      sampleFrames.find((f) => f.id === "rum_netperf_samples").results,
+      "site:branch-east",
+    )
+    expect(links).toHaveLength(1)
+    expect(links[0].spokeId).toBe("agent-branch-east-01")
+    expect(links[0].responderId).toBe("agent-hub-01")
+    expect(links[0].throughputBps).toBe(92500000)
+    expect(links[0].lossPct).toBe(0.1)
+    expect(links[0].jitterMs).toBe(1.4)
+    expect(links[0].matchesSite).toBe(true)
+
+    const root = createMountRoot()
+    const {host, api, navigations} = createHostApi()
+    const mounted = await mountWebRum(root, host, api)
+    activeMounts.push({mounted, root})
+    await flushUi()
+
+    const text = root.textContent || ""
+    expect(text).toContain("Active Network Performance (Netperf)")
+    expect(text).toContain("agent-branch-east-01")
+    expect(text).toContain("agent-hub-01")
+    expect(text).toContain("92.5 Mbps")
+    expect(text).toContain("1/1 links healthy")
+
+    const openBtn = Array.from(root.querySelectorAll("button")).find((btn) =>
+      btn.textContent?.includes("Open Network Performance"),
+    )
+    expect(openBtn).toBeTruthy()
+    openBtn.click()
+    await flushUi()
+    expect(navigations).toContain("/dashboards/network-performance")
   })
 })

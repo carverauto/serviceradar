@@ -329,6 +329,7 @@ export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
   const rum_cdn_summary = `${prefix} stats:"count() as beacons, p75(cdn_edge_rtt_ms) as p75_edge_rtt_ms, p75(cdn_origin_rtt_ms) as p75_origin_rtt_ms, p75(ttfb_ms) as p75_ttfb_ms by cdn_provider, cdn_cache_status" sort:beacons:desc limit:20`
   const rum_route_summary = `${prefix} stats:"count() as beacons, p75(lcp_ms) as p75_lcp_ms, p75(inp_ms) as p75_inp_ms, p75(cls) as p75_cls, p75(ttfb_ms) as p75_ttfb_ms, sum(has_error) as error_beacons by canonical_origin, metric_path" sort:beacons:desc limit:100`
   const rum_recent_beacons = `${prefix} sort:observed_at:desc limit:200`
+  const rum_netperf_samples = `in:rperf_metrics time:${safeWindow} metric_name:(rperf.bits_per_second,rperf.loss_percent,rperf.jitter_ms,rperf.available) sort:timestamp:desc limit:200`
 
   return {
     primary: rum_cwv_summary,
@@ -339,8 +340,104 @@ export function buildRumFrameQueries({timeWindow, webPropertyId, prefixTag}) {
       rum_cdn_summary,
       rum_route_summary,
       rum_recent_beacons,
+      rum_netperf_samples,
     },
   }
+}
+
+function parseNetperfTags(rawTags) {
+  if (rawTags && typeof rawTags === "object" && !Array.isArray(rawTags)) return rawTags
+  if (typeof rawTags === "string") {
+    const trimmed = rawTags.trim()
+    if (!trimmed.startsWith("{")) return {}
+    try {
+      const parsed = JSON.parse(trimmed)
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+    } catch (_err) {
+      return {}
+    }
+  }
+  return {}
+}
+
+function formatBps(bps) {
+  const num = numericValue(bps)
+  if (num === null) return "—"
+  if (num >= 1_000_000_000) return `${DECIMAL_FORMATTER.format(num / 1_000_000_000)} Gbps`
+  if (num >= 1_000_000) return `${DECIMAL_FORMATTER.format(num / 1_000_000)} Mbps`
+  if (num >= 1_000) return `${DECIMAL_FORMATTER.format(num / 1_000)} Kbps`
+  return `${INT_FORMATTER.format(num)} bps`
+}
+
+export function summarizeNetperfLinks(samples, prefixTag = "") {
+  if (!Array.isArray(samples) || samples.length === 0) return []
+
+  const rawPrefix = String(prefixTag || "").trim().toLowerCase()
+  const siteToken = rawPrefix.includes(":") ? rawPrefix.split(":").slice(1).join(":").trim() : rawPrefix
+
+  const sorted = [...samples].sort((a, b) =>
+    String(b?.timestamp || "").localeCompare(String(a?.timestamp || "")),
+  )
+
+  const byPair = new Map()
+  for (const row of sorted) {
+    if (!row || typeof row !== "object") continue
+    const metricName = String(row.metric_name || "")
+    if (metricName.startsWith("rperf.responder_")) continue
+
+    const tags = parseNetperfTags(row.tags)
+    const spokeId = String(row.agent_id || tags.agent_id || "").trim()
+    if (!spokeId) continue
+    const responderId = String(
+      tags.responder_agent_id || tags.target || row.target_device_ip || "unassigned-target",
+    ).trim()
+    const pairKey = `${spokeId}::${responderId}`
+
+    let entry = byPair.get(pairKey)
+    if (!entry) {
+      const partition = String(row.partition || tags.partition || "").trim()
+      const hay = [spokeId, responderId, partition, tags.target, row.target_device_ip]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      const matchesSite = Boolean(siteToken) && hay.includes(siteToken)
+
+      entry = {
+        key: pairKey,
+        spokeId,
+        responderId,
+        partition,
+        targetIp: String(tags.target || row.target_device_ip || "").trim() || null,
+        protocol: tags.protocol ? String(tags.protocol).toUpperCase() : null,
+        direction: tags.direction ? String(tags.direction).toLowerCase() : null,
+        throughputBps: null,
+        lossPct: null,
+        jitterMs: null,
+        available: null,
+        lastTimestamp: row.timestamp || null,
+        matchesSite,
+      }
+      byPair.set(pairKey, entry)
+    }
+
+    const val = numericValue(row.value)
+    if (val !== null) {
+      if ((metricName === "rperf.bits_per_second" || metricName === "rperf.bandwidth_bps") && entry.throughputBps === null) {
+        entry.throughputBps = val
+      } else if (metricName === "rperf.loss_percent" && entry.lossPct === null) {
+        entry.lossPct = val
+      } else if (metricName === "rperf.jitter_ms" && entry.jitterMs === null) {
+        entry.jitterMs = val
+      } else if (metricName === "rperf.available" && entry.available === null) {
+        entry.available = val
+      }
+    }
+  }
+
+  return Array.from(byPair.values()).sort((a, b) => {
+    if (a.matchesSite !== b.matchesSite) return a.matchesSite ? -1 : 1
+    return (b.throughputBps ?? -1) - (a.throughputBps ?? -1)
+  })
 }
 
 function LatencyTrendChart({rows, hasCdnTiming}) {
@@ -499,6 +596,7 @@ export function WebRumDashboard() {
   const routeSummaryRows = useFrameRows("rum_route_summary", {decode: "auto"})
   const recentBeaconsRows = useFrameRows("rum_recent_beacons", {decode: "auto"})
   const webPropertyRows = useFrameRows("web_properties", {decode: "auto"})
+  const netperfSampleRows = useFrameRows("rum_netperf_samples", {decode: "auto"})
 
   const initialWindow = ALLOWED_WINDOWS.includes(settings?.defaultWindow)
     ? settings.defaultWindow
@@ -797,6 +895,15 @@ export function WebRumDashboard() {
       (latestLatency.originRttMs ?? 0) +
       (latestLatency.browserRenderMs ?? 0)
     : (latestLatency.ttfbMs ?? 0) + (latestLatency.browserRenderMs ?? 0)
+
+  const netperfLinks = useMemo(
+    () => summarizeNetperfLinks(netperfSampleRows, filters.state.prefixTag),
+    [netperfSampleRows, filters.state.prefixTag],
+  )
+  const healthyNetperfCount = useMemo(
+    () => netperfLinks.filter((link) => link.available !== 0).length,
+    [netperfLinks],
+  )
 
   const totalBeaconPages = Math.max(1, Math.ceil(filteredBeacons.length / BEACONS_PAGE_SIZE))
   const safeBeaconsPage = Math.min(beaconsPage, totalBeaconPages)
@@ -1321,6 +1428,94 @@ export function WebRumDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Correlated Active Network Performance (Netperf) */}
+      {netperfLinks.length > 0 ? (
+        <Card compact className="sr-rum-table-card">
+          <div className="sr-rum-section-card">
+            <div className="sr-rum-section-head">
+              <div style={{display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap"}}>
+                <span className="sr-rum-section-title">Active Network Performance (Netperf)</span>
+                <Tag minimal intent={healthyNetperfCount === netperfLinks.length ? "success" : "warning"}>
+                  {healthyNetperfCount}/{netperfLinks.length} links healthy
+                </Tag>
+                {filters.state.prefixTag ? (
+                  <Tag minimal intent="primary">
+                    correlated with {filters.state.prefixTag}
+                  </Tag>
+                ) : null}
+              </div>
+              <Button
+                variant="outlined"
+                size="small"
+                text="Open Network Performance"
+                disabled={!canNavigate}
+                onClick={() => openPath("/dashboards/network-performance")}
+              />
+            </div>
+            <HTMLTable striped compact className="sr-rum-table">
+              <thead>
+                <tr>
+                  <th>Spoke &rarr; Responder</th>
+                  <th>Throughput</th>
+                  <th>Packet Loss</th>
+                  <th>UDP Jitter</th>
+                  <th>Status</th>
+                  <th>Last Sample</th>
+                </tr>
+              </thead>
+              <tbody>
+                {netperfLinks.slice(0, 8).map((link) => {
+                  const isDown = link.available === 0
+                  const isDegraded =
+                    !isDown &&
+                    ((link.lossPct !== null && link.lossPct > 1) ||
+                      (link.jitterMs !== null && link.jitterMs > 20))
+                  const statusIntent = isDown ? "danger" : isDegraded ? "warning" : "success"
+                  const statusLabel = isDown ? "Down" : isDegraded ? "Degraded" : "Healthy"
+
+                  return (
+                    <tr key={link.key}>
+                      <td>
+                        <div className="sr-rum-cell-main">
+                          <span style={{display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap"}}>
+                            <strong>{link.spokeId}</strong>
+                            <span className="sr-rum-cell-sub">&rarr;</span>
+                            <span>{link.responderId}</span>
+                            {link.matchesSite ? (
+                              <Tag minimal intent="primary">
+                                site match
+                              </Tag>
+                            ) : null}
+                          </span>
+                          <span className="sr-rum-cell-sub">
+                            {[link.protocol, link.direction, link.targetIp].filter(Boolean).join(" · ") || "—"}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{formatBps(link.throughputBps)}</strong>
+                      </td>
+                      <td>
+                        {link.lossPct !== null ? `${DECIMAL_FORMATTER.format(link.lossPct)}%` : "—"}
+                      </td>
+                      <td>{link.jitterMs !== null ? formatMs(link.jitterMs) : "—"}</td>
+                      <td>
+                        <Tag minimal intent={statusIntent}>
+                          {statusLabel}
+                        </Tag>
+                      </td>
+                      <td className="sr-rum-cell-sub">
+                        <UserTimeLabel value={link.lastTimestamp} timeZone={timeZone} />
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </HTMLTable>
+          </div>
+        </Card>
+      ) : null}
 
       {/* Recent Beacons Table */}
       <Card compact className="sr-rum-table-card">
