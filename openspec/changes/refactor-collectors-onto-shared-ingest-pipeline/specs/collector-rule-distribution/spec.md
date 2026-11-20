@@ -35,11 +35,12 @@ An edge leaf SHALL hold a read-only mirror of the rules bucket in its own JetStr
 - **THEN** it opens no connection to datasvc, core or any hub service other than the leaf it already uses
 
 ### Requirement: A collector without a ruleset passes records through
-A collector that has no active ruleset SHALL publish records in the binary batch format with only its built-in field mapping, and SHALL NOT publish a different format for core to normalize.
+A collector that has no active ruleset SHALL publish records in the binary batch format with only its built-in field mapping, on the same `logs.normalized.<kind>` subject it uses for normalized batches, with the schema header and without the `Sr-Ruleset-Id` header, and SHALL NOT publish a different format for core to normalize. A batch on `logs.normalized.<kind>` without `Sr-Ruleset-Id` is authorized built-in-mapping pass-through: EventWriter SHALL store it without rules, SHALL NOT reject it, and SHALL record that no ruleset was applied. That trust comes from the NATS publish permission on `logs.normalized.`, which only collector identities hold.
 
 #### Scenario: Records arrive before the first ruleset
 - **WHEN** a collector receives records and has not yet activated a ruleset
-- **THEN** it publishes them as binary batches without a ruleset digest
+- **THEN** it publishes them as binary batches on `logs.normalized.<kind>` with the schema header and no `Sr-Ruleset-Id` header
+- **AND** EventWriter stores them without running rules
 - **AND** the stored rows show that no rules were applied
 
 #### Scenario: A ruleset becomes active

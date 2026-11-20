@@ -48,14 +48,19 @@ The collector SHALL receive effective rules from the rule store, validate comple
 - **AND** it does not assume the current Watch API provides revision replay
 
 ### Requirement: Binary semantic parity
-The binary path SHALL preserve log fields, normalization, redaction, provenance and stable record identity, and SHALL bound batch bytes, records and age.
+The binary path SHALL preserve log fields, normalization, redaction, provenance and stable record identity, and SHALL bound batch bytes, records and age. A batch on `logs.normalized.<kind>` SHALL carry the schema header, and SHALL carry `Sr-Ruleset-Id` with the validated snapshot digest when rules were applied; a batch without `Sr-Ruleset-Id` is built-in-mapping pass-through as `collector-rule-distribution` defines.
 
 #### Scenario: Equivalent legacy and binary input
 - **WHEN** both paths process the same synthetic input with the same rules
 - **THEN** persisted fields and required downstream effects agree
 
+#### Scenario: A batch carries no ruleset digest
+- **WHEN** a batch with the schema header and no `Sr-Ruleset-Id` arrives on `logs.normalized.<kind>`
+- **THEN** EventWriter stores it with the built-in mapping, without running Zen and without rejecting it
+- **AND** it records that no ruleset was applied
+
 ### Requirement: Trusted normalization and durable acknowledgment
-EventWriter SHALL skip repeated Zen only for authorized versioned collector output, use the selected StarRocks or CNPG backend, and acknowledge a batch only after successful persistence under its replay contract.
+EventWriter SHALL skip Zen only for authorized collector output on `logs.normalized.`, whether the batch carries a ruleset digest or, as built-in-mapping pass-through, none, use the selected StarRocks or CNPG backend, and acknowledge a batch only after successful persistence under its replay contract.
 
 #### Scenario: An untrusted body claims normalization
 - **WHEN** log content supplies a normalized flag
@@ -66,7 +71,7 @@ EventWriter SHALL skip repeated Zen only for authorized versioned collector outp
 - **THEN** it is refused and counted as rejected
 
 #### Scenario: Another identity publishes the normalized subject
-- **WHEN** any NATS identity other than the log collector or an edge leaf publishes to `logs.normalized.`
+- **WHEN** any NATS identity other than a collector or an edge leaf publishes to `logs.normalized.`
 - **THEN** the broker refuses the publish
 
 #### Scenario: An edge leaf forwards normalized batches

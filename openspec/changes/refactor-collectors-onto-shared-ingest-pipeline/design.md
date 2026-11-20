@@ -30,11 +30,12 @@ runs in JSON mode.
 Goals:
 - One way for any collector, in the cluster or at the edge, to get its rules.
 - No Zen in core for data a collector produced.
-- One implementation of receive, rules and publish, used by every collector.
+- One implementation of receive, rules and publish, each used by every collector
+  that needs it.
 - No JSON encode in a collector followed by a JSON decode in core.
 
 Non-goals:
-- Changing what the rules do, or the rule editor's behaviour.
+- Changing what the rules do.
 - Moving Falco or the agent-relayed OTLP path.
 - Stream sharding; that stays in `partition-log-ingestion`.
 - Removing Zen from core for `logs.internal.*`.
@@ -90,10 +91,19 @@ JetStream domain, which loses offline operation but keeps the same code.
 Today a collector without an active ruleset publishes JSON and core normalizes
 it. That fallback is the reason core must keep rules for collector data.
 
-Instead, the collector always publishes the binary batch format. With an active
-ruleset it applies the rules. Without one it applies only the built-in field
-mapping. The batch carries the ruleset digest when rules were applied and no
-digest when they were not, so a stored row shows which case it was.
+Instead, the collector always publishes the binary batch format on the same
+subject, `logs.normalized.<kind>`, with the schema header. With an active
+ruleset it applies the rules and sets `Sr-Ruleset-Id` to the ruleset digest.
+Without one it applies only the built-in field mapping and sends no
+`Sr-Ruleset-Id` header, so a stored row shows which case it was.
+
+A batch on `logs.normalized.<kind>` without `Sr-Ruleset-Id` is authorized
+built-in-mapping pass-through. EventWriter stores it without rules, records that
+no ruleset was applied, and neither runs Zen on it nor rejects it. The trust
+comes from the NATS publish permission on `logs.normalized.`, which only
+collector identities (and the edge leaf that carries their batches) hold; a
+missing header is not a claim a sender on another subject can make. This
+amends the trust and binary-contract requirements of `accelerate-log-ingestion`.
 
 Consequence: records that arrive before the first ruleset are stored without
 rule effects (for syslog: severity mapping, the WAF and CEF rules, the
@@ -132,14 +142,31 @@ A collector keeps its protocol parser and its record-to-column mapping.
 
 Each step ships on its own and is measured before and after.
 
-1. Rules bucket, NATS reader, edge mirror. Syslog uses them. Datasvc path removed.
-2. Pass-through without a ruleset. Core drops Zen for syslog.
+1. Rules bucket, NATS reader, edge mirror. Syslog uses them. One release
+   later, core stops writing bundles to datasvc and the collector's datasvc
+   reader and role are removed.
+2. Pass-through without a ruleset. One release later, core drops Zen for
+   syslog.
 3. Extract the publish and rules crates from the log collector.
 4. OTLP logs: rules applied in the collector, including for protobuf. This
-   settles task 3.1a of `accelerate-log-ingestion`.
-5. Trap daemon: final fields emitted natively, binary batches, no rules.
-6. BMP collector: binary batches in place of JSON.
-7. Receive crate, adopted first by syslog, then flows.
+   settles task 3.1a of `accelerate-log-ingestion`. One release later, core
+   drops Zen for `logs.otel`.
+5. Trap daemon: final fields emitted natively, binary batches through the
+   publish crate, no rules. One release later, core drops Zen for `logs.snmp`.
+6. BMP collector: binary batches through the publish crate in place of JSON.
+7. Receive crate, adopted first by syslog, then the trap daemon and the flow
+   collector. The flow collector adopts only this crate; it already publishes
+   protobuf.
+
+Which crates each collector adopts:
+
+| Collector | receive | rules | publish |
+| --- | --- | --- | --- |
+| Syslog | yes | yes | yes |
+| OTLP logs | no (gRPC and HTTP) | yes | yes |
+| SNMP traps | yes | no | yes |
+| BMP | no | no | yes |
+| Flows | yes | no | no |
 
 ### 8. Traps need no rules
 
@@ -148,6 +175,14 @@ address, and copies source, version and community into `attributes.snmp.*`.
 That is field mapping. The daemon produces those fields when it builds the
 record, except the community string, which is a credential and is no longer
 stored.
+
+The trap daemon therefore does not use the rules crate. It does adopt the
+receive crate, with the io_uring and AF_XDP backends available to it as for any
+collector, and publishes binary batches through the publish crate as a
+collector without a ruleset does (decision 4). Both are definite steps, not
+gated on trap volume: a trap storm is the case where receive and encode cost
+matter, so the move is measured by CPU and by traps lost during a synthetic
+trap storm, before and after.
 
 ## Risks / Trade-offs
 
@@ -182,7 +217,4 @@ until step 3.
 - Which hub account does a managed leaf bind to, and can it create a mirror in
   its own domain? (Task 2.1.)
 - Who else reads the per-rule keys and index `ZenRuleSync` writes to datasvc?
-- Is the binary format for traps worth doing at trap volumes, or should the
-  trap daemon stop at emitting final fields in JSON? Listed last for that
-  reason.
 - Should the BMP batches use an existing schema or a new protobuf message?

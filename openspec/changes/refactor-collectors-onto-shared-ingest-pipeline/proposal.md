@@ -30,31 +30,42 @@ in #6863. Three things stop it from being the shape of every collector:
 
 - **Rule bundles move to their own NATS key-value bucket.** Core writes
   bundles there. A collector reads and watches the bucket over the NATS
-  connection it already has. The collector's datasvc client, its datasvc role
-  and its `[rules.datasvc]` configuration are removed. **BREAKING** for
-  hand-maintained collector configuration.
+  connection it already has. One release after the NATS reader ships, the
+  collector's datasvc client, its datasvc role and its `[rules.datasvc]`
+  configuration are removed. **BREAKING** for hand-maintained collector
+  configuration.
 - **Edge leaves carry a read-only mirror of the rules bucket.** An edge
   collector reads the mirror on its local leaf, so rules work while the site is
   disconnected and nothing new is exposed to the edge.
 - **A collector without a ruleset passes records through.** It publishes them
   in the binary batch format with the built-in field mapping and no rules, as
-  an ordinary syslog collector would. It no longer publishes JSON for core to
-  normalize.
+  an ordinary syslog collector would, on the same `logs.normalized.<kind>`
+  subject and without the `Sr-Ruleset-Id` header. EventWriter stores such a
+  batch without rules; the NATS publish permission on that subject, held only
+  by collector identities, is what authorizes it. It no longer publishes JSON
+  for core to normalize.
 - **Core stops running Zen on collector data.** `EventWriter` stores what
   collectors publish. Zen stays in core only for records core produces itself
   (`logs.internal.*`). **BREAKING**: a Zen rule authored for the trap subject
-  is no longer evaluated.
+  is no longer evaluated. For each subject, core drops Zen one release after
+  the collector that makes it unnecessary.
 - **Shared Rust crates** hold what every collector needs: receive (portable
   batched sockets, with io_uring and AF_XDP backends where verified), rules
   (fetch, watch, verify, compile, apply) and publish (binary batches into NATS
-  with stable retry). Each collector keeps only its protocol parser and its
-  record-to-column mapping.
+  with stable retry). Each collector adopts the crates it needs and keeps its
+  protocol parser and its record-to-column mapping: syslog uses all three,
+  OTLP logs use rules and publish, the trap daemon uses receive and publish,
+  the BMP collector uses publish, and the flow collector, which already
+  publishes protobuf, uses receive.
 - **Collectors move onto those crates one at a time**, in this order: syslog
   (already most of the way), OTLP logs, the SNMP trap daemon, the BMP
   collector, then the flow collector's receive path.
 - **The trap daemon emits final fields itself and runs no rules.** Its seeded
-  rule is fixed field mapping, not rule logic. The mapping stops copying the
-  SNMP community string into stored log attributes.
+  rule is fixed field mapping, not rule logic, so it does not use the rules
+  crate and no passthrough rule is seeded for the trap subject. It adopts the
+  receive crate (io_uring and AF_XDP available) and publishes binary batches
+  through the publish crate. The mapping stops copying the SNMP community
+  string into stored log attributes.
 
 This change builds on `accelerate-log-ingestion` (rules at the collector,
 binary batches) and `add-zero-copy-log-receivers` (receive backends) and

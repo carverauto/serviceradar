@@ -1,10 +1,11 @@
 ## 1. Rules bucket and NATS reader
 
-- [ ] 1.1 Core writes each rule bundle to a dedicated NATS key-value bucket, alongside the existing datasvc write. Bundle format and digest unchanged.
+- [ ] 1.1 Core writes each rule bundle to a dedicated NATS key-value bucket, alongside the existing datasvc write, on rule changes and on reconcile. Per-rule keys, the subject index and the stored KV revision are unchanged. Bundle format and digest unchanged.
 - [ ] 1.2 Add a NATS key-value implementation of the `Connector` and `Session` traits in `rust/log-collector/src/rules.rs`, with the same fetch-then-watch, timeout and backoff behaviour.
 - [ ] 1.3 Grant the collector's NATS user read access to the rules bucket only, in the chart, Compose and the edge permission generators.
-- [ ] 1.4 Switch the log collector to the NATS reader. Remove `[rules.datasvc]`, the datasvc client dependency and the collector's datasvc role.
-- [ ] 1.5 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart.
+- [ ] 1.4 Switch the log collector to the NATS reader.
+- [ ] 1.5 One release after 1.4 ships, remove `[rules.datasvc]`, the collector's datasvc client dependency and its datasvc role, in the same release as 3.4.
+- [ ] 1.6 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart.
 
 ## 2. Edge
 
@@ -15,10 +16,10 @@
 
 ## 3. Pass-through and core
 
-- [ ] 3.1 The collector publishes binary batches with built-in mapping and no digest when it has no active ruleset. Remove the JSON fallback from the normalized pipeline.
+- [ ] 3.1 The collector publishes binary batches on `logs.normalized.<kind>` with the schema header, built-in mapping and no `Sr-Ruleset-Id` when it has no active ruleset. EventWriter stores such a batch without rules, does not reject it, and records that no ruleset was applied. Remove the JSON fallback from the normalized pipeline.
 - [ ] 3.2 Shared test cases cover a record stored with rules and without.
 - [ ] 3.3 One release after 3.1 ships, EventWriter stops evaluating Zen for `logs.syslog`. JSON on that subject is stored with built-in mapping.
-- [ ] 3.4 Core stops writing rule bundles to datasvc.
+- [ ] 3.4 One release after 1.4 ships, core stops writing rule bundles to datasvc.
 
 ## 4. Shared crates
 
@@ -29,15 +30,17 @@
 ## 5. OTLP logs
 
 - [ ] 5.1 Apply the rules configured for `logs.otel` in the collector, for protobuf and JSON input. Record the cost on synthetic input.
-- [ ] 5.2 EventWriter stops evaluating Zen for `logs.otel`.
+- [ ] 5.2 One release after 5.1 ships, EventWriter stops evaluating Zen for `logs.otel`.
 
 ## 6. SNMP traps
 
 - [ ] 6.1 The trap daemon emits severity, `source_ip` and `attributes.snmp.*` itself. It does not store the community string.
 - [ ] 6.2 Shared test cases hold the daemon's output to the row stored today, apart from the community string.
-- [ ] 6.3 Remove the seeded trap rules; the rule editor stops offering the trap subject. Upgrade note for installs with a custom trap rule.
-- [ ] 6.4 EventWriter stops evaluating Zen for `logs.snmp`.
-- [ ] 6.5 Decide from measured trap volume whether traps move to binary batches. If so, use the publish crate.
+- [ ] 6.3 The trap daemon publishes binary batches through the publish crate, as a collector without a ruleset does (3.1). It does not use the rules crate.
+- [ ] 6.4 Remove the seeded trap rules and stop seeding a passthrough rule and template for the trap subject; the rule editor stops offering that subject. Upgrade note for installs with a custom trap rule.
+- [ ] 6.5 One release after 6.3 ships, EventWriter stops evaluating Zen for `logs.snmp`.
+- [ ] 6.6 Once 8.1 lands, the trap daemon adopts the receive crate, with the io_uring and AF_XDP backends available to it.
+- [ ] 6.7 Record CPU and the number of traps lost during a synthetic trap storm, before and after 6.3 and 6.6.
 
 ## 7. BMP collector
 
@@ -47,11 +50,11 @@
 ## 8. Receive crate
 
 - [ ] 8.1 Build the receive crate from the backends `add-zero-copy-log-receivers` specifies. Syslog adopts the portable backend first.
-- [ ] 8.2 The flow collector adopts the receive crate.
+- [ ] 8.2 The flow collector adopts the receive crate. It keeps its protobuf output and does not adopt the rules or publish crates.
 - [ ] 8.3 Accelerated backends stay off by default; each is measured where it is enabled.
 
 ## 9. Verification
 
 - [ ] 9.1 `openspec validate refactor-collectors-onto-shared-ingest-pipeline --strict` passes.
-- [ ] 9.2 After 3.3, 5.2 and 6.4, the only subjects EventWriter evaluates Zen for are `logs.internal.*`.
+- [ ] 9.2 After 3.3, 5.2 and 6.5, the only subjects EventWriter evaluates Zen for are `logs.internal.*`.
 - [ ] 9.3 Docs: collector configuration, edge onboarding and the rule editor pages describe the NATS rules bucket and the pass-through behaviour.
