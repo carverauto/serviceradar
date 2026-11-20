@@ -49,8 +49,8 @@ uses today (`zen/rulesets/<stream>/<subject>.json`). The bundle format, its
 schema marker and its digest do not change.
 
 A dedicated bucket is required, not a convenience. The datasvc bucket also
-holds agent configuration, and a NATS permission or a mirror applies to a whole
-bucket's subject space. Collectors get read access to the rules bucket and
+holds agent configuration, and a NATS permission applies to a whole bucket's
+subject space. Collectors get read access to the rules bucket and
 nothing else.
 
 Core writes the bucket through its own NATS connection. Per-rule keys and the
@@ -72,19 +72,33 @@ watches the bucket. `follow()` keeps its behaviour: fetch on every connect,
 then watch; bounded request time; backoff between 1 and 30 seconds; the active
 ruleset stays in use and is reported stale while the store is unreachable.
 
-### 3. Edge leaves mirror the rules bucket
+### 3. Edge collectors read the hub bucket through the leaf
 
-Each leaf's JetStream domain holds a read-only mirror of the hub's rules
-bucket. The edge collector reads the mirror through its local leaf.
+An edge collector connects only to its local leaf. A leaf connection carries
+JetStream API traffic to the hub, so the collector reads and watches the hub's
+rules bucket by addressing the hub's JetStream domain. No mirror, source or
+other replication is set up, and the leaf holds no copy of the rules.
 
-This is the part of the design that is **not yet verified**. The repository
-defines no stream mirror or source between a leaf domain and the hub, and the
-hub-side account a managed leaf binds to was not located. Before any edge work
-starts, task 2.1 proves on a real leaf that a key-value mirror across the leaf
-connection can be created with the permissions a managed leaf has, survives a
-disconnect, and catches up afterwards. If it cannot, the fallback is for the
-collector to read the hub bucket through the leaf connection using the hub's
-JetStream domain, which loses offline operation but keeps the same code.
+Consequences:
+
+- **The hub needs a JetStream domain name.** The packaged hub configuration
+  sets `domain: hub`; the Helm chart's hub sets none. The chart gains the same
+  domain so a leaf can address it.
+- **Disconnected operation is in memory only.** A collector that is running
+  when the site loses the hub keeps applying its active ruleset and reports it
+  as possibly stale, as it does today. A collector that starts while the site
+  is disconnected has no ruleset and passes records through (decision 4) until
+  the leaf reconnects.
+
+An earlier draft mirrored the bucket into each leaf's domain to keep rules
+across a collector restart while disconnected. That was dropped: it adds
+replication to configure and monitor on every site for a case pass-through
+already handles.
+
+Reading hub JetStream through a leaf was built and tested in this project
+before, but is not deployed anywhere today. Task 2.1 re-verifies it on a real
+leaf with the permissions a managed leaf has, and checks that giving the
+chart's hub a domain does not disturb an existing deployment's streams.
 
 ### 4. No ruleset means pass-through, not a JSON fallback
 
@@ -144,7 +158,7 @@ A collector keeps its protocol parser and its record-to-column mapping.
 
 Each step ships on its own and is measured before and after.
 
-1. Rules bucket, NATS reader, edge mirror. Syslog uses them. One release
+1. Rules bucket, NATS reader, edge read through the leaf. Syslog uses them. One release
    later, the collector's datasvc reader and role are removed. Core stops
    writing bundles to datasvc once no consumer reads bundles from datasvc, and
    not before one release after the NATS reader ships.
@@ -195,8 +209,10 @@ trap storm, before and after.
 
 ## Risks / Trade-offs
 
-- **The edge mirror is unproven** (decision 3). Mitigation: it is the first
-  task, with a stated fallback.
+- **Reading the hub bucket through a leaf is not deployed anywhere today**
+  (decision 3). Mitigation: task 2.1 re-verifies it before other edge work.
+- **An edge collector restarted while its site is disconnected runs without
+  rules** until the leaf reconnects (decision 3). Accepted.
 - **Records before the first ruleset lose rule effects** (decision 4).
   Mitigation: the collector exposes its ruleset status, and the stored row
   shows whether rules ran.
@@ -228,7 +244,7 @@ until step 3.
 
 ## Open Questions
 
-- Which hub account does a managed leaf bind to, and can it create a mirror in
-  its own domain? (Task 2.1.)
+- Which hub account does a managed leaf bind to, and do its permissions let a
+  leaf client read the rules bucket in the hub domain? (Task 2.1.)
 - Who else reads the per-rule keys and index `ZenRuleSync` writes to datasvc?
 - Should the BMP batches use an existing schema or a new protobuf message?
