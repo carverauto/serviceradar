@@ -87,7 +87,8 @@ defmodule ServiceRadar.Inventory.WebPropertyDbTest do
     unprivileged = %{id: "none-1", role: :viewer, permissions: MapSet.new()}
 
     assert {:ok, [_ | _]} = Ash.read(WebProperty, actor: viewer)
-    refute Ash.can?({WebProperty, :read}, unprivileged)
+    assert Ash.can?({WebProperty, :read}, viewer, data: [wp])
+    refute Ash.can?({WebProperty, :read}, unprivileged, data: [wp])
     assert {:ok, []} = Ash.read(WebProperty, actor: unprivileged)
 
     assert {:error, %Forbidden{}} =
