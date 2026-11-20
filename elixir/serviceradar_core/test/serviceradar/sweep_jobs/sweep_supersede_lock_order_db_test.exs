@@ -1,17 +1,18 @@
 defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
   @moduledoc """
   The first batch of a new execution supersedes the sweep group's older running executions
-  for the same agent, which locks their rows. A late batch of an older execution locks its
-  device rows (and the inventory rollup lock) first and its execution row last. If the new
-  batch locks the older execution row while creating its own and then waits on a device row
-  the late batch holds, the late batch's request for its execution row closes a wait cycle
-  and Postgres aborts one side with a deadlock.
+  for the same agent and records the run on the sweep group, which locks those execution rows
+  and the group row. A late batch of an older execution locks its device rows (and the
+  inventory rollup lock) first, then its execution row and, when it completes that execution,
+  the group row. If the new batch locks either row while creating its own execution and then
+  waits on a device row the late batch holds, the late batch's request for that row closes a
+  wait cycle and Postgres aborts one side with a deadlock.
 
   The new batch runs in one transaction, as the EventWriter runs each record, so any row lock
   it takes is held until it commits. The case holds a device row the way that late batch
   does, lets the new batch run into it, then asks for the older execution row without
-  waiting: if the new batch took it first the request fails at once instead of forming the
-  cycle.
+  waiting, then for the group row the same way: if the new batch took either first the
+  request fails at once instead of forming the cycle.
   """
   use ServiceRadar.DataCase, async: false
 
@@ -80,10 +81,12 @@ defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
     try do
       await_blocked_by(new_batch, batch_backend, holder_backend)
 
-      # The late batch's next lock: its own (older) execution row. It must not find it taken.
-      send(holder.pid, {:lock_execution, ref, context.older_execution_id})
-      assert_receive {:execution_lock, ^ref, execution_lock}, @wait_ms
+      # The late batch's next locks: its own (older) execution row, then the group row it
+      # updates when it completes that execution. It must find neither taken.
+      send(holder.pid, {:lock_execution, ref, context.older_execution_id, context.group.id})
+      assert_receive {:execution_lock, ^ref, execution_lock, group_lock}, @wait_ms
       assert {:ok, _locked} = execution_lock
+      assert {:ok, _locked} = group_lock
 
       assert {:ok, :committed} = Task.await(holder, @wait_ms)
       assert {:ok, _stats} = Task.await(new_batch, @wait_ms)
@@ -92,10 +95,12 @@ defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
       stop_task(new_batch, ref)
     end
 
-    # Superseding still happens, in the same ingest, once the device work is done.
+    # Superseding and recording the run still happen, in the same ingest, once the device
+    # work is done.
     older = Repo.get!(SweepGroupExecution, context.older_execution_id)
     assert older.status == :failed
     assert older.error_message == "superseded by new execution"
+    assert %SweepGroup{last_run_at: %DateTime{}} = Repo.get!(SweepGroup, context.group.id)
   end
 
   # Holds the device row in its own transaction the way a late batch of the older execution
@@ -116,16 +121,24 @@ defmodule ServiceRadar.SweepJobs.SweepSupersedeLockOrderDbTest do
             send(parent, {:device_locked, ref, backend})
 
             receive do
-              {:lock_execution, ^ref, execution_id} ->
-                result =
+              {:lock_execution, ^ref, execution_id, group_id} ->
+                execution_lock =
                   Repo.query(
                     "SELECT id FROM platform.sweep_group_executions WHERE id = $1 FOR UPDATE NOWAIT",
                     [Ecto.UUID.dump!(execution_id)]
                   )
 
-                send(parent, {:execution_lock, ref, result})
+                group_lock =
+                  with {:ok, _} <- execution_lock do
+                    Repo.query(
+                      "SELECT id FROM platform.sweep_groups WHERE id = $1 FOR NO KEY UPDATE NOWAIT",
+                      [Ecto.UUID.dump!(group_id)]
+                    )
+                  end
 
-                case result do
+                send(parent, {:execution_lock, ref, execution_lock, group_lock})
+
+                case group_lock do
                   {:ok, _} -> :committed
                   {:error, error} -> Repo.rollback(error)
                 end

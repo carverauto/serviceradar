@@ -189,7 +189,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       {:skip, reason} ->
@@ -226,20 +225,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
-        |> supersede_after_ingest(ready, reporter_context, execution_id)
+        |> supersede_after_ingest(ready, reporter_context, execution_id, actor, repo)
     end
   end
 
-  # Superseding locks the group's older running executions. It runs last, after the device
-  # rows, the inventory rollup lock and this execution's own row, because a late batch of an
-  # older execution takes those in that order and only then locks its execution row. Locking
-  # the older row first, while creating this execution, closes a wait cycle with that batch.
-  defp supersede_after_ingest(result, {:created, started_at}, reporter_context, execution_id) do
-    maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
-    result
-  end
+  # Superseding locks the group's older running executions, and recording the run locks the
+  # sweep group row. Both run last, after the device rows, the inventory rollup lock and this
+  # execution's own row, because a late batch of an older execution takes those in that order
+  # and only then locks its execution row and, when it completes the run, the group row.
+  # Taking either earlier, while creating this execution, closes a wait cycle with that batch.
+  # An error inside a transaction leaves it aborted, so nothing more may run against it.
+  defp supersede_after_ingest(result, :ok, _reporter_context, _execution_id, _actor, _repo),
+    do: result
 
-  defp supersede_after_ingest(result, :ok, _reporter_context, _execution_id), do: result
+  defp supersede_after_ingest(
+         result,
+         {:created, started_at, insert},
+         reporter_context,
+         execution_id,
+         actor,
+         repo
+       ) do
+    if match?({:error, _}, result) and repo.in_transaction?() do
+      result
+    else
+      maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
+      if insert == :inserted, do: record_group_execution(reporter_context, actor)
+      result
+    end
+  end
 
   @doc """
   Process a single sweep result.
@@ -475,7 +489,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     case ensure_execution_exists(
@@ -483,13 +496,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       :ok ->
         :ok
 
-      {:created, _started_at} = created ->
+      {:created, _started_at, _insert} = created ->
         created
 
       {:error, :missing_sweep_group_id} ->
@@ -3223,7 +3235,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     cond do
@@ -3258,7 +3269,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           reporter_context,
           config_version,
           expected_total_hosts,
-          actor,
           repo
         )
     end
@@ -3269,7 +3279,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     now = DateTime.utc_now()
@@ -3325,13 +3334,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           }
 
           NotificationQueue.after_commit(fn -> SweepPubSub.broadcast_started(execution) end)
-          record_group_execution(reporter_context, actor)
 
-          {:created, started_at}
+          {:created, started_at, :inserted}
 
         0 ->
           Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
-          {:created, started_at}
+          {:created, started_at, :existing}
       end
     end
   rescue
