@@ -33,8 +33,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
   A pair that shares a MAC, or an equal first-seen time and a hostname, and is not successive is
   recorded as `succession_review`, which opens a de-duplication task naming the pair and the
   records it competes with. A hostname may classify a review (`overlapping_hostname`: a linking
-  MAC and a shared hostname without first-seen agreement); it never decides a merge. A review touching a record that merges in the run waits for the next
-  run. A pair that is asserted distinct, or carries different agent ids, is left alone.
+  MAC and a shared hostname without first-seen agreement); it never decides a merge. A review
+  touching a record that merges in the run waits for the next run. A pair that is asserted
+  distinct, or carries different agent ids, is left alone.
 
   Telemetry: `[:serviceradar, :inventory, :source_succession, :merged | :reviewed | :skipped]`.
   """

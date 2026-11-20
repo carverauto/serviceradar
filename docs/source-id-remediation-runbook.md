@@ -12,9 +12,9 @@ result.
 | Class | Records | Disposition | Step |
 | --- | --- | --- | --- |
 | 1 | a live record holding a stale source id beside a current one | retire the stale ids; the record stays | `source-id-retire` |
-| 2 | a predecessor and a successor sharing a universal MAC and a hostname | succession merge | `source-succession` |
+| 2 | a predecessor and a successor sharing a universal MAC, a first-seen time and a hostname | succession merge | `source-succession` |
 | 3 | a predecessor and a successor sharing a universal MAC and a first-seen time only | succession merge | `source-succession` |
-| 4 | a MAC only, or a hostname and a first-seen time without a MAC | review task | `source-succession` |
+| 4 | a MAC only, a MAC and a hostname without an agreeing first-seen time, or a hostname and a first-seen time without a MAC | review task | `source-succession` |
 | 5 | a record holding only retired ids, with no successor | mark `source_retired`; the grace delete follows | `source-id-retire` |
 | 6 | sets that are not one-to-one | review task | `source-succession` |
 | 7 | released-seed shells (no address, no identifiers, sweep-only) | soft-delete, reason `seed_released` | `released-seed-shells` |
