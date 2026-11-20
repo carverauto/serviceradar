@@ -88,6 +88,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Data do
     |> unwrap_results()
   end
 
+  @spec search_agents(map(), String.t(), pos_integer()) :: [Agent.t()]
+  def search_agents(scope, query, limit \\ 100) do
+    trimmed = query |> to_string() |> String.trim()
+
+    base_query =
+      Agent
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.sort(uid: :asc)
+      |> Ash.Query.limit(limit)
+
+    filtered_query =
+      if trimmed == "" do
+        base_query
+      else
+        pattern = "%#{trimmed}%"
+        Ash.Query.filter(base_query, expr(ilike(uid, ^pattern) or ilike(host, ^pattern) or ilike(ip, ^pattern)))
+      end
+
+    filtered_query
+    |> Ash.read(scope: scope)
+    |> unwrap_results()
+  end
+
   @spec load_recent_runs(map(), pos_integer()) :: [AgentCommand.t()]
   def load_recent_runs(scope, limit \\ 20) do
     AgentCommand

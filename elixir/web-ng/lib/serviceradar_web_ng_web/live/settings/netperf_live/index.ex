@@ -55,10 +55,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
        |> assign(:run_params, Forms.default_run_params())
        |> assign(:run_error, nil)
        |> assign(:active_run, nil)
+       |> assign(:agent_picker, nil)
        |> assign(:dashboard_route, nil)
        |> assign(:responders_list, [])
        |> assign(:profiles_list, [])
        |> assign(:agents_list, [])
+       |> assign(:agents_by_uid, %{})
        |> assign(:online_agent_ids, MapSet.new())
        |> assign(:netperf_agent_ids, MapSet.new())
        |> assign(:policies_count, 0)
@@ -401,7 +403,74 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
       {:noreply,
        fresh_socket
        |> assign(:show_run_modal, false)
+       |> assign(:agent_picker, nil)
        |> assign(:run_error, nil)}
+    end)
+  end
+
+  def handle_event("open_agent_picker", %{"target" => target}, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      picker = build_agent_picker_state(target, fresh_socket.assigns)
+      {:noreply, assign(fresh_socket, :agent_picker, picker)}
+    end)
+  end
+
+  def handle_event("close_agent_picker", _params, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      {:noreply, assign(fresh_socket, :agent_picker, nil)}
+    end)
+  end
+
+  def handle_event("agent_picker_search", %{"query" => query}, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      case fresh_socket.assigns.agent_picker do
+        nil ->
+          {:noreply, fresh_socket}
+
+        picker ->
+          {agents, updated_by_uid} =
+            resolve_picker_agents(
+              fresh_socket.assigns.current_scope,
+              query,
+              fresh_socket.assigns.agents_list,
+              fresh_socket.assigns.agents_by_uid
+            )
+
+          {:noreply,
+           fresh_socket
+           |> assign(:agents_by_uid, updated_by_uid)
+           |> assign(:agent_picker, %{picker | query: query, agents: agents})}
+      end
+    end)
+  end
+
+  def handle_event("agent_picker_toggle_netperf", _params, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      case fresh_socket.assigns.agent_picker do
+        nil ->
+          {:noreply, fresh_socket}
+
+        picker ->
+          {:noreply, assign(fresh_socket, :agent_picker, %{picker | only_netperf: not picker.only_netperf})}
+      end
+    end)
+  end
+
+  def handle_event("agent_picker_select", %{"uid" => uid}, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      case fresh_socket.assigns.agent_picker do
+        nil ->
+          {:noreply, fresh_socket}
+
+        picker ->
+          {:noreply, apply_agent_picker_selection(fresh_socket, picker, uid)}
+      end
+    end)
+  end
+
+  def handle_event("remove_picked_agent", %{"target" => target, "uid" => uid}, socket) do
+    authorize_manage_event(socket, fn fresh_socket ->
+      {:noreply, remove_picked_agent_from_target(fresh_socket, target, uid)}
     end)
   end
 
@@ -637,6 +706,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
     |> assign(:responders_list, loaded.responders)
     |> assign(:profiles_list, loaded.profiles)
     |> assign(:agents_list, loaded.agents)
+    |> assign(:agents_by_uid, Map.new(loaded.agents, &{&1.uid, &1}))
     |> assign(:online_agent_ids, loaded.online_agent_ids)
     |> assign(:netperf_agent_ids, loaded.netperf_agent_ids)
     |> assign(:policies_count, length(loaded.policies))
@@ -752,4 +822,134 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.Index do
   end
 
   defp can_manage?(scope), do: RBAC.can?(scope, @manage_permission)
+
+  defp build_agent_picker_state("policy_spokes", assigns) do
+    selected = parse_agent_uid_list(Map.get(assigns.form_params || %{}, "spoke_agent_uids_text", ""))
+
+    %{
+      target: "policy_spokes",
+      title: "Select Spoke Agents",
+      mode: :multi,
+      selected: selected,
+      query: "",
+      only_netperf: false,
+      agents: assigns.agents_list
+    }
+  end
+
+  defp build_agent_picker_state("responder_agent", assigns) do
+    selected = Map.get(assigns.form_params || %{}, "agent_uid", "")
+
+    %{
+      target: "responder_agent",
+      title: "Select Hub Responder Agent",
+      mode: :single,
+      selected: selected,
+      query: "",
+      only_netperf: false,
+      agents: assigns.agents_list
+    }
+  end
+
+  defp build_agent_picker_state("run_sender", assigns) do
+    selected = Map.get(assigns.run_params || %{}, "sender_agent_id", "")
+
+    %{
+      target: "run_sender",
+      title: "Select Spoke Sender Agent",
+      mode: :single,
+      selected: selected,
+      query: "",
+      only_netperf: MapSet.size(assigns.netperf_agent_ids) > 0,
+      agents: assigns.agents_list
+    }
+  end
+
+  defp build_agent_picker_state(_unknown, _assigns), do: nil
+
+  defp resolve_picker_agents(scope, query, agents_list, agents_by_uid) do
+    trimmed = String.trim(to_string(query))
+
+    if trimmed == "" or length(agents_list) < 250 do
+      {agents_list, agents_by_uid}
+    else
+      found = Data.search_agents(scope, trimmed, 100)
+      merged = Enum.reduce(found, agents_by_uid, fn agent, acc -> Map.put(acc, agent.uid, agent) end)
+      {found, merged}
+    end
+  end
+
+  defp apply_agent_picker_selection(socket, %{target: "policy_spokes"} = picker, uid) do
+    current = parse_agent_uid_list(Map.get(socket.assigns.form_params || %{}, "spoke_agent_uids_text", ""))
+
+    updated_list =
+      if uid in current do
+        Enum.reject(current, &(&1 == uid))
+      else
+        current ++ [uid]
+      end
+
+    updated_params =
+      Map.put(socket.assigns.form_params || %{}, "spoke_agent_uids_text", Enum.join(updated_list, ", "))
+
+    socket
+    |> assign(:form_params, updated_params)
+    |> assign(:form, to_form(updated_params, as: :policy))
+    |> assign(:agent_picker, %{picker | selected: updated_list})
+  end
+
+  defp apply_agent_picker_selection(socket, %{target: "responder_agent"}, uid) do
+    updated_params = Map.put(socket.assigns.form_params || %{}, "agent_uid", uid)
+
+    socket
+    |> assign(:form_params, updated_params)
+    |> assign(:form, to_form(updated_params, as: :responder))
+    |> assign(:agent_picker, nil)
+  end
+
+  defp apply_agent_picker_selection(socket, %{target: "run_sender"}, uid) do
+    updated_params = Map.put(socket.assigns.run_params || %{}, "sender_agent_id", uid)
+
+    socket
+    |> assign(:run_error, nil)
+    |> assign(:run_params, updated_params)
+    |> assign(:run_form, to_form(updated_params, as: :run))
+    |> assign(:agent_picker, nil)
+  end
+
+  defp apply_agent_picker_selection(socket, _picker, _uid) do
+    assign(socket, :agent_picker, nil)
+  end
+
+  defp remove_picked_agent_from_target(socket, "policy_spokes", uid) do
+    current = parse_agent_uid_list(Map.get(socket.assigns.form_params || %{}, "spoke_agent_uids_text", ""))
+    updated_list = Enum.reject(current, &(&1 == uid))
+
+    updated_params =
+      Map.put(socket.assigns.form_params || %{}, "spoke_agent_uids_text", Enum.join(updated_list, ", "))
+
+    socket
+    |> assign(:form_params, updated_params)
+    |> assign(:form, to_form(updated_params, as: :policy))
+  end
+
+  defp remove_picked_agent_from_target(socket, _target, _uid), do: socket
+
+  defp parse_agent_uid_list(text) when is_binary(text) do
+    text
+    |> String.split([",", "\n"], trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_agent_uid_list(list) when is_list(list) do
+    list
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp parse_agent_uid_list(_), do: []
 end
