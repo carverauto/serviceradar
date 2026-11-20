@@ -110,6 +110,15 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'netflow', label: 'NetFlow'},
         {type: 'doc', id: 'bgp-routing', label: 'BGP Routing'},
         {type: 'doc', id: 'otel', label: 'OpenTelemetry'},
+        {
+          type: 'category',
+          label: 'Real User Monitoring (RUM)',
+          items: [
+            {type: 'doc', id: 'rum-overview', label: 'Web Properties & RUM'},
+            {type: 'doc', id: 'rum-instrumentation', label: 'Instrumenting Websites'},
+            {type: 'doc', id: 'rum-akamai-cdn', label: 'Akamai CDN & Server-Timing'},
+          ],
+        },
       ],
     },
     {
