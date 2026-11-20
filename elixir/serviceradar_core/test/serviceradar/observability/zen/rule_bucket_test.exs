@@ -18,6 +18,9 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
   @key "zen/rulesets/events/logs.syslog.json"
 
   setup do
+    if is_nil(Process.whereis(ServiceRadar.Reload.TaskSupervisor)),
+      do: start_supervised!({Task.Supervisor, name: ServiceRadar.Reload.TaskSupervisor})
+
     original = Application.get_env(:serviceradar_core, RuleBucket)
 
     on_exit(fn ->
@@ -38,6 +41,7 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
       assert :ok = RuleBucket.put(@key, ~s({"digest":"sha256:second"}))
 
       assert KV.get_value(conn, RuleBucket.bucket(), @key) == ~s({"digest":"sha256:second"})
+      assert RuleBucket.keys() == {:ok, [@key]}
 
       %{"config" => config, "state" => state} =
         ExposureBroker.request(conn, "$JS.API.STREAM.INFO.#{@stream}", %{})
@@ -64,8 +68,46 @@ defmodule ServiceRadar.Observability.Zen.RuleBucketTest do
     end)
   end
 
+  test "a key listing the server never answers is abandoned as an error" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(listener)
+    server = spawn_link(fn -> silent_nats_server(listener) end)
+    on_exit(fn -> Process.exit(server, :kill) end)
+
+    conn = ExposureBroker.connect(port)
+
+    try do
+      started = System.monotonic_time(:millisecond)
+      assert {:error, :timeout} = RuleBucket.keys()
+      assert System.monotonic_time(:millisecond) - started < 15_000
+
+      assert Task.Supervisor.children(ServiceRadar.Reload.TaskSupervisor) == []
+    after
+      Gnat.stop(conn)
+    end
+  end
+
   test "without a NATS connection, ensure and put report it instead of raising" do
     assert {:error, :not_connected} = RuleBucket.ensure()
     assert {:error, :not_connected} = RuleBucket.put(@key, "{}")
+  end
+
+  # Accepts one client, completes the NATS handshake and then answers only
+  # PING, so every JetStream request it is sent goes unanswered.
+  defp silent_nats_server(listener) do
+    {:ok, socket} = :gen_tcp.accept(listener)
+    :ok = :gen_tcp.send(socket, ~s(INFO {"headers":true,"max_payload":1048576}\r\n))
+    answer_pings(socket)
+  end
+
+  defp answer_pings(socket) do
+    case :gen_tcp.recv(socket, 0) do
+      {:ok, data} ->
+        if String.contains?(data, "PING\r\n"), do: :gen_tcp.send(socket, "PONG\r\n")
+        answer_pings(socket)
+
+      {:error, _closed} ->
+        :ok
+    end
   end
 end

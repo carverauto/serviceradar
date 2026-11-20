@@ -31,6 +31,8 @@ defmodule ServiceRadar.Observability.Zen.RuleBucket do
   @default_max_bytes 1_048_576
   @default_replicas 1
   @request_timeout_ms 5_000
+  @keys_timeout_ms 10_000
+  @task_supervisor ServiceRadar.Reload.TaskSupervisor
   # JetStream's default duplicate window; a KV bucket keeps it when values never expire.
   @duplicate_window_ns 120_000_000_000
 
@@ -82,11 +84,24 @@ defmodule ServiceRadar.Observability.Zen.RuleBucket do
   end
 
   @doc """
-  Lists the keys the bucket holds a bundle under.
+  Lists the keys the bucket holds a bundle under. The listing runs under
+  `ServiceRadar.Reload.TaskSupervisor` and is abandoned after 10 seconds, so a
+  connection that stops answering is an error instead of a stalled caller.
   """
   @spec keys() :: {:ok, [String.t()]} | {:error, term()}
   def keys do
-    with_connection(&KV.keys(&1, @bucket))
+    task =
+      Task.Supervisor.async_nolink(@task_supervisor, fn ->
+        with_connection(&KV.keys(&1, @bucket))
+      end)
+
+    case Task.yield(task, @keys_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, {:keys_failed, reason}}
+      nil -> {:error, :timeout}
+    end
+  catch
+    :exit, reason -> {:error, {:keys_failed, reason}}
   end
 
   defp stream_name, do: @stream
