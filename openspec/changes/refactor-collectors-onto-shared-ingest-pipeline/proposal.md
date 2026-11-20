@@ -42,7 +42,8 @@ in #6863. Three things stop it from being the shape of every collector:
   an ordinary syslog collector would, on the same `logs.normalized.<kind>`
   subject and without the `Sr-Ruleset-Id` header. EventWriter stores such a
   batch without rules; the NATS publish permission on that subject, held only
-  by collector identities, is what authorizes it. It no longer publishes JSON
+  by collector identities and the edge leaf that forwards an edge collector's
+  batches, is what authorizes it. It no longer publishes JSON
   for core to normalize.
 - **Core stops running Zen on collector data.** `EventWriter` stores what
   collectors publish. Zen stays in core only for records core produces itself

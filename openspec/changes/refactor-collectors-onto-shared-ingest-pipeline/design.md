@@ -101,8 +101,9 @@ A batch on `logs.normalized.<kind>` without `Sr-Ruleset-Id` is authorized
 built-in-mapping pass-through. EventWriter stores it without rules, records that
 no ruleset was applied, and neither runs Zen on it nor rejects it. The trust
 comes from the NATS publish permission on `logs.normalized.`, which only
-collector identities (and the edge leaf that carries their batches) hold; a
-missing header is not a claim a sender on another subject can make. This
+collector identities and the edge leaf that forwards an edge collector's
+batches hold; a missing header is not a claim a sender on another subject can
+make. This
 amends the trust and binary-contract requirements of `accelerate-log-ingestion`.
 
 Consequence: records that arrive before the first ruleset are stored without

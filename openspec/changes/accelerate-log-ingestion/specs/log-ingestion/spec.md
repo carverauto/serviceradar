@@ -71,7 +71,7 @@ EventWriter SHALL skip Zen only for authorized collector output on `logs.normali
 - **THEN** it is refused and counted as rejected
 
 #### Scenario: Another identity publishes the normalized subject
-- **WHEN** any NATS identity other than a collector or an edge leaf publishes to `logs.normalized.`
+- **WHEN** any NATS identity other than a collector identity or the edge leaf that forwards an edge collector's batches publishes to `logs.normalized.`
 - **THEN** the broker refuses the publish
 
 #### Scenario: An edge leaf forwards normalized batches

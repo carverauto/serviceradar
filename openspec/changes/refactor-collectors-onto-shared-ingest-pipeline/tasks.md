@@ -37,6 +37,7 @@
 - [ ] 6.1 The trap daemon emits severity, `source_ip` and `attributes.snmp.*` itself. It does not store the community string.
 - [ ] 6.2 Shared test cases hold the daemon's output to the row stored today, apart from the community string.
 - [ ] 6.3 The trap daemon publishes binary batches through the publish crate, as a collector without a ruleset does (3.1). It does not use the rules crate.
+- [ ] 6.3a Grant the trap daemon's NATS user publish on `logs.normalized.snmp` in the chart, Compose and the edge permission generators, before 6.3 ships. Keep `logs.snmp` allowed until 6.5, so the previous trap daemon still publishes during the one-release window.
 - [ ] 6.4 Remove the seeded trap rules and stop seeding a passthrough rule and template for the trap subject; the rule editor stops offering that subject. Upgrade note for installs with a custom trap rule.
 - [ ] 6.5 One release after 6.3 ships, EventWriter stops evaluating Zen for `logs.snmp`.
 - [ ] 6.6 Once 8.1 lands, the trap daemon adopts the receive crate, with the io_uring and AF_XDP backends available to it.
