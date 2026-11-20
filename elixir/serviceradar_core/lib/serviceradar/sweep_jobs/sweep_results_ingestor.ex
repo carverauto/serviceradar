@@ -189,7 +189,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       {:skip, reason} ->
@@ -203,7 +202,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, reason} ->
         {:error, reason}
 
-      :ok ->
+      ready ->
         start_time = System.monotonic_time(:millisecond)
 
         results
@@ -226,6 +225,33 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
+        |> supersede_after_ingest(ready, reporter_context, execution_id, actor, repo)
+    end
+  end
+
+  # Superseding locks the group's older running executions, and recording the run locks the
+  # sweep group row. Both run last, after the device rows, the inventory rollup lock and this
+  # execution's own row, because a late batch of an older execution takes those in that order
+  # and only then locks its execution row and, when it completes the run, the group row.
+  # Taking either earlier, while creating this execution, closes a wait cycle with that batch.
+  # An error inside a transaction leaves it aborted, so nothing more may run against it.
+  defp supersede_after_ingest(result, :ok, _reporter_context, _execution_id, _actor, _repo),
+    do: result
+
+  defp supersede_after_ingest(
+         result,
+         {:created, started_at, insert},
+         reporter_context,
+         execution_id,
+         actor,
+         repo
+       ) do
+    if match?({:error, _}, result) and repo.in_transaction?() do
+      result
+    else
+      maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
+      if insert == :inserted, do: record_group_execution(reporter_context, actor)
+      result
     end
   end
 
@@ -463,7 +489,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     case ensure_execution_exists(
@@ -471,11 +496,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       :ok ->
         :ok
+
+      {:created, _started_at, _insert} = created ->
+        created
 
       {:error, :missing_sweep_group_id} ->
         Logger.warning(
@@ -3195,7 +3222,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     cond do
@@ -3230,7 +3256,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           reporter_context,
           config_version,
           expected_total_hosts,
-          actor,
           repo
         )
     end
@@ -3241,7 +3266,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     now = DateTime.utc_now()
@@ -3281,12 +3305,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
              winning_execution,
              reporter_context
            ) do
-      maybe_mark_superseded_executions(
-        reporter_context,
-        execution_id,
-        started_at
-      )
-
       case inserted_count do
         1 ->
           Logger.info(
@@ -3303,13 +3321,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           }
 
           NotificationQueue.after_commit(fn -> SweepPubSub.broadcast_started(execution) end)
-          record_group_execution(reporter_context, actor)
 
-          :ok
+          {:created, started_at, :inserted}
 
         0 ->
           Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
-          :ok
+          {:created, started_at, :existing}
       end
     end
   rescue
