@@ -279,8 +279,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # Armis re-keys A (m1) from a1 to a2 and reports a first-seen time of a2's own, later than A's
   # last sighting under a1. Steps as in src_rekey_succession. Expected: the first-seen times
-  # differ, but the hostnames agree and a2 was first seen no earlier than a1 was last seen, so
-  # the succession pass merges the two (D3); a1's record survives.
+  # differ, and a hostname never corroborates (stop-name-as-identity-evidence), whatever the
+  # source times: the succession pass merges nothing and records the pair for review
+  # (succession_review, overlapping_hostname).
   test "src_rekey_new_first_seen", %{actor: actor} do
     world = Map.put(rekey_world(), :new_first_seen_ids, ["a2"])
 
@@ -517,10 +518,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #6042: two same-named hypervisor nodes in different clusters collide on an address under one
   # integration provider (`proxmox:v3:...`) with no MAC, serial or source-authoritative id.
   # Steps: node A (`i1`, hostname `n1`) is synced at `p1`; node B (`i2`, hostname `n1`) is
-  # synced at `p1`. Expected: hostname-agreement adoption is refused with
-  # `conflicting_integration_identity`, recording a `policy_block` decision alongside the
-  # `ip_conflict` decision; B gets its own record (`recIp = NoIp`), A keeps `p1`, and the two
-  # physical nodes never fuse onto one record.
+  # synced at `p1`. Expected: a hostname is not identity, so B is not adopted onto A's record;
+  # the agreement is recorded as a `policy_block` decision alongside the `ip_conflict` decision;
+  # B gets its own record (`recIp = NoIp`), A keeps `p1`, and the two physical nodes never fuse
+  # onto one record.
   test "integration_hostname_conflict", %{actor: actor} do
     world = %{
       phys: ["h1", "h2"],

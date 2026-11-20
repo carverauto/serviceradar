@@ -46,14 +46,20 @@ SharedHost  == \E k1, k2 \in Phys : k1 # k2 /\ HostOf[k1] = HostOf[k2]
 \* Hostnames can agree where first-seen times do not: two devices share a hostname, or a re-key
 \* gives a device a new first-seen time.
 HostnameAlone == SharedHost \/ NewFirstSeenIds # {}
+\* each integration id under its own provider prefix (replaces SameIntProvider)
+OwnIntProviders(i, j) == i = j
 \* act is a history variable Next never reads. Next reads recFs only for a record holding a
 \* retired id, and the archive stays empty unless Rekeys; it reads idSeen only for a census. It
-\* reads seenWith only where hostnames agree and first-seen times do not (HostnameAlone), and
-\* only for a record holding a retired id. Leaving them out of the fingerprint otherwise is sound.
+\* reads seenWith only under the hostname_corroborates alternative, where hostnames agree and
+\* first-seen times do not (HostnameAlone), and only for a record holding a retired id. Leaving
+\* them out of the fingerprint otherwise is sound. byName is in it, because TLC checks invariants
+\* only on a new fingerprint; it stays FALSE unless an unsafe alternative sets it.
 StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
                IF Rekeys \/ "Integration" \in Observers THEN recFs ELSE <<>>,
                IF "Arp" \in Observers THEN idSeen ELSE <<>>,
-               IF Rekeys /\ HostnameAlone THEN seenWith ELSE <<>>>>
+               IF Rekeys /\ HostnameAlone /\ "hostname_corroborates" \in Unsafe
+               THEN seenWith ELSE <<>>,
+               byName>>
 \* vacuity: an agent never lands on a record the mapper's poll identified (the goal links an
 \* agent to the record of its known host through a shared MAC)
 NeverAgentOnDiscoveredRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /\ ifClaims[r] # {})
