@@ -12,12 +12,12 @@ pub struct Config {
     pub health: HealthConfig,
 
     /// When present, the collector keeps the Zen ruleset for one stream and
-    /// subject fetched from datasvc.
+    /// subject fetched from the store `[rules.nats]` or `[rules.datasvc]` names.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<RulesConfig>,
 }
 
-/// The ruleset the collector follows and the datasvc it reads it from.
+/// The ruleset the collector follows and the store it reads it from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulesConfig {
     #[serde(default = "default_rules_stream")]
@@ -33,7 +33,68 @@ pub struct RulesConfig {
     #[serde(default = "default_true")]
     pub normalize: bool,
 
-    pub datasvc: DatasvcConfig,
+    /// The NATS rule bucket. Used whenever it is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nats: Option<NatsRulesConfig>,
+
+    /// The datasvc read when `[rules.nats]` is absent. Supported for one more
+    /// release; configure `[rules.nats]` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datasvc: Option<DatasvcConfig>,
+}
+
+/// Where the collector reads its ruleset from.
+#[derive(Debug, Clone)]
+pub enum RulesSource<'a> {
+    Nats(&'a NatsRulesConfig),
+    Datasvc(&'a DatasvcConfig),
+}
+
+impl RulesConfig {
+    /// The NATS bucket when `[rules.nats]` is present, otherwise datasvc. A
+    /// `[rules]` section naming neither cannot be followed.
+    pub fn source(&self) -> anyhow::Result<RulesSource<'_>> {
+        match (&self.nats, &self.datasvc) {
+            (Some(nats), _) => Ok(RulesSource::Nats(nats)),
+            (None, Some(datasvc)) => Ok(RulesSource::Datasvc(datasvc)),
+            (None, None) => anyhow::bail!(
+                "the [rules] section names no store to read the Zen ruleset from; add [rules.nats] with the NATS url"
+            ),
+        }
+    }
+}
+
+/// The NATS key-value bucket core publishes rule bundles to, read with the
+/// same connection settings as the `[nats]` output of the OTEL collector.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NatsRulesConfig {
+    /// NATS server URL, such as `tls://nats.example.com:4222`.
+    pub url: String,
+
+    /// The JetStream domain the bucket is read through, as `domain` on the
+    /// `[nats]` outputs. An edge collector names its leaf's domain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+
+    #[serde(default = "default_rules_bucket")]
+    pub bucket: String,
+
+    /// NATS credentials file (JWT and seed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creds_file: Option<String>,
+
+    /// Client certificate and the CA that verifies the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<NatsTlsConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NatsTlsConfig {
+    pub cert_file: String,
+    pub key_file: String,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_file: Option<String>,
 }
 
 /// The environment variable that overrides [`RulesConfig::normalize`].
@@ -53,7 +114,7 @@ impl Config {
         };
         if normalize && self.rules.is_none() {
             anyhow::bail!(
-                "normalizing syslog needs a [rules] section naming the datasvc to read the ruleset from"
+                "normalizing syslog needs a [rules] section naming the store to read the ruleset from"
             );
         }
         Ok(normalize)
@@ -101,6 +162,11 @@ fn default_rules_stream() -> String {
 
 fn default_rules_subject() -> String {
     "logs.syslog".to_string()
+}
+
+/// The bucket core writes rule bundles to (`ServiceRadar.Observability.Zen.RuleBucket`).
+fn default_rules_bucket() -> String {
+    "serviceradar-zen-rules".to_string()
 }
 
 fn default_datasvc_server_name() -> String {
@@ -244,8 +310,11 @@ mod tests {
         let rules = config.rules.unwrap();
         assert_eq!(rules.stream_name, "events");
         assert_eq!(rules.subject, "logs.syslog");
+        let RulesSource::Datasvc(datasvc) = rules.source().unwrap() else {
+            panic!("a [rules] section with only [rules.datasvc] reads datasvc");
+        };
         assert_eq!(
-            rules.datasvc.endpoint(),
+            datasvc.endpoint(),
             kvutil::KvEndpoint {
                 address: "datasvc.example.com:50057".to_string(),
                 tls: Some(kvutil::KvTls {
@@ -256,6 +325,55 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn rules_are_read_from_the_nats_bucket_whenever_one_is_configured() {
+        let config: Config = toml::from_str(
+            r#"
+            [rules.nats]
+            url = "tls://nats.example.com:4222"
+            domain = "edge_site01"
+            creds_file = "/creds/collector.creds"
+
+            [rules.nats.tls]
+            cert_file = "/certs/client.pem"
+            key_file = "/certs/client-key.pem"
+            ca_file = "/certs/root.pem"
+
+            [rules.datasvc]
+            address = "datasvc.example.com:50057"
+            "#,
+        )
+        .unwrap();
+
+        let rules = config.rules.unwrap();
+        let RulesSource::Nats(nats) = rules.source().unwrap() else {
+            panic!("[rules.nats] takes precedence over [rules.datasvc]");
+        };
+        assert_eq!(
+            nats,
+            &NatsRulesConfig {
+                url: "tls://nats.example.com:4222".to_string(),
+                domain: Some("edge_site01".to_string()),
+                bucket: "serviceradar-zen-rules".to_string(),
+                creds_file: Some("/creds/collector.creds".to_string()),
+                tls: Some(NatsTlsConfig {
+                    cert_file: "/certs/client.pem".to_string(),
+                    key_file: "/certs/client-key.pem".to_string(),
+                    ca_file: Some("/certs/root.pem".to_string()),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn a_rules_section_naming_no_store_cannot_be_followed() {
+        let config: Config = toml::from_str("[rules]\nsubject = \"logs.syslog\"\n").unwrap();
+
+        let error = config.rules.unwrap().source().unwrap_err().to_string();
+
+        assert!(error.contains("[rules.nats]"), "{error}");
     }
 
     #[test]

@@ -31,6 +31,15 @@ rust_test(
         "syslog",
         "otel",
     ],
+    # The NATS rule bucket reader's tests run a real broker.
+    data = ["//third_party/binaries:nats_server_linux_amd64"],
+    env = {
+        "NATS_SERVER_BIN": "$(rootpath //third_party/binaries:nats_server_linux_amd64)",
+    },
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal_dev = True,
+    ),
 )
 
 rust_test(

@@ -1,8 +1,11 @@
 defmodule ServiceRadar.Observability.ZenRuleSync do
   @moduledoc """
-  GenServer that synchronizes Zen rules to the datasvc KV store.
+  GenServer that synchronizes Zen rules to the datasvc KV store and the rule
+  bundles collectors follow to the NATS rule bucket (`Zen.RuleBucket`).
 
-  Reconciles rules on startup and at regular intervals.
+  Reconciles rules on startup and at regular intervals. A bundle is written to
+  both stores whatever the other answers, and a failed write to either is a
+  reconcile error, so the next reconcile writes it again.
 
   ## Usage
 
@@ -17,6 +20,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
+  alias ServiceRadar.Observability.Zen.RuleBucket
   alias ServiceRadar.Observability.Zen.RuleBundle
   alias ServiceRadar.Observability.ZenRule
 
@@ -142,10 +146,26 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   defp do_reconcile(state) do
     if repo_enabled?() do
       if datasvc_available?() do
+        ensure_rule_bucket()
         reconcile_rules(state)
       else
         Logger.warning("Zen rule reconcile skipped: datasvc unavailable")
       end
+    end
+  end
+
+  # A bucket that cannot be created leaves the datasvc writes to go ahead; each
+  # bundle write to the bucket then fails and is reported with its rule.
+  defp ensure_rule_bucket do
+    case RuleBucket.ensure() do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Zen rule bucket #{RuleBucket.bucket()} is not ready: #{format_reason(reason)}",
+          reason: format_reason(reason)
+        )
     end
   end
 
@@ -219,7 +239,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
           |> Enum.join(", ")
 
         Logger.warning(
-          "Zen rule reconcile skipped due to transient datasvc error: count=#{transient_count} reason=#{reasons}"
+          "Zen rule reconcile skipped due to transient rule store error: count=#{transient_count} reason=#{reasons}"
         )
 
       true ->
@@ -271,10 +291,17 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       %GRPC.RPCError{} = error ->
         rpc_transient_error?(error)
 
+      {:rule_bucket, bucket_reason} ->
+        transient_bucket_error?(bucket_reason)
+
       _ ->
         false
     end
   end
+
+  defp transient_bucket_error?(:connection_dead), do: true
+  defp transient_bucket_error?({:nats_connection_died, _reason}), do: true
+  defp transient_bucket_error?(reason), do: transient_error?(reason)
 
   defp rpc_transient_error?(%GRPC.RPCError{status: status, message: message}) do
     status in [
@@ -294,6 +321,10 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   defp format_reason({:json_encode_failed, message}), do: "json_encode_failed: #{message}"
   defp format_reason({:unexpected_result, result}), do: "unexpected_result: #{inspect(result)}"
   defp format_reason({:crash, message}), do: "crash: #{message}"
+
+  defp format_reason({:rule_bucket, reason}),
+    do: "rule bucket #{RuleBucket.bucket()}: #{format_reason(reason)}"
+
   defp format_reason(reason), do: inspect(reason)
 
   # Internal sync with opts from GenServer state
@@ -367,14 +398,23 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   # The bundle is what collectors evaluate: every enabled rule for the stream
   # and subject, in core's evaluation order, under one content digest. The
-  # per-agent index above stays for its existing readers. A bundle datasvc
-  # rejects, for instance for its size, leaves the previous bundle in place.
+  # per-agent index above stays for its existing readers. A bundle a store
+  # rejects, for instance for its size, leaves that store's previous bundle in
+  # place. Collectors read datasvc or the rule bucket, so each store is written
+  # whatever the other answered.
   defp publish_bundle(%ZenRule{stream_name: stream_name, subject: subject}, opts) do
     with {:ok, rules} <- RuleBundle.effective_rules(stream_name, subject, opts),
          {:ok, payload} <- RuleBundle.encode(stream_name, subject, rules) do
-      Client.put(RuleBundle.kv_key(stream_name, subject), payload)
+      key = RuleBundle.kv_key(stream_name, subject)
+      datasvc = Client.put(key, payload)
+      bucket = RuleBucket.put(key, payload)
+      bundle_written(datasvc, bucket)
     end
   end
+
+  defp bundle_written(:ok, :ok), do: :ok
+  defp bundle_written(:ok, {:error, reason}), do: {:error, {:rule_bucket, reason}}
+  defp bundle_written(datasvc_error, _bucket), do: datasvc_error
 
   defp load_subject_rules(%ZenRule{} = rule, opts) do
     ZenRule

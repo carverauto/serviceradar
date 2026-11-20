@@ -11,3 +11,17 @@ config_file = "otel.toml"
 
 [health]
 listen_addr = "0.0.0.0:50044"
+
+# Follow the Zen ruleset core publishes for syslog and normalize syslog here.
+# The collector reads it from the NATS rule bucket with the same connection
+# settings as [nats] in otel.toml; uncomment to enable.
+#
+# [rules.nats]
+# url = "nats://serviceradar-nats:4222"
+# creds_file = "/var/run/serviceradar/runtime/NATS_CREDS_FILE"
+# bucket = "serviceradar-zen-rules"
+#
+# [rules.nats.tls]
+# cert_file = "/etc/serviceradar/certs/log-collector.pem"
+# key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+# ca_file = "/etc/serviceradar/certs/root.pem"

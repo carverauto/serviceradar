@@ -5,7 +5,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_test")
 # helm binary is part of the build.
 go_test(
     name = "chartacl_test",
-    srcs = ["publish_test.go"],
+    srcs = [
+        "publish_test.go",
+        "rule_bucket_test.go",
+    ],
     data = [
         "//helm/serviceradar:Chart.yaml",
         "//helm/serviceradar:chart_files",
@@ -18,6 +21,7 @@ go_test(
     deps = [
         "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
         "@com_github_nats_io_nats_server_v2//server",
         "@com_github_nats_io_nkeys//:nkeys",
         "@in_gopkg_yaml_v3//:yaml_v3",
