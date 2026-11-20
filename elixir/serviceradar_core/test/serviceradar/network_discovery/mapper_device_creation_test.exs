@@ -1952,6 +1952,42 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
              Device.get_by_uid(seed_uid, true, actor: actor)
   end
 
+  test "a poll at an equally strong address does not move a primary another source recorded",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    own_ip = unique_test_ip(198, 18, 250, uniq)
+    polled_ip = unique_test_ip(198, 18, 251, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(own_ip, [mac]), %{})
+    assert [%Device{uid: uid}] = wait_for_devices_by_ip(actor, own_ip)
+
+    # The passive census recorded the primary and sighted it just now.
+    %{num_rows: 1} =
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET ip_source = 'netprobe-census', ip_seen_at = $2 WHERE uid = $1",
+        [uid, DateTime.to_naive(DateTime.utc_now())]
+      )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(polled_ip, [mac]), %{})
+
+    # Moving it, which cleared the recorded source, let the next census snapshot move it
+    # back, and the two sources took turns on every poll.
+    assert {:ok, %Device{ip: ^own_ip, ip_source: "netprobe-census"}} =
+             Device.get_by_uid(uid, false, actor: actor)
+
+    %{num_rows: 1} =
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET ip_seen_at = now() - interval '30 days' WHERE uid = $1",
+        [uid]
+      )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(polled_ip, [mac]), %{})
+
+    assert {:ok, %Device{ip: ^polled_ip, ip_source: "mapper", ip_seen_at: %DateTime{}}} =
+             Device.get_by_uid(uid, false, actor: actor)
+  end
+
   # A poll of the device itself is an identity-bearing observation
   # (DeviceWrites.observed_after?/2), recorded when the poll creates the device and each time
   # the device is polled again.

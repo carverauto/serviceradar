@@ -33,10 +33,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecordsNameMergeTest do
     end
 
     test "#{path}: the same source's address fallback follows its address" do
+      # A usable IPv4 is strictly stronger than any IPv6, so it becomes the primary.
+      assert merged_name(@path, [
+               %{"ip" => "2001:db8::22", "source" => "netprobe-census"},
+               %{"ip" => "192.0.2.22", "source" => "netprobe-census"}
+             ]) == {"192.0.2.22", nil}
+    end
+
+    test "#{path}: an equally strong later address keeps the primary and its fallback name" do
+      # Equal rank never replaces the primary, so the name stays on the kept address.
       assert merged_name(@path, [
                %{"ip" => "192.0.2.22", "source" => "netprobe-census"},
                %{"ip" => "198.51.100.22", "source" => "netprobe-census"}
-             ]) == {"198.51.100.22", nil}
+             ]) == {"192.0.2.22", nil}
     end
   end
 

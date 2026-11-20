@@ -1048,6 +1048,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
           AND (CASE WHEN pg_input_is_valid(d.ip, 'inet') THEN d.ip::inet END) =
             (CASE WHEN pg_input_is_valid(a.alias_value, 'inet') THEN a.alias_value::inet END)
       )
+      -- One live holder per address and partition: the device that sighted it
+      -- last (lowest device id on a tie). Otherwise each device still holding a
+      -- live alias of a recycled address claimed it, and which one a target was
+      -- attributed to followed SRQL row order, so an unchanged inventory compiled
+      -- to different device_uid attribution.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM platform.device_alias_states b
+        JOIN platform.ocsf_devices holder
+          ON holder.uid = b.device_id AND holder.deleted_at IS NULL
+        WHERE b.alias_type = 'ip'
+          AND b.alias_value = a.alias_value
+          AND b.device_id <> a.device_id
+          AND COALESCE(b.partition, 'default') = COALESCE(a.partition, 'default')
+          AND b.state IN ('confirmed', 'updated', 'detected')
+          AND b.last_seen_at >= (now() AT TIME ZONE 'utc') - make_interval(days => $3)
+          AND (b.last_seen_at > a.last_seen_at
+               OR (b.last_seen_at = a.last_seen_at AND b.device_id < a.device_id))
+      )
   ) ranked
   WHERE ranked.rn <= $2
   ORDER BY ranked.device_id ASC, ranked.rn ASC

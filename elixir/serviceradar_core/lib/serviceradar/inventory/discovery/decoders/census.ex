@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Census do
 
   alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot
   alias ServiceRadar.Inventory.Discovery.Decoders.Timestamps
+  alias ServiceRadar.Inventory.Identity.Address
 
   require Logger
 
@@ -59,17 +60,31 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Census do
 
   defp translate(%DeviceCensusSnapshot{} = snapshot) do
     observations = snapshot.observations || []
+    dual_stack_macs = macs_with_usable_ipv4(observations)
 
     {rows, stats} =
       Enum.reduce(observations, {[], blank_stats(length(observations))}, fn observation,
                                                                             {acc, stats} ->
-        translate_observation(snapshot, observation, acc, stats)
+        translate_observation(snapshot, observation, dual_stack_macs, acc, stats)
       end)
 
     {:ok, Enum.reverse(rows), stats}
   end
 
-  defp translate_observation(snapshot, observation, acc, stats) do
+  # A snapshot is complete for its segment, so the MACs it saw at a usable IPv4
+  # (`Address.usable_ipv4?/1`) are exactly the devices whose IPv6 sightings must not
+  # become their primary address.
+  defp macs_with_usable_ipv4(observations) do
+    for observation <- observations,
+        not observation.off_segment,
+        mac = trimmed(observation.mac),
+        mac != "",
+        Address.usable_ipv4?(trimmed(observation.ip)),
+        into: MapSet.new(),
+        do: mac
+  end
+
+  defp translate_observation(snapshot, observation, dual_stack_macs, acc, stats) do
     mac = trimmed(observation.mac)
 
     cond do
@@ -93,13 +108,30 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Census do
           |> maybe_bump(:addressless, ip == "")
           |> bump(:devices)
 
-        {[build_row(snapshot, observation, mac, ip) | acc], stats}
+        primary = primary_address(ip, MapSet.member?(dual_stack_macs, mac))
+        {[build_row(snapshot, observation, mac, ip, primary) | acc], stats}
     end
   end
 
-  defp build_row(snapshot, observation, mac, ip) do
+  # An IPv6 sighting (NDP) of a device the snapshot also saw at a usable IPv4 is
+  # recorded as an alias only: a dual-stack device presents its IPv4, and emitting
+  # the IPv6 as the observation's address made the device's primary follow whichever
+  # sighting came last. The address stays in the alias keys.
+  defp primary_address(ip, true = _has_usable_ipv4?) do
+    if ipv6?(ip), do: "", else: ip
+  end
+
+  defp primary_address(ip, false), do: ip
+
+  defp ipv6?(ip), do: ip != "" and Address.strength_class(ip) != :never and not ipv4_text?(ip)
+
+  defp ipv4_text?(ip) do
+    match?({:ok, {_, _, _, _}}, :inet.parse_ipv4strict_address(String.to_charlist(ip)))
+  end
+
+  defp build_row(snapshot, observation, mac, ip, primary) do
     %{
-      "ip" => ip,
+      "ip" => primary,
       "mac" => mac,
       "metadata" => metadata(snapshot, observation, mac, ip)
     }

@@ -37,6 +37,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Inventory.Sync.AttributeStrength
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Inventory.Sync.Enrichment
   alias ServiceRadar.Inventory.Sync.RankedAttributeWrite
   alias ServiceRadar.Observability.PluginResultHandler
@@ -52,6 +53,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   @profile_metadata_keys ~w(
     source width height fps bitrate auth_mode credential_reference_id protocol insecure_skip_verify
   )
+  @camera_ip_source "camera_plugin"
   @source_origin_keys ["source_origin", "sourceOrigin"]
   @source_url_keys ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
   @stream_url_keys ["url", "source_url", "sourceUrl", "rtsp_url", "rtspUrl"]
@@ -768,15 +770,29 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     }
 
     if camera_classified_device?(device) do
-      Map.merge(common_attrs, %{
-        ip: attrs.ip,
+      common_attrs
+      |> Map.merge(%{
         mac: attrs.mac,
         gateway_id: nil,
         agent_id: nil
       })
+      |> put_camera_primary_ip(device, attrs.ip)
     else
       common_attrs
     end
+  end
+
+  # The descriptor's address replaces the camera's primary only through the shared keep
+  # decision, which records the camera inventory as its source
+  # (`DeviceWrites.direct_primary_ip_attrs/4`); otherwise the stored one stays. A
+  # descriptor with no address (or one withheld as contested) still clears it.
+  defp put_camera_primary_ip(update_attrs, _device, nil), do: Map.put(update_attrs, :ip, nil)
+
+  defp put_camera_primary_ip(update_attrs, %Device{} = device, ip) do
+    Map.merge(
+      update_attrs,
+      DeviceWrites.direct_primary_ip_attrs(device, ip, @camera_ip_source, DateTime.utc_now())
+    )
   end
 
   # The camera inventory is platform inventory for the identity it reports

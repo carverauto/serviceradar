@@ -35,6 +35,7 @@ defmodule ServiceRadar.Inventory.Device do
     primary_read_warning?: false
 
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
+  alias ServiceRadar.Inventory.Changes.ForgetIpProvenance
   alias ServiceRadar.Inventory.Changes.ReleaseContestedAddress
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceFacts.Reports, as: SourceFactReports
@@ -112,6 +113,8 @@ defmodule ServiceRadar.Inventory.Device do
     :name,
     :hostname,
     :ip,
+    :ip_source,
+    :ip_seen_at,
     :mac,
     :gateway_id,
     :agent_id,
@@ -153,6 +156,8 @@ defmodule ServiceRadar.Inventory.Device do
     :agent_id,
     :management_device_id,
     :ip,
+    :ip_source,
+    :ip_seen_at,
     :is_available,
     :is_managed,
     :is_trusted,
@@ -369,6 +374,7 @@ defmodule ServiceRadar.Inventory.Device do
       accept @device_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change ForgetIpProvenance
       validate AgentManaged
     end
 
@@ -382,6 +388,7 @@ defmodule ServiceRadar.Inventory.Device do
       accept @gateway_sync_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change ForgetIpProvenance
     end
 
     update :gateway_restore do
@@ -405,6 +412,7 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       change ReleaseContestedAddress
+      change ForgetIpProvenance
       change BumpIdentityRevision
     end
 
@@ -744,6 +752,26 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :ip, :string do
       public? true
       description "Primary IP address"
+    end
+
+    attribute :ip_source, :string do
+      public? true
+
+      description """
+      The source that recorded the primary `ip`. An equal-strength address replaces the
+      primary only when the stored one is absent from this source's sightings
+      (`Sync.DeviceWrites`). Null on rows written before the source was recorded.
+      """
+    end
+
+    attribute :ip_seen_at, :utc_datetime_usec do
+      public? true
+
+      description """
+      When the source that recorded the primary `ip` (`ip_source`) last sighted it. A
+      primary its source has not sighted within the primary sighting window counts as
+      absent from that source's sightings.
+      """
     end
 
     attribute :partition, :string do

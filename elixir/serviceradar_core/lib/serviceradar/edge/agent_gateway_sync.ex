@@ -1333,7 +1333,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         last_seen_time: now,
         identity_observed_at: now
       }
-      |> maybe_put(:ip, source_ip)
+      |> Map.merge(checkin_primary_attrs(device, source_ip, now))
       |> compact_attrs()
 
     action = gateway_update_action(device)
@@ -1355,7 +1355,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           stale_record_error?(error) ->
             force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
-          active_ip_unique_conflict?(error) and present_string?(source_ip) ->
+          active_ip_unique_conflict?(error) and Map.has_key?(update_attrs, :ip) ->
             claim_active_ip_for_existing_device(
               device,
               action,
@@ -1370,6 +1370,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         end
     end
   end
+
+  @checkin_ip_source "agent_checkin"
+
+  # The check-in's source address goes through the same keep decision as every other
+  # primary-ip writer (`DeviceWrites.direct_primary_ip_attrs/4`): a check-in from an
+  # IPv6 never moves a dual-stack host off its IPv4, and another source's address is not
+  # displaced by an equally strong check-in address. A check-in that re-sights the stored
+  # primary it recorded refreshes the sighting time. A restore that keeps the stored
+  # address still releases it when another live device holds it
+  # (`ReleaseContestedAddress`).
+  defp checkin_primary_attrs(%Device{} = device, source_ip, now) when is_binary(source_ip),
+    do: DeviceWrites.direct_primary_ip_attrs(device, source_ip, @checkin_ip_source, now)
+
+  defp checkin_primary_attrs(_device, _source_ip, _now), do: %{}
 
   # A check-in on a soft-deleted device restores it (Device :gateway_restore bumps
   # identity_revision, as :restore does); :gateway_sync never clears a tombstone. A

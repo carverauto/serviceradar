@@ -458,6 +458,41 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device.ip == "10.42.#{rem(unique_id, 255)}.20"
     end
 
+    test "a check-in does not move a primary another source recorded", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "agent-dual-stack-#{unique_id}"
+      ipv4 = "10.43.#{rem(unique_id, 255)}.3"
+
+      {:ok, uid} =
+        AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+          hostname: "dual-stack-host",
+          source_ip: ipv4,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      # The passive census recorded the IPv4 and still sights it.
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET ip_source = 'netprobe-census', ip_seen_at = now() WHERE uid = $1",
+        [uid]
+      )
+
+      for source_ip <- ["2001:db8::9", "10.43.#{rem(unique_id, 255)}.4"] do
+        {:ok, ^uid} =
+          AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+            hostname: "dual-stack-host",
+            source_ip: source_ip,
+            partition: "default",
+            capabilities: ["sysmon"]
+          })
+
+        {:ok, device} = Device.get_by_uid(uid, false, actor: actor)
+        assert device.ip == ipv4, "a check-in from #{source_ip} moved the primary"
+      end
+    end
+
     test "adopts existing active-IP device when it has no agent owner", %{
       unique_id: unique_id,
       actor: actor

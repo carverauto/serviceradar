@@ -21,10 +21,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
+  alias Serviceradar.Agent.Netprobe.V1.DeviceCensusObservation
+  alias Serviceradar.Agent.Netprobe.V1.DeviceCensusSnapshot
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Discovery.Decoders
   alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Sync.DeviceWrites
@@ -740,6 +743,59 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
                Enum.map_join(mismatched, ", ", fn address ->
                  "#{address} (elixir=#{Address.rank(address)} sql=#{Map.fetch!(sql_ranks, address)})"
                end)
+
+      # The strength the upsert guard compares: the family first, then the rank.
+      %{rows: rows} =
+        Repo.query!(
+          "SELECT a, platform.sr_address_strength(a) FROM unnest($1::text[]) AS a",
+          [addresses ++ ["169.254.1.5", "2001:db8::3", "::ffff:169.254.1.1"]]
+        )
+
+      strength_mismatches =
+        for [address, sql] <- rows, Address.strength(address) != sql, do: {address, sql}
+
+      assert strength_mismatches == [],
+             "SQL and Elixir strengths disagree: #{inspect(strength_mismatches)}"
+    end
+
+    test "the SQL guard and the Elixir chooser keep a primary unless the incoming is stronger" do
+      # {stored, incoming, replaces?}: a usable IPv4 over any IPv6, a routable
+      # address of either family over a link-local of either family, otherwise the
+      # higher rank within the family. Equal strength never replaces.
+      cases = [
+        {"192.168.0.3", "2001:db8::3", false},
+        {"2001:db8::3", "192.168.0.3", true},
+        {"169.254.1.5", "2001:db8::5", true},
+        {"2001:db8::5", "169.254.1.5", false},
+        {"fe80::9", "192.0.2.9", true},
+        {"fe80::9", "169.254.1.9", false},
+        {"169.254.1.9", "fe80::9", false},
+        {"10.1.0.5", "203.0.113.5", true},
+        {"203.0.113.5", "10.1.0.5", false},
+        {"192.0.2.6", "198.51.100.6", false},
+        {"fd00::5", "2001:db8::5", true},
+        {"::ffff:192.0.2.1", "2001:db8::1", false},
+        {"192.0.2.3", "fd00::3", false}
+      ]
+
+      %{rows: rows} =
+        Repo.query!(
+          """
+          SELECT s, i, platform.sr_address_strength(i) > platform.sr_address_strength(s)
+          FROM unnest($1::text[], $2::text[]) AS c(s, i)
+          """,
+          [Enum.map(cases, &elem(&1, 0)), Enum.map(cases, &elem(&1, 1))]
+        )
+
+      sql = Map.new(rows, fn [stored, incoming, replaces?] -> {{stored, incoming}, replaces?} end)
+
+      wrong =
+        for {stored, incoming, expected} <- cases,
+            Map.fetch!(sql, {stored, incoming}) != expected or
+              Address.better?(incoming, stored) != expected,
+            do: {stored, incoming, expected}
+
+      assert wrong == [], "keep-unless-stronger disagrees for #{inspect(wrong)}"
     end
 
     test "a link-local sighting does not overwrite a routable primary", %{actor: actor} do
@@ -761,40 +817,184 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
              "a link-local sighting clobbered the routable primary"
     end
 
-    test "an equal-ranked address DOES apply, because that is a real re-IP", %{actor: actor} do
-      # The rule is never-downgrade, not only-promote. alma-test01 moved
-      # 192.168.2.243 -> 192.168.1.171; both are private, and refusing equal
-      # ranks would freeze every device at its first address.
+    test "a single-sighting source re-IPs once the old address leaves its window", %{
+      actor: actor
+    } do
+      # A sweep reports one address per sighting, which says nothing about the
+      # device's other addresses. Its stored primary is replaced at equal or lower
+      # strength only after the sweep has stopped sighting it for the window; a
+      # public-to-private re-address is a real move and lands then.
       mac = unique_universal_mac()
-      first = unused_private_ip()
-      second = unused_private_ip()
-
-      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, first)], actor: actor)
-      assert device_ip_for_mac(mac, actor) == first
-
-      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, second)], actor: actor)
-
-      assert device_ip_for_mac(mac, actor) == second,
-             "a same-class re-IP was refused; devices would freeze at their first address"
-    end
-
-    test "a public-to-private re-address is NOT refused", %{actor: actor} do
-      # global outranks private in Identity.Address, which is right when choosing
-      # among addresses known at once. Applying that to the upsert would freeze a
-      # host that genuinely moved from a public to an RFC1918 address on its
-      # stale public one -- so the downgrade check collapses both into one
-      # routable tier.
-      mac = unique_universal_mac()
-      public_ip = "203.0.113.#{:rand.uniform(200) + 20}"
+      public_ip = unused_address(fn n -> "203.0.113.#{rem(n, 250) + 1}" end)
       private_ip = unused_private_ip()
 
       assert :ok = SyncIngestor.ingest_updates([mac_update(mac, public_ip)], actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, private_ip)], actor: actor)
       assert device_ip_for_mac(mac, actor) == public_ip
 
+      age_primary_sighting!(mac)
       assert :ok = SyncIngestor.ingest_updates([mac_update(mac, private_ip)], actor: actor)
 
       assert device_ip_for_mac(mac, actor) == private_ip,
-             "a genuine public->private re-address was refused; the device would be frozen on a stale public address"
+             "a re-IP was refused after the old address left the window; devices would freeze"
+    end
+
+    test "a dual-stack census snapshot keeps the usable IPv4 primary", %{actor: actor} do
+      # The flip: the census emitted one sighting per address, the batch kept the
+      # last, and the guard tied a global IPv6 (rank 50) with a private IPv4 (40).
+      mac = unique_universal_mac()
+      ipv4 = unused_private_ip()
+      ipv6 = unused_address(fn n -> "2001:db8::#{Integer.to_string(n, 16)}" end)
+
+      link_local =
+        "fe80::a8ff:fe00:#{Integer.to_string(rem(System.unique_integer([:positive]), 65_535), 16)}"
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [ipv4, link_local, ipv6]),
+                 actor: actor
+               )
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6, ipv4, link_local]),
+                 actor: actor
+               )
+
+      device = device_row_for_mac(mac)
+      assert device.ip == ipv4
+      assert device.name == ipv4
+      assert MapSet.subset?(MapSet.new([ipv4, ipv6]), live_ip_aliases(device.uid))
+      refute MapSet.member?(live_ip_aliases(device.uid), link_local)
+    end
+
+    test "a census snapshot listing only the IPv6 keeps the IPv4 until it leaves the window", %{
+      actor: actor
+    } do
+      # The ARP row aged out of the census while NDP still lists the device. The
+      # IPv4 is absent from a complete snapshot, but an absence takes a weaker class
+      # only after the window; otherwise the next full snapshot flips it back.
+      mac = unique_universal_mac()
+      ipv4 = unused_private_ip()
+      ipv6 = unused_address(fn n -> "2001:db8::#{Integer.to_string(n, 16)}" end)
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv4, ipv6]), actor: actor)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == ipv4,
+             "a census snapshot without the ARP row moved a usable IPv4 primary to the IPv6"
+
+      age_primary_sighting!(mac)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == ipv6
+    end
+
+    test "absence takes the same or a stronger class, never a weaker one, in SQL and Elixir" do
+      # {stored, incoming, weaker class?}: classes are usable IPv4, routable IPv6,
+      # link-local; a same-class re-IP is never a downgrade.
+      cases = [
+        {"192.168.0.3", "2001:db8::3", true},
+        {"203.0.113.5", "10.1.0.5", false},
+        {"10.1.0.5", "203.0.113.5", false},
+        {"2001:db8::5", "fd00::5", false},
+        {"2001:db8::5", "fe80::5", true},
+        {"192.0.2.3", "169.254.1.3", true},
+        {"169.254.1.9", "fe80::9", false},
+        {"2001:db8::3", "192.168.0.3", false}
+      ]
+
+      %{rows: rows} =
+        Repo.query!(
+          """
+          SELECT s, i,
+                 platform.sr_address_strength(i) / 100 < platform.sr_address_strength(s) / 100
+          FROM unnest($1::text[], $2::text[]) AS c(s, i)
+          """,
+          [Enum.map(cases, &elem(&1, 0)), Enum.map(cases, &elem(&1, 1))]
+        )
+
+      sql = Map.new(rows, fn [stored, incoming, weaker?] -> {{stored, incoming}, weaker?} end)
+
+      wrong =
+        for {stored, incoming, expected} <- cases,
+            Map.fetch!(sql, {stored, incoming}) != expected or
+              Address.class_downgrade?(incoming, stored) != expected,
+            do: {stored, incoming, expected}
+
+      assert wrong == [], "class downgrade disagrees for #{inspect(wrong)}"
+    end
+
+    test "another source reporting a different IPv4 does not move the primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      census_ip = unused_private_ip()
+      other_ip = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [census_ip]), actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, other_ip)], actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == census_ip
+    end
+
+    test "two NICs both sighted keep the first primary, in either order", %{actor: actor} do
+      mac = unique_universal_mac()
+      # The stored primary is the higher address, so the batch's lowest-address
+      # tie-break alone would move it.
+      first = unused_address(fn n -> "198.51.100.#{rem(n, 250) + 1}" end)
+      second = unused_address(fn n -> "192.0.2.#{rem(n, 250) + 1}" end)
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [first]), actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [second, first]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == first
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [first, second]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == first
+    end
+
+    test "a census re-IP replaces once the census no longer sights the old address", %{
+      actor: actor
+    } do
+      mac = unique_universal_mac()
+      old_ip = unused_private_ip()
+      new_ip = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [old_ip]), actor: actor)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [new_ip]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == new_ip
+    end
+
+    test "a census snapshot with a higher-rank IPv4 moves a private primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      private_ip = unused_private_ip()
+      public_ip = unused_address(fn n -> "203.0.113.#{rem(n, 250) + 1}" end)
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [private_ip]), actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [public_ip, private_ip]),
+                 actor: actor
+               )
+
+      assert device_ip_for_mac(mac, actor) == public_ip
+    end
+
+    test "an IPv6-only device that gains a usable IPv4 switches primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      ipv4 = unused_private_ip()
+      ipv6 = unused_address(fn n -> "2001:db8::#{Integer.to_string(n, 16)}" end)
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv6]), actor: actor)
+      assert device_ip_for_mac(mac, actor) == ipv6
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [ipv4, ipv6]), actor: actor)
+
+      device = device_row_for_mac(mac)
+      assert device.ip == ipv4
+      assert MapSet.member?(live_ip_aliases(device.uid), ipv6)
     end
 
     test "a ULA still cannot overwrite a routable primary", %{actor: actor} do
@@ -848,6 +1048,35 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
                "fe80::f692:bfff:fe75:c7cd",
                "fe80::f692:bfff:fe75:c7ce"
              ]
+    end
+  end
+
+  describe "a link-local-only device" do
+    test "keeps its link-local primary with no name until a routable address arrives", %{
+      actor: actor
+    } do
+      mac = unique_universal_mac()
+      suffix = Integer.to_string(rem(System.unique_integer([:positive]), 65_535), 16)
+      fe80 = "fe80::a8ff:fe01:#{suffix}"
+
+      apipa =
+        unused_address(fn n -> "169.254.#{rem(div(n, 250), 250) + 1}.#{rem(n, 250) + 1}" end)
+
+      routable = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [fe80]), actor: actor)
+      assert %{ip: ^fe80, name: nil} = device_row_for_mac(mac)
+
+      # fe80:: and 169.254/16 are equally strong: neither displaces the other.
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [apipa, fe80]), actor: actor)
+      assert :ok = SyncIngestor.ingest_updates(census_snapshot(mac, [fe80, apipa]), actor: actor)
+      assert %{ip: ^fe80, uid: uid} = device_row_for_mac(mac)
+      assert live_ip_aliases(uid) == MapSet.new()
+
+      assert :ok =
+               SyncIngestor.ingest_updates(census_snapshot(mac, [fe80, routable]), actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == routable
     end
   end
 
@@ -914,6 +1143,107 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
         "identity_mac_kind" => "primary"
       }
     }
+  end
+
+  # One complete census snapshot of `mac` at `ips`, through the real decoder, stamped
+  # the way DiscoveryIngestor stamps a census payload.
+  defp census_snapshot(mac, ips) do
+    now = System.os_time(:nanosecond)
+
+    observations =
+      Enum.map(ips, fn ip ->
+        %DeviceCensusObservation{
+          mac: String.downcase(mac),
+          ip: ip,
+          kind:
+            if(String.contains?(ip, ":"),
+              do: :DEVICE_CENSUS_KIND_IPV6_NDP,
+              else: :DEVICE_CENSUS_KIND_ARP_REPLY
+            ),
+          interface_index: 2,
+          first_seen_unix_nano: now - 60_000_000_000,
+          last_seen_unix_nano: now
+        }
+      end)
+
+    {:ok, rows, _stats} =
+      %DeviceCensusSnapshot{
+        observations: observations,
+        snapshot_id: "eth0-#{now}",
+        interface_name: "eth0",
+        generated_at_unix_nano: now,
+        complete: true,
+        chunk_count: 1
+      }
+      |> DeviceCensusSnapshot.encode()
+      |> Decoders.Census.decode()
+
+    Enum.map(rows, fn row ->
+      row
+      |> Map.put("source", "netprobe-census")
+      |> Map.update!("metadata", fn metadata ->
+        Map.merge(metadata, %{
+          "identity_source" => "netprobe_census",
+          "discovery_source" => "netprobe-census",
+          "source" => "netprobe-census"
+        })
+      end)
+    end)
+  end
+
+  defp device_row_for_mac(mac) do
+    normalized = mac |> String.replace(":", "") |> String.upcase()
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT d.uid, d.ip, d.name
+        FROM platform.ocsf_devices d
+        JOIN platform.device_identifiers i ON i.device_id = d.uid
+        WHERE i.identifier_type = 'mac' AND i.identifier_value = $1
+        """,
+        [normalized]
+      )
+
+    assert [[uid, ip, name]] = rows
+    %{uid: uid, ip: ip, name: name}
+  end
+
+  defp live_ip_aliases(uid) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT alias_value FROM platform.device_alias_states
+        WHERE device_id = $1 AND alias_type = 'ip'
+          AND state IN ('detected', 'confirmed', 'updated')
+        """,
+        [uid]
+      )
+
+    MapSet.new(rows, fn [value] -> value end)
+  end
+
+  # The window is measured from the recording source's last sighting.
+  defp age_primary_sighting!(mac) do
+    %{uid: uid} = device_row_for_mac(mac)
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET ip_seen_at = now() - interval '30 days' WHERE uid = $1",
+      [uid]
+    )
+  end
+
+  defp unused_address(build) do
+    fn -> System.unique_integer([:positive, :monotonic]) end
+    |> Stream.repeatedly()
+    |> Enum.find_value(fn n ->
+      ip = build.(n)
+
+      case Repo.query("SELECT 1 FROM platform.ocsf_devices WHERE ip = $1 LIMIT 1", [ip]) do
+        {:ok, %{rows: []}} -> ip
+        _ -> nil
+      end
+    end)
   end
 
   # unique_test_ip/0 does not consult the database, so two of these tests drew

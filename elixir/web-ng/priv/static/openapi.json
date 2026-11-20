@@ -10614,6 +10614,61 @@
         },
         "type": "object"
       },
+      "device-filter-ip_source": {
+        "additionalProperties": false,
+        "description": "The source that recorded the primary `ip`. An equal-strength address replaces the\nprimary only when the stored one is absent from this source's sightings\n(`Sync.DeviceWrites`). Null on rows written before the source was recorded.\n",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "timeseries_metric_hourly-filter-metric_name": {
         "additionalProperties": false,
         "properties": {
@@ -24554,6 +24609,28 @@
         },
         "type": "object"
       },
+      "device-filter-ip_seen_at": {
+        "additionalProperties": false,
+        "description": "When the source that recorded the primary `ip` (`ip_source`) last sighted it. A\nprimary its source has not sighted within the primary sighting window counts as\nabsent from that source's sightings.\n",
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
       "timeseries_metric_interface_hourly-filter-bucket": {
         "additionalProperties": false,
         "properties": {
@@ -28700,6 +28777,18 @@
                 ],
                 "description": "OCSF device type name. Field included by default."
               },
+              "ip_source": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The source that recorded the primary `ip`. An equal-strength address replaces the\nprimary only when the stored one is absent from this source's sightings\n(`Sync.DeviceWrites`). Null on rows written before the source was recorded.\n. Field included by default."
+              },
               "availability_changed_at": {
                 "anyOf": [
                   {},
@@ -28828,6 +28917,15 @@
                   }
                 ],
                 "description": "Device vendor/manufacturer. Field included by default."
+              },
+              "ip_seen_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When the source that recorded the primary `ip` (`ip_source`) last sighted it. A\nprimary its source has not sighted within the primary sighting window counts as\nabsent from that source's sightings.\n. Field included by default."
               },
               "zone": {
                 "anyOf": [
@@ -31969,6 +32067,9 @@
           "type": {
             "$ref": "#/components/schemas/device-filter-type"
           },
+          "ip_source": {
+            "$ref": "#/components/schemas/device-filter-ip_source"
+          },
           "availability_changed_at": {
             "$ref": "#/components/schemas/device-filter-availability_changed_at"
           },
@@ -32007,6 +32108,9 @@
           },
           "vendor_name": {
             "$ref": "#/components/schemas/device-filter-vendor_name"
+          },
+          "ip_seen_at": {
+            "$ref": "#/components/schemas/device-filter-ip_seen_at"
           },
           "interfaces": {
             "$ref": "#/components/schemas/interface-filter"
@@ -36642,7 +36746,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
+              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|ip_source|-ip_source|\\+\\+ip_source|--ip_source|ip_seen_at|-ip_seen_at|\\+\\+ip_seen_at|--ip_seen_at|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|ip_source|-ip_source|\\+\\+ip_source|--ip_source|ip_seen_at|-ip_seen_at|\\+\\+ip_seen_at|--ip_seen_at|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|source_retired_at|-source_retired_at|\\+\\+source_retired_at|--source_retired_at|identity_observed_at|-identity_observed_at|\\+\\+identity_observed_at|--identity_observed_at|tags|-tags|\\+\\+tags|--tags|attribute_provenance|-attribute_provenance|\\+\\+attribute_provenance|--attribute_provenance|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|availability_state|-availability_state|\\+\\+availability_state|--availability_state|availability_decided_by|-availability_decided_by|\\+\\+availability_decided_by|--availability_decided_by|availability_changed_at|-availability_changed_at|\\+\\+availability_changed_at|--availability_changed_at|availability_conflict|-availability_conflict|\\+\\+availability_conflict|--availability_conflict|availability_agents|-availability_agents|\\+\\+availability_agents|--availability_agents|availability_last_resolved_at|-availability_last_resolved_at|\\+\\+availability_last_resolved_at|--availability_last_resolved_at|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -36696,12 +36800,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,ip_source,ip_seen_at,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,ip_source,ip_seen_at,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
                   "type": "string"
                 }
               },
@@ -48271,12 +48375,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,ip_source,ip_seen_at,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,ip_source,ip_seen_at,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,source_retired_at,identity_observed_at,tags,attribute_provenance,is_available,availability_source_agent_id,availability_source_profile_id,availability_state,availability_decided_by,availability_changed_at,availability_conflict,availability_agents,availability_last_resolved_at,metadata,group_id",
                   "type": "string"
                 }
               },

@@ -1,6 +1,6 @@
 id: netbox-inventory
 name: NetBox Inventory Sync
-version: 0.4.1
+version: 0.4.2
 description: >
   Scheduled assignment that walks one or more NetBox instances' device
   inventories (/api/dcim/devices/ with DRF pagination) and emits

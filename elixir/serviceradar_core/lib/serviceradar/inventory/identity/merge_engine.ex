@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.DistinctDeviceAssertion
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Deduplication
@@ -735,13 +736,17 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     end
   end
 
-  # The successor's address, when it holds one the survivor does not and no other live record
-  # of the survivor's partition holds it.
+  # The successor's address, when it is a strictly stronger primary than the survivor's
+  # (`Address.better?/2`: a usable IPv4 over any IPv6, a routable address over a link-local,
+  # otherwise the higher rank within the family) and no other live record of the survivor's
+  # partition holds it. Only the two stored addresses are compared. A survivor with no primary
+  # takes any usable one, a link-local included; an equally strong address, such as a second
+  # link-local of a link-local-only survivor, never replaces its own.
   defp take_address?(%Device{uid: uid}, %Device{uid: uid}), do: {:ok, false}
 
   defp take_address?(%Device{ip: ip} = successor, %Device{} = survivor)
        when is_binary(ip) and ip != "" do
-    if ip == survivor.ip do
+    if ip == survivor.ip or not Address.better?(ip, survivor.ip) do
       {:ok, false}
     else
       with {:ok, held?} <- address_held?(survivor.partition, ip, [successor.uid, survivor.uid]),

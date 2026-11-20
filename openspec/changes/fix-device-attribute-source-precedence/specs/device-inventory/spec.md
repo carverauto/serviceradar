@@ -345,7 +345,14 @@ source that recorded it (that source's full address set for the device, every
 address it reported for that device in the snapshot or window including
 candidates its chooser did not submit, no longer contains it, or it has aged
 out of that source's window); a single-address update from another source
-SHALL NOT count as the stored address being absent. Every source that feeds
+SHALL NOT count as the stored address being absent. An absence SHALL let
+only an address of the same class or a stronger class replace the stored
+primary (a same-family re-IP, such as one usable IPv4 to another, replaces it
+on absence); an address of a weaker class (a usable IPv4 to an IPv6, a routable
+address to a link-local) SHALL replace it only once the stored address has also
+aged out of its recording source's sighting window. A direct writer SHALL
+record itself as the primary's source and its sighting time whenever it sets
+the primary, so it never leaves a primary with no recorded source. Every source that feeds
 the primary SHALL pass its full per-device address set to the batch builder,
 and absence SHALL be computed from that set and the sighting window before the
 per-address write (a census snapshot is applied as a set per device) and
@@ -371,7 +378,12 @@ one, never an empty primary. Each chooser and Identity.Address.best/1 SHALL pick
 the highest-strength candidate (usable IPv4, then routable IPv6, then
 link-local, then higher rank within the family); only among candidates of equal
 class and equal rank SHALL they tie-break deterministically, the stored primary
-first if present among them, then the lowest address, never across ranks; a
+first if present among them, then the lowest address, never across ranks,
+except that the hypervisor host selection SHALL order equally strong host
+addresses by its management score (a gateway, a private address, a Linux bridge)
+before the lowest address, and the hypervisor guest selection SHALL order equally
+strong guest addresses by the guest's NIC preference order (hypervisor-attached
+NICs by configured index, then report order); a
 stored 10.1.0.5 (rank 40) is therefore replaced when the same source reports
 203.0.113.5 (rank 50). Identity.Address.best/1 SHALL take the stored primary as
 an optional input used only for that equal-rank tie-break. A

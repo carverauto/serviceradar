@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -119,14 +121,23 @@ func primaryIP(interfaces []proxmoxGuestNetworkInterface) string {
 	// the device's primary IP is wrong and non-deterministic (it depends on
 	// guest-agent interface order). The configured NIC carries the host's real
 	// address, and the merge unions the agent-discovered IP onto it.
-	if ip := firstUsableIP(interfaces, true); ip != "" {
+	if ip := bestUsableIP(interfaces, true); ip != "" {
 		return ip
 	}
 
-	return firstUsableIP(interfaces, false)
+	return bestUsableIP(interfaces, false)
 }
 
-func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly bool) string {
+// bestUsableIP is the strongest usable address among the interfaces, ranked
+// the way core's Identity.Address.strength/1 ranks a primary: a usable IPv4
+// beats any IPv6 and the rank decides within a family; only equally strong
+// addresses fall back to the lowest one. Loopback and link-local addresses are
+// never offered, and the unconfigured pass skips host-internal addresses.
+func bestUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly bool) string {
+	best := ""
+	bestStrength := 0
+	var bestAddr net.IP
+
 	for _, iface := range interfaces {
 		if configuredOnly && iface.ConfigKey == "" {
 			continue
@@ -136,13 +147,73 @@ func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly boo
 			if !configuredOnly && isHostInternalAddress(iface.Name, ip) {
 				continue
 			}
-			if plain := stripIPPrefix(ip); plain != "" && !isLoopbackOrLinkLocal(plain) {
-				return plain
+			plain := stripIPPrefix(ip)
+			if plain == "" || isLoopbackOrLinkLocal(plain) {
+				continue
+			}
+			addr := net.ParseIP(plain)
+			if addr == nil {
+				// An unparseable value is kept only when nothing else qualifies,
+				// as the first-in-order walk always kept it.
+				if best == "" {
+					best = plain
+				}
+				continue
+			}
+			strength := addressStrength(addr)
+			if strength > bestStrength || (strength == bestStrength && bytes.Compare(addr, bestAddr) < 0) {
+				best, bestStrength, bestAddr = plain, strength, addr
 			}
 		}
 	}
 
-	return ""
+	return best
+}
+
+// addressStrength mirrors core's platform.sr_address_strength: usable IPv4
+// 300+rank, routable IPv6 200+rank, link-local 120, never 0, where rank is 50
+// global, 40 private, 30 unique-local.
+//
+// It reads the address bytes of a net.IP, never a netip.Addr or a package-level
+// address value: the agent calls the plugin without WASI _start, so netip's
+// package-initialized family handles stay zero and every netip.Addr reads as
+// invalid (IsValid false, Is4 true, String "invalid IP").
+func addressStrength(addr net.IP) int {
+	if v4 := addr.To4(); v4 != nil {
+		switch {
+		case v4[0] == 127, v4[0] == 0 && v4[1] == 0 && v4[2] == 0 && v4[3] == 0:
+			return 0
+		case addr.IsLinkLocalUnicast():
+			return 120
+		// 100.64.0.0/10 (shared address space) ranks with the RFC 1918 ranges.
+		case addr.IsPrivate(), v4[0] == 100 && v4[1]&0xc0 == 64:
+			return 340
+		default:
+			return 350
+		}
+	}
+	if len(addr) != net.IPv6len {
+		return 0
+	}
+	switch {
+	case isZeroBytes(addr[:15]) && addr[15] <= 1: // :: and ::1
+		return 0
+	case addr.IsLinkLocalUnicast():
+		return 120
+	case addr.IsPrivate(): // fc00::/7
+		return 230
+	default:
+		return 250
+	}
+}
+
+func isZeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 var hostInternalInterfacePrefixes = []string{

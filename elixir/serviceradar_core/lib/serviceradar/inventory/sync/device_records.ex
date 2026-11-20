@@ -2,11 +2,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
   @moduledoc "Builds ocsf_devices upsert records from resolved updates."
 
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.Enrichment
   alias ServiceRadar.Inventory.Sync.MacVendor
+  alias ServiceRadar.Inventory.Sync.SourcePolicy
 
   require Logger
+
+  @address_fallback_strength AttributeStrength.strength("name", :address_fallback)
 
   def build_device_upsert_records(resolved_updates, timestamp) do
     # One query for the whole batch rather than one per device: SyncIngestor
@@ -16,6 +20,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       resolved_updates
       |> Enum.map(fn {update, _device_id} -> update.mac end)
       |> MacVendor.bulk_lookup()
+
+    primaries = batch_primaries(resolved_updates)
 
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
@@ -52,8 +58,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
       owner = Enrichment.infer_owner(update, metadata)
       persisted_metadata = persisted_metadata(metadata, source)
+      primary = Map.fetch!(primaries, device_id)
 
-      {name, hostname, name_tag} = AttributeStrength.name_write(update)
+      # The address fallback names the device after the primary it keeps
+      # (IPv4 preferred), never the record's raw address.
+      {name, hostname, name_tag} = AttributeStrength.name_write(Map.put(update, :ip, primary.ip))
 
       provenance =
         %{
@@ -73,7 +82,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         # isolation sweep would overwrite the monitoring view of the same IP
         # rather than keeping its own.
         partition: update_partition(update),
-        ip: update.ip,
+        ip: primary.ip,
+        ip_source: primary.source,
+        ip_seen_at: primary.seen_at,
+        ip_sightings: primary.sightings,
         mac: update.mac,
         hostname: hostname,
         name: name,
@@ -147,8 +159,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     # resolves them the way the upsert would across two batches.
     merged = %{
       existing
-      | ip: prefer_non_empty(incoming.ip, existing.ip),
-        mac: prefer_non_empty(incoming.mac, existing.mac),
+      | mac: prefer_non_empty(incoming.mac, existing.mac),
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
@@ -164,7 +175,14 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         modified_time: prefer_non_nil(incoming.modified_time, existing.modified_time)
     }
 
-    merged = AttributeStrength.fold_ranked(existing, incoming, merged)
+    merged = merge_primary(merged, existing, incoming)
+
+    merged =
+      AttributeStrength.fold_ranked(
+        fallback_to_primary(existing, merged.ip),
+        fallback_to_primary(incoming, merged.ip),
+        merged
+      )
 
     # The later identity-bearing observation of the two
     # (DeviceWrites.observed_after?/2).
@@ -173,6 +191,155 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
       at -> Map.put(merged, :identity_observed_at, at)
     end
   end
+
+  # The batch's primary for a device: the strongest address the device's updates
+  # submitted (`Address.best/1`), with the source that submitted it, and every
+  # address each source reported for the device (`ip_sightings`), from which
+  # `DeviceWrites` decides whether the stored primary is still sighted by the source
+  # that recorded it. A device's updates are judged together, so the order of a
+  # census snapshot's ARP and NDP sightings cannot decide its primary.
+  defp batch_primaries(resolved_updates) do
+    resolved_updates
+    |> Enum.group_by(fn {_update, device_id} -> device_id end, fn {update, _} -> update end)
+    |> Map.new(fn {device_id, updates} -> {device_id, primary_of(updates)} end)
+  end
+
+  defp primary_of(updates) do
+    submitted = for update <- updates, present?(update.ip), do: update
+
+    sightings =
+      Enum.reduce(updates, %{}, fn update, acc ->
+        Map.update(
+          acc,
+          update_source(update),
+          sighting_entry(update),
+          &merge_sighting_entry(&1, sighting_entry(update))
+        )
+      end)
+
+    case Address.best(Enum.map(submitted, & &1.ip)) do
+      nil ->
+        # Nothing usable: the last submitted value applies as before (an explicit
+        # blank clear, or an address the upsert's guard judges).
+        case List.last(updates) do
+          %{ip: ip} = update when is_binary(ip) ->
+            %{
+              ip: ip,
+              source: update_source(update),
+              seen_at: update_seen_at(update),
+              sightings: sightings
+            }
+
+          _ ->
+            %{ip: nil, source: nil, seen_at: nil, sightings: sightings}
+        end
+
+      ip ->
+        update = Enum.find(submitted, &(&1.ip == ip))
+
+        %{
+          ip: ip,
+          source: update_source(update),
+          seen_at: update_seen_at(update),
+          sightings: sightings
+        }
+    end
+  end
+
+  # Every address an update reports for its device: the submitted primary and every
+  # address its alias metadata names, including addresses its chooser did not submit.
+  # `complete?` is false for a single-sighting source (mapper, sweep), whose one
+  # address says nothing about the device's other addresses.
+  defp sighting_entry(update) do
+    metadata = update.metadata || %{}
+
+    alias_addresses =
+      for {key, _value} <- metadata,
+          is_binary(key),
+          prefix <- ["ip_alias:", "interface_ip_alias:", "alt_ip:"],
+          String.starts_with?(key, prefix),
+          address = key |> String.replace_prefix(prefix, "") |> String.trim(),
+          address != "",
+          do: address
+
+    last_seen = metadata["_alias_last_seen_ip"]
+
+    addresses =
+      [update.ip, last_seen | alias_addresses]
+      |> Enum.filter(&present?/1)
+      |> MapSet.new(&String.trim/1)
+
+    %{addresses: addresses, complete?: not SourcePolicy.mapper_like_source?(update)}
+  end
+
+  defp merge_sighting_entry(a, b),
+    do: %{
+      addresses: MapSet.union(a.addresses, b.addresses),
+      complete?: a.complete? or b.complete?
+    }
+
+  defp merge_sightings(a, b),
+    do: Map.merge(a || %{}, b || %{}, fn _k, x, y -> merge_sighting_entry(x, y) end)
+
+  # Two records for one uid (an active-IP remap folding a record onto its holder):
+  # the stronger primary of the two, with its source; equal strength keeps the
+  # earlier record's.
+  defp merge_primary(merged, existing, incoming) do
+    sightings =
+      merge_sightings(Map.get(existing, :ip_sightings), Map.get(incoming, :ip_sightings))
+
+    {ip, source, seen_at} =
+      cond do
+        not present?(incoming.ip) ->
+          {existing.ip, Map.get(existing, :ip_source), Map.get(existing, :ip_seen_at)}
+
+        not present?(existing.ip) or Address.better?(incoming.ip, existing.ip) ->
+          {incoming.ip, Map.get(incoming, :ip_source), Map.get(incoming, :ip_seen_at)}
+
+        true ->
+          {existing.ip, Map.get(existing, :ip_source), Map.get(existing, :ip_seen_at)}
+      end
+
+    merged
+    |> Map.put(:ip, ip)
+    |> Map.put(:ip_source, source)
+    |> Map.put(:ip_seen_at, seen_at)
+    |> Map.put(:ip_sightings, sightings)
+  end
+
+  # Each record was built alone, so its address-fallback name is its own address. The
+  # fallback names the device after the primary the merge keeps, as in one build.
+  defp fallback_to_primary(record, primary_ip) do
+    provenance = Map.get(record, :attribute_provenance) || %{}
+
+    case Map.get(provenance, "name") do
+      %{"strength" => strength, "source" => source} = tag
+      when strength == @address_fallback_strength ->
+        {name, _hostname, new_tag} =
+          AttributeStrength.name_write(%{hostname: nil, ip: primary_ip, source: source})
+
+        provenance =
+          if new_tag, do: Map.put(provenance, "name", tag), else: Map.delete(provenance, "name")
+
+        %{record | name: name, attribute_provenance: provenance}
+
+      _ ->
+        record
+    end
+  end
+
+  defp update_source(update),
+    do: if(update.source in [nil, ""], do: "unknown", else: update.source)
+
+  defp update_seen_at(update) do
+    case update.last_seen_time || update.timestamp do
+      %DateTime{} = at -> at
+      _ -> DateTime.utc_now()
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
 
   defp merge_discovery_sources(existing_sources, incoming_sources) do
     (existing_sources || [])

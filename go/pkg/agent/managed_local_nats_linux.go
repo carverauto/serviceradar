@@ -524,6 +524,8 @@ func (a localNATSAuthority) reconcile(ctx context.Context, system *nats.Conn, pe
 	return disconnected, writeManagedLocalNATSFile(path, []byte(brokerID), 0600, 0)
 }
 
+// managedLocalNATSConfigured reports whether this host has native add-on
+// hosting and a managed local NATS binding to supervise.
 func managedLocalNATSConfigured() bool {
 	if !runtimeSupportsNativeAddonHosting() {
 		return false

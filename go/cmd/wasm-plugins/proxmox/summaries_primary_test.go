@@ -39,3 +39,44 @@ func TestPrimaryIPFallsBackWhenNoConfiguredNIC(t *testing.T) {
 		t.Fatalf("primaryIP = %q, want 192.0.2.20 (fallback skipping container bridges)", got)
 	}
 }
+
+// TestPrimaryIPPrefersUsableIPv4 holds the guest chooser to core's primary
+// rule: a usable IPv4 beats any IPv6 whatever the report order, and equally
+// strong addresses fall back to the lowest.
+func TestPrimaryIPPrefersUsableIPv4(t *testing.T) {
+	cases := []struct {
+		name       string
+		interfaces []proxmoxGuestNetworkInterface
+		want       string
+	}{
+		{
+			name: "dual-stack configured NIC",
+			interfaces: []proxmoxGuestNetworkInterface{
+				{Name: "eth0", ConfigKey: "net0", IPAddresses: []string{"fe80::9/64", "2001:db8::9/64", "192.168.0.9/24"}},
+			},
+			want: "192.168.0.9",
+		},
+		{
+			name: "IPv6-only guest",
+			interfaces: []proxmoxGuestNetworkInterface{
+				{Name: "eth0", IPAddresses: []string{"fe80::5/64", "2001:db8::5/64"}},
+			},
+			want: "2001:db8::5",
+		},
+		{
+			name: "two equal IPv4s",
+			interfaces: []proxmoxGuestNetworkInterface{
+				{Name: "eth0", ConfigKey: "net0", IPAddresses: []string{"198.51.100.6/24", "192.0.2.6/24"}},
+			},
+			want: "192.0.2.6",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := primaryIP(tc.interfaces); got != tc.want {
+				t.Fatalf("primaryIP = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
