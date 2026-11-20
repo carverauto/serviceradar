@@ -44,6 +44,7 @@ import {canonicalUtcInstant, formatUserTime} from "../../js/utils/user_time"
 
 const DEFAULT_TIME_ZONE = "Etc/UTC"
 const DEFAULT_WINDOW = "last_24h"
+const BEACONS_PAGE_SIZE = 15
 const ALLOWED_WINDOWS = ["last_1h", "last_6h", "last_24h", "last_7d"]
 const WINDOW_BUCKET_CONFIG = {
   last_1h: {bucket: "5m", limit: 24, label: "1h · 5m buckets"},
@@ -516,6 +517,7 @@ export function WebRumDashboard() {
   })
 
   const [selectedBeacon, setSelectedBeacon] = useState(null)
+  const [beaconsPage, setBeaconsPage] = useState(1)
   const [cachedRecentBeacons, setCachedRecentBeacons] = useState([])
   const [cachedCwvSummary, setCachedCwvSummary] = useState(null)
 
@@ -795,6 +797,24 @@ export function WebRumDashboard() {
       (latestLatency.originRttMs ?? 0) +
       (latestLatency.browserRenderMs ?? 0)
     : (latestLatency.ttfbMs ?? 0) + (latestLatency.browserRenderMs ?? 0)
+
+  const totalBeaconPages = Math.max(1, Math.ceil(filteredBeacons.length / BEACONS_PAGE_SIZE))
+  const safeBeaconsPage = Math.min(beaconsPage, totalBeaconPages)
+  const beaconsPageStart = (safeBeaconsPage - 1) * BEACONS_PAGE_SIZE
+  const pagedBeacons = useMemo(
+    () => filteredBeacons.slice(beaconsPageStart, beaconsPageStart + BEACONS_PAGE_SIZE),
+    [filteredBeacons, beaconsPageStart],
+  )
+
+  useEffect(() => {
+    setBeaconsPage(1)
+  }, [
+    filters.state.timeWindow,
+    filters.state.webPropertyId,
+    filters.state.prefixTag,
+    filters.state.onlyErrors,
+    filters.state.search,
+  ])
 
   return (
     <div
@@ -1304,6 +1324,14 @@ export function WebRumDashboard() {
 
       {/* Recent Beacons Table */}
       <Card compact className="sr-rum-table-card">
+        <div className="sr-rum-section-head" style={{padding: "10px 14px 4px"}}>
+          <span className="sr-rum-section-title">Recent Beacons</span>
+          <span className="sr-rum-cell-sub">
+            {filteredBeacons.length === 0
+              ? "0 beacons"
+              : `Showing ${INT_FORMATTER.format(beaconsPageStart + 1)}–${INT_FORMATTER.format(beaconsPageStart + pagedBeacons.length)} of ${INT_FORMATTER.format(filteredBeacons.length)}`}
+          </span>
+        </div>
         {filteredBeacons.length === 0 ? (
           <NonIdealState
             icon={<SearchIcon size={32} />}
@@ -1311,96 +1339,136 @@ export function WebRumDashboard() {
             description="Adjust the time window, web property, prefix_tag, or error filters."
           />
         ) : (
-          <HTMLTable interactive striped compact className="sr-rum-table">
-            <thead>
-              <tr>
-                <th>Page / Route</th>
-                <th>LCP / INP / CLS</th>
-                <th>Edge / Origin</th>
-                <th>Prefix / ASN</th>
-                <th>Signals</th>
-                <th>Observed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredBeacons.map((beacon, idx) => {
-                const lcpStatus = evaluateCwvThreshold(
-                  beacon.lcp_ms,
-                  thresholds.lcpGood,
-                  thresholds.lcpPoor,
-                )
-                const hasErrors =
-                  Boolean(beacon.has_error) ||
-                  (numericValue(beacon.js_errors) ?? 0) > 0 ||
-                  (numericValue(beacon.rage_clicks) ?? 0) > 0
-                return (
-                  <tr
-                    key={beacon.beacon_id || idx}
-                    className="sr-rum-clickable-row"
-                    onClick={() => setSelectedBeacon(beacon)}
-                  >
-                    <td>
-                      <div className="sr-rum-cell-main">
-                        <strong>{beacon.metric_path || beacon.path || "/"}</strong>
-                        <span className="sr-rum-cell-sub">
-                          {beacon.canonical_origin || beacon.host || "—"}
-                          {beacon.initiator ? ` · ${beacon.initiator}` : ""}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="sr-rum-tag-row">
-                        <Tag minimal intent={lcpStatus.intent}>
-                          {formatMs(beacon.lcp_ms)}
-                        </Tag>
-                        <Tag minimal>{formatMs(beacon.inp_ms)}</Tag>
-                        <Tag minimal>{formatCls(beacon.cls)}</Tag>
-                      </div>
-                    </td>
-                    <td className="sr-rum-cell-sub">
-                      {formatMs(beacon.cdn_edge_rtt_ms)} / {formatMs(beacon.cdn_origin_rtt_ms)}
-                      {beacon.cdn_cache_status ? ` · ${beacon.cdn_cache_status}` : ""}
-                    </td>
-                    <td>
-                      <div className="sr-rum-cell-main">
-                        <span>{beacon.prefix_tag || "—"}</span>
-                        <span className="sr-rum-cell-sub">
-                          {beacon.asn ? `AS${beacon.asn}` : "—"}
-                          {beacon.cdn_pop ? ` · ${beacon.cdn_pop}` : ""}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="sr-rum-tag-row">
-                        {hasErrors ? (
-                          <Tag minimal intent="danger" icon={<ErrorIcon size={12} />}>
-                            {(numericValue(beacon.http_status) ?? 0) >= 400
-                              ? `HTTP ${numericValue(beacon.http_status)}`
-                              : "Error"}
+          <>
+            <HTMLTable interactive striped compact className="sr-rum-table">
+              <thead>
+                <tr>
+                  <th>Page / Route</th>
+                  <th>LCP / INP / CLS</th>
+                  {hasCdnTiming ? <th>Edge / Origin</th> : <th>TTFB</th>}
+                  <th>Prefix / ASN</th>
+                  <th>Signals</th>
+                  <th>Observed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedBeacons.map((beacon, idx) => {
+                  const lcpStatus = evaluateCwvThreshold(
+                    beacon.lcp_ms,
+                    thresholds.lcpGood,
+                    thresholds.lcpPoor,
+                  )
+                  const hasErrors =
+                    Boolean(beacon.has_error) ||
+                    (numericValue(beacon.js_errors) ?? 0) > 0 ||
+                    (numericValue(beacon.rage_clicks) ?? 0) > 0
+                  return (
+                    <tr
+                      key={beacon.beacon_id || idx}
+                      className="sr-rum-clickable-row"
+                      onClick={() => setSelectedBeacon(beacon)}
+                    >
+                      <td>
+                        <div className="sr-rum-cell-main">
+                          <strong>{beacon.metric_path || beacon.path || "/"}</strong>
+                          <span className="sr-rum-cell-sub">
+                            {beacon.canonical_origin || beacon.host || "—"}
+                            {beacon.initiator ? ` · ${beacon.initiator}` : ""}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="sr-rum-tag-row">
+                          <Tag minimal intent={lcpStatus.intent}>
+                            {formatMs(beacon.lcp_ms)}
                           </Tag>
+                          <Tag minimal>{formatMs(beacon.inp_ms)}</Tag>
+                          <Tag minimal>{formatCls(beacon.cls)}</Tag>
+                        </div>
+                      </td>
+                      <td className="sr-rum-cell-sub">
+                        {hasCdnTiming ? (
+                          <>
+                            {formatMs(beacon.cdn_edge_rtt_ms)} / {formatMs(beacon.cdn_origin_rtt_ms)}
+                            {beacon.cdn_cache_status ? ` · ${beacon.cdn_cache_status}` : ""}
+                          </>
                         ) : (
-                          <Tag minimal intent="success" icon={<TickCircleIcon size={12} />}>
-                            OK
-                          </Tag>
+                          formatMs(beacon.ttfb_ms)
                         )}
-                        {beacon.trace_id ? (
-                          <Tag minimal intent="primary">
-                            Trace
-                          </Tag>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="sr-rum-tag-row">
-                        <TimeIcon size={12} />
-                        <UserTimeLabel value={beacon.observed_at} timeZone={timeZone} />
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </HTMLTable>
+                      </td>
+                      <td>
+                        <div className="sr-rum-cell-main">
+                          <span>{beacon.prefix_tag || "—"}</span>
+                          <span className="sr-rum-cell-sub">
+                            {beacon.asn ? `AS${beacon.asn}` : "—"}
+                            {beacon.cdn_pop ? ` · ${beacon.cdn_pop}` : ""}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="sr-rum-tag-row">
+                          {hasErrors ? (
+                            <Tag minimal intent="danger" icon={<ErrorIcon size={12} />}>
+                              {(numericValue(beacon.http_status) ?? 0) >= 400
+                                ? `HTTP ${numericValue(beacon.http_status)}`
+                                : "Error"}
+                            </Tag>
+                          ) : (
+                            <Tag minimal intent="success" icon={<TickCircleIcon size={12} />}>
+                              OK
+                            </Tag>
+                          )}
+                          {beacon.trace_id ? (
+                            <Tag minimal intent="primary">
+                              Trace
+                            </Tag>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>
+                        <span className="sr-rum-tag-row">
+                          <TimeIcon size={12} />
+                          <UserTimeLabel value={beacon.observed_at} timeZone={timeZone} />
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </HTMLTable>
+
+            {totalBeaconPages > 1 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  borderTop: "1px solid var(--sr-bp-line, rgba(148, 163, 184, 0.2))",
+                }}
+              >
+                <span className="sr-rum-cell-sub">
+                  Page {safeBeaconsPage} of {totalBeaconPages}
+                </span>
+                <div style={{display: "flex", gap: "6px"}}>
+                  <Button
+                    small
+                    variant="outlined"
+                    text="Prev"
+                    disabled={safeBeaconsPage <= 1}
+                    onClick={() => setBeaconsPage((p) => Math.max(1, p - 1))}
+                  />
+                  <Button
+                    small
+                    variant="outlined"
+                    text="Next"
+                    disabled={safeBeaconsPage >= totalBeaconPages}
+                    onClick={() => setBeaconsPage((p) => Math.min(totalBeaconPages, p + 1))}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </>
         )}
       </Card>
 
