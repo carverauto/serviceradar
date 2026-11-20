@@ -71,8 +71,10 @@ pub struct NatsRulesConfig {
     /// NATS server URL, such as `tls://nats.example.com:4222`.
     pub url: String,
 
-    /// The JetStream domain the bucket is read through, as `domain` on the
-    /// `[nats]` outputs. An edge collector names its leaf's domain.
+    /// The JetStream domain that holds the rules bucket. Leave it unset for a
+    /// collector connected to the hub; an edge collector, which reaches the
+    /// hub through its leaf, sets the hub's JetStream domain (edge support is
+    /// delivered later).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
 
