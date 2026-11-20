@@ -420,7 +420,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Index do
                   <td class="whitespace-nowrap font-mono text-xs text-sr-muted">
                     <.user_time
                       id={"site-tls-#{site["id"]}"}
-                      value={site["tls_not_after"]}
+                      value={normalize_utc_timestamp(site["tls_not_after"])}
                       timezone={@timezone}
                       style={:date}
                     />
@@ -428,7 +428,7 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Index do
                   <td class="whitespace-nowrap font-mono text-xs text-sr-muted">
                     <.user_time
                       id={"site-updated-#{site["id"]}"}
-                      value={site["updated_at"]}
+                      value={normalize_utc_timestamp(site["updated_at"])}
                       timezone={@timezone}
                       style={:compact}
                     />
@@ -570,4 +570,24 @@ defmodule ServiceRadarWebNGWeb.WebPropertyLive.Index do
   defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
 
   defp user_timezone(_), do: "Etc/UTC"
+
+  # Postgres jsonb_build_object serializes naive :utc_datetime columns without a
+  # trailing "Z", which user_time rejects as ambiguous. Append "Z" when an
+  # ISO-8601 timestamp omits a timezone offset.
+  defp normalize_utc_timestamp(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      Regex.match?(~r/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/, trimmed) ->
+        String.replace(trimmed, " ", "T") <> "Z"
+
+      true ->
+        trimmed
+    end
+  end
+
+  defp normalize_utc_timestamp(other), do: other
 end

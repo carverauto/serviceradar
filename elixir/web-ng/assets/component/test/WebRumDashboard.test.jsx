@@ -176,8 +176,17 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
     expect(built.primary).toContain("in:rum time:last_6h")
     expect(built.primary).toContain('web_property_id:"01J00000000000000000000001"')
     expect(built.primary).toContain('prefix_tag:"branch-east"')
-    expect(built.frames.rum_latency_breakdown).toContain("by time:1h")
+    expect(built.frames.rum_latency_breakdown).toContain("by time:15m")
     expect(built.frames.rum_latency_breakdown).not.toContain("bucket:")
+    expect(buildRumFrameQueries({timeWindow: "last_1h"}).frames.rum_latency_breakdown).toContain(
+      "by time:5m",
+    )
+    expect(buildRumFrameQueries({timeWindow: "last_24h"}).frames.rum_latency_breakdown).toContain(
+      "by time:1h",
+    )
+    expect(buildRumFrameQueries({timeWindow: "last_7d"}).frames.rum_latency_breakdown).toContain(
+      "by time:6h",
+    )
   })
 
   test("renders CWV p75 cards, Edge/Origin/Browser Render breakdown, Akamai CDN table, and branch ASNs", async () => {

@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.Data.RumSummary
   alias ServiceRadarWebNGWeb.DashboardLive.EventRange
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
   alias ServiceRadarWebNGWeb.DashboardLive.Window
@@ -29,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
       |> assign(:camera_preview_tiles, [])
       |> assign(:camera_relay_subscriptions, MapSet.new())
       |> assign(:dashboard_package_instances, [])
+      |> assign(:rum_summary, RumSummary.empty())
       |> assign(:query_results, nil)
       |> assign(:srql, %{enabled: false})
       |> assign_dashboard(Data.empty())
@@ -166,6 +168,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
 
   def handle_async(:dashboard_packages_load, {:ok, instances}, socket) do
     {:noreply, assign_dashboard_package_instances(socket, instances)}
+  end
+
+  def handle_async(:rum_summary_load, {:ok, rum_summary}, socket) do
+    {:noreply, assign(socket, :rum_summary, rum_summary)}
   end
 
   def handle_async(name, {:exit, reason}, socket) do
@@ -325,6 +331,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
     |> start_async(:virtualization_load, fn -> Data.load_virtualization(scope) end)
     |> start_async(:fieldsurvey_summary_load, fn -> Data.load_survey_summary(scope) end)
     |> start_async(:dashboard_packages_load, fn -> dashboard_package_instances(scope) end)
+    |> start_async(:rum_summary_load, fn -> RumSummary.load(scope) end)
     |> maybe_start_camera_previews_async()
     |> begin_window_refresh("netflow")
     |> begin_window_refresh("events")
