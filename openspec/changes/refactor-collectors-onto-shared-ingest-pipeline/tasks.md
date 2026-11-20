@@ -2,11 +2,11 @@
 
 - [x] 1.1 Core writes each rule bundle to a dedicated NATS key-value bucket, alongside the existing datasvc write, on rule changes and on reconcile. Per-rule keys, the subject index and the stored KV revision are unchanged. Bundle format and digest unchanged.
 - [x] 1.2 Add a NATS key-value implementation of the `Connector` and `Session` traits in `rust/log-collector/src/rules.rs`, with the same fetch-then-watch, timeout and backoff behaviour.
-- [ ] 1.3 Grant the collector's NATS user read access to the rules bucket only, in the chart, Compose and the edge permission generators.
+- [ ] 1.3 Grant the collector's NATS user read access to the rules bucket only, in the chart, Compose and the edge permission generators. Done for the chart: core and web-ng may write the rules bucket and the collector may read and watch it (#6872). Still open: Compose, whose shared platform credential can neither write nor read the bucket, and the edge permission generators (task 2.3).
 - [ ] 1.3a Narrow the chart log-collector user from $JS.API.> to named grants for every stream and store the collector process uses (events, the rules bucket, and the RUM streams and object store), verified with the Rust client against a real broker.
-- [ ] 1.4 Switch the log collector to the NATS reader.
+- [x] 1.4 Switch the log collector to the NATS reader. The collector uses `[rules.nats]` when it is present and the chart renders it (#6872). Compose still reads datasvc, for the reason in 1.3.
 - [ ] 1.5 One release after 1.4 ships, remove `[rules.datasvc]`, the collector's datasvc client dependency and its datasvc role.
-- [ ] 1.6 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart.
+- [x] 1.6 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart. Verified on the demo deployment on 2026-11-20. Core created the bucket with ten bundles; the three collectors, which had started before the bucket existed, activated the syslog ruleset 3 to 18 seconds after it was created. A rule disabled and re-enabled reached all three collectors within seconds each time, and the bucket and datasvc held the same digest at every step. After one of three NATS nodes was restarted, the two collectors connected to it reported the ruleset as possibly stale and were following again one second later; lines sent afterwards were stored through the normalized path. The first attempt showed that an ordinary rule update did not publish at all; that was a separate defect in the rule sync change, fixed in #6880 and confirmed on the same deployment.
 
 ## 2. Edge
 
