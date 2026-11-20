@@ -58,15 +58,18 @@
       for each departed instance whose status was `degraded`, `down` or
       `unknown`, passing the publisher a suppression predicate that returns
       false for this transition only, and setting the verdict
-      `target_departed` and the boolean event field `target_departed: true`.
+      `target_departed` and the boolean `target_departed: true`; add the
+      marker to `VerdictEventWriter`'s `unmapped` allowlist next to
+      `to_status` and `to_verdict` so it is on the stored event.
       Other transitions keep the default predicate.
 - [ ] 4.3 A target in scope whose graph evaluation fails keeps its instance
       and status, publishes nothing, is not pruned, and is counted in the
       pass diagnostics (3.3).
 - [ ] 4.4 Tests: a departed `down` row, device and service target each
       publish one closing transition and are then pruned; a departed healthy
-      target publishes nothing; the closing event matches the recovery clause
-      of the rule `AlertRuleSync` builds, checked with the real `RuleMatcher`.
+      target publishes nothing; the stored closing event carries
+      `target_departed: true` in `unmapped` (asserted on the stored row, not
+      the published struct).
 - [ ] 4.5 Test: an `srql_devices` target at `down` whose evaluation returns
       an error while it is still in scope keeps its instance and status,
       publishes no transition and is reported as a diagnostic; the same for a
@@ -81,21 +84,31 @@
       rule's open clause for it.
 - [ ] 4.8 Test through the engine's event path (not only `RuleMatcher`): with
       a rule whose `open_on_statuses` is `["down", "healthy"]` and an open
-      alert for a target, a `target_departed` event closes that alert and
-      opens or renotifies none; the same event with no open alert changes
-      nothing.
+      alert for a target, the stored event `VerdictEventWriter` produced for a
+      departure (marker in `unmapped`) closes that alert and opens or
+      renotifies none; the same event with no open alert changes nothing.
 - [ ] 4.9 Test: a `service_targets` check bound to exactly 1000 service
       targets, one removed and one added, prunes the removed one and publishes
       its closing transition.
+- [ ] 4.10 A `service_targets` binding with `selector_query` and no
+      `target_ids` is not a successful resolution: evaluate nothing, prune
+      nothing, publish nothing, and record a "selector not evaluated" pass
+      diagnostic. Validation keeps accepting the binding.
+- [ ] 4.11 Test: a `service_targets` check with a `down` instance and an open
+      alert, rebound to `selector_query` only, keeps the instance and alert,
+      publishes nothing and reports the diagnostic.
 
 ## 5. Events and alerts
 
 - [ ] 5.1 Add `target_label` to the transition event's unmapped fields and use
       it in the event message when present.
-- [ ] 5.2 Use the label in the alert title for row targets.
+- [ ] 5.2 Put the label in the alert title for row targets in
+      `AlertRuleSync` / the alert engine, so the stored title contains
+      `target_label`.
 - [ ] 5.3 Test: two row targets going `down` in turn publish two events with
       different `target_key` and `target_label`, and the rule grouped by
-      `check_slug` and `target_key` treats them as two groups.
+      `check_slug` and `target_key` treats them as two groups whose stored
+      alert titles contain their respective labels.
 
 ## 6. Surfaces
 
@@ -122,3 +135,4 @@
   to `srql_rows`.
 - Revise `add-proxmox-host-outage-alerting` to drop its paused-guest and
   node-storage condition requirements.
+- Implement `selector_query` resolution for `service_targets` bindings.

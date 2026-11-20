@@ -111,13 +111,14 @@ The system SHALL bound an `srql_rows` check to `max_targets` row targets per pas
 - **THEN** validation SHALL fail with an out-of-range diagnostic
 
 ### Requirement: Per-Target Alerts That Name and Close
-The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label` and in the event message, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key, where an SRQL scope read (`srql_rows` or the `srql_devices` stream) is complete only when its last page has fewer rows than the limit that actually ran, the absence of a `next_cursor` SHALL NOT be taken as completeness, and a successful `service_targets` resolution SHALL be treated as the whole scope whatever its size; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression. The closing transition SHALL carry the `target_departed` verdict and a boolean `target_departed: true` event field, and the alert engine MUST treat an event carrying that marker as a recovery for the matching rule and MUST NOT evaluate it against the rule's open clause, so that it never opens or renotifies an alert, including for a check whose `open_on_statuses` contains `healthy`.
+The system SHALL carry a row target's label on its OCSF `health.state_change` transition event as `target_label`, in the event message and in the title of the alert opened for that target, so that each row target opens, renotifies and recovers its own alert, and SHALL publish a transition to `healthy` with verdict `target_departed` for any fan-out target (device, service target or row) whose status was `degraded`, `down` or `unknown` when it leaves the scope, before pruning its instance. A target SHALL be treated as departed only when a complete, successful, non-truncated scope read no longer contains its key, where an SRQL scope read (`srql_rows` or the `srql_devices` stream) is complete only when its last page has fewer rows than the limit that actually ran, the absence of a `next_cursor` SHALL NOT be taken as completeness, a successful `service_targets` resolution SHALL be treated as the whole scope whatever its size, and a `service_targets` binding that has a `selector_query` and no `target_ids` SHALL NOT be treated as a successful resolution: such a pass SHALL evaluate nothing, prune nothing, publish no transition and record a pass diagnostic on the check that the selector is not evaluated; a target still in scope whose graph evaluation failed SHALL keep its instance and last status unchanged, SHALL NOT be pruned or produce a transition, and SHALL be recorded as a pass diagnostic on the check. The `target_departed` transition SHALL be delivered even when operational-event suppression would drop events for the target's device, and every other transition SHALL keep the existing suppression. The closing transition SHALL carry the `target_departed` verdict and a boolean `target_departed: true`, both in the OCSF event's `unmapped` map that is stored and read by the alert engine, and the alert engine MUST treat an event carrying that marker as a recovery for the matching rule and MUST NOT evaluate it against the rule's open clause, so that it never opens or renotifies an alert, including for a check whose `open_on_statuses` contains `healthy`.
 
 #### Scenario: A second row going down opens a second alert
 - **GIVEN** a row check with an alert open for target `tank01 on hv-a`
 - **WHEN** a later pass finds the row for `tank02 on hv-a` at status `down`
 - **THEN** a transition event SHALL be published for that target with its own `target_key` and `target_label: "tank02 on hv-a"`
 - **AND** the rule grouped by `check_slug` and `target_key` SHALL open a second alert without changing the first
+- **AND** the stored title of the second alert SHALL contain `tank02 on hv-a`, and the title of the first SHALL contain `tank01 on hv-a`
 
 #### Scenario: One row recovering closes only its alert
 - **GIVEN** alerts open for `tank01 on hv-a` and `tank02 on hv-a`
@@ -169,6 +170,13 @@ The system SHALL carry a row target's label on its OCSF `health.state_change` tr
 #### Scenario: Departure never opens an alert when healthy is an open status
 - **GIVEN** a check whose alert rule has `open_on_statuses: ["down", "healthy"]`, with device target `dev-4` at status `down` and an open alert
 - **WHEN** `dev-4` leaves the scope of a complete, successful scope read
-- **THEN** the pass SHALL publish a transition for `dev-4` with verdict `target_departed` and event field `target_departed: true`
+- **THEN** the pass SHALL publish a transition for `dev-4` with verdict `target_departed` and `target_departed: true` in the stored event's `unmapped` map
 - **AND** the alert engine SHALL close the open alert for `dev-4`
 - **AND** SHALL NOT open or renotify any alert for that event
+
+#### Scenario: An unread selector does not depart service targets
+- **GIVEN** a `service_targets` check with service target `svc-0007` at status `down` and an open alert
+- **WHEN** the check's binding is edited to a `selector_query` with no `target_ids` and the next pass runs
+- **THEN** the pass SHALL NOT evaluate, prune or publish a transition for any target
+- **AND** the alert for `svc-0007` SHALL stay open
+- **AND** the pass SHALL record on the check that the selector is not evaluated

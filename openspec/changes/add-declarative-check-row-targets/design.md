@@ -84,8 +84,10 @@ arrival. That is the author's choice and the documentation says so.
 `label_template` is optional and interpolates `{{target.row.*}}`. Without it
 the label is the key values joined with ` / `. The label is truncated to 200
 characters, stored on the instance, added to the transition event as
-`target_label`, and used in the event message. Alert titles for row targets
-use it.
+`target_label`, and used in the event message. The alert title for a row
+target contains its `target_label`, so two rows of one check going down open
+two alerts whose titles differ; today `AlertRuleSync` gives every target the
+same title, the check name followed by `unhealthy`.
 
 ### D5. Bounds
 
@@ -125,8 +127,8 @@ is still in scope but whose graph evaluation failed.
 
 Today a departed instance is deleted and nothing is published. If its status
 was `degraded`, `down` or `unknown`, the pass now first publishes a transition
-to `healthy` with verdict `target_departed`, which the rule's existing recovery
-clause matches. Then it prunes.
+to `healthy` with verdict `target_departed` and the departure marker (D9),
+which the alert engine treats as recovery-only. Then it prunes.
 
 This is done for all fan-out modes. The gap exists for devices today and a
 row-only fix would leave two behaviours for the same event.
@@ -148,7 +150,7 @@ when no `next_cursor` came back. A missing cursor is never evidence of
 completeness.
 
 A successful `service_targets` resolution is always the whole scope, whatever
-its size. It loads every bound service target id, and the 1,000-id chunking
+its size, subject to D10. It loads every bound service target id, and the 1,000-id chunking
 that follows is evaluation batching, not a limit, so the full-page rule does
 not apply to it: a resolution of exactly 1,000 (or any multiple of 1,000)
 service targets is complete, and a removed one is departed.
@@ -193,12 +195,29 @@ before its recovery clause. A plain `to_status: healthy` transition could
 therefore open or renotify an alert instead of closing it.
 
 The closing transition carries an explicit departure marker: the
-`target_departed` verdict plus a dedicated boolean `target_departed: true`
-field on the event. The alert engine treats an event carrying that marker as
+`target_departed` verdict plus a dedicated boolean `target_departed: true`.
+Both sit in the OCSF event's `unmapped` map next to `to_status` and
+`to_verdict`, which is the stored shape the alert engine and `RuleMatcher`
+read; `VerdictEventWriter` builds that map from an allowlist, so the marker is
+added to it, and a marker set only on the published struct or at the event's
+top level does not count. The alert engine treats an event carrying that marker as
 a recovery for the matching rule and does not evaluate it against the rule's
 open clause. It closes the open alert for that `check_slug` and `target_key`
 if there is one and otherwise does nothing; it never opens or renotifies an
 alert, including for a check whose `open_on_statuses` contains `healthy`.
+
+### D10. An unread selector is not a resolution
+
+A `service_targets` binding may name a `selector_query` and no `target_ids`,
+and validation accepts it. Evaluation does not read `selector_query` today:
+it resolves `target_ids` and otherwise returns an empty list. That empty list
+is not a successful resolution, because the selector was ignored, not run.
+
+Such a pass evaluates nothing, prunes nothing and publishes no transition,
+closing or otherwise. It records a pass diagnostic on the check saying the
+selector is not evaluated. Validation keeps accepting the binding, so existing
+saved checks stay valid. Resolving `selector_query` is a separate follow-up
+change.
 
 ## Risks / Trade-offs
 

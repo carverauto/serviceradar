@@ -79,6 +79,9 @@ Not in this change:
 
 - Row targets for edge probes. A row is not something an agent can reach.
 - Per-row parameter overrides or per-row alert silencing.
+- Resolving `selector_query` for `service_targets` bindings. Until that
+  lands, a binding with a selector and no `target_ids` evaluates nothing,
+  prunes nothing and is reported on the check.
 - Any Solution Pack content. The Proxmox Monitoring pack moves its datastore
   and paused-guest checks to row targets in its own change once this lands.
 
@@ -88,7 +91,8 @@ Not in this change:
   added).
 - Affected code: `ServiceRadar.DeclarativeChecks` (`SchemaValidator`,
   `Evaluation`, `DAGEngine`, `NodeEvaluators`, `DeclarativeCheckInstance`,
-  `VerdictEventWriter`, `ServiceStateProjector`, importer and exporter), the
+  `VerdictEventWriter`, `ServiceStateProjector`, `AlertRuleSync`, importer and
+  exporter), the
   alert engine's event state machine
   (`ServiceRadar.Observability.StatefulAlertEngine.StateMachine`), which treats
   a `target_departed` event as recovery-only, one
