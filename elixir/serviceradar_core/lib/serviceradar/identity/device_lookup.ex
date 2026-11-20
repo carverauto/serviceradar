@@ -434,7 +434,14 @@ defmodule ServiceRadar.Identity.DeviceLookup do
             {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
           :miss ->
-            handle_lookup_miss(key, actor, include_deleted, include_detected, use_cache, partition)
+            handle_lookup_miss(
+              key,
+              actor,
+              include_deleted,
+              include_detected,
+              use_cache,
+              partition
+            )
         end
       end
     )
