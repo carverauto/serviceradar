@@ -298,7 +298,7 @@ export function deriveLatencyBreakdown(row) {
   const ttfbMs = numericValue(row.p75_ttfb_ms ?? row.ttfb_ms)
   const totalMs = numericValue(row.p75_page_load_ms ?? row.page_load_ms ?? row.p75_dom_ready_ms ?? row.dom_ready_ms)
   const browserRenderMs =
-    totalMs !== null ? Math.max(0, totalMs - (ttfbMs ?? 0)) : null
+    totalMs !== null && ttfbMs !== null ? Math.max(0, totalMs - ttfbMs) : null
 
   return {edgeRttMs, originRttMs, ttfbMs, browserRenderMs, totalMs}
 }

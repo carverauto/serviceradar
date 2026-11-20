@@ -152,6 +152,21 @@ describe("cloud.serviceradar.web-rum Blueprint dashboard", () => {
       totalMs: 2480,
     })
 
+    expect(
+      deriveLatencyBreakdown({
+        p75_edge_rtt_ms: 28,
+        p75_origin_rtt_ms: 245,
+        p75_ttfb_ms: null,
+        p75_page_load_ms: 2480,
+      }),
+    ).toEqual({
+      edgeRttMs: 28,
+      originRttMs: 245,
+      ttfbMs: null,
+      browserRenderMs: null,
+      totalMs: 2480,
+    })
+
     // Build scalar-only stats queries (no bucket:, no :(...) list filters)
     const built = buildRumFrameQueries({
       timeWindow: "last_6h",
