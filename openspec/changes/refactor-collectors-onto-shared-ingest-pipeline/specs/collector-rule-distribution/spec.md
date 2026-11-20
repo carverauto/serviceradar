@@ -53,7 +53,7 @@ A collector that has no active ruleset SHALL publish records in the binary batch
 - **THEN** it runs as a pass-through collector and reports that it follows no ruleset
 
 ### Requirement: Core runs no rules on collector data
-EventWriter SHALL store a collector binary batch on `logs.normalized.<kind>` without evaluating Zen rules, and SHALL evaluate Zen rules for JSON on a collector subject only through the release in which that subject's replacement publisher ships; from the following release it SHALL evaluate Zen rules only for records core itself produces.
+EventWriter SHALL store a collector binary batch on `logs.normalized.<kind>` without evaluating Zen rules. For JSON on a collector subject, it SHALL evaluate Zen rules through the release in which that subject's replacement publisher ships and SHALL NOT evaluate them for that subject in later releases; each subject has its own release. Once every collector subject has passed its release, EventWriter SHALL evaluate Zen rules only for records core itself produces.
 
 #### Scenario: A normalized batch arrives
 - **WHEN** EventWriter receives a collector's binary batch on `logs.normalized.<kind>`

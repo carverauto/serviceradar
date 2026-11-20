@@ -119,8 +119,9 @@ no collector to move the rules to.
 
 JSON on `logs.syslog`, `logs.snmp` and `logs.otel` is then stored with the
 built-in mapping and no rules. That keeps an older collector working during an
-upgrade; it does not keep its rules working. The removal therefore ships one
-release after the collectors that no longer need it.
+upgrade; it does not keep its rules working. The removal is therefore per
+subject: Zen stops for a subject one release after that subject's replacement
+publisher ships, and stays for subjects whose release has not arrived.
 
 ### 6. Shared crates
 
