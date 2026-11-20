@@ -4,7 +4,7 @@
 - [ ] 1.2 Add a NATS key-value implementation of the `Connector` and `Session` traits in `rust/log-collector/src/rules.rs`, with the same fetch-then-watch, timeout and backoff behaviour.
 - [ ] 1.3 Grant the collector's NATS user read access to the rules bucket only, in the chart, Compose and the edge permission generators.
 - [ ] 1.4 Switch the log collector to the NATS reader.
-- [ ] 1.5 One release after 1.4 ships, remove `[rules.datasvc]`, the collector's datasvc client dependency and its datasvc role, in the same release as 3.4.
+- [ ] 1.5 One release after 1.4 ships, remove `[rules.datasvc]`, the collector's datasvc client dependency and its datasvc role.
 - [ ] 1.6 Verify on the demo deployment: a rule edit reaches the collector through NATS; the collector keeps its ruleset across a NATS restart.
 
 ## 2. Edge
@@ -19,7 +19,8 @@
 - [ ] 3.1 The collector publishes binary batches on `logs.normalized.<kind>` with the schema header, built-in mapping and no `Sr-Ruleset-Id` when it has no active ruleset. EventWriter stores such a batch without rules, does not reject it, and records that no ruleset was applied. Remove the JSON fallback from the normalized pipeline.
 - [ ] 3.2 Shared test cases cover a record stored with rules and without.
 - [ ] 3.3 One release after 3.1 ships, EventWriter stops evaluating Zen for `logs.syslog`. JSON on that subject is stored with built-in mapping.
-- [ ] 3.4 One release after 1.4 ships, core stops writing rule bundles to datasvc.
+- [ ] 3.4a Before 3.4, confirm which consumers read rule bundles from datasvc. The survey behind this proposal found the log collector is the only one; verify that it still holds and that every such consumer has moved to the rules bucket.
+- [ ] 3.4 Core stops writing rule bundles to datasvc once no consumer reads bundles from datasvc (3.4a), and not before one release after 1.4 ships. Per-rule keys and the subject index are a separate write and are unaffected.
 
 ## 4. Shared crates
 

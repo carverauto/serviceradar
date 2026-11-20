@@ -144,8 +144,9 @@ A collector keeps its protocol parser and its record-to-column mapping.
 Each step ships on its own and is measured before and after.
 
 1. Rules bucket, NATS reader, edge mirror. Syslog uses them. One release
-   later, core stops writing bundles to datasvc and the collector's datasvc
-   reader and role are removed.
+   later, the collector's datasvc reader and role are removed. Core stops
+   writing bundles to datasvc once no consumer reads bundles from datasvc, and
+   not before one release after the NATS reader ships.
 2. Pass-through without a ruleset. One release later, core drops Zen for
    syslog.
 3. Extract the publish and rules crates from the log collector.
@@ -205,8 +206,10 @@ trap storm, before and after.
 1. Core writes bundles to both the datasvc bucket and the rules bucket.
 2. Collectors that read the rules bucket ship. Old collectors keep reading
    datasvc.
-3. One release later, core stops writing bundles to datasvc, and the
-   collector's datasvc role is removed.
+3. One release later, the collector's datasvc role is removed. Core stops
+   writing bundles to datasvc once no consumer reads bundles from datasvc, and
+   not before one release after the NATS reader ships. Per-rule keys and the
+   index are a separate write and are unaffected.
 4. Core's Zen path for a subject is removed one release after the collector
    that makes it unnecessary.
 
