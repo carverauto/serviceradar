@@ -207,10 +207,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
 
       {:ok, lv, _html} = live(conn, ~p"/settings/networks/netperf/responders/new")
 
+      lv |> element("#netperf-responder-agent-picker-trigger") |> render_click()
+      assert has_element?(lv, "#agent-picker-modal")
+
+      lv
+      |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{hub_uid}']")
+      |> render_click()
+
       lv
       |> form("#netperf-responder-form",
         responder: %{
-          "agent_uid" => hub_uid,
           "name" => "Primary Hub",
           "advertise_address" => "198.51.100.42",
           "listen_port" => "5199",
@@ -382,6 +388,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
           actor: system_actor()
         )
 
+      spoke_uid = unique_uid("agent-spoke")
+      register_agent!(spoke_uid)
+
       {:ok, policy_lv, _html} = live(conn, ~p"/settings/networks/netperf/policies/new")
 
       policy_lv
@@ -390,11 +399,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
           "mode" => "hub_and_spoke",
           "spoke_partition_id" => "branch-west",
           "spoke_tags_text" => "site=branch-01",
-          "spoke_srql_query" => "in:agents status:connected",
-          "spoke_agent_uids_text" => "agent-spoke-1"
+          "spoke_srql_query" => "in:agents status:connected"
         }
       )
       |> render_change()
+
+      policy_lv |> element("#netperf-policy-spoke-agents-picker-trigger") |> render_click()
+
+      policy_lv
+      |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{spoke_uid}']")
+      |> render_click()
+
+      policy_lv |> element("#agent-picker-modal button[phx-click='close_agent_picker']", "Done") |> render_click()
 
       policy_lv
       |> form("#netperf-policy-form", policy: %{"mode" => "hub_mesh"})
@@ -425,7 +441,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
 
       assert has_element?(
                policy_lv,
-               "#netperf-policy-form input[name='policy[spoke_agent_uids_text]'][value='agent-spoke-1']"
+               "#netperf-policy-form input[name='policy[spoke_agent_uids_text]'][value='#{spoke_uid}']"
              )
     end
 
@@ -515,10 +531,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
       assert has_element?(lv, "#netperf-run-form input[name='run[target_port]'][value='6200']")
       assert has_element?(lv, "#netperf-run-form input[name='run[duration_sec]'][value='18']")
 
-      # Triggering another unrelated change (sender_agent_id) must still keep the user edits
+      # Picking sender via searchable modal must still keep the user edits
+      lv |> element("#netperf-run-sender-picker-trigger") |> render_click()
+
       lv
-      |> form("#netperf-run-form", run: %{"sender_agent_id" => spoke_uid})
-      |> render_change()
+      |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{spoke_uid}']")
+      |> render_click()
 
       assert has_element?(lv, "#netperf-run-form input[name='run[target_address]'][value='203.0.113.99']")
       assert has_element?(lv, "#netperf-run-form input[name='run[target_port]'][value='6200']")
@@ -567,11 +585,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
       lv |> element("#netperf-run-test-btn") |> render_click()
       assert has_element?(lv, "#netperf-run-modal")
 
+      lv |> element("#netperf-run-sender-picker-trigger") |> render_click()
+
+      lv
+      |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{hub_uid}']")
+      |> render_click()
+
       self_html =
         lv
         |> form("#netperf-run-form",
           run: %{
-            "sender_agent_id" => hub_uid,
             "responder_agent_id" => hub_uid,
             "target_address" => "198.51.100.21",
             "target_port" => "5199"
@@ -581,11 +604,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
 
       assert self_html =~ "cannot be the same agent"
 
+      lv |> element("#netperf-run-sender-picker-trigger") |> render_click()
+
+      lv
+      |> element("#agent-picker-modal button[phx-click='agent_picker_select'][phx-value-uid='#{spoke_uid}']")
+      |> render_click()
+
       offline_html =
         lv
         |> form("#netperf-run-form",
           run: %{
-            "sender_agent_id" => spoke_uid,
             "responder_agent_id" => hub_uid,
             "target_address" => "198.51.100.21",
             "target_port" => "5199"
@@ -617,7 +645,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLiveTest do
       lv
       |> form("#netperf-run-form",
         run: %{
-          "sender_agent_id" => spoke_uid,
           "responder_agent_id" => hub_uid,
           "target_address" => "198.51.100.21",
           "target_port" => "5199",

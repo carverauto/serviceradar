@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.Components.AgentPicker
+
   alias ServiceRadarWebNGWeb.Settings.NetperfLive.Data
   alias ServiceRadarWebNGWeb.Settings.NetperfLive.Forms
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -74,12 +76,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
                   show_form={@show_form}
                   profiles={@profiles_list}
                   responders={@responders_list}
+                  agents_by_uid={@agents_by_uid}
+                  online_agent_ids={@online_agent_ids}
+                  netperf_agent_ids={@netperf_agent_ids}
                 />
               <% action when action in [:new_responder, :edit_responder] -> %>
                 <.responder_form
                   form={@form}
                   show_form={@show_form}
-                  agents={@agents_list}
+                  agents_by_uid={@agents_by_uid}
                   online_agent_ids={@online_agent_ids}
                   netperf_agent_ids={@netperf_agent_ids}
                 />
@@ -122,9 +127,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
             open={@show_run_modal}
             run_form={@run_form}
             run_error={@run_error}
-            agents={@agents_list}
+            agents_by_uid={@agents_by_uid}
             responders={@responders_list}
             profiles={@profiles_list}
+            online_agent_ids={@online_agent_ids}
+            netperf_agent_ids={@netperf_agent_ids}
+          />
+
+          <.agent_picker_modal
+            :if={@agent_picker}
+            id="agent-picker-modal"
+            open={true}
+            title={@agent_picker.title}
+            mode={@agent_picker.mode}
+            agents={@agent_picker.agents}
+            selected={@agent_picker.selected}
+            query={@agent_picker.query}
+            only_netperf={@agent_picker.only_netperf}
             online_agent_ids={@online_agent_ids}
             netperf_agent_ids={@netperf_agent_ids}
           />
@@ -659,11 +678,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
             label="SRQL Selector (agents or devices)"
             placeholder="in:agents status:connected"
           />
-          <.input
-            field={@form[:spoke_agent_uids_text]}
-            type="text"
-            label="Explicit Spoke Agent UIDs (comma-separated)"
-            placeholder="agent-spoke-01, agent-spoke-02"
+          <.agent_picker_field
+            id="netperf-policy-spoke-agents-picker"
+            label="Explicit Spoke Agents"
+            field_name="policy[spoke_agent_uids_text]"
+            mode={:multi}
+            selected={@form[:spoke_agent_uids_text].value}
+            placeholder="Browse & select spoke agents..."
+            target_key="policy_spokes"
+            agents_by_uid={@agents_by_uid}
+            online_agent_ids={@online_agent_ids}
+            netperf_agent_ids={@netperf_agent_ids}
           />
         </div>
 
@@ -681,15 +706,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
   end
 
   defp responder_form(assigns) do
-    agent_options =
-      Enum.map(assigns.agents, fn agent ->
-        online = if MapSet.member?(assigns.online_agent_ids, agent.uid), do: " · online", else: ""
-        netperf = if MapSet.member?(assigns.netperf_agent_ids, agent.uid), do: " · netperf", else: ""
-        {"#{agent.uid}#{online}#{netperf}", agent.uid}
-      end)
-
-    assigns = assign(assigns, :agent_options, agent_options)
-
     ~H"""
     <.ui_panel id="netperf-responder-form-panel">
       <:header>
@@ -715,13 +731,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
       >
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <%= if @show_form == :new_responder do %>
-            <.input
-              field={@form[:agent_uid]}
-              type="select"
+            <.agent_picker_field
+              id="netperf-responder-agent-picker"
               label="Agent"
-              options={@agent_options}
-              prompt="Select an enrolled agent..."
-              required
+              field_name="responder[agent_uid]"
+              mode={:single}
+              selected={@form[:agent_uid].value}
+              placeholder="Browse & select an enrolled agent..."
+              target_key="responder_agent"
+              agents_by_uid={@agents_by_uid}
+              online_agent_ids={@online_agent_ids}
+              netperf_agent_ids={@netperf_agent_ids}
             />
           <% else %>
             <.input field={@form[:agent_uid]} type="text" label="Agent UID (immutable)" readonly />
@@ -1019,13 +1039,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
   end
 
   defp run_modal(assigns) do
-    sender_options =
-      Enum.map(assigns.agents, fn agent ->
-        online = if MapSet.member?(assigns.online_agent_ids, agent.uid), do: " · online", else: ""
-        netperf = if MapSet.member?(assigns.netperf_agent_ids, agent.uid), do: " · netperf", else: ""
-        {"#{agent.uid}#{online}#{netperf}", agent.uid}
-      end)
-
     responder_options =
       Enum.map(assigns.responders, fn responder ->
         status = if responder.enabled, do: "", else: " (disabled)"
@@ -1036,7 +1049,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
 
     assigns =
       assigns
-      |> assign(:sender_options, sender_options)
       |> assign(:responder_options, responder_options)
       |> assign(:profile_options, profile_options)
 
@@ -1062,13 +1074,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetperfLive.View do
         class="space-y-3"
       >
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <.input
-            field={@run_form[:sender_agent_id]}
-            type="select"
+          <.agent_picker_field
+            id="netperf-run-sender-picker"
             label="Spoke Sender Agent"
-            options={@sender_options}
-            prompt="Select sender agent..."
-            required
+            field_name="run[sender_agent_id]"
+            mode={:single}
+            selected={@run_form[:sender_agent_id].value}
+            placeholder="Browse & select sender agent..."
+            target_key="run_sender"
+            agents_by_uid={@agents_by_uid}
+            online_agent_ids={@online_agent_ids}
+            netperf_agent_ids={@netperf_agent_ids}
           />
           <.input
             field={@run_form[:responder_agent_id]}
