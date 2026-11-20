@@ -73,9 +73,6 @@ defmodule ServiceRadar.Observability.Zen.RuleBucket do
            timeout: @request_timeout_ms
          ) do
       {:ok, %{stream: @stream, seq: seq}} when seq > 0 -> :ok
-      # A write the stream refuses (its cap is full) is answered with the
-      # stream's name, sequence 0 and an error, which reads as an ack here.
-      {:ok, %{stream: @stream}} -> {:error, :not_stored}
       {:ok, %{stream: stream}} -> {:error, {:stored_by_other_stream, stream}}
       {:error, reason} -> {:error, reason}
     end
