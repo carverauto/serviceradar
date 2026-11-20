@@ -134,7 +134,7 @@
   scheduled job watch, give `.github/workflows/scheduled-job-watch.yml` `actions: read`, and report
   the monitor when its last successful run is older than three scan intervals (three hours at the
   hourly default). Do not add the monitor to `WATCHED_JOBS`.
-- [ ] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
+- [x] 5.5 Prove the alert path once with a self-test dispatch that posts a test alert, and record
   the result in the PR.
 
 ## 5b. Admission, second line and operations
