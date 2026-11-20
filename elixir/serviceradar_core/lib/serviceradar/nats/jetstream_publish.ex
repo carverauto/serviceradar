@@ -6,7 +6,8 @@ defmodule ServiceRadar.NATS.JetStreamPublish do
   `:ok` whether or not a stream stored the message. A producer that replaces a
   direct database write with a JetStream hop needs to know the message was
   stored, so this sends the publish as a request and treats anything other than
-  a PubAck (`{"stream": ..., "seq": ...}`) as a failure.
+  a PubAck (`{"stream": ..., "seq": ...}` with a sequence above 0 and no
+  `"error"`) as a failure.
 
   The wait is bounded: a subject no stream captures otherwise blocks for Gnat's
   default receive timeout.
