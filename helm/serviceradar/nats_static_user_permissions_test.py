@@ -47,7 +47,7 @@ RENDERINGS = {
 }
 
 
-def render_static_users(values=None):
+def render_static_users_configmap(values=None):
     """Consume helm-unittest's snapshot of the static-users ConfigMap."""
     binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
     with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
@@ -97,7 +97,11 @@ def render_static_users(values=None):
             snapshots = list(yaml.safe_load(snapshot)["static users"].values())
         if len(snapshots) != 1:
             raise AssertionError(f"expected one emitted snapshot, got {len(snapshots)}")
-        return yaml.safe_load(yaml.safe_load(snapshots[0])["static-users.yaml"])
+        return yaml.safe_load(snapshots[0])
+
+
+def render_static_users(values=None):
+    return yaml.safe_load(render_static_users_configmap(values)["static-users.yaml"])
 
 
 def covers(pattern: str, subject: str) -> bool:
@@ -147,6 +151,21 @@ DISABLED_BY_DEFAULT = (
     "CN=serviceradar-netflow-collector",
     "CN=serviceradar-k8s-inventory",
 )
+
+
+class ChartIdentityInventoryTest(unittest.TestCase):
+    def test_inventory_names_each_issued_nats_client_subject_once(self):
+        subjects = yaml.safe_load(render_static_users_configmap()["chart-identities.yaml"])
+        self.assertIsInstance(subjects, list)
+        clients = (
+            "tools", "web-ng", "core", "agent-gateway", "datasvc", "agent",
+            "log-collector", "trapd", "flow-collector", "bmp-collector",
+            "falcosidekick", "trivy-sidecar", "k8s-inventory",
+        )
+        self.assertCountEqual(subjects, [
+            f"CN=serviceradar-{client},OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+            for client in clients
+        ])
 
 
 class OpenIdentityTest(unittest.TestCase):

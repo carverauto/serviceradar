@@ -124,6 +124,12 @@ py_test(
     data = ["files/runtime-cert-rotation.py"],
 )
 
+py_test(
+    name = "runtime_cert_preservation_test",
+    srcs = ["runtime_cert_preservation_test.py"],
+    data = ["files/check-runtime-certs.py"],
+)
+
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
 # checkpoint every ~14s at this product's ingest rate and parked every backend on
 # LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the
