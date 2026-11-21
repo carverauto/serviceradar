@@ -8,6 +8,16 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **THEN** `serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector` and `O=ServiceRadar` are neither counted nor listed as not adopted
 - **AND** a leaf install is not stopped on their account
 
+#### Scenario: A generated runtime Secret predates an inventory certificate
+- **WHEN** the generator runs on upgrade and its runtime Secret lacks a public certificate from core's fixed inventory
+- **THEN** the pre-upgrade hook regenerates the runtime certificates and writes the rotation manifest before core rolls
+
+#### Scenario: The supplier provides the runtime Secret
+- **WHEN** the install is hosted or the generator is disabled
+- **THEN** core projects only the public inventory certificates the supplier lists
+- **AND** with the default empty list, core starts, adopts nothing and hub status reports each chart identity as not adopted because no inventory certificate is supplied
+- **AND** with a partial list, hub status gives that reason for each omitted identity
+
 #### Scenario: An install is upgraded to a release with the inventory
 - **WHEN** core starts with the chart's public certificate inventory mounted, no infrastructure certificate row lacks a stored subject, a chart identity's subject is not held, and the inventory holds a certificate for it that chains to the deployment root, is valid, is not revoked, and whose subject is present in the static users file
 - **THEN** core creates the component, with a component id derived from the subject only and that subject's static grant as its stored permissions, and records the certificate with its subject

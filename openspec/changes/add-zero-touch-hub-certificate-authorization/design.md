@@ -55,26 +55,29 @@ coverage and never block the leaf install gate.
 
 ### Decision 1: The chart publishes its public certificates; core adopts them
 
-The inventory is a read-only projection, into core, of the public certificate
-file of each chart identity from the runtime certificate Secret. Every
-workload already mounts that Secret through an explicit item list
-(`serviceradar.runtimeCertItems`), so a pod sees only the files named for it;
-core's list gains the public `.pem` of each chart identity and no `-key.pem`.
-The precedent is `runtime-cert-rotation.json`, a key of the same Secret that
-core already mounts this way. No ConfigMap is created, the generator job is
-not changed for this, and its Role is unchanged.
+Core mounts public inventory certificates read-only from the runtime certificate
+Secret through an explicit item list (`serviceradar.runtimeCertItems`), as it
+already does for `runtime-cert-rotation.json`. Only core gains inventory
+files. The projection adds no private key, ConfigMap or generator permission.
 
-This was chosen over a separate ConfigMap written by the generator, which an
-earlier draft proposed: that needed new write permissions for the job, a new
-step on the path where the generator finds existing certificates and exits
-early, and a second object the hosted control plane would have to supply.
+When the generator job runs (`certs.generator.enabled` is true and the install
+is not hosted), it owns the runtime Secret. Core projects the public certificate
+of every chart identity regardless of the issuer Secret name. The generator
+includes every projected file in its required-files check before preserving an
+existing Secret. An older Secret missing even one inventory certificate takes
+the existing regeneration path in the pre-upgrade hook. This can reissue all
+runtime certificates once on upgrade and write the rotation manifest before
+core rolls. A complete, otherwise valid Secret follows the usual preserve path.
 
-A required Secret volume fails to mount when a listed key is missing, and a pod with a
-failed mount does not start. When the chart generates certificates it creates
-every chart identity's certificate. A Secret supplied by the hosted control
-plane may not carry the same files, so in hosted mode the list of inventory
-certificate files is a chart value the control plane sets to what it supplies (task 2.7),
-and that inventory list defaults to empty.
+For hosted installs and self-managed installs with the generator disabled, the
+supplier sets a chart value listing the public inventory certificates its
+runtime Secret carries. The list defaults to empty. Kubernetes requires only
+the listed inventory files to mount the volume. An explicitly listed but
+missing file prevents core from starting. With an empty list core starts,
+adopts nothing and hub status reports each chart identity as not adopted
+because no inventory certificate is supplied. With a partial list the same
+reason applies to each omitted identity. These rules apply with enforcement
+on or off.
 
 Core reconciles on the authorizer's existing tick. Each certificate in the
 inventory is checked first:
@@ -131,7 +134,7 @@ successor through the existing API. This is fail-closed and visible.
 
 Coverage: a chart identity counts as adopted when the inventory's certificate
 for that subject is recorded and not revoked. Otherwise it is reported with
-the reason: a failed check, legacy rows without a subject, or a held subject
+the reason: no inventory certificate supplied, a failed check, legacy rows without a subject, or a held subject
 whose recorded certificates do not include the inventory's certificate (for
 example after a refused rotation, a revocation, or the residual case above).
 
@@ -320,10 +323,12 @@ installs keep today's behaviour.
 ### Decision 6: Turning it on is safe by construction
 
 Admission and reconnection in this rollout apply while at least one broker is serving and core's authorizer is connected.
-Core adopts chart identities whether or not enforcement is on. So the order
-for an existing install, once its Secret supplier has provisioned any externally
-managed signing material, is: upgrade to this release with the value off; check
-`edge hub status` shows every chart identity adopted; turn the value on. If it
+Upgrade with enforcement off. For a generated runtime Secret, the pre-upgrade
+hook checks the fixed inventory before core rolls. For a supplied Secret, core
+uses only the supplier's inventory list, which may be empty. Review
+`edge hub status` and supply any omitted public certificates and list them
+before expecting full coverage. Once all chart identities are adopted and the
+signing material is provisioned, turn enforcement on. If it
 is turned on first anyway, clients are refused only until core's first
 reconciliation, and they retry, provided the signing seeds are present and every chart identity
 can be adopted automatically. A chart identity that hub status reports as not adopted
@@ -382,7 +387,9 @@ reported with the reason.
 ## Migration Plan
 
 1. Ship inventory, automatic adoption, generated keys and readiness with
-   enforcement off. This release removes `issuerPublicKey`, `authUserPublicKey`
+   enforcement off. Follow Decision 6 for generated and supplied inventories.
+   The hook can rotate runtime certificates before the first core rollout.
+   This release removes `issuerPublicKey`, `authUserPublicKey`
    and `systemUserPublicKey`. After upgrade the chart ignores public keys
    pasted into these values from a bootstrap record. Enabling enforcement
    uses the mounted seeds without migrating the record.
@@ -390,7 +397,10 @@ reported with the reason.
 3. Control plane change for hosted tenants.
 4. Decide the default.
 
-Rollback at any step is setting the value back to false.
+Turning enforcement off restores static authorization. Inventory projection
+still follows Decision 1. If a supplier listed a missing certificate, supply
+it or correct the inventory list and roll core. Disabling enforcement does
+not undo a certificate reissue or the existing rotation records.
 
 ## Open Questions
 

@@ -45,11 +45,16 @@ The hand steps are removed rather than wrapped in CLI commands. A CLI command
 that extracts certificates from the cluster would need Kubernetes access to
 the runtime Secret, exposing every component's private key to the caller.
 
-- **Core is given the public certificates of the chart's NATS clients.** They
-  are already in the runtime certificate Secret. Core mounts the public
-  certificate file of each chart identity from that Secret by explicit list,
-  with no key, the way it already mounts `runtime-cert-rotation.json`. No new
-  object is created and the certificate generator's permissions do not change. A chart identity is a subject for which the generator issues
+- **Core is given the public certificates of the chart's NATS clients.** When
+  the non-hosted generator runs, core projects every chart identity's public
+  certificate from the runtime Secret. The pre-upgrade hook requires those
+  files before preserving the Secret. A missing file can trigger one reissue
+  of all runtime certificates with the existing rotation manifest before core
+  rolls. For hosted installs or a disabled generator, the supplier lists only
+  the public certificates it supplies. The default empty list lets core start
+  and report each identity as not adopted because no inventory certificate is
+  supplied. Neither path adds private keys to the inventory, creates a
+  ConfigMap or expands the generator's permissions. A chart identity is a subject for which the generator issues
   a distinct NATS client certificate. The alias users `serviceradar-flowgger`,
   `serviceradar-otel` and `serviceradar-netflow-collector`, whose certificate
   files are copies of another identity's certificate, and the `O=ServiceRadar`
