@@ -9,11 +9,11 @@ host, not only the ports found open, so that a requested protocol can be
 distinguished from an observed protocol outcome.
 
 #### Scenario: Agent reports a mix of open and closed ports
-- **GIVEN** a sweep group configured for TCP ports 3001, 443 and 4502
-- **WHEN** an agent reports a host with 443 open and 3001 and 4502 not
+- **GIVEN** a sweep group configured for TCP ports 22, 80 and 8443
+- **WHEN** an agent reports a host with 22 open and 80 and 8443 not
   responding
 - **THEN** the stored host result SHALL record all three ports as scanned
-- **AND** SHALL record only 443 as open
+- **AND** SHALL record only 22 as open
 - **AND** the closed or no-response ports SHALL be derivable as the scanned
   ports minus the open ports
 

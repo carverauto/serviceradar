@@ -10,10 +10,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePreferencesTest do
 
   describe "merge/2" do
     test "user preferences win over the instance seed" do
-      settings = %{"preferences" => %{"rids.layout" => "airports"}, "other" => 1}
+      settings = %{"preferences" => %{"status.layout" => "list"}, "other" => 1}
 
-      assert Preferences.merge(settings, %{"rids.layout" => "gates"}) == %{
-               "preferences" => %{"rids.layout" => "gates"},
+      assert Preferences.merge(settings, %{"status.layout" => "grid"}) == %{
+               "preferences" => %{"status.layout" => "grid"},
                "other" => 1
              }
     end
@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePreferencesTest do
 
   describe "put/3" do
     test "sets a key" do
-      assert Preferences.put(%{}, "rids.layout", "table") == %{"rids.layout" => "table"}
+      assert Preferences.put(%{}, "status.layout", "table") == %{"status.layout" => "table"}
     end
 
     test "overwrites an existing key" do
@@ -84,8 +84,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePreferencesTest do
     end
 
     test "stores structured values, which favorites lists need" do
-      assert Preferences.put(%{}, "rids.favorites", ["a", "b"]) == %{
-               "rids.favorites" => ["a", "b"]
+      assert Preferences.put(%{}, "status.favorites", ["a", "b"]) == %{
+               "status.favorites" => ["a", "b"]
              }
     end
   end

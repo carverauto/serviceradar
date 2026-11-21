@@ -53,7 +53,7 @@ The pieces needed to change that mostly exist:
 ### Grant on device *group*, not on tags
 
 The obvious cheap alternative is to authorize from a tag —
-`tags.rids_owner == "team-x"` — since the RIDS import already writes tags.
+`tags.owner == "team-x"` — since the CSV import already writes tags.
 
 Rejected: `tags` is writable by anyone holding `devices.update`. An actor with
 scoped write access on one device could retag *that* device, or any device it

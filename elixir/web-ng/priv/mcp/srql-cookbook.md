@@ -139,7 +139,7 @@ rollup, which survives much longer.
 
 ```
 in:sweep_groups partition:default enabled:true
-in:sweep_profiles name:%rids%
+in:sweep_profiles name:%lab%
 in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc
 in:sweep_results time:last_7d
 in:sweep_results time:last_7d stats:count() as n by agent_id
@@ -152,7 +152,7 @@ in:device_sweep_overlap device_uid:<device-uid> relationship:declared_and_observ
 
 - `in:sweep_groups partition:default enabled:true` -- which sweep groups are
   enabled in a given partition, and what they are configured to scan.
-- `in:sweep_profiles name:%rids%` -- find a scan profile (ports, timing,
+- `in:sweep_profiles name:%lab%` -- find a scan profile (ports, timing,
   banner-grab settings) by name. Profiles flagged `admin_only` are excluded
   from this entity for every role, and `admin_only` is not an accepted filter
   field -- a profile absent here may still exist and be in use, so treat it as

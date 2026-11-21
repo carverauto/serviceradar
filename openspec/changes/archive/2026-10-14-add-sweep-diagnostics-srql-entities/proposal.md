@@ -4,9 +4,9 @@
 
 When several sweep groups or agents target one device, nothing in the query
 surface says which scanner profile, sweep group, vantage point, or requested
-protocol produced a given result. Devices imported from CSV and tagged `rids`
-are configured for TCP ports 3001, 443 and 4502 yet report ICMP-only
-availability, and an operator cannot inspect the compiled sweep configuration
+protocol produced a given result. Devices imported from CSV under a shared tag
+are configured for several TCP ports yet report ICMP-only availability,
+and an operator cannot inspect the compiled sweep configuration
 or the per-execution protocol outcome to find out why.
 
 Two structural gaps make this unanswerable today rather than merely tedious:

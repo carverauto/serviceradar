@@ -8,12 +8,12 @@ defmodule ServiceRadarWebNGWeb.Components.MtrProfilesLiveTest do
   @moduletag :db_free
 
   test "profile form submits the displayed SRQL query under the selector key" do
-    target_query = "in:devices include_inactive:true tags.rids:true"
+    target_query = "in:devices include_inactive:true tags.kiosk:true"
 
     form =
       Phoenix.Component.to_form(
         %{
-          "name" => "RIDS",
+          "name" => "Kiosks",
           "srql_query" => target_query
         },
         as: :form
