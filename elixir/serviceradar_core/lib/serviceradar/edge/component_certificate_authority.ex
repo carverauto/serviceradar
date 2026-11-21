@@ -47,6 +47,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   ]
   @revocation_fields [:component_id, :generation, :fingerprint, :revoked_at, :reason]
 
+  @subject_lock_prefix "serviceradar:component-certificate-subject:"
+
   def topic, do: @topic
 
   def enroll_component(attrs, opts \\ []) do
@@ -76,11 +78,28 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
          :ok <- fill_missing_subject(component.component_id, presented.fields, opts),
          {:ok, prepared} <-
            InfrastructureCertificateAdoption.verify_adoption(component, presented) do
-      adopt_prepared_certificate(prepared, opts)
+      adopt_prepared_certificate(prepared, opts, false)
     end
   end
 
-  defp adopt_prepared_certificate(prepared, opts) do
+  @doc """
+  Adopts a certificate only while no recorded certificate carries its subject.
+
+  The check and the write happen in one transaction under the subject's lock,
+  which every write that records a certificate with a subject also takes. So a
+  certificate another caller records for the same subject either is seen here,
+  and this returns `{:error, :subject_held}` and writes nothing, or waits and
+  sees this one.
+  """
+  def adopt_unheld_certificate(attrs, opts \\ []) do
+    with {:ok, component, presented} <- InfrastructureCertificateAdoption.read_adoption(attrs),
+         {:ok, prepared} <-
+           InfrastructureCertificateAdoption.verify_adoption(component, presented) do
+      adopt_prepared_certificate(prepared, opts, true)
+    end
+  end
+
+  defp adopt_prepared_certificate(prepared, opts, unheld_only?) do
     write_opts = issuance_opts()
 
     changeset =
@@ -93,7 +112,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
 
     if changeset.valid? do
       fn ->
-        with {:ok, component} <- adoption_component(prepared, opts),
+        with :ok <- subject_guard(prepared.issuance.subject, unheld_only?, write_opts),
+             {:ok, component} <- adoption_component(prepared, opts),
              {:ok, certificate} <- bound_issuance(component.component_id, changeset, write_opts) do
           {:ok, %{component: component, certificate: certificate}}
         end
@@ -454,7 +474,49 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       (is_nil(entry.fingerprint) or entry.fingerprint == fingerprint)
   end
 
+  # Every write that records a certificate with a subject takes that subject's
+  # lock for the rest of its transaction, so `adopt_unheld_certificate/2` can
+  # decide "no recorded certificate carries this subject" and write without
+  # another writer recording one in between. The lock is transaction-scoped:
+  # the repository is reached through a transaction pooler, where a session
+  # lock would outlive the caller.
+  defp lock_subject(nil), do: :ok
+
+  defp lock_subject(subject) when is_binary(subject) do
+    case ServiceRadar.Repo.query(
+           "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+           [@subject_lock_prefix <> subject]
+         ) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Adoption takes the subject's lock before it touches a component, so the
+  # two locks are always taken in the same order on this path.
+  defp subject_guard(subject, unheld_only?, opts) do
+    with :ok <- lock_subject(subject) do
+      if unheld_only?, do: unheld(subject, opts), else: :ok
+    end
+  end
+
+  defp unheld(subject, opts) do
+    case ComponentCertificate
+         |> Ash.Query.filter(subject == ^subject)
+         |> Ash.exists(opts) do
+      {:ok, false} -> :ok
+      {:ok, true} -> {:error, :subject_held}
+      error -> error
+    end
+  end
+
   defp create_or_reuse_certificate(changeset, opts) do
+    with :ok <- lock_subject(Ash.Changeset.get_attribute(changeset, :subject)) do
+      create_or_reuse_locked(changeset, opts)
+    end
+  end
+
+  defp create_or_reuse_locked(changeset, opts) do
     case find_certificate(Ash.Changeset.get_attribute(changeset, :fingerprint), opts) do
       {:error, :unknown_certificate} ->
         Ash.create(changeset, opts)

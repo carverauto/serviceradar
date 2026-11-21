@@ -260,20 +260,22 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   end
 
   defp read_inventory_certificate(path, root) do
-    with {:ok, presented} <- read_certificate_file(path) do
-      path = [presented.leaf | presented.chain]
+    case read_certificate_file(path) do
+      {:ok, presented} ->
+        path = [presented.leaf | presented.chain]
 
-      {:ok,
-       %{
-         subject: presented.fields.subject,
-         fingerprint: presented.fields.fingerprint,
-         leaf: presented.leaf,
-         pem:
-           :public_key.pem_encode(Enum.map(path ++ [root], &{:Certificate, &1, :not_encrypted})),
-         verification: verify_path(root, Enum.reverse(path))
-       }}
-    else
-      _ -> :error
+        {:ok,
+         %{
+           subject: presented.fields.subject,
+           fingerprint: presented.fields.fingerprint,
+           leaf: presented.leaf,
+           pem:
+             :public_key.pem_encode(Enum.map(path ++ [root], &{:Certificate, &1, :not_encrypted})),
+           verification: verify_path(root, Enum.reverse(path))
+         }}
+
+      _ ->
+        :error
     end
   end
 
@@ -337,8 +339,12 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
       }
     }
 
-    case Authority.adopt_existing_certificate(attrs, system()) do
+    # The authority repeats the held check under the subject's lock, so a
+    # certificate recorded for this subject since the check above is not
+    # joined by a second one.
+    case Authority.adopt_unheld_certificate(attrs, system()) do
       {:ok, _adopted} -> :recorded
+      {:error, :subject_held} -> :held
       {:error, reason} -> {:adoption_failed, reason}
     end
   end
