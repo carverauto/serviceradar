@@ -9,7 +9,7 @@ S3 remains optional.
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
 | Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
-| Footage catalog | Durable publication intents and Core acceptance | Current-history completion and qualified local-copy registration |
+| Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
 | Playback | Archive player and authorized S3 reads | Owner-routed authorized local reads and player discovery |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
 
@@ -83,17 +83,18 @@ sending media over NATS/JetStream or ERTS distribution:
    the block's `RecordingCatalogEntry` in one transaction
    (`RecordingBlocks.freeze_and_catalog/6`). The entry's archive state follows
    the camera's `CameraRecordingPolicy` storage mode and the archive settings.
-   A capture without a policy has no archive obligation. Its timeline uses the `received` time basis: the block starts at the
-   UTC time the inbox admitted the capture's first unit and spans the
-   descriptor's media duration, with unmeasured uncertainty. The receipt reports
-   `catalog: {:registered, entry_id}` when the freeze returns success and
-   `{:unregistered, reason}` for a definite refusal. An expired capture deadline
-   or recovery closure observed by renewal skips registration. If the registration
-   deadline expires or the freeze outcome is ambiguous, the receipt reports
-   `{:unconfirmed, reason}`. The block may or may not be cataloged and the
-   reconciler decides. The NVR seal remains durable in every case.
-   Core reserves lease time for claim release and relay close. It attempts both
-   and returns `{:ok, receipt}` with `release: :released` or
+   A capture without a policy has no archive obligation. The timeline uses the
+   [received time basis](docs/camera-recording.md#coverage-bar-time-basis-and-playback-controls).
+   The receipt reports `catalog: {:registered, entry_id}` when the freeze returns
+   success and `{:unregistered, reason}` for a definite refusal. An expired
+   capture deadline or a recovery closure observed during renewal skips
+   registration. Each step needs at least 250 ms within both the capture
+   deadline and the lease time left after reserving cleanup time.
+   If the registration task times out
+   or Core cannot confirm the freeze, the receipt reports `{:unconfirmed, reason}`.
+   The transaction may have committed. The NVR seal remains durable in every case.
+   Core attempts claim release and relay close, then returns `{:ok, receipt}`
+   with `release: :released` or
    `release: {:release_pending_lease_expiry, reason}`. A failed release logs
    a warning, and lease expiry permits takeover. Without a verified seal, an
    unknown transport outcome, timeout or caller loss stops the stream, never retries
@@ -108,7 +109,7 @@ sending media over NATS/JetStream or ERTS distribution:
    `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the same
    correlation fields and attempts to release its recorder claim. Successful
    release lets the next capture of the source start immediately. Its reserved
-   `RecordingBlock` stays `:open_local`, as after any other failure. A non-200
+   `RecordingBlock` stays `:open_local`. A non-200
    answer read after the end marker stays uncertain, because the NVR can
    answer 422 or 503 after it has sealed.
 6. Core can stop a stream itself: a unit that fails order validation (for
@@ -119,9 +120,10 @@ sending media over NATS/JetStream or ERTS distribution:
    a seal. It is a definite failure: the capture returns
    `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` with the same
    correlation fields and attempts to release its recorder claim, as for a
-   refusal. A Core abort after the worker handed out `:eof` stays uncertain,
-   because the end marker may have gone out. A capture timeout or caller loss
-   stays uncertain even when Core stops the stream before `:eof`.
+   refusal. Without a verified receipt, a Core abort after the worker handed out
+   `:eof` stays uncertain because the end marker may have gone out. A capture
+   timeout or caller loss also stays uncertain in the absence of a verified receipt,
+   even when Core stops the stream before `:eof`.
    `frames_sent` and `bytes_sent` count units handed to the NVR client, so
    after a failure they bound from above what reached the NVR.
 7. A capture `timeout_ms` outside 1 through 300000 is refused before any
@@ -268,10 +270,8 @@ A refused or aborted capture with the recovery gate closed is reported as
 uncertain and keeps its claim.
 
 Incomplete work retains its journal and completed blocks. A stream longer than
-one block seals each full block as it goes. A capture at the default
-`nvr.maxBlockFragments` of 150 fits one block and cannot rotate, but on a
-deployment configured with a small fragment limit a capture can still rotate,
-and a later refusal or Core abort then leaves the earlier block sealed while
+one block seals each full block as it goes. If a capture rotates before a
+later refusal or Core abort, the NVR leaves the earlier block sealed while
 Core attempts to release the recorder claim. The NVR reports blocks sealed mid-stream only
 in a 200 receipt, so Core does not learn that block's ID; find it with block
 discovery at that NVR. The request never repairs, deletes or adopts retained
@@ -293,8 +293,8 @@ and changes nothing on disk. Answers: 200 with the descriptor bytes, 401 for a
 client that fails the certificate pin or token, 404 `block_not_found` for an ID
 that names no retained block (including a malformed ID), 409 `block_not_sealed`
 for a block with no seal that verifies, and 503 `descriptor_unavailable` when
-the read pool is full or the recovery state refuses the read. The request is
-bounded by 15 seconds.
+the read pool is full, the read times out, recovery is closed or storage is
+unavailable. The request deadline is 15 seconds.
 
 ## Archive upload
 

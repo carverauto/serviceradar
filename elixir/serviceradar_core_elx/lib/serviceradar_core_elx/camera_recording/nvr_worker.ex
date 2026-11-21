@@ -17,38 +17,24 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   recovery. A lost, cut-short or unreadable NVR answer is uncertain, and so is
   a non-200 answer read after the end marker, which can follow a seal.
 
-  A verified `sealed_local` receipt for exactly the reserved block registers
-  that block before the recorder claim is released: the worker reads the
-  block's canonical descriptor from the NVR (`GET /v1/blocks/<id>/descriptor`)
-  and calls `ServiceRadar.Camera.RecordingBlocks.freeze_and_catalog/6` under its
-  still-live claim, which freezes the descriptor on the `RecordingBlock` and
-  creates its `RecordingCatalogEntry` in one transaction, with the archive state
-  the camera's `CameraRecordingPolicy` storage mode selects. The catalog entry
-  uses the `received` time basis: the capture is one run whose anchor is its
-  first unit, so the block starts at the UTC time the inbox admitted that unit
-  and its window spans the descriptor's media duration. The uncertainty is
-  stored as unmeasured. `run_id` is the clock epoch and `anchor_id` names the
-  block the run anchored at. Registration runs within the capture deadline and
-  the held lease; the descriptor read and the freeze each run once.
+  On a verified seal for its reserved block, the worker reads the canonical NVR
+  descriptor and the camera's recording policy before calling
+  `ServiceRadar.Camera.RecordingBlocks.freeze_and_catalog/6` under its live
+  claim. Each step runs at most once. Registration leaves lease time for claim
+  release and relay close. The first admitted unit anchors the run, identified
+  by the clock epoch. Its anchor ID combines the epoch and block sequence.
 
-  The durable seal completes the capture even when the capture deadline or a
-  renewal failure prevents catalog registration. The receipt reports
-  `{:registered, entry_id}` when the freeze returns success and
-  `{:unregistered, reason}` for a definite refusal. A missed registration
-  deadline or ambiguous failure returns `{:unconfirmed, reason}`. The block
-  may or may not be cataloged and the reconciler decides.
-
-  The worker attempts claim release and requests relay close before reporting
-  completion. The receipt's `release` is `:released` or
-  `{:release_pending_lease_expiry, reason}`. A failed release logs a warning.
-  Lease expiry permits takeover and historical reconciliation.
+  The worker attempts claim release and requests relay close before reporting a
+  verified seal, including when registration was refused or its outcome is
+  uncertain. See `ServiceRadarCoreElx.CameraRecording.NVRCapture` for the receipt
+  fields.
 
   An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
   refused the unfinished stream and sealed nothing it had open. That is a
   definite failure: the worker reports `{:nvr_ingest_refused, details}` with the
   status and correlation fields and attempts to release the recorder claim,
-  as it does for a failure before streaming. The reserved `RecordingBlock` row stays `:open_local`, as after any
-  other failure; the NVR keeps the block's unsealed journal.
+  as it does for a failure before streaming. The reservation stays `:open_local`
+  and the NVR keeps the block's unsealed journal.
 
   Core can also stop the stream itself: a unit that fails order validation, a
   failed relay drain, a stopped relay pipeline or a failed fence renewal. The

@@ -498,8 +498,10 @@ Above the bar, banners and markers surface timing and durability provenance:
 
 - **Explicit `received` time basis:** Displays
   `Time basis: received (uncertainty: unmeasured)`. Wall-clock positions are
-  derived from `core-elx`'s UTC receipt timestamp of the first access unit plus
-  90 kHz media PTS spacing -- never unverified camera clocks.
+  based on receipt at `core-elx`. For a bounded capture, the window starts when
+  the relay inbox admits the first access unit and spans the sealed descriptor's
+  media duration. If the NVR skips leading units while waiting for a keyframe,
+  the displayed start precedes the first retained sample by the skipped duration.
 - **Clock re-anchor markers (`Clock re-anchored`):** Marks points where receipt
   clock drift triggered a timeline re-anchor without a media gap.
 - **`provisional` badge:** Indicates local copies on NVR storage lifetimes that
@@ -626,10 +628,10 @@ and background runtime workers in `core-elx` and `serviceradar-nvr`:
     the assignment in CNPG immediately; unattended continuous capture and
     background upload retries execute through `ContinuousRecorder` and
     `ArchiveBlockJob` on `core-elx`.
-  - **Volume reconciliation & live member sync:** Automatic 5-minute inventory
-    scans, journal recovery, and desired budget pushes execute through
-    `NVRReconcileJob`, `NVRStorageSettingsSyncJob`, and the NVR `/v1/status` and
-    `PUT /v1/storage/settings` endpoints.
+  - **Volume reconciliation & live member sync:** A sealed block whose live
+    registration failed can still appear as an open reservation. Automatic
+    inventory reconciliation and desired budget pushes are pending. See the
+    [reconciliation and storage sync tasks](https://github.com/carverauto/serviceradar/blob/staging/openspec/changes/add-nvr-retention-and-timeline-playback/tasks.md).
   - **Background eviction & byte-range media readers:** Automatic local disk
     reclamation (`LocalRetentionJob` + NVR `POST /v1/blocks/<id>/reclaim`),
     expired object deletion (`ArchiveRetentionJob`), and self-hosted capacity

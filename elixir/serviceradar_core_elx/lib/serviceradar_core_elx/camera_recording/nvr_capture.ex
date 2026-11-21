@@ -22,8 +22,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   on a unit with a backwards timestamp, cannot have sent the end marker either,
   so it returns `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` the
   same way. Without a verified seal receipt, a Core abort after `:eof`, a
-  capture timeout and caller loss stay uncertain. Like any other failure, a refused or aborted capture closes the
-  relay when this call opened it.
+  capture timeout and caller loss stay uncertain. A definite refusal or abort
+  closes the relay when this call opened it.
 
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
   `:bounds` sets the worker's frame, byte and media-duration bounds (see
@@ -35,7 +35,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   `catalog` field is `{:registered, entry_id}` when the worker froze the block's
   descriptor and created its catalog entry. A refusal returns
   `{:unregistered, reason}`. An ambiguous result returns `{:unconfirmed, reason}`.
-  The block may or may not be cataloged and the reconciler decides. The
+  An unconfirmed freeze may already have committed. The
   `release` field is `:released` or
   `{:release_pending_lease_expiry, reason}` when release could not be confirmed.
   The latter permits takeover after the lease expires.
