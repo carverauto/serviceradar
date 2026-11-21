@@ -1,7 +1,7 @@
 //! JetStream visual-index pull loop (`WPI` + publish-before-ACK) and reserved
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
-use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
+use crate::backend::{InferenceBackend, build_inference_backend};
 use crate::cmaf::{VideoCodec, parse_init_segment_with_codec, parse_timed_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
@@ -605,12 +605,6 @@ impl core::fmt::Debug for TextEmbedService {
 }
 
 impl TextEmbedService {
-    pub fn new(models: ModelPinConfig, concurrency: usize, metrics: Arc<WorkerMetrics>) -> Self {
-        let backend: Arc<dyn InferenceBackend> =
-            Arc::new(DeterministicStubBackend::new(models.clone()));
-        Self::with_backend(models, backend, concurrency, metrics)
-    }
-
     pub fn with_backend(
         models: ModelPinConfig,
         backend: Arc<dyn InferenceBackend>,
@@ -727,25 +721,6 @@ where
     S: FragmentStore + 'static,
     P: ResultPublisher + 'static,
 {
-    pub fn new(
-        config: &WorkerConfig,
-        grant_client: G,
-        fragment_store: S,
-        publisher: P,
-        metrics: Arc<WorkerMetrics>,
-    ) -> Self {
-        let backend: Arc<dyn InferenceBackend> =
-            Arc::new(DeterministicStubBackend::new(config.models().clone()));
-        Self::with_backend(
-            config,
-            backend,
-            grant_client,
-            fragment_store,
-            publisher,
-            metrics,
-        )
-    }
-
     pub fn with_backend(
         config: &WorkerConfig,
         backend: Arc<dyn InferenceBackend>,

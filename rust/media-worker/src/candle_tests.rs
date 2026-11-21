@@ -758,16 +758,32 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     ])
     .expect("parse conflicting arguments")
     .into_worker_config()
-    .expect_err("conflicting device and provider must fail before choosing the stub");
+    .expect_err("conflicting device and provider must fail before choosing the backend");
     assert!(
         conflict
             .to_string()
             .contains("execution_provider=cpu_explicit")
     );
 
-    // 1. Default without model dir selects stub.
+    let default = CliArgs::try_parse_from(["serviceradar-media-worker"])
+        .expect("parse default cli")
+        .into_worker_config()
+        .expect("default config");
+    assert_eq!(default.backend_kind(), InferenceBackendKind::Candle);
+    let error = build_inference_backend(&default)
+        .err()
+        .expect("Candle requires a checkpoint");
+    assert!(error.to_string().contains("MEDIA_WORKER_MODEL_DIR"));
+
+    assert!(
+        CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", "deterministic"])
+            .is_err()
+    );
+
     let cli_stub = CliArgs::try_parse_from([
         "serviceradar-media-worker",
+        "--backend",
+        "stub",
         "--execution-provider",
         "cpu_explicit",
     ])
@@ -778,7 +794,6 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     assert_eq!(stub_backend.info().backend(), InferenceBackendKind::Stub);
     assert_eq!(stub_backend.info().device(), "cpu");
 
-    // 2. Setting --model-dir defaults backend to candle.
     let cli_auto_candle = CliArgs::try_parse_from([
         "serviceradar-media-worker",
         "--execution-provider",
@@ -959,6 +974,20 @@ fn gradient_frames() -> Vec<RgbFrame> {
 
 #[test]
 fn parallel_siglip_preprocessing_matches_single_threaded_output_bit_for_bit() {
+    let red_blue = RgbFrame::from_rgb8(2, 1, vec![255, 0, 0, 0, 0, 255]).unwrap();
+    let green = RgbFrame::solid(1, 1, [0, 255, 0]);
+    let pixels = preprocess_siglip_batch(&[&red_blue, &green], 3, 2);
+    let planes = [
+        [1., 0., -1.],
+        [-1.; 3],
+        [-1., 0., 1.],
+        [-1.; 3],
+        [1.; 3],
+        [-1.; 3],
+    ];
+    let expected: Vec<f32> = planes.iter().flat_map(|row| row.repeat(3)).collect();
+    assert_eq!(pixels, expected);
+
     let frames = gradient_frames();
     let refs: Vec<&RgbFrame> = frames.iter().collect();
     let target = 12;
@@ -1096,10 +1125,22 @@ fn cuda_jit_cache_location_follows_cuda_driver_rules_and_unwritable_is_reported(
 }
 
 /// Delegates to the stub backend and records which towers ran.
-struct RecordingBackend {
+pub(super) struct RecordingBackend {
+    info: crate::InferenceBackendInfo,
     inner: DeterministicStubBackend,
     image_batches: std::sync::atomic::AtomicUsize,
     text_queries: std::sync::atomic::AtomicUsize,
+}
+
+impl RecordingBackend {
+    pub(super) fn new(models: &ModelPinConfig, info: crate::InferenceBackendInfo) -> Self {
+        Self {
+            info,
+            inner: DeterministicStubBackend::new(models.clone()),
+            image_batches: Default::default(),
+            text_queries: Default::default(),
+        }
+    }
 }
 
 impl InferenceBackend for RecordingBackend {
@@ -1127,7 +1168,7 @@ impl InferenceBackend for RecordingBackend {
     }
 
     fn info(&self) -> crate::backend::InferenceBackendInfo {
-        self.inner.info()
+        self.info.clone()
     }
 }
 
@@ -1136,12 +1177,9 @@ fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
     // Readiness (and therefore job claims and text-embedding RPCs, which start only
     // after admission) must wait for both towers to have run once: on CUDA that first
     // pass is where the PTX JIT compile happens.
-    let config = WorkerConfig::cpu_explicit_default();
-    let backend = Arc::new(RecordingBackend {
-        inner: DeterministicStubBackend::new(config.models().clone()),
-        image_batches: Default::default(),
-        text_queries: Default::default(),
-    });
+    let config = WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub);
+    let info = build_inference_backend(&config).expect("CPU stub").info();
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
     let probe = StaticProbe(GpuEnvironmentObservation::no_gpu());
     let manifest = verify_startup_capabilities_with_backend(
         &config,

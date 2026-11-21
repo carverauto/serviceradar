@@ -789,7 +789,10 @@ class PublicationVerificationTest(unittest.TestCase):
                   "elif '/manifests/sha256-' not in url: raise SystemExit(9)\n")
         self.fake("oras", "digest = 'sha256:' + 'a'*64\n"
                   "if sys.argv[1:3] == ['manifest', 'fetch']:\n"
-                  " if '--descriptor' in sys.argv: print(json.dumps({'digest': digest}))\n"
+                  " if '--descriptor' in sys.argv:\n"
+                  "  if os.getenv('ADVANCE_TAG') and 'triangulate' in pathlib.Path(os.environ['CALL_LOG']).read_text().splitlines():\n"
+                  "   digest = 'sha256:' + 'b'*64\n"
+                  "  print(json.dumps({'digest': digest}))\n"
                   " else: print(json.dumps({'mediaType': 'application/vnd.oci.image.manifest.v1+json', "
                   "'artifactType': 'application/example', 'config': {'digest': digest}, 'layers': ["
                   "{'digest': digest, 'mediaType': media, 'annotations': {'org.opencontainers.image.title': title}} "
@@ -797,8 +800,9 @@ class PublicationVerificationTest(unittest.TestCase):
                   "('application/vnd.serviceradar.native-addon.artifact.v1+gzip','example.tar.gz'), "
                   "('application/vnd.serviceradar.native-addon.artifact-signature.v1+hex','example.tar.gz.sig')]]}))\n"
                   "elif sys.argv[1:3] == ['blob', 'fetch']:\n"
-                  " if '--output' in sys.argv: pathlib.Path(sys.argv[sys.argv.index('--output')+1]).write_text('synthetic')\n"
-                  " else: print('{\"config\":{}}')\n"
+                  " dest = sys.argv[sys.argv.index('--output')+1]\n"
+                  " if dest == '-': print('{\"config\":{}}')\n"
+                  " else: pathlib.Path(dest).write_text('synthetic')\n"
                   "else: raise SystemExit(9)\n")
 
     def fake(self, name, body):
@@ -829,9 +833,29 @@ class PublicationVerificationTest(unittest.TestCase):
                         else:
                             self.assertIn("verify", calls)
 
-    def test_list_mode_reads_inventory_without_cosign(self):
-        environment = self.env | {"VERIFY_MODE": "key-unavailable"}
-        result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "--list-image-specs"],
+    def test_legacy_tag_advanced_before_final_verification_requires_its_own_ledger_entry(self):
+        self.calls.touch()
+        result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "latest"],
+                                env=self.env | {"ADVANCE_TAG": "1", "VERIFY_MODE": "valid"},
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sha256:" + "b" * 64, result.stderr)
+        self.assertIn("no signing-ledger record", result.stderr)
+
+    def test_registry_config_returns_oras_blob_bytes_on_stdout(self):
+        result = subprocess.run(["bash", "-c", 'source "$1"; oci_registry_config "$2"', "test",
+                                 str(self.root / "scripts/oci_registry.sh"), "registry.example/serviceradar/example:latest"],
+                                env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b'{"config":{}}\n')
+
+    def test_list_mode_reads_checkout_inventory_from_copied_verifier_without_cosign(self):
+        copied = self.root / "runner-temp" / "bin" / "verify.sh"
+        copied.parent.mkdir(parents=True)
+        shutil.copy2(self.root / "scripts/verify-oci-publish.sh", copied)
+        environment = self.env | {"VERIFY_MODE": "key-unavailable", "SERVICERADAR_REPO_ROOT": str(self.root),
+                                  "SERVICERADAR_COSIGN_COMMON": str(self.root / "scripts/cosign_common.sh")}
+        result = subprocess.run(["bash", str(copied), "--list-image-specs"],
                                 env=environment, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "registry.example/serviceradar/example|single\n")

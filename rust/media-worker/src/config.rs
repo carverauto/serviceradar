@@ -294,7 +294,7 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 8096)),
-            backend_kind: InferenceBackendKind::Stub,
+            backend_kind: InferenceBackendKind::Candle,
             model_dir: None,
             device_preference: InferenceDevicePreference::Auto,
             precision: InferencePrecision::Auto,
@@ -561,8 +561,8 @@ pub struct CliArgs {
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_PORT", default_value_t = 8096)]
     port: u16,
 
-    #[arg(long, env = "MEDIA_WORKER_BACKEND")]
-    backend: Option<String>,
+    #[arg(long, env = "MEDIA_WORKER_BACKEND", default_value = "candle")]
+    backend: InferenceBackendKind,
 
     #[arg(long, env = "MEDIA_WORKER_MODEL_DIR")]
     model_dir: Option<PathBuf>,
@@ -779,17 +779,6 @@ impl CliArgs {
         device_preference.validate_provider(execution_provider.requires_gpu())?;
 
         let model_dir = non_empty_path(self.model_dir);
-        let backend_kind = match non_empty_opt(self.backend) {
-            Some(raw) => InferenceBackendKind::from_str(&raw)?,
-            None => {
-                if model_dir.is_some() {
-                    InferenceBackendKind::Candle
-                } else {
-                    InferenceBackendKind::Stub
-                }
-            }
-        };
-
         let declared_gpu_sharing_mode = match self
             .gpu_sharing_mode
             .as_deref()
@@ -831,7 +820,7 @@ impl CliArgs {
 
         Ok(WorkerConfig {
             listen_addr,
-            backend_kind,
+            backend_kind: self.backend,
             model_dir,
             device_preference,
             precision,

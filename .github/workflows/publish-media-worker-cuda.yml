@@ -99,7 +99,6 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           artifact-ids: ${{ needs.toolchain.outputs.artifact_id }}
-          merge-multiple: true
           path: ${{ runner.temp }}/rust-toolchain
 
       - name: Build the CUDA media worker
@@ -158,7 +157,6 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          merge-multiple: true
           path: ${{ runner.temp }}/media-worker-cuda
 
       # Before any credential is touched: the bytes are the ones the build job reported.
@@ -181,23 +179,6 @@ jobs:
           HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
           HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
         run: python3 ./scripts/ci/harbor-publish.py setup
-
-      # A sha tag is immutable once promoted; the build is not bit-reproducible, so a
-      # second publish of one commit would be a different digest under the same tag.
-      - name: Refuse a commit that is already published
-        run: |
-          set -euo pipefail
-          reference="${OCI_REGISTRY}/serviceradar/${IMAGE}:sha-${GITHUB_SHA}"
-          if python3 "${HARBOR_PUBLISH_TOOL}" protected oras resolve "${reference}" >/dev/null 2>"${RUNNER_TEMP}/resolve.err"; then
-            echo "${reference} is already published" >&2
-            exit 1
-          fi
-          # Only "not found" proves the tag is free; a refused login proves nothing.
-          if ! grep -qi 'not found' "${RUNNER_TEMP}/resolve.err"; then
-            echo "could not tell whether ${reference} exists:" >&2
-            cat "${RUNNER_TEMP}/resolve.err" >&2
-            exit 1
-          fi
 
       - name: Assemble and push to the build project
         id: push

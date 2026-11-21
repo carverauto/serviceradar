@@ -6,7 +6,7 @@
 //! backend (`MEDIA_WORKER_BACKEND=candle`) share one `Send + Sync` contract.
 
 use crate::candle_backend::{CandleBackend, CandleBackendOptions, preprocess_thread_budget};
-use crate::config::{ModelPinConfig, WorkerConfig};
+use crate::config::{ExecutionProvider, ModelPinConfig, WorkerConfig};
 use crate::errors::{CapabilityError, MediaWorkerError};
 use crate::vision::{
     ObjectClass, RgbFrame, classify_dominant_colors, detect_stub_objects, embed_query_text,
@@ -26,6 +26,18 @@ pub enum InferenceBackendKind {
 }
 
 impl InferenceBackendKind {
+    pub(crate) fn validate_provider(
+        self,
+        provider: ExecutionProvider,
+    ) -> Result<(), CapabilityError> {
+        if self == Self::Stub && provider.requires_gpu() {
+            return Err(CapabilityError::gpu_unavailable(
+                "MEDIA_WORKER_BACKEND=stub requires execution_provider=cpu_explicit",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Stub => "stub",
@@ -44,8 +56,8 @@ impl FromStr for InferenceBackendKind {
     type Err = CapabilityError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "stub" | "deterministic" => Ok(Self::Stub),
+        match s {
+            "stub" => Ok(Self::Stub),
             "candle" => Ok(Self::Candle),
             other => Err(CapabilityError::invalid_configuration(format!(
                 "unsupported MEDIA_WORKER_BACKEND '{other}'; expected 'candle' or 'stub'"
@@ -366,6 +378,9 @@ pub fn build_inference_backend(
     config
         .device_preference()
         .validate_provider(config.execution_provider().requires_gpu())?;
+    config
+        .backend_kind()
+        .validate_provider(config.execution_provider())?;
     match config.backend_kind() {
         InferenceBackendKind::Stub => Ok(Arc::new(DeterministicStubBackend::new(
             config.models().clone(),

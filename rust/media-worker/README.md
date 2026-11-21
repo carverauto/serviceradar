@@ -73,9 +73,12 @@ for the CAVLC truncation behavior and the reasons for the single-slice restricti
 The CUDA image, its build and its runtime requirements are described in
 [docs/media-worker-cuda-image.md](../../docs/media-worker-cuda-image.md).
 
-Mount a SigLIP checkpoint directory read-only and set `MEDIA_WORKER_MODEL_DIR` to
-its mount path to select Candle. Supply `config.json`, `tokenizer.json`, and
+Candle is the default backend and requires a checkpoint. Mount its directory read-only and set `MEDIA_WORKER_MODEL_DIR` to
+its mount path. Supply `config.json`, `tokenizer.json`, and
 `model.safetensors` (or `siglip.safetensors`) in that directory.
+
+For tests, explicitly select `MEDIA_WORKER_BACKEND=stub` with
+`SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER=cpu_explicit`. The stub emits synthetic vectors.
 
 ## Device and execution provider
 

@@ -27,9 +27,10 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/publish-media-worker-cuda.yml"
 IMAGE_TOOL = ROOT / "scripts/ci/media-worker-cuda-image.py"
 BUILD_SCRIPT = ROOT / "scripts/build-media-worker-cuda.sh"
-DIGEST_REF = re.compile(r"^[a-z0-9.\-/]+@sha256:[0-9a-f]{64}$")
+CUDA_BUILDER = "docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266"
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "d" * 64
+NOTICE_PACKAGES = ("libcublas-13-0", "libcurand-13-0", "cuda-nvrtc-13-0", "cuda-cudart-13-0")
 LIBRARIES = ("libcublas.so.13", "libcublasLt.so.13", "libcurand.so.10",
              "libnvrtc.so.13", "libcudart.so.13")
 
@@ -83,7 +84,7 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
         build = self.jobs["build"]
         self.assertEqual(build["runs-on"], "serviceradar-arm64-build")
         image = build["container"]["image"]
-        self.assertRegex(image, DIGEST_REF)
+        self.assertEqual(image, CUDA_BUILDER)
         self.assertEqual(build["env"]["CUDA_BUILDER_IMAGE"], image)
 
     def test_every_action_is_pinned_to_a_commit(self):
@@ -189,11 +190,11 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
             scripts.mkdir()
             builder = scripts / BUILD_SCRIPT.name
             builder.write_text('#!/bin/bash\nset -eu\necho "$1" >> commands\n'
-                               'case "$1" in fetch-toolchain) ;; build) mkdir -p "$3"; : > "$3/SHA256SUMS";; *) exit 1;; esac\n')
+                               'case "$1" in fetch-toolchain) ;; build) [[ "$CUDA_BUILDER_IMAGE" == "$EXPECTED_BUILDER" ]]; mkdir -p "$3"; : > "$3/SHA256SUMS";; *) exit 1;; esac\n')
             builder.chmod(0o755)
             for tool in ("mkdir", "awk", "sha256sum", "cat"):
                 (root / tool).symlink_to(shutil.which(tool))
-            env = self.workflow["env"] | {"PATH": work, "HOME": work, "RUNNER_TEMP": work,
+            env = self.workflow["env"] | {"PATH": work, "HOME": work, "RUNNER_TEMP": work, "EXPECTED_BUILDER": CUDA_BUILDER,
                                           "GITHUB_REF": "refs/heads/test/demo-test-x", "GITHUB_SHA": COMMIT,
                                           "GITHUB_OUTPUT": str(root / "outputs"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
             for name in ("toolchain", "build"):
@@ -214,13 +215,13 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
         self.assertIn(image, {entry["repository"] for entry in native})
         reference = f"registry.carverauto.dev/serviceradar/{image}:sha-{COMMIT}"
         expected = [
-            "verify bundle", "setup", "protected oras resolve " + reference, "push",
+            "verify bundle", "setup", "push",
             "authenticate", f"build ./scripts/sign-oci-publish.sh {DIGEST}",
             f"build ./scripts/verify-oci-publish.sh {DIGEST}",
             f"promote --repositories {image} --tag sha-{COMMIT} --digest {DIGEST}",
             f"protected ./scripts/verify-oci-publish.sh {DIGEST}", "protected oras resolve " + reference,
         ]
-        for fail in ("", expected[0], expected[6], expected[8]):
+        for fail in ("", expected[0], expected[5], expected[7]):
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as work:
                 root = Path(work)
                 scripts = root / "scripts"
@@ -246,9 +247,7 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
                     "    assert args[3] == 'push'\n    call = 'push'\n"
                     "    Path(args[args.index('--digest-file') + 1]).write_text(os.environ['BUILT'])\n"
                     "elif args[1:3] == ['oras', 'resolve']:\n"
-                    "    if 'push' not in Path('calls').read_text().splitlines():\n"
-                    "        print(call, file=open('calls', 'a'))\n"
-                    "        sys.exit('not found')\n    print(os.environ['BUILT'])\n"
+                    "    print(os.environ['BUILT'])\n"
                     "elif len(args) > 1 and args[0] in ('build', 'protected'):\n"
                     "    assert os.environ['SERVICERADAR_NATIVE_IMAGE'] == 'serviceradar-media-worker-cuda'\n"
                     "    assert os.environ['VAULT_TOKEN'] == 'synthetic'\n"
@@ -294,6 +293,8 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
         files = {"serviceradar-media-worker": b"synthetic-binary"}
         for library in LIBRARIES:
             files[f"lib/{library}"] = f"synthetic {library}".encode()
+        for package in NOTICE_PACKAGES:
+            files[f"third-party/{package}.copyright"] = f"synthetic notice for {package}".encode()
         binary_sha = hashlib.sha256(files["serviceradar-media-worker"]).hexdigest()
         files["manifest.json"] = json.dumps({"commit": COMMIT, "cuda_compute_cap": "121", "binary": {"sha256": binary_sha}}).encode()
         for name, data in files.items():
@@ -325,6 +326,8 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
 
     def test_verify_rejects_unlisted_unexpected_or_missing_files(self):
         cases = {
+            "missing notice": lambda: ((self.bundle / "third-party/libcurand-13-0.copyright").unlink(), self.write_sums()),
+            "extra notice": lambda: ((self.bundle / "third-party/random.txt").write_bytes(b"x"), self.write_sums()),
             "unlisted": lambda: (self.bundle / "lib/libextra.so.1").write_bytes(b"x"),
             "unexpected": lambda: ((self.bundle / "run.sh").write_bytes(b"x"), self.write_sums()),
             "missing": lambda: ((self.bundle / "lib/libcurand.so.10").unlink(), self.write_sums()),
@@ -351,6 +354,9 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
             for library in LIBRARIES:
                 self.assertIn(f"usr/local/lib/serviceradar-cuda/{library}", members)
             self.assertNotIn("usr/local/lib/serviceradar-cuda/libcuda.so.1", members)
+            for package in NOTICE_PACKAGES:
+                member = f"usr/share/doc/serviceradar-media-worker-cuda/third-party/{package}.copyright"
+                self.assertEqual(layer.extractfile(member).read(), f"synthetic notice for {package}".encode())
             cache = members["var/cache/serviceradar-media-worker/cuda"]
             self.assertEqual((cache.isdir(), cache.uid), (True, 10001))
             passwd = layer.extractfile("etc/passwd").read().decode()
@@ -374,10 +380,7 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
                 config["User"] = args[args.index("--user") + 1]
                 for option, key in (("--env", "Env"), ("--label", "Labels")):
                     config[key] = dict(args[i + 1].split("=", 1) for i, arg in enumerate(args) if arg == option)
-                return ""
-            if command == "digest":
-                self.assertEqual(args, (f"{repo}:sha-{COMMIT}",))
-                return DIGEST
+                return f"{repo}@{DIGEST}"
             self.assertEqual((command, *args), ("config", f"{repo}@{DIGEST}"))
             return json.dumps({"architecture": "arm64", "os": "linux", "config": config,
                                "rootfs": {"diff_ids": ["sha256:" + top_layer]}})

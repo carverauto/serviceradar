@@ -24,6 +24,7 @@ One layer on the same pinned `ubuntu:24.04` base the CPU image uses
 | --- | --- |
 | `/usr/local/bin/serviceradar-media-worker` | the CUDA build of the worker (entrypoint) |
 | `/usr/local/lib/serviceradar-cuda/` | cuBLAS, cuBLASLt, cuRAND, NVRTC (+ builtins), cudart from the pinned CUDA 13.0.3 devel image (`LD_LIBRARY_PATH`) |
+| `/usr/share/doc/serviceradar-media-worker-cuda/third-party/` | Copyright and licence texts from the CUDA runtime, NVRTC (including builtins), cuBLAS (including cuBLASLt), and cuRAND packages in the pinned builder |
 | `/etc/ssl/certs/ca-certificates.crt` | the Mozilla CA bundle pinned as `mozilla_ca_bundle` in `MODULE.bazel` |
 | `/etc/passwd`, `/etc/group` | `root` and `serviceradar` (10001), as in the Bazel images |
 | `/var/cache/serviceradar-media-worker/cuda` | `CUDA_CACHE_PATH`, owned by 10001 |
@@ -42,7 +43,8 @@ CUDA 13.0 (driver 580 or newer).
 
 - Mount the SigLIP checkpoint read-only, for example at
   `/var/lib/serviceradar-media-worker/models/siglip`, and set `MEDIA_WORKER_MODEL_DIR`
-  to that directory. It must contain `config.json`, `tokenizer.json`, and
+  to that directory. The default Candle backend requires this setting to start.
+  The directory must contain `config.json`, `tokenizer.json`, and
   `model.safetensors` (or `siglip.safetensors`).
 - A GPU allocation (`nvidia.com/gpu`) and the NVIDIA runtime class on the node.
   The chart adds the GPU request whenever `mediaWorker.executionProvider` is not
@@ -75,20 +77,20 @@ binary (RBE is amd64-only and has no CUDA toolkit).
    `--release --locked --features cuda` and `CUDA_COMPUTE_CAP=121`, and collects
    every CUDA library `ldd` resolves plus the fixed list above. An unresolved
    library other than `libcuda.so.1` fails the build. It uploads the binary,
-   `lib/`, `manifest.json` (binary and library sha256s, rustc/cargo/nvcc/cc
+   `lib/`, `third-party/`, `manifest.json` (binary and library sha256s, rustc/cargo/nvcc/cc
    versions, builder image) and `SHA256SUMS`, and reports the `SHA256SUMS`
    digest as a job output.
 3. **publish** (`serviceradar-signing`, environment `release`) runs only on
    `refs/heads/staging` and `refs/heads/test/demo-test-<N>`, the refs the
    `github-signing-runner` OpenBao role admits. It verifies the bundle against
-   the build job's digest before touching a credential, refuses a commit whose
-   protected tag already exists, assembles the image with crane
+   the build job's digest before touching a credential, assembles the image with crane
    (`scripts/ci/media-worker-cuda-image.py push`) into `serviceradar-builds`,
    checks the registry copy (arm64, user 10001, top layer equals the assembled
    layer), signs it with `scripts/sign-oci-publish.sh`
    (`SERVICERADAR_NATIVE_IMAGE`, admitted only for `NATIVE_BUILD_IMAGES`),
    verifies the signature against the signing ledger, promotes that digest to
    `serviceradar`, and verifies the protected signature against the same ledger.
+   A retry can complete verification of an identical digest. Promotion rejects a different digest for an existing commit tag.
 
 Dispatching from any other branch builds the bundle and stops; it is the way to
 try a change on the hardware without publishing.

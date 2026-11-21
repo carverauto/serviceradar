@@ -257,6 +257,9 @@ pub fn verify_startup_capabilities<P: GpuEnvironmentProbe>(
 ) -> Result<CapabilityManifest, CapabilityError> {
     validate_worker_bounds(config)?;
     verify_all_model_digests(config.models())?;
+    config
+        .backend_kind()
+        .validate_provider(config.execution_provider())?;
 
     let backend = build_inference_backend(config).map_err(|err| {
         CapabilityError::invalid_configuration(format!(
@@ -278,6 +281,16 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
     verify_all_model_digests(config.models())?;
 
     let backend_info = backend.info();
+    backend_info
+        .backend()
+        .validate_provider(config.execution_provider())?;
+    if config.backend_kind() != backend_info.backend() {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured backend {} differs from active backend {}",
+            config.backend_kind(),
+            backend_info.backend()
+        )));
+    }
     let obs = probe.observe(config)?;
     let sharing_mode = verify_provider_and_classify_sharing(config, &obs, &backend_info)?;
 
@@ -426,30 +439,17 @@ fn verify_provider_and_classify_sharing(
             }
             Ok(GpuSharingMode::CpuExplicit)
         }
-        ExecutionProvider::Cuda => {
-            verify_nvidia_hardware_present(config, obs, "cuda")?;
-            match backend_info.backend() {
-                InferenceBackendKind::Candle => {
-                    if !backend_info.device().starts_with("cuda") {
-                        return Err(CapabilityError::gpu_unavailable(format!(
-                            "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
-                            backend_info.device()
-                        )));
-                    }
-                }
-                InferenceBackendKind::Stub => {
-                    if !obs.ort_probe().loaded() || !obs.ort_probe().cuda_ep_available() {
-                        return Err(CapabilityError::gpu_unavailable(
-                            "ONNX Runtime CUDAExecutionProvider unavailable; refusing silent CPU fallback",
-                        ));
-                    }
-                }
+        provider @ (ExecutionProvider::Cuda | ExecutionProvider::Tensorrt) => {
+            verify_nvidia_hardware_present(config, obs, provider.as_str())?;
+            if !backend_info.device().starts_with("cuda") {
+                return Err(CapabilityError::gpu_unavailable(format!(
+                    "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
+                    backend_info.device()
+                )));
             }
-            classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
-        }
-        ExecutionProvider::Tensorrt => {
-            verify_nvidia_hardware_present(config, obs, "tensorrt")?;
-            if !obs.ort_probe().loaded() || !obs.ort_probe().tensorrt_ep_available() {
+            if provider == ExecutionProvider::Tensorrt
+                && (!obs.ort_probe().loaded() || !obs.ort_probe().tensorrt_ep_available())
+            {
                 return Err(CapabilityError::gpu_unavailable(
                     "ONNX Runtime TensorRTExecutionProvider unavailable; refusing silent CPU fallback",
                 ));

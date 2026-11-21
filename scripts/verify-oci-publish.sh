@@ -153,7 +153,7 @@ check_image_shape() {
       | ($platforms | index("linux/amd64")) != null
       and ($platforms | index("linux/arm64/v8")) != null
     ' <<<"$raw" >/dev/null || fail "${subject} is missing amd64/arm64-v8 manifests"
-  elif [[ "$kind" != "native" || "$media_type" != "application/vnd.docker.distribution.manifest.v2+json" ]]; then
+  else
     assert_eq "$media_type" "application/vnd.oci.image.manifest.v1+json" "${subject} mediaType"
   fi
 }
@@ -218,8 +218,17 @@ check_config() {
   esac
 }
 
+signature_digest() {
+  if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+    printf '%s\n' "${1##*@}"
+  else
+    oci_registry_digest "$1"
+  fi
+}
+
 check_signature_accessory() {
-  local ref="$1" digest="$2"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   local repo_path="${ref#"${REGISTRY_HOST}"/}"
   local auth user pass token
@@ -272,7 +281,8 @@ check_signature_accessory() {
 }
 
 check_legacy_signature_tag() {
-  local ref="$1" digest="$2"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   local signature_ref
   signature_ref="$(cosign triangulate "${ref}@${digest}")"
@@ -301,7 +311,8 @@ check_legacy_signature_tag() {
 }
 
 check_cosign_verify() {
-  local ref="$1" digest="$2"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   if ! cosign_init_verify_args; then
     fail "${ref}@${digest} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
@@ -315,17 +326,16 @@ for tag in "${TAGS[@]}"; do
     IFS="|" read -r ref kind <<<"$spec"
     if [[ "${kind}" == native ]]; then
       [[ $# == 1 && "${tag}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "a native-build image requires one verified digest"
-      digest="${tag}"
+      subject="${ref}@${tag}"
     else
-      digest="$(oci_registry_digest "${ref}:${tag}")"
+      subject="${ref}:${tag}"
     fi
-    subject="${ref}@${digest}"
     echo "checking ${subject}"
     check_image_shape "${subject}" "${kind}"
     check_config "${subject}" "${ref}"
-    check_signature_accessory "${ref}" "${digest}"
-    check_legacy_signature_tag "${ref}" "${digest}"
-    check_cosign_verify "${ref}" "${digest}"
+    check_signature_accessory "${ref}" "${subject}"
+    check_legacy_signature_tag "${ref}" "${subject}"
+    check_cosign_verify "${ref}" "${subject}"
   done
 done
 

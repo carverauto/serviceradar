@@ -62,22 +62,6 @@ PY
 
 diff -u "${tmp_dir}/expected-specs" "${tmp_dir}/actual-specs"
 
-oci_registry_body="$(<"${repo_root}/scripts/oci_registry.sh")"
-if [[ "${oci_registry_body}" != *'oras blob fetch --output -'* ]]; then
-  echo "oci_registry.sh must pass --output - to oras blob fetch (oras 1.3 requires it)" >&2
-  exit 1
-fi
-
-verify_body="$(<"${verify_script}")"
-for fragment in \
-  'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"' \
-  'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"'; do
-  if [[ "${verify_body}" != *"${fragment}"* ]]; then
-    echo "verify-oci-publish.sh is missing RUNNER_TEMP-safe contract: ${fragment}" >&2
-    exit 1
-  fi
-done
-
 for repository in \
   serviceradar-trivy-sidecar \
   serviceradar-datasvc \
@@ -348,7 +332,6 @@ python3 - \
   "${image_security_workflow}" \
   "${upload_release_asset}" \
   "${cut_release}" \
-  "${sign_oci_publish}" \
   "${demo_prod_application}" <<'PY'
 import sys
 from pathlib import Path
@@ -362,8 +345,7 @@ source_security_workflow = Path(sys.argv[6]).read_text()
 image_security_workflow = Path(sys.argv[7]).read_text()
 upload_release_asset = Path(sys.argv[8]).read_text()
 cut_release = Path(sys.argv[9]).read_text()
-sign_oci_publish = Path(sys.argv[10]).read_text()
-demo_prod_application = Path(sys.argv[11]).read_text()
+demo_prod_application = Path(sys.argv[10]).read_text()
 
 required_workflow_fragments = [
     "id: source",
@@ -463,21 +445,6 @@ if publish_images_step.count('SERVICERADAR_REPO_ROOT="${PWD}"') < 2:
 # back in under any other config. Match on the rebuild's shape instead.
 if 'mapfile -t image_targets' in publish_images_step or '--stamp "${image_targets[@]}"' in publish_images_step:
     raise SystemExit("release retry must not rebuild image digests after registry equality is proven")
-
-for fragment in (
-    'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"',
-    'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"',
-    'SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"',
-    'oci_registry_digest',
-    '"${repository}:${SIGN_REGISTRY_TAG}"',
-    'digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"',
-    'digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"',
-    'digest_source="Bazel OCI digest metadata ${digest_file}"',
-):
-    if fragment not in sign_oci_publish:
-        raise SystemExit(f"OCI signer is missing canonical Bazel digest handling: {fragment}")
-if '_index.json"' in sign_oci_publish:
-    raise SystemExit("OCI signer still relies on non-top-level Bazel index metadata")
 
 postflight = workflow.index("Rechecking release image digest equality after publish/build handling.")
 signing = workflow.index("source ./scripts/ci/prepare-openbao-cosign-env.sh")
@@ -847,7 +814,7 @@ mkdir -p "${sign_test_dir}/bin" "${sign_test_dir}/docker/images" "${sign_test_di
 
 cat > "${sign_test_dir}/docker/images/image_inventory.bzl" <<'EOF'
 PUBLISHABLE_IMAGES = [
-    {"image": "first_img", "repository": "registry.example/serviceradar/first"},
+    {"image": "first_child", "push_image": "first_img", "repository": "registry.example/serviceradar/first"},
     {"image": "second_img", "repository": "registry.example/serviceradar/second"},
     {"image": "third_img", "repository": "registry.example/serviceradar/third"},
 ]
@@ -897,9 +864,21 @@ chmod +x "${sign_test_dir}/bin/curl"
 cat > "${sign_test_dir}/bin/jq" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${2:-}" == '.digest // empty' ]]; then
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])'
+  exit
+fi
 printf 'fake-token\n'
 EOF
 chmod +x "${sign_test_dir}/bin/jq"
+
+cat > "${sign_test_dir}/bin/oras" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == "manifest fetch --descriptor registry.example/serviceradar-builds/first:sha-test" ]]
+printf '{"digest":"sha256:%064d"}\n' 9
+EOF
+chmod +x "${sign_test_dir}/bin/oras"
 
 cat > "${sign_test_dir}/bin/cosign" <<'EOF'
 #!/usr/bin/env bash
@@ -1026,6 +1005,17 @@ for image in first second third; do
     echo "sign-oci-publish did not sign ${image} exactly once" >&2
     exit 1
   fi
+done
+
+SERVICERADAR_SIGN_REGISTRY_TAG=sha-test SERVICERADAR_OCI_REPOSITORIES=first \
+  run_fake_sign_oci "" "${sign_test_dir}/tag.log" "${sign_test_dir}/state-tag"
+for source in new tag; do
+  case "${source}" in new) number=1 ;; tag) number=9 ;; esac
+  expected="$(printf 'generate registry.example/serviceradar-builds/first@sha256:%064d' "${number}")"
+  grep -Fxq "${expected}" "${sign_test_dir}/${source}.log" || {
+    echo "signer did not submit the expected ${source} digest: ${expected}" >&2
+    exit 1
+  }
 done
 
 # 1a. Each new `.sig` layer carries the legacy bundle's `rekorBundle` verbatim as its

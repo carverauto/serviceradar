@@ -11,17 +11,17 @@ use crate::{
     CapabilityErrorKind, EphemeralS3Credentials, ExecutionProvider, FragmentSlicePlan,
     FragmentStore, GpuEnvironmentObservation, GpuEnvironmentProbe, GpuSharingMode, GrantClient,
     GrantResolution, HEADER_CONTROL_PLANE_AUTH, HEADER_DEPLOYMENT_REF,
-    HEADER_MEDIA_WORKER_GENERATION, HttpControlPlaneGrantClient, IntegrityErrorKind, JobDelivery,
-    JobOutcome, LocalGrantTarget, LocalPlanSpec, LongshoreArchiveReader, MAX_COALESCED_RANGE_BYTES,
-    MAX_LONGSHORE_REGISTERED_POOL_BYTES, MediaWorkerError, MediaWorkerErrorKind, ModelPinConfig,
-    NvrAnalysisReader, ObjectClass, OrtRuntimeProbeResult, ReadGrantPlan, ReadGrantRequest,
-    ReadinessState, ResultPublisher, SyntheticColor, SyntheticFragmentSpec, SyntheticObjectSpec,
-    TextEmbedRpcRequest, TextEmbedRpcResponse, TextEmbedService, VISUAL_INDEX_RESULTS_SUBJECT,
-    VerifiedKeyframeBlock, VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope,
-    WorkerAuthCredentials, WorkerConfig, WorkerMetrics, coalesce_fragment_ranges,
-    cosine_similarity, embed_query_text, generate_synthetic_cmaf_block,
-    longshore_registered_pool_bytes, serve_http_probes, spawn_nats_text_embed_responder,
-    text_embed_rpc_subject, verify_startup_capabilities,
+    HEADER_MEDIA_WORKER_GENERATION, HttpControlPlaneGrantClient, InferenceBackendKind,
+    IntegrityErrorKind, JobDelivery, JobOutcome, LocalGrantTarget, LocalPlanSpec,
+    LongshoreArchiveReader, MAX_COALESCED_RANGE_BYTES, MAX_LONGSHORE_REGISTERED_POOL_BYTES,
+    MediaWorkerError, MediaWorkerErrorKind, ModelPinConfig, NvrAnalysisReader, ObjectClass,
+    OrtRuntimeProbeResult, ReadGrantPlan, ReadGrantRequest, ReadinessState, ResultPublisher,
+    SyntheticColor, SyntheticFragmentSpec, SyntheticObjectSpec, TextEmbedRpcRequest,
+    TextEmbedRpcResponse, TextEmbedService, VISUAL_INDEX_RESULTS_SUBJECT, VerifiedKeyframeBlock,
+    VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, WorkerAuthCredentials,
+    WorkerConfig, WorkerMetrics, coalesce_fragment_ranges, cosine_similarity, embed_query_text,
+    generate_synthetic_cmaf_block, longshore_registered_pool_bytes, serve_http_probes,
+    spawn_nats_text_embed_responder, text_embed_rpc_subject, verify_startup_capabilities,
 };
 use crate::{
     KeyframeDecodeError, KeyframeDecoder, ParsedInitSegment, ParsedMediaFragment, RgbFrame,
@@ -47,35 +47,50 @@ impl GpuEnvironmentProbe for StaticGpuProbe {
 
 #[test]
 fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model_digests() {
-    // 1. CUDA & TensorRT fail closed when no GPU device nodes exist — ZERO silent CPU fallback.
+    let admit_cuda_backend = |cfg: &WorkerConfig, observation| {
+        let info = crate::InferenceBackendInfo::new(
+            InferenceBackendKind::Candle,
+            "cuda:0",
+            cfg.models().embedding_dim(),
+            "synthetic",
+            false,
+        );
+        let backend = crate::candle_tests::RecordingBackend::new(cfg.models(), info);
+        crate::verify_startup_capabilities_with_backend(
+            cfg,
+            &StaticGpuProbe(observation),
+            Arc::new(backend),
+        )
+    };
     for provider in [ExecutionProvider::Cuda, ExecutionProvider::Tensorrt] {
         let cfg = WorkerConfig::default().with_execution_provider(provider);
-        let err =
-            verify_startup_capabilities(&cfg, &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()))
-                .expect_err("GPU provider without hardware must fail closed");
-        assert!(
-            matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)),
-            "expected GpuUnavailable for {provider}, got {err:?}"
-        );
+        let err = admit_cuda_backend(&cfg, GpuEnvironmentObservation::no_gpu())
+            .expect_err("GPU provider without hardware must fail closed");
+        assert!(matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)));
+
+        for available in [false, true] {
+            let probe = StaticGpuProbe(GpuEnvironmentObservation::new(
+                1,
+                false,
+                false,
+                None,
+                Some(16_384),
+                OrtRuntimeProbeResult::synthetic("1.20.1", available, available),
+            ));
+            let stub_config = cfg.clone().with_backend_kind(InferenceBackendKind::Stub);
+            let err = verify_startup_capabilities(&stub_config, &probe)
+                .expect_err("GPU provider must refuse the CPU stub");
+            assert!(
+                matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(reason)
+                if reason.contains("cpu_explicit"))
+            );
+            let stub = Arc::new(crate::DeterministicStubBackend::new(cfg.models().clone()));
+            let err = crate::verify_startup_capabilities_with_backend(&cfg, &probe, stub)
+                .expect_err("an injected CPU stub must also fail GPU admission");
+            assert!(matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)));
+        }
     }
-
-    // 2. CUDA present on host, but ORT lacks CUDAExecutionProvider -> fails closed.
-    let gpu_no_ort = GpuEnvironmentObservation::new(
-        1,
-        false,
-        false,
-        Some("565.57.01".to_string()),
-        Some(16_384),
-        OrtRuntimeProbeResult::synthetic("1.20.1", false, false),
-    );
     let cuda_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Cuda);
-    let ort_err = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(gpu_no_ort))
-        .expect_err("missing CUDA EP must fail closed");
-    assert!(matches!(
-        ort_err.kind(),
-        CapabilityErrorKind::GpuUnavailable(_)
-    ));
-
     // 3. TensorRT fails closed when only CUDA EP is available (no silent downgrade to CUDA or CPU).
     let cuda_only_obs = GpuEnvironmentObservation::new(
         1,
@@ -86,7 +101,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         OrtRuntimeProbeResult::synthetic("1.20.1", true, false),
     );
     let trt_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Tensorrt);
-    let trt_err = verify_startup_capabilities(&trt_cfg, &StaticGpuProbe(cuda_only_obs.clone()))
+    let trt_err = admit_cuda_backend(&trt_cfg, cuda_only_obs.clone())
         .expect_err("TensorRT without TensorRT EP must fail closed");
     assert!(matches!(
         trt_err.kind(),
@@ -94,7 +109,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
     ));
 
     // 4. CUDA succeeds when GPU + VRAM + CUDA EP are verified, and classifies physical / MIG / time_sliced.
-    let phys_manifest = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(cuda_only_obs))
+    let phys_manifest = admit_cuda_backend(&cuda_cfg, cuda_only_obs)
         .expect("verified CUDA capability should succeed");
     assert_eq!(phys_manifest.execution_provider(), ExecutionProvider::Cuda);
     assert_eq!(phys_manifest.gpu_sharing_mode(), GpuSharingMode::Physical);
@@ -108,7 +123,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(20_480),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, true),
     );
-    let mig_manifest = verify_startup_capabilities(&trt_cfg, &StaticGpuProbe(mig_obs))
+    let mig_manifest = admit_cuda_backend(&trt_cfg, mig_obs)
         .expect("verified TensorRT MIG capability should succeed");
     assert_eq!(mig_manifest.gpu_sharing_mode(), GpuSharingMode::Mig);
 
@@ -120,7 +135,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(8_192),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, false),
     );
-    let ts_manifest = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(ts_obs))
+    let ts_manifest = admit_cuda_backend(&cuda_cfg, ts_obs)
         .expect("verified CUDA time-sliced capability should succeed");
     assert_eq!(ts_manifest.gpu_sharing_mode(), GpuSharingMode::TimeSliced);
     assert_eq!(ts_manifest.max_stage2_batch_size(), 4);
@@ -147,7 +162,9 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         .with_embedder_pin(emb_path.clone(), emb_sha)
         .with_text_pin(txt_path.clone(), txt_sha);
 
-    let cpu_cfg = WorkerConfig::cpu_explicit_default().with_models(pinned_models);
+    let cpu_cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_models(pinned_models);
     let cpu_manifest = verify_startup_capabilities(
         &cpu_cfg,
         &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()),
@@ -228,7 +245,7 @@ async fn http_probe_server_serves_healthz_readyz_draining_503_and_prometheus_met
 
     // 2. Admit capabilities -> /readyz returns 200 JSON CapabilityManifest.
     let manifest = verify_startup_capabilities(
-        &WorkerConfig::cpu_explicit_default(),
+        &WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub),
         &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()),
     )
     .expect("cpu_explicit admission");
@@ -993,7 +1010,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
     // End-to-end test across BOTH 768-d (`siglip-b16-384`) and 512-d (`mobileclip-s2`) models!
     for (model_id, dim) in [("siglip-b16-384", 768usize), ("mobileclip-s2", 512usize)] {
         let models = ModelPinConfig::new("rtdetr-r18", "2026.1", model_id, "2026.1", dim);
-        let cfg = WorkerConfig::cpu_explicit_default().with_models(models.clone());
+        let cfg = WorkerConfig::cpu_explicit_default()
+            .with_backend_kind(InferenceBackendKind::Stub)
+            .with_models(models.clone());
 
         // Fragment 0: Wide-angle synthetic scene containing BOTH:
         //   - "person" in "red" garment at [0.10, 0.16, 0.26, 0.86]
@@ -1057,10 +1076,17 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
             fail_publish: false,
         };
         let metrics = Arc::new(WorkerMetrics::new());
-        let processor =
-            VisualIndexProcessor::new(&cfg, grant_client, store, publisher, Arc::clone(&metrics))
-                .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder))
-                .with_wpi_interval(Duration::from_millis(10));
+        let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+        let processor = VisualIndexProcessor::with_backend(
+            &cfg,
+            Arc::clone(&backend),
+            grant_client,
+            store,
+            publisher,
+            Arc::clone(&metrics),
+        )
+        .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder))
+        .with_wpi_interval(Duration::from_millis(10));
 
         let delivery = Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
@@ -1192,8 +1218,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
 
         // 4. Verify publish failure NEVER ACKs the source job message (`nak` instead)!
         let fail_events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let fail_proc = VisualIndexProcessor::new(
+        let fail_proc = VisualIndexProcessor::with_backend(
             &cfg,
+            Arc::clone(&backend),
             DelayedMockGrantClient {
                 resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
                     &job, &block,
@@ -1233,8 +1260,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         // 5. Verify `410 Gone` ACKs immediately without publishing any result!
         let gone_events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let gone_metrics = Arc::new(WorkerMetrics::new());
-        let gone_proc = VisualIndexProcessor::new(
+        let gone_proc = VisualIndexProcessor::with_backend(
             &cfg,
+            Arc::clone(&backend),
             DelayedMockGrantClient {
                 resolution: GrantResolution::Gone,
                 delay: Duration::ZERO,
@@ -1733,8 +1761,8 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
 async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_slots_are_saturated()
 {
     let models = ModelPinConfig::default(); // siglip-b16-384, 2026.1, 768-d
-    let cfg = WorkerConfig::default()
-        .with_execution_provider(ExecutionProvider::Cuda)
+    let cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
         .with_concurrency(2, 4)
         .with_models(models.clone());
     let metrics = Arc::new(WorkerMetrics::new());
@@ -1764,8 +1792,10 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         &models,
     );
 
-    let processor = VisualIndexProcessor::new(
+    let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+    let processor = VisualIndexProcessor::with_backend(
         &cfg,
+        Arc::clone(&backend),
         DelayedMockGrantClient {
             resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
                 &job, &block,
@@ -1819,7 +1849,8 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         .await
         .expect("caller connect to loopback NATS");
 
-    let text_service = TextEmbedService::new(models.clone(), 4, Arc::clone(&metrics));
+    let text_service =
+        TextEmbedService::with_backend(models.clone(), backend, 4, Arc::clone(&metrics));
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let _responder =
         spawn_nats_text_embed_responder(worker_nats.clone(), text_service, shutdown_rx)

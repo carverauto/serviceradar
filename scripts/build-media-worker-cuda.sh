@@ -247,6 +247,13 @@ build() (
 
   install -m 0755 "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" "${out}/${BINARY_NAME}"
   collect_cuda_libraries "${out}/${BINARY_NAME}" "${out}/lib"
+  local package notice
+  mkdir "${out}/third-party"
+  for package in libcublas-13-0 libcurand-13-0 cuda-nvrtc-13-0 cuda-cudart-13-0; do
+    notice="/usr/share/doc/${package}/copyright"
+    [[ -s "${notice}" ]] || die "missing CUDA redistribution notice: ${notice}"
+    install -m 0644 "${notice}" "${out}/third-party/${package}.copyright"
+  done
   write_manifest "${out}"
   (
     cd "${out}"

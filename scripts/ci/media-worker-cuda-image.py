@@ -40,6 +40,9 @@ CA_BUNDLE_SHA256 = "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4e
 BINARY = "serviceradar-media-worker"
 REQUIRED_LIBRARIES = ("libcublas.so.13", "libcublasLt.so.13", "libcurand.so.10",
                       "libnvrtc.so.13", "libcudart.so.13")
+NOTICE_DIR = "usr/share/doc/serviceradar-media-worker-cuda/third-party"
+NOTICE_FILES = {f"third-party/{package}.copyright" for package in
+               ("libcublas-13-0", "libcurand-13-0", "cuda-nvrtc-13-0", "cuda-cudart-13-0")}
 LIBRARY_NAME = re.compile(r"lib/lib[A-Za-z0-9_+.-]+\.so\.[0-9.]+")
 LIB_DIR = "usr/local/lib/serviceradar-cuda"
 CUDA_CACHE_DIR = "var/cache/serviceradar-media-worker/cuda"
@@ -97,11 +100,14 @@ def verify(bundle, sums_sha256, commit):
     if present != set(listed):
         raise BundleError(f"bundle files differ from SHA256SUMS: {sorted(present ^ set(listed))}")
     for name in listed:
-        if name not in (BINARY, "manifest.json") and not LIBRARY_NAME.fullmatch(name):
+        if name not in (BINARY, "manifest.json") and name not in NOTICE_FILES and not LIBRARY_NAME.fullmatch(name):
             raise BundleError(f"unexpected file in bundle: {name}")
     missing = [lib for lib in REQUIRED_LIBRARIES if f"lib/{lib}" not in listed]
     if BINARY not in listed or missing:
         raise BundleError(f"bundle lacks the binary or CUDA libraries: {missing}")
+    for notice in sorted(NOTICE_FILES):
+        if notice not in listed or (bundle / notice).stat().st_size == 0:
+            raise BundleError(f"bundle lacks the CUDA notice {notice}")
     for name, expected in listed.items():
         if sha256_file(bundle / name) != expected:
             raise BundleError(f"{name} does not match SHA256SUMS")
@@ -133,7 +139,7 @@ def write_layer(bundle, listed, ca_bundle, out):
             entries.setdefault("/".join(parts[:depth]), ("dir", None, 0o755, 0))
         entries[path] = ("dir", None, 0o755, owner)
 
-    for path in ROOT_DIRS + (LIB_DIR, "usr/local/bin", "etc/ssl/certs"):
+    for path in ROOT_DIRS + (LIB_DIR, NOTICE_DIR, "usr/local/bin", "etc/ssl/certs"):
         directory(path, 0)
     for path in SERVICE_DIRS:
         directory(path, UID)
@@ -141,6 +147,8 @@ def write_layer(bundle, listed, ca_bundle, out):
     for name in listed:
         if name.startswith("lib/"):
             entries[f"{LIB_DIR}/{name[4:]}"] = ("file", Path(bundle) / name, 0o644, 0)
+    for notice in NOTICE_FILES:
+        entries[f"{NOTICE_DIR}/{Path(notice).name}"] = ("file", Path(bundle) / notice, 0o644, 0)
     entries["etc/ssl/certs/ca-certificates.crt"] = ("bytes", ca_bundle, 0o644, 0)
     entries["etc/passwd"] = ("bytes", PASSWD.encode(), 0o644, 0)
     entries["etc/group"] = ("bytes", GROUP.encode(), 0o644, 0)
@@ -186,12 +194,11 @@ def push(bundle, sums_sha256, commit):
                    "--label", f"org.opencontainers.image.revision={commit}"]
         for key, value in IMAGE_ENV.items():
             command += ["--env", f"{key}={value}"]
-        crane(*command)
-    # Check the registry copy, not what crane says it sent.
-    digest = crane("digest", tag)
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-        raise BundleError(f"invalid pushed digest: {digest}")
-    config = json.loads(crane("config", f"{repository}@{digest}"))
+        pushed = crane(*command)
+    pushed_repository, _, digest = pushed.partition("@")
+    if pushed_repository != repository or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise BundleError(f"invalid pushed reference: {pushed}")
+    config = json.loads(crane("config", pushed))
     if config.get("config", {}).get("Labels", {}).get("org.opencontainers.image.revision") != commit:
         raise BundleError("pushed image revision does not match the bundle commit")
     if config.get("architecture") != "arm64" or config.get("os") != "linux":
