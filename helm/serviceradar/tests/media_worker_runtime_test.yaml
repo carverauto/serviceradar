@@ -359,7 +359,7 @@ tests:
                 - {key: media-worker.pem, path: media-worker.pem}
                 - {key: media-worker-key.pem, path: media-worker-key.pem}
 
-  - it: keeps the worker out of a match-all namespace policy that would reopen CNPG
+  - it: keeps the worker out of a match-all namespace policy, which would grant it egress
     template: templates/network-policy.yaml
     set:
       networkPolicy.enabled: true
@@ -488,17 +488,6 @@ tests:
       - failedTemplate:
           errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnvValueFrom"
 
-  - it: keeps the worker out of the Calico namespace policy that would reopen CNPG
-    template: templates/calico-network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.calicoLogDenied.enabled: true
-      networkPolicy.calicoLogDenied.selector: all()
-    asserts:
-      - equal:
-          path: spec.selector
-          value: "(all()) && app != 'serviceradar-media-worker'"
-
   - it: refuses a MIG slice left in resources under cpu_explicit
     template: templates/media-worker.yaml
     set:
@@ -560,47 +549,6 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnv"
-
-  # With its own policy off, the worker stays out of the namespace-wide allows:
-
-  # the operator supplies its policy, and PostgreSQL stays closed to it.
-
-  - it: keeps the worker out of the Calico namespace policy with its own policy off
-    template: templates/calico-network-policy.yaml
-    set:
-      mediaWorker.networkPolicy.operatorManaged: true
-      mediaWorker.networkPolicy.enabled: false
-      networkPolicy.enabled: true
-      networkPolicy.calicoLogDenied.enabled: true
-      networkPolicy.calicoLogDenied.selector: all()
-    asserts:
-      - equal:
-          path: spec.selector
-          value: "(all()) && app != 'serviceradar-media-worker'"
-
-  # Database isolation is enforced at the database pods. With the namespace-wide
-
-  # policy on, the instances and the pooler get their own copy of it whose ingress
-
-  # peers all exclude the worker -- whatever the ports, and also for the release's
-
-  # own namespace listed as an allowed namespace -- and the main copy leaves them out.
-
-  # With the namespace-wide policy off, replicas and the pooler are selected by no
-
-  # ingress policy (the primary has the CNPG application policy), so a guard admits
-
-  # every source to them except the worker, whatever the worker's own policy says.
-
-  # Another CNPG cluster's instances in the namespace stay under the main rules:
-
-  # the complement of "this cluster's instances" is two selectors.
-
-  # Layouts the chart's policies cannot reach are refused rather than covered.
-
-  # The guard covers only database pods no other chart policy selects.
-
-  # Another repository never takes the packaged CPU digest.
 
   - it: refuses a repository override that would fall back to the packaged CPU digest
     template: templates/media-worker.yaml

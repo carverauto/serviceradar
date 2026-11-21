@@ -8,14 +8,15 @@ generator issues a certificate with exactly the subject that list names, for a
 key it also writes, signed by the runtime root; and an installation that
 enables the worker later gets it only if the generator Job then requires it.
 
-The test runs the generator script embedded in the rendered Job with openssl.
-Whether the Job keeps or regenerates a given Secret is the check script's
-contract, covered by runtime_cert_preservation_test.py; here the rendered
-required-file list is checked to name the worker's certificate exactly while
-the worker is enabled.
+The test runs the generator script embedded in the rendered Job with openssl,
+and the rendered Job's own preserve decision (its Secret download and check
+script, with its rendered required files) against a fake Kubernetes API that
+serves a synthetic Secret. The decision is read from the message the check
+prints for it, so a crash cannot pass for "regenerate".
 """
 
 import base64
+import json
 import os
 import re
 import shutil
@@ -35,7 +36,8 @@ WORKER_CERT = "media-worker.pem"
 
 
 def generator_job(values):
-    """The Job's embedded generate-certs.sh, its required files, and its environment."""
+    """The Job's embedded generate-certs.sh, its required files, its environment and
+    its whole script."""
     job = render_document(
         "templates/cert-generator-job.yaml", values, namespace=NAMESPACE, kind="Job",
     )
@@ -45,7 +47,31 @@ def generator_job(values):
         raise AssertionError("embedded generator not found in the Job script")
     generator = base64.b64decode("".join(embedded.group(1).split())).decode("utf-8")
     env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
-    return generator, container.get("args") or [], env
+    # Kubernetes expands $(VAR) in args from the container's environment.
+    required = [
+        re.sub(r"\$\((\w+)\)", lambda m: env[m.group(1)], arg)
+        for arg in container.get("args") or []
+    ]
+    return generator, required, env, container["command"][2]
+
+
+def preserve_decision_script(job_script):
+    """The rendered Job's script up to where it would regenerate, ending there."""
+    head, sep, _ = job_script.partition("cat >/tmp/generate-certs.sh.b64")
+    if not sep:
+        raise AssertionError("generator step not found in the Job script")
+    return head + "\necho REGENERATE\nexit 3\n"
+
+
+# Replaces the Kubernetes API for the Job's Secret download: sitecustomize runs at
+# Python start-up, serving FAKE_SECRET_JSON and skipping TLS set-up.
+FAKE_API = """
+import io, os, ssl, urllib.request
+if os.environ.get("FAKE_SECRET_JSON"):
+    ssl.create_default_context = lambda *args, **kwargs: None
+    _secret = open(os.environ["FAKE_SECRET_JSON"], "rb").read()
+    urllib.request.urlopen = lambda request, context=None: io.BytesIO(_secret)
+"""
 
 
 def chart_identity_subjects(values):
@@ -62,6 +88,7 @@ def generate(script, job_env, cert_dir, *, force=False):
     for name in ("DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID"):
         env[name] = job_env[name]
     subprocess.run(["bash", "-c", script], env=env, check=True, capture_output=True)
+    (Path(cert_dir) / "runtime-cert-layout-version").write_text(job_env["RUNTIME_CERT_LAYOUT_VERSION"])
 
 
 def openssl(*args):
@@ -75,8 +102,8 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR"))
         root = Path(cls.tmp.name)
-        cls.enabled_script, cls.enabled_required, cls.enabled_env = generator_job(ENABLED)
-        cls.disabled_script, cls.disabled_required, cls.disabled_env = generator_job(DISABLED)
+        cls.enabled_script, cls.enabled_required, cls.enabled_env, cls.enabled_job = generator_job(ENABLED)
+        cls.disabled_script, cls.disabled_required, cls.disabled_env, _ = generator_job(DISABLED)
         cls.enabled_certs = root / "enabled"
         cls.disabled_certs = root / "disabled"
         generate(cls.enabled_script, cls.enabled_env, cls.enabled_certs)
@@ -102,9 +129,15 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         )
         openssl("verify", "-CAfile", str(self.enabled_certs / "root.pem"), str(cert))
 
-    def test_requires_the_worker_certificate_exactly_while_the_worker_is_enabled(self):
-        self.assertIn(WORKER_CERT, self.enabled_required)
+    def test_requires_the_worker_pair_exactly_while_the_worker_is_enabled(self):
+        # The pair is required whether or not core projects the certificate
+        # inventory: the worker mounts both files from this Secret.
+        _, without_core, _, _ = generator_job({**ENABLED, "core.enabled": False})
+        for required in (self.enabled_required, without_core):
+            self.assertIn(WORKER_CERT, required)
+            self.assertIn("media-worker-key.pem", required)
         self.assertNotIn(WORKER_CERT, self.disabled_required)
+        self.assertNotIn("media-worker-key.pem", self.disabled_required)
 
     def test_has_no_worker_identity_while_the_worker_is_off(self):
         self.assertFalse((self.disabled_certs / WORKER_CERT).exists())
@@ -112,6 +145,79 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
             subject.startswith("CN=serviceradar-media-worker,")
             for subject in chart_identity_subjects(DISABLED)
         ))
+
+    def decide(self, secret_files, *, secret_json=None):
+        """Run the rendered Job's preserve decision against a Secret holding
+        `secret_files` (a directory). Returns ("preserve",), ("missing", files) or
+        ("invalid", files); anything else, a crash included, fails the test."""
+        work = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        if secret_json is None:
+            data = {
+                path.name: base64.b64encode(path.read_bytes()).decode("ascii")
+                for path in secret_files.rglob("*") if path.is_file()
+            }
+            secret_json = json.dumps({"data": data})
+        (work / "secret.json").write_text(secret_json)
+        sa = work / "sa"
+        sa.mkdir()
+        (sa / "token").write_text("synthetic-token")
+        (sa / "namespace").write_text(NAMESPACE)
+        (sa / "ca.crt").write_text("")
+        site = work / "site"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text(FAKE_API)
+        script = preserve_decision_script(self.enabled_job).replace(
+            "/var/run/secrets/kubernetes.io/serviceaccount", str(sa))
+        env = dict(
+            os.environ,
+            PYTHONPATH=str(site),
+            FAKE_SECRET_JSON=str(work / "secret.json"),
+            SECRET_NAME="serviceradar-runtime-certs",
+            CERT_DIR=str(work / "certs"),
+            **{k: self.enabled_env[k] for k in (
+                "DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID", "RUNTIME_CERT_LAYOUT_VERSION",
+            )},
+        )
+        result = subprocess.run(
+            ["bash", "-c", script, "runtime-cert-generator", *self.enabled_required],
+            env=env, capture_output=True, text=True,
+        )
+        if result.returncode == 0 and "preserving current runtime certs" in result.stdout:
+            return ("preserve",)
+        if result.returncode == 3 and not result.stderr.strip():
+            for reason, pattern in (
+                ("missing", r"is missing runtime cert files: (.*)$"),
+                ("invalid", r"do not verify against root.pem: (.*)$"),
+            ):
+                found = re.search(pattern, result.stdout, re.M)
+                if found:
+                    return (reason, sorted(found.group(1).split(", ")))
+        return ("crash", result.returncode, result.stdout + result.stderr)
+
+    def test_keeps_a_secret_that_holds_the_worker_pair(self):
+        self.assertEqual(self.decide(self.enabled_certs), ("preserve",))
+
+    def test_regenerates_a_secret_without_the_worker_pair_once_enabled(self):
+        self.assertEqual(
+            self.decide(self.disabled_certs),
+            ("missing", ["media-worker-key.pem", WORKER_CERT]),
+        )
+
+    def test_regenerates_a_worker_pair_kept_from_before_a_root_rotation(self):
+        # Enabled, then disabled while the root was rotated: a fresh set without the
+        # worker pair is merged over the Secret, so the old pair stays beside the new root.
+        rotation = Path(self.tmp.name) / "rotation"
+        generate(self.disabled_script, self.disabled_env, rotation, force=True)
+        secret = Path(self.tmp.name) / "rotated-secret"
+        shutil.copytree(self.enabled_certs, secret)
+        for path in rotation.rglob("*"):
+            if path.is_file():
+                shutil.copy2(path, secret / path.relative_to(rotation))
+        self.assertEqual(self.decide(secret), ("invalid", [WORKER_CERT]))
+
+    def test_reports_a_crash_rather_than_a_regeneration(self):
+        decision = self.decide(self.enabled_certs, secret_json="{not json")
+        self.assertEqual(decision[0], "crash")
 
     def test_regeneration_keeps_the_root_and_issues_the_worker_pair_under_it(self):
         # What the Job does once the check finds the pair missing after enabling.
