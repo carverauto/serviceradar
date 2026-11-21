@@ -1351,10 +1351,7 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
         ]
     );
     assert_eq!(metrics.keyframes_decoded_count(), 1);
-    assert_eq!(
-        metrics.keyframes_undecodable_count("malformed_bitstream"),
-        2
-    );
+    assert_exported_refusals(&metrics, "malformed_bitstream", 2);
     let wire = serde_json::to_value(&envelope).expect("serialize envelope");
     assert_eq!(
         wire["undecodable_keyframes"][0],
@@ -1363,6 +1360,17 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
     assert!(
         events.lock().iter().any(|e| e == "ack"),
         "job must be ACKed"
+    );
+}
+
+fn assert_exported_refusals(metrics: &WorkerMetrics, reason: &str, count: u64) {
+    let sample = format!(
+        r#"serviceradar_media_worker_keyframes_undecodable_total{{reason="{reason}"}} {count}"#
+    );
+    let output = metrics.render_prometheus_text().unwrap();
+    assert!(
+        output.lines().any(|line| line == sample),
+        "missing sample {sample} in {output}"
     );
 }
 
@@ -1440,7 +1448,7 @@ async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
             .map(|k| (k.fragment_sequence(), k.reason()))
             .collect();
         assert_eq!(reasons, [(0, "limit_exceeded"), (1, "limit_exceeded")]);
-        assert_eq!(metrics.keyframes_undecodable_count("limit_exceeded"), 2);
+        assert_exported_refusals(&metrics, "limit_exceeded", 2);
     }
 }
 
@@ -1551,14 +1559,19 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
             .map(|k| (k.fragment_sequence(), k.reason()))
             .collect();
         assert_eq!(reasons, [(0, first_reason), (3, last_reason)]);
-        assert_eq!(metrics.keyframes_undecodable_count("limit_exceeded"), 1);
-        assert_eq!(metrics.keyframes_undecodable_count("invalid_container"), 1);
+        assert_exported_refusals(&metrics, "limit_exceeded", 1);
+        assert_exported_refusals(&metrics, "invalid_container", 1);
         assert_eq!(result.tracks().len(), 1);
         assert_eq!(result.tracks()[0].first_seen_offset_ms(), 2000);
         assert_eq!(result.tracks()[0].last_seen_offset_ms(), 4000);
         log.seek(SeekFrom::Start(0)).unwrap();
         let mut output = String::new();
         log.read_to_string(&mut output).unwrap();
+        assert_eq!(
+            output.matches("decoding synthetic raster keyframe").count(),
+            2,
+            "{output}"
+        );
         let summaries: Vec<_> = output
             .lines()
             .filter(|line| line.contains("keyframe decode summary"))
@@ -1571,11 +1584,7 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
         assert!(summaries[0].contains("DEBUG"));
         assert!(summaries[0].contains(r#""invalid_container": 1"#));
         assert!(summaries[0].contains(r#""limit_exceeded": 1"#));
-        assert!(
-            !output
-                .lines()
-                .any(|line| line.contains("WARN") && line.contains("keyframe"))
-        );
+        assert!(!output.contains("WARN"), "{output}");
     }
 }
 

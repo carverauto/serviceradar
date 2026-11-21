@@ -162,12 +162,7 @@ pub(crate) fn decode_access_unit(
             "keyframe access unit exceeds byte limit",
         ));
     }
-    validate_picture_slices(
-        &headers,
-        pps_id,
-        &sps,
-        active_pps.bottom_field_pic_order_present,
-    )?;
+    validate_picture_slices(&headers, pps_id, &sps, &active_pps)?;
 
     let mut annex_b = Vec::with_capacity(total_bytes);
     for nal in [sps_nal, pps].into_iter().chain(slices.iter().copied()) {
@@ -234,10 +229,11 @@ fn validate_picture_slices(
     headers: &[Vec<u8>],
     pps_id: u32,
     sps: &SpsInfo,
-    bottom_field_poc_present: bool,
+    pps: &rusty_h264_decoder::Pps,
 ) -> Result<(), KeyframeDecodeError> {
     let mut previous_mb = None;
     let mut picture_id = None;
+    let mut deblocking = None;
     let mb_count = (sps.coded_width / 16) * (sps.coded_height / 16);
     for header in headers {
         let mut r = BitReader::new(header);
@@ -272,16 +268,44 @@ fn validate_picture_slices(
         } else {
             0
         };
-        let bottom = if bottom_field_poc_present && (poc_lsb.is_some() || sps.delta_poc_present) {
-            r.read_se()?
-        } else {
-            0
-        };
+        let bottom =
+            if pps.bottom_field_pic_order_present && (poc_lsb.is_some() || sps.delta_poc_present) {
+                r.read_se()?
+            } else {
+                0
+            };
         let id = (frame_num, idr_pic_id, poc_lsb, delta, bottom);
         if picture_id.replace(id).is_some_and(|first| first != id) {
             return Err(KeyframeDecodeError::malformed_bitstream(
                 "IDR slices belong to different pictures",
             ));
+        }
+        if pps.deblocking_filter_control_present_flag {
+            if pps.redundant_pic_cnt_present_flag {
+                r.read_ue_max(127, "redundant_pic_cnt")?;
+            }
+            r.read_bits(2)?;
+            r.read_se()?;
+            let mode = r.read_ue_max(2, "disable_deblocking_filter_idc")?;
+            let (alpha, beta) = if mode == 1 {
+                (0, 0)
+            } else {
+                (r.read_se()?, r.read_se()?)
+            };
+            if !(-6..=6).contains(&alpha) || !(-6..=6).contains(&beta) {
+                return Err(KeyframeDecodeError::malformed_bitstream(
+                    "invalid deblocking offset",
+                ));
+            }
+            let settings = (mode, alpha, beta);
+            if deblocking
+                .replace(settings)
+                .is_some_and(|previous| previous != settings)
+            {
+                return Err(KeyframeDecodeError::unsupported_codec(
+                    "mixed slice deblocking settings",
+                ));
+            }
         }
         previous_mb = Some(mb);
     }

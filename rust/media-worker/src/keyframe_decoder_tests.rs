@@ -472,7 +472,7 @@ fn baseline_sps(mbs: [u32; 2], crop: [u32; 4], matrix: u8, full: bool) -> Vec<u8
     NalUnit::new(3, NalUnitType::Sps, w.into_bytes()).to_annex_b()[4..].to_vec()
 }
 
-fn idr_header(mb: u32, pps: u32, picture: u32) -> BitWriter {
+fn idr_header(mb: u32, pps: u32, picture: u32, (mode, alpha, beta): (u32, i32, i32)) -> BitWriter {
     let mut w = BitWriter::new();
     for value in [mb, 7, pps] {
         w.write_ue(value);
@@ -482,12 +482,20 @@ fn idr_header(mb: u32, pps: u32, picture: u32) -> BitWriter {
     w.write_bits(0, 8);
     w.write_bits(0, 2);
     w.write_se(0);
-    w.write_ue(1);
+    w.write_ue(mode);
+    if mode != 1 {
+        w.write_se(alpha);
+        w.write_se(beta);
+    }
     w
 }
 
 fn pcm_slice(mb: u32, pps: u32, picture: u32) -> Vec<u8> {
-    let mut w = idr_header(mb, pps, picture);
+    // Disable filtering for exact PCM samples until the decoder uses deblocking QP zero.
+    pcm_slice_with_header(mb, idr_header(mb, pps, picture, (1, 0, 0)))
+}
+
+fn pcm_slice_with_header(mb: u32, mut w: BitWriter) -> Vec<u8> {
     w.write_ue(25);
     w.align_zero();
     for (size, base) in [(16, 100), (8, 90), (8, 180)] {
@@ -499,6 +507,32 @@ fn pcm_slice(mb: u32, pps: u32, picture: u32) -> Vec<u8> {
     }
     w.rbsp_trailing_bits();
     NalUnit::new(3, NalUnitType::IdrSlice, w.into_bytes()).to_annex_b()[4..].to_vec()
+}
+
+#[test]
+fn multislice_admission_requires_uniform_deblocking_mode_and_offsets() {
+    let stream = encode_idr(EncoderConfig::baseline(32, 16), &pattern(32, 16));
+    let nals = annex_b_nals(&stream);
+    let pps = nals_of_type(&nals, 8)[0];
+    let sps = baseline_sps([2, 1], [0; 4], 2, false);
+    let settings = [(1, 0, 0), (0, 0, 0), (2, 0, 0), (0, -1, 0), (0, 0, 1)];
+    for first in settings {
+        let left = pcm_slice_with_header(0, idr_header(0, 0, 0, first));
+        for second in settings {
+            let right = pcm_slice_with_header(1, idr_header(1, 0, 0, second));
+            let result = decode_access_unit(&[&sps, pps], &[&left, &right]);
+            if first == second {
+                let frame = result.unwrap();
+                assert_eq!((frame.width, frame.height), (32, 16));
+            } else {
+                assert_eq!(
+                    result.unwrap_err().reason(),
+                    "unsupported_codec",
+                    "{first:?}, {second:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -768,7 +802,7 @@ fn idr_admission_rejects_inconsistent_slice_headers_and_embedded_delimiters() {
             "malformed_bitstream"
         );
     }
-    let mut invalid = idr_header(0, 0, 0);
+    let mut invalid = idr_header(0, 0, 0, (1, 0, 0));
     invalid.write_ue(1);
     invalid.write_ue(4);
     invalid.rbsp_trailing_bits();

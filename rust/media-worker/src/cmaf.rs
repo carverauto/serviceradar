@@ -939,6 +939,7 @@ impl crate::keyframe_decoder::KeyframeDecoder for SyntheticRasterKeyframeDecoder
         fragment: &ParsedMediaFragment,
     ) -> Result<RgbFrame, crate::keyframe_decoder::KeyframeDecodeError> {
         use crate::keyframe_decoder::KeyframeDecodeError;
+        tracing::debug!("decoding synthetic raster keyframe");
         let first_idr = fragment.idr_nal_units().first().ok_or_else(|| {
             KeyframeDecodeError::malformed_bitstream("no IDR NAL unit available to decode")
         })?;

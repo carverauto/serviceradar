@@ -13,7 +13,8 @@ recordings would therefore index fabricated pictures.
   behind a `KeyframeDecoder` trait so HEVC or a hardware decoder can be added later without
   touching callers.
 - Supported: Constrained Baseline, Main and High profile; 8-bit 4:2:0; progressive (frame)
-  coding; equal Cb and Cr quantization offsets; CAVLC and CABAC; 8x8 transform; scaling matrices; multiple slices; SPS cropping;
+  coding; equal Cb and Cr quantization offsets; CAVLC and CABAC; 8x8 transform; scaling matrices;
+  multiple slices with uniform deblocking mode and offsets; SPS cropping;
   VUI colour description (matrix and range).
 - Remove the solid-colour fallback. A keyframe that cannot be decoded produces a typed
   outcome (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded`,

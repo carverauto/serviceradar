@@ -1,16 +1,20 @@
 ## ADDED Requirements
 
 ### Requirement: Real keyframe decoding with recorded undecodable outcomes
-The media worker SHALL decode each granted, verified sampled IDR keyframe from its real coded bitstream and SHALL NOT produce a frame it did not decode. It SHALL decode H.264 Constrained Baseline, Main and High profile keyframes that are 8-bit 4:2:0 and frame coded with equal Cb and Cr quantization offsets, with CAVLC or CABAC entropy coding, the 8x8 transform, scaling matrices and multiple slices, apply SPS cropping, and convert to RGB using the VUI matrix and range (defaulting to limited range, and to BT.709 above 576 lines or BT.601 otherwise). A granted, verified keyframe it cannot decode SHALL be recorded in the result envelope's `undecodable_keyframes` with its fragment sequence, codec and a bounded reason (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded` or `invalid_container`), and the remaining keyframes of the block SHALL still be indexed.
+The media worker SHALL decode each granted, verified sampled IDR keyframe from its real coded bitstream and SHALL NOT produce a frame it did not decode. It SHALL decode H.264 Constrained Baseline, Main and High profile keyframes that are 8-bit 4:2:0 and frame coded with equal Cb and Cr quantization offsets, with CAVLC or CABAC entropy coding, the 8x8 transform, scaling matrices and multiple slices sharing one deblocking mode and both filter offsets, apply SPS cropping, and convert to RGB using the VUI matrix and range (defaulting to limited range, and to BT.709 above 576 lines or BT.601 otherwise). A granted, verified keyframe it cannot decode SHALL be recorded in the result envelope's `undecodable_keyframes` with its fragment sequence, codec and a bounded reason (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded` or `invalid_container`), and the remaining keyframes of the block SHALL still be indexed.
 
 #### Scenario: Main or High profile CABAC keyframe decodes to its real pixels
-- **WHEN** a sampled fragment holds a High profile CABAC IDR keyframe using the 8x8 transform and equal Cb and Cr quantization offsets
+- **WHEN** a sampled fragment holds a High profile CABAC IDR keyframe using the 8x8 transform, equal Cb and Cr quantization offsets, uniform slice deblocking settings and no I_PCM macroblocks
 - **THEN** the worker SHALL decode the keyframe to the picture the bitstream encodes, at the SPS cropped size and in the VUI colour space
 
 #### Scenario: Unsupported codec is recorded, never fabricated
-- **WHEN** a sampled fragment holds an HEVC keyframe, or an H.264 keyframe outside the supported profiles, chroma format, bit depth or frame coding, or whose active PPS specifies unequal Cb and Cr offsets
+- **WHEN** a sampled fragment holds an HEVC keyframe, or an H.264 keyframe outside the supported profiles, chroma format, bit depth or frame coding, or whose active PPS specifies unequal Cb and Cr offsets, or whose slices differ in deblocking mode or either filter offset
 - **THEN** the worker SHALL record the keyframe in `undecodable_keyframes` with reason `unsupported_codec`
 - **AND** the worker SHALL NOT emit a frame, detections or embeddings for that keyframe
+
+#### Scenario: I_PCM edges with deblocking enabled
+- **WHEN** an otherwise supported picture contains I_PCM macroblocks with filtering enabled
+- **THEN** the worker SHALL accept the decoded picture as approximate at the edges of those macroblocks because decoder 0.17.3 uses the running slice QP where H.264 specifies QP zero
 
 #### Scenario: One undecodable keyframe does not fail the block
 - **WHEN** one sampled keyframe in a granted, verified block is malformed and the others decode

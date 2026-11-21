@@ -30,3 +30,7 @@
 - [ ] 3.6 Request upstream support for separate Cb and Cr quantization offsets.
 - [ ] 3.7 Extend read grants to identify an oversized sampled fragment while granting
   its eligible siblings, so the worker can publish a partial result.
+- [ ] 3.8 Request upstream per-slice deblocking mode and offset handling when finishing
+  a macroblock row shared by multiple slices.
+- [ ] 3.9 Request upstream deblocking QP zero for I_PCM macroblocks in decoder 0.17.3
+  at `src/mb16.rs:3974` (CABAC) and `src/mb16.rs:5319` (CAVLC).

@@ -19,7 +19,8 @@ Supported:
 
 - H.264 Constrained Baseline, Main and High profile with equal Cb and Cr quantization offsets;
 - 8-bit 4:2:0, frame (progressive) coding;
-- CAVLC and CABAC, 8x8 transform, scaling matrices, multiple slices per picture;
+- CAVLC and CABAC, 8x8 transform, scaling matrices, multiple slices with the same
+  deblocking mode and alpha and beta offsets throughout the picture;
 - SPS cropping;
 - parameter sets from `avcC` for `avc1`; `avc3` also accepts in-band replacements.
 
@@ -29,7 +30,8 @@ BT.709 above 576 display lines and BT.601 otherwise. Other codes produce `unsupp
 
 Not supported, reported as `unsupported_codec`: HEVC, other H.264 profiles (High 10,
 4:2:2, 4:4:4 and so on), interlaced/MBAFF coding, FMO, SP/SI slices, lossless macroblocks,
-unequal Cb and Cr quantization offsets, auxiliary and extension coded slices, and unsupported VUI matrices.
+unequal Cb and Cr quantization offsets, mixed slice deblocking settings, auxiliary and
+extension coded slices, and unsupported VUI matrices.
 
 The per-keyframe outcome applies to granted, verified fragments. If any sampled fragment
 exceeds 4 MiB, the read-grant service rejects the whole request before the worker can
@@ -53,6 +55,11 @@ Slice headers expose each starting macroblock. The worker checks the first start
 and picture bounds. The decoder keeps the actual ending macroblock private. A whole
 middle slice can be missing, or two increasing slices can overlap, in either CAVLC or
 CABAC. Request an upstream check that each continuation starts where its predecessor ended.
+
+Camera encoders rarely emit I_PCM macroblocks. With filtering enabled, decoder 0.17.3
+uses the running slice QP to deblock their edges, where H.264 requires QP zero. The
+worker accepts these frames as approximate. Affected pixels are confined to the edges
+of I_PCM macroblocks.
 
 ## Tests
 

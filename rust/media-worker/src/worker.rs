@@ -893,8 +893,10 @@ where
         let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
         let processor = self.clone();
         let job = job.clone();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
+            let _subscriber = tracing::dispatcher::set_default(&dispatch);
             processor.index_block(&job, &verified_block)
         })
         .await

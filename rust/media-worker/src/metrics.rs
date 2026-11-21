@@ -172,12 +172,6 @@ impl WorkerMetrics {
             .inc();
     }
 
-    pub fn keyframes_undecodable_count(&self, reason: &str) -> u64 {
-        self.keyframes_undecodable_total
-            .with_label_values(&[reason])
-            .get()
-    }
-
     pub fn observe_stage1_latency(&self, seconds: f64) {
         self.stage1_latency_seconds.observe(seconds);
     }

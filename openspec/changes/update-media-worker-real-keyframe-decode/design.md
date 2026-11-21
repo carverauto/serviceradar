@@ -40,6 +40,15 @@ admission. Request an upstream check for contiguous decoded macroblock coverage.
 The pinned decoder reconstructs both chroma planes with the Cb quantization offset.
 An active PPS with unequal Cb and Cr offsets produces `unsupported_codec`.
 
+The decoder can finish filtering a macroblock row with the last slice's deblocking
+settings. Admission returns `unsupported_codec` if slices differ in deblocking mode,
+alpha offset or beta offset.
+
+The owner accepts approximate decoding for I_PCM macroblocks, which camera encoders
+rarely emit. In both CAVLC and CABAC, decoder 0.17.3 uses the running slice QP to
+filter their edges. H.264 specifies QP zero. Differences are confined to pixels at
+I_PCM macroblock edges.
+
 ## Bounded work
 
 Decoding is a synchronous call that cannot be interrupted, so there is no wall-clock
