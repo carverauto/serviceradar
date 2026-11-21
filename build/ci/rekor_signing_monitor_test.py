@@ -483,6 +483,45 @@ class MonitorTest(unittest.TestCase):
         self.assertNotIn("14", checked)
         self.assertNotIn("16", checked)
 
+    def test_failed_cuda_runs_without_release_deployment_skip_repeat_graphql_lookups(self):
+        workflow = "publish-media-worker-cuda.yml"
+        self.world.add_run(workflow, 31, NOW - timedelta(hours=5), NOW - timedelta(hours=3),
+                           ref="refs/heads/staging", attempts=(False,))
+        self.world.add_run(workflow, 32, NOW - timedelta(hours=5), NOW - timedelta(hours=3),
+                           ref="refs/heads/test/demo-test-14", attempts=(False, False))
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW), 0)
+        self.assertEqual(self.world.graphql_requests, 2)
+        state = json.loads(self.state.read_text())
+        self.assertNotIn("31", state["canary_checked"])
+        self.assertNotIn("32", state["canary_checked"])
+        self.assertIn("31", state["cuda_no_release"])
+        self.assertIn("32", state["cuda_no_release"])
+
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.assertEqual(self.world.graphql_requests, 0,
+                         "completed CUDA runs without a release deployment triggered repeat GraphQL lookups")
+
+        entry = self.world.add_entry(b"rerun cuda signature", when=NOW + timedelta(minutes=30))
+        self.world.runs[workflow] = [run for run in self.world.runs[workflow] if run["id"] != 31]
+        self.world.add_run(workflow, 31, NOW - timedelta(hours=5), NOW + timedelta(hours=1),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/heads/staging", attempts=(False, True))
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=3)), 0)
+        self.assertEqual(self.world.graphql_requests, 1)
+        state = json.loads(self.state.read_text())
+        self.assertEqual(state["decisions"][entry["uuid"]]["status"], "explained")
+        self.assertIn("31", state["canary_checked"])
+        self.assertNotIn("31", state["cuda_no_release"])
+        self.assertIn("32", state["cuda_no_release"])
+        self.assertEqual(self.world.issues, [])
+
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=4)), 0)
+        self.assertEqual(self.world.graphql_requests, 0)
+
     def test_an_explained_entry_stays_explained_after_its_run_ages_out(self):
         entry = self.world.add_entry(b"release payload")
         self.world.add_run("release.yml", 7, NOW - timedelta(hours=4), NOW - timedelta(hours=2),

@@ -371,7 +371,7 @@ def needs_canary(run, first_checkpoint, now, checked):
             and checked.get(str(run["id"]), 0) < int(run["ended"].timestamp()))
 
 
-def signing_runs(github, since, is_relevant=None):
+def signing_runs(github, since, is_relevant=None, cuda_no_release=None):
     runs = []
     for workflow in SIGNING_WORKFLOWS:
         for run in github.runs(workflow, since):
@@ -385,10 +385,19 @@ def signing_runs(github, since, is_relevant=None):
                 branch = run.get("head_branch") or ""
                 if not re.fullmatch(r"staging|test/demo-test-[0-9]+", branch):
                     continue
+                run_key = str(run["id"])
+                ended_ts = int(ended.timestamp()) if ended is not None else None
+                if (cuda_no_release is not None and ended_ts is not None
+                        and cuda_no_release.get(run_key, 0) >= ended_ts):
+                    continue
                 if is_relevant is not None and not is_relevant(candidate):
                     continue
                 if not github.cuda_release_deployed_from(run, branch):
+                    if cuda_no_release is not None and ended_ts is not None:
+                        cuda_no_release[run_key] = ended_ts
                     continue
+                if cuda_no_release is not None:
+                    cuda_no_release.pop(run_key, None)
             runs.append(candidate)
     return runs
 
@@ -488,14 +497,19 @@ def run(args, environ, now):
                  if decided.get(match["uuid"], {}).get("status") != "explained"]
     first_checkpoint = datetime.fromtimestamp(first_time, timezone.utc)
     canary_since = max(first_checkpoint - RUN_MARGIN, now - LEDGER_RETENTION)
+    runs_since = min([canary_since] + [when - RUN_MARGIN for when in undecided])
     # An ended run is checked until all it ledgered was seen (again if a re-run ends later).
     checked = {run_id: ended for run_id, ended in state.get("canary_checked", {}).items()
                if ended >= (now - LEDGER_RETENTION).timestamp()}
+    cuda_no_release_cutoff = min((now - LEDGER_RETENTION).timestamp(), runs_since.timestamp())
+    cuda_no_release = {run_id: ended for run_id, ended in state.get("cuda_no_release", {}).items()
+                       if ended >= cuda_no_release_cutoff}
     runs = signing_runs(
         github,
-        min([canary_since] + [when - RUN_MARGIN for when in undecided]),
+        runs_since,
         is_relevant=lambda run: (needs_canary(run, first_checkpoint, now, checked)
                                  or any(active_at(run, when) for when in undecided)),
+        cuda_no_release=cuda_no_release,
     )
     canary_runs = [run for run in runs if needs_canary(run, first_checkpoint, now, checked)]
     ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs
@@ -583,6 +597,7 @@ def run(args, environ, now):
     checked.update({str(run["id"]): int(run["ended"].timestamp()) for run in canary_runs
                     if run["id"] not in missing_runs})
     state["canary_checked"] = checked
+    state["cuda_no_release"] = cuda_no_release
     state["canary_findings"] = findings
 
     state.update({"tree_size": size, "root_hash": root, "checked_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),

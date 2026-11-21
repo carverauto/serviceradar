@@ -55,3 +55,21 @@ The worker SHALL run a warm-up image and text inference on the selected device b
 #### Scenario: TensorRT requested for Candle
 - **WHEN** the execution provider is `tensorrt` and the backend is Candle
 - **THEN** the worker SHALL refuse startup before warm-up, even when TensorRT is installed
+
+## MODIFIED Requirements
+
+### Requirement: Standalone GPU media worker capability admission
+The system SHALL execute recorded-block visual decoding and neural inference in a standalone multi-architecture (`linux/amd64` and `linux/arm64`) `serviceradar-media-worker` OS process outside the BEAM ERTS cluster, and SHALL admit jobs only after verifying the configured hardware execution provider, model artifact SHA-256 digests, and GPU sharing class at startup without silent CPU fallback.
+
+#### Scenario: Verified GPU execution provider startup admission
+- **WHEN** `serviceradar-media-worker` starts with `execution_backend` set to `cuda` on an `amd64` or `arm64` GPU node
+- **THEN** the worker SHALL verify the pinned detector and vision-language model SHA-256 digests, execute a synthetic forward-pass self-test on the configured execution provider, and report the observed architecture, driver/CUDA version, GPU sharing class (`physical`, `mig`, or `time_sliced`), and loaded `(model_id, model_version, embedding_dim)` before pulling jobs from `media.jobs.visual_index.v1`
+
+#### Scenario: Missing GPU runtime or unsupported execution provider fails closed
+- **WHEN** `serviceradar-media-worker` is configured for `cuda` acceleration and the NVIDIA device plugin, CUDA runtime, or device memory check fails initialization, or is configured for an unsupported execution provider such as `tensorrt`
+- **THEN** the worker SHALL fail readiness explicitly and refuse to pull visual indexing jobs
+- **AND** the worker SHALL NOT fall back to unbounded CPU inference unless `execution_backend` is explicitly configured as `cpu_explicit` with bounded single-worker concurrency
+
+#### Scenario: Media worker crash or exhaustion isolates recording and live playback
+- **WHEN** all `serviceradar-media-worker` replicas crash, restart, or saturate their GPU concurrency semaphore
+- **THEN** continuous NVR capture, archive uploads, live camera relay sessions, and recorded HLS timeline playback SHALL continue operating normally in the BEAM cluster without interruption

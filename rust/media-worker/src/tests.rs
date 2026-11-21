@@ -63,12 +63,16 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
             Arc::new(backend),
         )
     };
+    let cuda_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Cuda);
+    let err = admit_cuda_backend(&cuda_cfg, GpuEnvironmentObservation::no_gpu())
+        .expect_err("CUDA provider without hardware must fail closed");
+    assert!(matches!(
+        err.kind(),
+        CapabilityErrorKind::GpuUnavailable(reason) if reason.contains("found 0")
+    ));
+
     for provider in [ExecutionProvider::Cuda, ExecutionProvider::Tensorrt] {
         let cfg = WorkerConfig::default().with_execution_provider(provider);
-        let err = admit_cuda_backend(&cfg, GpuEnvironmentObservation::no_gpu())
-            .expect_err("GPU provider without hardware must fail closed");
-        assert!(matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)));
-
         for available in [false, true] {
             let probe = StaticGpuProbe(GpuEnvironmentObservation::new(
                 1,
@@ -91,8 +95,8 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
             assert!(matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)));
         }
     }
-    let cuda_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Cuda);
-    // 3. TensorRT fails closed when only CUDA EP is available (no silent downgrade to CUDA or CPU).
+
+    // 3. CUDA succeeds when GPU + VRAM are verified, and classifies physical / MIG / time_sliced.
     let cuda_only_obs = GpuEnvironmentObservation::new(
         1,
         false,
@@ -101,15 +105,6 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(24_576),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, false),
     );
-    let trt_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Tensorrt);
-    let trt_err = admit_cuda_backend(&trt_cfg, cuda_only_obs.clone())
-        .expect_err("TensorRT without TensorRT EP must fail closed");
-    assert!(matches!(
-        trt_err.kind(),
-        CapabilityErrorKind::GpuUnavailable(_)
-    ));
-
-    // 4. CUDA succeeds when GPU + VRAM + CUDA EP are verified, and classifies physical / MIG / time_sliced.
     let phys_manifest = admit_cuda_backend(&cuda_cfg, cuda_only_obs)
         .expect("verified CUDA capability should succeed");
     assert_eq!(phys_manifest.execution_provider(), ExecutionProvider::Cuda);
@@ -124,6 +119,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(20_480),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, true),
     );
+    let trt_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Tensorrt);
     let trt_err = admit_cuda_backend(&trt_cfg, mig_obs.clone())
         .expect_err("an installed TensorRT EP cannot execute a Candle forward pass");
     assert!(

@@ -516,28 +516,18 @@ pub(crate) fn preprocess_siglip_batch(
         }
     };
 
-    let unassigned = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let mut groups = frames
             .chunks(images_per_worker)
             .zip(out.chunks_mut(images_per_worker * per_image));
         let last = groups.next_back();
-        for (index, (group, slots)) in groups.enumerate() {
-            if let Err(err) = std::thread::Builder::new()
-                .name("siglip-preprocess".to_string())
-                .spawn_scoped(scope, move || process(group, slots))
-            {
-                warn!(error = %err, "could not spawn a preprocessing thread; continuing inline");
-                return Some(index * images_per_worker);
-            }
+        for (group, slots) in groups {
+            scope.spawn(move || process(group, slots));
         }
         if let Some((group, slots)) = last {
             process(group, slots);
         }
-        None
     });
-    if let Some(start) = unassigned {
-        process(&frames[start..], &mut out[start * per_image..]);
-    }
     out
 }
 
