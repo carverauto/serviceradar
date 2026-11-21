@@ -580,7 +580,7 @@ access.
 | `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate`. Placing multiple replicas on separate GPU nodes requires multi-node read access (`ReadOnlyMany` or `ReadWriteMany`) for `models.existingClaim` and either `ReadWriteMany` for `cudaCache.existingClaim` or the default per-pod `emptyDir` cache | `1` |
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
 | `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. The image must include the worker's dedicated NATS inbox support (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`, added with this chart change): an older build ignores it, uses the account-wide `_INBOX`, and the broker denies its JetStream replies and pull deliveries. To use `mediaWorker.dtype: f16` or automatic half precision under `auto`, the image must also include the dtype-aware GPU runtime (a site-built CUDA image from this revision supports the dedicated inbox but still loads `f32` weights). Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
-| `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
+| `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. When using this release's web-ng, both workloads must use the same Secret, key, deployment reference and generation | `""`, `media-worker-token`, `""`, `"1"` |
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
 The model identity is not configurable. Core stamps its compiled identity
@@ -591,13 +591,15 @@ chart pins the worker to the same values and refuses
 `detectorModelId`, `detectorModelVersion` and `embeddingDim`, as well as
 `detectorPath` and `detectorSha256`, even while the worker is disabled.
 `media_worker_model_identity_test.py` fails when core and the chart drift.
-Enabling the worker also sets `SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED` on
-core, which dispatches visual-index jobs only then.
+The chart sets `SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED` to match
+`mediaWorker.enabled` and reserves it in `core.extraEnv` and
+`core.extraEnvValueFrom`. Dispatch control requires a core image that reads
+the flag. The core source in this revision does not yet read it.
 
 The chart refuses to render, instead of producing a pod that crash-loops, when:
 
-- `mediaWorker.enabled`, `mediaWorker.networkPolicy.enabled` or
-  `mediaWorker.networkPolicy.allowNvrRead` is not a YAML boolean (a
+- `mediaWorker.enabled` or any of the `mediaWorker.networkPolicy` flags
+  (`enabled`, `operatorManaged`, `allowNvrRead`) is not a YAML boolean (a
   `--set-string` value is truthy in templates whatever it says, so it is
   refused and every template reads the same value);
 - `mediaWorker.replicas` or `gpuCount` is not a whole number >= 0 (a fraction
@@ -630,7 +632,8 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   non-release repository has neither a tag nor a digest;
 - `mediaWorker.networkPolicy.enabled` is false without
   `mediaWorker.networkPolicy.operatorManaged: true`;
-- `webNg.controlPlaneRuntime.port` collides with another web-ng listener (the
+- an enabled web-ng control-plane listener's `webNg.controlPlaneRuntime.port`
+  collides with another web-ng listener (the
   public listener 4000, the metrics port, or Erlang distribution 4369 and
   9100), or `SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT`, `PORT` or
   `SERVICERADAR_METRICS_PORT` is set through `webNg.extraEnv` or
@@ -644,8 +647,7 @@ The retired keys (`models.embedderModelId`, `embedderModelVersion`,
 `helm upgrade --reuse-values` from an earlier chart carries their old defaults
 forward and is therefore refused too: upgrade with the new chart's defaults and
 reapply your own overrides, without those keys (for example
-`helm upgrade ... -f my-values.yaml` instead of `--reuse-values`, including when
-following `docs/nats-jetstream-profile-runbook.md`). If your existing overrides
+`helm upgrade ... --reset-values -f my-values.yaml`). If your existing overrides
 also set `mediaWorker.models.embedderPath`, `embedderSha256`, `textPath`, or
 `textSha256`, verify them before upgrading: because the chart now projects only
 `config.json`, `model.safetensors`, and `tokenizer.json` from the root of
@@ -681,8 +683,9 @@ whether they still exist. A re-enabled worker creates them again.
 
 **NATS identity.** Enabling the worker makes the runtime certificate generator
 issue `media-worker.pem` (`CN=serviceradar-media-worker`). An existing runtime
-Secret that lacks it is regenerated on the next upgrade, which reissues every
-leaf certificate under the existing root. The worker mounts only `root.pem` and
+Secret missing either file of the pair, or holding a worker certificate from a
+previous root, triggers reissue of the runtime leaves under the current root
+on upgrade. The worker mounts only `root.pem` and
 its own pair and connects with mutual TLS; the broker maps the certificate to a
 static user that may:
 
@@ -708,7 +711,9 @@ and a subject detector enabled by an explicit chart setting.
 With the worker on, core may also publish `media.jobs.visual_index.v1` and
 `media.jobs.visual_index.backfill.v1`, and web-ng may publish
 `media.rpc.visual_text_embed.v1.>`. With it off, the worker identity is refused
-everything and core and web-ng get neither grant.
+everything and core and web-ng get neither grant. The first upgrade to a chart
+that includes this static user rolls the chart-managed NATS pods even with the
+worker disabled, because their configuration now includes the deny-all entry.
 
 **Network isolation.** The worker is isolated at its source. Its own
 NetworkPolicy (`serviceradar-media-worker`) denies all egress except DNS, NATS,
@@ -734,7 +739,8 @@ operator supplies and owns the worker's isolation.
 `media_worker_egress_isolation_test.py` checks this over the default, demo,
 tenant and HA values.
 
-With `operatorManaged`, the chart also stops rendering the matching ingress
+With `mediaWorker.networkPolicy.enabled: false` and `operatorManaged: true`,
+the chart also stops rendering the matching ingress
 exception on web-ng (`serviceradar-media-worker-control-ingress`), which lets
 the worker reach web-ng's private control-plane port
 (`webNg.controlPlaneRuntime.port`, 4001 by default) when
@@ -789,9 +795,9 @@ provided every previously recorded infrastructure certificate already has a
 stored subject. If an existing infrastructure certificate on an upgraded
 deployment lacks a stored subject, core pauses all first adoptions (including
 `media-worker.pem`) and the worker cannot connect until you backfill each
-missing subject by re-submitting that certificate's original PEM via
-`POST /api/admin/managed-components/adopt` (see
-`docs/managed-component-certificates.md`). Its static NATS user supplies the
+missing subject using the
+[original-PEM adoption procedure](../../docs/managed-component-certificates.md).
+Its static NATS user supplies the
 permissions once it is admitted.
 
 **Hosted tenants.** A hosted tenant's chart is rendered by the control plane,
@@ -804,7 +810,7 @@ run there:
   and list `media-worker.pem` in `certs.inventoryCertificates` so core adopts
   it (first adoption still requires every previously recorded infrastructure
   certificate to have a stored subject; if any lacks one, backfill it with the
-  original-PEM procedure in `docs/managed-component-certificates.md` first).
+  [original-PEM procedure](../../docs/managed-component-certificates.md) first).
   When disabling `mediaWorker.enabled` later, the hosted control plane must
   remove `media-worker.pem` from `certs.inventoryCertificates` in the same
   upgrade, even if it retains the certificate in the Secret, or template

@@ -3,9 +3,7 @@
      renders exactly as before, and only an explicit `core.enabled: false` removes
      this component. `default true` cannot be used here -- Helm treats false as empty,
      so it would resurrect anything explicitly disabled. */ -}}
-{{- /* Core dispatches visual-index jobs exactly while the chart deploys the media worker,
-     so the flag is derived from mediaWorker.enabled and cannot be overridden. Checked
-     before the core gate so stored values are refused while core is disabled too. */ -}}
+{{- /* Keep a conflicting dispatch override from being stored even while core is disabled. */ -}}
 {{- range $source := list "extraEnv" "extraEnvValueFrom" -}}
 {{- if hasKey (default (dict) (get (default (dict) $.Values.core) $source)) "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" -}}
 {{- fail (printf "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.%s: the chart derives it from mediaWorker.enabled" $source) -}}
@@ -215,9 +213,6 @@ spec:
         {{- include "serviceradar.validateNvrIngest" . -}}
         {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
         {{- include "serviceradar.nvrClientEnv" . | nindent 8 }}
-        {{- /* Visual-index dispatch for camera semantic search runs only while the chart
-             deploys the media worker that consumes the jobs. Core reads it together
-             with SERVICERADAR_CAMERA_RECORDING_ENABLED. */}}
         - name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED
           value: {{ include "serviceradar.mediaWorkerEnabled" . | quote }}
         {{- if $edgeIssuerSeedMounted }}

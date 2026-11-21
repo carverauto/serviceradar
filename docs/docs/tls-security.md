@@ -31,14 +31,17 @@ certificate generator that issues the runtime mTLS certificates for you:
   (`certs.runtimeSecretName`, default `serviceradar-runtime-certs`). An HTTP
   404 starts generation of a CA and per-service certificates. Any other read
   failure stops the hook before generation or upload so the Job can retry.
-  When the existing certificates pass the layout and certificate checks, the
-  hook keeps them. If a kept certificate lacks a DNS, URI, or IPv4 name it is
-  now asked to carry (for example, a newly added NATS leafnode host name), the
-  hook reissues only that certificate from the same root CA, records the
-  replacement in `runtime-cert-rotation.json`, and updates the Secret while
-  leaving every other certificate unchanged.
-- `certs.runtimeLayoutVersion` tracks the certificate layout. When it changes,
-  the generator re-issues the runtime certificates.
+- For an existing Secret, the hook keeps the certificates when the
+  `certs.runtimeLayoutVersion` matches, all required files are present, and
+  each required leaf certificate verifies against `root.pem` (ignoring
+  certificate validity dates so expiry alone does not trigger reissue). If a
+  kept certificate lacks a DNS, URI, or IPv4 name it is now asked to carry (for
+  example, a newly added NATS leafnode host name), the hook reissues only that
+  certificate from the same root CA, records the replacement in
+  `runtime-cert-rotation.json`, and updates the Secret while leaving every
+  other certificate unchanged. A missing required file, a leaf from a previous
+  root, or a `certs.runtimeLayoutVersion` change triggers reissue of the
+  runtime certificate set.
 - `cert-regenerator-job` provides an explicit rotation path. It is gated by
   `certs.regenerator.enabled`, which defaults to `false` so that upgrades do not
   trigger unexpected certificate rotation. Set it to `true` for a single

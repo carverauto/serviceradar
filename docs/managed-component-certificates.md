@@ -261,14 +261,15 @@ not return the PEM. A component with no certificate, a host service, a blocked
 component, and a private key are refused. The route uses the same API key
 pipeline and `settings.edge.manage` permission as adoption.
 
-The chart's runtime certificate generator reissues the runtime certificates when
-`certs.runtimeLayoutVersion` changes. If an older generator-owned Secret lacks
-even one certificate in core's projection, the pre-upgrade hook also reissues
-the full runtime certificate set before core rolls. When the Secret passes
-those checks, any kept certificate that lacks a requested DNS, URI, or IPv4
-name is reissued alone from the same root CA while every other certificate
-keeps its fingerprint. On any reissue, the generator writes
-`runtime-cert-rotation.json` into the runtime certificate Secret. For each
+When the [in-chart certificate generator](docs/tls-security.md#in-chart-certificate-generator)
+reissues runtime certificates (for example when `certs.runtimeLayoutVersion`
+changes, a required file is missing from core's projection, or a required leaf
+does not verify against `root.pem`), the pre-upgrade hook runs before core
+rolls. When the Secret passes those checks, any kept certificate that lacks a
+requested DNS, URI, or IPv4 name is reissued alone from the same root CA while
+every other certificate keeps its fingerprint. On any reissue, the generator
+writes `runtime-cert-rotation.json` into the runtime certificate Secret. For
+each
 reissued public certificate, that record holds the fingerprint it replaced, its
 own fingerprint, and its PEM with the root CA. It holds no key. The core
 migrations pre-upgrade hook, and then core whenever the mounted record changes,

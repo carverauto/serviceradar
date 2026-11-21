@@ -262,8 +262,8 @@ issues for a NATS client, and the common name of its subject. One list feeds
 core's inventory projection, the subject list core reads, and the generator's
 required-files check, so the three cannot drift. The files that are copies of
 another identity's certificate (flowgger, otel, netflow-collector) are not
-identities and are not listed. The media worker's identity exists only while the
-worker is enabled, as its certificate does.
+identities and are not listed. Disabling the media worker removes it from this
+inventory even if the Secret still holds its certificate.
 */}}
 {{- define "serviceradar.natsChartIdentities" -}}
 - {file: "tools.pem", cn: "serviceradar-tools"}
