@@ -284,18 +284,17 @@ nats:
     port: 7422
     tls:
       extraDnsNames: []
-  # Hub authorization callout for managed component certificates. Leave this
-  # disabled. Turning it on before every existing infrastructure client has an
-  # explicit stored grant denies those clients. A static empty allow list is
-  # unrestricted and must be adopted as [">"] plus the same deny list. These
-  # flags do not check that adoption. Paste public nkeys only; signing seeds
-  # stay in the certificate configuration record.
+  # NATS certificate authorization: with it on, the broker admits a client
+  # only when core has recorded its certificate, and edge leaf servers can
+  # connect (see leafnodes above). Core adopts the chart's own client
+  # certificates by itself, and the certificate generator provisions the
+  # signing keys in the runtime certificate Secret. A runtime or issuer Secret
+  # this chart does not generate must carry them: the three
+  # nats-callout-*.seed keys in the issuer Secret and the two
+  # nats-callout-*.conf keys in the runtime certificate Secret. Before turning
+  # it on, check that every chart identity is adopted.
   certificateAuthorization:
     enabled: false
-    infrastructureAdopted: false
-    issuerPublicKey: ""
-    authUserPublicKey: ""
-    systemUserPublicKey: ""
   # Do not set resources.limits.cpu by default: a CFS quota on nats-server can
   # freeze JetStream RAFT heartbeats and readloops across multiple periods after
   # a brief host/hypervisor vCPU pause (#5635).

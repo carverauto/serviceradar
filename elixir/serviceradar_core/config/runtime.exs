@@ -114,6 +114,13 @@ if chart_identity_partition != "" do
   config :serviceradar, :nats_chart_identity_partition_id, chart_identity_partition
 end
 
+# The NATS certificate authorization signing seeds the chart mounts from the
+# issuer Secret when certificate authorization is on. When set, the mounted
+# seeds are used and a stored signing record is ignored.
+config :serviceradar,
+       :nats_callout_seeds_dir,
+       System.get_env("SERVICERADAR_NATS_CALLOUT_SEEDS_DIR")
+
 config :serviceradar,
        :nats_infrastructure_certs_dir,
        System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR")

@@ -70,10 +70,6 @@ tests:
       partitionId: acme
       nats.leafnodes.enabled: true
       nats.certificateAuthorization.enabled: true
-      nats.certificateAuthorization.infrastructureAdopted: true
-      nats.certificateAuthorization.issuerPublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
@@ -83,7 +79,7 @@ tests:
           value: StatefulSet
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'authorization: \{auth_callout:'
+          pattern: '\$\(cat /etc/serviceradar/certs/nats-callout-authorization\.conf\)'
         documentSelector:
           path: kind
           value: StatefulSet

@@ -259,8 +259,7 @@ The predecessor stays authorized until that fingerprint is revoked. The
 response uses the same component and certificate fields as adoption and does
 not return the PEM. A component with no certificate, a host service, a blocked
 component, and a private key are refused. The route uses the same API key
-pipeline and `settings.edge.manage` permission as adoption. Broker
-authorization callout stays disabled.
+pipeline and `settings.edge.manage` permission as adoption.
 
 The chart's runtime certificate generator reissues the runtime certificates when
 `certs.runtimeLayoutVersion` changes. If an older generator-owned Secret lacks
@@ -284,22 +283,23 @@ revokes that one fingerprint. The component stays unblocked. Its generation
 and stored grant stay unchanged. Other fingerprints on the component stay
 authorized. A fingerprint recorded for another component is refused. The
 route uses the same API key pipeline and `settings.edge.manage` permission.
-Broker authorization callout stays disabled.
 
 The service-certificates inventory history offers the same fingerprint
 revocation. The component stays unblocked. Its generation and stored grant
 stay unchanged. The component Revoke control still blocks renewal until
-re-enrollment. Broker authorization callout stays disabled.
+re-enrollment.
 
 `POST /api/admin/nats/certificate-authorization/bootstrap` stores signing material
 only for the deployment account (`:nats_account_name`). A missing or unusable
 deployment account returns `nats_account_unconfigured`. A different requested
 name returns `nats_account_mismatch`. An existing record for another account
-stays in place. Readiness includes the stored account name and stays unready
-while that name disagrees with the deployment account. An authorization
+stays in place. When no signing seed directory is configured, core uses the
+stored record. Readiness then includes the stored account name and stays
+unready while that name disagrees with the deployment account. An authorization
 request in that state is answered with `nats_account_mismatch` and no user
 JWT, and the session is not remembered. A matching account is still decided
-from the certificate policy. Broker authorization callout stays disabled.
+from the certificate policy. For chart-managed enforcement, see the
+[TLS guide](docs/tls-security.md#in-chart-certificate-generator).
 
 `serviceradar-cli edge install` for a leaf or collector continues when the
 hub authorizer is disconnected. `static_mtls` with an empty reason, or with
@@ -310,11 +310,10 @@ continues while the hub is not configured. `static_mtls` still requires the
 deployment account name. The command does not create the account or require
 a JWT account seed. It stops before package installation for
 `jwt_account_signer_unconfigured`, `unsupported_auth_mode`,
-`nats_account_mismatch`, any other authentication mode, and `nats.ready`
-without `static_mtls`. Broker authorization callout stays disabled.
+`nats_account_mismatch`, `signing_keys_not_provisioned`, any other
+authentication mode, and `nats.ready` without `static_mtls`.
 
-A stored `operator_jwt` authentication mode reports readiness reason
+When core uses a stored `operator_jwt` configuration, it reports readiness reason
 `jwt_account_signer_unconfigured`. The authorizer does not open a broker
 connection and does not create an account signer. `edge install` stops
-before package installation because that readiness is false. Broker
-authorization callout stays disabled.
+before package installation because that readiness is false.
