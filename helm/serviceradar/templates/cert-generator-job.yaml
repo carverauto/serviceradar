@@ -1,11 +1,4 @@
-{{- $certs := default dict .Values.certs -}}
-{{- $generator := default dict (get $certs "generator") -}}
-{{- $generatorEnabled := true -}}
-{{- if hasKey $generator "enabled" -}}
-{{- $generatorEnabled = get $generator "enabled" -}}
-{{- end -}}
-{{- $hostedRuntime := eq "true" (include "serviceradar.hostedRuntimeEnabled" .) -}}
-{{- if and $generatorEnabled (not $hostedRuntime) }}
+{{- if eq "true" (include "serviceradar.runtimeCertGeneratorOwned" .) }}
 {{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" .Values.cnpg) -}}
 ---
 apiVersion: v1
@@ -96,7 +89,6 @@ spec:
         image: {{ $certJobImage | quote }}
         imagePullPolicy: IfNotPresent
         {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
-        command: ["/bin/bash", "-c"]
         env:
         - name: SECRET_NAME
           value: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
@@ -109,7 +101,9 @@ spec:
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
         - name: RUNTIME_CERT_LAYOUT_VERSION
           value: {{ default "1" (default (dict) .Values.certs).runtimeLayoutVersion | quote }}
-        args:
+        command:
+        - /bin/bash
+        - -c
         - |
           set -euo pipefail
 
@@ -118,16 +112,12 @@ spec:
           import base64
           import json
           import ssl
-          import subprocess
           import sys
           import urllib.error
           import urllib.request
 
           secret_name = os.environ["SECRET_NAME"]
           cert_dir = os.environ["CERT_DIR"]
-          expected_layout_version = os.environ["RUNTIME_CERT_LAYOUT_VERSION"]
-          agent_component_cert = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-chain.pem'
-          agent_component_key = f'{os.environ["DEFAULT_AGENT_COMPONENT_ID"]}-{os.environ["DEFAULT_PARTITION_ID"]}-key.pem'
           serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
           token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
           namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
@@ -146,74 +136,18 @@ spec:
               os.makedirs(os.path.dirname(path), exist_ok=True)
               with open(path, "wb") as handle:
                 handle.write(base64.b64decode(encoded))
-
-            required = [
-              "root.pem",
-              "root-key.pem",
-              "tools.pem",
-              "tools-key.pem",
-              "falcosidekick.pem",
-              "falcosidekick-key.pem",
-              "trivy-sidecar.pem",
-              "trivy-sidecar-key.pem",
-              "k8s-inventory.pem",
-              "k8s-inventory-key.pem",
-              "runtime-cert-layout-version",
-              agent_component_cert,
-              agent_component_key,
-              # Every certificate core is given for first adoption. A Secret
-              # written by an older chart release may lack one, and core's
-              # volume does not mount without it.
-{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
-              {{ .file | quote }},
-{{- end }}
-            ]
-
-            missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
-            layout_version_path = os.path.join(cert_dir, "runtime-cert-layout-version")
-            layout_version = ""
-            if os.path.exists(layout_version_path):
-              layout_version = open(layout_version_path, encoding="utf-8").read().strip()
-
-            invalid = []
-            root_cert = os.path.join(cert_dir, "root.pem")
-            for name in ["trivy-sidecar.pem", "k8s-inventory.pem"]:
-              cert_path = os.path.join(cert_dir, name)
-              if os.path.exists(root_cert) and os.path.exists(cert_path):
-                result = subprocess.run(
-                  ["openssl", "verify", "-CAfile", root_cert, cert_path],
-                  check=False,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.STDOUT,
-                  text=True,
-                )
-                if result.returncode != 0:
-                  invalid.append(name)
-
-            if not missing and not invalid and layout_version == expected_layout_version:
-              print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
-              sys.exit(0)
-
-            if missing:
-              print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
-            elif invalid:
-              print(
-                f"Secret {secret_name} has runtime cert files that do not verify against root.pem: "
-                f"{', '.join(invalid)}"
-              )
-            else:
-              print(
-                f"Secret {secret_name} has runtime cert layout version {layout_version or 'unset'}; "
-                f"expected {expected_layout_version}. Regenerating runtime certs."
-              )
-            sys.exit(1)
           except urllib.error.HTTPError as exc:
             if exc.code == 404:
               sys.exit(1)
             raise
           PY
           then
-            exit 0
+            if python3 - "${CERT_DIR}" "${RUNTIME_CERT_LAYOUT_VERSION}" "$@" <<'CHECK_CERTS'
+{{ required "files/check-runtime-certs.py is required" (.Files.Get "files/check-runtime-certs.py") | indent 10 }}
+          CHECK_CERTS
+            then
+              exit 0
+            fi
           fi
 
           cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
@@ -298,6 +232,20 @@ spec:
           urllib.request.urlopen(request, context=context).read()
           print(f"{action} Secret {secret_name}")
           PY
+        - runtime-cert-generator
+        args:
+        - root.pem
+        - root-key.pem
+        - tools-key.pem
+        - falcosidekick-key.pem
+        - trivy-sidecar-key.pem
+        - k8s-inventory-key.pem
+        - runtime-cert-layout-version
+        - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-chain.pem"
+        - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-key.pem"
+        {{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
+        - {{ .file | quote }}
+        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp

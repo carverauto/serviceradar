@@ -5,6 +5,8 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate4 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
+{{- $nats := default (dict) .Values.nats -}}
+{{- $natsEnabled := or (not (hasKey $nats "enabled")) $nats.enabled -}}
 {{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) -}}
 {{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $webrtcIce := include "serviceradar.webrtcIce" . | fromYaml -}}
@@ -735,7 +737,9 @@ spec:
         - name: SERVICERADAR_NATS_STATIC_USERS_FILE
           value: "/etc/serviceradar/nats-static-users/static-users.yaml"
         {{- include "serviceradar.runtimeCertRotationEnv" . | nindent 8 }}
+        {{- if $natsEnabled }}
         {{- include "serviceradar.natsInventoryEnv" . | nindent 8 }}
+        {{- end }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
@@ -1004,7 +1008,9 @@ spec:
           mountPath: /etc/serviceradar/nats-static-users
           readOnly: true
         {{- include "serviceradar.runtimeCertRotationVolumeMount" . | nindent 8 }}
+        {{- if $natsEnabled }}
         {{- include "serviceradar.natsInventoryVolumeMount" . | nindent 8 }}
+        {{- end }}
         {{- if $automationCallbacksEnabled }}
         - name: automation-callback-envelope
           mountPath: /etc/serviceradar/automation-callback
@@ -1099,7 +1105,9 @@ spec:
           name: serviceradar-nats-static-users
           optional: true
       {{- include "serviceradar.runtimeCertRotationVolume" . | nindent 6 }}
+      {{- if $natsEnabled }}
       {{- include "serviceradar.natsInventoryVolume" . | nindent 6 }}
+      {{- end }}
       {{- if $automationCallbacksEnabled }}
       - name: automation-callback-envelope
         secret:

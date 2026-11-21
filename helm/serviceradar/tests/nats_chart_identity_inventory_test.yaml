@@ -2,7 +2,6 @@ suite: core is given only the public certificates of the chart's NATS identities
 templates:
   - templates/core.yaml
   - templates/web.yaml
-  - templates/nats.yaml
   - templates/cert-generator-job.yaml
 release:
   namespace: sr-inventory
@@ -17,7 +16,7 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.volumes
-          content:
+          content: &generatedInventory
             name: nats-infrastructure-certs
             secret:
               secretName: serviceradar-runtime-certs
@@ -57,6 +56,47 @@ tests:
             name: SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE
             value: /etc/serviceradar/certs/root.pem
 
+  - it: projects every generated identity from the runtime Secret with a separate issuer
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      certs.issuerSecretName: separate-issuer
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: *generatedInventory
+
+  - it: leaves core inventory inactive with an external broker
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      nats.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: nats-infrastructure-certs}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: nats-infrastructure-certs}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NATS_CHART_IDENTITIES_FILE}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE}
+          any: true
+
   # A supplier's Secret is not known to carry any of these files, and a Secret
   # volume does not mount when a listed key is missing. With nothing listed the
   # directory is empty, never the whole Secret.
@@ -70,9 +110,29 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.volumes
-          content:
+          content: &emptyInventory
             name: nats-infrastructure-certs
             emptyDir: {}
+
+  - it: projects an empty inventory by default in hosted mode
+    template: templates/core.yaml
+    set: &hostedGenerator
+      hostedRuntime.contractVersion: v1
+      certs.generator.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: *emptyInventory
+
+  - it: leaves generation to the supplier in hosted mode
+    template: templates/cert-generator-job.yaml
+    set: *hostedGenerator
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: projects exactly the certificates a supplier lists
     template: templates/core.yaml
@@ -118,7 +178,16 @@ tests:
         - core-key.pem
     asserts:
       - failedTemplate:
-          errorMessage: "certs.inventoryCertificates lists core-key.pem: each entry must be the name of a public certificate key in the runtime certificate Secret, never a private key"
+          errorPattern: 'certs\.inventoryCertificates lists core-key\.pem: allowed names are'
+
+  - it: refuses an unrelated Secret key in the supplier list
+    template: templates/core.yaml
+    set:
+      certs.generator.enabled: false
+      certs.inventoryCertificates: [jwt-secret]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'certs\.inventoryCertificates lists jwt-secret: allowed names are'
 
   - it: gives the inventory to no other workload
     template: templates/web.yaml
@@ -132,23 +201,6 @@ tests:
             name: nats-infrastructure-certs
           any: true
 
-  # Aliases that present another identity's certificate are not identities.
-  - it: lists the chart identities' subjects for core beside the static users
-    template: templates/nats.yaml
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-nats-static-users
-    asserts:
-      - matchRegex:
-          path: data["chart-identities.yaml"]
-          pattern: '- "CN=serviceradar-bmp-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"'
-      - matchRegex:
-          path: data["chart-identities.yaml"]
-          pattern: '^(- "CN=serviceradar-[a-z0-9-]+,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"\n?){13}$'
-      - notMatchRegex:
-          path: data["chart-identities.yaml"]
-          pattern: 'serviceradar-(flowgger|otel|netflow-collector)'
-
   # A Secret from an older release that lacks one of the projected files must
   # take the regeneration path before core rolls.
   - it: makes every projected certificate a required file of the generator
@@ -157,6 +209,28 @@ tests:
       path: kind
       value: Job
     asserts:
-      - matchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: '(?s)required = \[.*"bmp-collector\.pem",.*"k8s-inventory\.pem",\s+\]'
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - root.pem
+            - root-key.pem
+            - tools-key.pem
+            - falcosidekick-key.pem
+            - trivy-sidecar-key.pem
+            - k8s-inventory-key.pem
+            - runtime-cert-layout-version
+            - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-chain.pem"
+            - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-key.pem"
+            - tools.pem
+            - web.pem
+            - core.pem
+            - gateway.pem
+            - kv.pem
+            - agent.pem
+            - log-collector.pem
+            - trapd.pem
+            - flow-collector.pem
+            - bmp-collector.pem
+            - falcosidekick.pem
+            - trivy-sidecar.pem
+            - k8s-inventory.pem

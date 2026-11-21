@@ -251,17 +251,17 @@ which defaults to none: a Secret volume does not mount when a listed key is
 missing, and core must start whatever a supplier's Secret holds.
 */}}
 {{- define "serviceradar.natsInventoryCertificateFiles" -}}
-{{- $files := list -}}
-{{- if eq "true" (include "serviceradar.runtimeCertGeneratorOwned" .) -}}
+{{- $allowed := list -}}
 {{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) -}}
-{{- $files = append $files .file -}}
+{{- $allowed = append $allowed .file -}}
 {{- end -}}
-{{- else -}}
-{{- range (default list (get (default dict .Values.certs) "inventoryCertificates")) -}}
-{{- if or (not (kindIs "string" .)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]*$" .)) (hasSuffix "-key.pem" .) (hasSuffix ".key" .) -}}
-{{- fail (printf "certs.inventoryCertificates lists %v: each entry must be the name of a public certificate key in the runtime certificate Secret, never a private key" .) -}}
+{{- $files := $allowed -}}
+{{- if ne "true" (include "serviceradar.runtimeCertGeneratorOwned" .) -}}
+{{- $files = default list (get (default dict .Values.certs) "inventoryCertificates") -}}
+{{- range $files -}}
+{{- if not (has . $allowed) -}}
+{{- fail (printf "certs.inventoryCertificates lists %v: allowed names are %s" . (join ", " $allowed)) -}}
 {{- end -}}
-{{- $files = append $files . -}}
 {{- end -}}
 {{- end -}}
 {{- $files | uniq | toJson -}}
