@@ -10,20 +10,17 @@ Facts this design rests on, from the tree at the time of writing:
   opens (`AUTH` and `SYS`).
 - Core's authorizer (`ServiceRadar.NATS.ManagedCertificateAuthorization`)
   connects with those nkey users, so it does not itself pass through the
-  callout. It admits a certificate when the fingerprint is adopted, unrevoked
-  and has a stored grant; for a chart identity it then applies the chart's
-  static permission block from the static users file, not the stored grant.
+  callout.
+  Admission remains with `ServiceRadar.NATS.ManagedCertificateAuthorization` and
+  `ComponentCertificateAuthority.authorize`, unchanged by this change.
 - The certificate generator job creates every certificate into one Secret and
   regenerates all of them when the layout version changes or a required file
-  is missing. Each pod mounts only its own certificate and `root.pem`. Core's
-  Role cannot read Secrets or ConfigMaps.
+  is missing. Workloads mount explicitly listed keys from the runtime Secret.
+  Core's Role cannot read Secrets or ConfigMaps.
 - When the generator reissues certificates it writes
   `runtime-cert-rotation.json` (public certificates and the fingerprints they
   replace, no key material) into the runtime Secret.
-  `ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
-  certificate as the successor of an adopted predecessor, from the core
-  migrations hook before workloads roll and again on a 30 second reconcile. A
-  certificate whose predecessor was never adopted is skipped.
+  `ServiceRadar.Edge.RuntimeCertificateRotation` processes this manifest as before.
 - Three static users (`serviceradar-flowgger`, `serviceradar-otel`,
   `serviceradar-netflow-collector`) have no certificate of their own; their
   files are copies of another identity's certificate. One static user,
@@ -55,14 +52,30 @@ coverage and never block the leaf install gate.
 
 ### Decision 1: The chart publishes its public certificates; core adopts them
 
-The generator writes a ConfigMap, `serviceradar-nats-infrastructure-certs`,
-holding one PEM certificate per chart identity. It contains no private key and
-not the CA key. Core mounts it read-only, like the static users ConfigMap. It
-is a separate ConfigMap and not another key in the runtime Secret, from which
-core mounts only its own items. The precedent for the generator publishing
-public certificates is `runtime-cert-rotation.json`, a JSON document inside
-the runtime Secret that holds public certificates and the fingerprints they
-replaced, with no key material.
+Core mounts public inventory certificates read-only from the runtime certificate
+Secret through an explicit item list (`serviceradar.runtimeCertItems`). Core
+already mounts `runtime-cert-rotation.json` through a separate optional
+projection from that Secret. Only core gains inventory
+files. The projection adds no private key, ConfigMap or generator permission.
+
+When the generator job runs (`certs.generator.enabled` is true and the install
+is not hosted), it owns the runtime Secret. Core projects the public certificate
+of every chart identity regardless of the issuer Secret name. The generator
+includes every projected file in its required-files check before preserving an
+existing Secret. An older Secret missing even one inventory certificate takes
+the existing regeneration path in the pre-upgrade hook. This can reissue all
+runtime certificates once on upgrade and write the rotation manifest before
+core rolls. A complete, otherwise valid Secret follows the usual preserve path.
+
+For hosted installs and self-managed installs with the generator disabled, the
+supplier sets a chart value listing the public inventory certificates its
+runtime Secret carries. The list defaults to empty. Kubernetes requires only
+the listed inventory files to mount the volume. An explicitly listed but
+missing file prevents core from starting. With an empty list core starts,
+adopts nothing and hub status reports each chart identity as not adopted
+because no inventory certificate is supplied. With a partial list the same
+reason applies to each omitted identity. These rules apply with enforcement
+on or off.
 
 Core reconciles on the authorizer's existing tick. Each certificate in the
 inventory is checked first:
@@ -101,50 +114,27 @@ Rows recorded before this change have no subject and cannot be backfilled,
 because the PEM was not stored. While any infrastructure component has a
 recorded certificate without a subject, the inventory adopts nothing and
 reports that state with the remedy: record those certificates again through
-the existing adoption API, or remove the component. No install is known to
-have adopted infrastructure, so this set is expected to be empty in practice;
-task 1.4 checks live deployments.
+the existing adoption API, or remove the component. Task 1.4 tracks which
+deployments have been checked.
 
-Replacement of an adopted certificate stays solely with the existing
-`ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
-`runtime-cert-rotation.json`, unchanged by this change, including its refusal
-when the predecessor is revoked, superseded or from another issuer. A subject
-whose certificate was revoked therefore stays refused until an operator acts,
-as today. One residual case is not covered by either path: when the rotation
-manifest's predecessor is an unrecorded intermediate certificate while an
-older certificate of that subject is recorded, the rotation path skips it and
-the subject is held, so neither path records the current certificate. The
-identity is reported unadopted with that reason, and an operator records the
-successor through the existing API. This is fail-closed and visible.
+Replacements remain with `ServiceRadar.Edge.RuntimeCertificateRotation`,
+which processes `runtime-cert-rotation.json` as before. If a subject is held
+and rotation has not recorded the current inventory certificate, hub status
+reports the identity as not adopted, explains that the subject is held and the
+current inventory certificate is unrecorded, and directs the operator to the
+existing successor API. It includes a rotation reason only when the rotation
+path produced one for that certificate.
 
-Coverage: a chart identity counts as adopted when the inventory's certificate
-for that subject is recorded and not revoked. Otherwise it is reported with
-the reason: a failed check, legacy rows without a subject, or a held subject
-whose recorded certificates do not include the inventory's certificate (for
-example after a refused rotation, a revocation, or the residual case above).
-
-The stored grant is the static block for that subject. It is only the
-per-fingerprint record: admission of a chart identity still uses the static
-users file, and a missing or unread static file still refuses it.
-
-Why this adds no trust: a certificate that chains to the root and carries a
-chart subject is already accepted by the broker today through
-`verify_and_map`. Writing the ConfigMap needs the same Kubernetes rights as
-changing the chart's static users. Revocation still wins.
-
-This provides the first adoption of chart certificates, which the existing
-rotation record cannot: it only records successors of certificates already
-adopted, and skips the rest. The inventory complements that record and does
-not replace it. The rotation record keeps handling replacements of
-already-adopted certificates before workloads roll; the inventory performs
-first adoption only.
+Coverage counts the inventory certificate for a subject when it is recorded
+and unrevoked. Hub status warns about each uncovered identity with its reason.
+Changing the inventory files requires write access to the runtime Secret.
 
 Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
 the chart does not define.
 
 Alternatives considered:
 - A CLI command that reads the runtime Secret and calls adopt per certificate.
-  Rejected: it needs Kubernetes access to the Secret holding the CA keys, it
+  Rejected: it needs Kubernetes access to every component's private key, it
   is not available to a hosted tenant, and it does not survive regeneration.
 - Give core RBAC to read the Secret. Rejected: core would hold every
   component's private key.
@@ -152,30 +142,71 @@ Alternatives considered:
   the existing design keeps a per-fingerprint record so one certificate can be
   revoked and used certificates can be listed; this keeps that.
 
-### Decision 2: The chart owns the signing keys
+### Decision 2: Signing key provisioning follows issuer Secret ownership
 
-The generator creates the issuer, auth and system nkeys once and never
-replaces existing ones. Seeds go into a Secret, `serviceradar-nats-callout`,
-mounted only into core. The public keys go into a broker configuration
-fragment in a ConfigMap, which the NATS pod mounts and the server
-configuration includes.
+The generator owns the signing set only on a non-hosted install with
+`certs.generator.enabled` true and the same Secret name resolved by
+`serviceradar.runtimeIssuerSecretName` and `serviceradar.runtimeCertsSecretName`.
+In the self-managed default this shared runtime Secret also holds the CA key.
+In every other configuration the Secret supplier provides the three seeds in
+the issuer Secret and both matching fragments in the runtime Secret. This
+covers distinct Secret names, hosted installs and self-managed installs
+with generation disabled, even when both names identify the same Secret.
+Any generator running in those configurations leaves all five entries alone.
+Its Role stays unchanged. The chart documents all five keys and their destinations.
 
-Core reads the seeds from the mounted files when they are present. The
-database record and `POST /nats/certificate-authorization/bootstrap` remain
-for installs with no chart; when both exist and disagree, core reports
-`signing_key_conflict` and does not answer authorization requests.
+On the generator-owned path the signing step runs both before the
+existing-certificates early exit and when certificates are generated or
+regenerated. Certificate reconciliation controls the successful exit and
+writes the rotation manifest when it reissues certificates.
+
+- If all five entries are absent, generate the issuer, auth and system seeds
+  and publish them together with both fragments derived from their public keys.
+- If all three seeds are present, preserve them and rebuild only missing or
+  stale fragments from those seeds. A matching set leaves all five signing entries untouched.
+- If any signing entry remains but a seed is missing, fail the job without
+  writing. Name each missing seed and direct the operator to restore it or
+  deliberately remove all remaining signing entries to provision a new set.
+
+Signing key rotation is outside this change.
+
+With enforcement enabled, the chart renders two fixed signing projections.
+Core mounts the three issuer Secret seeds in a separate optional volume so
+it can start and report a missing seed. NATS requires both runtime Secret
+fragments. When either is missing, Kubernetes blocks the affected pod at
+startup and names the missing key in its mount event, regardless of core's
+seeds. Core checks its mounted seeds first. If any is missing, hub status
+reports `signing keys not provisioned` even during a broker outage.
+With all seeds mounted, if core keeps answering
+through another broker, an otherwise ready hub stays ready and leaf install
+proceeds. If the seeds are present but core loses its authorizer connection, hub status reports the
+authorizer is not answering and leaf install stops. The runbook directs
+operators to the affected pod's events when checking NATS and core health.
+With enforcement disabled the chart omits both signing projections.
+
+On hosted installs the distinct issuer Secret holds both the CA signing key
+and the callout seeds. Pod projections limit the files mounted into workloads. In either mode, Kubernetes principals with read
+access to the issuer Secret can read the seeds and use the signing keys.
+
+With enforcement enabled, NATS includes the authorization fragment at the
+top level and the account fragment inside the accounts block. Task 1.3
+records the broker experiment. With enforcement off, NATS omits both includes.
+
+On chart installs core uses the three mounted seeds. The broker fragments
+carry their public keys. Core ignores any database signing record and logs
+once that the record is unused. An incomplete or absent seed mount with
+enforcement enabled still yields `signing keys not provisioned`. Only installs
+without a chart use the database record and the bootstrap API.
 
 Why not keep the keys in the database and copy public keys into values: that
 copy is the hand step being removed, and Helm cannot read the database at
 render time.
 
-Hosted tenants: the control plane creates the Secret and the fragment, as it
-already creates the certificate Secret. That is a change in
-`serviceradar-control`, tracked there.
+The hosted control-plane follow-up is listed in the proposal under Impact.
 
 ### Decision 3: One value, and the unverifiable promise is removed
 
-`nats.certificateAuthorization.enabled` is the only setting. The chart no
+`nats.certificateAuthorization.enabled` is the only enforcement switch. The chart no
 longer asks the operator to assert `infrastructureAdopted`; adoption is
 automatic and its coverage is reported by core (Decision 5). The three key
 values are removed.
@@ -184,19 +215,12 @@ This is a chart value, and the control plane renders the same value for
 tenants, so it is not a Helm-only switch.
 
 The chart keeps refusing `nats.certificateAuthorization.enabled` together
-with `certs.regenerator.enabled`. The regenerator mints a new root and writes
-no rotation manifest, so its certificates could be neither rotated onto nor
-first-adopted (their subjects are held). Only `infrastructureAdopted` and the
-three key values are removed; that exclusion stays. Adoption under a new root
+with `certs.regenerator.enabled`. Adoption under a new root
 is out of scope.
 
 ### Decision 4: Default (owner decision)
 
-With enforcement on, a new NATS connection is admitted only if core's
-authorizer answers, which needs core and its database. Established sessions
-continue until their grant expires. The authorizer's own connections do not
-depend on the callout, so the system can start from cold: NATS, then core,
-then everything else connects or retries.
+Enforcement introduces an availability dependency on core and its database.
 
 - **Off by default for this release (proposed).** Self-managed installs that
   do not use leaves keep today's behaviour. The hosted control plane turns it
@@ -233,7 +257,8 @@ then everything else connects or retries.
 which assembles the `hub` object from core's fields and its own
 `leaf_upstream_url`.
 
-`serviceradar-cli edge hub status` prints it. The route is already inside the
+`serviceradar-cli edge hub status` prints it, marking each uncovered identity as a warning with its
+reason for the operator's pre-enforcement review. The route is already inside the
 CLI's `edge.manage` scope; no scope is widened.
 
 `edge install leaf` reads the same object before any host change and stops on
@@ -243,74 +268,49 @@ resolver:
 1. hub status missing or unreadable: no setting to change; wait and retry,
    and check core's health;
 2. enforcement not configured: set `nats.certificateAuthorization.enabled`;
-3. enforcement configured but the authorizer not answering: no setting to
-   change; wait and retry, and check core's health, with the readiness reason
+3. enforcement configured but any of the three mounted seeds is absent: core reports `signing keys not provisioned`.
+   Hub status displays that reason and leaf install stops, directing the
+   signing set owner from Decision 2 to provision the missing seeds;
+4. enforcement configured but the authorizer otherwise not answering: no setting to
+   change; check NATS and core health, then retry, with the readiness reason
    shown;
-4. leaf listener not configured: `nats.leafnodes.enabled`;
-5. no leaf upstream URL: the install's leaf host setting
-   (`hostedRuntime.publicEndpoints.natsLeafHost` today);
-6. a chart identity not adopted: the per-subject reason from
-   `chart_identities`; there is no Helm setting for this cause.
+5. leaf listener not configured: `nats.leafnodes.enabled`;
+6. no leaf upstream URL: the install's leaf host setting
+   (`hostedRuntime.publicEndpoints.natsLeafHost` today).
 
-In every case it changes nothing on the host. It no longer
-continues with "hub enforcement stays unconfirmed" for a leaf. Collector
-installs keep today's behaviour.
+When these checks pass, leaf installation proceeds regardless of chart
+identity coverage.
+
+Collector installs keep today's behaviour.
 
 ### Decision 6: Turning it on is safe by construction
 
-Core adopts chart identities whether or not enforcement is on. So the order
-for an existing install is: upgrade to this release with the value off; check
-`edge hub status` shows every chart identity adopted; turn the value on. If it
-is turned on first anyway, clients are refused only until core's first
-reconciliation, and they retry, but only when every chart identity can be
-adopted automatically. A chart identity that hub status reports as not adopted
-stays refused after enforcement is on until its reported reason is resolved,
-whatever the reason: for example, rows without a subject blocking new
-inventory adoption, a refused or skipped rotation, a revoked subject, or a
-failed qualification check. Rows without a subject block only new adoption;
-fingerprints already recorded, including by the earlier hand procedure, are
-admitted and count as adopted. `edge hub status` shows every not adopted chart
-identity with its reason before enforcement is turned on, which is why the
-documented order checks hub status first.
+Upgrade with enforcement off. For a generated runtime Secret, the pre-upgrade
+hook checks the fixed inventory before core rolls. For a supplied Secret, core
+uses only the supplier's inventory list, which may be empty. Review
+`edge hub status` and supply any omitted public certificates and list them
+before expecting full coverage. Once all chart identities are adopted and the
+signing material is provisioned, turn enforcement on.
 
-Certificate regeneration changes every fingerprint. A certificate that was
-already adopted has its successor recorded by
-`ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
-before workloads roll onto it, so its client is not refused; the inventory
-does not record it. The inventory changes in the same generator run; on the
-authorizer's next tick core adopts a qualifying certificate whose subject is
-not held. Only such a certificate is refused until then, and its client
-retries; the window is bounded by the authorizer's 10 second tick (the
-rotation reconciler separately runs every 30 seconds). A replacement whose
-predecessor was revoked or superseded is refused by the rotation path, is not
-recorded by the inventory because the subject is held, and is
-reported with the reason.
+Full coverage completes the pre-enforcement inventory check. It compares
+each inventory certificate with the unrevoked records. An
+omitted chart identity produces a warning even if its client was previously
+hand-adopted. Legacy rows without subjects
+block only new inventory adoption.
 
 ## Risks / Trade-offs
 
 - **Availability dependency on core** when enforcement is on. Stated in
   Decision 4. Established sessions are not affected by a core restart;
   connections and reconnections made during it wait.
-- **Regeneration does not undo a revocation.** If a chart identity's
-  certificate was revoked, its regenerated replacement is not recorded by the
-  rotation record, the inventory writes nothing because the subject is held,
-  and the subject is reported with the revocation reason. Its client
-  stays refused until an operator acts.
-- **Residual unrecorded rotation.** When a rotation manifest names an
-  unrecorded intermediate predecessor while an older certificate of that
-  subject is recorded, neither path records the current certificate. The
-  identity is reported unadopted with that reason and an operator records the
-  successor through the existing API.
 - **Legacy certificate rows without a subject** block all inventory adoption
-  until they are recorded again or their component is removed. Expected to be
-  empty; task 1.4 checks.
+  until they are recorded again or their component is removed.
 - **The static user `O=ServiceRadar`** (publish allow `>` with deny
   `logs.normalized.>`, subscribe allow `>`) is not a chart identity: no
   chart-generated certificate carries that subject. A broker experiment on the
   chart configuration showed that only a certificate whose whole subject is
   exactly `O=ServiceRadar` maps to it; other unlisted subjects are refused.
-  With enforcement on, such a certificate would not be in the inventory and
-  would be refused. Task 1.2 checks live deployments for a holder before any
+  Task 1.2 checks live deployments for a holder before any
   behaviour changes, then removes the user or documents it.
 - **Included broker configuration** is a new shape for the NATS pod. Covered
   by a broker test that boots nats-server from the rendered files, as the
@@ -319,12 +319,21 @@ reported with the reason.
 ## Migration Plan
 
 1. Ship inventory, automatic adoption, generated keys and readiness with
-   enforcement off. Nothing changes for running installs.
-2. Turn enforcement on in demo; verify every client and a leaf.
+   enforcement off. Follow Decision 6 for generated and supplied inventories.
+   The hook can rotate runtime certificates before the first core rollout.
+   This release removes `issuerPublicKey`, `authUserPublicKey`
+   and `systemUserPublicKey`. After upgrade the chart ignores public keys
+   pasted into these values from a bootstrap record. Enabling enforcement
+   uses the mounted seeds without migrating the record.
+2. Turn enforcement on in demo and check client reconnections and leaf
+   installation as specified in tasks 5.2 and 5.4.
 3. Control plane change for hosted tenants.
 4. Decide the default.
 
-Rollback at any step is setting the value back to false.
+Turning enforcement off restores static authorization. Inventory projection
+still follows Decision 1. If a supplier listed a missing certificate, supply
+it or correct the inventory list and roll core. Disabling enforcement does
+not undo a certificate reissue or the existing rotation records.
 
 ## Open Questions
 

@@ -1,4 +1,4 @@
-# Change: Turn on hub certificate authorization with one setting and no hand steps
+# Change: Turn on hub certificate authorization with one enforcement setting
 
 ## Why
 
@@ -16,7 +16,7 @@ Enabling the callout today is a hand procedure with three parts
    component's public certificate and a copy of its static permissions. There
    is no bulk call and no list call. Neither core nor web-ng can read another
    component's certificate, so the operator has to extract each one from the
-   runtime Secret, which also holds the CA keys.
+   runtime Secret, which also holds the CA keys by default on self-managed installs.
 2. **Create the signing keys.** `POST
    /api/admin/nats/certificate-authorization/bootstrap` returns three public
    nkeys.
@@ -24,12 +24,8 @@ Enabling the callout today is a hand procedure with three parts
    `certificateAuthorization.enabled`, and set `infrastructureAdopted: true`,
    which is a promise the chart cannot check.
 
-A client missed in step 1 is refused by the broker as soon as step 3 rolls
-out. Regeneration is already handled for a certificate that was adopted: the
-generator writes `runtime-cert-rotation.json` and
-`ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
-certificate as the successor of the adopted one, from the core migrations hook
-before workloads roll. That path skips a certificate that was never adopted.
+Replacements are recorded by the existing rotation path from
+`runtime-cert-rotation.json` as before.
 What is missing is the first adoption of the chart's certificates.
 No CLI command covers steps 1 and 2; their routes are outside the CLI's edge
 scope on purpose. The hosted control plane enables the leaf port for tenants
@@ -43,14 +39,19 @@ chart install. The owner asked for one-touch provisioning that is secure.
 
 The hand steps are removed rather than wrapped in CLI commands. A CLI command
 that extracts certificates from the cluster would need Kubernetes access to
-the Secret that holds the CA keys, which is the opposite of secure.
+the runtime Secret, exposing every component's private key to the caller.
 
-- **The chart publishes a public inventory of its own NATS client
-  certificates.** The certificate generator already holds every certificate.
-  It writes a ConfigMap with the public certificate of each chart identity and
-  no key material, as it already publishes public certificates in
-  `runtime-cert-rotation.json`. Core mounts it next to the static users file it
-  already reads. A chart identity is a subject for which the generator issues
+- **Core is given the public certificates of the chart's NATS clients.** When
+  the non-hosted generator runs, core projects every chart identity's public
+  certificate from the runtime Secret. The pre-upgrade hook requires those
+  files before preserving the Secret. A missing file can trigger one reissue
+  of all runtime certificates with the existing rotation manifest before core
+  rolls.
+  For hosted installs or a disabled generator, the supplier lists only
+  the public certificates it supplies. The default empty list lets core start
+  and report each identity as not adopted because no inventory certificate is
+  supplied. Neither path adds private keys to the inventory, creates a
+  ConfigMap or expands the generator's permissions. A chart identity is a subject for which the generator issues
   a distinct NATS client certificate. The alias users `serviceradar-flowgger`,
   `serviceradar-otel` and `serviceradar-netflow-collector`, whose certificate
   files are copies of another identity's certificate, and the `O=ServiceRadar`
@@ -71,21 +72,35 @@ the Secret that holds the CA keys, which is the opposite of secure.
   writes nothing: replacing an adopted certificate stays solely with the
   existing rotation record, unchanged, so revocation is unchanged. Hand
   adoption remains, unchanged, for clients the chart does not define.
-- **The chart owns the callout signing keys.** The generator creates the three
-  nkeys once, stores the seeds in a Secret mounted only into core, and writes
-  the public half into a configuration fragment the broker includes. Nothing
-  is pasted into values. The existing API bootstrap stays for installs that
-  have no chart.
+- **Signing key provisioning follows issuer Secret ownership.** On a non-hosted install with
+  `certs.generator.enabled` true and matching issuer and runtime Secret names,
+  the generator provisions all five
+  signing entries together only when none exist. On upgrade or rerun, it
+  preserves all three existing seeds and uses them to repair missing or stale
+  fragments. If any entry remains but a seed is missing, the job fails without
+  writing and names the seeds to restore. The operator can instead deliberately
+  remove the remaining signing entries to provision a new set. In every other configuration, the
+  Secret supplier provisions the seeds
+  in the issuer Secret and the fragments in the runtime Secret. The generator
+  leaves both sets alone and keeps its existing Role. Only with enforcement
+  on does core project the seeds and NATS project the fragments. The chart
+  documents the fixed signing projections. If core lacks any mounted seed,
+  hub status reports `signing keys not provisioned` and leaf install stops, even if core
+  also lost its broker connection.
+  A missing broker fragment blocks startup of the affected NATS pod regardless of core's seeds.
+  Kubernetes names the missing key in its mount error. An otherwise ready
+  hub stays ready and leaf install proceeds while core answers through a
+  surviving broker. If all seeds are present but core loses its authorizer connection, hub status
+  reports the authorizer is not answering and leaf install stops.
+  Core uses the mounted seeds and logs once if a stored signing record is
+  unused. Installs without a chart retain the bootstrap API and stored keys.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
-  them; none is known to. Turning it on needs no prior manual step once hub
-  status reports every chart identity adopted, however its certificate came to
-  be recorded. A chart identity that hub status reports as not adopted stays
-  refused after enforcement is on until its reported reason is resolved (for
-  example rows without a subject blocking new adoption, a refused or skipped
-  rotation, a revoked subject, or a failed qualification check); hub status
-  shows it with its reason before enforcement is turned on.
+  them; none is known to. Full coverage completes the pre-enforcement inventory check.
+  Admission remains with `ServiceRadar.NATS.ManagedCertificateAuthorization` and
+  `ComponentCertificateAuthority.authorize`, unchanged by this change.
+  Hub status warns about uncovered identities before enforcement.
 - **The hub reports whether it can accept a leaf**: core reports whether
   enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the
@@ -93,8 +108,8 @@ the Secret that holds the CA keys, which is the opposite of secure.
   the CLI shows both: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, naming the cause and what resolves it: the enforcement
-  value, waiting for core's authorizer, `nats.leafnodes.enabled`, the leaf
-  host setting, or the per-subject reason a chart identity is not adopted. It
+  value, provisioning missing seeds, checking NATS and core health, `nats.leafnodes.enabled`, the leaf
+  host setting. Leaf installation proceeds with coverage warnings if all readiness checks pass. It
   also stops when the hub status is missing or unreadable. Today it
   continues and the leaf never connects.
 
@@ -116,9 +131,9 @@ connection depends on core and its database being up.
   certificate authorization modules, the web-ng managed component controller,
   `js/cli` edge commands, `docs/managed-component-certificates.md`.
 - Follow-up outside this repository: `serviceradar-control` supplies the
-  inventory and the signing Secret for hosted tenants, as it already supplies
-  the certificate Secret, and sets the one value. Until it does, hosted
-  tenants are unchanged.
+  public inventory certificates and both broker fragments in the hosted runtime
+  certificate Secret and the three seeds in the hosted issuer Secret. It
+  sets the inventory certificate list, which defaults to empty in hosted mode.
 - Not in scope: Docker Compose and packaged hubs, a dedicated edge account for
   leaf subject isolation, and opening the leaf port to the outside, which
   stays an operator or control-plane action.
