@@ -178,17 +178,18 @@ adopted infrastructure certificates are refused (`static identity grants
 unavailable`) rather than granted their stored grant, and no session is
 disconnected for its grant; host-enrolled components are unaffected.
 
-When core and the chart's NATS are enabled, Helm automatically mounts the public
-certificate inventory on core and sets the three paths below. On a non-hosted
+When core and the chart's NATS are enabled, Helm mounts the public certificate
+inventory on core and sets the three paths below. Core can adopt eligible
+certificates even with broker authorization callout disabled. On a non-hosted
 installation with `certs.generator.enabled` set to `true`, the chart owns the
-runtime certificate Secret and projects all 13 chart NATS client certificates.
+runtime certificate Secret and projects every chart NATS client certificate.
 
 On a hosted installation or one with the generator disabled, the supplier of
 the runtime certificate Secret lists the files it carries in
-`certs.inventoryCertificates`. The chart accepts only its own NATS client
-certificate filenames, such as `core.pem` and `web.pem`. The list defaults to
-empty, in which case core mounts an empty directory. Each listed file must
-exist in the Secret for the volume to mount.
+`certs.inventoryCertificates`. The accepted filenames are the `file` entries in
+[`serviceradar.natsChartIdentities`](../helm/serviceradar/templates/_helpers.tpl).
+By default the list is empty and core mounts an empty directory. Each listed
+file must exist in the Secret for the volume to mount.
 
 For installations without the Helm chart, configure the static users file
 described above and supply all three inventory paths to core.
@@ -261,8 +262,10 @@ component, and a private key are refused. The route uses the same API key
 pipeline and `settings.edge.manage` permission as adoption. Broker
 authorization callout stays disabled.
 
-The chart's runtime certificate generator records its own rotations. When it
-reissues the runtime certificates (a `certs.runtimeLayoutVersion` change), it
+The chart's runtime certificate generator reissues the runtime certificates when
+`certs.runtimeLayoutVersion` changes. If an older generator-owned Secret lacks
+even one certificate in core's projection, the pre-upgrade hook also reissues
+the full runtime certificate set before core rolls. On reissue, the generator
 writes `runtime-cert-rotation.json` into the runtime certificate Secret. For each
 reissued public certificate, that record holds the fingerprint it replaced, its
 own fingerprint, and its PEM with the root CA. It holds no key. The core
