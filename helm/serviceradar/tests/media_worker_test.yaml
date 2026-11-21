@@ -18,8 +18,9 @@ tests:
       mediaWorker.enabled: true
       mediaWorker.replicas: 2
       mediaWorker.executionProvider: cuda
-      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
-      mediaWorker.image.tag: sha-0123456789abcdef0123456789abcdef01234567
+      # The published CUDA image is arm64-only; an amd64 pool runs a site build.
+      mediaWorker.image.repository: registry.example.com/site/media-worker-cuda-amd64
+      mediaWorker.image.tag: "2026.11.1"
       mediaWorker.gpuResourceName: nvidia.com/gpu
       mediaWorker.gpuCount: 1
       mediaWorker.runtimeClassName: nvidia
@@ -320,8 +321,10 @@ tests:
     set:
       mediaWorker.enabled: true
       mediaWorker.executionProvider: tensorrt
-      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
-      mediaWorker.image.tag: sha-0123456789abcdef0123456789abcdef01234567
+      # The published CUDA image has no TensorRT runtime; a site build adds it.
+      mediaWorker.image.repository: registry.example.com/site/media-worker-tensorrt
+      mediaWorker.image.tag: "2026.11.1"
+      mediaWorker.ortDylibPath: /opt/onnxruntime/lib/libonnxruntime.so
       mediaWorker.gpuCount: 2
       mediaWorker.runtimeClassName: nvidia
       mediaWorker.nodeSelector:
@@ -554,16 +557,34 @@ tests:
       webNg.controlPlaneRuntime.mediaWorker.generation: "1"
     asserts:
       - failedTemplate:
-          errorMessage: webNg.controlPlaneRuntime.port 4000 collides with web-ng's public listener (4000) or its metrics port (9090)
+          errorMessage: "webNg.controlPlaneRuntime.port 4000 collides with another web-ng listener: the public listener (4000), the metrics port (9090), or Erlang distribution (4369, 9100)"
 
-  - it: refuses a control-plane port that collides with web-ng's metrics port
+  - it: refuses a control-plane port that collides with Erlang distribution
     template: templates/web.yaml
     set:
-      webNg.controlPlaneRuntime.port: 9090
+      webNg.controlPlaneRuntime.port: 4369
       webNg.controlPlaneRuntime.mediaWorker.enabled: true
       webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
       webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
       webNg.controlPlaneRuntime.mediaWorker.generation: "1"
     asserts:
       - failedTemplate:
-          errorMessage: webNg.controlPlaneRuntime.port 9090 collides with web-ng's public listener (4000) or its metrics port (9090)
+          errorMessage: "webNg.controlPlaneRuntime.port 4369 collides with another web-ng listener: the public listener (4000), the metrics port (9090), or Erlang distribution (4369, 9100)"
+
+  # The ports the collision check compares come only from chart values.
+  - it: refuses web-ng's public port through extraEnv
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.PORT: "4001"
+    asserts:
+      - failedTemplate:
+          errorMessage: PORT must be configured through the chart (web-ng's public listener is 4000)
+
+  - it: refuses web-ng's metrics port through extraEnvValueFrom
+    template: templates/web.yaml
+    set:
+      webNg.extraEnvValueFrom.SERVICERADAR_METRICS_PORT:
+        configMapKeyRef: {name: synthetic-ports, key: metrics}
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_METRICS_PORT must be configured through webNg.metricsPort

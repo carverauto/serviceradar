@@ -570,13 +570,13 @@ access.
 | `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly | `candle` |
 | `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` at its root. Only those three files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`; restart the worker after replacing them. Nothing is downloaded or bundled | `""` |
 | `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and the CUDA image (below); the chart refuses a GPU provider on the release's CPU image. `tensorrt` additionally needs a loadable ONNX Runtime that provides the TensorRT execution provider (`ortDylibPath`), which the CUDA image does not include; inference itself still runs on candle's CUDA device | `cuda` |
-| `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16` | `auto` |
+| `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16`. `cpu_explicit` accepts only `auto` or `f32` | `auto` |
 | `mediaWorker.cudaCache.sizeLimit`, `existingClaim` | Under a GPU provider, a writable compiled-kernel cache (about 350 MB) is mounted at `/var/cache/serviceradar-media-worker/cuda` and passed as `CUDA_CACHE_PATH`, since the root filesystem is read-only and `/tmp` is small: an `emptyDir` of `sizeLimit`, or `existingClaim` to keep it across restarts. The image's other CUDA settings (`LD_LIBRARY_PATH`, `CUDA_CACHE_MAXSIZE`, `NVIDIA_DRIVER_CAPABILITIES`) are left as built | `1Gi`, `""` |
 | `mediaWorker.device` | Candle device. Empty derives `cuda` for the GPU providers and `cpu` for `cpu_explicit`. GPU providers accept `cuda` or `auto`; `cpu_explicit` accepts only `cpu` | `""` |
 | `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider needs a runtime class and requests `gpuCount` (at least 1) of `gpuResourceName`; `cpu_explicit` requests no GPU | `""`, `nvidia.com/gpu`, `1` |
 | `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate` | `1` |
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
-| `mediaWorker.image.repository`, `tag` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or pin a digest. Any repository other than the release's needs an explicit tag or digest | `""` |
+| `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
@@ -621,10 +621,12 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   treated as a remote control plane and left to the operator;
 - a GPU provider uses the release's CPU image, or a non-release repository has
   neither a tag nor a digest;
-- `webNg.controlPlaneRuntime.port` collides with web-ng's public listener
-  (4000) or its metrics port, or `SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT` is
-  set through `webNg.extraEnv` or `extraEnvValueFrom` (the port the worker and
-  both policy directions use has one source);
+- `webNg.controlPlaneRuntime.port` collides with another web-ng listener (the
+  public listener 4000, the metrics port, or Erlang distribution 4369 and
+  9100), or `SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT`, `PORT` or
+  `SERVICERADAR_METRICS_PORT` is set through `webNg.extraEnv` or
+  `extraEnvValueFrom` (every web-ng listener port has one source, the one the
+  collision check reads);
 - the worker's streams do not fit JetStream (below).
 
 The retired keys (`models.embedderModelId`, `embedderModelVersion`,
@@ -702,24 +704,40 @@ neither reopens same-namespace egress to it. With its own policy off it is
 therefore selected by no chart policy, and the operator supplies its policy.
 
 **Database isolation.** The chart keeps the worker off PostgreSQL at the
-database pods themselves, so it does not depend on the worker's own policy:
+database pods themselves, so it does not depend on the worker's own policy.
+Kubernetes policies only add permissions, so a database pod is protected only
+if every chart policy that selects it refuses the worker:
 
-- With `networkPolicy.enabled`, the CNPG instances (primary and replicas) and
-  the PgBouncer pooler are left out of `serviceradar-egress` and get their own
-  copies of it (`serviceradar-egress-cnpg-instances`,
+- With `networkPolicy.enabled`, this release's CNPG instances (primary and
+  replicas) and its PgBouncer pooler are left out of `serviceradar-egress` and
+  get their own copies of it (`serviceradar-egress-cnpg-instances`,
   `serviceradar-egress-cnpg-pooler`) with the same rules, except that every
-  pod-based ingress peer excludes the worker. That holds for any port form
-  (ranges, named ports, none) and for the release namespace listed under
-  `networkPolicy.ingress.allowedNamespaces`.
-- Without it, the CNPG application policy admits the primary to every pod but
-  the worker, and `serviceradar-cnpg-*-no-media-worker` policies select the
-  replicas and the pooler (and the primary, when `cnpg.applicationAccess` is
-  off) and admit every source except the worker: all other pods in the
-  namespace and all pods in other namespaces.
+  ingress peer in the release namespace excludes the worker. That holds for any
+  port form (ranges, named ports, none) and when the release namespace is
+  listed under `networkPolicy.ingress.allowedNamespaces`. The rest of
+  `serviceradar-egress` is unchanged: "every pod except this cluster's
+  instances and pooler" is rendered as two selectors with the same rules, so
+  another CNPG cluster's pods in the namespace keep exactly the policy they had.
+- The CNPG application policy admits the primary to every pod but the worker.
+- `serviceradar-cnpg-*-no-media-worker` policies select the database pods that
+  no other chart policy selects (with the namespace-wide policy off: the
+  replicas and the pooler, and the primary only when neither the application,
+  local-development nor StarRocks catalog policy selects it) and admit every
+  source except the worker. A pod another chart policy already restricts is
+  never added to them.
 
-What the chart enforces is that no policy it renders admits the worker to the
-CNPG instances or the pooler. It cannot enforce that on a cluster whose CNI
-does not implement NetworkPolicy, against policies an operator adds, or
+While the worker is enabled, the chart refuses the layouts its policies cannot
+reach, because the worker's database isolation cannot be guaranteed there:
+
+- `cnpg.namespace` other than the release namespace;
+- `analytics.starrocks.catalog.sourceNamespace` equal to the release namespace
+  (its policy admits every pod there to the primary);
+- a customised `networkPolicy.podSelector` (use the default selector or
+  `networkPolicy.podSelectorMatchAll`).
+
+What the chart enforces is that no policy it renders admits the worker to this
+release's CNPG instances or pooler. It cannot enforce that on a cluster whose
+CNI does not implement NetworkPolicy, against policies an operator adds, or
 against `networkPolicy.ingress.allowedCIDRs` entries that cover the pod network
 (an IP block cannot exclude one pod).
 
@@ -773,9 +791,9 @@ run there:
 - `mediaWorker.backend` and `device`;
 - the weights PVC: provisioning it with the SigLIP files and setting
   `models.existingClaim` (and `models.mountPath` if changed);
-- image selection and pulling: `mediaWorker.image.repository`, `tag` and
-  `pullPolicy`, or a digest in `image.digests.mediaWorker` (for GPU, the CUDA
-  repository and the `sha-<commit>` tag its publish workflow produced), and
+- image selection and pulling: `mediaWorker.image.repository`, `tag`, `digest`
+  and `pullPolicy` (for GPU, the CUDA repository and the `sha-<commit>` tag its
+  publish workflow produced), and
   `ortDylibPath` for `tensorrt`;
 - `mediaWorker.dtype` and `cudaCache.sizeLimit` or `cudaCache.existingClaim`;
 - GPU placement and size: `executionProvider`, `runtimeClassName`,

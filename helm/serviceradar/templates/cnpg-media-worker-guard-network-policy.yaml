@@ -1,36 +1,54 @@
-{{- /* Keeps the media worker off the database when the namespace-wide policy is off.
+{{- /* Keeps the media worker off database pods that no other chart policy selects.
 
-     The worker has no database access by design. With networkPolicy.enabled, the
-     serviceradar-egress copies for the CNPG instances and the pooler admit no ingress
-     from it, and the CNPG application policy admits the primary to every pod but the
-     worker. Without the namespace-wide policy, replicas and the pooler (and the
-     primary, when cnpg.applicationAccess is off) are selected by no ingress policy,
-     and a pod no policy selects accepts traffic from anywhere, the worker included.
-     This policy selects exactly those pods and admits everything they admitted
-     before except the worker: every other pod in the namespace and every pod in
-     other namespaces, on any port. It applies whenever the worker is enabled,
-     whatever mediaWorker.networkPolicy.enabled says. */ -}}
+     The worker has no database access by design, and Kubernetes policies only add
+     permissions, so a database pod is safe only if every policy selecting it refuses
+     the worker -- and a pod that no policy selects accepts traffic from anywhere. The
+     chart's other database policies never admit the worker: the CNPG application
+     policy (primary, every pod but the worker), the local-development and StarRocks
+     catalog policies (CIDRs, another namespace), and with networkPolicy.enabled the
+     serviceradar-egress copies for the instances and the pooler and the CNPG
+     operator, instance-manager and metrics policies. This guard selects exactly the
+     database pods none of those select and admits every source except the worker:
+     all other pods in the namespace and all pods in other namespaces, on any port.
+     It therefore never changes access for a pod another policy already restricts.
+     It applies whenever the worker is enabled, whatever
+     mediaWorker.networkPolicy.enabled says. */ -}}
 {{- $np := default (dict) .Values.networkPolicy -}}
 {{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgEnabled := include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true" -}}
-{{- if and $cnpgEnabled (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (not $np.enabled) }}
+{{- if and $cnpgEnabled (eq (include "serviceradar.mediaWorkerEnabled" .) "true") }}
+{{- $ingress := default (dict) $np.ingress -}}
+{{- $global := default false $np.enabled -}}
+{{- $operatorPolicy := and $global (default false (default (dict) $ingress.cnpgOperator).enabled) -}}
+{{- $instanceManagerPolicy := and $global (include "serviceradar.boolDefaultTrue" (list (default (dict) $ingress.cnpgInstanceManager) "enabled") | eq "true") -}}
+{{- $metricsPolicy := and $global (default false (default (dict) $ingress.monitoring).enabled) -}}
+{{- /* Each of these selects every instance, primary and replicas. */ -}}
+{{- $instancesCovered := or (and $global $np.podSelectorMatchAll) $operatorPolicy $instanceManagerPolicy $metricsPolicy -}}
 {{- $applicationAccess := default (dict) $cnpg.applicationAccess -}}
-{{- $applicationAccessEnabled := true -}}
-{{- if hasKey $applicationAccess "enabled" -}}
-{{- $applicationAccessEnabled = $applicationAccess.enabled -}}
-{{- end -}}
-{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $applicationPolicy := include "serviceradar.boolDefaultTrue" (list $applicationAccess "enabled") | eq "true" -}}
+{{- $localDev := default (dict) $cnpg.localDevAccess -}}
+{{- $localDevPolicy := and (default false $localDev.enabled) (gt (len (default (list) $localDev.allowedCIDRs)) 0) -}}
+{{- $starrocks := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $catalogPolicy := and $starrocks.enabled (default false (default (dict) $starrocks.catalog).enabled) -}}
+{{- /* These select the primary only. */ -}}
+{{- $primaryCovered := or $instancesCovered $applicationPolicy $localDevPolicy $catalogPolicy -}}
+{{- /* With networkPolicy.enabled the pooler (labelled part-of: serviceradar) is
+     selected by the serviceradar-egress pooler copy; the chart refuses a custom
+     selector while the worker is enabled. */ -}}
 {{- $pooler := default (dict) $cnpg.pooler -}}
-{{- $instanceSelector := dict "cnpg.io/cluster" $clusterName "cnpg.io/podRole" "instance" -}}
-{{- if $applicationAccessEnabled -}}
-{{- /* The primary is already covered by the CNPG application policy. */ -}}
-{{- $_ := set $instanceSelector "cnpg.io/instanceRole" "replica" -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $targets := list -}}
+{{- if not $instancesCovered -}}
+{{- if $primaryCovered -}}
+{{- $targets = append $targets (dict "suffix" "replicas" "labels" (dict "cnpg.io/cluster" $clusterName "cnpg.io/podRole" "instance" "cnpg.io/instanceRole" "replica")) -}}
+{{- else -}}
+{{- $targets = append $targets (dict "suffix" "instances" "labels" (dict "cnpg.io/cluster" $clusterName "cnpg.io/podRole" "instance")) -}}
 {{- end -}}
-{{- $selectors := list (dict "suffix" "instances" "labels" $instanceSelector) -}}
-{{- if default false $pooler.enabled -}}
-{{- $selectors = append $selectors (dict "suffix" "pooler" "labels" (dict "cnpg.io/poolerName" (include "serviceradar.cnpgPoolerName" .))) -}}
 {{- end -}}
-{{- range $target := $selectors }}
+{{- if and (default false $pooler.enabled) (not $global) -}}
+{{- $targets = append $targets (dict "suffix" "pooler" "labels" (dict "cnpg.io/poolerName" (include "serviceradar.cnpgPoolerName" .))) -}}
+{{- end -}}
+{{- range $target := $targets }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

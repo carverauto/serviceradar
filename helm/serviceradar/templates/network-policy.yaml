@@ -260,13 +260,18 @@
      otherwise unchanged. */ -}}
 {{- $policyVariants := list (dict "suffix" "egress" "selector" $podSelector "guardDatabase" false) -}}
 {{- if $mediaWorkerOn -}}
+{{- /* "Not one of this cluster's instances" is an OR (another cluster, or not an
+     instance), which one selector cannot express, so the main policy is two
+     complementary selectors with the same rules. Other clusters' pods stay in it. */ -}}
 {{- $mainSelector := deepCopy $podSelector -}}
-{{- $_ := set $mainSelector "matchExpressions" (concat (default (list) $mainSelector.matchExpressions) (list (dict "key" "cnpg.io/podRole" "operator" "NotIn" "values" (list "instance")) (dict "key" "cnpg.io/poolerName" "operator" "NotIn" "values" (list $cnpgPoolerName)))) -}}
+{{- $_ := set $mainSelector "matchExpressions" (concat (default (list) $mainSelector.matchExpressions) (list (dict "key" "cnpg.io/cluster" "operator" "NotIn" "values" (list $cnpgClusterName)) (dict "key" "cnpg.io/poolerName" "operator" "NotIn" "values" (list $cnpgPoolerName)))) -}}
+{{- $clusterOtherSelector := deepCopy $podSelector -}}
+{{- $_ := set $clusterOtherSelector "matchExpressions" (concat (default (list) $clusterOtherSelector.matchExpressions) (list (dict "key" "cnpg.io/cluster" "operator" "In" "values" (list $cnpgClusterName)) (dict "key" "cnpg.io/podRole" "operator" "NotIn" "values" (list "instance")) (dict "key" "cnpg.io/poolerName" "operator" "NotIn" "values" (list $cnpgPoolerName)))) -}}
 {{- $instanceSelector := deepCopy $podSelector -}}
 {{- $_ := set $instanceSelector "matchExpressions" (concat (default (list) $instanceSelector.matchExpressions) (list (dict "key" "cnpg.io/cluster" "operator" "In" "values" (list $cnpgClusterName)) (dict "key" "cnpg.io/podRole" "operator" "In" "values" (list "instance")))) -}}
 {{- $poolerSelector := deepCopy $podSelector -}}
 {{- $_ := set $poolerSelector "matchExpressions" (concat (default (list) $poolerSelector.matchExpressions) (list (dict "key" "cnpg.io/poolerName" "operator" "In" "values" (list $cnpgPoolerName)))) -}}
-{{- $policyVariants = list (dict "suffix" "egress" "selector" $mainSelector "guardDatabase" false) (dict "suffix" "egress-cnpg-instances" "selector" $instanceSelector "guardDatabase" true) (dict "suffix" "egress-cnpg-pooler" "selector" $poolerSelector "guardDatabase" true) -}}
+{{- $policyVariants = list (dict "suffix" "egress" "selector" $mainSelector "guardDatabase" false) (dict "suffix" "egress-cnpg-cluster-other" "selector" $clusterOtherSelector "guardDatabase" false) (dict "suffix" "egress-cnpg-instances" "selector" $instanceSelector "guardDatabase" true) (dict "suffix" "egress-cnpg-pooler" "selector" $poolerSelector "guardDatabase" true) -}}
 {{- end -}}
 {{- $notMediaWorker := dict "matchExpressions" (list (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
 {{- $ertsSelector := $ingressErlangDistSelector -}}
@@ -310,7 +315,8 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ $namespace | quote }}
-          {{- if $variant.guardDatabase }}
+          {{- /* The worker lives only in the release namespace. */}}
+          {{- if and $variant.guardDatabase (eq $namespace $.Release.Namespace) }}
           podSelector:
 {{- toYaml $notMediaWorker | nindent 12 }}
           {{- end }}

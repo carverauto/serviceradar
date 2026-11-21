@@ -58,13 +58,16 @@
 {{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.media" $key) -}}
 {{- end -}}
 {{- end -}}
-{{- /* The control-plane listener port is what the media worker's URL and both network
-     policy directions are rendered from, so it has exactly one source. */ -}}
-{{- if or (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT") (hasKey (default (dict) $webNg.extraEnvValueFrom) "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT") -}}
-{{- fail "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT must be configured through webNg.controlPlaneRuntime.port" -}}
+{{- /* web-ng's listener ports each have exactly one source, the chart values the
+     collision check below reads; the media worker's URL and both network policy
+     directions are rendered from the control-plane port. */ -}}
+{{- range $key, $source := dict "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT" "webNg.controlPlaneRuntime.port" "PORT" "the chart (web-ng's public listener is 4000)" "SERVICERADAR_METRICS_PORT" "webNg.metricsPort" -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
+{{- fail (printf "%s must be configured through %s" $key $source) -}}
 {{- end -}}
-{{- if and $controlPlaneListenerEnabled (has (int $controlPlaneRuntimePort) (list 4000 (int (default 9090 $webNg.metricsPort)))) -}}
-{{- fail (printf "webNg.controlPlaneRuntime.port %d collides with web-ng's public listener (4000) or its metrics port (%d)" (int $controlPlaneRuntimePort) (int (default 9090 $webNg.metricsPort))) -}}
+{{- end -}}
+{{- if and $controlPlaneListenerEnabled (has (int $controlPlaneRuntimePort) (list 4000 (int (default 9090 $webNg.metricsPort)) 4369 9100)) -}}
+{{- fail (printf "webNg.controlPlaneRuntime.port %d collides with another web-ng listener: the public listener (4000), the metrics port (%d), or Erlang distribution (4369, 9100)" (int $controlPlaneRuntimePort) (int (default 9090 $webNg.metricsPort))) -}}
 {{- end -}}
 {{- range $key := list "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN" "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}

@@ -506,11 +506,13 @@ mediaWorker:
     # cpu_explicit. The GPU build is a separate repository,
     # image.registry/serviceradar-media-worker-cuda (arm64), published only under
     # sha-<commit> tags by a manually dispatched workflow: set repository to it and
-    # tag to the sha-<commit> tag that workflow produced (or pin
-    # image.digests.mediaWorker). A repository other than the release's needs an
-    # explicit tag or digest.
+    # tag to the sha-<commit> tag that workflow produced, or pin digest. A
+    # repository other than the release's needs an explicit tag or digest and
+    # never inherits image.digests.mediaWorker, which pins the release CPU build.
     repository: ""
     tag: ""
+    # Optional "sha256:..." for the selected repository; with tag, both are used.
+    digest: ""
     pullPolicy: ""
   port: 8096
   # "candle" runs SigLIP from the weights in models.existingClaim (required).
@@ -525,7 +527,7 @@ mediaWorker:
   # execution provider (ortDylibPath), which the CUDA image does not include.
   executionProvider: "cuda"
   # Model weight precision (MEDIA_WORKER_DTYPE): "auto" (f16 on CUDA, f32 on
-  # CPU), "f32" or "f16".
+  # CPU), "f32" or "f16". cpu_explicit accepts only auto or f32.
   dtype: "auto"
   # Writable compiled-kernel cache for GPU providers, mounted at
   # /var/cache/serviceradar-media-worker/cuda as CUDA_CACHE_PATH (about 350 MB;
