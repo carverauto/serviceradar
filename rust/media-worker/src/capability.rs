@@ -6,8 +6,13 @@
 //!   **zero silent fallback to CPU** when GPU acceleration is configured;
 //! - GPU sharing classification (`physical`, `mig`, `time_sliced`, `cpu_explicit`);
 //! - Synthetic vision + text forward-pass warmup self-test before `/readyz` turns `200 OK`.
+//!   On CUDA the first forward pass JIT-compiles the PTX kernels (seconds with a cold
+//!   `CUDA_CACHE_PATH`), so the warm-up absorbs that cost before any job is claimed
+//!   or text-embedding RPC is answered.
 
-use crate::backend::{InferenceBackend, InferenceBackendKind, build_inference_backend};
+use crate::backend::{
+    InferenceBackend, InferenceBackendKind, InferencePrecision, build_inference_backend,
+};
 use crate::config::{ExecutionProvider, GpuSharingMode, ModelPinConfig, WorkerConfig};
 use crate::errors::CapabilityError;
 use crate::ort_loader::{OrtRuntimeProbeResult, discover_default_ort_dylib, probe_ort_dylib};
@@ -17,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Hardware and runtime environment facts observed during startup admission.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +147,7 @@ pub struct CapabilityManifest {
     os: String,
     inference_backend: InferenceBackendKind,
     inference_device: String,
+    inference_dtype: InferencePrecision,
     detector_enabled: bool,
     tracker: TrackerMode,
     dedup_track_crops: bool,
@@ -160,6 +167,7 @@ pub struct CapabilityManifest {
     text_sha256: Option<String>,
     index_concurrency: usize,
     text_embed_concurrency: usize,
+    warmup_ms: u64,
 }
 
 impl CapabilityManifest {
@@ -177,6 +185,15 @@ impl CapabilityManifest {
 
     pub fn inference_device(&self) -> &str {
         &self.inference_device
+    }
+
+    pub fn inference_dtype(&self) -> InferencePrecision {
+        self.inference_dtype
+    }
+
+    /// Wall time of the synthetic warm-up forward passes (includes any CUDA JIT compile).
+    pub fn warmup_ms(&self) -> u64 {
+        self.warmup_ms
     }
 
     pub fn detector_enabled(&self) -> bool {
@@ -264,7 +281,9 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
     let obs = probe.observe(config)?;
     let sharing_mode = verify_provider_and_classify_sharing(config, &obs, &backend_info)?;
 
+    let warmup_started = Instant::now();
     run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
+    let warmup_ms = u64::try_from(warmup_started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     Ok(CapabilityManifest {
         status: "ready".to_string(),
@@ -272,6 +291,7 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         os: std::env::consts::OS.to_string(),
         inference_backend: backend_info.backend(),
         inference_device: backend_info.device().to_string(),
+        inference_dtype: backend_info.dtype(),
         detector_enabled: backend_info.detector_enabled(),
         tracker: config.tracker_mode(),
         dedup_track_crops: config.dedup_track_crops(),
@@ -291,6 +311,7 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         text_sha256: config.models().text_sha256().map(str::to_string),
         index_concurrency: config.index_concurrency(),
         text_embed_concurrency: config.text_embed_concurrency(),
+        warmup_ms,
     })
 }
 
@@ -481,7 +502,9 @@ fn run_synthetic_warmup_self_test(
     models: &ModelPinConfig,
     backend: Arc<dyn InferenceBackend>,
 ) -> Result<(), CapabilityError> {
-    let expected_dim = backend.info().embedding_dim();
+    // The configured index width, not the backend's own claim: the warm-up vectors are
+    // real model output, so this proves the towers emit what the index stores.
+    let expected_dim = models.embedding_dim();
     let pipeline = VisionPipeline::with_backend(models.clone(), true, Arc::clone(&backend));
     let warmup_frame = RgbFrame::solid(64, 64, [32, 40, 48]);
     let output = pipeline

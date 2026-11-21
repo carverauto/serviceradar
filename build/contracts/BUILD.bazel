@@ -200,6 +200,21 @@ py_test(
     deps = ["@pyyaml//:yaml"],
 )
 
+py_test(
+    name = "media_worker_cuda_workflow_test",
+    size = "small",
+    srcs = ["media_worker_cuda_workflow_test.py"],
+    data = [
+        "//:MODULE.bazel",
+        "//:github_workflows",
+        "//:rust-toolchain.toml",
+        "//docker/images:image_inventory.bzl",
+        "//scripts:build-media-worker-cuda.sh",
+        "//scripts:ci/media-worker-cuda-image.py",
+    ],
+    deps = ["@pyyaml//:yaml"],
+)
+
 py_binary(
     name = "integration_benchmark_harness_hash",
     srcs = ["ci_heavy_gate_contract_test.py"],

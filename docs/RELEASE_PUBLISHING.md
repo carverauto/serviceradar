@@ -105,6 +105,22 @@ cleanup still runs if the upload fails. Receipts retained from a failed run are
 diagnostic evidence only: deployment requires a successful run with mandatory
 signature verification before and after promotion.
 
+### Images built outside Bazel
+
+Two kinds of image are published one at a time, never by a release, and only when
+listed in `docker/images/image_inventory.bzl`:
+
+- `DOCKERFILE_IMAGES`, built from a Dockerfile by `publish-dockerfile-image.yml`
+  and signed with `SERVICERADAR_DOCKERFILE_IMAGE`;
+- `NATIVE_BUILD_IMAGES`, assembled with crane around a binary built natively on a
+  credential-less runner and signed with `SERVICERADAR_NATIVE_IMAGE`. The only one
+  is `serviceradar-media-worker-cuda`
+  ([media-worker-cuda-image.md](media-worker-cuda-image.md)).
+
+Both modes sign one image by the tag the workflow just pushed, through the same
+`sign-oci-publish.sh` path, OpenBao role and ref allowlist as `publish-oci.yml`,
+and are promoted like any other image.
+
 ### Publishing the promotion tool
 
 `scripts/ci/harbor-publish.py` pins the shared promoter
@@ -463,8 +479,8 @@ line per event, written by `scripts/cosign_receipt.py`):
 - `reused`: an existing verified signature was reused instead of signing.
 
 Every release-key signing workflow (`release.yml`, `publish-oci.yml`,
-`wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml` and
-`publish-dockerfile-image.yml`) uploads its ledger with `if: always()` as the
+`wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml`,
+`publish-dockerfile-image.yml` and `publish-media-worker-cuda.yml`) uploads its ledger with `if: always()` as the
 artifact `signing-ledger-<workflow>-<job>-<run id>-<attempt>`, retained 90 days.
 Tag runs also attach it to the draft GitHub release
 (`scripts/ci/attach-signing-ledger.sh`).

@@ -32,9 +32,9 @@ mod tracking_tests;
 
 pub use backend::{
     DeterministicStubBackend, InferenceBackend, InferenceBackendInfo, InferenceBackendKind,
-    InferenceDevicePreference, RawDetection, build_inference_backend,
+    InferenceDevicePreference, InferencePrecision, RawDetection, build_inference_backend,
 };
-pub use candle_backend::{CandleBackend, resolve_candle_device};
+pub use candle_backend::{CandleBackend, CandleBackendOptions, resolve_candle_device};
 pub use capability::{
     CapabilityManifest, GpuEnvironmentObservation, GpuEnvironmentProbe, SystemGpuEnvironmentProbe,
     verify_startup_capabilities, verify_startup_capabilities_with_backend,

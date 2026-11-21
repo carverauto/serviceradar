@@ -5,7 +5,7 @@
 //! (`MEDIA_WORKER_BACKEND=stub`) and the live pure-Rust HuggingFace `candle`
 //! backend (`MEDIA_WORKER_BACKEND=candle`) share one `Send + Sync` contract.
 
-use crate::candle_backend::CandleBackend;
+use crate::candle_backend::{CandleBackend, CandleBackendOptions, preprocess_thread_budget};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::errors::{CapabilityError, MediaWorkerError};
 use crate::vision::{
@@ -94,11 +94,56 @@ impl FromStr for InferenceDevicePreference {
     }
 }
 
+/// Requested numeric precision for the SigLIP towers (`MEDIA_WORKER_DTYPE=auto|f32|f16`).
+///
+/// `auto` resolves to `f16` on a CUDA device and `f32` on the CPU. Embeddings are
+/// always returned as L2-normalised `f32` in the same vector space, whatever the
+/// compute precision, so the reported model identity does not depend on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferencePrecision {
+    Auto,
+    F32,
+    F16,
+}
+
+impl InferencePrecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::F32 => "f32",
+            Self::F16 => "f16",
+        }
+    }
+}
+
+impl Display for InferencePrecision {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for InferencePrecision {
+    type Err = CapabilityError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "f32" => Ok(Self::F32),
+            "f16" => Ok(Self::F16),
+            other => Err(CapabilityError::invalid_configuration(format!(
+                "unsupported MEDIA_WORKER_DTYPE '{other}'; expected 'auto', 'f32', or 'f16'"
+            ))),
+        }
+    }
+}
+
 /// Metadata describing an instantiated `InferenceBackend`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceBackendInfo {
     backend: InferenceBackendKind,
     device: String,
+    dtype: InferencePrecision,
     embedding_dim: usize,
     model_revision: String,
     detector_enabled: bool,
@@ -115,10 +160,17 @@ impl InferenceBackendInfo {
         Self {
             backend,
             device: device.into(),
+            dtype: InferencePrecision::F32,
             embedding_dim,
             model_revision: model_revision.into(),
             detector_enabled,
         }
+    }
+
+    /// Records the resolved compute precision (never `Auto`) of the embedding towers.
+    pub fn with_dtype(mut self, dtype: InferencePrecision) -> Self {
+        self.dtype = dtype;
+        self
     }
 
     pub fn backend(&self) -> InferenceBackendKind {
@@ -127,6 +179,10 @@ impl InferenceBackendInfo {
 
     pub fn device(&self) -> &str {
         &self.device
+    }
+
+    pub fn dtype(&self) -> InferencePrecision {
+        self.dtype
     }
 
     pub fn embedding_dim(&self) -> usize {
@@ -305,19 +361,25 @@ pub fn build_inference_backend(
                     "MEDIA_WORKER_BACKEND=candle requires MEDIA_WORKER_MODEL_DIR to be set",
                 ))
             })?;
-            let require_gpu = config.execution_provider().requires_gpu();
+            // The model identity deliberately excludes the compute precision: f16 and
+            // f32 embeddings stay interchangeable for search (README "Precision").
             let revision = format!(
                 "{}:{}",
                 config.models().embedder_model_id(),
                 config.models().embedder_model_version()
             );
-            let backend = CandleBackend::load_from_dir(
-                model_dir,
+            let mut options = CandleBackendOptions::new(
                 config.device_preference(),
-                require_gpu,
-                Some(revision),
-                config.models().detector_path(),
-            )?;
+                config.execution_provider().requires_gpu(),
+                config.models().embedding_dim(),
+            )
+            .with_precision(config.precision())
+            .with_model_revision(revision)
+            .with_preprocess_threads(preprocess_thread_budget(config.index_concurrency()));
+            if let Some(detector) = config.models().detector_path() {
+                options = options.with_detector_path(detector);
+            }
+            let backend = CandleBackend::load(model_dir, &options)?;
             Ok(Arc::new(backend))
         }
     }

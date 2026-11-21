@@ -41,34 +41,49 @@ async fn main() -> ExitCode {
             }
         };
 
-    let backend = match build_inference_backend(&config) {
-        Ok(b) => b,
-        Err(err) => {
-            readiness.mark_not_ready(err.to_string());
-            error!(
-                error = %err,
-                backend = %config.backend_kind(),
-                "failed initializing inference backend; refusing to pull visual indexing jobs"
-            );
+    // Loading the weights and the warm-up forward passes (which absorb the CUDA PTX JIT
+    // compile) block for seconds. Run them off the async workers so /healthz keeps
+    // answering the liveness probe; /readyz stays 503 until admission completes, and
+    // no job or text-embedding RPC is served before then.
+    readiness.mark_not_ready("loading model and running warm-up inference");
+    let admission = {
+        let config = config.clone();
+        tokio::task::spawn_blocking(move || {
+            let backend = build_inference_backend(&config).map_err(|err| {
+                error!(
+                    error = %err,
+                    backend = %config.backend_kind(),
+                    "failed initializing inference backend; refusing to pull visual indexing jobs"
+                );
+                err.to_string()
+            })?;
+            let manifest = verify_startup_capabilities_with_backend(
+                &config,
+                &SystemGpuEnvironmentProbe,
+                Arc::clone(&backend),
+            )
+            .map_err(|err| {
+                // Fail closed with zero silent CPU fallback (`2.2`).
+                error!(
+                    error = %err,
+                    execution_provider = %config.execution_provider(),
+                    "startup capability admission failed; refusing to pull visual indexing jobs"
+                );
+                err.to_string()
+            })?;
+            Ok::<_, String>((backend, manifest))
+        })
+        .await
+    };
+    let (backend, manifest) = match admission {
+        Ok(Ok(admitted)) => admitted,
+        Ok(Err(reason)) => {
+            readiness.mark_not_ready(reason);
             let _ = shutdown_tx.send(true);
             return ExitCode::from(1);
         }
-    };
-
-    let manifest = match verify_startup_capabilities_with_backend(
-        &config,
-        &SystemGpuEnvironmentProbe,
-        Arc::clone(&backend),
-    ) {
-        Ok(man) => man,
-        Err(err) => {
-            // Fail closed with zero silent CPU fallback (`2.2`).
-            readiness.mark_not_ready(err.to_string());
-            error!(
-                error = %err,
-                execution_provider = %config.execution_provider(),
-                "startup capability admission failed; refusing to pull visual indexing jobs"
-            );
+        Err(join_err) => {
+            error!(error = %join_err, "startup admission task panicked");
             let _ = shutdown_tx.send(true);
             return ExitCode::from(1);
         }
@@ -80,6 +95,8 @@ async fn main() -> ExitCode {
         architecture = %manifest.architecture(),
         inference_backend = %manifest.inference_backend(),
         inference_device = %manifest.inference_device(),
+        inference_dtype = %manifest.inference_dtype(),
+        warmup_ms = manifest.warmup_ms(),
         detector_enabled = manifest.detector_enabled(),
         tracker = %manifest.tracker(),
         dedup_track_crops = manifest.dedup_track_crops(),

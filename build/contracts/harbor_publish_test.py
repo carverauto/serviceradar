@@ -341,36 +341,56 @@ pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
                 self.assertIn("not-in-inventory", result.stderr)
                 self.assertFalse(lookups.exists())
 
-    def test_a_dockerfile_image_is_signed_only_when_declared_and_by_its_tag(self):
+    def test_an_out_of_bazel_image_is_signed_only_when_declared_and_by_its_tag(self):
         (self.bin / "jq").symlink_to(pinned_jq())
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.write_text('PUBLISHABLE_IMAGES = [\n'
                              '  {"image":"worker","repository":"registry.carverauto.dev/serviceradar/example-worker"},\n]\n\n'
                              'DOCKERFILE_IMAGES = [\n'
-                             '  {"repository":"example-runner","dockerfile":"Dockerfile","context":"."},\n]\n\n')
+                             '  {"repository":"example-runner","dockerfile":"Dockerfile","context":"."},\n]\n\n'
+                             'NATIVE_BUILD_IMAGES = [\n'
+                             '  {"repository":"example-native","workflow":"example.yml"},\n]\n')
         lookups = self.root / "lookups"
         self.fake("oras", f"open({str(lookups)!r}, 'a').write(sys.argv[-1] + '\\n')\nraise SystemExit(1)\n")
         for tool in ("cosign", "curl"):
             self.fake(tool, "raise SystemExit(1)\n")
-        self.env.update(SERVICERADAR_SIGN_REGISTRY_TAG="v1.2.3", COSIGN_KEY_REF="hashivault://example",
-                        SERVICERADAR_DOCKERFILE_IMAGE="example-runner")
-        # The fake registry resolves nothing, so the signer stops at the lookup: exactly the
-        # declared image under its tag, and no Bazel-built image.
-        result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(lookups.read_text().splitlines(),
-                         ["registry.carverauto.dev/serviceradar-builds/example-runner:v1.2.3"])
-
-        lookups.unlink()
-        for image, tag, reason in (("example-worker", "v1.2.3", "unknown Dockerfile image: example-worker"),
-                                   ("not-declared", "v1.2.3", "unknown Dockerfile image: not-declared"),
-                                   ("example-runner", "", "a Dockerfile image is signed by its published tag")):
-            with self.subTest(image=image, tag=tag):
-                self.env.update(SERVICERADAR_DOCKERFILE_IMAGE=image, SERVICERADAR_SIGN_REGISTRY_TAG=tag)
+        self.env["COSIGN_KEY_REF"] = "hashivault://example"
+        # Each single-image mode admits only its own inventory list.
+        modes = (("SERVICERADAR_DOCKERFILE_IMAGE", "example-runner", "Dockerfile", "example-native"),
+                 ("SERVICERADAR_NATIVE_IMAGE", "example-native", "native-build", "example-runner"))
+        for variable, image, kind, other_list_image in modes:
+            with self.subTest(mode=variable):
+                for name in ("SERVICERADAR_DOCKERFILE_IMAGE", "SERVICERADAR_NATIVE_IMAGE"):
+                    self.env.pop(name, None)
+                lookups.unlink(missing_ok=True)
+                self.env.update({variable: image, "SERVICERADAR_SIGN_REGISTRY_TAG": "v1.2.3"})
+                # The fake registry resolves nothing, so the signer stops at the lookup:
+                # exactly the declared image under its tag, and no Bazel-built image.
                 result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(reason, result.stderr)
-                self.assertFalse(lookups.exists())
+                self.assertEqual(lookups.read_text().splitlines(),
+                                 [f"registry.carverauto.dev/serviceradar-builds/{image}:v1.2.3"])
+
+                lookups.unlink()
+                for candidate, tag, reason in (
+                        ("example-worker", "v1.2.3", f"unknown {kind} image: example-worker"),
+                        (other_list_image, "v1.2.3", f"unknown {kind} image: {other_list_image}"),
+                        ("not-declared", "v1.2.3", f"unknown {kind} image: not-declared"),
+                        (image, "", f"a {kind} image is signed by its published tag")):
+                    with self.subTest(mode=variable, image=candidate, tag=tag):
+                        self.env.update({variable: candidate, "SERVICERADAR_SIGN_REGISTRY_TAG": tag})
+                        result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(reason, result.stderr)
+                        self.assertFalse(lookups.exists())
+
+        self.env.update(SERVICERADAR_DOCKERFILE_IMAGE="example-runner",
+                        SERVICERADAR_NATIVE_IMAGE="example-native",
+                        SERVICERADAR_SIGN_REGISTRY_TAG="v1.2.3")
+        result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not both", result.stderr)
+        self.assertFalse(lookups.exists())
 
     def setup_environment(self):
         runner = self.root / "runner"

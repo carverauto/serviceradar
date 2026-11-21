@@ -34,6 +34,14 @@ DOCKERFILE_IMAGES = [
     {"repository": "buildbuddy-workflow-runner", "dockerfile": "docker/images/Dockerfile.workflow-runner", "context": "docker/images"},
 ]
 
+# Images assembled with crane around a binary that Bazel cannot build (RBE is amd64-only with
+# no CUDA toolkit): the binary is built natively on a credential-less runner and the image is
+# pushed, signed and promoted by the named workflow. Only an image listed here can be signed
+# that way (SERVICERADAR_NATIVE_IMAGE in //scripts:sign-oci-publish.sh), never by a release.
+NATIVE_BUILD_IMAGES = [
+    {"repository": "serviceradar-media-worker-cuda", "workflow": ".github/workflows/publish-media-worker-cuda.yml"},
+]
+
 def publishable_image_labels():
     """Return local labels for the canonical build artifact of each publishable image."""
 

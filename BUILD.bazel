@@ -55,6 +55,7 @@ exports_files([
     "VERSION",
     "Cargo.toml",
     "Cargo.lock",
+    "rust-toolchain.toml",
     ".cargo/config.toml",
     ".tool-versions",
     "elixir/.credo.base.exs",

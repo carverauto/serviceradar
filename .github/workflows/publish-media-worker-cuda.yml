@@ -1,0 +1,298 @@
+name: Publish CUDA Media Worker
+
+# Builds serviceradar-media-worker with `--features cuda` and publishes the separate arm64
+# CUDA image, registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda:sha-<commit>.
+# Bazel RBE is amd64-only with no CUDA toolkit, so the binary is built natively on an arm64
+# runner (docs/media-worker-cuda-image.md). Three jobs, split by what each may touch:
+#
+#   toolchain  GitHub-hosted, no secrets: downloads the pinned Rust components, because the
+#              CUDA devel image has no curl or git and the arm64 runner cannot install any.
+#   build      serviceradar-arm64-build, inside the CUDA devel image pinned by digest, no
+#              secrets and no registry or signing access: builds from the checked-in crate
+#              mirror and uploads the binary, its CUDA libraries, manifest.json, SHA256SUMS.
+#   publish    serviceradar-signing, only on the refs the OpenBao signing role admits:
+#              verifies the bundle against the build job's output, assembles the image with
+#              crane, pushes it to the build project, signs it with sign-oci-publish.sh
+#              exactly as publish-oci.yml does, then promotes it to the protected project.
+#
+# Dispatch from any branch to build only; staging and test/demo-test-<N> also publish.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - staging
+    paths:
+      - 'rust/media-worker/**'
+      - 'rust/cert-policy/**'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'scripts/build-media-worker-cuda.sh'
+      - 'scripts/ci/media-worker-cuda-image.py'
+      - '.github/workflows/publish-media-worker-cuda.yml'
+      # Docs-only changes skip this workflow: Markdown is docs unless a build reads it.
+      # Derived from build/ci/detect_docs_only.py (--print-github-paths <these paths>) and
+      # checked by //build/contracts:docs_only_ci_contract_test.
+      - '!**/*.md'
+      - 'docs/sigstore/**/*.md'
+      - 'openspec/changes/parallelize-core-integration-tests/benchmark.md'
+      - 'third_party/**/*.md'
+      - '**/vendor/**/*.md'
+      - 'swift/FieldSurvey/LocalPackages/**/*.md'
+      - '**/priv/**/*.md'
+      - '**/testdata/**/*.md'
+      - 'js/cli/templates/**/*.md'
+      - 'go/cmd/wasm-plugins/axis/EXTRACTION_MANIFEST.md'
+      - 'go/cmd/wasm-plugins/opentext-nom/docs/configuration.md'
+      - 'demo/README.md'
+      - 'k8s/starrocks/README.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  OCI_REGISTRY: registry.carverauto.dev
+  IMAGE: serviceradar-media-worker-cuda
+
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the pinned Rust toolchain
+        run: ./scripts/build-media-worker-cuda.sh fetch-toolchain "${RUNNER_TEMP}/rust-toolchain"
+
+      - name: Upload the toolchain
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: media-worker-cuda-rust-toolchain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-toolchain/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: toolchain
+    runs-on: serviceradar-arm64-build
+    container:
+      # nvidia/cuda:13.0.3-devel-ubuntu24.04 (CUDA 13.0, the toolkit the GB10 spike used).
+      image: docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      CUDA_BUILDER_IMAGE: docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266
+      # GB10 (DGX Spark). No GPU is visible at build time, so the target must be named.
+      CUDA_COMPUTE_CAP: "121"
+    outputs:
+      sums_sha256: ${{ steps.bundle.outputs.sums_sha256 }}
+    steps:
+      # The job runs as a non-root user whose HOME does not exist yet.
+      - name: Create HOME
+        run: mkdir -p "${HOME}"
+
+      # No git in the image: checkout falls back to the REST API, so there is no .git.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Download the toolchain
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: media-worker-cuda-rust-toolchain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-toolchain
+
+      - name: Build the CUDA media worker
+        run: ./scripts/build-media-worker-cuda.sh build "${RUNNER_TEMP}/rust-toolchain" "${RUNNER_TEMP}/media-worker-cuda"
+
+      - name: Record the bundle digest
+        id: bundle
+        run: |
+          set -euo pipefail
+          sums_sha256="$(sha256sum "${RUNNER_TEMP}/media-worker-cuda/SHA256SUMS" | awk '{print $1}')"
+          echo "sums_sha256=${sums_sha256}" >> "${GITHUB_OUTPUT}"
+          {
+            printf '### CUDA media worker bundle\n\n'
+            printf -- "- SHA256SUMS \`%s\`\n\n\`\`\`\n" "${sums_sha256}"
+            cat "${RUNNER_TEMP}/media-worker-cuda/SHA256SUMS"
+            printf '%s\n' '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: media-worker-cuda-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-worker-cuda
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    # The refs OpenBao's signing role admits (publish-oci.yml); the signing step checks again.
+    if: ${{ github.ref == 'refs/heads/staging' || startsWith(github.ref, 'refs/heads/test/demo-test-') }}
+    runs-on: serviceradar-signing
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SUMS_SHA256: ${{ needs.build.outputs.sums_sha256 }}
+      COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
+      SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
+      SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
+      SIGSTORE_OIDC_ISSUER: ${{ secrets.SIGSTORE_OIDC_ISSUER }}
+      SIGSTORE_OIDC_CLIENT_ID: ${{ secrets.SIGSTORE_OIDC_CLIENT_ID }}
+      SIGSTORE_OIDC_AUDIENCE: ${{ secrets.SIGSTORE_OIDC_AUDIENCE }}
+      SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+      SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+      SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+      SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+      SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+      SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+      SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+      COSIGN_CERTIFICATE_IDENTITY: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY }}
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
+      COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install Cosign
+        run: ./scripts/install-cosign.sh
+
+      - name: Install ORAS
+        run: ./scripts/install-oras.sh
+
+      - name: Install crane
+        run: ./scripts/install-crane.sh
+
+      - name: Download the bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: media-worker-cuda-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-worker-cuda
+
+      # Before any credential is touched: the bytes are the ones the build job reported.
+      - name: Verify the bundle against the build output
+        run: python3 ./scripts/ci/media-worker-cuda-image.py verify "${RUNNER_TEMP}/media-worker-cuda" --sums-sha256 "${SUMS_SHA256}"
+
+      - name: Start the signing ledger
+        # Every release-key signature this job makes or reuses is recorded here before it
+        # is uploaded to the transparency log (scripts/cosign_receipt.py).
+        run: |
+          set -euo pipefail
+          ledger="${RUNNER_TEMP}/signing-ledger.jsonl"
+          : > "${ledger}"
+          echo "SERVICERADAR_SIGNING_LEDGER=${ledger}" >> "${GITHUB_ENV}"
+
+      - name: Prepare scoped Harbor publishing and verified promotion
+        env:
+          HARBOR_BUILD_ROBOT_USERNAME: ${{ secrets.HARBOR_BUILD_ROBOT_USERNAME }}
+          HARBOR_BUILD_ROBOT_SECRET: ${{ secrets.HARBOR_BUILD_ROBOT_SECRET }}
+          HARBOR_PROMOTION_ROBOT_USERNAME: ${{ secrets.HARBOR_PROMOTION_ROBOT_USERNAME }}
+          HARBOR_PROMOTION_ROBOT_SECRET: ${{ secrets.HARBOR_PROMOTION_ROBOT_SECRET }}
+        run: python3 ./scripts/ci/harbor-publish.py setup
+
+      # A sha tag is immutable once promoted; the build is not bit-reproducible, so a
+      # second publish of one commit would be a different digest under the same tag.
+      - name: Refuse a commit that is already published
+        run: |
+          set -euo pipefail
+          reference="${OCI_REGISTRY}/serviceradar/${IMAGE}:sha-${GITHUB_SHA}"
+          if python3 "${HARBOR_PUBLISH_TOOL}" protected oras resolve "${reference}" >/dev/null 2>"${RUNNER_TEMP}/resolve.err"; then
+            echo "${reference} is already published" >&2
+            exit 1
+          fi
+          # Only "not found" proves the tag is free; a refused login proves nothing.
+          if ! grep -qi 'not found' "${RUNNER_TEMP}/resolve.err"; then
+            echo "could not tell whether ${reference} exists:" >&2
+            cat "${RUNNER_TEMP}/resolve.err" >&2
+            exit 1
+          fi
+
+      - name: Assemble and push to the build project
+        id: push
+        run: |
+          set -euo pipefail
+          digest_file="${RUNNER_TEMP}/media-worker-cuda.digest"
+          python3 "${HARBOR_PUBLISH_TOOL}" build python3 ./scripts/ci/media-worker-cuda-image.py push \
+            "${RUNNER_TEMP}/media-worker-cuda" --sums-sha256 "${SUMS_SHA256}" \
+            --tag "${OCI_REGISTRY}/serviceradar-builds/${IMAGE}:sha-${GITHUB_SHA}" \
+            --digest-file "${digest_file}"
+          digest="$(tr -d '[:space:]' < "${digest_file}")"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Sign and promote the pushed digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: github-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|test/demo-test-[0-9]+)$'
+          COSIGN_KEY_REF: hashivault://cosign-release
+        run: |
+          set -euo pipefail
+          tag="sha-${GITHUB_SHA}"
+          build_reference="${OCI_REGISTRY}/serviceradar-builds/${IMAGE}:${tag}"
+          pushed="$(python3 "${HARBOR_PUBLISH_TOOL}" build oras resolve "${build_reference}")"
+          if [[ "${pushed}" != "${DIGEST}" ]]; then
+            echo "${build_reference} is ${pushed}, but the push reported ${DIGEST}" >&2
+            exit 1
+          fi
+
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
+          SERVICERADAR_NATIVE_IMAGE="${IMAGE}" SERVICERADAR_SIGN_REGISTRY_TAG="${tag}" \
+            python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+
+          # Promotion copies the verified legacy signature with the image.
+          python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories "${IMAGE}" --tag "${tag}"
+
+          protected_reference="${OCI_REGISTRY}/serviceradar/${IMAGE}:${tag}"
+          promoted="$(python3 "${HARBOR_PUBLISH_TOOL}" protected oras resolve "${protected_reference}")"
+          if [[ "${promoted}" != "${DIGEST}" ]]; then
+            echo "${protected_reference} is ${promoted}, expected ${DIGEST}" >&2
+            exit 1
+          fi
+          {
+            printf '### %s\n\n' "${IMAGE}"
+            printf -- "- \`%s\`\n" "${protected_reference}"
+            printf -- "- digest \`%s\`\n" "${DIGEST}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Retain signing ledger
+        if: ${{ always() && env.SERVICERADAR_SIGNING_LEDGER != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signing-ledger-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SERVICERADAR_SIGNING_LEDGER }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Retain Harbor promotion receipts
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: harbor-promotion-${{ github.workflow }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.HARBOR_LIFECYCLE_DIR }}/receipts/*.json
+          if-no-files-found: error
+
+      - name: Remove temporary Harbor publishing credentials
+        if: ${{ always() && env.HARBOR_LIFECYCLE_DIR != '' }}
+        run: python3 "${HARBOR_PUBLISH_TOOL}" cleanup

@@ -1,6 +1,6 @@
 //! Configuration types and CLI/environment parsing for `serviceradar-media-worker`.
 
-use crate::backend::{InferenceBackendKind, InferenceDevicePreference};
+use crate::backend::{InferenceBackendKind, InferenceDevicePreference, InferencePrecision};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
 use crate::tracking::TrackerMode;
@@ -262,6 +262,7 @@ pub struct WorkerConfig {
     backend_kind: InferenceBackendKind,
     model_dir: Option<PathBuf>,
     device_preference: InferenceDevicePreference,
+    precision: InferencePrecision,
     execution_provider: ExecutionProvider,
     declared_gpu_sharing_mode: Option<GpuSharingMode>,
     min_gpu_vram_mb: u64,
@@ -296,6 +297,7 @@ impl Default for WorkerConfig {
             backend_kind: InferenceBackendKind::Stub,
             model_dir: None,
             device_preference: InferenceDevicePreference::Auto,
+            precision: InferencePrecision::Auto,
             execution_provider: ExecutionProvider::Cuda,
             declared_gpu_sharing_mode: None,
             min_gpu_vram_mb: 1024,
@@ -352,6 +354,11 @@ impl WorkerConfig {
 
     pub fn with_device_preference(mut self, pref: InferenceDevicePreference) -> Self {
         self.device_preference = pref;
+        self
+    }
+
+    pub fn with_precision(mut self, precision: InferencePrecision) -> Self {
+        self.precision = precision;
         self
     }
 
@@ -441,6 +448,10 @@ impl WorkerConfig {
 
     pub fn device_preference(&self) -> InferenceDevicePreference {
         self.device_preference
+    }
+
+    pub fn precision(&self) -> InferencePrecision {
+        self.precision
     }
 
     pub fn execution_provider(&self) -> ExecutionProvider {
@@ -563,6 +574,10 @@ pub struct CliArgs {
 
     #[arg(long, env = "MEDIA_WORKER_DEVICE", default_value = "auto")]
     device: String,
+
+    /// SigLIP compute precision: `auto` (f16 on CUDA, f32 on CPU), `f32`, or `f16`.
+    #[arg(long, env = "MEDIA_WORKER_DTYPE", default_value = "auto")]
+    dtype: String,
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER")]
     execution_provider: Option<String>,
@@ -768,6 +783,7 @@ impl CliArgs {
             }
         };
         let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let precision = InferencePrecision::from_str(&self.dtype)?;
         let tracker_mode = TrackerMode::from_str(&self.tracker)?;
 
         let raw_provider = self
@@ -821,6 +837,7 @@ impl CliArgs {
             backend_kind,
             model_dir,
             device_preference,
+            precision,
             execution_provider,
             declared_gpu_sharing_mode,
             min_gpu_vram_mb: self.min_gpu_vram_mb,

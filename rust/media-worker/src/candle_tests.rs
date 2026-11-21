@@ -4,11 +4,15 @@
 //! All model weights, configs, tokenizers, and images in this module are 100% synthetic
 //! and programmatically generated in temporary directories.
 
+use crate::backend::InferencePrecision;
 use crate::backend::{
     DeterministicStubBackend, InferenceBackend, InferenceBackendKind, InferenceDevicePreference,
     build_inference_backend,
 };
-use crate::candle_backend::{CandleBackend, resolve_candle_device};
+use crate::candle_backend::{
+    CandleBackend, CandleBackendOptions, cuda_jit_cache_dir, preprocess_siglip_batch,
+    probe_writable_dir, resolve_candle_device,
+};
 use crate::capability::{
     GpuEnvironmentObservation, GpuEnvironmentProbe, verify_startup_capabilities_with_backend,
 };
@@ -23,6 +27,7 @@ use crate::yolo_v8::{YoloV8Config, coco_class_to_object_class, coco_name_to_obje
 use clap::Parser;
 use safetensors::tensor::{Dtype as StDtype, TensorView};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -519,12 +524,10 @@ fn candle_backend_synthetic_siglip_end_to_end_and_scene_only_fallback() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
 
-    let backend = CandleBackend::load_from_dir(
+    let backend = CandleBackend::load(
         dir.path(),
-        InferenceDevicePreference::Cpu,
-        false,
-        Some("siglip-tiny-synth:1".to_string()),
-        None,
+        &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32)
+            .with_model_revision("siglip-tiny-synth:1"),
     )
     .expect("load synthetic SigLIP CandleBackend");
 
@@ -606,12 +609,10 @@ fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
     write_tiny_yolov8_fixture(dir.path());
 
     let backend = Arc::new(
-        CandleBackend::load_from_dir(
+        CandleBackend::load(
             dir.path(),
-            InferenceDevicePreference::Auto,
-            false,
-            Some("siglip-yolo-synth:1".to_string()),
-            None,
+            &CandleBackendOptions::new(InferenceDevicePreference::Auto, false, 32)
+                .with_model_revision("siglip-yolo-synth:1"),
         )
         .expect("load SigLIP + YOLOv8 CandleBackend"),
     );
@@ -689,38 +690,18 @@ fn coco_class_mapping_covers_all_required_surveillance_classes() {
 
 #[test]
 fn candle_backend_error_handling_for_missing_or_corrupt_artifacts_and_gpu_fail_closed() {
+    let cpu_options = || CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32);
     let missing = Path::new("/nonexistent/serviceradar/synthetic/model_dir");
-    assert!(
-        CandleBackend::load_from_dir(missing, InferenceDevicePreference::Cpu, false, None, None)
-            .is_err()
-    );
+    assert!(CandleBackend::load(missing, &cpu_options()).is_err());
 
     let dir = TempDir::new().expect("temp dir");
     // Missing config.json
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Valid config.json but missing model.safetensors
     write_tiny_siglip_fixture(dir.path());
     std::fs::remove_file(dir.path().join("model.safetensors")).expect("remove weights");
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Corrupted safetensors bytes
     std::fs::write(
@@ -728,40 +709,39 @@ fn candle_backend_error_handling_for_missing_or_corrupt_artifacts_and_gpu_fail_c
         b"not-a-safetensors-file",
     )
     .expect("write corrupt weights");
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
+
+    // A checkpoint whose towers emit a different width than the configured index
+    // (the fixture declares 32-d towers) must be refused at load, not indexed.
+    write_tiny_siglip_fixture(dir.path());
+    let width_err = CandleBackend::load(
+        dir.path(),
+        &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 768),
+    )
+    .expect_err("a 32-d checkpoint must not load as a 768-d embedder");
     assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
+        width_err.to_string().contains("32-d image and 32-d text"),
+        "unexpected width error: {width_err}"
     );
 
     // Valid weights + config, missing tokenizer.json
     write_tiny_siglip_fixture(dir.path());
     std::fs::remove_file(dir.path().join("tokenizer.json")).expect("remove tokenizer");
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Device policy: GPU strictly required with CPU preference must fail closed!
     assert!(resolve_candle_device(InferenceDevicePreference::Cpu, true).is_err());
 
-    // Without the `cuda` Cargo feature, explicit CUDA must fail closed (never silent CPU).
+    // cpu_explicit never picks up a GPU, in any build: `cuda` is a conflict and `auto`
+    // follows the provider to the CPU.
+    assert!(resolve_candle_device(InferenceDevicePreference::Cuda, false).is_err());
+    let (_, auto_cpu) = resolve_candle_device(InferenceDevicePreference::Auto, false)
+        .expect("auto with cpu_explicit resolves to the CPU");
+    assert_eq!(auto_cpu, "cpu");
+
+    // Without the `cuda` Cargo feature, a GPU provider must fail closed (never silent CPU).
     #[cfg(not(feature = "cuda"))]
-    {
-        assert!(resolve_candle_device(InferenceDevicePreference::Cuda, false).is_err());
-        assert!(resolve_candle_device(InferenceDevicePreference::Auto, true).is_err());
-    }
+    assert!(resolve_candle_device(InferenceDevicePreference::Auto, true).is_err());
 }
 
 #[tokio::test]
@@ -801,6 +781,18 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
         cfg_candle.device_preference(),
         InferenceDevicePreference::Cpu
     );
+    assert_eq!(cfg_candle.precision(), InferencePrecision::Auto);
+    for (raw, expected) in [
+        ("f16", Some(InferencePrecision::F16)),
+        ("F32", Some(InferencePrecision::F32)),
+        ("bf16", None),
+    ] {
+        let parsed = CliArgs::try_parse_from(["serviceradar-media-worker", "--dtype", raw])
+            .expect("parse dtype cli")
+            .into_worker_config()
+            .map(|cfg| cfg.precision());
+        assert_eq!(parsed.ok(), expected, "MEDIA_WORKER_DTYPE={raw}");
+    }
 
     let candle_backend = build_inference_backend(&cfg_candle).expect("build candle backend");
     assert_eq!(
@@ -861,6 +853,7 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     .expect("join readyz");
     assert_eq!(readyz_json["inference_backend"], "candle");
     assert_eq!(readyz_json["inference_device"], "cpu");
+    assert_eq!(readyz_json["inference_dtype"], "f32");
     assert_eq!(readyz_json["detector_enabled"], false);
     assert_eq!(readyz_json["embedding_dim"], 32);
 
@@ -921,4 +914,226 @@ fn pure_rust_tokenizer_supports_bpe_and_wordpiece_formats() {
     let wp = PureRustTokenizer::from_bytes(&serde_json::to_vec(&wp_json).unwrap())
         .expect("parse WordPiece tokenizer");
     assert_eq!(wp.encode_raw("vans"), vec![3, 4]);
+}
+
+/// Synthetic frames of assorted sizes (including non-square and odd ones) with
+/// per-pixel gradients, so bilinear sampling differs per output position.
+fn gradient_frames() -> Vec<RgbFrame> {
+    [(32u32, 24u32), (7, 5), (64, 48), (16, 16), (33, 17)]
+        .iter()
+        .enumerate()
+        .map(|(i, &(w, h))| {
+            let mut px = Vec::with_capacity((w * h * 3) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    px.extend_from_slice(&[
+                        ((x * 37 + y * 11 + i as u32 * 5) % 256) as u8,
+                        ((x * 3 + y * 91) % 256) as u8,
+                        ((x ^ y) * 13 % 256) as u8,
+                    ]);
+                }
+            }
+            RgbFrame::from_rgb8(w, h, px).expect("synthetic gradient frame")
+        })
+        .collect()
+}
+
+#[test]
+fn parallel_siglip_preprocessing_matches_single_threaded_output_bit_for_bit() {
+    let frames = gradient_frames();
+    let refs: Vec<&RgbFrame> = frames.iter().collect();
+    let target = 12;
+    let sequential = preprocess_siglip_batch(&refs, target, 1);
+    assert_eq!(sequential.len(), refs.len() * 3 * target * target);
+
+    // Thread counts that divide the batch evenly, unevenly, and exceed it.
+    for threads in [2, 3, 4, 64] {
+        let parallel = preprocess_siglip_batch(&refs, target, threads);
+        let identical = sequential.len() == parallel.len()
+            && sequential
+                .iter()
+                .zip(&parallel)
+                .all(|(a, b)| a.to_bits() == b.to_bits());
+        assert!(
+            identical,
+            "{threads} preprocessing threads changed the output"
+        );
+    }
+}
+
+#[test]
+fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
+    let dir = TempDir::new().expect("temp dir");
+    write_tiny_siglip_fixture(dir.path());
+    let load = |precision| {
+        CandleBackend::load(
+            dir.path(),
+            &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32)
+                .with_precision(precision),
+        )
+        .expect("load synthetic SigLIP")
+    };
+    let f32_backend = load(InferencePrecision::Auto);
+    let f16_backend = load(InferencePrecision::F16);
+    // `auto` is f32 on the CPU; an explicit f16 is honoured and reported.
+    assert_eq!(f32_backend.info().dtype(), InferencePrecision::F32);
+    assert_eq!(f16_backend.info().dtype(), InferencePrecision::F16);
+    // The model identity must not depend on precision (search interchangeability).
+    assert_eq!(
+        f32_backend.info().model_revision(),
+        f16_backend.info().model_revision()
+    );
+
+    let frames = gradient_frames();
+    let refs: Vec<&RgbFrame> = frames.iter().collect();
+    let mut pairs: Vec<(Vec<f32>, Vec<f32>)> = f32_backend
+        .encode_images(&refs)
+        .expect("f32 images")
+        .into_iter()
+        .zip(f16_backend.encode_images(&refs).expect("f16 images"))
+        .collect();
+    for query in ["person in red jacket", "white van"] {
+        pairs.push((
+            f32_backend.encode_text(query).expect("f32 text"),
+            f16_backend.encode_text(query).expect("f16 text"),
+        ));
+    }
+
+    // The real SigLIP base model measured a minimum f16-vs-f32 cosine of 0.9999983 on
+    // GPU; this tiny checkpoint lands near 0.99999. The 0.9999 bar sits clear of f16
+    // rounding noise and far above what a wrong cast or a missing upcast produces.
+    for (full, half) in &pairs {
+        assert_eq!(full.len(), half.len());
+        let norm: f32 = half.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 1e-4,
+            "f16 output must be L2-normalised f32"
+        );
+        let cos = cosine_similarity(full, half);
+        assert!(cos > 0.9999, "f16 drifted from f32: cosine {cos}");
+    }
+}
+
+#[test]
+fn cuda_jit_cache_location_follows_cuda_driver_rules_and_unwritable_is_reported() {
+    type EnvVars = &'static [(&'static str, &'static str)];
+    let env = |pairs: EnvVars| {
+        move |key: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| OsString::from(v))
+        }
+    };
+    let cases: [(EnvVars, Option<&str>); 5] = [
+        (
+            &[("CUDA_CACHE_PATH", "/cache/cuda"), ("HOME", "/home/worker")],
+            Some("/cache/cuda"),
+        ),
+        (
+            &[("HOME", "/home/worker")],
+            Some("/home/worker/.nv/ComputeCache"),
+        ),
+        (
+            &[("CUDA_CACHE_PATH", ""), ("HOME", "/home/worker")],
+            Some("/home/worker/.nv/ComputeCache"),
+        ),
+        (
+            &[
+                ("CUDA_CACHE_DISABLE", "1"),
+                ("CUDA_CACHE_PATH", "/cache/cuda"),
+            ],
+            None,
+        ),
+        (&[], None),
+    ];
+    for (vars, expected) in cases {
+        assert_eq!(
+            cuda_jit_cache_dir(&env(vars)),
+            expected.map(std::path::PathBuf::from),
+            "{vars:?}"
+        );
+    }
+
+    let dir = TempDir::new().expect("temp dir");
+    let writable = dir.path().join("cuda-cache");
+    probe_writable_dir(&writable).expect("a fresh directory is writable");
+    assert_eq!(
+        std::fs::read_dir(&writable).expect("cache dir").count(),
+        0,
+        "the probe must not leave files behind"
+    );
+    // A path under a regular file cannot be created, whoever runs the test.
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, b"").expect("write blocker file");
+    assert!(probe_writable_dir(&blocker.join("cuda-cache")).is_err());
+}
+
+/// Delegates to the stub backend and records which towers ran.
+struct RecordingBackend {
+    inner: DeterministicStubBackend,
+    image_batches: std::sync::atomic::AtomicUsize,
+    text_queries: std::sync::atomic::AtomicUsize,
+}
+
+impl InferenceBackend for RecordingBackend {
+    fn detect_objects(
+        &self,
+        frame: &RgbFrame,
+        min_confidence: f32,
+    ) -> Result<Vec<crate::backend::RawDetection>, crate::errors::MediaWorkerError> {
+        self.inner.detect_objects(frame, min_confidence)
+    }
+
+    fn encode_images(
+        &self,
+        frames: &[&RgbFrame],
+    ) -> Result<Vec<Vec<f32>>, crate::errors::MediaWorkerError> {
+        self.image_batches
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.encode_images(frames)
+    }
+
+    fn encode_text(&self, query: &str) -> Result<Vec<f32>, crate::errors::MediaWorkerError> {
+        self.text_queries
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.encode_text(query)
+    }
+
+    fn info(&self) -> crate::backend::InferenceBackendInfo {
+        self.inner.info()
+    }
+}
+
+#[test]
+fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
+    // Readiness (and therefore job claims and text-embedding RPCs, which start only
+    // after admission) must wait for both towers to have run once: on CUDA that first
+    // pass is where the PTX JIT compile happens.
+    let config = WorkerConfig::cpu_explicit_default();
+    let backend = Arc::new(RecordingBackend {
+        inner: DeterministicStubBackend::new(config.models().clone()),
+        image_batches: Default::default(),
+        text_queries: Default::default(),
+    });
+    let probe = StaticProbe(GpuEnvironmentObservation::no_gpu());
+    let manifest = verify_startup_capabilities_with_backend(
+        &config,
+        &probe,
+        Arc::clone(&backend) as Arc<dyn InferenceBackend>,
+    )
+    .expect("startup admission");
+    assert_eq!(manifest.status(), "ready");
+    assert!(
+        backend
+            .image_batches
+            .load(std::sync::atomic::Ordering::SeqCst)
+            >= 1
+    );
+    assert!(
+        backend
+            .text_queries
+            .load(std::sync::atomic::Ordering::SeqCst)
+            >= 1
+    );
 }
