@@ -26,3 +26,4 @@
 - [ ] 3.2 HEVC decode (libavcodec or hardware).
 - [ ] 3.3 Hardware decode (NVDEC) for fleet-scale throughput.
 - [ ] 3.4 Detect truncated CABAC slices (upstream overread check).
+- [ ] 3.5 Request upstream continuity checks at CAVLC and CABAC slice boundaries.

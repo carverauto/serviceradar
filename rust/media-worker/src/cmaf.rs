@@ -9,6 +9,7 @@
 
 use crate::errors::MediaWorkerError;
 use crate::grants::{FragmentSlicePlan, InitSlicePlan};
+use crate::keyframe_decoder::KeyframeDecodeError;
 use crate::vision::{ObjectClass, RgbFrame};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,7 +17,7 @@ use sha2::{Digest, Sha256};
 const SYNTHETIC_IDR_MAGIC: &[u8; 6] = b"SRIDR1";
 /// Largest accepted picture width or height, in the container and in the coded bitstream.
 pub(crate) const MAX_FRAME_DIMENSION: u32 = 4096;
-/// Most NAL units accepted in one keyframe sample before it is refused as malformed.
+/// Most NAL units accepted in one keyframe sample.
 const MAX_SAMPLE_NAL_UNITS: usize = 4096;
 
 /// Codec signaled in `init.mp4` (`avc1`/`avc3` or `hvc1`/`hev1`).
@@ -77,8 +78,7 @@ impl ParsedInitSegment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMediaFragment {
     sequence_number: u32,
-    base_decode_time_ticks: u64,
-    first_sample_cts_offset: i64,
+    timing: SampleTiming,
     first_sample_size: usize,
     idr_nal_units: Vec<Vec<u8>>,
     in_band_parameter_sets: Vec<Vec<u8>>,
@@ -90,18 +90,11 @@ impl ParsedMediaFragment {
     }
 
     pub fn base_decode_time_ticks(&self) -> u64 {
-        self.base_decode_time_ticks
+        self.timing.decode_ticks
     }
 
     pub fn media_pts_ns(&self, timescale: u32) -> u64 {
-        if timescale == 0 {
-            return 0;
-        }
-        let ticks =
-            (self.base_decode_time_ticks as i128) + i128::from(self.first_sample_cts_offset);
-        let clamped = ticks.max(0) as u128;
-        let ns = clamped.saturating_mul(1_000_000_000) / u128::from(timescale);
-        u64::try_from(ns).unwrap_or(u64::MAX)
+        self.timing.pts_ns(timescale)
     }
 
     pub fn first_sample_size(&self) -> usize {
@@ -113,7 +106,7 @@ impl ParsedMediaFragment {
         &self.idr_nal_units
     }
 
-    /// Parameter sets carried in-band in the first sample (`avc3`/`hev1` style), in
+    /// Parameter sets carried in-band in the first sample (`avc3`), in
     /// bitstream order. They override init-segment sets with the same id.
     pub fn in_band_parameter_sets(&self) -> &[Vec<u8>] {
         &self.in_band_parameter_sets
@@ -357,8 +350,7 @@ fn parse_stsd(
         let width = if sample_w > 0 { sample_w } else { fallback_w };
         let height = if sample_h > 0 { sample_h } else { fallback_h };
 
-        if width == 0 || height == 0 || width > MAX_FRAME_DIMENSION || height > MAX_FRAME_DIMENSION
-        {
+        if width == 0 || height == 0 {
             return Err(MediaWorkerError::invalid_container(format!(
                 "invalid video sample dimensions {width}x{height}"
             )));
@@ -514,12 +506,70 @@ fn parse_hvcc(payload: &[u8]) -> Result<(u8, Vec<Vec<u8>>), MediaWorkerError> {
     Ok((nal_length_size, param_sets))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SampleTiming {
+    decode_ticks: u64,
+    cts_offset: i64,
+}
+
+impl SampleTiming {
+    fn pts_ns(self, timescale: u32) -> u64 {
+        if timescale == 0 {
+            return 0;
+        }
+        let ticks = (self.decode_ticks as i128) + i128::from(self.cts_offset);
+        let clamped = ticks.max(0) as u128;
+        let ns = clamped.saturating_mul(1_000_000_000) / u128::from(timescale);
+        u64::try_from(ns).unwrap_or(u64::MAX)
+    }
+}
+
+pub(crate) struct FragmentSample<'a> {
+    sequence_number: u32,
+    timing: SampleTiming,
+    bytes: &'a [u8],
+}
+
+impl FragmentSample<'_> {
+    pub(crate) fn media_pts_ns(&self, timescale: u32) -> u64 {
+        self.timing.pts_ns(timescale)
+    }
+
+    pub(crate) fn keyframe(
+        &self,
+        init: &ParsedInitSegment,
+    ) -> Result<ParsedMediaFragment, MediaWorkerError> {
+        let (idr_nal_units, in_band_parameter_sets) =
+            extract_keyframe_nal_units(self.bytes, init.codec(), init.nal_length_size())?;
+        Ok(ParsedMediaFragment {
+            sequence_number: self.sequence_number,
+            timing: self.timing,
+            first_sample_size: self.bytes.len(),
+            idr_nal_units,
+            in_band_parameter_sets,
+        })
+    }
+}
+
 /// Parses a single CMAF `media.m4s` fragment (`moof` + `mdat`) and extracts the
 /// first sync (`IDR`) sample's NAL units.
 pub fn parse_media_fragment(
     fragment_bytes: &[u8],
     init: &ParsedInitSegment,
 ) -> Result<ParsedMediaFragment, MediaWorkerError> {
+    parse_fragment_sample(fragment_bytes, init)?.keyframe(init)
+}
+
+pub(crate) fn parse_fragment_sample<'a>(
+    fragment_bytes: &'a [u8],
+    init: &ParsedInitSegment,
+) -> Result<FragmentSample<'a>, MediaWorkerError> {
+    if init.width > MAX_FRAME_DIMENSION || init.height > MAX_FRAME_DIMENSION {
+        return Err(KeyframeDecodeError::limit_exceeded(
+            "container picture exceeds dimension limit",
+        )
+        .into());
+    }
     let boxes = iter_boxes(fragment_bytes)?;
     let moof = boxes
         .iter()
@@ -577,17 +627,13 @@ pub fn parse_media_fragment(
         )));
     }
 
-    let sample_bytes = &mdat.payload[..first_sample_size];
-    let (idr_nal_units, in_band_parameter_sets) =
-        extract_keyframe_nal_units(sample_bytes, init.codec(), init.nal_length_size())?;
-
-    Ok(ParsedMediaFragment {
+    Ok(FragmentSample {
         sequence_number,
-        base_decode_time_ticks,
-        first_sample_cts_offset,
-        first_sample_size,
-        idr_nal_units,
-        in_band_parameter_sets,
+        timing: SampleTiming {
+            decode_ticks: base_decode_time_ticks,
+            cts_offset: first_sample_cts_offset,
+        },
+        bytes: &mdat.payload[..first_sample_size],
     })
 }
 
@@ -769,9 +815,10 @@ fn extract_keyframe_nal_units(
     while cursor < sample_bytes.len() {
         nal_count += 1;
         if nal_count > MAX_SAMPLE_NAL_UNITS {
-            return Err(MediaWorkerError::invalid_container(format!(
+            return Err(KeyframeDecodeError::limit_exceeded(format!(
                 "keyframe sample holds more than {MAX_SAMPLE_NAL_UNITS} NAL units"
-            )));
+            ))
+            .into());
         }
         if cursor + len_bytes > sample_bytes.len() {
             return Err(MediaWorkerError::invalid_container(
@@ -808,32 +855,32 @@ fn extract_keyframe_nal_units(
 
         if is_idr_nal(nal, codec) {
             idr_nals.push(nal.to_vec());
-        } else if is_parameter_set_nal(nal, codec) {
-            parameter_sets.push(nal.to_vec());
+        } else if codec == VideoCodec::H264 {
+            if nal[0] & 0x80 != 0 {
+                return Err(
+                    KeyframeDecodeError::malformed_bitstream("invalid H.264 NAL header").into(),
+                );
+            }
+            match nal[0] & 0x1f {
+                7 | 8 if idr_nals.is_empty() => parameter_sets.push(nal.to_vec()),
+                1..=4 | 7 | 8 => {
+                    return Err(KeyframeDecodeError::malformed_bitstream(
+                        "unexpected slice or parameter set in IDR sample",
+                    )
+                    .into());
+                }
+                _ => {}
+            }
         }
     }
 
     if idr_nals.is_empty() {
-        return Err(MediaWorkerError::invalid_container(
+        return Err(KeyframeDecodeError::malformed_bitstream(
             "CMAF sample contains no H.264/HEVC IDR keyframe NAL unit",
-        ));
+        )
+        .into());
     }
     Ok((idr_nals, parameter_sets))
-}
-
-fn is_parameter_set_nal(nal: &[u8], codec: VideoCodec) -> bool {
-    let Some(&header) = nal.first() else {
-        return false;
-    };
-    if header & 0x80 != 0 {
-        return false;
-    }
-    match codec {
-        // SPS, PPS.
-        VideoCodec::H264 => matches!(header & 0x1f, 7 | 8),
-        // VPS, SPS, PPS.
-        VideoCodec::Hevc => matches!((header >> 1) & 0x3f, 32..=34),
-    }
 }
 
 fn is_idr_nal(nal: &[u8], codec: VideoCodec) -> bool {

@@ -10,7 +10,8 @@ use crate::keyframe_decoder::{
 use crate::{
     ParsedInitSegment, ParsedMediaFragment, RgbFrame, parse_init_segment, parse_media_fragment,
 };
-use rusty_h264_common::{Profile, YuvFrame};
+use rusty_h264_common::nal::{NalUnit, NalUnitType};
+use rusty_h264_common::{BitWriter, Profile, YuvFrame};
 use rusty_h264_encoder::{Encoder, EncoderConfig};
 use sha2::{Digest, Sha256};
 
@@ -283,10 +284,17 @@ fn hevc_keyframe_is_reported_unsupported_instead_of_fabricated() {
     let init_bytes = build_init_mp4(W as u32, H as u32, 90_000, b"hvc1", &config);
     // IDR_W_RADL (type 19) NAL header followed by arbitrary slice bytes.
     let idr: [u8; 8] = [0x26, 0x01, 0xaf, 0x10, 0x22, 0x5c, 0x81, 0x3e];
-    let fragment_bytes = build_fragment_m4s(0, 0, 2_000_000_000, 90_000, &[&idr]);
+    let fragment_bytes = build_fragment_m4s(
+        0,
+        0,
+        2_000_000_000,
+        90_000,
+        &[&[0x40, 1], &[0x42, 1], &[0x44, 1], &idr],
+    );
     let init = parse_init_segment(&init_bytes).expect("parse hvc1 init");
     let fragment = parse_media_fragment(&fragment_bytes, &init).expect("parse hevc fragment");
 
+    assert!(fragment.in_band_parameter_sets().is_empty());
     let err = DefaultKeyframeDecoder::new()
         .decode_keyframe(&init, &fragment)
         .expect_err("HEVC must not yield a frame");
@@ -433,6 +441,198 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
                     | KeyframeDecodeErrorKind::UnsupportedCodec(_)
                     | KeyframeDecodeErrorKind::LimitExceeded(_)
             )),
+        }
+    }
+}
+
+fn baseline_sps(mbs: [u32; 2], crop: [u32; 4], matrix: u8, full: bool) -> Vec<u8> {
+    let mut w = BitWriter::new();
+    w.write_bits(0x42401f, 24);
+    for value in [0, 0, 0, 4, 1] {
+        w.write_ue(value);
+    }
+    w.write_bit(false);
+    w.write_ue(mbs[0] - 1);
+    w.write_ue(mbs[1] - 1);
+    w.write_bit(true);
+    w.write_bit(true);
+    w.write_bit(true);
+    for offset in crop {
+        w.write_ue(offset);
+    }
+    w.write_bit(true);
+    w.write_bit(false);
+    w.write_bit(false);
+    w.write_bit(true);
+    w.write_bits(5, 3);
+    w.write_bit(full);
+    w.write_bit(true);
+    w.write_bits(0x0202, 16);
+    w.write_bits(u32::from(matrix), 8);
+    w.write_bits(0, 6);
+    w.rbsp_trailing_bits();
+    NalUnit::new(3, NalUnitType::Sps, w.into_bytes()).to_annex_b()[4..].to_vec()
+}
+
+fn idr_header(mb: u32, pps: u32, picture: u32) -> BitWriter {
+    let mut w = BitWriter::new();
+    for value in [mb, 7, pps] {
+        w.write_ue(value);
+    }
+    w.write_bits(0, 4);
+    w.write_ue(picture);
+    w.write_bits(0, 8);
+    w.write_bits(0, 2);
+    w.write_se(0);
+    w.write_ue(1);
+    w
+}
+
+fn pcm_slice(mb: u32, pps: u32, picture: u32) -> Vec<u8> {
+    let mut w = idr_header(mb, pps, picture);
+    w.write_ue(25);
+    w.align_zero();
+    for (size, base) in [(16, 100), (8, 90), (8, 180)] {
+        for y in 0..size {
+            for x in 0..size {
+                w.write_bits(base + mb % 2 * size + x + mb / 2 * size + y, 8);
+            }
+        }
+    }
+    w.rbsp_trailing_bits();
+    NalUnit::new(3, NalUnitType::IdrSlice, w.into_bytes()).to_annex_b()[4..].to_vec()
+}
+
+#[test]
+fn four_sided_crop_preserves_luma_and_chroma_coordinates_across_slices() {
+    let stream = encode_idr(EncoderConfig::baseline(32, 32), &pattern(32, 32));
+    let nals = annex_b_nals(&stream);
+    let pps = nals_of_type(&nals, 8)[0];
+    let sps = baseline_sps([2, 2], [2, 1, 3, 2], 2, false);
+    let slices: Vec<_> = (0..4).map(|mb| pcm_slice(mb, 0, 0)).collect();
+    let slices: Vec<_> = slices.iter().map(Vec::as_slice).collect();
+    let picture = decode_access_unit(&[pps, &sps], &slices).expect("cropped multi-slice picture");
+    assert_eq!((picture.width, picture.height), (26, 22));
+    for (plane, width, height, first) in [
+        (&picture.y, 26, 22, 100 + 4 + 6),
+        (&picture.u, 13, 11, 90 + 2 + 3),
+        (&picture.v, 13, 11, 180 + 2 + 3),
+    ] {
+        for y in 0..height {
+            for x in 0..width {
+                assert_eq!(plane[y * width + x], (first + x + y) as u8);
+            }
+        }
+    }
+}
+
+#[test]
+fn avc3_replacement_decodes_with_only_the_active_parameter_sets() {
+    let source = pattern(W, H);
+    let stream = encode_idr(EncoderConfig::baseline(W, H), &source);
+    let nals = annex_b_nals(&stream);
+    let sps = nals_of_type(&nals, 7)[0];
+    let pps = nals_of_type(&nals, 8)[0];
+    let idr = nals_of_type(&nals, 5)[0];
+    let bytes = build_init_mp4(
+        W as u32,
+        H as u32,
+        90_000,
+        b"avc3",
+        &avcc_box(&[&high10_sps()], &[pps]),
+    );
+    let init = parse_init_segment(&bytes).unwrap();
+    let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[sps, pps, idr]);
+    let fragment = parse_media_fragment(&bytes, &init).unwrap();
+    let frame = DefaultKeyframeDecoder
+        .decode_keyframe(&init, &fragment)
+        .unwrap();
+    let (mean, max) = rgb_error_vs_source(&frame, &source);
+    assert!(mean < 3.0 && max < 40.0);
+}
+
+#[test]
+fn idr_admission_rejects_inconsistent_slice_headers_and_embedded_delimiters() {
+    let stream = encode_idr(EncoderConfig::baseline(32, 32), &pattern(32, 32));
+    let nals = annex_b_nals(&stream);
+    let pps = nals_of_type(&nals, 8)[0];
+    let sps = baseline_sps([2, 2], [0; 4], 2, false);
+    let slices: Vec<_> = (0..4).map(|mb| pcm_slice(mb, 0, 0)).collect();
+    let [a, b, c, d] = slices.as_slice() else {
+        unreachable!()
+    };
+    let changed_pps = pcm_slice(1, 1, 0);
+    let changed_picture = pcm_slice(1, 0, 1);
+    let outside = pcm_slice(4, 0, 0);
+    let embedded = [a.as_slice(), &[0, 0, 1], b.as_slice()].concat();
+    for units in [
+        vec![b, c, d],
+        vec![a, b, b, c, d],
+        vec![a, c, b, d],
+        vec![a, a, b, c, d],
+        vec![a, &outside],
+        vec![a, &changed_pps, c, d],
+        vec![a, &changed_picture, c, d],
+        vec![&embedded, c, d],
+    ] {
+        let units: Vec<_> = units.into_iter().map(Vec::as_slice).collect();
+        assert_eq!(
+            decode_access_unit(&[&sps, pps], &units)
+                .unwrap_err()
+                .reason(),
+            "malformed_bitstream"
+        );
+    }
+    let mut invalid = idr_header(0, 0, 0);
+    invalid.write_ue(1);
+    invalid.write_ue(4);
+    invalid.rbsp_trailing_bits();
+    let nal = NalUnit::new(3, NalUnitType::IdrSlice, invalid.into_bytes()).to_annex_b();
+    assert_eq!(
+        decode_access_unit(&[&sps, pps], &[&nal[4..]])
+            .unwrap_err()
+            .reason(),
+        "malformed_bitstream"
+    );
+    for dims in [[1025, 1], [1, 1025]] {
+        let oversized = baseline_sps(dims, [0; 4], 2, false);
+        assert_eq!(
+            decode_access_unit(&[&oversized, pps], &[a])
+                .unwrap_err()
+                .reason(),
+            "limit_exceeded"
+        );
+    }
+}
+
+#[test]
+fn signalled_matrix_and_range_select_the_specified_rgb_transform() {
+    let stream = encode_idr(EncoderConfig::baseline(16, 16), &pattern(16, 16));
+    let nals = annex_b_nals(&stream);
+    let pps = nals_of_type(&nals, 8)[0];
+    let slice = pcm_slice(0, 0, 0);
+    for code in 0..=u8::MAX {
+        for full in [false, true] {
+            let sps = baseline_sps([1, 1], [0; 4], code, full);
+            let decoded = decode_access_unit(&[&sps, pps], &[&slice]);
+            let expected = match (code, full) {
+                (2 | 5 | 6, false) => [181, 70, 21],
+                (2 | 5 | 6, true) => [173, 76, 33],
+                (1, false) => [191, 78, 18],
+                (1, true) => [182, 83, 29],
+                (9, false) => [185, 71, 16],
+                (9, true) => [177, 77, 29],
+                _ => {
+                    assert_eq!(
+                        decoded.unwrap_err().reason(),
+                        "unsupported_codec",
+                        "matrix {code}"
+                    );
+                    continue;
+                }
+            };
+            let rgb = crate::h264::picture_to_rgb(&decoded.unwrap()).unwrap();
+            assert_eq!(rgb.pixel_at(0, 0), expected, "matrix {code}, full {full}");
         }
     }
 }

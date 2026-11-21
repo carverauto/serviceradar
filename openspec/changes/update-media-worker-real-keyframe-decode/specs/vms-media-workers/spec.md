@@ -17,5 +17,5 @@ The media worker SHALL decode each sampled IDR keyframe from its real coded bits
 - **THEN** the worker SHALL publish the decoded keyframes' results, record the malformed keyframe with reason `malformed_bitstream`, and acknowledge the job
 
 #### Scenario: Oversized or excessive input is refused before decoding
-- **WHEN** a keyframe's SPS codes a picture wider or taller than 4096 pixels, its access unit exceeds 4 MiB, it has more than 1024 IDR slices, or a parameter set exceeds 4096 bytes
+- **WHEN** either the sample entry or the active SPS exceeds 4096 pixels in width or height, the access unit exceeds 4 MiB, the sample exceeds 4096 NAL units, the picture exceeds 1024 IDR slices, or a parameter set exceeds 4096 bytes
 - **THEN** the worker SHALL record the keyframe with reason `limit_exceeded` without passing it to the decoder

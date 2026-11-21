@@ -23,6 +23,9 @@ use crate::{
     longshore_registered_pool_bytes, serve_http_probes, spawn_nats_text_embed_responder,
     text_embed_rpc_subject, verify_startup_capabilities,
 };
+use crate::{
+    KeyframeDecodeError, KeyframeDecoder, ParsedInitSegment, ParsedMediaFragment, RgbFrame,
+};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -1324,6 +1327,53 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
     let block = assemble_cmaf_block(width as u32, height as u32, 90_000, init, fragments)
         .expect("assemble block");
 
+    let (envelope, metrics, events) =
+        index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+
+    assert_eq!(
+        envelope
+            .frames()
+            .iter()
+            .map(|f| f.fragment_sequence())
+            .collect::<Vec<_>>(),
+        vec![0]
+    );
+    let undecodable: Vec<(u32, &str, &str)> = envelope
+        .undecodable_keyframes()
+        .iter()
+        .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
+        .collect();
+    assert_eq!(
+        undecodable,
+        vec![
+            (1, "malformed_bitstream", "h264"),
+            (2, "malformed_bitstream", "h264")
+        ]
+    );
+    assert_eq!(metrics.keyframes_decoded_count(), 1);
+    assert_eq!(
+        metrics.keyframes_undecodable_count("malformed_bitstream"),
+        2
+    );
+    let wire = serde_json::to_value(&envelope).expect("serialize envelope");
+    assert_eq!(
+        wire["undecodable_keyframes"][0],
+        serde_json::json!({"fragment_sequence": 1, "reason": "malformed_bitstream", "codec": "h264"})
+    );
+    assert!(
+        events.lock().iter().any(|e| e == "ack"),
+        "job must be ACKed"
+    );
+}
+
+async fn index_test_block(
+    block: crate::SyntheticCmafBlock,
+    decoder: Arc<dyn KeyframeDecoder>,
+) -> (
+    VisualIndexResultEnvelope,
+    Arc<WorkerMetrics>,
+    Arc<Mutex<Vec<String>>>,
+) {
     let models = ModelPinConfig::default();
     let cfg = WorkerConfig::cpu_explicit_default().with_models(models.clone());
     let job = VisualIndexJobEnvelope::new(
@@ -1354,6 +1404,7 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
         },
         Arc::clone(&metrics),
     );
+    let processor = processor.with_keyframe_decoder(decoder);
     let outcome = processor
         .process_delivery(Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
@@ -1363,40 +1414,139 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
         .expect("a block with some undecodable keyframes still completes");
     let envelope = outcome.completed_envelope().expect("completed envelope");
 
-    assert_eq!(
-        envelope
-            .frames()
+    (envelope.clone(), metrics, events)
+}
+
+#[tokio::test]
+async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
+    for (width, height) in [(4097, 64), (64, 4097)] {
+        let init = build_init_mp4(
+            width,
+            height,
+            90_000,
+            b"avc1",
+            &avcc_box(&[&[0x67]], &[&[0x68]]),
+        );
+        let fragments = (0..2)
+            .map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])))
+            .collect();
+        let block = assemble_cmaf_block(width, height, 90_000, init, fragments).unwrap();
+        let (result, metrics, events) =
+            index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+        assert_eq!(events.lock().as_slice(), ["publish_result", "ack"]);
+        assert!(result.frames().is_empty());
+        let reasons: Vec<_> = result
+            .undecodable_keyframes()
             .iter()
-            .map(|f| f.fragment_sequence())
-            .collect::<Vec<_>>(),
-        vec![0]
+            .map(|k| (k.fragment_sequence(), k.reason()))
+            .collect();
+        assert_eq!(reasons, [(0, "limit_exceeded"), (1, "limit_exceeded")]);
+        assert_eq!(metrics.keyframes_undecodable_count("limit_exceeded"), 2);
+    }
+}
+
+#[tokio::test]
+async fn refused_first_sample_preserves_descriptor_or_container_origin_for_tracks() {
+    use std::io::{Seek, SeekFrom};
+    let duration = 2_000_000_000;
+    let start = 5_000_000_000;
+    let object = SyntheticObjectSpec::new(
+        ObjectClass::Person,
+        SyntheticColor::Red,
+        [0.1, 0.16, 0.26, 0.86],
     );
-    let undecodable: Vec<(u32, &str, &str)> = envelope
-        .undecodable_keyframes()
-        .iter()
-        .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
-        .collect();
-    assert_eq!(
-        undecodable,
-        vec![
-            (1, "malformed_bitstream", "h264"),
-            (2, "malformed_bitstream", "h264")
-        ]
-    );
-    assert_eq!(metrics.keyframes_decoded_count(), 1);
-    assert_eq!(
-        metrics.keyframes_undecodable_count("malformed_bitstream"),
-        2
-    );
-    let wire = serde_json::to_value(envelope).expect("serialize envelope");
-    assert_eq!(
-        wire["undecodable_keyframes"][0]["reason"],
-        "malformed_bitstream"
-    );
-    assert!(
-        events.lock().iter().any(|e| e == "ack"),
-        "job must be ACKed"
-    );
+    let source = generate_synthetic_cmaf_block(
+        128,
+        96,
+        90_000,
+        &[
+            SyntheticFragmentSpec::new(
+                1,
+                start + duration,
+                duration,
+                [40, 44, 50],
+                vec![object.clone()],
+            ),
+            SyntheticFragmentSpec::new(
+                2,
+                start + 2 * duration,
+                duration,
+                [40, 44, 50],
+                vec![object],
+            ),
+        ],
+    )
+    .unwrap();
+    let aud: &[u8] = &[0x09, 0x10];
+    let mut nals = vec![aud; 4096];
+    nals.push(&[0x65]);
+    for descriptor_origin in [0, start] {
+        let container_origin = if descriptor_origin == 0 { start } else { 0 };
+        let fragments = vec![
+            (
+                0,
+                descriptor_origin,
+                duration,
+                build_fragment_m4s(0, container_origin, duration, 90_000, &nals),
+            ),
+            (
+                1,
+                start + duration,
+                duration,
+                source.fragment_slice_bytes(0).unwrap().to_vec(),
+            ),
+            (
+                2,
+                start + 2 * duration,
+                duration,
+                source.fragment_slice_bytes(1).unwrap().to_vec(),
+            ),
+            (3, start + 3 * duration, duration, vec![1, 2, 3]),
+        ];
+        let block =
+            assemble_cmaf_block(128, 96, 90_000, source.init_mp4().to_vec(), fragments).unwrap();
+        let mut log = tempfile::tempfile().unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(log.try_clone().unwrap())
+            .finish();
+        let _subscriber = tracing::subscriber::set_default(subscriber);
+        let (result, metrics, _) =
+            index_test_block(block, Arc::new(SyntheticRasterKeyframeDecoder)).await;
+        let reasons: Vec<_> = result
+            .undecodable_keyframes()
+            .iter()
+            .map(|k| (k.fragment_sequence(), k.reason()))
+            .collect();
+        assert_eq!(reasons, [(0, "limit_exceeded"), (3, "invalid_container")]);
+        assert_eq!(metrics.keyframes_undecodable_count("limit_exceeded"), 1);
+        assert_eq!(metrics.keyframes_undecodable_count("invalid_container"), 1);
+        assert_eq!(result.tracks().len(), 1);
+        assert_eq!(result.tracks()[0].first_seen_offset_ms(), 2000);
+        assert_eq!(result.tracks()[0].last_seen_offset_ms(), 4000);
+        log.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = String::new();
+        log.read_to_string(&mut output).unwrap();
+        let summaries: Vec<_> = output
+            .lines()
+            .filter(|line| line.contains("keyframe decode summary"))
+            .collect();
+        assert_eq!(
+            summaries.len(),
+            1,
+            "descriptor origin {descriptor_origin}, log {output:?}"
+        );
+        assert!(summaries[0].contains("DEBUG"));
+        assert!(summaries[0].contains(r#""invalid_container": 1"#));
+        assert!(summaries[0].contains(r#""limit_exceeded": 1"#));
+        assert!(
+            !output
+                .lines()
+                .any(|line| line.contains("WARN") && line.contains("keyframe"))
+        );
+    }
 }
 
 #[tokio::test]
@@ -1409,10 +1559,8 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         .with_models(models.clone());
     let metrics = Arc::new(WorkerMetrics::new());
 
-    // Gate that holds ALL 2 `index_concurrency` slots occupied for 500 ms.
-    let (release_tx, release_rx) = tokio::sync::watch::channel(false);
-    let entered = Arc::new(tokio::sync::Notify::new());
-    let occupied_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+    let release = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
 
     let block = generate_synthetic_cmaf_block(
         64,
@@ -1436,15 +1584,14 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         &models,
     );
 
-    let blocking_grant = BlockingGrantClient {
-        entered: Arc::clone(&entered),
-        occupied: Arc::clone(&occupied_count),
-        release_rx,
-        plan: build_in_memory_local_plan(&job, &block),
-    };
     let processor = VisualIndexProcessor::new(
         &cfg,
-        blocking_grant,
+        DelayedMockGrantClient {
+            resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                &job, &block,
+            ))),
+            delay: Duration::ZERO,
+        },
         InMemoryVerifiedStore {
             block: block.clone(),
         },
@@ -1455,7 +1602,10 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         },
         Arc::clone(&metrics),
     )
-    .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder));
+    .with_keyframe_decoder(Arc::new(BlockingDecoder {
+        entered: entered_tx,
+        release: Arc::clone(&release),
+    }));
 
     let mut index_handles = Vec::new();
     for _ in 0..2 {
@@ -1470,8 +1620,11 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
     }
 
     // Wait until BOTH index_concurrency permits are deterministically held busy (`available_permits == 0`).
-    while occupied_count.load(std::sync::atomic::Ordering::Acquire) < 2 {
-        entered.notified().await;
+    for _ in 0..2 {
+        tokio::time::timeout(Duration::from_secs(5), entered_rx.recv())
+            .await
+            .expect("decode started")
+            .expect("decoder alive");
     }
     assert_eq!(processor.index_semaphore().available_permits(), 0);
     assert_eq!(metrics.inflight_index_jobs_value(), 2);
@@ -1528,7 +1681,8 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
     assert!((norm - 1.0).abs() < 1e-5);
 
     // Release blocked backfill jobs and tear down cleanly.
-    let _ = release_tx.send(true);
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
     for h in index_handles {
         let _ = h.await.expect("join index job").expect("index job ok");
     }
@@ -1935,28 +2089,24 @@ impl GrantClient for DelayedMockGrantClient {
     }
 }
 
-struct BlockingGrantClient {
-    entered: Arc<tokio::sync::Notify>,
-    occupied: Arc<std::sync::atomic::AtomicUsize>,
-    release_rx: tokio::sync::watch::Receiver<bool>,
-    plan: ReadGrantPlan,
+struct BlockingDecoder {
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+    release: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 }
 
-impl GrantClient for BlockingGrantClient {
-    async fn acquire_read_grant(
+impl KeyframeDecoder for BlockingDecoder {
+    fn decode_keyframe(
         &self,
-        _request: &ReadGrantRequest,
-    ) -> Result<GrantResolution, MediaWorkerError> {
-        self.occupied
-            .fetch_add(1, std::sync::atomic::Ordering::Release);
-        self.entered.notify_waiters();
-        let mut rx = self.release_rx.clone();
-        while !*rx.borrow_and_update() {
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
-        Ok(GrantResolution::Admitted(Box::new(self.plan.clone())))
+        init: &ParsedInitSegment,
+        fragment: &ParsedMediaFragment,
+    ) -> Result<RgbFrame, KeyframeDecodeError> {
+        self.entered.send(()).unwrap();
+        let (lock, wake) = &*self.release;
+        let (released, _) = wake
+            .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(5), |done| !*done)
+            .unwrap();
+        assert!(*released, "RPC must finish while decoding is in progress");
+        SyntheticRasterKeyframeDecoder.decode_keyframe(init, fragment)
     }
 }
 

@@ -1,5 +1,6 @@
 //! Concrete typed errors for `serviceradar-media-worker`.
 
+use crate::keyframe_decoder::KeyframeDecodeError;
 use core::fmt::{self, Display, Formatter};
 
 /// Classification of startup capability admission failures.
@@ -228,6 +229,7 @@ pub enum MediaWorkerErrorKind {
     ControlPlaneRejected { status: u16, reason: String },
     StorageTransport(String),
     InvalidContainer(String),
+    KeyframeDecode(KeyframeDecodeError),
     InferenceFailed(String),
     NatsError(String),
     InvalidJobEnvelope(String),
@@ -302,6 +304,7 @@ impl MediaWorkerError {
             },
             MediaWorkerErrorKind::ControlPlaneRejected { .. } => "control_plane_rejected",
             MediaWorkerErrorKind::StorageTransport(_) => "storage_transport",
+            MediaWorkerErrorKind::KeyframeDecode(err) => err.reason(),
             MediaWorkerErrorKind::InvalidContainer(_) => "invalid_container",
             MediaWorkerErrorKind::InferenceFailed(_) => "inference_failed",
             MediaWorkerErrorKind::NatsError(_) => "nats_error",
@@ -309,6 +312,12 @@ impl MediaWorkerError {
             MediaWorkerErrorKind::InvalidTextEmbedRequest(_) => "invalid_text_embed_request",
             MediaWorkerErrorKind::DeadlineExceeded(_) => "deadline_exceeded",
         }
+    }
+}
+
+impl From<KeyframeDecodeError> for MediaWorkerError {
+    fn from(err: KeyframeDecodeError) -> Self {
+        Self::new(MediaWorkerErrorKind::KeyframeDecode(err))
     }
 }
 
@@ -335,6 +344,7 @@ impl Display for MediaWorkerError {
             MediaWorkerErrorKind::StorageTransport(msg) => {
                 write!(f, "storage transport error: {msg}")
             }
+            MediaWorkerErrorKind::KeyframeDecode(err) => Display::fmt(err, f),
             MediaWorkerErrorKind::InvalidContainer(msg) => {
                 write!(f, "invalid ISO-BMFF/CMAF container: {msg}")
             }

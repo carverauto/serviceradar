@@ -23,17 +23,16 @@ Supported:
 - SPS cropping;
 - parameter sets from `avcC` and in-band (`avc3`); in-band sets win.
 
-Colour: the VUI `matrix_coefficients` picks BT.709, BT.601 or BT.2020 and
-`video_full_range_flag` picks the range. Without them the worker uses limited range and
-BT.709 above 576 lines, BT.601 otherwise.
+Colour: the VUI `matrix_coefficients` picks BT.709 (1), BT.601 (5 or 6) or BT.2020 non-constant luminance (9) and
+`video_full_range_flag` picks the range. Absent range means limited range. An absent or unspecified matrix (2) selects
+BT.709 above 576 display lines and BT.601 otherwise. Other codes produce `unsupported_codec`.
 
 Not supported, reported as `unsupported_codec`: HEVC, other H.264 profiles (High 10,
 4:2:2, 4:4:4 and so on), interlaced/MBAFF coding, FMO, SP/SI slices, lossless macroblocks,
 CABAC I_PCM, and non-YCbCr VUI matrices.
 
 A keyframe that cannot be decoded is never replaced by a fabricated frame. It is listed in
-the result envelope's `undecodable_keyframes` (`fragment_sequence`, `reason`, `codec`,
-`detail`) and counted in `keyframes_undecodable_total{reason}`. Reasons:
+the result envelope's `undecodable_keyframes` (`fragment_sequence`, `reason`, `codec`) and counted in `keyframes_undecodable_total{reason}`. Reasons:
 `unsupported_codec`, `malformed_bitstream`, `limit_exceeded`, `invalid_container`. The rest
 of the block is still indexed and the job completes.
 
@@ -45,6 +44,11 @@ interrupted); these limits bound its work instead.
 Known gap: a CABAC slice truncated inside its macroblock data decodes to a picture with a
 wrong tail instead of an error (the decoder zero-fills past the end). CAVLC truncation is
 detected.
+
+Slice headers expose each starting macroblock. The worker checks the first start, ordering
+and picture bounds. The decoder keeps the actual ending macroblock private. A whole
+middle slice can be missing, or two increasing slices can overlap, in either CAVLC or
+CABAC. Request an upstream check that each continuation starts where its predecessor ended.
 
 ## Tests
 

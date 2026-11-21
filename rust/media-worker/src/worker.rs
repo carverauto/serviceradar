@@ -2,7 +2,7 @@
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
 use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
-use crate::cmaf::{parse_init_segment, parse_media_fragment};
+use crate::cmaf::{parse_fragment_sample, parse_init_segment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
@@ -11,6 +11,7 @@ use crate::keyframe_decoder::{DefaultKeyframeDecoder, KeyframeDecoder};
 use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
+    VerifiedKeyframeBlock,
 };
 use crate::vision::{ClipKeyframe, RgbFrame, VisionPipeline};
 use async_nats::jetstream::AckKind;
@@ -19,6 +20,7 @@ use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
 use async_nats::{Client, ConnectOptions, HeaderMap, jetstream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Once};
@@ -325,9 +327,6 @@ impl FrameResultPayload {
     }
 }
 
-/// Longest `detail` text carried on an undecodable keyframe entry.
-const MAX_UNDECODABLE_DETAIL_CHARS: usize = 256;
-
 /// A sampled keyframe that was not indexed because it could not be decoded. Recorded in
 /// `VisualIndexResultEnvelope.undecodable_keyframes` instead of a fabricated frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -337,16 +336,14 @@ pub struct UndecodableKeyframePayload {
     /// `invalid_container`.
     reason: String,
     codec: String,
-    detail: String,
 }
 
 impl UndecodableKeyframePayload {
-    fn new(fragment_sequence: u32, reason: &str, codec: &str, detail: &str) -> Self {
+    fn new(fragment_sequence: u32, reason: &str, codec: &str) -> Self {
         Self {
             fragment_sequence,
             reason: reason.to_string(),
             codec: codec.to_string(),
-            detail: detail.chars().take(MAX_UNDECODABLE_DETAIL_CHARS).collect(),
         }
     }
 
@@ -360,10 +357,6 @@ impl UndecodableKeyframePayload {
 
     pub fn codec(&self) -> &str {
         &self.codec
-    }
-
-    pub fn detail(&self) -> &str {
-        &self.detail
     }
 }
 
@@ -805,7 +798,7 @@ where
         &self,
         delivery: Arc<D>,
     ) -> Result<JobOutcome, MediaWorkerError> {
-        let _permit = Arc::clone(&self.index_semaphore)
+        let permit = Arc::clone(&self.index_semaphore)
             .acquire_owned()
             .await
             .map_err(|_| MediaWorkerError::nats_error("index_concurrency semaphore closed"))?;
@@ -828,7 +821,8 @@ where
             Duration::from_millis(job.budget_ms()),
         );
 
-        let execution_res = self.execute_job(&job).await;
+        let permit = Arc::new(permit);
+        let execution_res = self.execute_job(&job, Arc::clone(&permit)).await;
         wpi_guard.stop().await;
 
         match execution_res {
@@ -839,6 +833,13 @@ where
                 Ok(JobOutcome::Gone)
             }
             Ok(JobExecution::ReadyResult(envelope)) => {
+                debug!(job_id = job.job_id(), totals_by_reason = ?{
+                    let mut totals = BTreeMap::new();
+                    for entry in envelope.undecodable_keyframes() {
+                        *totals.entry(entry.reason()).or_insert(0usize) += 1;
+                    }
+                    totals
+                }, "keyframe decode summary");
                 // CRITICAL INVARIANT (`2.5`): Confirm durable JetStream publish of
                 // `media.results.visual_index.v1` BEFORE calling `ack_completed`!
                 let msg_id = format!("visual-result:{}", job.job_id());
@@ -875,6 +876,7 @@ where
     async fn execute_job(
         &self,
         job: &VisualIndexJobEnvelope,
+        permit: Arc<tokio::sync::OwnedSemaphorePermit>,
     ) -> Result<JobExecution, MediaWorkerError> {
         self.validate_job_compatibility(job)?;
 
@@ -889,56 +891,64 @@ where
         };
 
         let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
+        let processor = self.clone();
+        let job = job.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            processor.index_block(&job, &verified_block)
+        })
+        .await
+        .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?
+    }
+
+    fn index_block(
+        &self,
+        job: &VisualIndexJobEnvelope,
+        verified_block: &VerifiedKeyframeBlock,
+    ) -> Result<JobExecution, MediaWorkerError> {
         let init_seg = parse_init_segment(verified_block.init_bytes())?;
 
         let codec = init_seg.codec().as_str();
         let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
             Vec::with_capacity(verified_block.fragments().len());
         let mut undecodable_keyframes = Vec::new();
-        // One undecodable keyframe is recorded and skipped; it does not fail the block.
-        for frag in verified_block.fragments() {
-            let decoded = parse_media_fragment(frag.bytes(), &init_seg)
-                .map_err(|err| ("invalid_container", err.to_string()))
+        let mut base_pts_ns = 0;
+        for (index, frag) in verified_block.fragments().iter().enumerate() {
+            let sample = parse_fragment_sample(frag.bytes(), &init_seg);
+            let media_pts_ns = if frag.start_ns() == 0 {
+                sample
+                    .as_ref()
+                    .map_or(0, |s| s.media_pts_ns(init_seg.timescale()))
+            } else {
+                frag.start_ns()
+            };
+            if index == 0 {
+                base_pts_ns = media_pts_ns;
+            }
+            let decoded = sample
+                .and_then(|s| s.keyframe(&init_seg))
                 .and_then(|parsed| {
                     self.keyframe_decoder
                         .decode_keyframe(&init_seg, &parsed)
-                        .map(|frame| (parsed, frame))
-                        .map_err(|err| (err.reason(), err.detail().to_string()))
+                        .map_err(MediaWorkerError::from)
                 });
-            let (parsed_frag, decoded_frame) = match decoded {
-                Ok(pair) => pair,
-                Err((reason, detail)) => {
-                    warn!(
-                        job_id = job.job_id(),
-                        catalog_entry_id = job.catalog_entry_id(),
-                        fragment_sequence = frag.sequence(),
-                        codec,
-                        reason,
-                        detail = detail.as_str(),
-                        "sampled keyframe is undecodable; recorded and skipped"
-                    );
+            match decoded {
+                Ok(frame) => {
+                    self.metrics.inc_keyframes_decoded(1);
+                    decoded_frames.push((frag.sequence(), media_pts_ns, frame));
+                }
+                Err(err) => {
+                    let reason = err.error_class();
                     self.metrics.inc_keyframes_undecodable(reason);
                     undecodable_keyframes.push(UndecodableKeyframePayload::new(
                         frag.sequence(),
                         reason,
                         codec,
-                        &detail,
                     ));
-                    continue;
                 }
-            };
-            self.metrics.inc_keyframes_decoded(1);
-
-            // Prefer authoritative descriptor `start_ns` when > 0, else container `tfdt` PTS.
-            let media_pts_ns = if frag.start_ns() > 0 {
-                frag.start_ns()
-            } else {
-                parsed_frag.media_pts_ns(init_seg.timescale())
-            };
-            decoded_frames.push((frag.sequence(), media_pts_ns, decoded_frame));
+            }
         }
 
-        let base_pts_ns = decoded_frames.first().map(|(_, pts, _)| *pts).unwrap_or(0);
         let clip_keyframes: Vec<ClipKeyframe<'_>> = decoded_frames
             .iter()
             .map(|(_, pts, frame)| {
