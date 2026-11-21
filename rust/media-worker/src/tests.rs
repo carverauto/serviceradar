@@ -1417,7 +1417,9 @@ async fn index_test_block(
     Arc<Mutex<Vec<String>>>,
 ) {
     let models = ModelPinConfig::default();
-    let cfg = WorkerConfig::cpu_explicit_default().with_models(models.clone());
+    let cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_models(models.clone());
     let job = VisualIndexJobEnvelope::new(
         "01933b40-0000-7000-8000-000000000031",
         "00000000-0000-4000-8000-000000000031",
@@ -1428,8 +1430,10 @@ async fn index_test_block(
     );
     let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let metrics = Arc::new(WorkerMetrics::new());
-    let processor = VisualIndexProcessor::new(
+    let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+    let processor = VisualIndexProcessor::with_backend(
         &cfg,
+        Arc::clone(&backend),
         DelayedMockGrantClient {
             resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
                 &job, &block,

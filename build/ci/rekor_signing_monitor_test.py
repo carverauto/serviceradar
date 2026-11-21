@@ -11,6 +11,7 @@ import hashlib
 import http.server
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -90,6 +91,7 @@ class World:
         self.truncated_ledgers = set()
         self.filler_artifacts = 0
         self.blob_requests_with_auth = 0
+        self.graphql_requests = 0
         self.artifact_accepts = []
         self.failing_paths = {}
 
@@ -243,14 +245,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.injected_failure(path) or self.github_rejects():
             return None
         if path == "/graphql":
-            variables = payload["variables"]
-            deployments = world.deployments[variables["suite"]]
-            selection = variables.get("filter", {"checkName": "publish"})
+            world.graphql_requests += 1
+            query_text = payload.get("query", "")
+            variables = payload.get("variables") or {}
+            header_match = re.search(r"query\s*\(([^)]*)\)\s*\{(.*)\}\s*$", query_text, re.DOTALL)
+            if not header_match:
+                return self.reply(200, {"errors": [{"message": "invalid GraphQL query"}]})
+            declared_vars = re.findall(r"\$([A-Za-z_][A-Za-z0-9_]*)", header_match.group(1))
+            query_body = header_match.group(2)
+            unused = [name for name in declared_vars if not re.search(rf"\${name}\b", query_body)]
+            if unused:
+                return self.reply(200, {"errors": [{"message": f"Variable ${unused[0]} is never used"}]})
+            node_match = re.search(r"node\s*\(\s*id\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*\)", query_body)
+            checks_match = re.search(r"checkRuns\s*\(([^)]*)\)", query_body)
+            if not node_match or not checks_match:
+                return self.reply(200, {"errors": [{"message": "unsupported GraphQL selection"}]})
+            suite_id = variables[node_match.group(1)[1:]]
+            args_text = checks_match.group(1)
+            first_match = re.search(r"\bfirst\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*|\d+)", args_text)
+            if not first_match:
+                return self.reply(200, {"errors": [{"message": "checkRuns requires first argument"}]})
+            first_raw = first_match.group(1)
+            first = variables[first_raw[1:]] if first_raw.startswith("$") else int(first_raw)
+            filter_match = re.search(r"\bfilterBy\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*|\{[^}]*\})", args_text)
+            if not filter_match:
+                selection = {}
+            else:
+                filter_raw = filter_match.group(1)
+                if filter_raw.startswith("$"):
+                    selection = variables[filter_raw[1:]]
+                else:
+                    selection = {}
+                    name_m = re.search(r'\bcheckName\s*:\s*"([^"]*)"', filter_raw)
+                    type_m = re.search(r"\bcheckType\s*:\s*([A-Z_]+)", filter_raw)
+                    if name_m:
+                        selection["checkName"] = name_m.group(1)
+                    if type_m:
+                        selection["checkType"] = type_m.group(1)
+            deployments = world.deployments[suite_id]
             if selection.get("checkName") != "publish":
                 deployments = []
             if selection.get("checkType") != "ALL":
                 deployments = deployments[-1:]
-            nodes = [{"deployment": deployment} for deployment in deployments[:variables.get("attempts", 1)]]
+            nodes = [{"deployment": deployment} for deployment in deployments[:first]]
             return self.reply(200, {"data": {"node": {"checkRuns": {"nodes": nodes}}}})
         if path == "/api/v1/log/entries/retrieve":
             return self.reply(200, [world.entry(index) for index in payload["logIndexes"]])
@@ -420,6 +457,11 @@ class MonitorTest(unittest.TestCase):
                 self.assertIn(str(run_id), state["canary_checked"])
         self.assertEqual(self.world.issues, [])
         self.assertEqual(self.world.blob_requests_with_auth, 0, "the GitHub token followed the artifact redirect")
+        # Once both completed CUDA runs are checked and all signatures are explained,
+        # a subsequent scan does not re-query GraphQL deployment evidence.
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.world.graphql_requests, 0, "already-checked CUDA runs triggered GraphQL lookups")
 
     def test_build_only_cuda_runs_cannot_explain_or_defer_an_alert(self):
         entry = self.world.add_entry(b"unexplained during CUDA builds")

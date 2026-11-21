@@ -437,7 +437,7 @@ fn write_tiny_siglip_fixture(dir: &Path) {
             third_row[4..8].copy_from_slice(&delta.to_le_bytes());
         }
         let (_, bias) = t.get_mut(&format!("{head}.bias")).expect("head bias");
-        for (slot, value) in bias.chunks_exact_mut(4).zip(biases) {
+        for (slot, value) in bias.as_chunks_mut::<4>().0.iter_mut().zip(biases) {
             slot.copy_from_slice(&value.to_le_bytes());
         }
     }

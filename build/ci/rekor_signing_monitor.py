@@ -365,21 +365,31 @@ def integrated(match):
     return datetime.fromtimestamp(match["integrated_time"], timezone.utc)
 
 
-def signing_runs(github, since):
+def needs_canary(run, first_checkpoint, now, checked):
+    return (run["ended"] is not None and run["ended"] >= first_checkpoint
+            and now - run["ended"] >= 2 * SCAN_INTERVAL
+            and checked.get(str(run["id"]), 0) < int(run["ended"].timestamp()))
+
+
+def signing_runs(github, since, is_relevant=None):
     runs = []
     for workflow in SIGNING_WORKFLOWS:
         for run in github.runs(workflow, since):
-            if workflow == "publish-media-worker-cuda.yml":
-                branch = run.get("head_branch") or ""
-                if (not re.fullmatch(r"staging|test/demo-test-[0-9]+", branch)
-                        or not github.cuda_release_deployed_from(run, branch)):
-                    continue
             # created_at, not run_started_at: a re-run attempt restarts the latter, and an earlier
             # attempt's entries must still fall inside the run's window.
             started = parse_time(run["created_at"])
             ended = parse_time(run["updated_at"]) if run["status"] == "completed" else None
-            runs.append({"id": run["id"], "workflow": workflow, "started": started, "ended": ended,
-                         "url": run.get("html_url", "")})
+            candidate = {"id": run["id"], "workflow": workflow, "started": started, "ended": ended,
+                         "url": run.get("html_url", "")}
+            if workflow == "publish-media-worker-cuda.yml":
+                branch = run.get("head_branch") or ""
+                if not re.fullmatch(r"staging|test/demo-test-[0-9]+", branch):
+                    continue
+                if is_relevant is not None and not is_relevant(candidate):
+                    continue
+                if not github.cuda_release_deployed_from(run, branch):
+                    continue
+            runs.append(candidate)
     return runs
 
 
@@ -478,14 +488,16 @@ def run(args, environ, now):
                  if decided.get(match["uuid"], {}).get("status") != "explained"]
     first_checkpoint = datetime.fromtimestamp(first_time, timezone.utc)
     canary_since = max(first_checkpoint - RUN_MARGIN, now - LEDGER_RETENTION)
-    runs = signing_runs(github, min([canary_since] + [when - RUN_MARGIN for when in undecided]))
     # An ended run is checked until all it ledgered was seen (again if a re-run ends later).
     checked = {run_id: ended for run_id, ended in state.get("canary_checked", {}).items()
                if ended >= (now - LEDGER_RETENTION).timestamp()}
-    canary_runs = [run for run in runs
-                   if run["ended"] is not None and run["ended"] >= first_checkpoint
-                   and now - run["ended"] >= 2 * SCAN_INTERVAL
-                   and checked.get(str(run["id"]), 0) < int(run["ended"].timestamp())]
+    runs = signing_runs(
+        github,
+        min([canary_since] + [when - RUN_MARGIN for when in undecided]),
+        is_relevant=lambda run: (needs_canary(run, first_checkpoint, now, checked)
+                                 or any(active_at(run, when) for when in undecided)),
+    )
+    canary_runs = [run for run in runs if needs_canary(run, first_checkpoint, now, checked)]
     ledgers = {run["id"]: github.ledger_lines(run["id"]) for run in runs
                if run["ended"] is not None
                and (run in canary_runs or any(active_at(run, when) for when in undecided))}
