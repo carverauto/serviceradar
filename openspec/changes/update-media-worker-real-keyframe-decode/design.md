@@ -20,9 +20,10 @@
 
 OpenH264 2.7 also decodes Main/High CABAC with 8x8 transform (its README says Constrained
 Baseline only, but its source and the same tests disagree), and it detects a truncated
-CABAC slice. It was kept as the fallback: it is C++ on attacker-influenced input and needs
-a C++ build in every Bazel action that links it. libavcodec covers HEVC but is LGPL C with
-a heavy hermetic build; it is the candidate for HEVC together with hardware decode.
+CABAC slice. OpenH264 remains an alternative for future evaluation. It would process
+camera input in C++ and require a C++ build for actions that link it. libavcodec covers
+HEVC and requires a heavy hermetic build of LGPL C code. It remains a candidate for HEVC
+alongside hardware decoding.
 
 ## Known gaps
 
@@ -61,5 +62,5 @@ Annex B start codes. The worker runs decode on the blocking pool under the index
 The VUI `matrix_coefficients` selects BT.709 (1), BT.601 (5 or 6) or BT.2020
 non-constant luminance (9). An absent or unspecified value (2) selects BT.709 above 576
 display lines and BT.601 otherwise. All other codes produce `unsupported_codec`.
-`video_full_range_flag` selects the range and defaults to limited. Chroma uses sample
-replication.
+`video_full_range_flag` selects the range and defaults to limited. If the worker cannot
+parse the VUI colour fields, it uses both defaults. Chroma uses sample replication.

@@ -2,10 +2,8 @@
 //! and synthetic CMAF test-pattern generator (`0.4`, `2.3`). Keyframe decoding lives behind
 //! `crate::keyframe_decoder::KeyframeDecoder`.
 //!
-//! All synthetic fixtures are 100% programmatic geometric test patterns — zero live or
-//! captured camera footage. The synthetic generator's keyframes carry an `SRIDR1` raster
-//! that only the test-only `SyntheticRasterKeyframeDecoder` reads; the production decoder
-//! treats them as malformed H.264.
+//! The synthetic fixtures use programmatic geometric patterns. See
+//! [`generate_synthetic_cmaf_block`] for their payload format.
 
 use crate::errors::MediaWorkerError;
 use crate::grants::{FragmentSlicePlan, InitSlicePlan};
@@ -1251,8 +1249,10 @@ impl SyntheticCmafBlock {
     }
 }
 
-/// Generates a valid ISO-BMFF / CMAF block (`init.mp4` + concatenated `media.m4s`
-/// fragments + frozen descriptor SHA-256s) containing programmatic geometric scenes (`0.4`).
+/// Generates a CMAF container fixture with an `init.mp4`, concatenated `media.m4s`
+/// fragments and frozen descriptor digests. Its samples carry geometric scenes encoded
+/// as `SRIDR1` rasters for the test-only decoder. Use a coded H.264 stream to exercise
+/// production decoding.
 pub fn generate_synthetic_cmaf_block(
     width: u32,
     height: u32,

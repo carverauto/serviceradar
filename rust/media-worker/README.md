@@ -23,44 +23,42 @@ Supported:
 - SPS cropping;
 - parameter sets from `avcC` for `avc1`; `avc3` also accepts in-band replacements.
 
-Colour: the VUI `matrix_coefficients` picks BT.709 (1), BT.601 (5 or 6) or BT.2020 non-constant luminance (9) and
-`video_full_range_flag` picks the range. Absent range means limited range. An absent or unspecified matrix (2) selects
-BT.709 above 576 display lines and BT.601 otherwise. Other codes produce `unsupported_codec`.
+The worker uses VUI colour metadata to convert decoded pixels to RGB. See the
+[colour conversion rules](../../openspec/changes/update-media-worker-real-keyframe-decode/design.md#colour)
+for supported matrices and defaults.
 
 Not supported, reported as `unsupported_codec`: HEVC, other H.264 profiles (High 10,
-4:2:2, 4:4:4 and so on), interlaced/MBAFF coding, FMO, SP/SI slices, lossless macroblocks,
+4:2:2, 4:4:4 and so on), interlaced/MBAFF coding, FMO, SI slices, lossless macroblocks,
 unequal Cb and Cr quantization offsets, multi-slice pictures, auxiliary and
-extension coded slices, and unsupported VUI matrices.
+extension coded slices, and unsupported VUI matrices. An SP slice in an IDR picture is
+malformed and produces `malformed_bitstream`.
 
 The per-keyframe outcome applies to granted, verified fragments. If any sampled fragment
 exceeds 4 MiB, the read-grant service rejects the whole request before the worker can
 fetch the fragments. The worker handles that rejection as a job-level failure.
 
-A verified keyframe that cannot be decoded is listed in
-the result envelope's `undecodable_keyframes` (`fragment_sequence`, `reason`, `codec`) and counted in `keyframes_undecodable_total{reason}`. Reasons:
-`unsupported_codec`, `malformed_bitstream`, `limit_exceeded`, `invalid_container`. The rest
-of the block is still indexed and the job completes. If the verified track init cannot
-be parsed, every sampled sequence gets `invalid_container`. The outcome uses the codec
-from the sample entry, or `unknown` if the parser could not identify it.
+For each verified sample it cannot decode, the worker adds an entry to
+`undecodable_keyframes` with the fragment sequence (`fragment_sequence`), the sample-entry
+codec (`codec`, or `unknown` if unidentified), and a `reason`. The reasons are
+`unsupported_codec`, `malformed_bitstream`, `limit_exceeded`, and `invalid_container`.
+The counter at `/metrics` is `serviceradar_media_worker_keyframes_undecodable_total`,
+labelled by `reason`.
 
-Limits enforced before the decoder runs: coded picture at most 4096x4096 (from the SPS),
-access unit at most 4 MiB, parameter sets at most 4096 bytes, at
-most 4096 NAL units per sample. Decoding has no wall-clock timeout (the call cannot be
-interrupted); these limits bound its work instead.
+Only decoded samples produce frames, detections, or embeddings. A refused sample still
+advances the tracker at its timestamp, so a gap longer than the track buffer ends the
+track. The worker publishes the result even if every sample was refused. If all samples
+decode, it omits `undecodable_keyframes`. If the verified track init cannot be parsed,
+every sampled sequence gets `invalid_container`.
 
-Known gap: a CABAC slice truncated inside its macroblock data decodes to a picture with a
-wrong tail instead of an error (the decoder zero-fills past the end). CAVLC truncation that removes coded samples is
-detected. The decoder accepts a missing trailing-bits byte after complete macroblock data.
+The worker checks both the container dimensions and the SPS coded dimensions before
+decoding. Each may be at most 4096 pixels wide and 4096 pixels high. It also caps the
+access unit at 4 MiB, each parameter set at 4096 bytes, and each sample at 4096 NAL
+units. These limits bound the synchronous decoder call, which has no wall-clock timeout.
 
-The worker admits one slice per IDR picture. Decoder 0.17.3 can apply the wrong
-deblocking parameters across slices, use an unavailable I_8x8 prediction corner across
-a slice boundary, or return a picture with a missing slice. Multi-slice support resumes when the worker
-adopts the fixes from the [decoder fork](https://github.com/carverauto/rusty_h264).
-
-Camera encoders rarely emit I_PCM macroblocks. With filtering enabled, decoder 0.17.3
-uses the running slice QP to deblock their edges, where H.264 requires QP zero. The
-worker accepts these frames as approximate. Affected pixels are confined to the edges
-of I_PCM macroblocks.
+Truncated CABAC data can produce a picture with incorrect trailing pixels. Pictures with
+I_PCM macroblocks can also have approximate edge pixels when deblocking is enabled.
+See the [decoder design](../../openspec/changes/update-media-worker-real-keyframe-decode/design.md#known-gaps)
+for the CAVLC truncation behavior and the reasons for the single-slice restriction.
 
 ## Tests
 
@@ -73,6 +71,5 @@ keyframes with the test-only `SyntheticRasterKeyframeDecoder`, injected through
 `VisualIndexProcessor::with_keyframe_decoder`.
 
 ```sh
-cargo test -p serviceradar-media-worker
 bazel test --config=remote //rust/media-worker:all
 ```
