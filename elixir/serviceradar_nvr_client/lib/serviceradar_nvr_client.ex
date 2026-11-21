@@ -135,6 +135,101 @@ defmodule ServiceRadarNVRClient do
 
   def read_block(_, _, _, _, _, _), do: {:error, :invalid_read_request}
 
+  @doc """
+  Reads the member's status (`GET /v1/status` on the ingest listener).
+
+  Returns `{:ok, status}` with `:storage_id`, `:recovery` (`%{state: :ready |
+  :closed, generation: uuid}`), `:inventory` (`:ready`, `:rebuilding`,
+  `:mismatch` or `:unavailable`), `:capacity` (measurements, nil unless the
+  ledger is ready or mismatched), `:max_sessions`, `:archive_busy` and
+  `:release`. A non-200 answer is `{:error, {:member_status, status, error}}`, a
+  malformed one `{:error, :invalid_response}`, and a lost or late one
+  `{:error, :unavailable}`. Compare `:storage_id` with the member's configured
+  storage before trusting anything else.
+  """
+  def status(config, timeout_ms \\ 10_000)
+
+  def status(%Config{} = config, timeout_ms) when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config) do
+      finish = &json_result(&1, &2, :member_status, fn body -> Wire.member_status(body) end)
+      member_call(timeout_ms, &HTTP.get_json(config, "/v1/status", finish, &1, &2))
+    end
+  end
+
+  def status(_, _), do: {:error, :invalid_status_request}
+
+  @doc """
+  Reports the local state of up to 50 blocks (`POST /v1/blocks/lookup` on the
+  ingest listener), for a coordinator resolving its own blocks.
+
+  Returns `{:ok, %{storage_id: uuid, blocks: [entry]}}` with one entry per
+  requested ID, in order: `:block_id`, `:state` (`:sealed`, `:incomplete`,
+  `:unresolved` or `:absent`), `:writing` (an admitted writer holds it now),
+  `:bytes` (charged on disk; nil when absent), `:descriptor_sha256` (exactly when
+  sealed) and `:reason` (exactly when unresolved). The state comes from the
+  block's journal, not its media: fetch the descriptor before freezing a sealed
+  block. `:absent` is not proof the block never existed. Errors:
+  `{:error, {:lookup_status, status, error}}` for a non-200 answer (503 is a
+  busy read pool or a closed recovery gate), `{:error, :invalid_response}`,
+  `{:error, :unavailable}`, and `{:error, :invalid_lookup_request}` before
+  connecting.
+  """
+  def lookup_blocks(config, block_ids, timeout_ms \\ 15_000)
+
+  def lookup_blocks(%Config{} = config, block_ids, timeout_ms) when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config),
+         {:ok, body} <- Wire.lookup_request(block_ids) do
+      finish = &json_result(&1, &2, :lookup_status, fn bytes -> Wire.lookup(bytes, block_ids) end)
+      content_type = "application/vnd.serviceradar.nvr-lookup.v1+json"
+      member_call(timeout_ms, &HTTP.post_json(config, "/v1/blocks/lookup", content_type, body, finish, &1, &2))
+    end
+  end
+
+  def lookup_blocks(_, _, _), do: {:error, :invalid_lookup_request}
+
+  @doc """
+  Reads one page of the member's block ledger (`GET /v1/blocks?after=&limit=` on
+  the ingest listener), for a reconciler walking the volume.
+
+  Returns `{:ok, %{storage_id: uuid, blocks: [entry], next_after: id | nil}}`:
+  up to `limit` (1..100) blocks after `after_id` (nil from the start), ascending,
+  each as in `lookup_blocks/3`. Pass `next_after` back as `after_id`; nil means
+  the walk is complete. Blocks created behind the cursor appear on the next walk.
+  `{:error, {:inventory_status, 503, %{"error" => "inventory_rebuilding"}}}`
+  while the member builds its ledger; other errors as in `lookup_blocks/3`.
+  """
+  def block_page(config, after_id, limit \\ 100, timeout_ms \\ 15_000)
+
+  def block_page(%Config{} = config, after_id, limit, timeout_ms)
+      when limit in 1..100 and timeout_ms in 1..300_000 and (is_nil(after_id) or is_binary(after_id)) do
+    with :ok <- Config.validate(config),
+         {:ok, path} <- page_path(after_id, limit) do
+      finish = &json_result(&1, &2, :inventory_status, fn bytes -> Wire.block_page(bytes, after_id, limit) end)
+      member_call(timeout_ms, &HTTP.get_json(config, path, finish, &1, &2))
+    end
+  end
+
+  def block_page(_, _, _, _), do: {:error, :invalid_inventory_request}
+
+  defp page_path(nil, limit), do: {:ok, "/v1/blocks?limit=" <> Integer.to_string(limit)}
+
+  defp page_path(after_id, limit) do
+    if Regex.match?(~r/\A[0-9a-f]{64}\z/, after_id),
+      do: {:ok, "/v1/blocks?after=" <> after_id <> "&limit=" <> Integer.to_string(limit)},
+      else: {:error, :invalid_inventory_request}
+  end
+
+  defp json_result(200, body, _tag, decode), do: decode.(body)
+  defp json_result(status, body, tag, _decode) when is_integer(status), do: {:error, {tag, status, Wire.error_body(body)}}
+  defp json_result(_status, _body, _tag, _decode), do: {:error, :outcome_unknown}
+
+  defp member_call(timeout_ms, operation) do
+    case bounded(timeout_ms, operation) do
+      {:error, :outcome_unknown} -> {:error, :unavailable}
+      result -> result
+    end
+  end
+
   defp bounded(timeout_ms, operation) do
     caller = self()
     reply = :erlang.alias([:reply])

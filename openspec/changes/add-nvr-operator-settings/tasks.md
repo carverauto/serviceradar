@@ -58,6 +58,13 @@ recording-plane tasks and stay unchecked until those land.
 
 ## A2. After the archive slice merges
 
+- Note (2026-11-21): `GET /v1/status`, `POST /v1/blocks/lookup` and
+      `GET /v1/blocks` (with block state and descriptor digest, for the
+      retention change's A.3.3 and R.4) exist on the ingest listener, with
+      `ServiceRadarNVRClient.status/2`, `lookup_blocks/3` and `block_page/4`.
+      Lookup and page report journal state and omit the receipt destination
+      fingerprint; the other four endpoints are not built, so A2.1 and A2.2
+      stay open.
 - [ ] A2.1 NVR endpoints: `GET /v1/status`, `POST /v1/blocks/lookup`,
       `GET /v1/blocks`, `GET /v1/blocks/<id>/archive-receipt`,
       `POST /v1/archive-probe`, `POST /v1/blocks/<id>/verify`,

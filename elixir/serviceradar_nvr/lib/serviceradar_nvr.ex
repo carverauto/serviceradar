@@ -73,8 +73,55 @@ defmodule ServiceRadarNVR do
   @doc "Read-only local capacity observation, not a reservation or pool capability."
   def capacity, do: ServiceRadarNVR.Capacity.status()
 
-  @doc "List at most 4,096 retained block IDs, including incomplete blocks; not a coverage catalog."
+  @doc "List retained block IDs, including incomplete blocks, from a volume scan; not a coverage catalog."
   def list_blocks, do: Reads.run(&inspect_inventory/0)
+
+  @doc """
+  Report the local state of each block in `block_ids` (at most 50), in order.
+
+  Each entry has `:block_id`, `:state` (`:sealed`, `:incomplete`, `:unresolved`
+  or `:absent`), `:writing` (an admitted writer holds it now), `:bytes` (charged
+  on disk, nil when absent or unmeasurable), `:descriptor_sha256` (sealed only)
+  and `:reason` (unresolved only, an error class). State comes from the block's
+  journal and file lengths without reading media (`Spool.journal_state/3`):
+  `:sealed` means its journal holds a seal record. Fetch the descriptor or read
+  the media to verify the bytes. `:absent` means no directory exists, which is
+  not proof the block never existed. Runs in the shared read pool; nothing on
+  disk changes.
+  """
+  def block_states(block_ids) when is_list(block_ids) and length(block_ids) in 1..50 do
+    if Enum.all?(block_ids, &block_id?/1) and length(Enum.uniq(block_ids)) == length(block_ids),
+      do: Reads.run(fn -> inspect_states(block_ids) end),
+      else: {:error, :invalid_block_id}
+  end
+
+  def block_states(_block_ids), do: {:error, :invalid_block_id}
+
+  @doc """
+  One page of the block ledger: up to `limit` (1..100) blocks after `after_id`
+  (nil from the start), ascending by ID, each reported as in `block_states/1`.
+  `{:error, :nvr_inventory_rebuilding}` while the ledger is being built.
+  """
+  def block_page(after_id, limit) when limit in 1..100 and (is_nil(after_id) or is_binary(after_id)) do
+    with true <- (is_nil(after_id) or block_id?(after_id)) || {:error, :invalid_block_id},
+         {:ok, ids} <- ServiceRadarNVR.Capacity.ledger_page(after_id, limit) do
+      page_states(ids)
+    end
+  end
+
+  def block_page(_after_id, _limit), do: {:error, :invalid_block_page}
+
+  defp page_states([]), do: {:ok, []}
+  defp page_states(ids), do: Reads.run(fn -> inspect_states(ids) end)
+
+  defp inspect_states(block_ids) do
+    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+      writing = ServiceRadarNVR.Capacity.active_blocks()
+      {:ok, Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1)))}
+    end
+  end
+
+  defp block_id?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp inspect_inventory do
     with {:ok, storage, _limits} <- ServiceRadarNVR.Capacity.recovery_storage(),

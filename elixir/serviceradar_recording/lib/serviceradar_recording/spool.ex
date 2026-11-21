@@ -61,7 +61,8 @@ defmodule ServiceRadarRecording.Spool do
     entries: [],
     high_water: 0,
     journal_size: 0,
-    sealed?: false
+    sealed?: false,
+    verify_media?: true
   ]
 
   @doc "Maximum logical bytes in one block, including init and bounded journal records."
@@ -230,6 +231,48 @@ defmodule ServiceRadarRecording.Spool do
 
   def inspect_sealed(%Storage{}, _block_id, _limits), do: {:error, :invalid_block_id}
 
+  @doc """
+  Report a retained block's state from its journal without reading media.
+
+  Replays the bounded, per-record digested journal and verifies the init bytes,
+  the identity-derived directory name and that file lengths match the committed
+  records. Media bytes, fragment digests and the seal digest are not checked:
+  `:sealed` means the journal holds a seal record, not that the media verifies.
+  Use `inspect_sealed/3` for that. Returns the same snapshot shape with
+  `sealed?` set accordingly; an open journal's media file may be longer than its
+  committed high-water mark. Nothing on disk changes.
+  """
+  def journal_state(storage, block_id, limits \\ %{})
+
+  def journal_state(%Storage{} = storage, block_id, limits) when is_binary(block_id) do
+    directory = Path.join(storage.root, block_id)
+
+    with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id) || {:error, :invalid_block_id},
+         {:ok, spool} <- read_block(storage, directory, :discover, limits, false),
+         true <- block_id(spool.identity) == block_id || {:error, :block_identity_mismatch},
+         :ok <- exact_size(Path.join(directory, "init.mp4"), spool.init["length"]),
+         :ok <- media_size(Path.join(directory, "media.m4s"), spool),
+         :ok <- sealed_journal_size(Path.join(directory, "journal"), spool),
+         :ok <- Storage.verify(storage) do
+      {:ok, snapshot(spool)}
+    end
+  end
+
+  def journal_state(%Storage{}, _block_id, _limits), do: {:error, :invalid_block_id}
+
+  defp sealed_journal_size(path, %{sealed?: true, journal_size: size}), do: exact_size(path, size)
+  defp sealed_journal_size(_path, _spool), do: :ok
+
+  defp media_size(path, %{sealed?: true, high_water: high_water}), do: exact_size(path, high_water)
+
+  defp media_size(path, %{high_water: high_water}) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, links: 1, size: size}} when size >= high_water -> :ok
+      {:ok, _} -> {:error, :truncated_media}
+      {:error, _} = error -> error
+    end
+  end
+
   defp exact_size(path, expected) do
     case File.lstat(path) do
       {:ok, %File.Stat{type: :regular, links: 1, size: ^expected}} -> :ok
@@ -238,7 +281,7 @@ defmodule ServiceRadarRecording.Spool do
     end
   end
 
-  defp read_block(storage, directory, expected_identity, limits) do
+  defp read_block(storage, directory, expected_identity, limits, verify_media? \\ true) do
     with :ok <- Storage.verify(storage),
          true <- Path.dirname(directory) == storage.root || {:error, :storage_directory_mismatch},
          {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
@@ -258,7 +301,8 @@ defmodule ServiceRadarRecording.Spool do
              init: init,
              limits: limits,
              journal_size: header_size,
-             hash: :crypto.hash_init(:sha256)
+             hash: :crypto.hash_init(:sha256),
+             verify_media?: verify_media?
            }),
          :ok <- Storage.verify(storage) do
       {:ok, spool}
@@ -387,6 +431,23 @@ defmodule ServiceRadarRecording.Spool do
         end
     end
   end
+
+  # Journal-only replay: each record is already digested in the journal, so the
+  # committed record is the entry; contiguity and bounds are still enforced.
+  defp replay_record(
+         %{"type" => "fragment", "offset" => offset, "length" => length} = record,
+         %{verify_media?: false} = spool
+       )
+       when is_integer(offset) and offset >= 0 and is_integer(length) and length > 0 do
+    with true <- offset == spool.high_water || {:error, :invalid_offset},
+         true <- length <= spool.limits.max_fragment_bytes || {:error, :fragment_too_large},
+         true <- Map.get(record, "sequence") == length(spool.entries) || {:error, :invalid_fragment_record} do
+      {:ok, %{spool | entries: [record | spool.entries], high_water: offset + length}}
+    end
+  end
+
+  defp replay_record(%{"type" => "seal", "sha256" => sha256}, %{verify_media?: false, high_water: high_water} = spool)
+       when high_water > 0 and is_binary(sha256), do: {:ok, %{spool | sealed?: true, sha256: sha256}}
 
   defp replay_record(
          %{
