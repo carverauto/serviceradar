@@ -24,6 +24,10 @@ defmodule ServiceRadar.Camera.VisualIndexDispatchWorker do
 
   @impl Oban.Worker
   def perform(_job) do
+    if VisualIndexDispatcher.deployment_enabled?(), do: relay(), else: :ok
+  end
+
+  defp relay do
     {:ok, summary} = VisualIndexDispatcher.relay()
 
     if summary.publish_error do
@@ -35,6 +39,6 @@ defmodule ServiceRadar.Camera.VisualIndexDispatchWorker do
       )
     end
 
-    :ok
+    if summary.failed_count > 0, do: {:error, summary}, else: :ok
   end
 end

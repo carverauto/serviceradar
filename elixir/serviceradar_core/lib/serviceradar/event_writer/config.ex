@@ -1257,13 +1257,11 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc """
   The visual index result stream, for both runtime stream lists, when the
   deployment relays visual index jobs
-  (`ServiceRadar.Camera.VisualIndexDispatcher.deployment_enabled?/1`); otherwise
-  none. `fetch` reads the environment.
+  (`ServiceRadar.Camera.VisualIndexDispatcher.deployment_enabled?/0`).
   """
-  @spec camera_visual_index_results_streams((String.t(), String.t() -> String.t() | nil)) ::
-          [stream_config()]
-  def camera_visual_index_results_streams(fetch \\ &System.get_env/2) do
-    if VisualIndexDispatcher.deployment_enabled?(fetch),
+  @spec camera_visual_index_results_streams() :: [stream_config()]
+  def camera_visual_index_results_streams do
+    if VisualIndexDispatcher.deployment_enabled?(),
       do: [camera_visual_index_results_stream()],
       else: []
   end

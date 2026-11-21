@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Scheduled visual index outbox relay
-When the deployment enables camera recording and visual indexing, Core SHALL relay `platform.camera_visual_index_jobs` to NATS JetStream on a fixed schedule. Each run SHALL process at most ten batches of 100 jobs per phase, publish live jobs before backfill jobs, and mark a job `dispatched` only after `CAMERA_MEDIA_JOBS` acknowledges its publish. Core SHALL NOT create the worker-owned `CAMERA_MEDIA_JOBS` stream, and SHALL NOT re-publish a dispatched job while its earlier message can still be held by that stream.
+When the deployment enables camera recording and visual indexing, Core SHALL relay `platform.camera_visual_index_jobs` to NATS JetStream on a fixed schedule. Each run SHALL first reconcile expired jobs in deadline order, then dispatch pending jobs with live jobs before backfill jobs. Each phase SHALL process at most ten batches of 100 jobs. Core SHALL mark a job `dispatched` only after `CAMERA_MEDIA_JOBS` acknowledges its publish. Core SHALL NOT create the worker-owned `CAMERA_MEDIA_JOBS` stream, and SHALL NOT re-publish a dispatched job while its earlier message can still be held by that stream.
 
 #### Scenario: Pending job is published once and marked after the acknowledgement
 - **WHEN** the relay runs and a `pending` job exists
@@ -25,7 +25,7 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 
 #### Scenario: Visual indexing disabled for the deployment
 - **WHEN** camera recording or visual indexing is not enabled for the deployment
-- **THEN** Core SHALL NOT schedule the relay
+- **THEN** Core SHALL NOT schedule the relay, and a previously queued tick SHALL finish without relaying jobs
 
 ### Requirement: Durable visual index result consumer
 When the deployment enables camera recording and visual indexing, Core SHALL consume `media.results.visual_index.v1` through a durable EventWriter JetStream consumer bound to the worker-owned `CAMERA_MEDIA_RESULTS` stream and project each result into CNPG through the idempotent result projector, in batches of 10 with a pending acknowledgement budget of 20 per EventWriter worker (60 on a three-replica deployment).

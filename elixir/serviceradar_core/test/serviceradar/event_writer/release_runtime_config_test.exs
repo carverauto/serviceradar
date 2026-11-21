@@ -1,6 +1,9 @@
 defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Camera.VisualIndexDispatchWorker
+  alias ServiceRadar.Repo
+
   @moduletag :db_free
   # The release loads serviceradar_core_elx's runtime config, not this app's,
   # and it once carried a stale ATTRIBUTED_FLOW registration nothing consumes.
@@ -47,10 +50,16 @@ defmodule ServiceRadar.EventWriter.ReleaseRuntimeConfigTest do
              "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => "true"
            })
 
-    refute "CAMERA_VISUAL_INDEX_RESULTS" in names.(%{
-             "SERVICERADAR_CAMERA_RECORDING_ENABLED" => "true",
-             "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => "false"
-           })
+    Repo.put_dynamic_repo(:unavailable_visual_index_repo)
+
+    for {recording, indexing} <- [{"true", "false"}, {"false", "true"}] do
+      refute "CAMERA_VISUAL_INDEX_RESULTS" in names.(%{
+               "SERVICERADAR_CAMERA_RECORDING_ENABLED" => recording,
+               "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => indexing
+             })
+
+      assert :ok = VisualIndexDispatchWorker.perform(%Oban.Job{})
+    end
   end
 
   defp provisioned_entries(event_writer) do

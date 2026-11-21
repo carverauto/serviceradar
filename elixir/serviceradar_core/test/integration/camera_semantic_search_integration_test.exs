@@ -25,6 +25,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Camera.VisualIndexBackfill
   alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.Camera.VisualWorkerReadGrants
@@ -861,6 +862,67 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       end
     end
 
+    test "an acknowledged publish with a refused write is counted in either phase",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:relay_write_failure_test)
+      {cam, prof} = create_camera_and_profile(actor, "Write Failure Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_003_100_000_000, actor)
+      job = job_for(entry, actor)
+      id = Ecto.UUID.dump!(job.id)
+
+      SQL.query!(Repo, """
+      ALTER TABLE platform.camera_visual_index_jobs ADD CONSTRAINT synthetic_refused_attempt
+      CHECK (attempt_count < 2 AND state <> 'failed_terminal') NOT VALID
+      """)
+
+      publisher = fn _, payload, _ ->
+        send(self(), {:acknowledged, Jason.decode!(payload)["job_id"]})
+        :ok
+      end
+
+      for state <- ["pending", "dispatched"] do
+        SQL.query!(
+          Repo,
+          """
+          UPDATE platform.camera_visual_index_jobs SET state = $2, attempt_count = 1,
+            dispatched_at = now() - interval '4 days', deadline_at = now() - interval '1 day'
+          WHERE id = $1
+          """,
+          [id, state]
+        )
+
+        assert {:ok, %{failed_count: failures, publish_error: nil}} =
+                 VisualIndexDispatcher.relay(publisher: publisher)
+
+        assert failures >= 1
+        job_id = job.id
+        assert_received {:acknowledged, ^job_id}
+        assert reload(job, actor).attempt_count == 1
+      end
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_visual_index_jobs SET max_attempts = 1 WHERE id = $1",
+        [id]
+      )
+
+      for key <-
+            ~w(SERVICERADAR_CAMERA_RECORDING_ENABLED SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED) do
+        previous = System.get_env(key)
+
+        on_exit(fn ->
+          if previous, do: System.put_env(key, previous), else: System.delete_env(key)
+        end)
+
+        System.put_env(key, "true")
+      end
+
+      assert {:error, %{failed_count: failures}} = VisualIndexDispatchWorker.perform(%Oban.Job{})
+      assert failures >= 1
+      assert reload(job, actor).state == :dispatched
+    end
+
     test "a relay stops after ten batches of 100 even with larger limits",
          %{tmp_dir: tmp_dir} do
       _gate = Fixtures.recording_recovery_gate(tmp_dir)
@@ -925,22 +987,25 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       {cam, prof} = create_camera_and_profile(actor, "Backlogged Camera")
       entry = create_indexed_playable_entry(cam, prof, 1_750_005_000_000_000, actor)
       job = job_for(entry, actor)
-      dispatched_at = ~U[2026-11-20 08:00:00.000000Z]
       test_pid = self()
 
       publisher = fn _subject, payload, opts ->
         if Jason.decode!(payload)["job_id"] == to_string(job.id) do
           assert {"Nats-Expected-Stream", "CAMERA_MEDIA_JOBS"} in opts[:headers]
+          Process.sleep(10)
+          send(test_pid, {:ack_at, DateTime.utc_now()})
           send(test_pid, {:published, opts[:msg_id]})
         end
 
         :ok
       end
 
-      assert {:ok, %{state: :dispatched}} =
-               VisualIndexDispatcher.dispatch_job(job, publisher: publisher, now: dispatched_at)
+      assert {:ok, %{state: :dispatched, dispatched_at: dispatched_at}} =
+               VisualIndexDispatcher.dispatch_job(job, publisher: publisher)
 
       assert_received {:published, _first}
+      assert_received {:ack_at, ack_at}
+      assert DateTime.compare(dispatched_at, ack_at) != :lt
 
       # Still queued behind a worker backlog five minutes later.
       assert {:ok, _} =
@@ -951,6 +1016,16 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       refute_received {:published, _}
       assert reload(job, actor).attempt_count == 1
+
+      just_before_expiry = ack_at |> DateTime.shift(day: 3) |> DateTime.add(-1, :microsecond)
+
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 publisher: publisher,
+                 now: just_before_expiry
+               )
+
+      refute_received {:published, _}
 
       # Past the stream's 72-hour retention the message cannot be queued any more.
       assert {:ok, _} =

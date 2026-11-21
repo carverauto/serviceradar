@@ -308,22 +308,25 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     with {:ok, job} <- load_job(job_or_id, opts) do
-      cond do
-        job.state in [:completed, :cancelled, :failed_terminal] ->
-          {:ok, job}
+      result =
+        cond do
+          job.state in [:completed, :cancelled, :failed_terminal] ->
+            {:ok, job}
 
-        job.state == :dispatched and not retry_eligible?(job, now) ->
-          {:ok, job}
+          job.state == :dispatched and not retry_eligible?(job, now) ->
+            {:ok, job}
 
-        job.attempt_count >= job.max_attempts ->
-          reconcile_exhausted_job(job, "max_deliver_exhausted", opts)
+          job.attempt_count >= job.max_attempts ->
+            reconcile_exhausted_job(job, "max_deliver_exhausted", opts)
 
-        catalog_entry_gone_or_quarantined?(job.catalog_entry_id, opts) ->
-          cancel_job(job, "source_deleted_or_quarantined")
+          catalog_entry_gone_or_quarantined?(job.catalog_entry_id, opts) ->
+            cancel_job(job, "source_deleted_or_quarantined")
 
-        true ->
-          publish_and_mark_dispatched(job, now, opts)
-      end
+          true ->
+            publish_and_mark_dispatched(job, now, opts)
+        end
+
+      superseded_when_stale(result)
     end
   end
 
@@ -351,6 +354,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
              examined_count: non_neg_integer(),
              dispatched_count: non_neg_integer(),
              cancelled_count: non_neg_integer(),
+             failed_terminal_count: non_neg_integer(),
              failed_count: non_neg_integer(),
              publish_error: term() | nil
            }}
@@ -359,36 +363,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     live = read_pending(:live, limit)
     pending_jobs = live ++ read_pending(:backfill, limit - length(live))
 
-    initial = %{
-      examined_count: length(pending_jobs),
-      dispatched_count: 0,
-      cancelled_count: 0,
-      failed_count: 0,
-      publish_error: nil
-    }
-
-    summary =
-      Enum.reduce_while(pending_jobs, initial, fn job, acc ->
-        case dispatch_job(job, opts) do
-          {:ok, %{state: :dispatched}} ->
-            {:cont, %{acc | dispatched_count: acc.dispatched_count + 1}}
-
-          {:ok, %{state: :cancelled}} ->
-            {:cont, %{acc | cancelled_count: acc.cancelled_count + 1}}
-
-          # Another relay dispatched it after this one read it.
-          {:error, :dispatch_superseded} ->
-            {:cont, acc}
-
-          {:error, {:publish_failed, reason}} ->
-            {:halt, %{acc | failed_count: acc.failed_count + 1, publish_error: reason}}
-
-          _ ->
-            {:cont, %{acc | failed_count: acc.failed_count + 1}}
-        end
-      end)
-
-    {:ok, summary}
+    dispatch_batch(pending_jobs, :dispatched_count, opts)
   end
 
   defp read_pending(_job_kind, 0), do: []
@@ -450,6 +425,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
              failed_terminal_count: non_neg_integer(),
              retried_count: non_neg_integer(),
              cancelled_count: non_neg_integer(),
+             failed_count: non_neg_integer(),
              publish_error: term() | nil
            }}
   def reconcile_expired_dispatched_jobs(opts \\ []) when is_list(opts) do
@@ -467,34 +443,43 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
       |> Ash.Query.limit(limit)
       |> Ash.read!(actor: @system_actor)
 
+    dispatch_batch(expired, :retried_count, opts)
+  end
+
+  defp dispatch_batch(jobs, published_count, opts) do
     initial = %{
-      examined_count: length(expired),
+      published_count => 0,
+      examined_count: length(jobs),
       failed_terminal_count: 0,
-      retried_count: 0,
       cancelled_count: 0,
+      failed_count: 0,
       publish_error: nil
     }
 
-    {:ok, Enum.reduce_while(expired, initial, &reconcile_single_expired(&1, &2, opts))}
-  end
+    summary =
+      Enum.reduce_while(jobs, initial, fn job, acc ->
+        case dispatch_job(job, opts) do
+          {:ok, %{state: :dispatched}} ->
+            {:cont, Map.update!(acc, published_count, &(&1 + 1))}
 
-  defp reconcile_single_expired(job, acc, opts) do
-    case dispatch_job(job, opts) do
-      {:ok, %{state: :dispatched}} ->
-        {:cont, %{acc | retried_count: acc.retried_count + 1}}
+          {:ok, %{state: :cancelled}} ->
+            {:cont, %{acc | cancelled_count: acc.cancelled_count + 1}}
 
-      {:ok, %{state: :cancelled}} ->
-        {:cont, %{acc | cancelled_count: acc.cancelled_count + 1}}
+          {:ok, %{state: :failed_terminal}} ->
+            {:cont, %{acc | failed_terminal_count: acc.failed_terminal_count + 1}}
 
-      {:ok, %{state: :failed_terminal}} ->
-        {:cont, %{acc | failed_terminal_count: acc.failed_terminal_count + 1}}
+          {:error, :dispatch_superseded} ->
+            {:cont, acc}
 
-      {:error, {:publish_failed, reason}} ->
-        {:halt, %{acc | publish_error: reason}}
+          {:error, {:publish_failed, reason}} ->
+            {:halt, %{acc | failed_count: acc.failed_count + 1, publish_error: reason}}
 
-      _ ->
-        {:cont, acc}
-    end
+          {:error, _reason} ->
+            {:cont, %{acc | failed_count: acc.failed_count + 1}}
+        end
+      end)
+
+    {:ok, summary}
   end
 
   @doc """
@@ -686,7 +671,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
          :ok <- publish(subject, encoded, msg_id, opts) do
       job
       |> Ash.Changeset.for_update(:mark_dispatched, %{
-        dispatched_at: now,
+        dispatched_at: DateTime.utc_now(),
         deadline_at: deadline_at,
         last_error_class: nil
       })
@@ -695,7 +680,6 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
       # that message once and only one of the two may advance the row.
       |> Ash.Changeset.filter(expr(state == ^read_state and attempt_count == ^read_attempt))
       |> Ash.update(actor: @system_actor)
-      |> superseded_when_stale()
     end
   end
 
