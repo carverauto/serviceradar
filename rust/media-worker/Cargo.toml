@@ -34,6 +34,7 @@ longshore_s3 = { workspace = true }
 parking_lot = { workspace = true }
 prometheus = { workspace = true }
 rustls = { workspace = true }
+rusty_h264-decoder = { workspace = true }
 safetensors = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -48,4 +49,6 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 zeroize = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
+rusty_h264-common = { workspace = true }
+rusty_h264-encoder = { workspace = true }
 tempfile = { workspace = true }

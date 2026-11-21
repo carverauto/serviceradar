@@ -1,8 +1,11 @@
-//! Pure-Rust ISO-BMFF / CMAF box parser (`ftyp`/`moov`/`avcC`/`hvcC`/`moof`/`traf`/`trun`/`mdat`),
-//! stateless IDR keyframe decoder, and synthetic CMAF test-pattern generator (`0.4`, `2.3`).
+//! Pure-Rust ISO-BMFF / CMAF box parser (`ftyp`/`moov`/`avcC`/`hvcC`/`moof`/`traf`/`trun`/`mdat`)
+//! and synthetic CMAF test-pattern generator (`0.4`, `2.3`). Keyframe decoding lives behind
+//! `crate::keyframe_decoder::KeyframeDecoder`.
 //!
 //! All synthetic fixtures are 100% programmatic geometric test patterns — zero live or
-//! captured camera footage.
+//! captured camera footage. The synthetic generator's keyframes carry an `SRIDR1` raster
+//! that only the test-only `SyntheticRasterKeyframeDecoder` reads; the production decoder
+//! treats them as malformed H.264.
 
 use crate::errors::MediaWorkerError;
 use crate::grants::{FragmentSlicePlan, InitSlicePlan};
@@ -11,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const SYNTHETIC_IDR_MAGIC: &[u8; 6] = b"SRIDR1";
-const MAX_FRAME_DIMENSION: u32 = 4096;
+/// Largest accepted picture width or height, in the container and in the coded bitstream.
+pub(crate) const MAX_FRAME_DIMENSION: u32 = 4096;
+/// Most NAL units accepted in one keyframe sample before it is refused as malformed.
+const MAX_SAMPLE_NAL_UNITS: usize = 4096;
 
 /// Codec signaled in `init.mp4` (`avc1`/`avc3` or `hvc1`/`hev1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -75,6 +81,7 @@ pub struct ParsedMediaFragment {
     first_sample_cts_offset: i64,
     first_sample_size: usize,
     idr_nal_units: Vec<Vec<u8>>,
+    in_band_parameter_sets: Vec<Vec<u8>>,
 }
 
 impl ParsedMediaFragment {
@@ -101,8 +108,15 @@ impl ParsedMediaFragment {
         self.first_sample_size
     }
 
+    /// IDR slice NAL units of the first (sync) sample, in bitstream order.
     pub fn idr_nal_units(&self) -> &[Vec<u8>] {
         &self.idr_nal_units
+    }
+
+    /// Parameter sets carried in-band in the first sample (`avc3`/`hev1` style), in
+    /// bitstream order. They override init-segment sets with the same id.
+    pub fn in_band_parameter_sets(&self) -> &[Vec<u8>] {
+        &self.in_band_parameter_sets
     }
 }
 
@@ -564,7 +578,8 @@ pub fn parse_media_fragment(
     }
 
     let sample_bytes = &mdat.payload[..first_sample_size];
-    let idr_nal_units = extract_idr_nal_units(sample_bytes, init.codec(), init.nal_length_size())?;
+    let (idr_nal_units, in_band_parameter_sets) =
+        extract_keyframe_nal_units(sample_bytes, init.codec(), init.nal_length_size())?;
 
     Ok(ParsedMediaFragment {
         sequence_number,
@@ -572,6 +587,7 @@ pub fn parse_media_fragment(
         first_sample_cts_offset,
         first_sample_size,
         idr_nal_units,
+        in_band_parameter_sets,
     })
 }
 
@@ -734,16 +750,29 @@ fn parse_trun_first_sample(
     Ok((sample_size, cts_offset))
 }
 
-fn extract_idr_nal_units(
+/// NAL units of one sample, each without its length prefix.
+type NalUnits = Vec<Vec<u8>>;
+
+/// Splits a length-prefixed sync sample into its IDR slice NAL units and its in-band
+/// parameter sets. Other NAL units (AUD, SEI, ...) are dropped.
+fn extract_keyframe_nal_units(
     sample_bytes: &[u8],
     codec: VideoCodec,
     nal_length_size: u8,
-) -> Result<Vec<Vec<u8>>, MediaWorkerError> {
+) -> Result<(NalUnits, NalUnits), MediaWorkerError> {
     let len_bytes = usize::from(nal_length_size);
     let mut cursor = 0usize;
     let mut idr_nals = Vec::new();
+    let mut parameter_sets = Vec::new();
+    let mut nal_count = 0usize;
 
     while cursor < sample_bytes.len() {
+        nal_count += 1;
+        if nal_count > MAX_SAMPLE_NAL_UNITS {
+            return Err(MediaWorkerError::invalid_container(format!(
+                "keyframe sample holds more than {MAX_SAMPLE_NAL_UNITS} NAL units"
+            )));
+        }
         if cursor + len_bytes > sample_bytes.len() {
             return Err(MediaWorkerError::invalid_container(
                 "truncated length-prefixed NAL unit header in mdat",
@@ -779,6 +808,8 @@ fn extract_idr_nal_units(
 
         if is_idr_nal(nal, codec) {
             idr_nals.push(nal.to_vec());
+        } else if is_parameter_set_nal(nal, codec) {
+            parameter_sets.push(nal.to_vec());
         }
     }
 
@@ -787,7 +818,22 @@ fn extract_idr_nal_units(
             "CMAF sample contains no H.264/HEVC IDR keyframe NAL unit",
         ));
     }
-    Ok(idr_nals)
+    Ok((idr_nals, parameter_sets))
+}
+
+fn is_parameter_set_nal(nal: &[u8], codec: VideoCodec) -> bool {
+    let Some(&header) = nal.first() else {
+        return false;
+    };
+    if header & 0x80 != 0 {
+        return false;
+    }
+    match codec {
+        // SPS, PPS.
+        VideoCodec::H264 => matches!(header & 0x1f, 7 | 8),
+        // VPS, SPS, PPS.
+        VideoCodec::Hevc => matches!((header >> 1) & 0x3f, 32..=34),
+    }
 }
 
 fn is_idr_nal(nal: &[u8], codec: VideoCodec) -> bool {
@@ -811,37 +857,38 @@ fn is_idr_nal(nal: &[u8], codec: VideoCodec) -> bool {
     }
 }
 
-/// Statelessly decodes the first IDR keyframe of a verified CMAF fragment into
-/// an RGB8 frame (`RgbFrame`).
-pub fn decode_idr_keyframe(
-    init: &ParsedInitSegment,
-    fragment: &ParsedMediaFragment,
-) -> Result<RgbFrame, MediaWorkerError> {
-    let first_idr = fragment.idr_nal_units().first().ok_or_else(|| {
-        MediaWorkerError::invalid_container("no IDR NAL unit available to decode")
-    })?;
+/// Test-only decoder for the synthetic generator's `SRIDR1` raster keyframes.
+///
+/// It exists so vision and worker tests can run on exact, lossless pixels. It is compiled
+/// only into tests and is selected explicitly by injection, never by sniffing bitstream
+/// bytes, so no production code path can reach it.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct SyntheticRasterKeyframeDecoder;
 
-    // Check for synthetic lossless RLE raster encoded inside the IDR slice payload (`0.4`).
-    let slice_body = match init.codec() {
-        VideoCodec::H264 if first_idr.len() > 1 => &first_idr[1..],
-        VideoCodec::Hevc if first_idr.len() > 2 => &first_idr[2..],
-        _ => &[],
-    };
-
-    if slice_body.starts_with(SYNTHETIC_IDR_MAGIC) {
-        return decode_synthetic_rle_idr(slice_body, init.width(), init.height());
+#[cfg(test)]
+impl crate::keyframe_decoder::KeyframeDecoder for SyntheticRasterKeyframeDecoder {
+    fn decode_keyframe(
+        &self,
+        init: &ParsedInitSegment,
+        fragment: &ParsedMediaFragment,
+    ) -> Result<RgbFrame, crate::keyframe_decoder::KeyframeDecodeError> {
+        use crate::keyframe_decoder::KeyframeDecodeError;
+        let first_idr = fragment.idr_nal_units().first().ok_or_else(|| {
+            KeyframeDecodeError::malformed_bitstream("no IDR NAL unit available to decode")
+        })?;
+        let slice_body = first_idr.get(1..).unwrap_or_default();
+        if !slice_body.starts_with(SYNTHETIC_IDR_MAGIC) {
+            return Err(KeyframeDecodeError::malformed_bitstream(
+                "not a synthetic SRIDR1 raster keyframe",
+            ));
+        }
+        decode_synthetic_rle_idr(slice_body, init.width(), init.height())
+            .map_err(|err| KeyframeDecodeError::malformed_bitstream(err.to_string()))
     }
-
-    // Deterministic stateless intra macroblock reconstruction for standard H.264/HEVC IDR slices
-    // when running without hardware NVDEC attached.
-    Ok(reconstruct_macroblock_raster(
-        init.width(),
-        init.height(),
-        init.parameter_sets(),
-        first_idr,
-    ))
 }
 
+#[cfg(test)]
 fn decode_synthetic_rle_idr(
     slice_body: &[u8],
     expected_w: u32,
@@ -905,25 +952,6 @@ fn decode_synthetic_rle_idr(
     }
 
     RgbFrame::from_rgb8(w, h, pixels)
-}
-
-fn reconstruct_macroblock_raster(
-    width: u32,
-    height: u32,
-    param_sets: &[Vec<u8>],
-    idr_nal: &[u8],
-) -> RgbFrame {
-    let mut hasher = Sha256::new();
-    for ps in param_sets {
-        hasher.update(ps);
-    }
-    hasher.update(idr_nal);
-    let digest = hasher.finalize();
-
-    let base_r = 36u8.wrapping_add(digest[0] & 0x1f);
-    let base_g = 40u8.wrapping_add(digest[1] & 0x1f);
-    let base_b = 48u8.wrapping_add(digest[2] & 0x1f);
-    RgbFrame::solid(width, height, [base_r, base_g, base_b])
 }
 
 // ============================================================================
@@ -1142,37 +1170,74 @@ pub fn generate_synthetic_cmaf_block(
         ));
     }
 
-    let init_mp4 = build_synthetic_init_mp4(width, height, timescale);
+    // Constrained Baseline 1080p-class SPS/PPS: valid parameter sets, paired with SRIDR1
+    // raster slices that only the test-only synthetic decoder reads.
+    let sps: [u8; 8] = [0x67, 0x42, 0x00, 0x1f, 0xe9, 0x01, 0x40, 0x7b];
+    let pps: [u8; 4] = [0x68, 0xce, 0x06, 0xe2];
+    let init_mp4 = build_init_mp4(
+        width,
+        height,
+        timescale,
+        b"avc1",
+        &avcc_box(&[&sps], &[&pps]),
+    );
+    let fragments = fragment_specs
+        .iter()
+        .map(|spec| {
+            let frame = render_synthetic_pattern_frame(width, height, spec);
+            let idr_nal = encode_synthetic_rle_idr_nal(&frame);
+            // Access unit delimiter NAL (`0x09, 0x10`) + IDR slice NAL (`0x65...`).
+            let aud_nal: [u8; 2] = [0x09, 0x10];
+            let bytes = build_fragment_m4s(
+                spec.sequence(),
+                spec.start_ns(),
+                spec.duration_ns(),
+                timescale,
+                &[&aud_nal, &idr_nal],
+            );
+            (spec.sequence(), spec.start_ns(), spec.duration_ns(), bytes)
+        })
+        .collect();
+    assemble_cmaf_block(width, height, timescale, init_mp4, fragments)
+}
+
+/// Assembles a recording block (concatenated `media.m4s`, frozen descriptor and digests)
+/// from an `init.mp4` and per-fragment `(sequence, start_ns, duration_ns, bytes)`.
+pub(crate) fn assemble_cmaf_block(
+    width: u32,
+    height: u32,
+    timescale: u32,
+    init_mp4: Vec<u8>,
+    fragments: Vec<(u32, u64, u64, Vec<u8>)>,
+) -> Result<SyntheticCmafBlock, MediaWorkerError> {
     let init_sha256 = hex::encode(Sha256::digest(&init_mp4));
     let init_plan = InitSlicePlan::new(init_mp4.len() as u64, init_sha256.clone());
 
     let mut media_m4s = Vec::new();
-    let mut fragment_plans = Vec::with_capacity(fragment_specs.len());
-    let mut descriptor_fragments = Vec::with_capacity(fragment_specs.len());
+    let mut fragment_plans = Vec::with_capacity(fragments.len());
+    let mut descriptor_fragments = Vec::with_capacity(fragments.len());
 
-    for spec in fragment_specs {
-        let frame = render_synthetic_pattern_frame(width, height, spec);
-        let frag_bytes = build_synthetic_fragment_m4s(spec, timescale, &frame);
+    for (sequence, start_ns, duration_ns, frag_bytes) in fragments {
         let frag_sha = hex::encode(Sha256::digest(&frag_bytes));
         let offset = media_m4s.len() as u64;
         let length = frag_bytes.len() as u64;
         media_m4s.extend_from_slice(&frag_bytes);
 
         fragment_plans.push(FragmentSlicePlan::new(
-            spec.sequence(),
+            sequence,
             offset,
             length,
-            spec.start_ns(),
-            spec.duration_ns(),
+            start_ns,
+            duration_ns,
             frag_sha.clone(),
         ));
 
         descriptor_fragments.push(serde_json::json!({
-            "sequence": spec.sequence(),
+            "sequence": sequence,
             "offset": offset,
             "length": length,
-            "start_ns": spec.start_ns(),
-            "duration_ns": spec.duration_ns(),
+            "start_ns": start_ns,
+            "duration_ns": duration_ns,
             "keyframe": true,
             "sha256": frag_sha,
         }));
@@ -1365,7 +1430,35 @@ fn mp4_full_box(box_type: &[u8; 4], version: u8, flags: u32, body: &[u8]) -> Vec
     out
 }
 
-fn build_synthetic_init_mp4(width: u32, height: u32, timescale: u32) -> Vec<u8> {
+/// Builds an `avcC` box (4-byte NAL lengths) carrying the given SPS and PPS NAL units.
+pub(crate) fn avcc_box(sps: &[&[u8]], pps: &[&[u8]]) -> Vec<u8> {
+    let profile = sps
+        .first()
+        .and_then(|s| s.get(1..4))
+        .unwrap_or(&[0x42, 0x00, 0x1f]);
+    let mut body = vec![1, profile[0], profile[1], profile[2], 0xff];
+    body.push(0xe0 | (sps.len() as u8 & 0x1f));
+    for nal in sps {
+        body.extend_from_slice(&(nal.len() as u16).to_be_bytes());
+        body.extend_from_slice(nal);
+    }
+    body.push(pps.len() as u8);
+    for nal in pps {
+        body.extend_from_slice(&(nal.len() as u16).to_be_bytes());
+        body.extend_from_slice(nal);
+    }
+    mp4_box(b"avcC", &body)
+}
+
+/// Builds a CMAF `init.mp4` with one video track whose sample entry is `entry_type`
+/// (`avc1`, `hvc1`, ...) carrying `config_box` (`avcC`, `hvcC`, ...).
+pub(crate) fn build_init_mp4(
+    width: u32,
+    height: u32,
+    timescale: u32,
+    entry_type: &[u8; 4],
+    config_box: &[u8],
+) -> Vec<u8> {
     // 1. ftyp (`cmfc`, minor 0, compatible `cmfc`, `iso6`, `avc1`, `mp41`)
     let mut ftyp_body = Vec::with_capacity(24);
     ftyp_body.extend_from_slice(b"cmfc");
@@ -1407,18 +1500,7 @@ fn build_synthetic_init_mp4(width: u32, height: u32, timescale: u32) -> Vec<u8> 
     hdlr_body.extend_from_slice(b"VideoHandler\0");
     let hdlr = mp4_full_box(b"hdlr", 0, 0, &hdlr_body);
 
-    // 5. avcC + avc1 + stsd + stbl + minf
-    let sps: [u8; 8] = [0x67, 0x42, 0x00, 0x1f, 0xe9, 0x01, 0x40, 0x7b];
-    let pps: [u8; 4] = [0x68, 0xce, 0x06, 0xe2];
-    let mut avcc_body = Vec::new();
-    avcc_body.extend_from_slice(&[1, 0x42, 0x00, 0x1f, 0xff, 0xe1]); // 4-byte NAL lengths, 1 SPS
-    avcc_body.extend_from_slice(&(sps.len() as u16).to_be_bytes());
-    avcc_body.extend_from_slice(&sps);
-    avcc_body.push(1); // 1 PPS
-    avcc_body.extend_from_slice(&(pps.len() as u16).to_be_bytes());
-    avcc_body.extend_from_slice(&pps);
-    let avcc = mp4_box(b"avcC", &avcc_body);
-
+    // 5. sample entry (+ codec configuration box) + stsd + stbl + minf
     let mut avc1_body = vec![0u8; 78];
     avc1_body[6..8].copy_from_slice(&1u16.to_be_bytes()); // data_reference_index = 1
     avc1_body[24..26].copy_from_slice(&(width as u16).to_be_bytes());
@@ -1428,8 +1510,8 @@ fn build_synthetic_init_mp4(width: u32, height: u32, timescale: u32) -> Vec<u8> 
     avc1_body[40..42].copy_from_slice(&1u16.to_be_bytes()); // frame_count = 1
     avc1_body[74..76].copy_from_slice(&0x0018u16.to_be_bytes()); // depth = 24
     avc1_body[76..78].copy_from_slice(&0xffffu16.to_be_bytes()); // pre_defined = -1
-    avc1_body.extend_from_slice(&avcc);
-    let avc1 = mp4_box(b"avc1", &avc1_body);
+    avc1_body.extend_from_slice(config_box);
+    let avc1 = mp4_box(entry_type, &avc1_body);
 
     let mut stsd_body = Vec::with_capacity(4 + avc1.len());
     stsd_body.extend_from_slice(&1u32.to_be_bytes()); // entry_count = 1
@@ -1495,30 +1577,30 @@ fn build_synthetic_init_mp4(width: u32, height: u32, timescale: u32) -> Vec<u8> 
     init_mp4
 }
 
-fn build_synthetic_fragment_m4s(
-    spec: &SyntheticFragmentSpec,
+/// Builds one CMAF fragment (`moof` + `mdat`) holding a single sync sample made of the
+/// given NAL units, each written with a 4-byte length prefix.
+pub(crate) fn build_fragment_m4s(
+    sequence: u32,
+    start_ns: u64,
+    duration_ns: u64,
     timescale: u32,
-    frame: &RgbFrame,
+    sample_nals: &[&[u8]],
 ) -> Vec<u8> {
-    let idr_nal = encode_synthetic_rle_idr_nal(frame);
-    // Access unit delimiter NAL (`0x09, 0x10`) + IDR slice NAL (`0x65...`), both 4-byte length prefixed.
-    let aud_nal: [u8; 2] = [0x09, 0x10];
-    let mut sample_data = Vec::with_capacity(4 + aud_nal.len() + 4 + idr_nal.len());
-    sample_data.extend_from_slice(&(aud_nal.len() as u32).to_be_bytes());
-    sample_data.extend_from_slice(&aud_nal);
-    sample_data.extend_from_slice(&(idr_nal.len() as u32).to_be_bytes());
-    sample_data.extend_from_slice(&idr_nal);
+    let mut sample_data = Vec::new();
+    for nal in sample_nals {
+        sample_data.extend_from_slice(&(nal.len() as u32).to_be_bytes());
+        sample_data.extend_from_slice(nal);
+    }
 
-    let decode_ticks = u64::try_from(
-        u128::from(spec.start_ns()).saturating_mul(u128::from(timescale)) / 1_000_000_000,
-    )
-    .unwrap_or(0);
+    let decode_ticks =
+        u64::try_from(u128::from(start_ns).saturating_mul(u128::from(timescale)) / 1_000_000_000)
+            .unwrap_or(0);
     let dur_ticks = u32::try_from(
-        u128::from(spec.duration_ns()).saturating_mul(u128::from(timescale)) / 1_000_000_000,
+        u128::from(duration_ns).saturating_mul(u128::from(timescale)) / 1_000_000_000,
     )
     .unwrap_or(timescale * 2);
 
-    let mfhd = mp4_full_box(b"mfhd", 0, 0, &(spec.sequence() + 1).to_be_bytes());
+    let mfhd = mp4_full_box(b"mfhd", 0, 0, &(sequence + 1).to_be_bytes());
     // tfhd flags `0x020000` (`default-base-is-moof`)
     let tfhd = mp4_full_box(b"tfhd", 0, 0x020000, &1u32.to_be_bytes());
     let tfdt = mp4_full_box(b"tfdt", 1, 0, &decode_ticks.to_be_bytes());

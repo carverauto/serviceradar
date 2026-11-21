@@ -1,0 +1,47 @@
+# Design: real keyframe decoding
+
+## Decoder choice
+
+`rusty_h264-decoder` 0.17.3 (BSD-2-Clause, pure Rust) was chosen over OpenH264 (C++ via the
+`openh264` crate) and libavcodec. Evidence gathered on 2026-11-21:
+
+- Correctness: on x264 streams generated from a synthetic pattern (Constrained Baseline,
+  Main CABAC, High CABAC with 8x8 transform, High CAVLC, 8 slices per picture, JVT scaling
+  matrices, 1918x1078 cropping) the first IDR decoded byte-identical to FFmpeg. MBAFF is
+  refused with a typed error. Its README still lists "High-profile 8x8 CABAC residual" as
+  missing; the source and these results show it is implemented.
+- Build: no C, no build-time tools. Its SIMD kernels are stable-Rust intrinsics (SSE2/AVX2,
+  aarch64 NEON) in `rusty_h264-accel`; no nightly toolchain is needed. The arm64 Bazel
+  build links the NEON kernels.
+- Default features are turned off because they install a process-wide
+  `#[global_allocator]`; `std` and `asm` (SIMD) are enabled explicitly.
+- Speed (Apple M4, one core, SIMD on): 1080p IDRs of 57 KB, 261 KB and about 590 KB took
+  about 11, 35-40 and 70 ms. SIMD saves 25-40%.
+
+OpenH264 2.7 also decodes Main/High CABAC with 8x8 transform (its README says Constrained
+Baseline only, but its source and the same tests disagree), and it detects a truncated
+CABAC slice. It was kept as the fallback: it is C++ on attacker-influenced input and needs
+a C++ build in every Bazel action that links it. libavcodec covers HEVC but is LGPL C with
+a heavy hermetic build; it is the candidate for HEVC together with hardware decode.
+
+## Known gap
+
+`rusty_h264-decoder` zero-fills past the end of a CABAC slice. A CABAC slice truncated
+inside its macroblock data decodes to a full-size picture whose tail is wrong instead of
+an error. CAVLC truncation is detected. Fragment bytes are SHA-256 verified against the
+frozen descriptor, so this needs a recorder or camera that writes short NAL units. Tracked
+as a follow-up (an upstream overread check).
+
+## Bounded work
+
+Decoding is a synchronous call that cannot be interrupted, so there is no wall-clock
+timeout. Work is bounded by the input instead: the coded picture size is checked from the
+SPS before the decoder allocates, and the access unit size and slice count are capped.
+Each keyframe uses a fresh decoder, so no state carries between keyframes.
+
+## Colour
+
+The VUI `matrix_coefficients` selects BT.709 (1, 7), BT.601 (4-6) or BT.2020 (9, 10); 0, 8
+and 11-14 are refused as unsupported. Absent or unspecified, BT.709 is used above 576 lines
+and BT.601 otherwise. `video_full_range_flag` selects full range; absent means limited
+range. Chroma is upsampled by sample replication.

@@ -40,6 +40,8 @@ alias(
 
 rust_test(
     name = "media_worker_test",
+    # Read by include_bytes! in src/keyframe_decoder_tests.rs.
+    compile_data = glob(["testdata/**"]),
     crate = ":serviceradar_media_worker",
     exec_properties = {"test.Pool": "longshore-qualification"},
     deps = all_crate_deps(

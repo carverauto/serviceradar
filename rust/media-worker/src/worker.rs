@@ -2,11 +2,12 @@
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
 use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
-use crate::cmaf::{decode_idr_keyframe, parse_init_segment, parse_media_fragment};
+use crate::cmaf::{parse_init_segment, parse_media_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
 use crate::grants::{GrantClient, GrantResolution, HttpControlPlaneGrantClient, ReadGrantRequest};
+use crate::keyframe_decoder::{DefaultKeyframeDecoder, KeyframeDecoder};
 use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
@@ -324,6 +325,48 @@ impl FrameResultPayload {
     }
 }
 
+/// Longest `detail` text carried on an undecodable keyframe entry.
+const MAX_UNDECODABLE_DETAIL_CHARS: usize = 256;
+
+/// A sampled keyframe that was not indexed because it could not be decoded. Recorded in
+/// `VisualIndexResultEnvelope.undecodable_keyframes` instead of a fabricated frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndecodableKeyframePayload {
+    fragment_sequence: u32,
+    /// One of `unsupported_codec`, `malformed_bitstream`, `limit_exceeded`,
+    /// `invalid_container`.
+    reason: String,
+    codec: String,
+    detail: String,
+}
+
+impl UndecodableKeyframePayload {
+    fn new(fragment_sequence: u32, reason: &str, codec: &str, detail: &str) -> Self {
+        Self {
+            fragment_sequence,
+            reason: reason.to_string(),
+            codec: codec.to_string(),
+            detail: detail.chars().take(MAX_UNDECODABLE_DETAIL_CHARS).collect(),
+        }
+    }
+
+    pub fn fragment_sequence(&self) -> u32 {
+        self.fragment_sequence
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    pub fn codec(&self) -> &str {
+        &self.codec
+    }
+
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
 /// Result envelope published to `media.results.visual_index.v1` (`VisualIndexResultProjector`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualIndexResultEnvelope {
@@ -342,6 +385,9 @@ pub struct VisualIndexResultEnvelope {
     frames: Vec<FrameResultPayload>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tracks: Vec<TrackSummaryPayload>,
+    /// Sampled keyframes that could not be decoded; absent when every keyframe decoded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    undecodable_keyframes: Vec<UndecodableKeyframePayload>,
 }
 
 impl VisualIndexResultEnvelope {
@@ -387,6 +433,10 @@ impl VisualIndexResultEnvelope {
 
     pub fn tracks(&self) -> &[TrackSummaryPayload] {
         &self.tracks
+    }
+
+    pub fn undecodable_keyframes(&self) -> &[UndecodableKeyframePayload] {
+        &self.undecodable_keyframes
     }
 }
 
@@ -658,6 +708,7 @@ pub struct VisualIndexProcessor<G, S, P> {
     fragment_store: Arc<S>,
     publisher: Arc<P>,
     metrics: Arc<WorkerMetrics>,
+    keyframe_decoder: Arc<dyn KeyframeDecoder>,
 }
 
 impl<G, S, P> Clone for VisualIndexProcessor<G, S, P> {
@@ -672,6 +723,7 @@ impl<G, S, P> Clone for VisualIndexProcessor<G, S, P> {
             fragment_store: Arc::clone(&self.fragment_store),
             publisher: Arc::clone(&self.publisher),
             metrics: Arc::clone(&self.metrics),
+            keyframe_decoder: Arc::clone(&self.keyframe_decoder),
         }
     }
 }
@@ -724,7 +776,14 @@ where
             fragment_store: Arc::new(fragment_store),
             publisher: Arc::new(publisher),
             metrics,
+            keyframe_decoder: Arc::new(DefaultKeyframeDecoder::new()),
         }
+    }
+
+    /// Replaces the keyframe decoder (the default is [`DefaultKeyframeDecoder`]).
+    pub fn with_keyframe_decoder(mut self, decoder: Arc<dyn KeyframeDecoder>) -> Self {
+        self.keyframe_decoder = decoder;
+        self
     }
 
     pub fn with_wpi_interval(mut self, interval: Duration) -> Self {
@@ -832,11 +891,42 @@ where
         let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
         let init_seg = parse_init_segment(verified_block.init_bytes())?;
 
+        let codec = init_seg.codec().as_str();
         let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
             Vec::with_capacity(verified_block.fragments().len());
+        let mut undecodable_keyframes = Vec::new();
+        // One undecodable keyframe is recorded and skipped; it does not fail the block.
         for frag in verified_block.fragments() {
-            let parsed_frag = parse_media_fragment(frag.bytes(), &init_seg)?;
-            let decoded_frame = decode_idr_keyframe(&init_seg, &parsed_frag)?;
+            let decoded = parse_media_fragment(frag.bytes(), &init_seg)
+                .map_err(|err| ("invalid_container", err.to_string()))
+                .and_then(|parsed| {
+                    self.keyframe_decoder
+                        .decode_keyframe(&init_seg, &parsed)
+                        .map(|frame| (parsed, frame))
+                        .map_err(|err| (err.reason(), err.detail().to_string()))
+                });
+            let (parsed_frag, decoded_frame) = match decoded {
+                Ok(pair) => pair,
+                Err((reason, detail)) => {
+                    warn!(
+                        job_id = job.job_id(),
+                        catalog_entry_id = job.catalog_entry_id(),
+                        fragment_sequence = frag.sequence(),
+                        codec,
+                        reason,
+                        detail = detail.as_str(),
+                        "sampled keyframe is undecodable; recorded and skipped"
+                    );
+                    self.metrics.inc_keyframes_undecodable(reason);
+                    undecodable_keyframes.push(UndecodableKeyframePayload::new(
+                        frag.sequence(),
+                        reason,
+                        codec,
+                        &detail,
+                    ));
+                    continue;
+                }
+            };
             self.metrics.inc_keyframes_decoded(1);
 
             // Prefer authoritative descriptor `start_ns` when > 0, else container `tfdt` PTS.
@@ -944,6 +1034,7 @@ where
                 embedding_dim: self.models.embedding_dim(),
                 frames: frame_payloads,
                 tracks: track_payloads,
+                undecodable_keyframes,
             },
         )))
     }

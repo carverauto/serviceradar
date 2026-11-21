@@ -2,6 +2,9 @@
 //!
 //! All fixtures, tokens, UUIDs, endpoints, and video frames are 100% synthetic.
 
+use crate::cmaf::{SyntheticRasterKeyframeDecoder, assemble_cmaf_block, avcc_box};
+use crate::cmaf::{build_fragment_m4s, build_init_mp4};
+use crate::keyframe_decoder_tests::{annex_b_nals, encode_idr, nals_of_type, pattern};
 use crate::worker::log_worker_error;
 use crate::{
     ArchiveGrantTarget, ArchiveMediaObjectPlan, ArchivePlanSpec, BackingSource, BrokerGrantScope,
@@ -1053,6 +1056,7 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         let metrics = Arc::new(WorkerMetrics::new());
         let processor =
             VisualIndexProcessor::new(&cfg, grant_client, store, publisher, Arc::clone(&metrics))
+                .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder))
                 .with_wpi_interval(Duration::from_millis(10));
 
         let delivery = Arc::new(RecordingDelivery {
@@ -1202,7 +1206,8 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
                 fail_publish: true,
             },
             Arc::new(WorkerMetrics::new()),
-        );
+        )
+        .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder));
         let fail_delivery = Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
             events: Arc::clone(&fail_events),
@@ -1253,6 +1258,145 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         assert_eq!(gone_metrics.jobs_gone_count(), 1);
         assert_eq!(gone_events.lock().as_slice(), &["ack"]);
     }
+}
+
+#[tokio::test]
+async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_indexed() {
+    // Fragment 0: a real H.264 IDR. Fragment 1: the generator's SRIDR1 raster keyframe, which
+    // the production decoder must refuse rather than recognise by its magic bytes.
+    // Fragment 2: the real IDR with its slice cut in half.
+    let (width, height) = (128usize, 96usize);
+    let annex_b = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(width, height),
+        &pattern(width, height),
+    );
+    let nals = annex_b_nals(&annex_b);
+    let slice = nals_of_type(&nals, 5)[0];
+    let raster_block = generate_synthetic_cmaf_block(
+        width as u32,
+        height as u32,
+        90_000,
+        &[SyntheticFragmentSpec::new(
+            0,
+            0,
+            2_000_000_000,
+            [40, 44, 50],
+            vec![],
+        )],
+    )
+    .expect("synthetic raster block");
+    let fragments = vec![
+        (
+            0,
+            0,
+            2_000_000_000,
+            build_fragment_m4s(0, 0, 2_000_000_000, 90_000, &[slice]),
+        ),
+        (
+            1,
+            2_000_000_000,
+            2_000_000_000,
+            raster_block
+                .fragment_slice_bytes(0)
+                .expect("raster fragment")
+                .to_vec(),
+        ),
+        (
+            2,
+            4_000_000_000,
+            2_000_000_000,
+            build_fragment_m4s(
+                2,
+                4_000_000_000,
+                2_000_000_000,
+                90_000,
+                &[&slice[..slice.len() / 2]],
+            ),
+        ),
+    ];
+    let init = build_init_mp4(
+        width as u32,
+        height as u32,
+        90_000,
+        b"avc1",
+        &avcc_box(&nals_of_type(&nals, 7), &nals_of_type(&nals, 8)),
+    );
+    let block = assemble_cmaf_block(width as u32, height as u32, 90_000, init, fragments)
+        .expect("assemble block");
+
+    let models = ModelPinConfig::default();
+    let cfg = WorkerConfig::cpu_explicit_default().with_models(models.clone());
+    let job = VisualIndexJobEnvelope::new(
+        "01933b40-0000-7000-8000-000000000031",
+        "00000000-0000-4000-8000-000000000031",
+        "00000000-0000-4000-8000-000000000007",
+        "00000000-0000-4000-8000-000000000008",
+        block.descriptor_sha256(),
+        &models,
+    );
+    let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let metrics = Arc::new(WorkerMetrics::new());
+    let processor = VisualIndexProcessor::new(
+        &cfg,
+        DelayedMockGrantClient {
+            resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                &job, &block,
+            ))),
+            delay: Duration::ZERO,
+        },
+        InMemoryVerifiedStore {
+            block: block.clone(),
+        },
+        RecordingPublisher {
+            events: Arc::clone(&events),
+            published: Arc::new(Mutex::new(Vec::new())),
+            fail_publish: false,
+        },
+        Arc::clone(&metrics),
+    );
+    let outcome = processor
+        .process_delivery(Arc::new(RecordingDelivery {
+            payload: serde_json::to_vec(&job).expect("job json"),
+            events: Arc::clone(&events),
+        }))
+        .await
+        .expect("a block with some undecodable keyframes still completes");
+    let envelope = outcome.completed_envelope().expect("completed envelope");
+
+    assert_eq!(
+        envelope
+            .frames()
+            .iter()
+            .map(|f| f.fragment_sequence())
+            .collect::<Vec<_>>(),
+        vec![0]
+    );
+    let undecodable: Vec<(u32, &str, &str)> = envelope
+        .undecodable_keyframes()
+        .iter()
+        .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
+        .collect();
+    assert_eq!(
+        undecodable,
+        vec![
+            (1, "malformed_bitstream", "h264"),
+            (2, "malformed_bitstream", "h264")
+        ]
+    );
+    assert_eq!(metrics.keyframes_decoded_count(), 1);
+    assert_eq!(
+        metrics.keyframes_undecodable_count("malformed_bitstream"),
+        2
+    );
+    let wire = serde_json::to_value(envelope).expect("serialize envelope");
+    assert_eq!(
+        wire["undecodable_keyframes"][0]["reason"],
+        "malformed_bitstream"
+    );
+    assert!(
+        events.lock().iter().any(|e| e == "ack"),
+        "job must be ACKed"
+    );
 }
 
 #[tokio::test]
@@ -1310,7 +1454,8 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
             fail_publish: false,
         },
         Arc::clone(&metrics),
-    );
+    )
+    .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder));
 
     let mut index_handles = Vec::new();
     for _ in 0..2 {
