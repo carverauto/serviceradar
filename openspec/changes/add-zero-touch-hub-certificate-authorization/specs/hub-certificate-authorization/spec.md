@@ -17,7 +17,7 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **WHEN** the chart regenerates a chart identity's certificate whose predecessor was adopted
 - **THEN** the replacement is recorded by the existing runtime certificate rotation path, not by the inventory
 - **AND** the inventory writes nothing for that subject because it is held
-- **AND** with the signing seeds present and the static users file read, the client presenting the recorded replacement is admitted without operator action
+- **AND** with the signing seeds present and the static users file read, the client presenting the recorded replacement is admitted without operator action while at least one broker is serving and core's authorizer is connected
 - **AND** while the static users file is missing or unread, the chart identity is still refused
 
 #### Scenario: A revoked chart identity is regenerated
@@ -54,7 +54,8 @@ When the issuer and runtime Secret names match, the chart generator SHALL create
 
 #### Scenario: Enforcement is turned on
 - **WHEN** an operator sets the enforcement value on an install with the signing seeds present
-- **THEN** the broker is configured with the public keys and core's authorizer authenticates with the seeds
+- **THEN** the chart configures the broker to include the public key fragments
+- **AND** while at least one broker is serving and core's authorizer is connected, the authorizer authenticates with the mounted seeds
 
 #### Scenario: The generator runs again
 - **WHEN** the generator runs on an install that already has signing keys
@@ -62,7 +63,8 @@ When the issuer and runtime Secret names match, the chart generator SHALL create
 
 #### Scenario: A previously bootstrapped install upgrades to the chart
 - **WHEN** the bootstrap API created a signing record before upgrade and enforcement is enabled with the three chart seeds mounted
-- **THEN** core answers with the mounted keys and ignores the stored record even if its keys differ
+- **THEN** core ignores the stored record even if its keys differ
+- **AND** while at least one broker is serving and core's authorizer is connected, core answers with the mounted keys
 - **AND** core logs once that the stored record is unused
 
 ### Requirement: Hub readiness is reported before a leaf is installed
@@ -80,29 +82,29 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 
 #### Scenario: Core lacks a signing seed
 - **WHEN** enforcement is enabled and any of the three seeds is absent from core's mounted files
-- **THEN** core starts and hub status shows `signing keys not provisioned`
+- **THEN** core starts and hub status shows `signing keys not provisioned` even if a broker fragment is missing and the authorizer is disconnected
 
 #### Scenario: NATS lacks a broker fragment
-- **WHEN** enforcement is enabled, core has all three seeds, and either required broker fragment is absent
-- **THEN** Kubernetes prevents the affected NATS pod from starting and reports the missing key in that pod's mount error
+- **WHEN** a NATS pod starts with enforcement enabled and either required broker fragment is absent
+- **THEN** Kubernetes prevents the affected NATS pod from starting and reports the missing key in that pod's mount error regardless of core's mounted seeds
 - **AND** if core keeps answering through a surviving broker, an otherwise ready hub stays ready and leaf install proceeds
-- **AND** if core loses its authorizer connection, hub status reports the authorizer is not answering and leaf install stops before host changes with advice to check NATS and core health
+- **AND** if core has all three seeds but loses its authorizer connection, hub status reports the authorizer is not answering and leaf install stops before host changes with advice to check NATS and core health
 
 #### Scenario: The leaf upstream URL is unset
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
 - **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
-With the signing seeds present, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
+With the signing seeds present, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client while at least one broker is serving and core's authorizer is connected. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
 - **WHEN** the signing seeds are present and enforcement is turned on after the hub status has reported every chart identity adopted
-- **THEN** every chart client reconnects and none is refused
+- **THEN** while at least one broker is serving and core's authorizer is connected, every chart client reconnects and none is refused
 
 #### Scenario: Hand-adopted certificates are recorded without a subject
 - **WHEN** every chart identity's certificate was recorded by the earlier hand adoption procedure, so its rows have no stored subject, and the hub status reports every chart identity adopted
 - **AND** the signing seeds are present and enforcement is turned on
-- **THEN** every chart client is admitted by its recorded fingerprint
+- **THEN** while at least one broker is serving and core's authorizer is connected, every chart client is admitted by its recorded fingerprint
 - **AND** the rows without a subject block only new inventory adoption
 
 #### Scenario: Enforcement is enabled while a chart identity is not adopted

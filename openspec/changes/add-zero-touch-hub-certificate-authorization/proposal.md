@@ -78,11 +78,12 @@ the runtime Secret, exposing every component's private key to the caller.
   leaves both sets alone and keeps its existing Role. Only with enforcement
   on does core project the seeds and NATS project the fragments. The chart
   documents the fixed signing projections. If core lacks any mounted seed,
-  hub status reports `signing keys not provisioned` and leaf install stops.
-  A missing broker fragment blocks startup of the affected NATS pod.
+  hub status reports `signing keys not provisioned` and leaf install stops, even if core
+  also lost its broker connection.
+  A missing broker fragment blocks startup of the affected NATS pod regardless of core's seeds.
   Kubernetes names the missing key in its mount error. An otherwise ready
   hub stays ready and leaf install proceeds while core answers through a
-  surviving broker. If core loses its authorizer connection, hub status
+  surviving broker. If all seeds are present but core loses its authorizer connection, hub status
   reports the authorizer is not answering and leaf install stops.
   Core uses the mounted seeds and logs once if a stored signing record is
   unused. Installs without a chart retain the bootstrap API and stored keys.
@@ -92,7 +93,7 @@ the runtime Secret, exposing every component's private key to the caller.
   them; none is known to. Once the signing seeds are present and hub
   status reports every chart identity adopted, enforcement needs no further
   manual step for those identities, however their certificates came to
-  be recorded. A chart identity that hub status reports as not adopted stays
+  be recorded. Those clients can reconnect while at least one broker is serving and core's authorizer is connected. A chart identity that hub status reports as not adopted stays
   refused after enforcement is on until its reported reason is resolved (for
   example rows without a subject blocking new adoption, a refused or skipped
   rotation, a revoked subject, or a failed qualification check); hub status

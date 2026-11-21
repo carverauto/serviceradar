@@ -184,9 +184,12 @@ With enforcement enabled, the chart renders two fixed signing projections.
 Core mounts the three issuer Secret seeds in a separate optional volume so
 it can start and report a missing seed. NATS requires both runtime Secret
 fragments. When either is missing, Kubernetes blocks the affected pod at
-startup and names the missing key in its mount event. If core keeps answering
+startup and names the missing key in its mount event, regardless of core's
+seeds. Core checks its mounted seeds first. If any is missing, hub status
+reports `signing keys not provisioned` even during a broker outage.
+With all seeds mounted, if core keeps answering
 through another broker, an otherwise ready hub stays ready and leaf install
-proceeds. If core loses its authorizer connection, hub status reports the
+proceeds. If the seeds are present but core loses its authorizer connection, hub status reports the
 authorizer is not answering and leaf install stops. The runbook directs
 operators to the affected pod's events when checking NATS and core health.
 With enforcement disabled the chart omits both signing projections.
@@ -304,6 +307,7 @@ installs keep today's behaviour.
 
 ### Decision 6: Turning it on is safe by construction
 
+Admission and reconnection in this rollout apply while at least one broker is serving and core's authorizer is connected.
 Core adopts chart identities whether or not enforcement is on. So the order
 for an existing install, once its issuer owner has provisioned any externally
 managed signing material, is: upgrade to this release with the value off; check
