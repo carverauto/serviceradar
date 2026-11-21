@@ -206,6 +206,107 @@ projected. Optional: a Secret written before the record existed has no such key.
 {{- end -}}
 
 {{/*
+The chart's own NATS client identities: each certificate file the generator
+issues for a NATS client, and the common name of its subject. One list feeds
+core's inventory projection, the subject list core reads, and the generator's
+required-files check, so the three cannot drift. The files that are copies of
+another identity's certificate (flowgger, otel, netflow-collector) are not
+identities and are not listed.
+*/}}
+{{- define "serviceradar.natsChartIdentities" -}}
+- {file: "tools.pem", cn: "serviceradar-tools"}
+- {file: "web.pem", cn: "serviceradar-web-ng"}
+- {file: "core.pem", cn: "serviceradar-core"}
+- {file: "gateway.pem", cn: "serviceradar-agent-gateway"}
+- {file: "kv.pem", cn: "serviceradar-datasvc"}
+- {file: "agent.pem", cn: "serviceradar-agent"}
+- {file: "log-collector.pem", cn: "serviceradar-log-collector"}
+- {file: "trapd.pem", cn: "serviceradar-trapd"}
+- {file: "flow-collector.pem", cn: "serviceradar-flow-collector"}
+- {file: "bmp-collector.pem", cn: "serviceradar-bmp-collector"}
+- {file: "falcosidekick.pem", cn: "serviceradar-falcosidekick"}
+- {file: "trivy-sidecar.pem", cn: "serviceradar-trivy-sidecar"}
+- {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
+{{- end -}}
+
+{{/*
+"true" when the chart's generator job runs and so owns the runtime certificate
+Secret: every chart identity's certificate is then guaranteed to be in it.
+*/}}
+{{- define "serviceradar.runtimeCertGeneratorOwned" -}}
+{{- $generator := default dict (get (default dict .Values.certs) "generator") -}}
+{{- $enabled := true -}}
+{{- if hasKey $generator "enabled" -}}
+{{- $enabled = get $generator "enabled" -}}
+{{- end -}}
+{{- ternary "true" "false" (and $enabled (ne "true" (include "serviceradar.hostedRuntimeEnabled" .))) -}}
+{{- end -}}
+
+{{- define "serviceradar.coreProjectsFixedNatsInventory" -}}
+{{- if and (dig "enabled" true (default dict .Values.core)) (dig "enabled" true (default dict .Values.nats)) -}}
+{{- include "serviceradar.runtimeCertGeneratorOwned" . -}}
+{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
+The public certificate files core is given for first adoption of the chart's
+NATS client identities (ServiceRadar.Edge.ChartIdentityInventory), as a JSON
+list. When the generator owns the Secret it is every chart identity. Otherwise
+the Secret's supplier lists what it carries in certs.inventoryCertificates,
+which defaults to none: a Secret volume does not mount when a listed key is
+missing, and core must start whatever a supplier's Secret holds.
+*/}}
+{{- define "serviceradar.natsInventoryCertificateFiles" -}}
+{{- $allowed := list -}}
+{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) -}}
+{{- $allowed = append $allowed .file -}}
+{{- end -}}
+{{- $files := $allowed -}}
+{{- if ne "true" (include "serviceradar.coreProjectsFixedNatsInventory" .) -}}
+{{- $files = default list (get (default dict .Values.certs) "inventoryCertificates") -}}
+{{- range $files -}}
+{{- if not (has . $allowed) -}}
+{{- fail (printf "certs.inventoryCertificates lists %v: allowed names are %s" . (join ", " $allowed)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $files | uniq | toJson -}}
+{{- end -}}
+
+{{- define "serviceradar.natsInventoryEnv" -}}
+- name: SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR
+  value: "/etc/serviceradar/nats-infrastructure-certs"
+- name: SERVICERADAR_NATS_CHART_IDENTITIES_FILE
+  value: "/etc/serviceradar/nats-static-users/chart-identities.yaml"
+- name: SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE
+  value: "/etc/serviceradar/certs/root.pem"
+{{- end -}}
+
+{{- define "serviceradar.natsInventoryVolumeMount" -}}
+- name: nats-infrastructure-certs
+  mountPath: /etc/serviceradar/nats-infrastructure-certs
+  readOnly: true
+{{- end -}}
+
+{{/*
+Public certificates only, each named explicitly. With nothing to project the
+directory is still mounted, empty: an items list that is empty would project
+every key of the Secret, private keys included.
+*/}}
+{{- define "serviceradar.natsInventoryVolume" -}}
+{{- $files := include "serviceradar.natsInventoryCertificateFiles" . | fromJsonArray -}}
+- name: nats-infrastructure-certs
+{{- if $files }}
+  secret:
+    secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+    items:
+{{ include "serviceradar.runtimeCertItems" $files | indent 4 }}
+{{- else }}
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{/*
 Hosted runtimes receive their certificate Secret from the control plane. The
 presence of the hosted runtime contract is the authoritative hosted-mode
 signal; tenant-side certificate generation must stay disabled even if a base

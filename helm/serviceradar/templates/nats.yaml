@@ -366,4 +366,11 @@ metadata:
 data:
   static-users.yaml: |
 {{ toYaml $staticUsers | indent 4 }}
+  # The subjects of the chart's own NATS client certificates, which core adopts
+  # on first sight and reports coverage for. A static user that is not listed
+  # here is not one of the chart's certificates.
+  chart-identities.yaml: |
+{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
+    - {{ printf "CN=%s,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US" .cn | quote }}
+{{- end }}
 {{- end }}
