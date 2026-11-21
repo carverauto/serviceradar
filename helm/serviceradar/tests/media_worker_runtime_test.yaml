@@ -1,0 +1,262 @@
+suite: media worker inference backend, GPU guards, NATS identity and network reach
+templates:
+  - templates/media-worker.yaml
+  - templates/network-policy.yaml
+  - templates/nvr.yaml
+  - templates/cert-scripts-configmap.yaml
+  - templates/cert-generator-job.yaml
+release:
+  name: serviceradar
+  namespace: sr-media-test
+# A worker that renders: CUDA on a GPU runtime class, weights on a PVC, and the
+# same deployment identity on both sides of web-ng's read-grant listener.
+set:
+  mediaWorker.enabled: true
+  mediaWorker.runtimeClassName: nvidia
+  mediaWorker.models.existingClaim: example-media-models-pvc
+  mediaWorker.auth.existingSecret: example-media-worker-auth
+  mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000003"
+  mediaWorker.auth.generation: "2"
+  webNg.controlPlaneRuntime.mediaWorker.enabled: true
+  webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+  webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000003"
+  webNg.controlPlaneRuntime.mediaWorker.generation: "2"
+tests:
+  - it: runs the candle backend on the CUDA device against the mounted weights
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.mountPath: /opt/synthetic-models
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_BACKEND, value: candle}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_DEVICE, value: cuda}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_MODEL_DIR, value: /opt/synthetic-models}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: models, mountPath: /opt/synthetic-models, readOnly: true}
+
+  - it: runs the deterministic stub only when chosen, on the CPU and without weights
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.backend: stub
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.models.existingClaim: ""
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_BACKEND, value: stub}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_DEVICE, value: cpu}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: MEDIA_WORKER_MODEL_DIR}
+          any: true
+
+  - it: refuses the candle backend without a weights volume
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.existingClaim: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.backend candle loads SigLIP weights .* set mediaWorker.models.existingClaim"
+
+  - it: refuses CUDA execution without the NVIDIA runtime class
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.runtimeClassName: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.executionProvider cuda needs the NVIDIA container runtime: set mediaWorker.runtimeClassName"
+
+  - it: refuses a CPU device under a GPU execution provider
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.device: cpu
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.device cpu contradicts mediaWorker.executionProvider cuda"
+
+  - it: refuses a model identity that differs from core's
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.embedderModelId: siglip-base-patch16-384
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.embedderModelId is not configurable: core dispatches jobs and semantic-search requests with its built-in model identity \\(embedder siglip-b16-384 2026.1"
+
+  - it: refuses to run without web-ng's read-grant listener
+    template: templates/media-worker.yaml
+    set:
+      webNg.controlPlaneRuntime.mediaWorker.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.enabled needs webNg.controlPlaneRuntime.mediaWorker.enabled"
+
+  - it: refuses a worker generation web-ng would reject
+    template: templates/media-worker.yaml
+    set:
+      webNg.controlPlaneRuntime.mediaWorker.generation: "3"
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaWorker.auth.generation must equal webNg.controlPlaneRuntime.mediaWorker.generation
+
+  - it: leaves the read-grant listener to an explicitly configured remote control plane
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: https://control.example.com
+      webNg.controlPlaneRuntime.mediaWorker.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_CONTROL_PLANE_URL, value: https://control.example.com}
+
+  - it: selects a tag variant of the release image
+    template: templates/media-worker.yaml
+    chart:
+      appVersion: 9.8.7
+    set:
+      mediaWorker.image.tagSuffix: -cuda
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.carverauto.dev/serviceradar/serviceradar-media-worker:v9.8.7-cuda
+
+  - it: refuses a tag variant on top of a pinned digest
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.image.tagSuffix: -cuda
+      image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.image.tagSuffix cannot apply to the digest pinned in image.digests.mediaWorker"
+
+  - it: connects to NATS with its own client certificate and nothing else from the runtime Secret
+    template: templates/media-worker.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NATS_TLS_CA_FILE, value: /etc/serviceradar/certs/root.pem}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NATS_TLS_CERT_FILE, value: /etc/serviceradar/certs/media-worker.pem}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NATS_TLS_KEY_FILE, value: /etc/serviceradar/certs/media-worker-key.pem}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cert-data
+            secret:
+              secretName: serviceradar-runtime-certs
+              items:
+                - {key: root.pem, path: root.pem}
+                - {key: media-worker.pem, path: media-worker.pem}
+                - {key: media-worker-key.pem, path: media-worker-key.pem}
+
+  - it: issues the worker certificate under the subject its NATS user maps
+    template: templates/cert-scripts-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "media-worker" "serviceradar-media-worker" "[^"]*DNS:serviceradar-media-worker\.sr-media-test\.svc\.cluster\.local[,"]'
+
+  - it: issues no worker certificate while the worker is off
+    template: templates/cert-scripts-configmap.yaml
+    set:
+      mediaWorker.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "media-worker"'
+
+  # The generator keeps an existing runtime Secret unless a required file is
+  # missing, so an install that enables the worker later must be told to mint it.
+  - it: regenerates an existing runtime Secret that lacks the worker certificate
+    template: templates/cert-generator-job.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '"k8s-inventory-key\.pem",\s+"media-worker\.pem",\s+"media-worker-key\.pem",\s+"runtime-cert-layout-version"'
+
+  - it: keeps the worker out of a match-all namespace policy that would reopen CNPG
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - contains:
+          path: spec.podSelector.matchExpressions
+          content:
+            key: app
+            operator: NotIn
+            values: [serviceradar-media-worker]
+
+  - it: lets the NVR pods accept the worker's analysis reads when they are allowed
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8555
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app: serviceradar-media-worker
+            ports:
+              - protocol: TCP
+                port: 8555
+
+  - it: keeps the NVR closed to the worker unless analysis reads are allowed
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress
+          value: []

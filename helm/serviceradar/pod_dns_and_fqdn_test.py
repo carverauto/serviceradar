@@ -80,6 +80,8 @@ ALL_GATED_OVERRIDES = {
     "mediaStorage.tlsSecretName": "synthetic-media-storage-tls",
     "mediaStorage.providerEgress.cidrs": ["192.0.2.17/32"],
     "mediaWorker.enabled": True,
+    "mediaWorker.runtimeClassName": "nvidia",
+    "mediaWorker.models.existingClaim": "synthetic-media-worker-models",
     "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
     "mediaWorker.auth.deploymentRef": "11111111-2222-4333-8444-555555555555",
     "mediaWorker.auth.generation": "3",

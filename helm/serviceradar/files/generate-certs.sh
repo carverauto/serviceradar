@@ -125,6 +125,9 @@ generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-fal
 generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,DNS:trivy-sidecar.serviceradar,DNS:serviceradar-trivy-sidecar.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "k8s-inventory" "serviceradar-k8s-inventory" "DNS:serviceradar-k8s-inventory,DNS:k8s-inventory,DNS:k8s-inventory.serviceradar,DNS:serviceradar-k8s-inventory.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+{{- if (default (dict) .Values.mediaWorker).enabled }}
+generate_cert "media-worker" "serviceradar-media-worker" "DNS:serviceradar-media-worker,DNS:media-worker,DNS:serviceradar-media-worker.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+{{- end }}
 generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
 if [ -f "$CERT_DIR/root.pem" ] && should_copy "$CERT_DIR/ca.crt"; then
   cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"

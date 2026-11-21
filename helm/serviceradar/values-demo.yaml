@@ -647,6 +647,15 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
     jetstreamReplicas: 3
+  # Read-grant listener for the camera semantic search worker (mediaWorker
+  # below). Switched on together with mediaWorker.enabled; the chart refuses a
+  # deploymentRef or generation that differs between the two.
+  controlPlaneRuntime:
+    mediaWorker:
+      enabled: false
+      existingSecret: serviceradar-media-worker-auth
+      deploymentRef: "d105174f-b3fc-4b45-afae-8048dacb38cb"
+      generation: "1"
 
 # NVR recorder with its private ingest listener, for testing one-shot capture
 # from the shared camera relay. Blocks are kept locally; Core may also ask a
@@ -710,6 +719,33 @@ nvr:
         - "2600:3c06::/32"
         - "2600:3c0f:18::/48"
       port: 443
+
+# Camera semantic search worker on the arm64 GPU nodes. Operator-owned objects
+# that must exist in the namespace first (never created by Helm): the PVC
+# serviceradar-media-worker-models holding the SigLIP weights and the Secret
+# serviceradar-media-worker-auth (key media-worker-token), which web-ng reads too.
+mediaWorker:
+  enabled: false  # switched on once the CUDA image and the weights PVC exist
+  executionProvider: cuda
+  runtimeClassName: nvidia
+  gpuResourceName: nvidia.com/gpu
+  gpuCount: 1
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Equal
+      value: present
+      effect: NoSchedule
+  models:
+    existingClaim: serviceradar-media-worker-models
+  auth:
+    existingSecret: serviceradar-media-worker-auth
+    tokenKey: media-worker-token
+    deploymentRef: "d105174f-b3fc-4b45-afae-8048dacb38cb"
+    generation: "1"
+  networkPolicy:
+    allowNvrRead: true
 
 faker:
   enabled: true
