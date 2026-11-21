@@ -11,6 +11,8 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 #### Scenario: A generated runtime Secret predates an inventory certificate
 - **WHEN** the generator runs on upgrade and its runtime Secret lacks a public certificate from core's fixed inventory
 - **THEN** the pre-upgrade hook regenerates the runtime certificates and writes the rotation manifest before core rolls
+- **AND** the manifest omits the replacement for the missing file because there is no previous fingerprint for that file
+- **AND** if a record already holds its subject, neither rotation nor inventory records the replacement, hub status warns about the held subject and unrecorded fingerprint, and the operator records the successor through the existing API
 
 #### Scenario: The supplier provides the runtime Secret
 - **WHEN** the install is hosted or the generator is disabled
@@ -24,10 +26,10 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **AND** no administrator API call was made
 
 #### Scenario: An adopted certificate is regenerated
-- **WHEN** the chart regenerates a chart identity's certificate whose predecessor was adopted
+- **WHEN** the chart regenerates a chart identity's certificate whose manifest entry identifies an eligible adopted predecessor
 - **THEN** the replacement is recorded by the existing runtime certificate rotation path, not by the inventory
 - **AND** the inventory writes nothing for that subject because it is held
-- **AND** with the signing seeds present and the static users file read, the client presenting the recorded replacement is admitted without operator action while at least one broker is serving and core's authorizer is connected
+- **AND** with the signing seeds present, the static users file read and a grant for the unrevoked replacement fingerprint, the client presenting that replacement is admitted without operator action while at least one broker is serving and core's authorizer is connected
 - **AND** while the static users file is missing or unread, the chart identity is still refused
 
 #### Scenario: A revoked chart identity is regenerated
@@ -119,17 +121,18 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
 - **THEN** the hub reports the leaf upstream URL as not configured
 
-### Requirement: Enabling enforcement does not strand chart clients
-With the signing seeds present, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client while at least one broker is serving and core's authorizer is connected. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. Hub status SHALL warn about each identity lacking inventory coverage and show the reason before enforcement. Broker admission SHALL continue to use the presented fingerprint and existing authorization and grant checks regardless of inventory coverage. Turning enforcement off SHALL return the install to static certificate authorization.
+### Requirement: Pre-enforcement coverage and broker admission
+Hub status SHALL report full coverage when every chart identity's inventory certificate is recorded and unrevoked. Full coverage completes the operator's inventory check before enabling enforcement. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. Hub status SHALL warn about each identity lacking inventory coverage and show the reason before enforcement. Broker admission SHALL continue to use the presented fingerprint and existing authorization and grant checks regardless of inventory coverage. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
 - **WHEN** the signing seeds are present and enforcement is turned on after the hub status has reported every chart identity adopted
-- **THEN** while at least one broker is serving and core's authorizer is connected, every chart client reconnects and none is refused
+- **THEN** while at least one broker is serving and core's authorizer is connected, a chart client is admitted if the presented fingerprint is recorded, unrevoked and has a grant and the static users file has been read
+- **AND** if the static users file is unavailable, the chart client is refused even with full coverage
 
 #### Scenario: Hand-adopted certificates are recorded without a subject
 - **WHEN** every chart identity's certificate was recorded by the earlier hand adoption procedure, so its rows have no stored subject, and the hub status reports every chart identity adopted
 - **AND** the signing seeds are present and enforcement is turned on
-- **THEN** while at least one broker is serving and core's authorizer is connected, every chart client is admitted by its recorded fingerprint
+- **THEN** while at least one broker is serving and core's authorizer is connected, a client presenting its recorded, unrevoked fingerprint with a grant is admitted once the static users file has been read
 - **AND** the rows without a subject block only new inventory adoption
 
 #### Scenario: The inventory omits a hand-adopted certificate

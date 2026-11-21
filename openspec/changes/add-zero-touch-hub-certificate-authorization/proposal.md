@@ -25,11 +25,9 @@ Enabling the callout today is a hand procedure with three parts
    which is a promise the chart cannot check.
 
 A client missed in step 1 is refused by the broker as soon as step 3 rolls
-out. Regeneration is already handled for a certificate that was adopted: the
-generator writes `runtime-cert-rotation.json` and
-`ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
-certificate as the successor of the adopted one, from the core migrations hook
-before workloads roll. That path skips a certificate that was never adopted.
+out. On regeneration, the core migrations hook uses
+`runtime-cert-rotation.json` to record a successor before workloads roll
+when the manifest identifies an eligible adopted predecessor.
 What is missing is the first adoption of the chart's certificates.
 No CLI command covers steps 1 and 2; their routes are outside the CLI's edge
 scope on purpose. The hosted control plane enables the leaf port for tenants
@@ -50,7 +48,10 @@ the runtime Secret, exposing every component's private key to the caller.
   certificate from the runtime Secret. The pre-upgrade hook requires those
   files before preserving the Secret. A missing file can trigger one reissue
   of all runtime certificates with the existing rotation manifest before core
-  rolls. For hosted installs or a disabled generator, the supplier lists only
+  rolls. For the missing file there is no previous fingerprint to link. If a
+  record holds the subject, hub status warns about the unrecorded replacement
+  and the operator records its successor relationship through the existing API.
+  For hosted installs or a disabled generator, the supplier lists only
   the public certificates it supplies. The default empty list lets core start
   and report each identity as not adopted because no inventory certificate is
   supplied. Neither path adds private keys to the inventory, creates a
@@ -100,10 +101,10 @@ the runtime Secret, exposing every component's private key to the caller.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
-  them; none is known to. Once the signing seeds are present and hub
-  status reports every chart identity adopted, enforcement needs no further
-  manual step for those identities, however their certificates came to
-  be recorded. Those clients can reconnect while at least one broker is serving and core's authorizer is connected.
+  them; none is known to. Full coverage completes the pre-enforcement inventory check.
+  With the signing seeds present, the static users file read, a serving broker
+  and core's authorizer connected, a chart client is admitted when its
+  presented fingerprint is recorded, unrevoked and has a grant.
   Hub status warns about each uncovered identity and gives the reason for
   review before enforcement. A previously hand-adopted client can still
   present its recorded, unrevoked fingerprint and use its grant when omitted

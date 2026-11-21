@@ -20,8 +20,8 @@ Facts this design rests on, from the tree at the time of writing:
 - When the generator reissues certificates it writes
   `runtime-cert-rotation.json` (public certificates and the fingerprints they
   replace, no key material) into the runtime Secret.
-  `ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
-  certificate as the successor of an adopted predecessor, from the core
+  `ServiceRadar.Edge.RuntimeCertificateRotation` records a reissued
+  certificate when the manifest identifies its eligible adopted predecessor, from the core
   migrations hook before workloads roll and again on a 30 second reconcile. A
   certificate whose predecessor was never adopted is skipped.
 - Three static users (`serviceradar-flowgger`, `serviceradar-otel`,
@@ -67,7 +67,9 @@ includes every projected file in its required-files check before preserving an
 existing Secret. An older Secret missing even one inventory certificate takes
 the existing regeneration path in the pre-upgrade hook. This can reissue all
 runtime certificates once on upgrade and write the rotation manifest before
-core rolls. A complete, otherwise valid Secret follows the usual preserve path.
+core rolls. The missing file has no previous fingerprint in the manifest. If
+an existing record holds its subject, neither rotation nor inventory records
+its replacement (see the recovery procedure below). A complete, otherwise valid Secret follows the usual preserve path.
 
 For hosted installs and self-managed installs with the generator disabled, the
 supplier sets a chart value listing the public inventory certificates its
@@ -123,18 +125,17 @@ task 1.4 checks live deployments.
 Replacement of an adopted certificate stays solely with the existing
 `ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
 `runtime-cert-rotation.json`, unchanged by this change, including its refusal
-when the predecessor is revoked, superseded or from another issuer. A client presenting the revoked fingerprint is refused. One residual case is not covered by either path: when the rotation
-manifest's predecessor is an unrecorded intermediate certificate while an
-older certificate of that subject is recorded, the rotation path skips it and
-the subject is held, so neither path records the current certificate. The
-identity is reported unadopted with that reason, and an operator records the
-successor through the existing API. This is fail-closed and visible.
+when the predecessor is revoked, superseded or from another issuer. A client presenting the revoked fingerprint is refused. Rotation skips a replacement if the old file was missing (no manifest entry)
+or the manifest names an unrecorded intermediate predecessor. If an existing
+record holds the subject, inventory also skips the replacement. Hub status
+warns that the current fingerprint is unrecorded and the subject is held.
+The operator records the successor through the existing API.
 
 Coverage: a chart identity counts as adopted when the inventory's certificate
 for that subject is recorded and not revoked. Otherwise it is reported with
 the reason: no inventory certificate supplied, a failed check, legacy rows without a subject, or a held subject
 whose recorded certificates do not include the inventory's certificate (for
-example after a refused rotation, a revocation, or the residual case above).
+example after a refused rotation, a revocation, or a missing or unrecorded predecessor).
 
 The stored grant is the static block for that subject. It is only the
 per-fingerprint record: admission of a chart identity still uses the static
@@ -330,26 +331,24 @@ uses only the supplier's inventory list, which may be empty. Review
 before expecting full coverage. Once all chart identities are adopted and the
 signing material is provisioned, turn enforcement on.
 
-Coverage compares each inventory certificate with the unrevoked records. An
+Full coverage completes the pre-enforcement inventory check. It compares
+each inventory certificate with the unrevoked records. An
 omitted chart identity produces a warning even if its client was previously
 hand-adopted. At connection time the broker uses the presented fingerprint.
-With the existing grant and static permission checks satisfied, a recorded,
+With signing seeds present, the static users file read and a grant for the
+presented fingerprint, a recorded,
 unrevoked fingerprint is admitted whether or not it appears in the inventory.
 A presented certificate with no matching unrevoked record is refused. Legacy
 rows without subjects block new inventory adoption only.
 
-Certificate regeneration changes every fingerprint. A certificate that was
-already adopted has its successor recorded by
-`ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
-before workloads roll onto it, so its client is not refused; the inventory
-does not record it. The inventory changes in the same generator run; on the
-authorizer's next tick core adopts a qualifying certificate whose subject is
-not held. Only such a certificate is refused until then, and its client
-retries; the window is bounded by the authorizer's 10 second tick (the
-rotation reconciler separately runs every 30 seconds). A replacement whose
-predecessor was revoked or superseded is refused by the rotation path, is not
-recorded by the inventory because the subject is held, and is
-reported with the reason.
+On regeneration the core migrations hook records a replacement before rollout
+when the rotation manifest identifies an eligible recorded predecessor. If
+the old file was missing, its replacement follows the ordinary inventory
+rule: core can first-adopt a qualifying certificate with an unheld subject.
+For a held subject the operator must record the successor through the existing
+API. Check hub status for the affected subject's warning. Inventory adoption
+runs on the authorizer's 10 second tick. The rotation reconciler separately
+runs every 30 seconds.
 
 ## Risks / Trade-offs
 
@@ -360,9 +359,8 @@ reported with the reason.
   certificate was revoked, its regenerated replacement is not recorded by the
   rotation record, the inventory writes nothing because the subject is held,
   and the subject is reported with the revocation reason. A client presenting the unrecorded replacement is refused.
-- **Residual unrecorded rotation.** When a rotation manifest names an
-  unrecorded intermediate predecessor while an older certificate of that
-  subject is recorded, neither path records the current certificate. The
+- **Residual unrecorded rotation.** If the old file is missing or the manifest names
+  an unrecorded predecessor, and an older record holds the subject, neither path records the current certificate. The
   identity is reported unadopted with that reason and an operator records the
   successor through the existing API.
 - **Legacy certificate rows without a subject** block all inventory adoption
@@ -373,8 +371,9 @@ reported with the reason.
   chart-generated certificate carries that subject. A broker experiment on the
   chart configuration showed that only a certificate whose whole subject is
   exactly `O=ServiceRadar` maps to it; other unlisted subjects are refused.
-  With enforcement on, such a certificate would not be in the inventory and
-  would be refused. Task 1.2 checks live deployments for a holder before any
+  Under enforcement an unrecorded fingerprint is refused. A certificate
+  recorded through the existing adoption API is admitted under the same
+  fingerprint, grant and runtime checks as other recorded certificates. Task 1.2 checks live deployments for a holder before any
   behaviour changes, then removes the user or documents it.
 - **Included broker configuration** is a new shape for the NATS pod. Covered
   by a broker test that boots nats-server from the rendered files, as the
