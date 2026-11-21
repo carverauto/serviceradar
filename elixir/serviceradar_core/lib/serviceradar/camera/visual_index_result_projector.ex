@@ -159,7 +159,9 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
           cancel_jobs_for_entry(entry_id)
 
         {:fail, reason} ->
-          {:reject, job, reason}
+          with {:ok, failed_job} <- fail_job(job, Atom.to_string(reason)) do
+            {:failed_terminal, failed_job, reason}
+          end
 
         {:report, reason} ->
           {:report, reason}
@@ -286,6 +288,13 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     |> Ash.update(actor: @system_actor)
   end
 
+  defp fail_job(job, error_class) do
+    job
+    |> Ash.Changeset.for_update(:mark_failed_terminal, %{last_error_class: error_class})
+    |> Ash.Changeset.filter(expr(state in [:pending, :dispatched]))
+    |> Ash.update(actor: @system_actor)
+  end
+
   defp cancel_jobs_for_entry(entry_id) do
     VisualIndexJob
     |> Ash.Query.filter(catalog_entry_id == ^entry_id and state in [:pending, :dispatched])
@@ -304,10 +313,16 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp unwrap_transaction({:ok, :recording_gone}), do: {:error, :recording_gone}
   defp unwrap_transaction({:ok, {:report, reason}}), do: {:error, reason}
 
-  defp unwrap_transaction({:ok, {:reject, job, reason}}) do
-    with {:ok, _} <- VisualIndexDispatcher.reconcile_exhausted_job(job, Atom.to_string(reason)) do
-      {:error, reason}
+  defp unwrap_transaction({:ok, {:failed_terminal, job, reason}}) do
+    try do
+      _ = VisualIndexDispatcher.record_terminal_failure_health(job, Atom.to_string(reason))
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
     end
+
+    {:error, reason}
   end
 
   defp unwrap_transaction(other), do: other

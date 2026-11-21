@@ -5,10 +5,10 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
 
   | Object | Required fields | Optional fields |
   | --- | --- | --- |
-  | Result | Catalog UUID, descriptor SHA-256, detector and embedder ID/version, dimension, frames | Job UUID, schema and version (v1), tracks (empty) |
-  | Frame | Fragment sequence and media PTS | Scene suppression (false), detections and embeddings (empty) |
-  | Detection | Object class, confidence, box | Colors (empty), nullable track ID |
-  | Embedding | Region kind and vector | Region index (zero), colors (empty), nullable class, confidence, box and track ID |
+  | Result | Schema, schema version (v1), catalog UUID, descriptor SHA-256, detector and embedder ID/version, dimension, frames | Job UUID, tracks (empty) |
+  | Frame | Fragment sequence, media PTS, scene suppression, detections, embeddings | None |
+  | Detection | Object class, confidence, box, dominant colors | Nullable track ID (validated, not persisted) |
+  | Embedding | Region kind, region index, dominant colors, vector | Nullable class, confidence, box and track ID |
   | Track | Track ID, object class, first and last offsets, dwell, frame count and peak confidence | None |
 
   Scene embeddings use index zero and carry no class, confidence or box. Aliases must agree
@@ -38,8 +38,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
            ]) do
       body =
         object(envelope, [
-          {:schema, &literal(&1, result_subject()), result_subject()},
-          {:schema_version, &literal(&1, 1), 1},
+          {:schema, &literal(&1, result_subject())},
+          {:schema_version, &literal(&1, 1)},
           {:tracks, fn items -> array(items, :infinity, &track/1) end, []},
           {:frames, &array(&1, 512, fn item -> frame(item, identity.embedding_dim) end)}
         ])
@@ -64,9 +64,9 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
     object(value, [
       {[:fragment_sequence, :fragment_index], &uint(&1, @max_u32)},
       {[:media_pts_ns, :media_offset_ns], &uint(&1, @max_bigint)},
-      {:scene_suppressed, &boolean/1, false},
-      {:detections, fn items -> array(items, 64, &detection/1) end, []},
-      {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end), []}
+      {:scene_suppressed, &boolean/1},
+      {:detections, fn items -> array(items, 64, &detection/1) end},
+      {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end)}
     ])
   end
 
@@ -76,10 +76,13 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
              {[:object_class, :class, :label], &string(&1, 64)},
              {[:confidence, :score], &confidence/1},
              {[:bbox, :bbox_norm], &bbox/1},
-             {:dominant_colors, &colors/1, []},
+             {:dominant_colors, &colors/1},
              {:track_id, &nullable(&1, fn id -> uint(id, @max_bigint) end), nil}
            ]) do
-      {:ok, Map.new(parsed, fn {key, v} -> {Atom.to_string(key), v} end)}
+      {:ok,
+       parsed
+       |> Map.delete(:track_id)
+       |> Map.new(fn {key, v} -> {Atom.to_string(key), v} end)}
     end
   end
 
@@ -87,7 +90,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
     with {:ok, parsed} <-
            object(value, [
              {[:region_kind, :embedding_kind], &region_kind/1},
-             {[:region_index, :crop_index], &uint(&1, @max_u32), 0},
+             {[:region_index, :crop_index], &uint(&1, @max_u32)},
              {:object_class, &nullable(&1, fn s -> string(s, 64) end), nil},
              {[:confidence, :detector_confidence], fn value -> nullable(value, &confidence/1) end,
               nil},
@@ -106,7 +109,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
 
   defp attributes(value), do: object(value, [{:dominant_colors, &colors/1, nil}])
 
-  defp embedding_colors(nil, nil), do: {:ok, []}
+  defp embedding_colors(nil, nil), do: @invalid
   defp embedding_colors(nil, colors), do: {:ok, colors}
   defp embedding_colors(colors, nil), do: {:ok, colors}
   defp embedding_colors(colors, colors), do: {:ok, colors}

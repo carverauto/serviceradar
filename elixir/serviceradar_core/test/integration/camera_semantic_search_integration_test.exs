@@ -412,7 +412,12 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
     refute Jason.encode!(plan) =~ synthetic_secret
     assert plan.credential.secret_access_key == synthetic_secret
 
-    # Quarantine entry in place -> subsequent read grant returns {:error, :recording_gone} (410)
+    other_entry =
+      create_indexed_playable_entry(cam, prof, 1_750_000_500_000_000, actor)
+
+    other_job = job_for(other_entry, actor)
+
+    # Quarantine entry in place -> verify ownership & digest before cancelling, and propagate cancel errors
     {:ok, _quarantined} =
       verified_entry
       |> Ash.Changeset.for_update(
@@ -429,7 +434,50 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       )
       |> Ash.update(actor: actor)
 
+    # Unrelated active job_id supplied against a gone catalog entry must NOT be cancelled
+    assert {:error, :job_catalog_mismatch} =
+             VisualWorkerReadGrants.issue_read_grant(
+               installation,
+               Map.put(req, "job_id", to_string(other_job.id))
+             )
+
+    assert reload(other_job, actor).state == :pending
+
+    # Re-open job as pending to exercise VisualWorkerReadGrants' own active-job cancellation guard
+    SQL.query!(
+      Repo,
+      "UPDATE platform.camera_visual_index_jobs SET state = 'pending', last_error_class = NULL WHERE id = $1",
+      [Ecto.UUID.dump!(job.id)]
+    )
+
+    # Wrong descriptor digest must NOT cancel the matching job
+    assert {:error, :descriptor_sha256_mismatch} =
+             VisualWorkerReadGrants.issue_read_grant(
+               installation,
+               Map.put(req, "descriptor_sha256", String.duplicate("fe", 32))
+             )
+
+    assert reload(job, actor).state == :pending
+
+    # Cancellation DB failure must propagate as retryable (not :recording_gone) and leave job active
+    SQL.query!(Repo, """
+    ALTER TABLE platform.camera_visual_index_jobs ADD CONSTRAINT synthetic_refused_grant_cancel
+    CHECK (state <> 'cancelled') NOT VALID
+    """)
+
+    assert {:error, cancel_error} = VisualWorkerReadGrants.issue_read_grant(installation, req)
+    refute cancel_error == :recording_gone
+    assert reload(job, actor).state == :pending
+
+    SQL.query!(
+      Repo,
+      "ALTER TABLE platform.camera_visual_index_jobs DROP CONSTRAINT synthetic_refused_grant_cancel"
+    )
+
     assert {:error, :recording_gone} = VisualWorkerReadGrants.issue_read_grant(installation, req)
+
+    assert %{state: :cancelled, last_error_class: "source_deleted_or_quarantined"} =
+             reload(job, actor)
   end
 
   test "end-to-end ResultProjector idempotency, pgvector HNSW cosine search, pre-k-NN camera scope isolation, frame overlay, and append-only RecordingAccessAudit (3.1, 3.2, 3.3)",
@@ -470,6 +518,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
     auth_result_envelope = %{
       "schema" => "media.results.visual_index.v1",
+      "schema_version" => 1,
       "job_id" => to_string(job_auth.id),
       "catalog_entry_id" => to_string(entry_auth.id),
       "camera_source_id" => to_string(cam_authorized.id),
@@ -497,6 +546,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
             %{
               "region_kind" => "scene",
               "region_index" => 0,
+              "dominant_colors" => [],
               "embedding" => parking_scene_vec
             },
             %{
@@ -1149,15 +1199,26 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       {cam, prof} = create_camera_and_profile(actor, "Legacy Backfill Camera")
       entry = create_indexed_playable_entry(cam, prof, 1_750_005_100_000_000, actor)
       job = job_for(entry, actor)
+
+      {eligible_cam, eligible_prof} =
+        create_camera_and_profile(actor, "Eligible Backfill Camera")
+
+      eligible_entry =
+        create_indexed_playable_entry(eligible_cam, eligible_prof, 1_750_005_200_000_000, actor)
+
+      eligible_job = job_for(eligible_entry, actor)
       sent = ~U[2026-11-10 12:00:00.000000Z]
 
       job_id = job.id
+      eligible_job_id = eligible_job.id
 
       publisher = fn subject, data, opts ->
-        if Jason.decode!(data)["job_id"] == job_id do
+        published_id = Jason.decode!(data)["job_id"]
+
+        if published_id in [job_id, eligible_job_id] do
           assert subject == "media.jobs.visual_index.backfill.v1"
           assert {"Nats-Expected-Stream", "CAMERA_MEDIA_JOBS"} in opts[:headers]
-          send(self(), {:backfill_published, job_id})
+          send(self(), {:backfill_published, published_id})
         end
 
         {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
@@ -1165,6 +1226,10 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       for budget <- [1, 2],
           {deadline, now} <- [{60, 300}, {60, 72 * 3_600 + 1}, {73 * 3_600, 72 * 3_600 + 4}] do
+        now_dt = DateTime.shift(sent, second: now)
+        eligible_sent = DateTime.shift(now_dt, hour: -73)
+        eligible_deadline = DateTime.shift(now_dt, second: -1)
+
         SQL.query!(
           Repo,
           """
@@ -1180,13 +1245,33 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
           ]
         )
 
-        opts = [publisher: publisher, now: DateTime.shift(sent, second: now)]
+        # Eligible fixture placed behind `job` (later deadline_at when job's deadline has passed)
+        # so a 1-row batch proves SQL excluded the ineligible job instead of crowding out eligible work.
+        SQL.query!(
+          Repo,
+          """
+          UPDATE platform.camera_visual_index_jobs SET state = 'dispatched', job_kind = 'backfill',
+            attempt_count = 1, max_attempts = 2, dispatched_at = $2, deadline_at = $3, updated_at = $2 WHERE id = $1
+          """,
+          [
+            Ecto.UUID.dump!(eligible_job.id),
+            DateTime.to_naive(eligible_sent),
+            DateTime.to_naive(eligible_deadline)
+          ]
+        )
+
+        opts = [publisher: publisher, now: now_dt]
 
         assert {:ok, %{attempt_count: 1, state: :dispatched}} =
                  VisualIndexDispatcher.dispatch_job(job.id, opts)
 
-        assert {:ok, _} = VisualIndexDispatcher.reconcile_expired_dispatched_jobs(opts)
+        assert {:ok, _} =
+                 VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                   Keyword.put(opts, :limit, 1)
+                 )
 
+        assert_received {:backfill_published, ^eligible_job_id}
+        assert %{attempt_count: 2, state: :dispatched} = reload(eligible_job, actor)
         refute_received {:backfill_published, ^job_id}
         assert %{attempt_count: 1, state: :dispatched} = reload(job, actor)
       end
@@ -1535,6 +1620,12 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       assert {:incomplete, 0, [{^missing, %TerminalMessageError{reason: :unmatched_result_job}}]} =
                CameraVisualIndexResults.process_batch([missing])
 
+      bare_job_id = result_message(%{"job_id" => job.id})
+
+      assert {:incomplete, 0,
+              [{^bare_job_id, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+               CameraVisualIndexResults.process_batch([bare_job_id])
+
       for candidate <- [job, other] do
         assert %{state: :pending, last_error_class: nil} = reload(candidate, actor)
         assert projection_counts(%{id: candidate.catalog_entry_id}, actor) == {0, 0}
@@ -1676,11 +1767,65 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       {job, envelope} = admitted_result(actor, "Numeric Validation Camera")
       {valid_job, valid} = admitted_result(actor, "Valid Numeric Camera")
 
+      valid =
+        valid
+        |> put_in(["frames", Access.at(0), "fragment_sequence"], 2)
+        |> put_in(["frames", Access.at(0), "media_pts_ns"], 2_500_000_000)
+        |> put_in(["frames", Access.at(0), "detections", Access.at(0), "track_id"], 7)
+
       assert {:ok, %{frame_count: 1, embedding_count: 1}} =
                VisualIndexResultProjector.ingest_result(Jason.encode!(valid))
 
       assert reload(valid_job, actor).state == :completed
       assert projection_counts(%{id: valid_job.catalog_entry_id}, actor) == {1, 1}
+
+      [persisted_frame] =
+        VisualFrame
+        |> Ash.Query.filter(catalog_entry_id == ^valid_job.catalog_entry_id)
+        |> Ash.read!(actor: actor)
+
+      assert persisted_frame.fragment_sequence == 2
+      assert persisted_frame.media_pts_ns == 2_500_000_000
+
+      assert persisted_frame.detections == [
+               %{
+                 "bbox" => %{"x1" => 0.2, "x2" => 0.5, "y1" => 0.4, "y2" => 0.8},
+                 "confidence" => 0.91,
+                 "dominant_colors" => ["yellow"],
+                 "object_class" => "package"
+               }
+             ]
+
+      [persisted_embedding] =
+        VisualEmbedding
+        |> Ash.Query.filter(catalog_entry_id == ^valid_job.catalog_entry_id)
+        |> Ash.read!(actor: actor)
+
+      assert persisted_embedding.region_index == 1
+      assert persisted_embedding.confidence == 0.91
+
+      assert persisted_embedding.bbox == %{
+               "x1" => 0.2,
+               "y1" => 0.4,
+               "x2" => 0.5,
+               "y2" => 0.8
+             }
+
+      assert Ash.Vector.to_list(persisted_embedding.embedding) == basis_vector(768, 0)
+
+      omitted_embeddings =
+        envelope
+        |> update_in(["frames", Access.at(0)], &Map.delete(&1, "embeddings"))
+        |> result_message()
+
+      assert {:incomplete, 0,
+              [{^omitted_embeddings, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+               CameraVisualIndexResults.process_batch([omitted_embeddings])
+
+      assert %{state: :failed_terminal, last_error_class: "invalid_result_envelope"} =
+               reload(job, actor)
+
+      assert projection_counts(%{id: job.catalog_entry_id}, actor) == {0, 0}
 
       bigint_overflow = 9_223_372_036_854_775_808
       first_frame = ["frames", Access.at(0)]
@@ -2040,6 +2185,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   defp build_single_crop_envelope(entry, vec) do
     %{
       "schema" => "media.results.visual_index.v1",
+      "schema_version" => 1,
       "catalog_entry_id" => to_string(entry.id),
       "camera_source_id" => to_string(entry.camera_source_id),
       "stream_profile_id" => to_string(entry.stream_profile_id),

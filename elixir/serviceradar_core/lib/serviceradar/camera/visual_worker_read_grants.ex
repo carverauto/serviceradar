@@ -28,8 +28,6 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
       `analysis_read` pool descriptor plan.
   """
 
-  import Ash.Expr
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveCredentialResolver
@@ -129,9 +127,8 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
 
     with :ok <- authorize_worker_caller(installation, opts),
          {:ok, req} <- validate_request(params),
-         {:ok, entry} <- load_and_check_catalog_entry(req.catalog_entry_id, req.job_id, loaders),
-         {:ok, job} <- load_and_check_job(req, entry, loaders),
-         :ok <- verify_descriptor_sha(req.descriptor_sha256, entry, job),
+         {:ok, job} <- load_and_check_job(req, loaders),
+         {:ok, entry} <- load_and_check_catalog_entry(req, job, loaders),
          {:ok, descriptor} <- load_frozen_descriptor(entry, loaders),
          {:ok, init_slice} <- extract_init_slice(descriptor, entry),
          {:ok, fragments} <- resolve_sampled_fragments(job, descriptor) do
@@ -280,15 +277,17 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_and_check_catalog_entry(entry_id, job_id, loaders) do
-    with {:ok, entry} <- load_catalog_entry(entry_id, loaders) do
+  defp load_and_check_catalog_entry(req, job, loaders) do
+    with {:ok, entry} <- load_catalog_entry(req.catalog_entry_id, loaders),
+         :ok <- verify_entry_descriptor_sha(req.descriptor_sha256, entry) do
       case RecordingCatalogEntry.availability(entry) do
         :playable ->
           {:ok, entry}
 
         :recording_gone ->
-          maybe_cancel_job(job_id, loaders)
-          {:error, :recording_gone}
+          with :ok <- cancel_matching_job(job, req, loaders) do
+            {:error, :recording_gone}
+          end
 
         :recording_unavailable ->
           {:error, :recording_unavailable}
@@ -296,18 +295,22 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp load_and_check_job(req, _entry, loaders) do
+  defp load_and_check_job(req, loaders) do
     case load_job(req.job_id, loaders) do
       {:ok, nil} ->
         {:error, :job_not_found}
 
       {:ok, job} ->
         job_entry_id = to_string(fetch_val(job, :catalog_entry_id) || "")
+        job_sha = fetch_val(job, :descriptor_sha256)
         state = normalize_job_state(fetch_val(job, :state))
 
         cond do
           job_entry_id != req.catalog_entry_id ->
             {:error, :job_catalog_mismatch}
+
+          job_sha != req.descriptor_sha256 ->
+            {:error, :descriptor_sha256_mismatch}
 
           state == :cancelled ->
             {:error, :recording_gone}
@@ -327,11 +330,10 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp verify_descriptor_sha(req_sha, entry, job) do
-    entry_sha = fetch_val(entry, :descriptor_sha256)
-    job_sha = fetch_val(job, :descriptor_sha256)
+  defp verify_entry_descriptor_sha(_req_sha, nil), do: :ok
 
-    if req_sha == entry_sha and req_sha == job_sha do
+  defp verify_entry_descriptor_sha(req_sha, entry) do
+    if req_sha == fetch_val(entry, :descriptor_sha256) do
       :ok
     else
       {:error, :descriptor_sha256_mismatch}
@@ -869,25 +871,35 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
     end
   end
 
-  defp maybe_cancel_job(job_id, loaders) do
-    if map_size(loaders) == 0 do
-      case VisualIndexJob.get_by_id(job_id, actor: @system_actor, not_found_error?: false) do
-        {:ok, %VisualIndexJob{state: st} = job} when st in [:pending, :dispatched] ->
-          _ =
-            job
-            |> Ash.Changeset.for_update(:mark_cancelled, %{
-              last_error_class: "source_deleted_or_quarantined"
-            })
-            |> Ash.Changeset.filter(expr(state in [:pending, :dispatched]))
-            |> Ash.update(actor: @system_actor)
+  defp cancel_matching_job(job, req, loaders) do
+    cond do
+      is_function(Map.get(loaders, :cancel_job), 1) ->
+        loaders.cancel_job.(job)
 
-          :ok
+      map_size(loaders) > 0 ->
+        :ok
 
-        _ ->
-          :ok
-      end
-    else
-      :ok
+      true ->
+        job_id = fetch_val(job, :id)
+
+        VisualIndexJob
+        |> Ash.Query.filter(
+          id == ^job_id and
+            catalog_entry_id == ^req.catalog_entry_id and
+            descriptor_sha256 == ^req.descriptor_sha256 and
+            state in [:pending, :dispatched]
+        )
+        |> Ash.bulk_update(
+          :mark_cancelled,
+          %{last_error_class: "source_deleted_or_quarantined"},
+          actor: @system_actor,
+          strategy: [:atomic],
+          return_errors?: true
+        )
+        |> case do
+          %Ash.BulkResult{status: :success} -> :ok
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
     end
   end
 

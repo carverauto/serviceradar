@@ -445,6 +445,80 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                )
     end
 
+    test "verifies job ownership and digest before cancelling a gone recording and propagates cancel failures" do
+      installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
+      other_catalog_id = "22222222-2222-4222-8222-222222222222"
+      wrong_sha = String.duplicate("ee", 32)
+
+      quarantined_entry =
+        Map.merge(playable_archive_entry(), %{
+          local_state: :quarantined,
+          quarantine_reason: :unattributable_block
+        })
+
+      cancel_calls = :counters.new(1, [:atomics])
+
+      base_loaders =
+        Map.put(grant_loaders(quarantined_entry), :cancel_job, fn _job ->
+          :counters.add(cancel_calls, 1, 1)
+          :ok
+        end)
+
+      # Job belongs to @catalog_id, but request names a different gone catalog_entry_id
+      mismatch_req = %{
+        "schema_version" => 1,
+        "job_id" => @job_id,
+        "catalog_entry_id" => other_catalog_id,
+        "descriptor_sha256" => @desc_sha
+      }
+
+      assert {:error, :job_catalog_mismatch} =
+               VisualWorkerReadGrants.issue_read_grant(installation, mismatch_req,
+                 loaders: base_loaders
+               )
+
+      assert :counters.get(cancel_calls, 1) == 0
+
+      # Job belongs to @catalog_id, but request supplies a wrong descriptor digest
+      wrong_digest_req = %{
+        "schema_version" => 1,
+        "job_id" => @job_id,
+        "catalog_entry_id" => @catalog_id,
+        "descriptor_sha256" => wrong_sha
+      }
+
+      assert {:error, :descriptor_sha256_mismatch} =
+               VisualWorkerReadGrants.issue_read_grant(installation, wrong_digest_req,
+                 loaders: base_loaders
+               )
+
+      assert :counters.get(cancel_calls, 1) == 0
+
+      # Matching request with failing cancellation propagates a retryable error instead of :recording_gone
+      matching_req = %{
+        "schema_version" => 1,
+        "job_id" => @job_id,
+        "catalog_entry_id" => @catalog_id,
+        "descriptor_sha256" => @desc_sha
+      }
+
+      failing_cancel_loaders =
+        Map.put(base_loaders, :cancel_job, fn _job -> {:error, :db_unavailable} end)
+
+      assert {:error, :db_unavailable} =
+               VisualWorkerReadGrants.issue_read_grant(installation, matching_req,
+                 loaders: failing_cancel_loaders
+               )
+
+      # Matching request cancels and returns :recording_gone
+      assert {:error, :recording_gone} =
+               VisualWorkerReadGrants.issue_read_grant(installation, matching_req,
+                 loaders: base_loaders
+               )
+
+      assert :counters.get(cancel_calls, 1) == 1
+    end
+
     test "issues archive range plan with <= 4 MiB coalescing, GET/HEAD-only CredentialBrokerGrant, 5m SigV4 pre-signed URLs, and zero leaked secrets" do
       installation = %{deployment_ref: "dep-1", generation: 1, purpose: :media_worker}
       synthetic_secret_key = "test-reader-secret-key-0000000000"
@@ -930,12 +1004,46 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     assert [%{region_kind: :crop, embedding: vector}] = parsed.embeddings
     assert Ash.Vector.to_list(vector) == unit_vec(512)
 
-    omitted =
-      update_in(envelope, frame, &Map.drop(&1, [:scene_suppressed, :detections, :embeddings]))
+    assert [stored_detection] = parsed.detections
 
-    assert {:ok, _,
-            {:ok, %{frames: [%{scene_suppressed: false, detections: [], embeddings: []}]}}} =
-             VisualIndexResultEnvelope.validate(omitted)
+    assert stored_detection |> Map.keys() |> Enum.sort() == [
+             "bbox",
+             "confidence",
+             "dominant_colors",
+             "object_class"
+           ]
+
+    optional_omitted =
+      envelope
+      |> Map.drop([:job_id, :tracks])
+      |> update_in(detection, &Map.delete(&1, :track_id))
+
+    assert {:ok, %{job_id: nil}, {:ok, %{frames: [parsed_no_track], tracks: []}}} =
+             VisualIndexResultEnvelope.validate(optional_omitted)
+
+    assert [no_track_detection] = parsed_no_track.detections
+    refute Map.has_key?(no_track_detection, "track_id")
+
+    for {parent, key} <- [
+          {[], :schema},
+          {[], :schema_version},
+          {frame, :scene_suppressed},
+          {frame, :detections},
+          {frame, :embeddings},
+          {detection, :dominant_colors},
+          {crop, :region_index},
+          {crop, :dominant_colors}
+        ] do
+      omitted =
+        case parent do
+          [] -> Map.delete(envelope, key)
+          path -> update_in(envelope, path, &Map.delete(&1, key))
+        end
+
+      assert {:ok, _, {:error, :invalid_result_envelope}} =
+               VisualIndexResultEnvelope.validate(omitted),
+             "accepted omitted required field #{inspect(parent ++ [key])}"
+    end
   end
 
   test "a bare job ID cannot authorize a terminal job update" do

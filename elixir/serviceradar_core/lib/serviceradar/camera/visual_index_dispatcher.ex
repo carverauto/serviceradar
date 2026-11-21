@@ -757,6 +757,18 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     |> Ash.update(actor: @system_actor)
   end
 
+  @doc """
+  Best-effort `TripwireHealth` publication for a job that has already
+  transitioned to `:failed_terminal`.
+  """
+  @spec record_terminal_failure_health(VisualIndexJob.t() | map(), String.t(), keyword()) :: :ok
+  def record_terminal_failure_health(job, error_class, opts \\ [])
+      when is_binary(error_class) and is_list(opts) do
+    normalized_err = sanitize_error_class(error_class)
+    _ = record_tripwire_failure(job, normalized_err, opts)
+    :ok
+  end
+
   defp record_tripwire_failure(job, error_class, opts) do
     metadata = %{
       "embedder_model_id" => fetch_val(job, :embedder_model_id),
