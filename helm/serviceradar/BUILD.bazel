@@ -1,3 +1,4 @@
+load("@rules_python//python:py_library.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -98,7 +99,38 @@ py_test(
     env = {
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
     },
+    deps = [
+        ":chart_render",
+        "@pyyaml//:yaml",
+    ],
+)
+
+# Renders chart templates through helm-unittest snapshots for the Python chart tests.
+py_library(
+    name = "chart_render",
+    srcs = ["chart_render.py"],
+    imports = ["."],
     deps = ["@pyyaml//:yaml"],
+)
+
+# Runs the rendered runtime certificate generator (openssl) and its Job's
+# preserve check against a synthetic Secret: the media worker's certificate
+# carries the subject its static NATS user maps, and enabling the worker later
+# makes the Job reissue an existing Secret that lacks it.
+py_test(
+    name = "runtime_cert_media_worker_test",
+    srcs = ["runtime_cert_media_worker_test.py"],
+    data = [
+        ":chart_files",
+        ":helm_unittest_binary",
+    ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = [
+        ":chart_render",
+        "@pyyaml//:yaml",
+    ],
 )
 
 # Core stamps a compiled model identity on every camera visual-index job and search
@@ -115,7 +147,10 @@ py_test(
     env = {
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
     },
-    deps = ["@pyyaml//:yaml"],
+    deps = [
+        ":chart_render",
+        "@pyyaml//:yaml",
+    ],
 )
 
 py_test(
@@ -129,7 +164,10 @@ py_test(
     env = {
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
     },
-    deps = ["@pyyaml//:yaml"],
+    deps = [
+        ":chart_render",
+        "@pyyaml//:yaml",
+    ],
 )
 
 # The runtime certificate generator's rotation record: every reissued public

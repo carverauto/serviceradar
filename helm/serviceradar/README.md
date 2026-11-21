@@ -540,55 +540,92 @@ budget. Pod readiness alone does not prove this path.
 
 ### Camera semantic search worker
 
-`mediaWorker` deploys `serviceradar-media-worker`, which decodes recorded
-camera blocks, embeds keyframes with SigLIP and answers the query embeddings
-behind camera semantic search. It is off by default and runs outside the BEAM
+`mediaWorker` deploys `serviceradar-media-worker`, which embeds keyframes of
+recorded camera blocks with SigLIP and answers the query embeddings behind
+camera semantic search. It is off by default and runs outside the BEAM
 cluster: jobs and results travel on NATS JetStream, recording bytes come
 through short-lived read grants from web-ng, and it has no CNPG or StarRocks
 access.
 
+**Current limits.** The worker does not yet decode real H.264 or HEVC
+keyframes: for a real camera stream it embeds a placeholder frame, so search
+results over real recordings are not meaningful until its decoder lands
+(separate change). Indexing is whole-scene only; a permissively licensed subject
+detector will be added later. Local (not yet archived) recordings cannot be
+read yet, because the NVR has no analysis-read listener.
+
 | Value | Purpose | Default |
 | --- | --- | --- |
 | `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly | `candle` |
-| `mediaWorker.models.existingClaim` | PVC holding `config.json`, `model.safetensors` (or `siglip.safetensors`) and `tokenizer.json` at its root, plus optional `detector.safetensors` and `detector_config.json`. Mounted read-only at `models.mountPath` and passed as `MEDIA_WORKER_MODEL_DIR`. Nothing is downloaded or bundled | `""` |
+| `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` (or `siglip.safetensors`) and `tokenizer.json` at its root, mounted read-only at `models.mountPath` and passed as `MEDIA_WORKER_MODEL_DIR`. Nothing is downloaded or bundled | `""` |
 | `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU, so a GPU provider needs a GPU node, its runtime class and a CUDA build of the image | `cuda` |
-| `mediaWorker.device` | Candle device: `auto`, `cuda` or `cpu`. Empty derives `cuda` for the GPU providers and `cpu` for `cpu_explicit` | `""` |
-| `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider requests `gpuCount` of `gpuResourceName` and needs a runtime class | `""`, `nvidia.com/gpu`, `1` |
-| `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `replicas`, `resources` | Placement and size | |
-| `mediaWorker.image.repository`, `tag`, `tagSuffix` | Image overrides. `tagSuffix` is appended to the tag in use, so `-cuda` selects `<tag>-cuda`. It cannot modify a digest pinned in `image.digests.mediaWorker`; pin the variant's digest there instead. The default image is a CPU build | `""` |
+| `mediaWorker.device` | Candle device. Empty derives `cuda` for the GPU providers and `cpu` for `cpu_explicit`. GPU providers accept `cuda` or `auto`; `cpu_explicit` accepts only `cpu` | `""` |
+| `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider needs a runtime class and requests `gpuCount` (at least 1) of `gpuResourceName`; `cpu_explicit` requests no GPU | `""`, `nvidia.com/gpu`, `1` |
+| `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate` | `1` |
+| `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
+| `mediaWorker.image.repository`, `tag`, `tagSuffix` | Image overrides. `tagSuffix` is appended to the tag in use, so `-cuda` selects `<tag>-cuda`. It cannot be combined with a digest pinned in `image.digests.mediaWorker`; pin the variant's digest there instead. The default image is a CPU build | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
-| `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Let the worker read local (not yet archived) recordings from the NVR pods, and the NVR pods accept it, on `nvrReadPort` | `false`, `8444` |
+| `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
 The model identity is not configurable. Core stamps its compiled identity
 (embedder `siglip-b16-384` `2026.1`, detector `rtdetr-r18` `2026.1`, 768
 dimensions) on every job and search request and has no setting for it, so the
 chart pins the worker to the same values and refuses
 `mediaWorker.models.embedderModelId`, `embedderModelVersion`,
-`detectorModelId`, `detectorModelVersion` and `embeddingDim`.
+`detectorModelId`, `detectorModelVersion` and `embeddingDim`, as well as
+`detectorPath` and `detectorSha256`, even while the worker is disabled.
 `media_worker_model_identity_test.py` fails when core and the chart drift.
+Enabling the worker also sets `SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED` on
+core, which dispatches visual-index jobs only then.
 
 The chart refuses to render, instead of producing a pod that crash-loops, when:
-the `candle` backend has no `models.existingClaim`; a GPU provider has no
-`runtimeClassName`; `device` is `cpu` under a GPU provider;
-`webNg.controlPlaneRuntime.mediaWorker` is not enabled, or its
-`deploymentRef` or `generation` differs from `mediaWorker.auth`, while the
-worker uses the in-cluster control plane (empty `controlPlaneUrl`); or
-`image.tagSuffix` is combined with a pinned digest.
+
+- the `candle` backend has no `models.existingClaim`;
+- a GPU provider has no `runtimeClassName` or `gpuCount` below 1, or `device`
+  contradicts the provider;
+- the control plane is this release's web-ng (the default, or a
+  `controlPlaneUrl` naming `serviceradar-web-ng` or `serviceradar-web-ng-headless`
+  in the release namespace) and web-ng is disabled,
+  `webNg.controlPlaneRuntime.mediaWorker` is not enabled, the URL's port is not
+  `webNg.controlPlaneRuntime.port`, or the deployment reference or generation
+  differs from `mediaWorker.auth`;
+- `image.tagSuffix` is combined with a pinned digest;
+- the worker's streams do not fit JetStream (below).
+
+**JetStream.** The worker creates `CAMERA_MEDIA_JOBS` (512 MiB) and
+`CAMERA_MEDIA_RESULTS` (2 GiB), one replica each, at sizes the chart cannot
+change. While it is enabled the chart counts both in the JetStream storage
+budget, so a profile without room fails the render (raise the profile or
+`nats.jetstream.maxFileStore`, see `docs/nats-jetstream-profile-runbook.md`).
+A profile whose `max_file_store` is below 2 GiB, such as `tenant-2g`, cannot
+hold the results stream at all and is refused even with
+`nats.jetstream.allowOvercommit`.
 
 **NATS identity.** Enabling the worker makes the runtime certificate generator
 issue `media-worker.pem` (`CN=serviceradar-media-worker`). An existing runtime
 Secret that lacks it is regenerated on the next upgrade, which reissues every
 leaf certificate under the existing root. The worker mounts only `root.pem` and
 its own pair and connects with mutual TLS; the broker maps the certificate to a
-static user that may publish `media.results.visual_index.v1` and
-`telemetry.media_worker.metrics.v1`, get or create the `CAMERA_MEDIA_JOBS` and
-`CAMERA_MEDIA_RESULTS` streams, get, create and pull its two durable job
-consumers and acknowledge their deliveries, subscribe to
-`media.rpc.visual_text_embed.v1.>`, and reply on `_INBOX`. With the worker on,
-core may also publish `media.jobs.visual_index.v1` and
+static user that may:
+
+- publish `media.results.visual_index.v1` and
+  `telemetry.media_worker.metrics.v1`;
+- get or create the `CAMERA_MEDIA_JOBS` and `CAMERA_MEDIA_RESULTS` streams, and
+  get, create and pull its two durable job consumers and acknowledge their
+  deliveries;
+- subscribe to `media.rpc.visual_text_embed.v1.>` and to its own inbox prefix,
+  `_INBOX.media-worker.>` (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`), but
+  not to the account-wide `_INBOX.>`, which carries other services' JetStream
+  deliveries;
+- publish to `_INBOX.>`. This is still account-wide: the worker answers each
+  embedding request on web-ng's reply subject, and web-ng draws every reply
+  subject from its one connection-wide `_INBOX.` prefix. Narrowing it needs a
+  dedicated reply prefix for those requests in web-ng (follow-up).
+
+With the worker on, core may also publish `media.jobs.visual_index.v1` and
 `media.jobs.visual_index.backfill.v1`, and web-ng may publish
-`media.rpc.visual_text_embed.v1.>`. With it off, the worker identity is
-refused everything and core and web-ng get neither grant.
+`media.rpc.visual_text_embed.v1.>`. With it off, the worker identity is refused
+everything and core and web-ng get neither grant.
 
 **Network.** The worker's own policy allows DNS, NATS, web-ng's private
 control-plane port, the OTLP collector, the NVR read port when
@@ -600,22 +637,46 @@ that it cannot reopen same-namespace egress to CNPG.
 **Enabling it.** Create these in the release namespace first; Helm creates
 neither:
 
-1. The weights PVC named by `mediaWorker.models.existingClaim`, with the files
-   above at its root.
+1. The weights PVC named by `mediaWorker.models.existingClaim`, with the SigLIP
+   files above at its root.
 2. The token Secret named by both `mediaWorker.auth.existingSecret` and
-   `webNg.controlPlaneRuntime.mediaWorker.existingSecret`, without echoing the
-   token:
+   `webNg.controlPlaneRuntime.mediaWorker.existingSecret`. Generate the token on
+   stdin so it never appears in a process argument or the terminal:
 
    ```bash
-   kubectl -n <namespace> create secret generic serviceradar-media-worker-auth \
-     --from-literal=media-worker-token="$(openssl rand -hex 32)"
+   openssl rand -hex 32 | tr -d '\n' | kubectl -n <namespace> create secret generic \
+     serviceradar-media-worker-auth --from-file=media-worker-token=/dev/stdin
    ```
 
 Then set `mediaWorker.enabled` and `webNg.controlPlaneRuntime.mediaWorker.enabled`
-together, and select a CUDA build of the image for a GPU provider. A hosted
-tenant receives its runtime certificate Secret from the control plane, which
-must then include `media-worker.pem` and `media-worker-key.pem` with that exact
-subject.
+together, select a CUDA build of the image for a GPU provider, and make sure
+the JetStream budget has room for the worker's streams.
+
+**Hosted tenants.** A hosted tenant's chart is rendered by the control plane,
+so each setting above needs a control-plane counterpart before the worker can
+run there:
+
+- the runtime certificate Secret, which the control plane writes, must include
+  `media-worker.pem` and `media-worker-key.pem` with the exact subject
+  `CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US`;
+- `mediaWorker.enabled` together with `webNg.controlPlaneRuntime.mediaWorker.enabled`;
+- `mediaWorker.backend` and `device`;
+- the weights PVC: provisioning it with the SigLIP files and setting
+  `models.existingClaim` (and `models.mountPath` if changed);
+- image selection: `mediaWorker.image.tagSuffix`, `tag` or `repository`, or a
+  digest in `image.digests.mediaWorker`;
+- GPU placement and size: `executionProvider`, `runtimeClassName`,
+  `gpuResourceName`, `gpuCount`, `nodeSelector`, `tolerations`, `affinity` and
+  `resources`;
+- `replicas`;
+- the read-grant identity: the token Secret, created in the tenant namespace,
+  and its name and key in `mediaWorker.auth` and
+  `webNg.controlPlaneRuntime.mediaWorker`, with the same `deploymentRef`
+  (the installed deployment's identity) and `generation` in both;
+- network access: `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort`,
+  `s3EgressCidrs` and `s3ExceptCidrs`;
+- a JetStream sizing profile with room for the worker's streams (not
+  `tenant-2g`).
 
 ## Network Requirements
 

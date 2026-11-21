@@ -3,8 +3,8 @@ templates:
   - templates/media-worker.yaml
   - templates/network-policy.yaml
   - templates/nvr.yaml
-  - templates/cert-scripts-configmap.yaml
-  - templates/cert-generator-job.yaml
+  - templates/nats.yaml
+  - templates/core.yaml
 release:
   name: serviceradar
   namespace: sr-media-test
@@ -88,13 +88,69 @@ tests:
       - failedTemplate:
           errorPattern: "^mediaWorker.device cpu contradicts mediaWorker.executionProvider cuda"
 
-  - it: refuses a model identity that differs from core's
+  - it: refuses a model identity that differs from core's, even while the worker is off
     template: templates/media-worker.yaml
     set:
+      mediaWorker.enabled: false
       mediaWorker.models.embedderModelId: siglip-base-patch16-384
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.models.embedderModelId is not configurable: core dispatches jobs and semantic-search requests with its built-in model identity \\(embedder siglip-b16-384 2026.1"
+
+  - it: refuses detector weights whose detections the pinned identity would mislabel
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorPath is not supported: the worker indexes whole scenes only"
+
+  - it: refuses a CUDA device under cpu_explicit, which requests no GPU
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.device: cuda
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.device cuda contradicts mediaWorker.executionProvider cpu_explicit"
+
+  - it: refuses zero GPUs under a GPU execution provider
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.gpuCount: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.gpuCount must be >= 1 under mediaWorker.executionProvider cuda"
+
+  - it: scales a GPU worker to zero and replaces it without a surge pod
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+      - equal:
+          path: spec.strategy
+          value: {type: Recreate}
+
+  - it: rolls a cpu_explicit worker and requests no GPU even with gpuCount 0
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.gpuCount: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.strategy
+          value: {type: RollingUpdate}
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["nvidia.com/gpu"]
 
   - it: refuses to run without web-ng's read-grant listener
     template: templates/media-worker.yaml
@@ -111,6 +167,31 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: mediaWorker.auth.generation must equal webNg.controlPlaneRuntime.mediaWorker.generation
+
+  - it: checks the listener for an explicitly configured URL of this release's web-ng
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng-headless.sr-media-test.svc.cluster.local:4001
+      webNg.controlPlaneRuntime.mediaWorker.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.enabled needs webNg.controlPlaneRuntime.mediaWorker.enabled"
+
+  - it: refuses this release's web-ng as control plane when web-ng is not deployed
+    template: templates/media-worker.yaml
+    set:
+      webNg.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker control plane http://serviceradar-web-ng-headless.sr-media-test.svc.cluster.local:4001 is this release's web-ng, but webNg.enabled is false"
+
+  - it: refuses this release's web-ng on a port other than its control-plane listener
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng.sr-media-test.svc.cluster.local:4000
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng.sr-media-test.svc.cluster.local:4000 must use webNg.controlPlaneRuntime.port 4001"
 
   - it: leaves the read-grant listener to an explicitly configured remote control plane
     template: templates/media-worker.yaml
@@ -146,7 +227,17 @@ tests:
       image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
     asserts:
       - failedTemplate:
-          errorPattern: "^mediaWorker.image.tagSuffix cannot apply to the digest pinned in image.digests.mediaWorker"
+          errorPattern: "^mediaWorker.image.tagSuffix cannot be combined with the digest pinned in image.digests.mediaWorker"
+
+  - it: refuses a tag variant on top of a pinned digest even with an explicit worker tag
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.image.tag: v9.8.7
+      mediaWorker.image.tagSuffix: -cuda
+      image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.image.tagSuffix cannot be combined with the digest pinned in image.digests.mediaWorker"
 
   - it: connects to NATS with its own client certificate and nothing else from the runtime Secret
     template: templates/media-worker.yaml
@@ -164,6 +255,9 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_MEDIA_WORKER_NATS_TLS_KEY_FILE, value: /etc/serviceradar/certs/media-worker-key.pem}
       - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX, value: _INBOX.media-worker}
+      - contains:
           path: spec.template.spec.volumes
           content:
             name: cert-data
@@ -173,34 +267,6 @@ tests:
                 - {key: root.pem, path: root.pem}
                 - {key: media-worker.pem, path: media-worker.pem}
                 - {key: media-worker-key.pem, path: media-worker-key.pem}
-
-  - it: issues the worker certificate under the subject its NATS user maps
-    template: templates/cert-scripts-configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["generate-certs.sh"]
-          pattern: 'generate_cert "media-worker" "serviceradar-media-worker" "[^"]*DNS:serviceradar-media-worker\.sr-media-test\.svc\.cluster\.local[,"]'
-
-  - it: issues no worker certificate while the worker is off
-    template: templates/cert-scripts-configmap.yaml
-    set:
-      mediaWorker.enabled: false
-    asserts:
-      - notMatchRegex:
-          path: data["generate-certs.sh"]
-          pattern: 'generate_cert "media-worker"'
-
-  # The generator keeps an existing runtime Secret unless a required file is
-  # missing, so an install that enables the worker later must be told to mint it.
-  - it: regenerates an existing runtime Secret that lacks the worker certificate
-    template: templates/cert-generator-job.yaml
-    documentSelector:
-      path: kind
-      value: Job
-    asserts:
-      - matchRegex:
-          path: spec.template.spec.containers[0].args[0]
-          pattern: '"k8s-inventory-key\.pem",\s+"media-worker\.pem",\s+"media-worker-key\.pem",\s+"runtime-cert-layout-version"'
 
   - it: keeps the worker out of a match-all namespace policy that would reopen CNPG
     template: templates/network-policy.yaml
@@ -260,3 +326,44 @@ tests:
       - equal:
           path: spec.ingress
           value: []
+
+  # The worker creates CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi)
+  # itself; the 2 GB tenant profile cannot hold them.
+  - it: counts the worker's streams in the JetStream budget
+    template: templates/nats.yaml
+    set:
+      nats.jetstream.profile: tenant-2g
+    asserts:
+      - failedTemplate:
+          errorPattern: "JetStream storage budget exceeded \\(nats.jetstream.profile=tenant-2g\\).*CAMERA_MEDIA_RESULTS: 2147483648 bytes"
+
+  - it: refuses the worker where its results stream fits on no server, even when overcommit is allowed
+    template: templates/media-worker.yaml
+    set:
+      nats.jetstream.profile: tenant-2g
+      nats.jetstream.allowOvercommit: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.enabled needs the worker's CAMERA_MEDIA_RESULTS stream, which reserves a fixed 2147483648 bytes, but NATS max_file_store is 2000000000 bytes"
+
+  - it: turns on core's visual-index dispatch with the worker
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED, value: "true"}
+
+  - it: keeps core's visual-index dispatch off without the worker
+    template: templates/core.yaml
+    set:
+      mediaWorker.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED, value: "false"}

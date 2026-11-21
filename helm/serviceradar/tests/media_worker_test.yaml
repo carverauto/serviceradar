@@ -30,8 +30,6 @@ tests:
           value: present
           effect: NoSchedule
       mediaWorker.models.existingClaim: example-media-models-pvc
-      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.onnx
-      mediaWorker.models.detectorSha256: "1111111111111111111111111111111111111111111111111111111111111111"
       mediaWorker.auth.existingSecret: example-media-worker-auth
       mediaWorker.auth.tokenKey: media-worker-token
       mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"

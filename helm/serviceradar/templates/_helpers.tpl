@@ -1480,6 +1480,16 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
   (dict "id" "aranciniFallback" "stream" "ARANCINI_CAUSAL" "source" "core.eventWriter.streams.ARANCINI_CAUSAL.maxBytes" "value" $ewArancini.maxBytes "replicaSource" "core.eventWriter.streams.ARANCINI_CAUSAL.replicas" "replicaValue" $ewArancini.replicas "counted" false)
 ) -}}
 
+{{- /* The media worker creates its jobs and results streams itself at fixed sizes, one
+     replica each (rust/media-worker/src/worker.rs ensure_media_streams); the chart
+     cannot change them, so it counts them while the worker is enabled. */ -}}
+{{- if (default (dict) $v.mediaWorker).enabled -}}
+{{- $entries = concat $entries (list
+  (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+) -}}
+{{- end -}}
+
 {{- $sizes := dict -}}
 {{- $full := int64 0 -}}
 {{- $spread := int64 0 -}}
