@@ -22,7 +22,7 @@
 {{- fail (printf "mediaWorker.models.%s is not supported: the worker indexes whole scenes only until a detector whose identity matches core's is added. Remove the key." $key) -}}
 {{- end -}}
 {{- end -}}
-{{- if $mw.enabled }}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- $web := default (dict) .Values.webNg -}}
 {{- $controlPlaneRuntime := default (dict) $web.controlPlaneRuntime -}}
 {{- $controlPlanePort := int (default 4001 $controlPlaneRuntime.port) -}}
@@ -86,13 +86,11 @@
 {{- if and $tagSuffix $mwDigest -}}
 {{- fail "mediaWorker.image.tagSuffix cannot be combined with the digest pinned in image.digests.mediaWorker: pin the variant's own digest there and leave tagSuffix empty" -}}
 {{- end -}}
-{{- $imageSuffix := "" -}}
+{{- /* An explicit worker tag replaces the release tag or digest; tagSuffix extends
+     either tag (a digest with a suffix was refused above). */ -}}
+{{- $imageSuffix := printf "%s%s" (include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker")) $tagSuffix -}}
 {{- if $mwImage.tag -}}
 {{- $imageSuffix = printf ":%s%s" $mwImage.tag $tagSuffix -}}
-{{- else if $mwDigest -}}
-{{- $imageSuffix = include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker") -}}
-{{- else -}}
-{{- $imageSuffix = printf ":%s%s" (include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker")) $tagSuffix -}}
 {{- end -}}
 {{- $imageRef := printf "%s%s" $imageRepo $imageSuffix -}}
 {{- /* web-ng omits the private control-runtime listener (4001) from its ClusterIP Service;
@@ -103,10 +101,20 @@
      the private control-plane port. Anything missing or mismatched there rejects every
      grant, so it is refused here rather than at the first job. Whether the URL is this
      release's web-ng is decided from its host, not from whether it was left empty. */ -}}
+{{- /* Canonical form: lower-case scheme and host, no DNS root dot, explicit port. */ -}}
 {{- $cpParsed := urlParse $controlPlaneUrl -}}
-{{- $cpHostPort := splitList ":" $cpParsed.host -}}
-{{- $cpHost := first $cpHostPort -}}
-{{- $cpLocal := regexMatch (printf `^serviceradar-web-ng(-headless)?(\.%s(\.svc(\.cluster\.local)?)?)?$` (regexQuoteMeta .Release.Namespace)) $cpHost -}}
+{{- $cpScheme := lower $cpParsed.scheme -}}
+{{- $cpHostPort := splitList ":" (lower $cpParsed.host) -}}
+{{- $cpHost := trimSuffix "." (first $cpHostPort) -}}
+{{- $cpPort := "" -}}
+{{- if gt (len $cpHostPort) 1 -}}
+{{- $cpPort = last $cpHostPort -}}
+{{- else if eq $cpScheme "https" -}}
+{{- $cpPort = "443" -}}
+{{- else if eq $cpScheme "http" -}}
+{{- $cpPort = "80" -}}
+{{- end -}}
+{{- $cpLocal := regexMatch (printf `^serviceradar-web-ng(-headless)?(\.%s(\.svc(\.cluster\.local)?)?)?$` (regexQuoteMeta (lower .Release.Namespace))) $cpHost -}}
 {{- if $cpLocal -}}
 {{- $cpWorker := default (dict) $controlPlaneRuntime.mediaWorker -}}
 {{- if and (hasKey $web "enabled") (not $web.enabled) -}}
@@ -115,8 +123,17 @@
 {{- if not $cpWorker.enabled -}}
 {{- fail "mediaWorker.enabled needs webNg.controlPlaneRuntime.mediaWorker.enabled: the worker obtains every recording read grant from web-ng's private control-plane listener" -}}
 {{- end -}}
-{{- if ne (toString (last $cpHostPort)) (toString $controlPlanePort) -}}
+{{- if ne (first (splitList "." $cpHost)) "serviceradar-web-ng-headless" -}}
+{{- fail (printf "mediaWorker.controlPlaneUrl %s names the serviceradar-web-ng Service, which does not expose web-ng's private control-plane port: use serviceradar-web-ng-headless" $controlPlaneUrl) -}}
+{{- end -}}
+{{- if ne $cpScheme "http" -}}
+{{- fail (printf "mediaWorker.controlPlaneUrl %s must use http: web-ng's private control-plane listener serves plain HTTP" $controlPlaneUrl) -}}
+{{- end -}}
+{{- if ne $cpPort (toString $controlPlanePort) -}}
 {{- fail (printf "mediaWorker.controlPlaneUrl %s must use webNg.controlPlaneRuntime.port %d, where web-ng serves the read-grant endpoint" $controlPlaneUrl $controlPlanePort) -}}
+{{- end -}}
+{{- if not (has $cpParsed.path (list "" "/")) -}}
+{{- fail (printf "mediaWorker.controlPlaneUrl %s must have no path: the worker appends /v1/media/workers/read-grants to it" $controlPlaneUrl) -}}
 {{- end -}}
 {{- if ne (toString $cpWorker.deploymentRef) (toString $auth.deploymentRef) -}}
 {{- fail "mediaWorker.auth.deploymentRef must equal webNg.controlPlaneRuntime.mediaWorker.deploymentRef" -}}
@@ -171,6 +188,18 @@
 {{- end -}}
 {{- $_ := set $requests $gpuResourceName $gpuCount -}}
 {{- $_ := set $limits $gpuResourceName $gpuCount -}}
+{{- end -}}
+{{- if not $gpu -}}
+{{- /* A GPU entry left in resources would still claim a GPU, and the RollingUpdate
+     strategy this mode uses cannot surge on a pool without a spare one. */ -}}
+{{- $gpuResourceName := default "nvidia.com/gpu" $mw.gpuResourceName -}}
+{{- range $section, $entries := dict "requests" $requests "limits" $limits -}}
+{{- range $name, $_ := $entries -}}
+{{- if or (eq $name $gpuResourceName) (regexMatch `(?i)gpu` $name) -}}
+{{- fail (printf "mediaWorker.resources.%s.%s requests a GPU under mediaWorker.executionProvider cpu_explicit, which runs without one: remove it, or use a GPU execution provider" $section $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $_ := set $baseResources "requests" $requests -}}
 {{- $_ := set $baseResources "limits" $limits -}}
@@ -375,9 +404,16 @@ spec:
               mountPath: /etc/serviceradar/certs
               readOnly: true
             {{- if $models.existingClaim }}
+            {{- /* Only the three SigLIP files are mounted. Candle also loads any
+                 detector.safetensors or yolov8.safetensors it finds in the model
+                 directory, whose detections the pinned identity would label
+                 rtdetr-r18, so nothing else on the PVC is made visible. */}}
+            {{- range $file := list "config.json" "model.safetensors" "tokenizer.json" }}
             - name: models
-              mountPath: {{ $modelsMountPath | quote }}
+              mountPath: {{ printf "%s/%s" (trimSuffix "/" $modelsMountPath) $file | quote }}
+              subPath: {{ $file | quote }}
               readOnly: true
+            {{- end }}
             {{- end }}
       volumes:
         - name: tmp

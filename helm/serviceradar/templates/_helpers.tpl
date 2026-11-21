@@ -150,6 +150,24 @@ compatibility Service and the namespace NetworkPolicy must all agree on it.
 {{- end }}
 {{- end -}}
 
+{{/*
+mediaWorker.enabled, validated once for every template that depends on it (the
+worker, its certificate, NATS grants, JetStream budget, network policies and
+core's dispatch flag). Absent means false; anything but a YAML boolean fails, so
+`--set-string mediaWorker.enabled=false` cannot read as true in some templates
+and false in others. Renders "true" or "false".
+*/}}
+{{- define "serviceradar.mediaWorkerEnabled" -}}
+{{- $enabled := (default (dict) .Values.mediaWorker).enabled -}}
+{{- if kindIs "invalid" $enabled -}}
+false
+{{- else if kindIs "bool" $enabled -}}
+{{- ternary "true" "false" $enabled -}}
+{{- else -}}
+{{- fail (printf "mediaWorker.enabled must be a boolean (true or false), got %s %q" (kindOf $enabled) (toString $enabled)) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
@@ -1483,7 +1501,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- /* The media worker creates its jobs and results streams itself at fixed sizes, one
      replica each (rust/media-worker/src/worker.rs ensure_media_streams); the chart
      cannot change them, so it counts them while the worker is enabled. */ -}}
-{{- if (default (dict) $v.mediaWorker).enabled -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
 {{- $entries = concat $entries (list
   (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
   (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)

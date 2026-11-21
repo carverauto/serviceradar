@@ -1,0 +1,17 @@
+suite: mediaWorker.enabled is one validated boolean
+templates:
+  - templates/media-worker.yaml
+release:
+  namespace: sr-media-flag-test
+tests:
+  # `--set-string mediaWorker.enabled=false` yields the string "false", which Go
+  # templates treat as true. Every consumer reads the validated
+  # serviceradar.mediaWorkerEnabled helper, so the chart refuses it rather than
+  # enabling the worker in some templates and disabling it in others.
+  - it: refuses a string where the worker gate expects a boolean
+    template: templates/media-worker.yaml
+    values:
+      - values/media_worker_enabled_string.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.enabled must be a boolean \\(true or false\\), got string \"false\""

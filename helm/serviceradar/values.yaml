@@ -519,6 +519,8 @@ mediaWorker:
   # "cuda" | "tensorrt" | "cpu_explicit" (fails closed if GPU runtime is
   # unavailable unless explicitly set to "cpu_explicit"). cuda and tensorrt need
   # runtimeClassName and an image built with CUDA; the default image is CPU-only.
+  # tensorrt additionally needs a loadable ONNX Runtime with the TensorRT
+  # execution provider (ortDylibPath), which the CUDA image does not include.
   executionProvider: "cuda"
   # Inference device for the candle backend. Empty derives cuda for the GPU
   # providers and cpu for cpu_explicit. GPU providers accept "cuda" or "auto";
@@ -550,9 +552,11 @@ mediaWorker:
   # fails rendering even while the worker is disabled.
   models:
     # PVC holding the SigLIP config.json, model.safetensors and tokenizer.json
-    # at its root, mounted read-only at mountPath and passed to the worker as
-    # MEDIA_WORKER_MODEL_DIR. Nothing is downloaded. Indexing is whole-scene
-    # only; a permissively licensed subject detector will be added later.
+    # at its root. Only those three files are mounted (read-only, one by one)
+    # into mountPath, which the worker gets as MEDIA_WORKER_MODEL_DIR, so a
+    # detector file on the PVC stays invisible. Nothing is downloaded. Indexing
+    # is whole-scene only; a permissively licensed subject detector will be
+    # added later as an explicit chart setting.
     existingClaim: ""
     mountPath: "/var/lib/serviceradar-media-worker/models"
     embedderPath: ""

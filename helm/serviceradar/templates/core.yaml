@@ -14,6 +14,13 @@
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- /* Core dispatches visual-index jobs exactly while the chart deploys the media worker,
+     so the flag is derived from mediaWorker.enabled and cannot be overridden. */ -}}
+{{- range $source := list "extraEnv" "extraEnvValueFrom" -}}
+{{- if hasKey (default (dict) (get $coreVals $source)) "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" -}}
+{{- fail (printf "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.%s: the chart derives it from mediaWorker.enabled" $source) -}}
+{{- end -}}
+{{- end -}}
 {{- $coreObanShutdownGrace := int (default 60 $coreVals.obanShutdownGracePeriodSeconds) -}}
 {{- $coreTerminationGrace := int (default 90 $coreVals.terminationGracePeriodSeconds) -}}
 {{- if lt $coreTerminationGrace (add $coreObanShutdownGrace 15) -}}
@@ -211,7 +218,7 @@ spec:
              deploys the media worker that consumes the jobs. Core reads it together
              with SERVICERADAR_CAMERA_RECORDING_ENABLED. */}}
         - name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED
-          value: {{ ternary "true" "false" (eq (toString (default false (default (dict) .Values.mediaWorker).enabled)) "true") | quote }}
+          value: {{ include "serviceradar.mediaWorkerEnabled" . | quote }}
         {{- if $edgeIssuerSeedMounted }}
         - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
           value: /etc/serviceradar/edge-issuer/seed

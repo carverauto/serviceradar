@@ -30,7 +30,17 @@ spec:
     - Ingress
   ingress:
     - from:
+        {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+        {{- /* Every application pod in the namespace except the media worker, which
+             has no database access by design. */}}
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: NotIn
+                values: [serviceradar-media-worker]
+        {{- else }}
         - podSelector: {}
+        {{- end }}
       ports:
         - protocol: TCP
           port: 5432
