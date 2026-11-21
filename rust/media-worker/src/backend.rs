@@ -64,6 +64,18 @@ pub enum InferenceDevicePreference {
 }
 
 impl InferenceDevicePreference {
+    pub(crate) fn validate_provider(self, require_gpu: bool) -> Result<(), CapabilityError> {
+        match (self, require_gpu) {
+            (Self::Cpu, true) => Err(CapabilityError::invalid_configuration(
+                "MEDIA_WORKER_DEVICE=cpu conflicts with GPU execution provider",
+            )),
+            (Self::Cuda, false) => Err(CapabilityError::invalid_configuration(
+                "MEDIA_WORKER_DEVICE=cuda conflicts with execution_provider=cpu_explicit",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -127,7 +139,7 @@ impl FromStr for InferencePrecision {
     type Err = CapabilityError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
+        match s {
             "auto" => Ok(Self::Auto),
             "f32" => Ok(Self::F32),
             "f16" => Ok(Self::F16),
@@ -351,6 +363,9 @@ impl InferenceBackend for DeterministicStubBackend {
 pub fn build_inference_backend(
     config: &WorkerConfig,
 ) -> Result<Arc<dyn InferenceBackend>, MediaWorkerError> {
+    config
+        .device_preference()
+        .validate_provider(config.execution_provider().requires_gpu())?;
     match config.backend_kind() {
         InferenceBackendKind::Stub => Ok(Arc::new(DeterministicStubBackend::new(
             config.models().clone(),

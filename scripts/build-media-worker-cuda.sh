@@ -8,9 +8,6 @@
 #
 #   fetch-toolchain <dir>   Download the pinned Rust components (needs curl; run on a
 #                           runner that has it -- the CUDA devel image does not).
-#   vendor <dir>            Unpack //third_party/crate_mirror into a Cargo directory source
-#                           for every registry crate in Cargo.lock, verifying each archive
-#                           against the lockfile checksum. Works on any host.
 #   build <toolchain-dir> <out-dir>
 #                           Install the toolchain into $HOME, vendor the crates, build with
 #                           `--features cuda --locked`, and write the binary, the CUDA
@@ -18,7 +15,6 @@
 #
 # Crates come from the checked-in mirror (the archives Bazel uses), never from crates.io,
 # so the build makes no package-registry fetch. Environment:
-#   CUDA_COMPUTE_CAP   target SM, default 121 (GB10 / DGX Spark). Required with no GPU.
 #   CUDA_BUILDER_IMAGE the builder image reference, recorded in manifest.json.
 #   CARGO_TARGET_DIR   default $HOME/media-worker-cuda-target.
 
@@ -77,11 +73,19 @@ check_toolchain_pin() {
     || die "rust-toolchain.toml pins ${channel}, this script pins ${RUST_VERSION}; update both together"
 }
 
+require_empty_dir() (
+  local dir="$1"
+  mkdir -p -- "${dir}"
+  shopt -s dotglob nullglob
+  set -- "${dir}"/*
+  (( $# == 0 )) || die "output directory must be empty: ${dir}"
+)
+
 fetch_toolchain() {
   local dir="$1" entry component expected archive
   require curl
   check_toolchain_pin
-  mkdir -p "${dir}"
+  require_empty_dir "${dir}"
   for entry in "${RUST_COMPONENT_SHA256[@]}"; do
     read -r component expected <<<"${entry}"
     archive="$(component_archive "${component}")"
@@ -180,15 +184,15 @@ json_string() {
 }
 
 write_manifest() {
-  local out="$1" compute_cap="$2" file first=1
+  local out="$1" file first=1
   {
     printf '{\n'
     printf '  "schema": 1,\n'
-    printf '  "commit": %s,\n' "$(json_string "${GITHUB_SHA:-unknown}")"
+    printf '  "commit": %s,\n' "$(json_string "${GITHUB_SHA}")"
     printf '  "binary": {"path": %s, "sha256": %s},\n' \
       "$(json_string "${BINARY_NAME}")" "$(json_string "$(sha256_of "${out}/${BINARY_NAME}")")"
     printf '  "cargo_features": ["cuda"],\n'
-    printf '  "cuda_compute_cap": %s,\n' "$(json_string "${compute_cap}")"
+    printf '  "cuda_compute_cap": %s,\n' "$(json_string "${CUDA_COMPUTE_CAP}")"
     printf '  "builder_image": %s,\n' "$(json_string "${CUDA_BUILDER_IMAGE:-unknown}")"
     printf '  "toolchain": {"rustc": %s, "cargo": %s, "nvcc": %s, "cc": %s},\n' \
       "$(json_string "$(rustc --version)")" \
@@ -205,11 +209,11 @@ write_manifest() {
   } > "${out}/manifest.json"
 }
 
-build() {
+build() (
   local toolchain_dir="$1" out="$2"
-  local compute_cap="${CUDA_COMPUTE_CAP:-121}"
+  require_empty_dir "${out}"
+  [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "GITHUB_SHA must be the full commit SHA"
   require nvcc tar gzip sha256sum ldd cc awk
-  [[ "${compute_cap}" =~ ^[0-9]+$ ]] || die "CUDA_COMPUTE_CAP must be numeric, got '${compute_cap}'"
   [[ -n "${HOME:-}" && -d "${HOME}" ]] || die "HOME must name an existing writable directory"
 
   local prefix="${HOME}/rust-${RUST_VERSION}"
@@ -218,15 +222,16 @@ build() {
   export CARGO_HOME="${HOME}/cargo-home"
   rustc --version | grep -qF "rustc ${RUST_VERSION} " || die "installed rustc is not ${RUST_VERSION}"
 
-  local vendor_dir="${HOME}/media-worker-cuda-vendor"
-  rm -rf "${vendor_dir}"
+  local vendor_dir
+  vendor_dir="$(mktemp -d "${HOME}/media-worker-cuda-vendor.XXXXXXXX")"
+  trap 'rm -rf -- "${vendor_dir}"' EXIT
   vendor_crates "${vendor_dir}"
 
   # The repository's cross-compile linker name; a native arm64 builder may only have cc.
   if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
     export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=cc
   fi
-  export CUDA_COMPUTE_CAP="${compute_cap}"
+  export CUDA_COMPUTE_CAP=121
   export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${HOME}/media-worker-cuda-target}"
   # No git binary in the builder image: let cargo use its built-in client for the
   # one git dependency in Cargo.lock.
@@ -240,28 +245,24 @@ build() {
       -p serviceradar-media-worker --features cuda --bin "${BINARY_NAME}"
   )
 
-  rm -rf "${out}"
-  mkdir -p "${out}"
   install -m 0755 "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" "${out}/${BINARY_NAME}"
   collect_cuda_libraries "${out}/${BINARY_NAME}" "${out}/lib"
-  write_manifest "${out}" "${compute_cap}"
+  write_manifest "${out}"
   (
     cd "${out}"
-    find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort > "${HOME}/media-worker-cuda-files"
-    xargs sha256sum < "${HOME}/media-worker-cuda-files" > SHA256SUMS
+    find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
   )
   echo "built ${out}:"
   cat "${out}/SHA256SUMS"
-}
+)
 
 usage() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^$/{ /^#/p; }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
 case "${1:-}" in
   fetch-toolchain) [[ $# -eq 2 ]] || usage; fetch_toolchain "$2" ;;
-  vendor) [[ $# -eq 2 ]] || usage; vendor_crates "$2" ;;
   build) [[ $# -eq 3 ]] || usage; build "$2" "$3" ;;
   *) usage ;;
 esac

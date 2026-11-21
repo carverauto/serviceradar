@@ -39,7 +39,7 @@ DOCKERFILE_IMAGES = [
 # pushed, signed and promoted by the named workflow. Only an image listed here can be signed
 # that way (SERVICERADAR_NATIVE_IMAGE in //scripts:sign-oci-publish.sh), never by a release.
 NATIVE_BUILD_IMAGES = [
-    {"repository": "serviceradar-media-worker-cuda", "workflow": ".github/workflows/publish-media-worker-cuda.yml"},
+    {"repository": "serviceradar-media-worker-cuda"},
 ]
 
 def publishable_image_labels():

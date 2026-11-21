@@ -5,7 +5,7 @@ The bundle comes from `scripts/build-media-worker-cuda.sh build` on the credenti
 arm64 runner. This tool runs on the signing runner, which has no Docker daemon:
 
     verify <bundle> --sums-sha256 <hex>   check the bundle against the build job's output
-    push <bundle> --sums-sha256 <hex> --tag <ref> --digest-file <path>
+    push <bundle> --sums-sha256 <hex> --digest-file <path>
                                           verify, write one deterministic layer, append it
                                           to the pinned Ubuntu base with `crane mutate`,
                                           check what the registry now holds, and write the
@@ -79,7 +79,7 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def verify(bundle, sums_sha256):
+def verify(bundle, sums_sha256, commit):
     """Return {relative path: sha256} after proving the bundle is what the build produced."""
     bundle = Path(bundle)
     if not re.fullmatch(r"[0-9a-f]{64}", sums_sha256 or ""):
@@ -106,6 +106,10 @@ def verify(bundle, sums_sha256):
         if sha256_file(bundle / name) != expected:
             raise BundleError(f"{name} does not match SHA256SUMS")
     manifest = json.loads((bundle / "manifest.json").read_text())
+    if not re.fullmatch(r"[0-9a-f]{40}", commit or "") or manifest.get("commit") != commit:
+        raise BundleError("manifest commit must match the expected full commit SHA")
+    if manifest.get("cuda_compute_cap") != "121":
+        raise BundleError("manifest must target CUDA compute capability 121")
     if manifest.get("binary", {}).get("sha256") != listed[BINARY]:
         raise BundleError("manifest.json names a different binary")
     return listed
@@ -163,10 +167,10 @@ def crane(*args):
     return subprocess.check_output(["crane", *args], text=True).strip()
 
 
-def push(bundle, sums_sha256, tag, revision):
-    listed = verify(bundle, sums_sha256)
-    if not re.fullmatch(r"registry\.carverauto\.dev/serviceradar-builds/[a-z0-9-]+:[A-Za-z0-9_.-]+", tag):
-        raise BundleError("the image is pushed only to the unprotected build project")
+def push(bundle, sums_sha256, commit):
+    listed = verify(bundle, sums_sha256, commit)
+    repository = "registry.carverauto.dev/serviceradar-builds/serviceradar-media-worker-cuda"
+    tag = f"{repository}:sha-{commit}"
     with tempfile.TemporaryDirectory(prefix="media-worker-cuda-") as work:
         layer = Path(work) / "layer.tar"
         write_layer(bundle, listed, fetch_ca_bundle(), layer)
@@ -179,21 +183,23 @@ def push(bundle, sums_sha256, tag, revision):
                    "--exposed-ports", "8096/tcp",
                    "--label", "org.opencontainers.image.title=serviceradar-media-worker-cuda",
                    "--label", "org.opencontainers.image.source=https://github.com/carverauto/serviceradar",
-                   "--label", f"org.opencontainers.image.revision={revision}"]
+                   "--label", f"org.opencontainers.image.revision={commit}"]
         for key, value in IMAGE_ENV.items():
             command += ["--env", f"{key}={value}"]
         crane(*command)
     # Check the registry copy, not what crane says it sent.
     digest = crane("digest", tag)
-    config = json.loads(crane("config", tag))
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise BundleError(f"invalid pushed digest: {digest}")
+    config = json.loads(crane("config", f"{repository}@{digest}"))
+    if config.get("config", {}).get("Labels", {}).get("org.opencontainers.image.revision") != commit:
+        raise BundleError("pushed image revision does not match the bundle commit")
     if config.get("architecture") != "arm64" or config.get("os") != "linux":
         raise BundleError(f"pushed image is {config.get('os')}/{config.get('architecture')}, not linux/arm64")
     if config.get("config", {}).get("User") != f"{UID}:{GID}":
         raise BundleError("pushed image does not run as the serviceradar user")
     if config.get("rootfs", {}).get("diff_ids", [None])[-1] != layer_digest:
         raise BundleError("pushed image's top layer is not the layer assembled from the bundle")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-        raise BundleError(f"invalid pushed digest: {digest}")
     return digest
 
 
@@ -204,18 +210,17 @@ def main():
         command = commands.add_parser(name)
         command.add_argument("bundle")
         command.add_argument("--sums-sha256", required=True)
-    commands.choices["push"].add_argument("--tag", required=True)
     commands.choices["push"].add_argument("--digest-file", required=True)
-    commands.choices["push"].add_argument("--revision", default=os.environ.get("GITHUB_SHA", ""))
     args = parser.parse_args()
+    commit = os.environ.get("GITHUB_SHA", "")
     try:
         if args.action == "verify":
-            verify(args.bundle, args.sums_sha256)
+            verify(args.bundle, args.sums_sha256, commit)
             print(f"bundle {args.bundle} verified")
         else:
-            digest = push(args.bundle, args.sums_sha256, args.tag, args.revision)
+            digest = push(args.bundle, args.sums_sha256, commit)
             Path(args.digest_file).write_text(digest + "\n")
-            print(f"pushed {args.tag} as {digest}")
+            print(f"pushed sha-{commit} as {digest}")
     except (BundleError, OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"media-worker CUDA image: {error}", file=sys.stderr)
         return 1

@@ -316,6 +316,9 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
 }
 
 fn validate_worker_bounds(config: &WorkerConfig) -> Result<(), CapabilityError> {
+    config
+        .device_preference()
+        .validate_provider(config.execution_provider().requires_gpu())?;
     let dim = config.models().embedding_dim();
     if config.backend_kind() == InferenceBackendKind::Stub && dim != 512 && dim != 768 {
         return Err(CapabilityError::invalid_configuration(format!(

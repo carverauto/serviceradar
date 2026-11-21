@@ -117,7 +117,8 @@ listed in `docker/images/image_inventory.bzl`:
   is `serviceradar-media-worker-cuda`
   ([media-worker-cuda-image.md](media-worker-cuda-image.md)).
 
-Both modes sign one image by the tag the workflow just pushed, through the same
+The Dockerfile workflow resolves the published tag. The native workflow passes
+the verified build digest directly through signing and promotion. Both use the same
 `sign-oci-publish.sh` path, OpenBao role and ref allowlist as `publish-oci.yml`,
 and are promoted like any other image.
 

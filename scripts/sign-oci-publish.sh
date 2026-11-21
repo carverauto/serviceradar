@@ -46,13 +46,20 @@ if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" && -z "${SIGN_REGISTRY_TAG}" ]]; t
   echo "error: a Dockerfile image is signed by its published tag" >&2
   exit 1
 fi
-if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" && -z "${SIGN_REGISTRY_TAG}" ]]; then
-  echo "error: a native-build image is signed by its published tag" >&2
-  exit 1
-fi
-if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" && -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
-  echo "error: sign one Dockerfile image or one native-build image, not both" >&2
-  exit 1
+if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+  if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" ]]; then
+    echo "error: sign one Dockerfile image or one native-build image, not both" >&2
+    exit 1
+  fi
+  if [[ $# != 1 || ! "$1" =~ ^sha256:[0-9a-f]{64}$ || -n "${SIGN_REGISTRY_TAG}" ]]; then
+    echo "error: a native-build image requires one verified digest" >&2
+    exit 1
+  fi
+  source "${SCRIPT_DIR}/oci_registry.sh"
+  oci_check_native_image "${REPO_ROOT}/docker/images/image_inventory.bzl" "${SERVICERADAR_NATIVE_IMAGE}"
+  cosign_init_sign_args
+  attach_legacy_signature "${REGISTRY_HOST}/${OCI_PROJECT}/${SERVICERADAR_NATIVE_IMAGE}@$1"
+  exit 0
 fi
 
 if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then
@@ -125,16 +132,6 @@ if dockerfile_image:
     if dockerfile_image not in names:
         raise SystemExit(f"unknown Dockerfile image: {dockerfile_image}")
     print(f"{registry_host}/{project}/{dockerfile_image}|")
-    raise SystemExit(0)
-# One image assembled around a natively built binary (NATIVE_BUILD_IMAGES), signed the same
-# way by the tag its workflow just pushed, e.g. .github/workflows/publish-media-worker-cuda.yml.
-native_image = os.environ.get("SERVICERADAR_NATIVE_IMAGE", "")
-if native_image:
-    declared = re.search(r"NATIVE_BUILD_IMAGES\s*=\s*(\[[\s\S]*?\])\n", text)
-    names = {entry["repository"] for entry in ast.literal_eval(declared.group(1))} if declared else set()
-    if native_image not in names:
-        raise SystemExit(f"unknown native-build image: {native_image}")
-    print(f"{registry_host}/{project}/{native_image}|")
     raise SystemExit(0)
 match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text)
 if not match:

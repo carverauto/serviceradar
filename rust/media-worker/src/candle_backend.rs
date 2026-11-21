@@ -336,19 +336,11 @@ pub fn resolve_candle_device(
     pref: InferenceDevicePreference,
     require_gpu: bool,
 ) -> Result<(Device, String), MediaWorkerError> {
-    match (pref, require_gpu) {
-        (InferenceDevicePreference::Cpu, true) => Err(MediaWorkerError::inference_failed(
-            "MEDIA_WORKER_DEVICE=cpu conflicts with GPU execution provider; refusing silent CPU fallback",
-        )),
-        (InferenceDevicePreference::Cuda, false) => Err(MediaWorkerError::inference_failed(
-            "MEDIA_WORKER_DEVICE=cuda conflicts with execution_provider=cpu_explicit; set a GPU execution provider to use CUDA",
-        )),
-        (InferenceDevicePreference::Cpu | InferenceDevicePreference::Auto, false) => {
-            Ok((Device::Cpu, "cpu".to_string()))
-        }
-        (InferenceDevicePreference::Cuda | InferenceDevicePreference::Auto, true) => {
-            try_open_cuda_device()
-        }
+    pref.validate_provider(require_gpu)?;
+    if require_gpu {
+        try_open_cuda_device()
+    } else {
+        Ok((Device::Cpu, "cpu".to_string()))
     }
 }
 
@@ -426,9 +418,12 @@ pub(crate) fn cuda_jit_cache_dir(env: &dyn Fn(&str) -> Option<OsString>) -> Opti
 /// Creates `dir` if needed and proves a file can be written in it.
 pub(crate) fn probe_writable_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let probe = dir.join(format!(".serviceradar-write-probe-{}", std::process::id()));
-    std::fs::write(&probe, b"")?;
-    std::fs::remove_file(&probe)
+    let probe = dir.join(format!(
+        ".serviceradar-write-probe-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::File::create_new(&probe)?;
+    std::fs::remove_file(probe)
 }
 
 /// Logs whether the CUDA JIT cache can persist. Never fails startup: an unwritable

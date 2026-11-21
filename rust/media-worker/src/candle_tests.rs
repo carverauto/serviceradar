@@ -749,6 +749,22 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
 
+    let conflict = CliArgs::try_parse_from([
+        "serviceradar-media-worker",
+        "--device",
+        "cuda",
+        "--execution-provider",
+        "cpu_explicit",
+    ])
+    .expect("parse conflicting arguments")
+    .into_worker_config()
+    .expect_err("conflicting device and provider must fail before choosing the stub");
+    assert!(
+        conflict
+            .to_string()
+            .contains("execution_provider=cpu_explicit")
+    );
+
     // 1. Default without model dir selects stub.
     let cli_stub = CliArgs::try_parse_from([
         "serviceradar-media-worker",
@@ -784,7 +800,10 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     assert_eq!(cfg_candle.precision(), InferencePrecision::Auto);
     for (raw, expected) in [
         ("f16", Some(InferencePrecision::F16)),
-        ("F32", Some(InferencePrecision::F32)),
+        ("auto", Some(InferencePrecision::Auto)),
+        ("f32", Some(InferencePrecision::F32)),
+        ("F32", None),
+        (" f16 ", None),
         ("bf16", None),
     ] {
         let parsed = CliArgs::try_parse_from(["serviceradar-media-worker", "--dtype", raw])
@@ -986,12 +1005,11 @@ fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
 
     let frames = gradient_frames();
     let refs: Vec<&RgbFrame> = frames.iter().collect();
-    let mut pairs: Vec<(Vec<f32>, Vec<f32>)> = f32_backend
-        .encode_images(&refs)
-        .expect("f32 images")
-        .into_iter()
-        .zip(f16_backend.encode_images(&refs).expect("f16 images"))
-        .collect();
+    let full_images = f32_backend.encode_images(&refs).expect("f32 images");
+    let half_images = f16_backend.encode_images(&refs).expect("f16 images");
+    assert_eq!(full_images.len(), frames.len());
+    assert_eq!(half_images.len(), frames.len());
+    let mut pairs: Vec<_> = full_images.into_iter().zip(half_images).collect();
     for query in ["person in red jacket", "white van"] {
         pairs.push((
             f32_backend.encode_text(query).expect("f32 text"),
@@ -1003,7 +1021,8 @@ fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
     // GPU; this tiny checkpoint lands near 0.99999. The 0.9999 bar sits clear of f16
     // rounding noise and far above what a wrong cast or a missing upcast produces.
     for (full, half) in &pairs {
-        assert_eq!(full.len(), half.len());
+        assert_eq!(full.len(), 32);
+        assert_eq!(half.len(), 32);
         let norm: f32 = half.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!(
             (norm - 1.0).abs() < 1e-4,
@@ -1062,6 +1081,13 @@ fn cuda_jit_cache_location_follows_cuda_driver_rules_and_unwritable_is_reported(
         std::fs::read_dir(&writable).expect("cache dir").count(),
         0,
         "the probe must not leave files behind"
+    );
+    let existing = writable.join(format!(".serviceradar-write-probe-{}", std::process::id()));
+    std::fs::write(&existing, b"existing").expect("create existing cache file");
+    probe_writable_dir(&writable).expect("probe shared cache");
+    assert_eq!(
+        std::fs::read(existing).expect("preserved file"),
+        b"existing"
     );
     // A path under a regular file cannot be created, whoever runs the test.
     let blocker = dir.path().join("not-a-directory");

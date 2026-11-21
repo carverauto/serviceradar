@@ -107,17 +107,22 @@ def promote(directory, args):
         repositories = inventory(args.kind)
     if not repositories or not args.tags:
         raise ValueError("promotion requires repositories and tags")
+    if args.digest is not None:
+        if not args.repositories or len(repositories) != 1 or len(args.tags) != 1:
+            raise ValueError("--digest requires one named repository and tag")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
+            raise ValueError("invalid promotion digest")
     artifacts, publish_tags = [], []
     for repository, entry in repositories:
         source = f"{REGISTRY}/serviceradar-builds/{repository}"
-        digest = run("oras", "resolve", source + ":" + args.tags[0], env=build)
+        digest = args.digest or run("oras", "resolve", source + ":" + args.tags[0], env=build)
         requested = list(dict.fromkeys(args.tags))
         static = [tag for tag in dict.fromkeys(entry.get("static_tags", [])) if tag not in requested]
         for tag in requested + static:
             if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag):
                 raise ValueError("invalid publication tag")
         for tag in requested:
-            if run("oras", "resolve", source + ":" + tag, env=build) != digest:
+            if args.digest is None and run("oras", "resolve", source + ":" + tag, env=build) != digest:
                 raise ValueError(f"build tags disagree: {repository}:{tag}")
         # One signature format: the digest's classic `.sig` tag, which admission
         # reads. Promotion reuses a protected one or copies the verified build
@@ -261,6 +266,7 @@ def main():
     selection.add_argument("--metadata-dir")
     selection.add_argument("--repositories", nargs="+")
     promote_parser.add_argument("--tag", dest="tags", action="append", required=True)
+    promote_parser.add_argument("--digest")
     promote_parser.add_argument("--unsigned", action="store_true",
                                 help="artifacts without a Cosign signature (Helm chart bundles)")
     tool = commands.add_parser("publish-tool")

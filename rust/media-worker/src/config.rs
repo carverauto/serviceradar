@@ -357,11 +357,6 @@ impl WorkerConfig {
         self
     }
 
-    pub fn with_precision(mut self, precision: InferencePrecision) -> Self {
-        self.precision = precision;
-        self
-    }
-
     pub fn with_execution_provider(mut self, provider: ExecutionProvider) -> Self {
         self.execution_provider = provider;
         self
@@ -771,6 +766,18 @@ impl CliArgs {
             _ => SocketAddr::from(([0, 0, 0, 0], self.port)),
         };
 
+        let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let precision = InferencePrecision::from_str(&self.dtype)?;
+        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
+
+        let raw_provider = self
+            .execution_provider
+            .as_deref()
+            .or(self.execution_backend.as_deref())
+            .unwrap_or("cuda");
+        let execution_provider = ExecutionProvider::from_str(raw_provider)?;
+        device_preference.validate_provider(execution_provider.requires_gpu())?;
+
         let model_dir = non_empty_path(self.model_dir);
         let backend_kind = match non_empty_opt(self.backend) {
             Some(raw) => InferenceBackendKind::from_str(&raw)?,
@@ -782,16 +789,6 @@ impl CliArgs {
                 }
             }
         };
-        let device_preference = InferenceDevicePreference::from_str(&self.device)?;
-        let precision = InferencePrecision::from_str(&self.dtype)?;
-        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
-
-        let raw_provider = self
-            .execution_provider
-            .as_deref()
-            .or(self.execution_backend.as_deref())
-            .unwrap_or("cuda");
-        let execution_provider = ExecutionProvider::from_str(raw_provider)?;
 
         let declared_gpu_sharing_mode = match self
             .gpu_sharing_mode

@@ -40,6 +40,10 @@ CUDA 13.0 (driver 580 or newer).
 
 ## Deployment requirements
 
+- Mount the SigLIP checkpoint read-only, for example at
+  `/var/lib/serviceradar-media-worker/models/siglip`, and set `MEDIA_WORKER_MODEL_DIR`
+  to that directory. It must contain `config.json`, `tokenizer.json`, and
+  `model.safetensors` (or `siglip.safetensors`).
 - A GPU allocation (`nvidia.com/gpu`) and the NVIDIA runtime class on the node.
   The chart adds the GPU request whenever `mediaWorker.executionProvider` is not
   `cpu_explicit`.
@@ -54,9 +58,9 @@ CUDA 13.0 (driver 580 or newer).
 
 ## How it is built and published
 
-`.github/workflows/publish-media-worker-cuda.yml` runs on `workflow_dispatch` and
-on pushes to `staging` that touch the worker, its path dependencies,
-`Cargo.lock`, `rust-toolchain.toml`, or the build tooling. Bazel cannot build this
+`.github/workflows/publish-media-worker-cuda.yml` runs only on manual dispatch.
+A credential-less preflight job checks the ref before GitHub assigns the signing runner.
+Bazel cannot build this
 binary (RBE is amd64-only and has no CUDA toolkit).
 
 1. **toolchain** (GitHub-hosted, no secrets) downloads the pinned Rust
@@ -82,22 +86,24 @@ binary (RBE is amd64-only and has no CUDA toolkit).
    (`scripts/ci/media-worker-cuda-image.py push`) into `serviceradar-builds`,
    checks the registry copy (arm64, user 10001, top layer equals the assembled
    layer), signs it with `scripts/sign-oci-publish.sh`
-   (`SERVICERADAR_NATIVE_IMAGE`, admitted only for `NATIVE_BUILD_IMAGES`), and
-   promotes it to `serviceradar` with the verified signature.
+   (`SERVICERADAR_NATIVE_IMAGE`, admitted only for `NATIVE_BUILD_IMAGES`),
+   verifies the signature against the signing ledger, promotes that digest to
+   `serviceradar`, and verifies the protected signature against the same ledger.
 
 Dispatching from any other branch builds the bundle and stops; it is the way to
 try a change on the hardware without publishing.
 
-To build by hand on an arm64 host, inside the same devel image:
+For a manual build, set `GITHUB_SHA` to the checkout's full commit SHA in the
+arm64 devel container. Fetch the toolchain on a host with curl and mount it in
+the container.
 
 ```bash
 ./scripts/build-media-worker-cuda.sh fetch-toolchain /path/to/toolchain   # on a host with curl
-CUDA_COMPUTE_CAP=121 ./scripts/build-media-worker-cuda.sh build /path/to/toolchain /path/to/out
+./scripts/build-media-worker-cuda.sh build /path/to/toolchain /path/to/out
 ```
 
-`CUDA_COMPUTE_CAP` must be set when no GPU is visible (candle's kernel build
-otherwise asks `nvidia-smi`). For another GPU, pass its compute capability; the
-published image is built for 12.1 only.
+The build targets compute capability 12.1 and requires a fresh or empty output
+directory for each command.
 
 ## Not yet exercised
 
