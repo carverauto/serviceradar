@@ -112,6 +112,12 @@ impl FromStr for GpuSharingMode {
     }
 }
 
+/// Default NATS inbox prefix for the worker's own request replies, pull
+/// deliveries and publish acknowledgements. A dedicated prefix lets the broker
+/// grant the worker `_INBOX.media-worker.>` instead of the account-wide
+/// `_INBOX.>`, which also carries other services' JetStream deliveries.
+pub const DEFAULT_NATS_INBOX_PREFIX: &str = "_INBOX.media-worker";
+
 /// Pinned model identity and SHA-256 artifact configuration (`2.2`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelPinConfig {
@@ -285,6 +291,7 @@ pub struct WorkerConfig {
     nats_tls_key_file: Option<PathBuf>,
     nats_cert_policy_file: Option<PathBuf>,
     nats_domain: Option<String>,
+    nats_inbox_prefix: String,
     jobs_stream_name: String,
     results_stream_name: String,
     consumer_name: String,
@@ -320,6 +327,7 @@ impl Default for WorkerConfig {
             nats_tls_key_file: None,
             nats_cert_policy_file: None,
             nats_domain: None,
+            nats_inbox_prefix: DEFAULT_NATS_INBOX_PREFIX.to_string(),
             jobs_stream_name: "CAMERA_MEDIA_JOBS".to_string(),
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
@@ -532,6 +540,10 @@ impl WorkerConfig {
 
     pub fn nats_domain(&self) -> Option<&str> {
         self.nats_domain.as_deref()
+    }
+
+    pub fn nats_inbox_prefix(&self) -> &str {
+        &self.nats_inbox_prefix
     }
 
     pub fn jobs_stream_name(&self) -> &str {
@@ -750,6 +762,13 @@ pub struct CliArgs {
 
     #[arg(
         long,
+        env = "SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX",
+        default_value = DEFAULT_NATS_INBOX_PREFIX
+    )]
+    nats_inbox_prefix: String,
+
+    #[arg(
+        long,
         env = "SERVICERADAR_MEDIA_WORKER_OTEL_ENDPOINT",
         default_value = "http://serviceradar-otel:4317"
     )]
@@ -810,6 +829,8 @@ impl CliArgs {
         models.set_text_path(non_empty_path(self.text_path));
         models.set_text_sha256(non_empty_opt(self.text_sha256));
 
+        let nats_inbox_prefix = validate_nats_inbox_prefix(&self.nats_inbox_prefix)?;
+
         let token =
             non_empty_opt(self.auth_token).or_else(|| non_empty_opt(self.fallback_auth_token));
         let dep_ref = non_empty_opt(self.deployment_ref)
@@ -846,11 +867,32 @@ impl CliArgs {
             nats_tls_key_file: non_empty_path(self.nats_tls_key_file),
             nats_cert_policy_file: non_empty_path(self.nats_cert_policy_file),
             nats_domain: non_empty_opt(self.nats_domain),
+            nats_inbox_prefix,
             jobs_stream_name: "CAMERA_MEDIA_JOBS".to_string(),
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
             otel_endpoint: self.otel_endpoint,
         })
+    }
+}
+
+/// A literal NATS subject prefix: dot-separated, non-empty tokens with no
+/// wildcards or whitespace. The client appends `.<id>` to it for every inbox.
+fn validate_nats_inbox_prefix(raw: &str) -> Result<String, CapabilityError> {
+    let prefix = raw.trim();
+    let valid = !prefix.is_empty()
+        && prefix.split('.').all(|token| {
+            !token.is_empty()
+                && !token
+                    .chars()
+                    .any(|c| c == '*' || c == '>' || c.is_whitespace())
+        });
+    if valid {
+        Ok(prefix.to_string())
+    } else {
+        Err(CapabilityError::invalid_configuration(format!(
+            "invalid nats_inbox_prefix '{raw}': expected dot-separated subject tokens without wildcards or whitespace"
+        )))
     }
 }
 
@@ -860,4 +902,46 @@ fn non_empty_opt(val: Option<String>) -> Option<String> {
 
 fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
     path.filter(|p| !p.as_os_str().is_empty())
+}
+
+#[cfg(test)]
+mod nats_inbox_prefix_tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<WorkerConfig, CapabilityError> {
+        let mut argv = vec!["serviceradar-media-worker"];
+        argv.extend_from_slice(args);
+        CliArgs::try_parse_from(argv)
+            .expect("arguments parse")
+            .into_worker_config()
+    }
+
+    #[test]
+    fn defaults_to_the_dedicated_worker_inbox_prefix() {
+        let config = parse(&[]).expect("default config");
+        assert_eq!(config.nats_inbox_prefix(), "_INBOX.media-worker");
+    }
+
+    #[test]
+    fn accepts_an_operator_prefix() {
+        let config = parse(&["--nats-inbox-prefix", "_INBOX.site-a-worker"]).expect("config");
+        assert_eq!(config.nats_inbox_prefix(), "_INBOX.site-a-worker");
+    }
+
+    #[test]
+    fn rejects_prefixes_that_are_not_literal_subjects() {
+        for prefix in [
+            "",
+            "_INBOX.>",
+            "_INBOX.*.worker",
+            "_INBOX..worker",
+            "_INBOX.",
+            "_INBOX.a b",
+        ] {
+            assert!(
+                parse(&["--nats-inbox-prefix", prefix]).is_err(),
+                "prefix {prefix:?} was accepted"
+            );
+        }
+    }
 }
