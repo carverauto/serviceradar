@@ -617,7 +617,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   test "an integration does not overwrite a manually set device type", %{actor: actor} do
-    ip = unique_ip()
+    ip = "203.0.113.242"
     integration_id = "armis-manual-type-#{System.unique_integer([:positive])}"
 
     # Seeded the way the CSV importer seeds it: source "manual", operator-chosen
@@ -664,14 +664,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   test "a manually typed device keeps a type the type table does not know", %{actor: actor} do
-    ip = unique_ip()
+    ip = "203.0.113.244"
 
     assert :ok =
              SyncIngestor.ingest_updates(
                [
                  %{
                    "ip" => ip,
-                   "hostname" => "kiosk-type-test",
+                   "hostname" => "host06.example.com",
                    "mac" => "00:00:5e:00:53:63",
                    "source" => "manual",
                    "type" => "kiosk"
@@ -687,7 +687,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                [
                  %{
                    "ip" => ip,
-                   "hostname" => "kiosk-type-test",
+                   "hostname" => "host06.example.com",
                    "mac" => "00:00:5e:00:53:63",
                    "source" => "armis",
                    "metadata" => %{

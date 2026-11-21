@@ -234,7 +234,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host_ip" => "192.168.1.10",
+          "host_ip" => "192.0.2.118",
           "available" => true,
           "port_results" => [
             %{"port" => 22, "available" => true},
@@ -255,11 +255,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host_ip" => "192.168.1.11",
+          "host_ip" => "192.0.2.153",
           "available" => false,
           "port_results" => [%{"port" => 80, "available" => false}]
         },
-        %{"host_ip" => "192.168.1.12", "available" => true, "icmp_available" => true}
+        %{"host_ip" => "192.0.2.196", "available" => true, "icmp_available" => true}
       ]
 
       {[refused, icmp_only], _stats} =

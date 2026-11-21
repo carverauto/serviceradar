@@ -261,7 +261,7 @@ Append to `elixir/serviceradar_core/test/serviceradar/sweep_jobs/sweep_results_i
 
       results = [
         %{
-          "host" => "192.168.1.10",
+          "host" => "192.0.2.118",
           "available" => true,
           "port_results" => [
             %{"port" => 22, "available" => true},
@@ -282,11 +282,11 @@ Append to `elixir/serviceradar_core/test/serviceradar/sweep_jobs/sweep_results_i
 
       results = [
         %{
-          "host" => "192.168.1.11",
+          "host" => "192.0.2.153",
           "available" => false,
           "port_results" => [%{"port" => 80, "available" => false}]
         },
-        %{"host" => "192.168.1.12", "available" => true, "icmp_available" => true}
+        %{"host" => "192.0.2.196", "available" => true, "icmp_available" => true}
       ]
 
       {[refused, icmp_only], _stats} =
@@ -566,7 +566,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
 
     first = [
       %{
-        "host" => "192.168.50.10",
+        "host" => "198.51.100.146",
         "available" => true,
         "port_results" => [%{"port" => 22, "available" => true}]
       }
@@ -574,7 +574,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
 
     second = [
       %{
-        "host" => "192.168.50.10",
+        "host" => "198.51.100.146",
         "available" => false,
         "port_results" => [%{"port" => 80, "available" => false}]
       }
@@ -583,7 +583,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
     ingest(first, execution_id, agent_id: "agent-a", sweep_group_id: group_id)
     ingest(second, execution_id, agent_id: nil, sweep_group_id: nil)
 
-    row = fetch_row(execution_id, "192.168.50.10")
+    row = fetch_row(execution_id, "198.51.100.146")
 
     assert Enum.sort(row.scanned_ports) == [22, 80]
     assert row.open_ports == []
@@ -766,8 +766,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-overlap"
     {group_a, group_b} = {Ash.UUID.generate(), Ash.UUID.generate()}
 
-    insert_result(day, device_uid, "10.0.0.5", group_a, "agent-a", [22], [22])
-    insert_result(day, device_uid, "10.0.0.5", group_b, "agent-a", [80], [])
+    insert_result(day, device_uid, "198.51.100.132", group_a, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.132", group_b, "agent-a", [80], [])
 
     assert {:ok, 2} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -799,8 +799,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-union"
     group = Ash.UUID.generate()
 
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [22], [22])
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [80, 8443], [])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [80, 8443], [])
 
     assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -1066,7 +1066,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a day that has not been rolled up is not deleted" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.5")
+    insert_result_on(day, "198.51.100.121")
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
 
@@ -1075,7 +1075,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a rolled-up day past retention is deleted, and its coverage survives" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.6")
+    insert_result_on(day, "198.51.100.141")
 
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -1087,7 +1087,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "coverage rows past the rollup retention are deleted" do
     day = Date.add(Date.utc_today(), -500)
-    insert_result_on(day, "10.0.1.7")
+    insert_result_on(day, "198.51.100.161")
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})

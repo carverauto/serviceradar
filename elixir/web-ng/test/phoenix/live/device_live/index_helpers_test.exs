@@ -182,11 +182,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       HostName, IP ,Type
-      host-a.example,192.0.2.20,kiosk
+      host010.example.com,192.0.2.20,kiosk
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.hostname == "host-a.example"
+    assert device.hostname == "host010.example.com"
     assert device.ip == "192.0.2.20"
     assert device.type == "kiosk"
   end
@@ -197,10 +197,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,type
-      "multi
-      line host",192.0.2.21,kiosk
+      "host011
+      .example.com",192.0.2.21,kiosk
       ,
-      host-c.example,192.0.2.23,kiosk
+      host012.example.com,192.0.2.23,kiosk
       """)
 
     assert {:ok, devices, warnings} = IndexCsvImport.parse_csv_file(path)
@@ -208,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     # The record spans lines 2-3, so the blank record sits on line 4.
     assert warnings == ["Row 4 skipped: needs a hostname or an ip"]
 
-    assert [%{hostname: "multi\nline host", source_line: 2}, %{source_line: 5}] =
+    assert [%{hostname: "host011\n.example.com", source_line: 2}, %{source_line: 5}] =
              Enum.sort_by(devices, & &1.source_line)
   end
 
@@ -535,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
   end
 
   test "parse_csv_file downcases a partition slug" do
-    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.40,LAB\n")
+    path = csv_fixture("hostname,ip,partition\nhost013.example.com,192.0.2.40,LAB\n")
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
     assert device.partition == "lab"
@@ -552,7 +552,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
   test "apply_import_partition fills blank rows from the modal default" do
     devices = [
       %{hostname: "a", ip: "192.0.2.50", partition: ""},
-      %{hostname: "b", ip: "192.0.2.51", partition: "branch"}
+      %{hostname: "host014.example.com", ip: "192.0.2.51", partition: "branch"}
     ]
 
     assert [

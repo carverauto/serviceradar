@@ -2558,7 +2558,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     agent_id: agent_id
   } do
     unique_id = Ash.UUID.generate()
-    ip = unique_ip("isolation-#{unique_id}")
+    ip = "203.0.113.236"
     isolation_partition = "lab-#{unique_id}"
 
     {:ok, monitoring} =

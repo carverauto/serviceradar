@@ -17,8 +17,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-overlap"
     {group_a, group_b} = {Ash.UUID.generate(), Ash.UUID.generate()}
 
-    insert_result(day, device_uid, "10.0.0.5", group_a, "agent-a", [22], [22])
-    insert_result(day, device_uid, "10.0.0.5", group_b, "agent-a", [80], [])
+    insert_result(day, device_uid, "198.51.100.132", group_a, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.132", group_b, "agent-a", [80], [])
 
     assert {:ok, 2} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -50,8 +50,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-union"
     group = Ash.UUID.generate()
 
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [22], [22])
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [80, 8443], [])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [80, 8443], [])
 
     assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 

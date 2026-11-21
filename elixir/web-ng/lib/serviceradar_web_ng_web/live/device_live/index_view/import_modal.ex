@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       <div class="mt-4 flex items-center gap-2 text-xs text-sr-muted">
         <.icon name="hero-arrow-down-tray" class="size-4" />
         <a
-          href="data:text/csv;charset=utf-8,hostname,ip,type,partition,tags%0Aserver01.example.com,192.168.1.10,server,default,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,lab,"
+          href="data:text/csv;charset=utf-8,hostname,ip,type,partition,tags%0Ahost01.example.com,192.0.2.64,server,default,env=prod|team=infra%0Ahost02.example.com,198.51.100.83,router,lab,"
           class="text-sr-brand hover:underline"
           download="devices-template.csv"
         >

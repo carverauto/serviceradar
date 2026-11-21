@@ -184,7 +184,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     unique_id = System.unique_integer([:positive])
     agent_partition = "default"
     device_partition = "lab-#{unique_id}"
-    device_ip = "10.1.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
+    device_ip = "203.0.113.234"
 
     {:ok, _device} =
       Device

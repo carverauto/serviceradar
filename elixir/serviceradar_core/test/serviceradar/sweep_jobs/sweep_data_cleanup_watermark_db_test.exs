@@ -32,7 +32,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a day that has not been rolled up is not deleted" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.5")
+    insert_result_on(day, "198.51.100.121")
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
 
@@ -41,7 +41,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a rolled-up day past retention is deleted, and its coverage survives" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.6")
+    insert_result_on(day, "198.51.100.141")
 
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -53,7 +53,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "coverage rows past the rollup retention are deleted" do
     day = Date.add(Date.utc_today(), -500)
-    insert_result_on(day, "10.0.1.7")
+    insert_result_on(day, "198.51.100.161")
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
@@ -82,9 +82,9 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
     day_gap = Date.add(Date.utc_today(), -4)
     day_after = Date.add(Date.utc_today(), -3)
 
-    insert_result_on(day_before, "10.0.1.8")
-    insert_result_on(day_gap, "10.0.1.9")
-    insert_result_on(day_after, "10.0.1.10")
+    insert_result_on(day_before, "198.51.100.181")
+    insert_result_on(day_gap, "198.51.100.201")
+    insert_result_on(day_after, "198.51.100.221")
 
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day_before)
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day_after)
@@ -113,7 +113,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
   # deploy that removed it would have taken the view with it.
   test "a watermark query failure skips the host-result delete instead of deleting" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.20")
+    insert_result_on(day, "198.51.100.241")
 
     Repo.query!("DROP TABLE platform.sweep_coverage_daily CASCADE")
 

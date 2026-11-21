@@ -160,6 +160,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert {:ok, _from_device} =
              create_device(actor, from_uid, "merge-facts-from", %{
+               ip: "203.0.113.238",
                tags: %{"kiosk" => true, "owner" => "source"},
                metadata: %{"csv_import" => true, "authority" => "source"},
                discovery_sources: ["manual", "sweep"]
@@ -167,8 +168,9 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert {:ok, _to_device} =
              create_device(actor, to_uid, "merge-facts-to", %{
+               ip: "203.0.113.240",
                tags: %{"managed" => true, "owner" => "survivor"},
-               metadata: %{"armis_device_id" => "4487840", "authority" => "survivor"},
+               metadata: %{"armis_device_id" => "7013", "authority" => "survivor"},
                discovery_sources: ["armis", "sweep"]
              })
 
@@ -188,7 +190,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert survivor.metadata == %{
              "type_manually_set" => false,
-             "armis_device_id" => "4487840",
+             "armis_device_id" => "7013",
              "authority" => "survivor",
              "csv_import" => true
            }

@@ -369,7 +369,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
   test "prefers a live IP match over a tombstoned uid when both match the row", %{scope: scope} do
     ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
-    hostname = "kiosk-tombstone-#{System.unique_integer([:positive])}.example"
+    hostname = "host070#{System.unique_integer([:positive])}.example.com"
 
     assert {:ok, live} =
              create_device(scope, %{
@@ -462,7 +462,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, isolation} =
              ManualDeviceCreator.create(scope, %{
-               hostname: "kiosk-isolation",
+               hostname: "host08.example.com",
                ip: ip,
                type: "kiosk",
                tags: ["role=isolation"]
@@ -472,7 +472,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, monitoring} =
              ManualDeviceCreator.create(scope, %{
-               hostname: "kiosk-monitoring",
+               hostname: "host09.example.com",
                ip: ip,
                partition: "lab",
                type: "kiosk",
@@ -485,7 +485,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, :updated, updated_monitoring} =
              ManualDeviceCreator.upsert(scope, %{
-               hostname: "kiosk-monitoring",
+               hostname: "host09.example.com",
                ip: ip,
                partition: "lab",
                tags: ["site=SITE03"]

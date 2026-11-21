@@ -149,7 +149,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
     test "rejects an identifier that is only historical on its current owner" do
       rows = [
         {"00005E005342", "sr:kiosk", "sr:unrelated-survivor", "default", "default", "default",
-         "B8:A4:4F:7D:85:2C"}
+         "00:00:5E:00:53:97"}
       ]
 
       assert DuplicateSweep.column_mac_groups_from_rows(rows) == []
@@ -187,7 +187,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
     test "keeps isolated pairs and blocks transitive components" do
       entries = [
         {{"default", :mac_column, "00005E005342"}, MapSet.new(["sr:a", "sr:b"])},
-        {{"default", :mac_column, "B8A44F7D852C"}, MapSet.new(["sr:b", "sr:c"])},
+        {{"default", :mac_column, "00005E005397"}, MapSet.new(["sr:b", "sr:c"])},
         {{"default", :mac_column, "001A2B000001"}, MapSet.new(["sr:d", "sr:e"])}
       ]
 
@@ -196,7 +196,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
       assert pair.device_ids == ["sr:d", "sr:e"]
       assert component.device_ids == ["sr:a", "sr:b", "sr:c"]
-      assert Enum.map(component.evidence, & &1.value) == ["00005E005342", "B8A44F7D852C"]
+      assert Enum.map(component.evidence, & &1.value) == ["00005E005342", "00005E005397"]
     end
 
     test "blocks one evidence group that names more than two devices" do
