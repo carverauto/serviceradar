@@ -54,6 +54,16 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     end
   end
 
+  test "refuses certificate adoption without edge management permission" do
+    request = attrs(self_signed().pem, empty_subscribe())
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+
+    for opts <- [[], [actor: viewer]] do
+      assert {:error, :forbidden} =
+               ComponentCertificateAuthority.adopt_existing_certificate(request, opts)
+    end
+  end
+
   test "rejects a NUL in the PEM text even after a complete certificate" do
     assert {:error, :invalid_certificate} =
              Adoption.prepare_certificate(%{certificate_pem: self_signed().pem <> <<0>>})

@@ -489,7 +489,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   defp fill_missing_subject(component_id, fields, opts) do
     actor = Ash.Actions.Helpers.apply_scope_to_opts(opts)[:actor]
 
-    if Ash.can?({ComponentCertificate, :read}, actor, maybe_is: false) do
+    # A denied certificate read can succeed with an empty result.
+    if Ash.can?({ManagedComponent, :adopt_infrastructure}, actor, maybe_is: false) do
       types = ManagedComponent.infrastructure_types()
 
       query =
