@@ -5116,7 +5116,7 @@ distribution aware.
   blocked for this plugin. (PR #4164, #4157)
 - Web UI: dashboard Share moves into the operations topbar
   instead of an overlay on the WASM canvas, which had covered
-  in-dashboard controls on RIDS. (PR #4161)
+  in-dashboard controls. (PR #4161)
 - Sweep: reconstructed host summaries keep a requested TCP
   mode as `no_response` when every port is closed or
   filtered, instead of looking like ICMP-only. (PR #4169)
@@ -5528,7 +5528,7 @@ hand.
   scan from a blocked subnet no longer flips the monitoring copy a
   reachable scanner still owns. Uniqueness moves to
   `(partition, ip)`, CSV import and the import modal accept a
-  partition, and `in:devices partition:rids` filters on it. Scanners
+  partition, and `in:devices partition:<slug>` filters on it. Scanners
   are no longer bound to the device partition: a group's `partition`
   is the ingest lookup, `agent_id` is who runs the scan. (PR #4049)
 - Inventory: active-IP conflict resolution is keyed on
@@ -5540,9 +5540,9 @@ hand.
 - Inventory: an integration can no longer overwrite a device type a
   human set. `type` was the one identity field with no source
   precedence -- the raw upsert took any non-empty incoming string --
-  and one Armis sync relabelled 280 of 412 hand-imported RIDS
-  displays as "Interactive Kiosks", leaving every `type:rids` query
-  reporting the surviving 132 as the whole fleet. The guard is
+  and an Armis sync relabelled hand-imported devices with its own
+  vendor category, so a `type:` query for the operator-chosen type
+  silently missed them. The guard is
   deliberately narrow: an integration still overwrites another
   integration's guess, fills a blank type, and upgrades the
   `Unknown` placeholder. (PR #4046)

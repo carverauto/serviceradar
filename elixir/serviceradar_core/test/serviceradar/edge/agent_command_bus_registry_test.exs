@@ -593,7 +593,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
 
     start_session(alma, "default", gateway_node, :alma, ["sweep", "icmp"])
     start_session(k8s, "default", gateway_node, :k8s, ["sweep", "icmp"])
-    start_session(other, "rids", gateway_node, :rids, ["sweep", "icmp"])
+    start_session(other, "lab", gateway_node, :lab, ["sweep", "icmp"])
 
     assert eventually(fn ->
              ids =

@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
         {:noreply, assign(socket, import_partition: slug, import_partition_error: nil)}
 
       {:error, _slug} ->
-        {:noreply, assign(socket, :import_partition_error, "Use a lowercase slug such as default or rids")}
+        {:noreply, assign(socket, :import_partition_error, "Use a lowercase slug such as default or lab")}
     end
   end
 
@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
          put_flash(
            socket,
            :error,
-           "Invalid partition '#{slug}'. Use a lowercase slug such as default or rids."
+           "Invalid partition '#{slug}'. Use a lowercase slug such as default or lab."
          )}
 
       {:error, :missing_device_address} ->

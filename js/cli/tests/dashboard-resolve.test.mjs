@@ -81,7 +81,7 @@ describe("resolveProjectPackage", () => {
     const root = await tempRoot("sr-resolve-hoisted-")
     // Mirrors a workspace: deps at the root, dashboard nested under dashboards/.
     const hoisted = await installPackage(join(root, "node_modules"), "react", "19.0.0")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     assert.equal(existsSync(join(projectDir, "node_modules")), false, "project must have no node_modules")
 
@@ -101,7 +101,7 @@ describe("resolveProjectPackageDir", () => {
   test("returns the hoisted package directory", async () => {
     const root = await tempRoot("sr-resolve-dir-")
     const hoisted = await installPackage(join(root, "node_modules"), "react")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     assert.equal(resolveProjectPackageDir(projectDir, "react"), hoisted)
   })
@@ -125,7 +125,7 @@ describe("projectReactAliases", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const aliases = projectReactAliases(projectDir)
 
@@ -143,7 +143,7 @@ describe("projectReactAliases", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const aliases = projectReactAliases(projectDir)
 
@@ -173,7 +173,7 @@ describe("assertReactResolvable", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     assert.doesNotThrow(() => assertReactResolvable(projectDir, projectReactAliases(projectDir)))
   })
@@ -190,7 +190,7 @@ describe("assertReactResolvable", () => {
       JSON.stringify({name: "react-dom", version: "18.0.0", main: "index.js", exports: {".": "./index.js", "./package.json": "./package.json"}}),
     )
     await writeFile(join(reactDomDir, "index.js"), "export default {}\n")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     assert.throws(
       () => assertReactResolvable(projectDir, projectReactAliases(projectDir)),
@@ -233,7 +233,7 @@ describe("devViteAliases precedence", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const entries = devViteAliases(projectDir, {react: "/author/react"}, cliResolve)
 
@@ -245,7 +245,7 @@ describe("devViteAliases precedence", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const entries = devViteAliases(projectDir, undefined, cliResolve)
 
@@ -257,7 +257,7 @@ describe("devViteAliases precedence", () => {
     const modules = join(root, "node_modules")
     await installPackage(modules, "react")
     await installPackage(modules, "react-dom")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const entries = devViteAliases(projectDir, {react: "/author/react"}, cliResolve)
 
@@ -294,7 +294,7 @@ describe("packages whose exports map omits ./package.json", () => {
     const root = await tempRoot("sr-sealed-")
     const modules = join(root, "node_modules")
     const installed = await installSealedPackage(modules, "@carverauto/serviceradar-dashboard-sdk", "0.2.0")
-    const projectDir = await makeProject(join(root, "dashboards"), "rids")
+    const projectDir = await makeProject(join(root, "dashboards"), "status-board")
 
     const manifest = resolveProjectPackageManifest(projectDir, "@carverauto/serviceradar-dashboard-sdk")
 

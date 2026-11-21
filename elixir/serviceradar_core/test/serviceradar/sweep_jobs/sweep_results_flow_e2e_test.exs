@@ -2559,7 +2559,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("isolation-#{unique_id}")
-    isolation_partition = "rids-#{unique_id}"
+    isolation_partition = "lab-#{unique_id}"
 
     {:ok, monitoring} =
       Device

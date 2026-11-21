@@ -160,7 +160,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
     assert {:ok, _from_device} =
              create_device(actor, from_uid, "merge-facts-from", %{
-               tags: %{"rids" => true, "owner" => "source"},
+               tags: %{"kiosk" => true, "owner" => "source"},
                metadata: %{"csv_import" => true, "authority" => "source"},
                discovery_sources: ["manual", "sweep"]
              })
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert survivor.tags == %{
              "managed" => true,
              "owner" => "survivor",
-             "rids" => true
+             "kiosk" => true
            }
 
     assert survivor.metadata == %{

@@ -788,7 +788,7 @@ Add recipes to `priv/mcp/srql-cookbook.md` for the questions this change exists 
 
 ```
 in:device_sweep_overlap device_uid:<uid> relationship:declared_not_observed
-in:sweep_compiled_config sweep_group_name:%rids% sort:last_delivered_at:desc
+in:sweep_compiled_config sweep_group_name:%lab% sort:last_delivered_at:desc
 in:sweep_results device_id:<uid> time:last_24h sort:inserted_at:desc
 in:sweep_results time:last_7d stats:count() as n by agent_id
 in:sweep_coverage device_uid:<uid> time:last_90d sort:day:desc
@@ -835,12 +835,12 @@ make test
 
 - [ ] **Step 5: Answer the original question**
 
-Query the `rids` devices:
+Query the affected devices:
 
 ```
-in:device_sweep_overlap ip:<rids-ip> relationship:declared_not_observed
-in:sweep_compiled_config sweep_group_name:%rids% sort:last_delivered_at:desc
-in:sweep_results ip:<rids-ip> time:last_24h
+in:device_sweep_overlap ip:<device-ip> relationship:declared_not_observed
+in:sweep_compiled_config sweep_group_name:%lab% sort:last_delivered_at:desc
+in:sweep_results ip:<device-ip> time:last_24h
 ```
 
 Determine whether TCP was compiled into the delivered config, and whether the results show TCP requested. The standing hypothesis is that `SweepCompiler.enforce_tcp_ports` or `drop_unsupported_modes` drops TCP before delivery. Record the finding on GitHub issue #4167 — confirmed or refuted. A diagnostic that ships without being pointed at the symptom it was built for is unfinished.

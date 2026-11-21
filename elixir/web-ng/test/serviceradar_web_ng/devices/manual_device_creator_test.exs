@@ -345,31 +345,31 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, :updated, device} =
              ManualDeviceCreator.upsert(scope, %{
-               hostname: "rids-bos-b23",
+               hostname: "host05.example.com",
                ip: ip,
-               type: "rids",
-               tags: ["rids=true", "site=BOS", "gate=B23"],
-               metadata: %{"concourse" => "B", "model" => "DAK_VENUS1500_4LINE"}
+               type: "kiosk",
+               tags: ["role=kiosk", "site=SITE01", "room=R204"],
+               metadata: %{"wing" => "north", "model" => "ACME-K100"}
              })
 
     assert device.uid == existing.uid
-    assert device.hostname == "rids-bos-b23"
+    assert device.hostname == "host05.example.com"
     assert device.ip == ip
     assert device.type == "server"
     assert device.type_id == 1
     assert device.tags["env"] == "prod"
-    assert device.tags["rids"] == "true"
-    assert device.tags["site"] == "BOS"
-    assert device.tags["gate"] == "B23"
+    assert device.tags["role"] == "kiosk"
+    assert device.tags["site"] == "SITE01"
+    assert device.tags["room"] == "R204"
     assert device.metadata["other_writer"] == "keep-me"
-    assert device.metadata["concourse"] == "B"
-    assert device.metadata["model"] == "DAK_VENUS1500_4LINE"
+    assert device.metadata["wing"] == "north"
+    assert device.metadata["model"] == "ACME-K100"
     assert "manual" in device.discovery_sources
   end
 
   test "prefers a live IP match over a tombstoned uid when both match the row", %{scope: scope} do
     ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
-    hostname = "rids-tombstone-#{System.unique_integer([:positive])}.example"
+    hostname = "kiosk-tombstone-#{System.unique_integer([:positive])}.example"
 
     assert {:ok, live} =
              create_device(scope, %{
@@ -387,7 +387,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
                uid: "sr:" <> Ecto.UUID.generate(),
                hostname: hostname,
                ip: nil,
-               type: "rids",
+               type: "kiosk",
                type_id: 0,
                is_managed: true,
                is_active: true
@@ -405,8 +405,8 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
              ManualDeviceCreator.upsert(scope, %{
                hostname: hostname,
                ip: ip,
-               type: "rids",
-               tags: ["site=BOS"]
+               type: "kiosk",
+               tags: ["site=SITE01"]
              })
 
     assert device.uid == live.uid
@@ -462,9 +462,9 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, isolation} =
              ManualDeviceCreator.create(scope, %{
-               hostname: "rids-isolation",
+               hostname: "kiosk-isolation",
                ip: ip,
-               type: "rids",
+               type: "kiosk",
                tags: ["role=isolation"]
              })
 
@@ -472,28 +472,28 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
 
     assert {:ok, monitoring} =
              ManualDeviceCreator.create(scope, %{
-               hostname: "rids-monitoring",
+               hostname: "kiosk-monitoring",
                ip: ip,
-               partition: "rids",
-               type: "rids",
+               partition: "lab",
+               type: "kiosk",
                tags: ["role=monitoring"]
              })
 
-    assert monitoring.partition == "rids"
+    assert monitoring.partition == "lab"
     assert monitoring.uid != isolation.uid
     assert monitoring.ip == isolation.ip
 
     assert {:ok, :updated, updated_monitoring} =
              ManualDeviceCreator.upsert(scope, %{
-               hostname: "rids-monitoring",
+               hostname: "kiosk-monitoring",
                ip: ip,
-               partition: "rids",
-               tags: ["site=ZZA"]
+               partition: "lab",
+               tags: ["site=SITE03"]
              })
 
     assert updated_monitoring.uid == monitoring.uid
     assert updated_monitoring.tags["role"] == "monitoring"
-    assert updated_monitoring.tags["site"] == "ZZA"
+    assert updated_monitoring.tags["site"] == "SITE03"
 
     assert {:ok, still_isolation} = Device.get_by_uid(isolation.uid, false, scope: scope)
     assert still_isolation.tags == %{"role" => "isolation"}

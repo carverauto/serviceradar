@@ -19,7 +19,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
       %{
         "host_ip" => "192.168.50.10",
         "available" => true,
-        "port_results" => [%{"port" => 443, "available" => true}]
+        "port_results" => [%{"port" => 22, "available" => true}]
       }
     ]
 
@@ -27,7 +27,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
       %{
         "host_ip" => "192.168.50.10",
         "available" => false,
-        "port_results" => [%{"port" => 3001, "available" => false}]
+        "port_results" => [%{"port" => 80, "available" => false}]
       }
     ]
 
@@ -36,7 +36,7 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
 
     row = fetch_row(execution_id, "192.168.50.10")
 
-    assert Enum.sort(row.scanned_ports) == [443, 3001]
+    assert Enum.sort(row.scanned_ports) == [22, 80]
     assert row.open_ports == []
     assert row.agent_id == "agent-a"
     assert row.sweep_group_id == group_id

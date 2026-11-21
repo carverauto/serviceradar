@@ -9,24 +9,24 @@ defmodule ServiceRadar.SweepJobs.PortCoverageTest do
     test "records every attempted port, open or not" do
       result = %{
         "port_results" => [
-          %{"port" => 443, "available" => true},
-          %{"port" => 3001, "available" => false},
-          %{"port" => 4502, "available" => false}
+          %{"port" => 22, "available" => true},
+          %{"port" => 80, "available" => false},
+          %{"port" => 8443, "available" => false}
         ]
       }
 
-      assert PortCoverage.scanned_ports(result) == [443, 3001, 4502]
+      assert PortCoverage.scanned_ports(result) == [22, 80, 8443]
     end
 
     test "a host that refuses every port still reports coverage" do
       result = %{
         "port_results" => [
-          %{"port" => 3001, "available" => false},
-          %{"port" => 4502, "available" => false}
+          %{"port" => 80, "available" => false},
+          %{"port" => 8443, "available" => false}
         ]
       }
 
-      assert PortCoverage.scanned_ports(result) == [3001, 4502]
+      assert PortCoverage.scanned_ports(result) == [80, 8443]
     end
 
     test "an ICMP-only result scans no ports" do

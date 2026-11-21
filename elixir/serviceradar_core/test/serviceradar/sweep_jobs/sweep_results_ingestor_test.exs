@@ -237,17 +237,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
           "host_ip" => "192.168.1.10",
           "available" => true,
           "port_results" => [
-            %{"port" => 443, "available" => true},
-            %{"port" => 3001, "available" => false},
-            %{"port" => 4502, "available" => false}
+            %{"port" => 22, "available" => true},
+            %{"port" => 80, "available" => false},
+            %{"port" => 8443, "available" => false}
           ]
         }
       ]
 
       {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
-      assert record.open_ports == [443]
-      assert record.scanned_ports == [443, 3001, 4502]
+      assert record.open_ports == [22]
+      assert record.scanned_ports == [22, 80, 8443]
     end
 
     test "a host refusing every port is distinguishable from an ICMP-only host" do
@@ -257,7 +257,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         %{
           "host_ip" => "192.168.1.11",
           "available" => false,
-          "port_results" => [%{"port" => 3001, "available" => false}]
+          "port_results" => [%{"port" => 80, "available" => false}]
         },
         %{"host_ip" => "192.168.1.12", "available" => true, "icmp_available" => true}
       ]
@@ -266,7 +266,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
       assert refused.open_ports == []
-      assert refused.scanned_ports == [3001]
+      assert refused.scanned_ports == [80]
       assert icmp_only.open_ports == []
       assert icmp_only.scanned_ports == []
     end

@@ -6,10 +6,10 @@
   call site passes one. `devices.update` therefore means **every device or
   none**.
 - Teams that own a subset of the fleet cannot be given write access to only
-  their own devices. The concrete driver is the RIDS fleet (~420 airport
-  display devices owned by one team), but the shape is general: any customer
-  with per-site or per-team operational ownership hits the same wall.
-- Today the only way to let that team retag or update its own displays is to
+  their own devices. The concrete driver is a fleet of several hundred devices
+  owned by one team, but the shape is general: any customer with per-site or
+  per-team operational ownership hits the same wall.
+- Today the only way to let that team retag or update its own devices is to
   grant `devices.update` fleet-wide, which also lets them edit every other
   device in inventory.
 

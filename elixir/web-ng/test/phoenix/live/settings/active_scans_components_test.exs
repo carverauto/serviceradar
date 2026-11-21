@@ -8,8 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
   @moduletag :db_free
 
   test "identifies the host count as belonging to the latest execution" do
-    older = execution("ot-managed", 5_993, 4_384, ~U[2026-08-30 23:33:00Z])
-    latest = execution("rids", 365, 141, ~U[2026-08-30 23:36:00Z])
+    older = execution("lab-wide", 2_000, 1_500, ~U[2026-01-15 10:00:00Z])
+    latest = execution("branch", 300, 120, ~U[2026-01-15 10:05:00Z])
 
     document =
       (&ActiveScansComponents.scan_statistics/1)
@@ -17,8 +17,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
         running: [],
         recent: [older, latest],
         groups: [
-          %{id: "ot-managed", name: "OT managed"},
-          %{id: "rids", name: "RIDS"}
+          %{id: "lab-wide", name: "Lab wide"},
+          %{id: "branch", name: "Branch office"}
         ],
         timezone: "America/Chicago"
       )
@@ -30,14 +30,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
     text = LazyHTML.text(card)
 
     assert text =~ "Latest Execution"
-    assert text =~ "365 hosts"
-    assert text =~ "RIDS"
-    assert text =~ "141 available"
-    refute text =~ "5,993"
+    assert text =~ "300 hosts"
+    assert text =~ "Branch office"
+    assert text =~ "120 available"
+    refute text =~ "2,000"
     refute text =~ "Hosts Scanned"
 
     time = LazyHTML.query(card, "#settings-active-scan-latest-completed-at")
-    assert LazyHTML.attribute(time, "datetime") == ["2026-08-30T23:36:00Z"]
+    assert LazyHTML.attribute(time, "datetime") == ["2026-01-15T10:05:00Z"]
     assert LazyHTML.attribute(time, "data-user-time-zone") == ["America/Chicago"]
   end
 

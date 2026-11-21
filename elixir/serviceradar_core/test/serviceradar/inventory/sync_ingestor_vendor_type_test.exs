@@ -621,7 +621,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     integration_id = "armis-manual-type-#{System.unique_integer([:positive])}"
 
     # Seeded the way the CSV importer seeds it: source "manual", operator-chosen
-    # type. A "Router" is used rather than "rids" so type_id carries a known,
+    # type. A "Router" is used rather than "kiosk" so type_id carries a known,
     # non-catch-all value and the assertion below can tell the two apart.
     # Both writes carry one MAC, which joins them: a hostname is not identity.
     manual = %{
@@ -639,9 +639,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert "manual" in seeded.discovery_sources
 
     # Armis then reports its own inventory category for the same address. This
-    # is the exact shape that relabelled 280 hand-imported RIDS displays as
-    # "Interactive Kiosks": an unrecognised vendor category passed through
-    # verbatim with the type_id 99 catch-all.
+    # is the shape that overwrote operator-chosen types on hand-imported
+    # devices: an unrecognised vendor category passed through verbatim with the
+    # type_id 99 catch-all.
     armis = %{
       "ip" => ip,
       "hostname" => "manual-type-test",
@@ -650,7 +650,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       "metadata" => %{
         "integration_id" => integration_id,
         "integration_type" => "armis",
-        "armis_category" => "Interactive Kiosks"
+        "armis_category" => "Vending Machines"
       }
     }
 
@@ -671,37 +671,37 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                [
                  %{
                    "ip" => ip,
-                   "hostname" => "rids-type-test",
+                   "hostname" => "kiosk-type-test",
                    "mac" => "00:00:5e:00:53:63",
                    "source" => "manual",
-                   "type" => "rids"
+                   "type" => "kiosk"
                  }
                ],
                actor: actor
              )
 
-    assert fetch_device_by_ip!(actor, ip).type == "rids"
+    assert fetch_device_by_ip!(actor, ip).type == "kiosk"
 
     assert :ok =
              SyncIngestor.ingest_updates(
                [
                  %{
                    "ip" => ip,
-                   "hostname" => "rids-type-test",
+                   "hostname" => "kiosk-type-test",
                    "mac" => "00:00:5e:00:53:63",
                    "source" => "armis",
                    "metadata" => %{
-                     "integration_id" => "armis-rids-#{System.unique_integer([:positive])}",
+                     "integration_id" => "armis-kiosk-#{System.unique_integer([:positive])}",
                      "integration_type" => "armis",
-                     "armis_category" => "Interactive Kiosks"
+                     "armis_category" => "Vending Machines"
                    }
                  }
                ],
                actor: actor
              )
 
-    # The whole point: `in:devices type:rids` has to keep matching this row.
-    assert fetch_device_by_ip!(actor, ip).type == "rids"
+    # The whole point: `in:devices type:kiosk` has to keep matching this row.
+    assert fetch_device_by_ip!(actor, ip).type == "kiosk"
   end
 
   test "a second integration at the same tier keeps the type the first recorded", %{

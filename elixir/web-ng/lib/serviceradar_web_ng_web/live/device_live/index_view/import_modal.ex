@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
                   <.ui_badge size="xs" variant="ghost">No</.ui_badge>
                 </td>
                 <td>
-                  Network partition slug. Overrides the selector below when present (e.g. rids).
+                  Network partition slug. Overrides the selector below when present (e.g. lab).
                 </td>
               </tr>
               <tr>
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       <div class="mt-4 flex items-center gap-2 text-xs text-sr-muted">
         <.icon name="hero-arrow-down-tray" class="size-4" />
         <a
-          href="data:text/csv;charset=utf-8,hostname,ip,type,partition,tags%0Aserver01.example.com,192.168.1.10,server,default,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,rids,"
+          href="data:text/csv;charset=utf-8,hostname,ip,type,partition,tags%0Aserver01.example.com,192.168.1.10,server,default,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,lab,"
           class="text-sr-brand hover:underline"
           download="devices-template.csv"
         >

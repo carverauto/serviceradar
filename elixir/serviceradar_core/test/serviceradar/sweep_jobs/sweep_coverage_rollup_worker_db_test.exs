@@ -17,8 +17,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-overlap"
     {group_a, group_b} = {Ash.UUID.generate(), Ash.UUID.generate()}
 
-    insert_result(day, device_uid, "10.0.0.5", group_a, "agent-a", [443], [443])
-    insert_result(day, device_uid, "10.0.0.5", group_b, "agent-a", [3001], [])
+    insert_result(day, device_uid, "10.0.0.5", group_a, "agent-a", [22], [22])
+    insert_result(day, device_uid, "10.0.0.5", group_b, "agent-a", [80], [])
 
     assert {:ok, 2} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -50,14 +50,14 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-union"
     group = Ash.UUID.generate()
 
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [443], [443])
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [3001, 4502], [])
+    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [22], [22])
+    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [80, 8443], [])
 
     assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
     [row] = coverage_rows(day, device_uid)
-    assert Enum.sort(row.scanned_ports) == [443, 3001, 4502]
-    assert row.open_ports == [443]
+    assert Enum.sort(row.scanned_ports) == [22, 80, 8443]
+    assert row.open_ports == [22]
     assert row.execution_count == 2
   end
 

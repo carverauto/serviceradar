@@ -176,7 +176,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
 
   test "an isolation group covers a device from an agent in another partition" do
     ip = unique_ip()
-    isolation_partition = "rids-#{System.unique_integer([:positive])}"
+    isolation_partition = "lab-#{System.unique_integer([:positive])}"
     device = create_device!(ip, isolation_partition)
     profile = create_profile!(%{ports: [], sweep_modes: ["icmp"]})
 

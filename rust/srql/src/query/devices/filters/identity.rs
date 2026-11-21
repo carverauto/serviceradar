@@ -15,7 +15,7 @@ pub(super) fn apply_device_type_filter<'a>(
     filter: &Filter,
 ) -> Result<DeviceQuery<'a>> {
     // Empty/blank type is the same "Unknown" bucket the inventory chips use, so
-    // `type:Unknown` and `type:%rids%` see the same normalized value.
+    // `type:Unknown` and `type:%kiosk%` see the same normalized value.
     let expr = "COALESCE(NULLIF(trim(\"ocsf_devices\".\"type\"), ''), 'Unknown')";
 
     match filter.op {

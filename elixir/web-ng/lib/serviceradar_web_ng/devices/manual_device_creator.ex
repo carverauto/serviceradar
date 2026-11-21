@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   A match is the deterministic manual UID, the primary IP, an IP identifier, or
   hostname. Tags and metadata are merged; a known type is applied; an unknown
-  CSV type such as `rids` does not clobber a richer existing type.
+  CSV type such as `kiosk` does not clobber a richer existing type.
   """
   @spec upsert(map() | nil, map()) :: {:ok, :created | :updated, struct()} | {:error, term()}
   def upsert(nil, _device_data), do: {:error, :missing_scope}
