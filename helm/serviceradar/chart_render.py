@@ -36,8 +36,11 @@ def render_templates(
     release: str = "serviceradar",
     namespace: str,
     source_chart: Path = CHART_DIR,
+    values_files: list[Path] = (),
+    combined: bool = False,
 ) -> dict[str, list[dict]]:
-    """Render each template with `overrides` and return {template: [documents]}."""
+    """Render each template with `values_files` (in order) then `overrides`, and
+    return {template: [documents]}, or {"all": [documents]} when `combined`."""
     binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
     results: dict[str, list[dict]] = {}
     with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
@@ -53,20 +56,35 @@ def render_templates(
                 shutil.copy2(entry, dest)
         tests_dir = chart / "tests"
         tests_dir.mkdir()
+        values_refs = []
+        for index, values_file in enumerate(values_files):
+            name = f"values-{index}.yaml"
+            shutil.copy2(values_file, tests_dir / name)
+            values_refs.append(name)
 
+        # One test per template keeps each template's documents apart, but every test
+        # renders the whole chart; a single test over all templates is far cheaper when
+        # the caller does not need them apart.
+        tests = [
+            {
+                "it": tpl,
+                "template": tpl,
+                "set": overrides,
+                "values": values_refs,
+                "asserts": [{"matchSnapshot": {}}],
+            }
+            for tpl in templates
+        ] if not combined else [{
+            "it": "all",
+            "set": overrides,
+            "values": values_refs,
+            "asserts": [{"matchSnapshot": {}}],
+        }]
         suite = {
             "suite": "render templates",
             "templates": templates,
             "release": {"name": release, "namespace": namespace},
-            "tests": [
-                {
-                    "it": tpl,
-                    "template": tpl,
-                    "set": overrides,
-                    "asserts": [{"matchSnapshot": {}}],
-                }
-                for tpl in templates
-            ],
+            "tests": tests,
         }
         (tests_dir / "render_test.yaml").write_text(json.dumps(suite), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_")}
@@ -84,7 +102,7 @@ def render_templates(
 
         snap_file = tests_dir / "__snapshot__" / "render_test.yaml.snap"
         raw_snaps = yaml.safe_load(snap_file.read_text(encoding="utf-8")) or {}
-        for tpl in templates:
+        for tpl in (["all"] if combined else templates):
             docs = []
             for _, doc_yaml in sorted(raw_snaps.get(tpl, {}).items()):
                 parsed = yaml.safe_load(doc_yaml)

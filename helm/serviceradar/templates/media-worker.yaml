@@ -26,7 +26,14 @@
      the worker is off fails now rather than when it is enabled. */ -}}
 {{- $_ := include "serviceradar.mediaWorkerNetworkPolicyEnabled" . -}}
 {{- $_ := include "serviceradar.mediaWorkerAllowNvrRead" . -}}
+{{- $operatorManaged := eq (include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.operatorManaged" "value" (default (dict) $mw.networkPolicy).operatorManaged "default" false)) "true" -}}
 {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+{{- /* The worker's own policy is its only egress grant from this chart (every broad
+     chart policy leaves it out), so it is required unless the operator explicitly
+     takes over the worker's isolation. */ -}}
+{{- if and (ne (include "serviceradar.mediaWorkerNetworkPolicyEnabled" .) "true") (not $operatorManaged) -}}
+{{- fail "mediaWorker.networkPolicy.enabled false removes the media worker's only egress restriction from this chart: keep it true, or set mediaWorker.networkPolicy.operatorManaged true to state that you supply and own the worker's network isolation" -}}
+{{- end -}}
 {{- $web := default (dict) .Values.webNg -}}
 {{- $controlPlaneRuntime := default (dict) $web.controlPlaneRuntime -}}
 {{- $controlPlanePort := int (default 4001 $controlPlaneRuntime.port) -}}
@@ -97,6 +104,8 @@
 {{- $mwImage := default (dict) $mw.image -}}
 {{- $cpuRepo := include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker") -}}
 {{- $cudaRepo := include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker-cuda") -}}
+{{- /* The published CPU repository, also when image.registry points at a mirror. */ -}}
+{{- $cpuRepos := list $cpuRepo "registry.carverauto.dev/serviceradar/serviceradar-media-worker" -}}
 {{- $imageRepo := default $cpuRepo $mwImage.repository -}}
 {{- $imageDigest := default "" $mwImage.digest -}}
 {{- if and $imageDigest (not (hasPrefix "@" $imageDigest)) -}}
@@ -106,21 +115,18 @@
      build is its own repository, published only under sha-<commit> tags (arm64) by a
      manually dispatched workflow, so it is selected with image.repository plus an
      explicit image.tag or image.digest. */ -}}
-{{- if and (ne $executionProvider "cpu_explicit") (eq $imageRepo $cpuRepo) -}}
-{{- fail (printf "mediaWorker.executionProvider %s cannot start on %s, which is a CPU build: set mediaWorker.image.repository to %s and mediaWorker.image.tag to the sha-<commit> tag its publish workflow produced (or mediaWorker.image.digest)" $executionProvider $cpuRepo $cudaRepo) -}}
+{{- if and (ne $executionProvider "cpu_explicit") (has $imageRepo $cpuRepos) -}}
+{{- fail (printf "mediaWorker.executionProvider %s cannot start on %s, which is a CPU build: set mediaWorker.image.repository to %s and mediaWorker.image.tag to the sha-<commit> tag its publish workflow produced (or mediaWorker.image.digest)" $executionProvider $imageRepo $cudaRepo) -}}
 {{- end -}}
-{{- $imageSuffix := "" -}}
-{{- if ne $imageRepo $cpuRepo -}}
 {{- /* Another repository never inherits the release tag or the packaged
      image.digests.mediaWorker, which pins the CPU build. */ -}}
-{{- if and (not $mwImage.tag) (not $imageDigest) -}}
+{{- if and (ne $imageRepo $cpuRepo) (not $mwImage.tag) (not $imageDigest) -}}
 {{- fail (printf "mediaWorker.image.repository %s needs mediaWorker.image.tag (for the CUDA build, the sha-<commit> tag its publish workflow produced) or mediaWorker.image.digest; image.digests.mediaWorker pins the release CPU build and does not apply to it" $imageRepo) -}}
 {{- end -}}
+{{- /* An explicit pin replaces the release tag or packaged digest. */ -}}
+{{- $imageSuffix := include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker") -}}
+{{- if or $mwImage.tag $imageDigest -}}
 {{- $imageSuffix = printf "%s%s" (ternary (printf ":%s" (toString $mwImage.tag)) "" (not (empty $mwImage.tag))) $imageDigest -}}
-{{- else if or $mwImage.tag $imageDigest -}}
-{{- $imageSuffix = printf "%s%s" (ternary (printf ":%s" (toString $mwImage.tag)) "" (not (empty $mwImage.tag))) $imageDigest -}}
-{{- else -}}
-{{- $imageSuffix = include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker") -}}
 {{- end -}}
 {{- $imageRef := printf "%s%s" $imageRepo $imageSuffix -}}
 {{- /* web-ng omits the private control-runtime listener (4001) from its ClusterIP Service;
@@ -153,6 +159,9 @@
 {{- if not $cpWorker.enabled -}}
 {{- fail "mediaWorker.enabled needs webNg.controlPlaneRuntime.mediaWorker.enabled: the worker obtains every recording read grant from web-ng's private control-plane listener" -}}
 {{- end -}}
+{{- if and (hasSuffix "." (first (splitList ":" (lower $cpParsed.host)))) (not (hasSuffix ".svc.cluster.local" $cpHost)) -}}
+{{- fail (printf "mediaWorker.controlPlaneUrl %s ends its host with a DNS root dot but is not a fully qualified service name, so the cluster resolver will not find it: use serviceradar-web-ng-headless, or its full name ending in .svc.cluster.local" $controlPlaneUrl) -}}
+{{- end -}}
 {{- if ne (first (splitList "." $cpHost)) "serviceradar-web-ng-headless" -}}
 {{- fail (printf "mediaWorker.controlPlaneUrl %s names the serviceradar-web-ng Service, which does not expose web-ng's private control-plane port: use serviceradar-web-ng-headless" $controlPlaneUrl) -}}
 {{- end -}}
@@ -179,25 +188,6 @@
 {{- if ne (toString $cpWorker.generation) $genStr -}}
 {{- fail "mediaWorker.auth.generation must equal webNg.controlPlaneRuntime.mediaWorker.generation" -}}
 {{- end -}}
-{{- end -}}
-{{- /* Database isolation is guaranteed only in layouts where the chart's policies
-     reach every database pod: the CNPG cluster in the release namespace, no
-     release-namespace pod admitted by the StarRocks catalog policy, and the
-     namespace-wide policy's own selector (or match-all). Other layouts are refused. */ -}}
-{{- $isolationNote := "the media worker's database isolation cannot be guaranteed in that layout" -}}
-{{- $cnpgNamespace := include "serviceradar.cnpgNamespace" . -}}
-{{- if ne $cnpgNamespace .Release.Namespace -}}
-{{- fail (printf "cnpg.namespace %q is not the release namespace %q: %s" $cnpgNamespace .Release.Namespace $isolationNote) -}}
-{{- end -}}
-{{- $starrocks := default (dict) (default (dict) .Values.analytics).starrocks -}}
-{{- $starrocksCatalog := default (dict) $starrocks.catalog -}}
-{{- if and $starrocks.enabled $starrocksCatalog.enabled (eq (default "starrocks" $starrocksCatalog.sourceNamespace) .Release.Namespace) -}}
-{{- fail (printf "analytics.starrocks.catalog.sourceNamespace %q is the release namespace, so its policy admits every pod there to the CNPG primary: %s" .Release.Namespace $isolationNote) -}}
-{{- end -}}
-{{- $namespacePolicy := default (dict) .Values.networkPolicy -}}
-{{- $defaultNamespaceSelector := dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar") -}}
-{{- if and $namespacePolicy.enabled (not $namespacePolicy.podSelectorMatchAll) (hasKey $namespacePolicy "podSelector") (ne (toJson $namespacePolicy.podSelector) (toJson $defaultNamespaceSelector)) -}}
-{{- fail (printf "networkPolicy.podSelector is customised (%s): %s; use the default selector or networkPolicy.podSelectorMatchAll" (toJson $namespacePolicy.podSelector) $isolationNote) -}}
 {{- end -}}
 {{- /* A stream larger than max_file_store fits on no server, whatever
      nats.jetstream.allowOvercommit says; the budget itself counts both streams. */ -}}

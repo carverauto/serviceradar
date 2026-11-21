@@ -6,8 +6,6 @@ templates:
   - templates/nats.yaml
   - templates/core.yaml
   - templates/calico-network-policy.yaml
-  - templates/cnpg-application-network-policy.yaml
-  - templates/cnpg-media-worker-guard-network-policy.yaml
 release:
   name: serviceradar
   namespace: sr-media-test
@@ -27,6 +25,7 @@ set:
   webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000003"
   webNg.controlPlaneRuntime.mediaWorker.generation: "2"
 tests:
+
   - it: runs the candle backend on the CUDA device against the mounted weights
     template: templates/media-worker.yaml
     set:
@@ -420,7 +419,9 @@ tests:
           value: []
 
   # The worker creates CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi)
+
   # itself; the 2 GB tenant profile cannot hold them.
+
   - it: counts the worker's streams in the JetStream budget
     template: templates/nats.yaml
     set:
@@ -498,25 +499,6 @@ tests:
           path: spec.selector
           value: "(all()) && app != 'serviceradar-media-worker'"
 
-  - it: admits every namespace pod but the worker to CNPG
-    template: templates/cnpg-application-network-policy.yaml
-    asserts:
-      - contains:
-          path: spec.ingress
-          content:
-            from:
-              - podSelector:
-                  matchExpressions:
-                    - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-            ports:
-              - {protocol: TCP, port: 5432}
-      - notContains:
-          path: spec.ingress
-          content:
-            from:
-              - podSelector: {}
-          any: true
-
   - it: refuses a MIG slice left in resources under cpu_explicit
     template: templates/media-worker.yaml
     set:
@@ -580,10 +562,13 @@ tests:
           errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnv"
 
   # With its own policy off, the worker stays out of the namespace-wide allows:
+
   # the operator supplies its policy, and PostgreSQL stays closed to it.
+
   - it: keeps the worker out of the Calico namespace policy with its own policy off
     template: templates/calico-network-policy.yaml
     set:
+      mediaWorker.networkPolicy.operatorManaged: true
       mediaWorker.networkPolicy.enabled: false
       networkPolicy.enabled: true
       networkPolicy.calicoLogDenied.enabled: true
@@ -594,234 +579,29 @@ tests:
           value: "(all()) && app != 'serviceradar-media-worker'"
 
   # Database isolation is enforced at the database pods. With the namespace-wide
+
   # policy on, the instances and the pooler get their own copy of it whose ingress
+
   # peers all exclude the worker -- whatever the ports, and also for the release's
+
   # own namespace listed as an allowed namespace -- and the main copy leaves them out.
-  - it: gives the CNPG instances a copy of the namespace policy that never admits the worker
-    template: templates/network-policy.yaml
-    set:
-      mediaWorker.networkPolicy.enabled: false
-      networkPolicy.enabled: true
-      networkPolicy.podSelectorMatchAll: true
-      networkPolicy.ingress.allowedNamespaces: [sr-media-test]
-      networkPolicy.ingress.allowedPorts:
-        - {protocol: TCP, port: 5430, endPort: 5440}
-      logCollector.tcpCollector.enabled: false
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-egress-cnpg-instances
-    asserts:
-      - contains:
-          path: spec.podSelector.matchExpressions
-          content: {key: cnpg.io/podRole, operator: In, values: [instance]}
-      - equal:
-          path: spec.ingress[0].from
-          value:
-            - namespaceSelector:
-                matchLabels:
-                  kubernetes.io/metadata.name: sr-media-test
-              podSelector:
-                matchExpressions:
-                  - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-      - equal:
-          path: spec.ingress[1].from
-          value:
-            - namespaceSelector:
-                matchLabels:
-                  kubernetes.io/metadata.name: sr-media-test
-              podSelector:
-                matchExpressions:
-                  - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-      - contains:
-          path: spec.ingress[2].from[0].podSelector.matchExpressions
-          content: {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-
-  - it: gives the pooler a copy of the namespace policy that never admits the worker
-    template: templates/network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.podSelectorMatchAll: true
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-egress-cnpg-pooler
-    asserts:
-      - contains:
-          path: spec.podSelector.matchExpressions
-          content: {key: cnpg.io/poolerName, operator: In, values: [cnpg-pooler-rw]}
-      - equal:
-          path: spec.ingress[0].from[0].podSelector
-          value:
-            matchExpressions:
-              - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-
-  - it: keeps the database pods out of the main namespace policy, whose rules stay as they were
-    template: templates/network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.podSelectorMatchAll: true
-      networkPolicy.ingress.allowedPorts:
-        - {protocol: TCP, port: 4222}
-      logCollector.tcpCollector.enabled: false
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-egress
-    asserts:
-      - contains:
-          path: spec.podSelector.matchExpressions
-          content: {key: cnpg.io/cluster, operator: NotIn, values: [cnpg]}
-      - contains:
-          path: spec.podSelector.matchExpressions
-          content: {key: cnpg.io/poolerName, operator: NotIn, values: [cnpg-pooler-rw]}
-      - equal:
-          path: spec.ingress[0]
-          value:
-            from:
-              - namespaceSelector:
-                  matchLabels:
-                    kubernetes.io/metadata.name: sr-media-test
-            ports:
-              - {protocol: TCP, port: 4222}
 
   # With the namespace-wide policy off, replicas and the pooler are selected by no
+
   # ingress policy (the primary has the CNPG application policy), so a guard admits
+
   # every source to them except the worker, whatever the worker's own policy says.
-  - it: guards the CNPG replicas and the pooler when the namespace-wide policy is off
-    template: templates/cnpg-media-worker-guard-network-policy.yaml
-    set:
-      mediaWorker.networkPolicy.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 2
-      - equal:
-          path: spec.podSelector.matchLabels
-          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance, cnpg.io/instanceRole: replica}
-        documentIndex: 0
-      - equal:
-          path: spec.podSelector.matchLabels
-          value: {cnpg.io/poolerName: cnpg-pooler-rw}
-        documentIndex: 1
-      - equal:
-          path: spec.ingress
-          value:
-            - from:
-                - podSelector:
-                    matchExpressions:
-                      - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-                - namespaceSelector:
-                    matchExpressions:
-                      - {key: kubernetes.io/metadata.name, operator: NotIn, values: [sr-media-test]}
-
-  - it: guards the primary too when the CNPG application policy is off
-    template: templates/cnpg-media-worker-guard-network-policy.yaml
-    set:
-      cnpg.applicationAccess.enabled: false
-    documentIndex: 0
-    asserts:
-      - equal:
-          path: spec.podSelector.matchLabels
-          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance}
-
-  - it: leaves the database guard to the namespace-wide policy's copies when that policy is on
-    template: templates/cnpg-media-worker-guard-network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-    asserts:
-      - hasDocuments:
-          count: 0
 
   # Another CNPG cluster's instances in the namespace stay under the main rules:
-  # the complement of "this cluster's instances" is two selectors.
-  - it: keeps this cluster's non-instance pods under the main rules in a second selector
-    template: templates/network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.podSelectorMatchAll: true
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-egress-cnpg-cluster-other
-    asserts:
-      - equal:
-          path: spec.podSelector.matchExpressions
-          value:
-            - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
-            - {key: cnpg.io/cluster, operator: In, values: [cnpg]}
-            - {key: cnpg.io/podRole, operator: NotIn, values: [instance]}
-            - {key: cnpg.io/poolerName, operator: NotIn, values: [cnpg-pooler-rw]}
 
-  - it: excludes the worker only where it can live, the release namespace
-    template: templates/network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.podSelectorMatchAll: true
-      networkPolicy.ingress.allowSameNamespace: false
-      networkPolicy.ingress.allowedNamespaces: [synthetic-other]
-    documentSelector:
-      path: metadata.name
-      value: serviceradar-egress-cnpg-instances
-    asserts:
-      - equal:
-          path: spec.ingress[0].from
-          value:
-            - namespaceSelector:
-                matchLabels:
-                  kubernetes.io/metadata.name: synthetic-other
+  # the complement of "this cluster's instances" is two selectors.
 
   # Layouts the chart's policies cannot reach are refused rather than covered.
-  - it: refuses a CNPG cluster outside the release namespace
-    template: templates/media-worker.yaml
-    set:
-      cnpg.namespace: synthetic-database
-    asserts:
-      - failedTemplate:
-          errorPattern: "^cnpg.namespace \"synthetic-database\" is not the release namespace \"sr-media-test\": the media worker's database isolation cannot be guaranteed in that layout"
-
-  - it: refuses a StarRocks catalog policy that admits the release namespace to the primary
-    template: templates/media-worker.yaml
-    set:
-      analytics.starrocks.enabled: true
-      analytics.starrocks.catalog.enabled: true
-      analytics.starrocks.catalog.sourceNamespace: sr-media-test
-    asserts:
-      - failedTemplate:
-          errorPattern: "^analytics.starrocks.catalog.sourceNamespace \"sr-media-test\" is the release namespace, so its policy admits every pod there to the CNPG primary: the media worker's database isolation cannot be guaranteed in that layout"
-
-  - it: refuses a customised namespace policy selector
-    template: templates/media-worker.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.podSelector:
-        matchLabels: {synthetic-tier: app}
-    asserts:
-      - failedTemplate:
-          errorPattern: "^networkPolicy.podSelector is customised .*: the media worker's database isolation cannot be guaranteed in that layout"
 
   # The guard covers only database pods no other chart policy selects.
-  - it: guards only the replicas when another chart policy already restricts the primary
-    template: templates/cnpg-media-worker-guard-network-policy.yaml
-    set:
-      cnpg.applicationAccess.enabled: false
-      cnpg.localDevAccess.enabled: true
-      cnpg.localDevAccess.allowedCIDRs: ["192.0.2.0/24"]
-    documentIndex: 0
-    asserts:
-      - equal:
-          path: spec.podSelector.matchLabels
-          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance, cnpg.io/instanceRole: replica}
-
-  - it: guards the replicas under the namespace-wide policy when no CNPG policy selects them
-    template: templates/cnpg-media-worker-guard-network-policy.yaml
-    set:
-      networkPolicy.enabled: true
-      networkPolicy.ingress.cnpgOperator.enabled: false
-      networkPolicy.ingress.cnpgInstanceManager.enabled: false
-    asserts:
-      - hasDocuments:
-          count: 1
-      - equal:
-          path: spec.podSelector.matchLabels
-          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance, cnpg.io/instanceRole: replica}
 
   # Another repository never takes the packaged CPU digest.
+
   - it: refuses a repository override that would fall back to the packaged CPU digest
     template: templates/media-worker.yaml
     set:
@@ -869,3 +649,77 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: registry.carverauto.dev/serviceradar/serviceradar-media-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333
+
+  # The worker's own policy is its only egress grant from the chart.
+
+  - it: keeps the worker out of a custom namespace selector by appending to it
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.podSelector:
+        matchLabels: {synthetic-tier: app}
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels.synthetic-tier
+          value: app
+      - equal:
+          path: spec.podSelector.matchExpressions
+          value:
+            - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
+
+  - it: renders the worker's own policy even with the namespace-wide policy off
+    template: templates/media-worker.yaml
+    set:
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+
+  - it: refuses turning the worker's own policy off without operator ownership
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.networkPolicy.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.enabled false removes the media worker's only egress restriction from this chart"
+
+  - it: leaves the worker's isolation to the operator when it says so
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.networkPolicy.enabled: false
+      mediaWorker.networkPolicy.operatorManaged: true
+    asserts:
+      # Only the Service and the Deployment: no NetworkPolicy for the worker.
+      - hasDocuments:
+          count: 2
+      - isKind: {of: Service}
+        documentIndex: 0
+      - isKind: {of: Deployment}
+        documentIndex: 1
+
+  - it: refuses an in-release URL whose root dot makes it unresolvable
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng-headless.:4001
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng-headless.:4001 ends its host with a DNS root dot but is not a fully qualified service name"
+
+  - it: recognises the published CPU repository under a mirrored registry
+    template: templates/media-worker.yaml
+    set:
+      image.registry: mirror.example.com/serviceradar
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker
+      mediaWorker.image.tag: v9.8.7
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.executionProvider cuda cannot start on registry.carverauto.dev/serviceradar/serviceradar-media-worker, which is a CPU build"

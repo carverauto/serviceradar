@@ -576,7 +576,7 @@ access.
 | `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider needs a runtime class and requests `gpuCount` (at least 1) of `gpuResourceName`; `cpu_explicit` requests no GPU | `""`, `nvidia.com/gpu`, `1` |
 | `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate` | `1` |
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
-| `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
+| `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. The image must include the worker's dedicated NATS inbox support (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`, added with this chart change): an older build ignores it, uses the account-wide `_INBOX`, and the broker denies its JetStream replies and pull deliveries. Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
@@ -607,7 +607,9 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   `gpu`;
 - the control plane is this release's web-ng and anything about it is wrong.
   The URL is compared after lower-casing the scheme and host, dropping a DNS
-  root dot and supplying the scheme's default port. A host naming
+  root dot and supplying the scheme's default port; a root dot on anything but
+  a full `.svc.cluster.local` name is refused, since the resolver would not
+  find it. A host naming
   `serviceradar-web-ng` or `serviceradar-web-ng-headless` (optionally followed
   by the release namespace, `.svc` and `.cluster.local`) is this release's
   web-ng, and then web-ng must be enabled, the URL must be
@@ -619,8 +621,12 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   Two Secrets holding identical bytes are deliberately not supported: a
   rotation would update one and leave the other behind. Any other host is
   treated as a remote control plane and left to the operator;
-- a GPU provider uses the release's CPU image, or a non-release repository has
-  neither a tag nor a digest;
+- a GPU provider uses the release's CPU image (the configured
+  `image.registry` copy or the published
+  `registry.carverauto.dev/serviceradar/serviceradar-media-worker`), or a
+  non-release repository has neither a tag nor a digest;
+- `mediaWorker.networkPolicy.enabled` is false without
+  `mediaWorker.networkPolicy.operatorManaged: true`;
 - `webNg.controlPlaneRuntime.port` collides with another web-ng listener (the
   public listener 4000, the metrics port, or Erlang distribution 4369 and
   9100), or `SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT`, `PORT` or
@@ -692,54 +698,29 @@ With the worker on, core may also publish `media.jobs.visual_index.v1` and
 `media.rpc.visual_text_embed.v1.>`. With it off, the worker identity is refused
 everything and core and web-ng get neither grant.
 
-**Network.** The worker's own policy allows DNS, NATS, web-ng's private
-control-plane port, the OTLP collector, the NVR read port when
+**Network isolation.** The worker is isolated at its source. Its own
+NetworkPolicy (`serviceradar-media-worker`) denies all egress except DNS, NATS,
+web-ng's private control-plane port, the OTLP collector, the NVR read port when
 `allowNvrRead` is set, and HTTPS to public object storage
-(`mediaWorker.networkPolicy.s3EgressCidrs` minus `s3ExceptCidrs`). Whenever
-the worker is enabled, whatever `mediaWorker.networkPolicy.enabled` says, the
-namespace-wide `serviceradar-egress` NetworkPolicy (including with
-`networkPolicy.podSelectorMatchAll`) and the Calico
-`networkPolicy.calicoLogDenied` policy leave it out of their selectors, so
-neither reopens same-namespace egress to it. With its own policy off it is
-therefore selected by no chart policy, and the operator supplies its policy.
+(`mediaWorker.networkPolicy.s3EgressCidrs` minus `s3ExceptCidrs`). It is
+rendered whenever the worker is enabled, regardless of the top-level
+`networkPolicy.enabled`. Every chart policy that selects broadly and grants
+egress leaves the worker out: `serviceradar-egress` (whatever base selector is
+configured, including `podSelectorMatchAll`) and the Calico
+`networkPolicy.calicoLogDenied` policy. Since policies only add permissions,
+the worker's own policy is then the only chart policy that governs its egress.
+The chart does not touch database ingress for this.
 
-**Database isolation.** The chart keeps the worker off PostgreSQL at the
-database pods themselves, so it does not depend on the worker's own policy.
-Kubernetes policies only add permissions, so a database pod is protected only
-if every chart policy that selects it refuses the worker:
-
-- With `networkPolicy.enabled`, this release's CNPG instances (primary and
-  replicas) and its PgBouncer pooler are left out of `serviceradar-egress` and
-  get their own copies of it (`serviceradar-egress-cnpg-instances`,
-  `serviceradar-egress-cnpg-pooler`) with the same rules, except that every
-  ingress peer in the release namespace excludes the worker. That holds for any
-  port form (ranges, named ports, none) and when the release namespace is
-  listed under `networkPolicy.ingress.allowedNamespaces`. The rest of
-  `serviceradar-egress` is unchanged: "every pod except this cluster's
-  instances and pooler" is rendered as two selectors with the same rules, so
-  another CNPG cluster's pods in the namespace keep exactly the policy they had.
-- The CNPG application policy admits the primary to every pod but the worker.
-- `serviceradar-cnpg-*-no-media-worker` policies select the database pods that
-  no other chart policy selects (with the namespace-wide policy off: the
-  replicas and the pooler, and the primary only when neither the application,
-  local-development nor StarRocks catalog policy selects it) and admit every
-  source except the worker. A pod another chart policy already restricts is
-  never added to them.
-
-While the worker is enabled, the chart refuses the layouts its policies cannot
-reach, because the worker's database isolation cannot be guaranteed there:
-
-- `cnpg.namespace` other than the release namespace;
-- `analytics.starrocks.catalog.sourceNamespace` equal to the release namespace
-  (its policy admits every pod there to the primary);
-- a customised `networkPolicy.podSelector` (use the default selector or
-  `networkPolicy.podSelectorMatchAll`).
-
-What the chart enforces is that no policy it renders admits the worker to this
-release's CNPG instances or pooler. It cannot enforce that on a cluster whose
-CNI does not implement NetworkPolicy, against policies an operator adds, or
-against `networkPolicy.ingress.allowedCIDRs` entries that cover the pod network
-(an IP block cannot exclude one pod).
+The guarantee, exactly: on a cluster whose CNI enforces egress NetworkPolicy,
+no policy rendered by this chart that selects the media worker allows it to
+open a connection to PostgreSQL, the pooler or any destination outside that
+allowlist. The chart does not constrain policies an operator adds, and offers
+no isolation on a CNI that does not enforce egress policy, or when
+`mediaWorker.networkPolicy.enabled` is false with
+`mediaWorker.networkPolicy.operatorManaged: true`, which states that the
+operator supplies and owns the worker's isolation.
+`media_worker_egress_isolation_test.py` checks this over the default, demo,
+tenant and HA values.
 
 **Enabling it.** Create these in the release namespace first; Helm creates
 neither:
@@ -810,8 +791,9 @@ run there:
   and its name and key in `mediaWorker.auth` and
   `webNg.controlPlaneRuntime.mediaWorker`, with the same `deploymentRef`
   (the installed deployment's identity) and `generation` in both;
-- network access: `mediaWorker.networkPolicy.enabled`, `allowNvrRead`,
-  `nvrReadPort`, `s3EgressCidrs` and `s3ExceptCidrs`;
+- network access: `mediaWorker.networkPolicy.enabled` (and `operatorManaged`
+  if the platform supplies the worker's policy), `allowNvrRead`, `nvrReadPort`,
+  `s3EgressCidrs` and `s3ExceptCidrs`;
 - a JetStream sizing profile with room for the worker's streams (not
   `tenant-2g`).
 

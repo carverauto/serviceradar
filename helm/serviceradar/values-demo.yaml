@@ -733,8 +733,10 @@ mediaWorker:
   enabled: false  # switched on once the CUDA image and the weights PVC exist
   image:
     repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
-    # Set to the sha-<commit> tag the CUDA publish workflow produced. Left empty,
-    # the chart refuses to render the worker.
+    # Set to the sha-<commit> tag the CUDA publish workflow produced, from a
+    # commit that includes the worker's dedicated NATS inbox support (older
+    # builds are denied their NATS replies). Left empty, the chart refuses to
+    # render the worker.
     tag: ""
   executionProvider: cuda
   runtimeClassName: nvidia
