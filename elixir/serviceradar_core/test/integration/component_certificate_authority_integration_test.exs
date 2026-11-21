@@ -147,6 +147,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert {:ok, _} = Authority.record_issuance(id, expired, ctx.opts)
 
     unrequested = fingerprint(id <> "-unrequested")
+
     assert {:ok, _} =
              Authority.record_issuance(id, %{current | fingerprint: unrequested}, ctx.opts)
 
