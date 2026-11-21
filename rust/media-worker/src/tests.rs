@@ -1327,8 +1327,7 @@ async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_i
     let block = assemble_cmaf_block(width as u32, height as u32, 90_000, init, fragments)
         .expect("assemble block");
 
-    let (envelope, metrics, events) =
-        index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+    let (envelope, metrics, events) = index_test_block(block, None).await;
 
     assert_eq!(
         envelope
@@ -1376,7 +1375,7 @@ fn assert_exported_refusals(metrics: &WorkerMetrics, reason: &str, count: u64) {
 
 async fn index_test_block(
     block: crate::SyntheticCmafBlock,
-    decoder: Arc<dyn KeyframeDecoder>,
+    decoder: Option<Arc<dyn KeyframeDecoder>>,
 ) -> (
     VisualIndexResultEnvelope,
     Arc<WorkerMetrics>,
@@ -1412,7 +1411,10 @@ async fn index_test_block(
         },
         Arc::clone(&metrics),
     );
-    let processor = processor.with_keyframe_decoder(decoder);
+    let processor = match decoder {
+        Some(decoder) => processor.with_keyframe_decoder(decoder),
+        None => processor,
+    };
     let outcome = processor
         .process_delivery(Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
@@ -1446,6 +1448,26 @@ async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() 
             build_init_mp4(16, 16, 90_000, b"avc3", &avcc_box(&[sps], &[&pps[..2]])),
             "h264",
         ),
+        (
+            build_init_mp4(
+                16,
+                16,
+                90_000,
+                b"avc3",
+                &avcc_box(&[&[0x67, 0x42, 0, 0, 3]], &[pps]),
+            ),
+            "h264",
+        ),
+        (
+            build_init_mp4(
+                16,
+                16,
+                90_000,
+                b"avc3",
+                &avcc_box(&[sps], &[&[0x68, 0xc0, 0, 0, 3]]),
+            ),
+            "h264",
+        ),
         (build_init_mp4(16, 16, 90_000, b"avc1", &short_sps), "h264"),
         (
             build_init_mp4(16, 16, 90_000, b"avc3", &missing_pps),
@@ -1454,11 +1476,17 @@ async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() 
         (build_init_mp4(16, 16, 90_000, b"hvc1", &[]), "hevc"),
         (vec![0; 3], "unknown"),
     ] {
-        let fragments =
-            (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));
+        let idr = nals_of_type(&nals, 5)[0];
+        let fragments = (0..2).map(|seq| {
+            (
+                seq,
+                0,
+                1,
+                build_fragment_m4s(seq, 0, 1, 90_000, &[sps, pps, idr]),
+            )
+        });
         let block = assemble_cmaf_block(16, 16, 90_000, init, fragments).unwrap();
-        let (result, metrics, events) =
-            index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+        let (result, metrics, events) = index_test_block(block, None).await;
         let refusals: Vec<_> = result
             .undecodable_keyframes()
             .iter()
@@ -1496,8 +1524,7 @@ async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
         let fragments =
             (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));
         let block = assemble_cmaf_block(width, height, 90_000, init, fragments).unwrap();
-        let (result, metrics, events) =
-            index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+        let (result, metrics, events) = index_test_block(block, None).await;
         assert_eq!(events.lock().as_slice(), ["publish_result", "ack"]);
         assert!(result.frames().is_empty());
         let reasons: Vec<_> = result
@@ -1507,6 +1534,62 @@ async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
             .collect();
         assert_eq!(reasons, [(0, "limit_exceeded"), (1, "limit_exceeded")]);
         assert_exported_refusals(&metrics, "limit_exceeded", 2);
+    }
+}
+
+#[tokio::test]
+async fn refused_samples_expire_tracks_without_publishing_frames() {
+    let duration = 1_000_000_000;
+    let specs: Vec<_> = [0, 1, 33, 34]
+        .into_iter()
+        .map(|seq| {
+            SyntheticFragmentSpec::new(
+                seq,
+                u64::from(seq) * duration,
+                duration,
+                [40, 44, 50],
+                vec![SyntheticObjectSpec::new(
+                    ObjectClass::Person,
+                    SyntheticColor::Red,
+                    [0.1, 0.16, 0.26, 0.86],
+                )],
+            )
+        })
+        .collect();
+    let source = generate_synthetic_cmaf_block(128, 96, 90_000, &specs).unwrap();
+    let mut decoded = 0;
+    let fragments = (0..=34).map(|seq| {
+        let start = u64::from(seq) * duration;
+        let bytes = if (2..33).contains(&seq) {
+            build_fragment_m4s(seq, start, duration, 90_000, &[&[0x65]])
+        } else {
+            let bytes = source.fragment_slice_bytes(decoded).unwrap().to_vec();
+            decoded += 1;
+            bytes
+        };
+        (seq, start, duration, bytes)
+    });
+    let block =
+        assemble_cmaf_block(128, 96, 90_000, source.init_mp4().to_vec(), fragments).unwrap();
+    let (result, _, _) =
+        index_test_block(block, Some(Arc::new(SyntheticRasterKeyframeDecoder))).await;
+    assert_eq!(result.undecodable_keyframes().len(), 31);
+    assert_eq!(
+        result
+            .frames()
+            .iter()
+            .map(|f| f.fragment_sequence())
+            .collect::<Vec<_>>(),
+        [0, 1, 33, 34]
+    );
+    let tracks = result.tracks();
+    assert_eq!(tracks.len(), 2);
+    assert_ne!(tracks[0].track_id(), tracks[1].track_id());
+    for (track, start) in tracks.iter().zip([0, 33_000]) {
+        assert_eq!(track.first_seen_offset_ms(), start);
+        assert_eq!(track.last_seen_offset_ms(), start + 1_000);
+        assert_eq!(track.dwell_ms(), 1_000);
+        assert_eq!(track.frame_count(), 2);
     }
 }
 
@@ -1610,7 +1693,7 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
             .finish();
         let _subscriber = tracing::subscriber::set_default(subscriber);
         let (result, metrics, _) =
-            index_test_block(block, Arc::new(SyntheticRasterKeyframeDecoder)).await;
+            index_test_block(block, Some(Arc::new(SyntheticRasterKeyframeDecoder))).await;
         let reasons: Vec<_> = result
             .undecodable_keyframes()
             .iter()

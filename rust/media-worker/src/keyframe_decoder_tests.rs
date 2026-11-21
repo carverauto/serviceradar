@@ -297,16 +297,18 @@ fn hevc_keyframe_is_reported_unsupported_instead_of_fabricated() {
     }
 }
 
-/// Builds a High 10 SPS (`bit_depth_luma_minus8 = 2`) for `sps_id` 0 at 128x96.
-fn high10_sps() -> Vec<u8> {
+fn extended_profile_sps(profile: u32, chroma: u32, depth_minus8: u32) -> Vec<u8> {
     let mut w = rusty_h264_common::BitWriter::new();
-    w.write_bits(110, 8); // profile_idc: High 10
+    w.write_bits(profile, 8);
     w.write_bits(0, 8); // constraint flags
     w.write_bits(30, 8); // level_idc
     w.write_ue(0); // seq_parameter_set_id
-    w.write_ue(1); // chroma_format_idc 4:2:0
-    w.write_ue(2); // bit_depth_luma_minus8
-    w.write_ue(2); // bit_depth_chroma_minus8
+    w.write_ue(chroma);
+    if chroma == 3 {
+        w.write_bit(false);
+    }
+    w.write_ue(depth_minus8);
+    w.write_ue(depth_minus8);
     w.write_bit(false); // qpprime_y_zero_transform_bypass_flag
     w.write_bit(false); // seq_scaling_matrix_present_flag
     w.write_ue(0); // log2_max_frame_num_minus4
@@ -341,7 +343,7 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
     let truncated = &slice[..slice.len() / 2];
     let wide = encode_idr(EncoderConfig::baseline(4112, 16), &pattern(4112, 16));
     let wide_nals = annex_b_nals(&wide);
-    let high10 = high10_sps();
+    let high10 = extended_profile_sps(110, 1, 2);
 
     let cases: [RejectionCase<'_>; 6] = [
         (
@@ -542,21 +544,45 @@ fn avc3_replacement_decodes_with_only_the_active_parameter_sets() {
     let sps = nals_of_type(&nals, 7)[0];
     let pps = nals_of_type(&nals, 8)[0];
     let idr = nals_of_type(&nals, 5)[0];
-    let bytes = build_init_mp4(
-        W as u32,
-        H as u32,
-        90_000,
-        b"avc3",
-        &avcc_box(&[&high10_sps()], &[pps]),
-    );
-    let init = parse_init_segment(&bytes).unwrap();
-    let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[sps, pps, idr]);
-    let fragment = parse_media_fragment(&bytes, &init).unwrap();
-    let frame = DefaultKeyframeDecoder
-        .decode_keyframe(&init, &fragment)
-        .unwrap();
-    let (mean, max) = rgb_error_vs_source(&frame, &source);
-    assert!(mean < 3.0 && max < 40.0);
+    let mut scaling = pps_fields(0, 0, true);
+    scaling.write_bits(3, 2);
+    scaling.write_bits(0, 12);
+    scaling.write_se(0);
+    scaling.rbsp_trailing_bits();
+    let pps_444 = NalUnit::new(3, NalUnitType::Pps, scaling.into_bytes()).to_annex_b();
+    let pps_10bit = quantizer_pps(0, 0, -27, true);
+    for (init_sps, init_pps) in [
+        (extended_profile_sps(110, 1, 2), pps),
+        (extended_profile_sps(110, 1, 2), &pps_10bit[4..]),
+        (extended_profile_sps(244, 3, 0), &pps_444[4..]),
+    ] {
+        let bytes = build_init_mp4(
+            W as u32,
+            H as u32,
+            90_000,
+            b"avc3",
+            &avcc_box(&[&init_sps], &[init_pps]),
+        );
+        let init = parse_init_segment(&bytes).unwrap();
+        DefaultKeyframeDecoder.validate_init(&init).unwrap();
+        let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[idr]);
+        let fragment = parse_media_fragment(&bytes, &init).unwrap();
+        assert_eq!(
+            DefaultKeyframeDecoder
+                .decode_keyframe(&init, &fragment)
+                .unwrap_err()
+                .reason(),
+            "unsupported_codec"
+        );
+
+        let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[sps, pps, idr]);
+        let fragment = parse_media_fragment(&bytes, &init).unwrap();
+        let frame = DefaultKeyframeDecoder
+            .decode_keyframe(&init, &fragment)
+            .unwrap();
+        let (mean, max) = rgb_error_vs_source(&frame, &source);
+        assert!(mean < 3.0 && max < 40.0);
+    }
 }
 
 #[test]
@@ -575,7 +601,7 @@ fn avc1_uses_its_sample_entry_and_refuses_auxiliary_and_extension_slices() {
         &avcc_box(&[sps], &[pps]),
     ))
     .unwrap();
-    let replacement = high10_sps();
+    let replacement = extended_profile_sps(110, 1, 2);
     let bytes = build_fragment_m4s(
         0,
         0,
@@ -681,7 +707,12 @@ fn truncated_in_band_parameter_sets_are_malformed_bitstream() {
         &avcc_box(&[sps], &[pps]),
     ))
     .unwrap();
-    for short in [&sps[..5], &pps[..2]] {
+    for short in [
+        &sps[..5],
+        &pps[..2],
+        &[0x67, 0x42, 0, 0, 3],
+        &[0x68, 0xc0, 0, 0, 3],
+    ] {
         let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[short, slice]);
         let fragment = parse_media_fragment(&bytes, &init).unwrap();
         assert_eq!(
@@ -841,7 +872,7 @@ fn access_unit_limit_counts_only_the_serialized_active_sets_and_slices() {
     for _ in 0..spare / 3 {
         idr.extend_from_slice(&[0, 0, 3]);
     }
-    let inactive = high10_sps();
+    let inactive = extended_profile_sps(110, 1, 2);
     let sets = [&inactive[..], sps, pps];
     let picture = decode_access_unit(&sets, &[&idr]).unwrap();
     let mut digest = Sha256::new();

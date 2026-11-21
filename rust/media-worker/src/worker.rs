@@ -13,7 +13,7 @@ use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
     VerifiedKeyframeBlock,
 };
-use crate::vision::{ClipKeyframe, RgbFrame, VisionPipeline};
+use crate::vision::VisionPipeline;
 use async_nats::jetstream::AckKind;
 use async_nats::jetstream::consumer::{AckPolicy, pull};
 use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
@@ -908,13 +908,13 @@ where
         job: &VisualIndexJobEnvelope,
         verified_block: &VerifiedKeyframeBlock,
     ) -> Result<JobExecution, MediaWorkerError> {
-        let (codec, init_seg) = parse_init_segment_with_codec(
-            verified_block.init_bytes(),
-            self.keyframe_decoder.as_ref(),
-        );
+        let (codec, init_seg) = parse_init_segment_with_codec(verified_block.init_bytes());
+        let init_seg = init_seg.and_then(|init| {
+            self.keyframe_decoder.validate_init(&init)?;
+            Ok(init)
+        });
         let codec = codec.map_or("unknown", VideoCodec::as_str);
-        let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
-            Vec::with_capacity(verified_block.fragments().len());
+        let mut sampled_frames = Vec::with_capacity(verified_block.fragments().len());
         let mut undecodable_keyframes = Vec::new();
         let mut base_pts_ns = 0;
         for (index, frag) in verified_block.fragments().iter().enumerate() {
@@ -940,10 +940,10 @@ where
             if index == 0 {
                 base_pts_ns = media_pts_ns;
             }
-            match decoded {
+            let frame = match decoded {
                 Ok(frame) => {
                     self.metrics.inc_keyframes_decoded(1);
-                    decoded_frames.push((frag.sequence(), media_pts_ns, frame));
+                    Some(frame)
                 }
                 Err(reason) => {
                     self.metrics.inc_keyframes_undecodable(reason);
@@ -952,19 +952,16 @@ where
                         reason,
                         codec,
                     ));
+                    None
                 }
-            }
+            };
+            sampled_frames.push((frag.sequence(), media_pts_ns, frame));
         }
 
-        let clip_keyframes: Vec<ClipKeyframe<'_>> = decoded_frames
+        let slots = sampled_frames
             .iter()
-            .map(|(_, pts, frame)| {
-                let offset_ms = pts.saturating_sub(base_pts_ns) / 1_000_000;
-                ClipKeyframe::new(offset_ms, frame)
-            })
-            .collect();
-
-        let clip_analysis = self.pipeline.process_clip_keyframes(&clip_keyframes)?;
+            .map(|(_, pts, frame)| (pts.saturating_sub(base_pts_ns) / 1_000_000, frame.as_ref()));
+        let clip_analysis = self.pipeline.process_sampled_keyframes(slots)?;
         for &secs in clip_analysis.stage1_latencies_secs() {
             self.metrics.observe_stage1_latency(secs);
         }
@@ -973,9 +970,11 @@ where
         }
 
         let (frame_analyses, track_summaries) = clip_analysis.into_parts();
-        let mut frame_payloads = Vec::with_capacity(decoded_frames.len());
-        for ((sequence, media_pts_ns, _), analysis) in
-            decoded_frames.into_iter().zip(frame_analyses)
+        let mut frame_payloads = Vec::with_capacity(frame_analyses.len());
+        for ((sequence, media_pts_ns, _), analysis) in sampled_frames
+            .into_iter()
+            .filter(|(_, _, frame)| frame.is_some())
+            .zip(frame_analyses)
         {
             let det_payloads = analysis
                 .detections()

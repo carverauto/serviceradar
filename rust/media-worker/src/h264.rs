@@ -113,8 +113,8 @@ pub(crate) fn decode_access_unit(
             Some(NAL_SPS) => {
                 let rbsp = nal_rbsp(nal, 16)?;
                 let mut reader = BitReader::new(&rbsp);
-                reader.read_bits(24)?;
-                sps_by_id.insert(reader.read_ue_max(31, "seq_parameter_set_id")?, nal);
+                let (id, _) = sps_header(&mut reader)?;
+                sps_by_id.insert(id, nal);
             }
             Some(NAL_PPS) => {
                 let rbsp = nal_rbsp(nal, 16)?;
@@ -140,12 +140,17 @@ pub(crate) fn decode_access_unit(
         KeyframeDecodeError::malformed_bitstream("IDR slice references missing PPS")
     })?;
     let pps_rbsp = nal_rbsp(pps, pps.len())?;
-    let active_pps = parse_pps(&pps_rbsp)?;
+    let mut pps_reader = BitReader::parameter_set(&pps_rbsp);
+    let sps_id = pps_sps_id(&mut pps_reader)?;
     let sps_nal = *sps_by_id
-        .get(&active_pps.sps_id)
+        .get(&sps_id)
         .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("PPS references missing SPS"))?;
     let sps_rbsp = nal_rbsp(sps_nal, sps_nal.len())?;
-    let sps = parse_sps(&sps_rbsp)?;
+    let mut sps_reader = BitReader::parameter_set(&sps_rbsp);
+    let (_, profile) = sps_header(&mut sps_reader)?;
+    validate_layout(profile, &mut sps_reader)?;
+    let sps = parse_supported_sps(profile, &mut sps_reader)?;
+    let active_pps = parse_supported_pps(&mut pps_reader)?;
     let colour = colour_spec(&sps)?;
 
     let total_bytes = slice_bytes + sps_nal.len() + pps.len() + 8;
@@ -497,10 +502,8 @@ impl<'a> BitReader<'a> {
     }
 }
 
-fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, KeyframeDecodeError> {
-    let payload = nal
-        .get(1..)
-        .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("h264 NAL unit has no payload"))?;
+fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, SyntaxError> {
+    let payload = nal.get(1..).ok_or(SyntaxError::Truncated)?;
     let mut rbsp = Vec::with_capacity(retain.min(payload.len()));
     let mut zeros = 0;
     for (index, &byte) in payload.iter().enumerate() {
@@ -509,7 +512,8 @@ fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, KeyframeDecodeError> {
                 0..=2 => {
                     return Err(KeyframeDecodeError::malformed_bitstream(
                         "unescaped H.264 byte sequence",
-                    ));
+                    )
+                    .into());
                 }
                 3 => match payload.get(index + 1) {
                     Some(0..=3) => {
@@ -517,10 +521,12 @@ fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, KeyframeDecodeError> {
                         continue;
                     }
                     None if nal_type(nal) == Some(NAL_IDR) => {}
-                    _ => {
+                    None => return Err(SyntaxError::Truncated),
+                    Some(_) => {
                         return Err(KeyframeDecodeError::malformed_bitstream(
                             "invalid H.264 emulation-prevention byte",
-                        ));
+                        )
+                        .into());
                     }
                 },
                 _ => {}
@@ -535,17 +541,18 @@ fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, KeyframeDecodeError> {
 }
 
 struct PpsInfo {
-    sps_id: u32,
     pic_init_qp: i64,
     bottom_field_pic_order_present: bool,
     deblocking_filter_control_present_flag: bool,
     redundant_pic_cnt_present_flag: bool,
 }
 
-fn parse_pps(rbsp: &[u8]) -> Result<PpsInfo, SyntaxError> {
-    let mut r = BitReader::parameter_set(rbsp);
+fn pps_sps_id(r: &mut BitReader<'_>) -> Result<u32, SyntaxError> {
     r.read_ue_max(255, "pic_parameter_set_id")?;
-    let sps_id = r.read_ue_max(31, "seq_parameter_set_id")?;
+    r.read_ue_max(31, "seq_parameter_set_id")
+}
+
+fn parse_supported_pps(r: &mut BitReader<'_>) -> Result<PpsInfo, SyntaxError> {
     r.read_flag()?;
     let bottom_field_pic_order_present = r.read_flag()?;
     if r.read_ue()? != 0 {
@@ -566,7 +573,7 @@ fn parse_pps(rbsp: &[u8]) -> Result<PpsInfo, SyntaxError> {
     let cr = if r.bit < r.end {
         let transform_8x8 = r.read_flag()?;
         if r.read_flag()? {
-            read_scaling_lists(&mut r, if transform_8x8 { 8 } else { 6 })?;
+            read_scaling_lists(r, if transform_8x8 { 8 } else { 6 })?;
         }
         r.read_se()?
     } else {
@@ -579,7 +586,6 @@ fn parse_pps(rbsp: &[u8]) -> Result<PpsInfo, SyntaxError> {
         return Err(KeyframeDecodeError::unsupported_codec("unequal Cb and Cr QP offsets").into());
     }
     Ok(PpsInfo {
-        sps_id,
         pic_init_qp,
         bottom_field_pic_order_present,
         deblocking_filter_control_present_flag,
@@ -588,21 +594,31 @@ fn parse_pps(rbsp: &[u8]) -> Result<PpsInfo, SyntaxError> {
 }
 
 pub(crate) fn validate_init_sets(init: &ParsedInitSegment) -> Result<(), crate::MediaWorkerError> {
+    let mut supported = [false; 32];
     for nal in init.parameter_sets() {
-        if nal.is_empty() {
-            return Err(crate::MediaWorkerError::invalid_container(
-                "empty avcC parameter set",
-            ));
-        }
         if nal.len() > MAX_PARAMETER_SET_BYTES {
             continue;
         }
-        let Ok(rbsp) = nal_rbsp(nal, nal.len()) else {
-            continue;
-        };
+        let rbsp = nal_rbsp(nal, nal.len()).map_err(|err| match err {
+            SyntaxError::Truncated => {
+                crate::MediaWorkerError::invalid_container("truncated avcC parameter set")
+            }
+            SyntaxError::Invalid(err) => err.into(),
+        })?;
+        let mut r = BitReader::parameter_set(&rbsp);
         let result = match nal_type(nal) {
-            Some(NAL_SPS) => parse_sps(&rbsp).map(|_| ()),
-            Some(NAL_PPS) => parse_pps(&rbsp).map(|_| ()),
+            Some(NAL_SPS) => sps_header(&mut r).and_then(|(id, profile)| {
+                let layout = validate_layout(profile, &mut r);
+                supported[id as usize] = layout.is_ok();
+                layout?;
+                parse_supported_sps(profile, &mut r).map(|_| ())
+            }),
+            Some(NAL_PPS) => pps_sps_id(&mut r).and_then(|id| {
+                if supported[id as usize] {
+                    parse_supported_pps(&mut r)?;
+                }
+                Ok(())
+            }),
             _ => continue,
         };
         if matches!(result, Err(SyntaxError::Truncated)) {
@@ -614,14 +630,13 @@ pub(crate) fn validate_init_sets(init: &ParsedInitSegment) -> Result<(), crate::
     Ok(())
 }
 
-/// Parses the SPS fields this module needs (ITU-T H.264 7.3.2.1.1 and E.1.1).
-fn parse_sps(rbsp: &[u8]) -> Result<SpsInfo, SyntaxError> {
-    let mut r = BitReader::parameter_set(rbsp);
+fn sps_header(r: &mut BitReader<'_>) -> Result<(u32, u8), SyntaxError> {
     let profile_idc = r.read_bits(8)? as u8;
-    let _constraint_flags_and_reserved = r.read_bits(8)?;
-    let _level_idc = r.read_bits(8)?;
-    r.read_ue_max(31, "seq_parameter_set_id")?;
+    r.read_bits(16)?;
+    Ok((r.read_ue_max(31, "seq_parameter_set_id")?, profile_idc))
+}
 
+fn validate_layout(profile_idc: u8, r: &mut BitReader<'_>) -> Result<(), SyntaxError> {
     if !matches!(profile_idc, PROFILE_BASELINE | PROFILE_MAIN | PROFILE_HIGH) {
         return Err(KeyframeDecodeError::unsupported_codec(format!(
             "h264 profile_idc {profile_idc}"
@@ -637,9 +652,15 @@ fn parse_sps(rbsp: &[u8]) -> Result<SpsInfo, SyntaxError> {
         if luma_depth != 0 || chroma_depth != 0 {
             return Err(KeyframeDecodeError::unsupported_codec("non-8-bit picture").into());
         }
+    }
+    Ok(())
+}
+
+fn parse_supported_sps(profile_idc: u8, r: &mut BitReader<'_>) -> Result<SpsInfo, SyntaxError> {
+    if profile_idc == PROFILE_HIGH {
         let _qpprime_y_zero_transform_bypass = r.read_flag()?;
         if r.read_flag()? {
-            read_scaling_lists(&mut r, 8)?;
+            read_scaling_lists(r, 8)?;
         }
     }
 
@@ -711,7 +732,7 @@ fn parse_sps(rbsp: &[u8]) -> Result<SpsInfo, SyntaxError> {
     let (full_range, matrix_coefficients) = if r.read_flag()? {
         // The VUI does not affect decoding. A VUI that cannot be read as far as the colour
         // description falls back to the defaults instead of rejecting a decodable picture.
-        parse_vui_colour(&mut r).unwrap_or((None, None))
+        parse_vui_colour(r).unwrap_or((None, None))
     } else {
         (None, None)
     };
@@ -793,5 +814,5 @@ fn slice_header_prefix(nal: &[u8]) -> Result<Vec<u8>, KeyframeDecodeError> {
             "invalid IDR NAL header",
         ));
     }
-    nal_rbsp(nal, 64)
+    Ok(nal_rbsp(nal, 64)?)
 }

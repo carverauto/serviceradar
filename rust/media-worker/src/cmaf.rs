@@ -200,12 +200,11 @@ impl InitScan {
 
 /// Parses an ISO-BMFF / CMAF `init.mp4` segment (`ftyp` + `moov`).
 pub fn parse_init_segment(init_bytes: &[u8]) -> Result<ParsedInitSegment, MediaWorkerError> {
-    parse_init_segment_with_codec(init_bytes, &crate::keyframe_decoder::DefaultKeyframeDecoder).1
+    parse_init_segment_with_codec(init_bytes).1
 }
 
 pub(crate) fn parse_init_segment_with_codec(
     init_bytes: &[u8],
-    decoder: &dyn crate::keyframe_decoder::KeyframeDecoder,
 ) -> (
     Option<VideoCodec>,
     Result<ParsedInitSegment, MediaWorkerError>,
@@ -215,11 +214,7 @@ pub(crate) fn parse_init_segment_with_codec(
         status: Ok(()),
     };
     let init = parse_movie(init_bytes, &mut scan);
-    let admitted = scan.status.and(init).and_then(|init| {
-        decoder.validate_init(&init)?;
-        Ok(init)
-    });
-    (scan.codec, admitted)
+    (scan.codec, scan.status.and(init))
 }
 
 fn parse_movie(
@@ -1275,8 +1270,7 @@ pub fn generate_synthetic_cmaf_block(
         ));
     }
 
-    // Constrained Baseline 1080p-class SPS/PPS: valid parameter sets, paired with SRIDR1
-    // raster slices that only the test-only synthetic decoder reads.
+    // Fixed fixture SPS/PPS bytes accompany the synthetic SRIDR1 raster slices.
     let sps: [u8; 8] = [0x67, 0x42, 0x00, 0x1f, 0xe9, 0x01, 0x40, 0x7b];
     let pps: [u8; 4] = [0x68, 0xce, 0x06, 0xe2];
     let init_mp4 = build_init_mp4(
@@ -1737,7 +1731,17 @@ pub(crate) fn build_fragment_m4s(
 #[cfg(test)]
 mod init_tests {
     use super::*;
-    use crate::DefaultKeyframeDecoder;
+
+    #[test]
+    fn synthetic_fixture_exposes_its_container_metadata() {
+        let block = generate_synthetic_cmaf_block(128, 96, 90_000, &[]).unwrap();
+        let init = parse_init_segment(block.init_mp4()).unwrap();
+        assert_eq!(init.codec(), VideoCodec::H264);
+        assert_eq!(
+            (init.width(), init.height(), init.timescale()),
+            (128, 96, 90_000)
+        );
+    }
 
     #[test]
     fn trailing_box_errors_preserve_the_codec_of_a_complete_sample_entry() {
@@ -1776,8 +1780,7 @@ mod init_tests {
                 if damaged == levels.len() {
                     bytes.push(0);
                 }
-                let (identified, result) =
-                    parse_init_segment_with_codec(&bytes, &DefaultKeyframeDecoder);
+                let (identified, result) = parse_init_segment_with_codec(&bytes);
                 assert_eq!(identified, Some(codec));
                 assert_eq!(result.unwrap_err().error_class(), "invalid_container");
             }

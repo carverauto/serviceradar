@@ -429,6 +429,14 @@ impl VisionPipeline {
         &self,
         keyframes: &[ClipKeyframe<'_>],
     ) -> Result<ClipAnalysis, MediaWorkerError> {
+        self.process_sampled_keyframes(keyframes.iter().map(|kf| (kf.offset_ms, Some(kf.frame))))
+    }
+
+    pub(crate) fn process_sampled_keyframes<'a>(
+        &self,
+        keyframes: impl ExactSizeIterator<Item = (u64, Option<&'a RgbFrame>)>,
+    ) -> Result<ClipAnalysis, MediaWorkerError> {
+        let mut previous_frame = None;
         let mut tracker = ClipTracker::new(self.tracker_mode);
         let mut stage1_latencies_secs = Vec::with_capacity(keyframes.len());
         let mut stage2_latencies_secs = Vec::with_capacity(keyframes.len());
@@ -443,21 +451,25 @@ impl VisionPipeline {
             let mut per_frame_embeddings: Vec<Vec<GeneratedEmbedding>> =
                 Vec::with_capacity(keyframes.len());
 
-            for (frame_idx, kf) in keyframes.iter().enumerate() {
+            for (offset_ms, frame) in keyframes {
+                let Some(frame) = frame else {
+                    tracker.update_frame(0, 0, offset_ms, &[], None);
+                    continue;
+                };
                 let t_s1 = Instant::now();
-                let mut detections = self.detect_subjects_checked(kf.frame)?;
+                let mut detections = self.detect_subjects_checked(frame)?;
                 stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
 
-                let prev_frame = frame_idx.checked_sub(1).map(|i| keyframes[i].frame);
+                let prev_frame = previous_frame.replace(frame);
                 let scene_suppressed = self.skip_unchanged_empty_scenes
                     && detections.is_empty()
                     && prev_frame.is_some_and(|prev| {
-                        kf.frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
+                        frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
                     });
 
                 let t_s2 = Instant::now();
                 let mut embeddings =
-                    self.encode_stage2_batch_checked(kf.frame, &detections, scene_suppressed)?;
+                    self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
                 stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
 
                 let crop_vecs: Vec<Vec<f32>> = embeddings
@@ -467,9 +479,9 @@ impl VisionPipeline {
                     .collect();
 
                 let assigned = tracker.update_frame(
-                    kf.frame.width(),
-                    kf.frame.height(),
-                    kf.offset_ms,
+                    frame.width(),
+                    frame.height(),
+                    offset_ms,
                     &detections,
                     Some(&crop_vecs),
                 );
@@ -543,45 +555,42 @@ impl VisionPipeline {
         // Motion-only (`bytetrack`) or untracked (`off`) path:
         // Pass 1 runs Stage 1 + tracking across all clip keyframes so best-crop deduplication
         // avoids redundant Stage 2 vision-tower crop embedding calls on repeated tracks.
-        let mut staged: Vec<(bool, Vec<DetectedSubject>)> = Vec::with_capacity(keyframes.len());
-        for (frame_idx, kf) in keyframes.iter().enumerate() {
+        let mut staged = Vec::with_capacity(keyframes.len());
+        for (offset_ms, frame) in keyframes {
+            let Some(frame) = frame else {
+                tracker.update_frame(0, 0, offset_ms, &[], None);
+                continue;
+            };
             let t_s1 = Instant::now();
-            let mut detections = self.detect_subjects_checked(kf.frame)?;
+            let mut detections = self.detect_subjects_checked(frame)?;
             stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
 
-            let prev_frame = frame_idx.checked_sub(1).map(|i| keyframes[i].frame);
+            let prev_frame = previous_frame.replace(frame);
             let scene_suppressed = self.skip_unchanged_empty_scenes
                 && detections.is_empty()
                 && prev_frame.is_some_and(|prev| {
-                    kf.frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
+                    frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
                 });
 
-            let assigned = tracker.update_frame(
-                kf.frame.width(),
-                kf.frame.height(),
-                kf.offset_ms,
-                &detections,
-                None,
-            );
+            let assigned =
+                tracker.update_frame(frame.width(), frame.height(), offset_ms, &detections, None);
             for (det, tid) in detections.iter_mut().zip(assigned) {
                 det.set_track_id(tid);
             }
 
-            staged.push((scene_suppressed, detections));
+            staged.push((frame, scene_suppressed, detections));
         }
 
         let best_by_track = if self.dedup_track_crops && self.tracker_mode.is_enabled() {
             let det_slices: Vec<Vec<DetectedSubject>> =
-                staged.iter().map(|(_, d)| d.clone()).collect();
+                staged.iter().map(|(_, _, d)| d.clone()).collect();
             Some(select_best_crop_per_track(&det_slices))
         } else {
             None
         };
 
-        let mut frames = Vec::with_capacity(keyframes.len());
-        for (frame_idx, (kf, (scene_suppressed, detections))) in
-            keyframes.iter().zip(staged).enumerate()
-        {
+        let mut frames = Vec::with_capacity(staged.len());
+        for (frame_idx, (frame, scene_suppressed, detections)) in staged.into_iter().enumerate() {
             let selected_dets: Vec<DetectedSubject> = match &best_by_track {
                 Some(best_map) => detections
                     .iter()
@@ -597,7 +606,7 @@ impl VisionPipeline {
 
             let t_s2 = Instant::now();
             let embeddings =
-                self.encode_stage2_batch_checked(kf.frame, &selected_dets, scene_suppressed)?;
+                self.encode_stage2_batch_checked(frame, &selected_dets, scene_suppressed)?;
             stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
 
             frames.push(KeyframeAnalysis {
