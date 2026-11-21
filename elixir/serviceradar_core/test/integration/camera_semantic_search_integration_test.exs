@@ -539,7 +539,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
     assert {:ok, %{frame_count: 2, embedding_count: 3}} =
              VisualIndexResultProjector.ingest_result(auth_result_envelope)
 
-    assert {:ok, %{frame_count: 2, embedding_count: 3}} =
+    assert {:ok, %{frame_count: 0, embedding_count: 0}} =
              VisualIndexResultProjector.ingest_result(auth_result_envelope)
 
     assert 2 ==
@@ -561,7 +561,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         "descriptor_sha256" => entry_forb.descriptor_sha256
     }
 
-    assert {:ok, _} = VisualIndexResultProjector.ingest_result(forb_result_envelope)
+    assert {:ok, %{frame_count: 2, embedding_count: 3}} =
+             VisualIndexResultProjector.ingest_result(forb_result_envelope)
 
     scoped_investigator = %{
       user: %{id: "investigator-e2e", email: "inv@example.test"},
@@ -920,7 +921,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
           Repo,
           """
           UPDATE platform.camera_visual_index_jobs SET state = $2, attempt_count = 1,
-            dispatched_at = now() - interval '4 days', deadline_at = now() - interval '1 day'
+            dispatched_at = now() - interval '4 days', updated_at = now() - interval '4 days',
+            deadline_at = now() - interval '1 day'
           WHERE id = $1
           """,
           [id, state]
@@ -1022,7 +1024,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
           Repo,
           """
           UPDATE platform.camera_visual_index_jobs SET state = $2, attempt_count = 1,
-            inserted_at = '1970-01-01', dispatched_at = '1970-01-01', deadline_at = '1970-01-04'
+            inserted_at = '1970-01-01', dispatched_at = '1970-01-01', updated_at = '1970-01-01', deadline_at = '1970-01-04'
           WHERE catalog_entry_id = $1
           """,
           [entry_id, state]
@@ -1156,18 +1158,19 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       end
 
       for budget <- [1, 2],
-          {deadline, now} <- [{60, 300}, {73 * 3_600, 72 * 3_600}] do
+          {deadline, now} <- [{60, 300}, {60, 72 * 3_600 + 1}, {73 * 3_600, 72 * 3_600 + 4}] do
         SQL.query!(
           Repo,
           """
           UPDATE platform.camera_visual_index_jobs SET state = 'dispatched', job_kind = 'backfill',
-            attempt_count = 1, max_attempts = $2, dispatched_at = $3, deadline_at = $4 WHERE id = $1
+            attempt_count = 1, max_attempts = $2, dispatched_at = $3, deadline_at = $4, updated_at = $5 WHERE id = $1
           """,
           [
             Ecto.UUID.dump!(job.id),
             budget,
             DateTime.to_naive(sent),
-            DateTime.to_naive(DateTime.shift(sent, second: deadline))
+            DateTime.to_naive(DateTime.shift(sent, second: deadline)),
+            DateTime.to_naive(DateTime.shift(sent, second: 3))
           ]
         )
 
@@ -1176,7 +1179,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         assert {:ok, %{attempt_count: 1, state: :dispatched}} =
                  VisualIndexDispatcher.dispatch_job(job.id, opts)
 
-        assert {:ok, _} = VisualIndexDispatcher.reconcile_expired_dispatched_jobs(opts)
+        assert {:ok, %{examined_count: 0}} =
+                 VisualIndexDispatcher.reconcile_expired_dispatched_jobs(opts)
+
         refute_received :backfill_published
         assert %{attempt_count: 1, state: :dispatched} = reload(job, actor)
       end
@@ -1208,7 +1213,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       counts = projection_counts(entry, actor)
       assert counts == {1, 1}
 
-      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert {:ok, 0} = CameraVisualIndexResults.process_batch([message])
       assert projection_counts(entry, actor) == counts
 
       assert {:ok, _} =
@@ -1219,7 +1224,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       assert projection_counts(entry, actor) == {0, 0}
 
       for replay <- [message, result_message(envelope)] do
-        assert {:ok, 1} = CameraVisualIndexResults.process_batch([replay])
+        assert {:ok, 0} = CameraVisualIndexResults.process_batch([replay])
         assert projection_counts(entry, actor) == {0, 0}
         assert reload(job, actor).state == :completed
       end
@@ -1262,7 +1267,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         "ALTER TABLE platform.camera_visual_index_jobs DROP CONSTRAINT synthetic_refused_cancel"
       )
 
-      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert {:ok, 0} = CameraVisualIndexResults.process_batch([message])
       assert %{state: :cancelled} = reload(job, actor)
       assert projection_counts(entry, actor) == {0, 0}
     end
@@ -1371,8 +1376,18 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       assert {:ok, sent} = VisualIndexDispatcher.dispatch_job(job_id, publisher: publisher)
       assert_received {:published, _}
-      poison = result_message(%{"job_id" => job_id})
-      fail_job = fn ^job_id, "invalid_result_envelope" -> {:error, :db_unavailable} end
+
+      poison =
+        entry
+        |> build_single_crop_envelope(basis_vector(768, 3))
+        |> Map.put("job_id", job_id)
+        |> Map.delete("frames")
+        |> result_message()
+
+      SQL.query!(Repo, """
+      ALTER TABLE platform.camera_visual_index_jobs ADD CONSTRAINT synthetic_refused_terminal
+      CHECK (state <> 'failed_terminal') NOT VALID
+      """)
 
       for delivery <- 1..10 do
         metadata =
@@ -1390,7 +1405,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         }
 
         assert {:incomplete, 0, [{^message, %TransientMessageError{} = error}]} =
-                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
+                 CameraVisualIndexResults.process_batch([message])
 
         assert :ok = Pipeline.ack(:ack_ref, [], [Message.failed(message, error)])
 
@@ -1400,6 +1415,11 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
           assert_received {:ack_action, :term}
         end
       end
+
+      SQL.query!(
+        Repo,
+        "ALTER TABLE platform.camera_visual_index_jobs DROP CONSTRAINT synthetic_refused_terminal"
+      )
 
       assert %{state: :dispatched, attempt_count: 1} = reload(job, actor)
 
@@ -1433,6 +1453,251 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       refute_received {:published, _}
     end
 
+    test "a conflicting or unadmitted result cannot write projections or change a job", %{
+      tmp_dir: tmp_dir
+    } do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:result_identity_test)
+      {job, envelope} = admitted_result(actor, "Identity Camera")
+      {other, _} = admitted_result(actor, "Other Identity Camera")
+
+      for {field, value} <- [
+            {"job_id", Ecto.UUID.generate()},
+            {"job_id", other.id},
+            {"catalog_entry_id", other.catalog_entry_id},
+            {"descriptor_sha256", String.duplicate("ef", 32)},
+            {"detector_model_id", "other-detector"},
+            {"detector_model_version", "other-version"},
+            {"embedder_model_id", "other-embedder"},
+            {"embedder_model_version", "other-version"},
+            {"model_id", "conflicting-alias"},
+            {"model_version", "conflicting-version"},
+            {"embedding_dim", 512}
+          ] do
+        mismatch = Map.put(envelope, field, value)
+
+        for frames <- [envelope["frames"], nil] do
+          message = mismatch |> Map.put("frames", frames) |> result_message()
+
+          assert {:incomplete, 0,
+                  [{^message, %TerminalMessageError{reason: :unmatched_result_job}}]} =
+                   CameraVisualIndexResults.process_batch([message])
+        end
+      end
+
+      missing =
+        envelope
+        |> Map.delete("job_id")
+        |> Map.put("embedder_model_version", "unknown")
+        |> result_message()
+
+      assert {:incomplete, 0, [{^missing, %TerminalMessageError{reason: :unmatched_result_job}}]} =
+               CameraVisualIndexResults.process_batch([missing])
+
+      for candidate <- [job, other] do
+        assert %{state: :pending, last_error_class: nil} = reload(candidate, actor)
+        assert projection_counts(%{id: candidate.catalog_entry_id}, actor) == {0, 0}
+      end
+
+      assert {:ok, 1} =
+               CameraVisualIndexResults.process_batch([
+                 result_message(Map.delete(envelope, "job_id"))
+               ])
+
+      mismatch =
+        envelope |> Map.put("detector_model_version", "other-version") |> result_message()
+
+      assert {:incomplete, 0, [{^mismatch, %TerminalMessageError{reason: :unmatched_result_job}}]} =
+               CameraVisualIndexResults.process_batch([mismatch])
+
+      assert reload(job, actor).state == :completed
+    end
+
+    test "late results leave cancelled and exhausted jobs final", %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:late_result_test)
+      {exhausted, exhausted_result} = admitted_result(actor, "Exhausted Camera")
+      {cancelled, cancelled_result} = admitted_result(actor, "Cancelled Camera")
+
+      assert {:ok, %{state: :failed_terminal}} =
+               VisualIndexDispatcher.reconcile_exhausted_job(exhausted)
+
+      assert {:ok, %{state: :cancelled}} =
+               cancelled
+               |> Ash.Changeset.for_update(:mark_cancelled, %{
+                 last_error_class: "source_deleted_or_quarantined"
+               })
+               |> Ash.update(actor: actor)
+
+      for {job, result} <- [{exhausted, exhausted_result}, {cancelled, cancelled_result}] do
+        final_job = reload(job, actor)
+
+        for envelope <- [result, Map.delete(result, "job_id")] do
+          assert {:ok, 0} = CameraVisualIndexResults.process_batch([result_message(envelope)])
+          assert projection_counts(%{id: job.catalog_entry_id}, actor) == {0, 0}
+          assert reload(job, actor) == final_job
+        end
+      end
+    end
+
+    test "database write and terminal update failures are isolated within a result batch", %{
+      tmp_dir: tmp_dir
+    } do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:result_batch_test)
+      {stored_job, good_result} = admitted_result(actor, "Stored Result Camera")
+      {failed_job, refused_result} = admitted_result(actor, "Refused Completion Camera")
+      {raised_job, raised_result} = admitted_result(actor, "Refused Frame Camera")
+      {poison_job, invalid_result} = admitted_result(actor, "Refused Failure Camera")
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_visual_index_jobs SET max_attempts = 3 WHERE id = $1",
+        [
+          Ecto.UUID.dump!(failed_job.id)
+        ]
+      )
+
+      SQL.query!(Repo, """
+      ALTER TABLE platform.camera_visual_index_jobs ADD CONSTRAINT synthetic_refused_result
+      CHECK (state <> 'failed_terminal' AND (state <> 'completed' OR max_attempts <> 3)) NOT VALID
+      """)
+
+      SQL.query!(Repo, """
+      ALTER TABLE platform.camera_visual_frames ADD CONSTRAINT synthetic_refused_frame
+      CHECK (fragment_sequence <> 75) NOT VALID
+      """)
+
+      add_region = fn [crop] -> [crop, Map.put(crop, "region_index", 2)] end
+
+      stored =
+        good_result
+        |> update_in(["frames", Access.at(0), "embeddings"], add_region)
+        |> result_message()
+
+      failed = result_message(refused_result)
+
+      raised =
+        raised_result
+        |> put_in(["frames", Access.at(0), "fragment_sequence"], 75)
+        |> result_message()
+
+      poison = invalid_result |> Map.delete("frames") |> result_message()
+
+      assert {:incomplete, 2,
+              [
+                {^failed, %TransientMessageError{reason: completion_error}},
+                {^raised, %TransientMessageError{reason: frame_error}},
+                {^poison, %TransientMessageError{reason: terminal_error}}
+              ]} =
+               CameraVisualIndexResults.process_batch([failed, raised, poison, stored, stored])
+
+      assert Exception.message(completion_error) =~ "synthetic_refused_result"
+      assert Exception.message(frame_error) =~ "synthetic_refused_frame"
+      assert Exception.message(terminal_error) =~ "synthetic_refused_result"
+      assert reload(stored_job, actor).state == :completed
+      assert projection_counts(%{id: stored_job.catalog_entry_id}, actor) == {1, 2}
+
+      for job <- [failed_job, raised_job, poison_job] do
+        assert reload(job, actor).state == :pending
+        assert projection_counts(%{id: job.catalog_entry_id}, actor) == {0, 0}
+      end
+    end
+
+    test "numeric values outside the storage contract terminate the delivery and fail the named job",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:invalid_number_test)
+      {job, envelope} = admitted_result(actor, "Numeric Validation Camera")
+      wire = Jason.encode!(envelope)
+      assert {:ok, ^envelope} = VisualIndexResultProjector.decode_result(wire)
+
+      bigint_overflow = 9_223_372_036_854_775_808
+      first_frame = ["frames", Access.at(0)]
+      first_embedding = first_frame ++ ["embeddings", Access.at(0)]
+      component = first_embedding ++ ["embedding", Access.at(0)]
+
+      for {path, token, reason} <- [
+            {first_frame ++ ["fragment_sequence"], bigint_overflow, :invalid_result_envelope},
+            {first_frame ++ ["media_pts_ns"], bigint_overflow, :invalid_result_envelope},
+            {first_embedding ++ ["region_index"], bigint_overflow, :invalid_result_envelope},
+            {component, "1e308", :invalid_embedding_vector},
+            {component, "-1e308", :invalid_embedding_vector},
+            {component, "1e309", :invalid_result_envelope}
+          ] do
+        wire =
+          envelope
+          |> put_in(path, "synthetic-number")
+          |> Jason.encode!()
+          |> String.replace(~s("synthetic-number"), to_string(token))
+
+        message = %{result_message(envelope) | data: wire}
+
+        SQL.query!(
+          Repo,
+          "UPDATE platform.camera_visual_index_jobs SET state = 'pending', last_error_class = NULL WHERE id = $1",
+          [Ecto.UUID.dump!(job.id)]
+        )
+
+        assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: ^reason}}]} =
+                 CameraVisualIndexResults.process_batch([message])
+
+        class = Atom.to_string(reason)
+        assert %{state: :failed_terminal, last_error_class: ^class} = reload(job, actor)
+      end
+    end
+
+    test "NUL in persisted text terminates the result and fails only a job with matching identity",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:invalid_text_test)
+      {job, envelope} = admitted_result(actor, "Text Validation Camera")
+      frame = ["frames", Access.at(0)]
+      detection = frame ++ ["detections", Access.at(0)]
+      embedding = frame ++ ["embeddings", Access.at(0)]
+      invalid = "syn\0thetic"
+
+      for {parent, canonical, field, value} <- [
+            {[], "detector_model_id", "detector_model_id", invalid},
+            {[], "detector_model_version", "detector_model_version", invalid},
+            {[], "embedder_model_id", "embedder_model_id", invalid},
+            {[], "embedder_model_version", "embedder_model_version", invalid},
+            {[], "embedder_model_id", "model_id", invalid},
+            {[], "embedder_model_version", "model_version", invalid},
+            {detection, "object_class", "object_class", invalid},
+            {detection, "object_class", "class", invalid},
+            {detection, "object_class", "label", invalid},
+            {embedding, "object_class", "object_class", invalid},
+            {detection, "dominant_colors", "dominant_colors", [invalid]},
+            {embedding, "dominant_colors", "dominant_colors", [invalid]},
+            {embedding, "dominant_colors", "attributes", %{"dominant_colors" => [invalid]}}
+          ] do
+        rewrite = fn map -> map |> Map.delete(canonical) |> Map.put(field, value) end
+
+        result =
+          if parent == [], do: rewrite.(envelope), else: update_in(envelope, parent, rewrite)
+
+        message = result_message(result)
+
+        SQL.query!(
+          Repo,
+          "UPDATE platform.camera_visual_index_jobs SET state = 'pending', last_error_class = NULL WHERE id = $1",
+          [Ecto.UUID.dump!(job.id)]
+        )
+
+        assert {:incomplete, 0,
+                [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+                 CameraVisualIndexResults.process_batch([message])
+
+        if parent == [] do
+          assert %{state: :pending, last_error_class: nil} = reload(job, actor)
+        else
+          assert %{state: :failed_terminal, last_error_class: "invalid_result_envelope"} =
+                   reload(job, actor)
+        end
+      end
+    end
+
     test "terminates a result that can never be stored and fails its job",
          %{tmp_dir: tmp_dir} do
       _gate = Fixtures.recording_recovery_gate(tmp_dir)
@@ -1440,6 +1705,15 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       {cam, prof} = create_camera_and_profile(actor, "Poison Result Camera")
       entry = create_indexed_playable_entry(cam, prof, 1_750_008_000_000_000, actor)
       job = job_for(entry, actor)
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_visual_index_jobs SET descriptor_sha256 = $1 WHERE id = $2",
+        [
+          String.duplicate("ab", 32),
+          Ecto.UUID.dump!(job.id)
+        ]
+      )
 
       message =
         entry
@@ -1464,6 +1738,17 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   # ---------------------------------------------------------------------------
   # Synthetic DB test helpers
   # ---------------------------------------------------------------------------
+
+  defp admitted_result(actor, name) do
+    {cam, prof} = create_camera_and_profile(actor, name)
+    entry = create_indexed_playable_entry(cam, prof, 1_750_008_100_000_000, actor)
+    job = job_for(entry, actor)
+
+    envelope =
+      entry |> build_single_crop_envelope(basis_vector(768, 0)) |> Map.put("job_id", job.id)
+
+    {job, envelope}
+  end
 
   defp job_for(entry, actor) do
     [job] =

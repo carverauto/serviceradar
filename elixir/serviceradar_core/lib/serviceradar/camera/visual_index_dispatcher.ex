@@ -328,10 +328,16 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   end
 
   defp retry_eligible?(
-         %{dispatched_at: %DateTime{} = sent, deadline_at: %DateTime{} = deadline},
+         %{
+           dispatched_at: %DateTime{} = sent,
+           updated_at: %DateTime{} = updated,
+           deadline_at: %DateTime{} = deadline
+         },
          now
        ) do
-    DateTime.compare(sent, retention_cutoff(now)) != :gt and
+    cutoff = retention_cutoff(now)
+
+    DateTime.compare(sent, cutoff) != :gt and DateTime.compare(updated, cutoff) != :gt and
       DateTime.compare(deadline, now) != :gt
   end
 
@@ -434,7 +440,8 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     expired =
       VisualIndexJob
       |> Ash.Query.filter(
-        state == :dispatched and deadline_at <= ^now and dispatched_at <= ^cutoff
+        state == :dispatched and deadline_at <= ^now and dispatched_at <= ^cutoff and
+          updated_at <= ^cutoff
       )
       |> Ash.Query.sort(deadline_at: :asc, id: :asc)
       |> Ash.Query.limit(limit)

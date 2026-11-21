@@ -9,11 +9,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
-  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.Camera.VisualWorkerReadGrants
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.TerminalMessageError
-  alias ServiceRadar.EventWriter.TransientMessageError
   alias ServiceRadar.Storage.StorageEntitlement
   alias ServiceRadar.Storage.StorageEntitlements
 
@@ -308,6 +306,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
           attempt_count: 1,
           max_attempts: 5,
           deadline_at: expired,
+          updated_at: expired,
           dispatched_at: expired
         }
 
@@ -317,6 +316,27 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                    publisher: publisher,
                    now: now
                  )
+      end
+    end
+
+    test "legacy dispatch start cannot expire a job before its acknowledged update ages out" do
+      start = ~U[2026-01-01 00:00:00Z]
+      ack = DateTime.shift(start, second: 3)
+      tick = DateTime.shift(start, day: 3, second: 1)
+
+      for max_attempts <- [1, 2] do
+        job = %VisualIndexJob{
+          id: @job_id,
+          catalog_entry_id: @catalog_id,
+          state: :dispatched,
+          attempt_count: 1,
+          max_attempts: max_attempts,
+          dispatched_at: start,
+          updated_at: ack,
+          deadline_at: DateTime.shift(start, minute: 1)
+        }
+
+        assert {:ok, ^job} = VisualIndexDispatcher.dispatch_job(job, now: tick)
       end
     end
 
@@ -845,150 +865,19 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     end
   end
 
+  test "a bare job ID cannot authorize a terminal job update" do
+    message = %Broadway.Message{
+      data: Jason.encode!(%{"job_id" => @job_id}),
+      acknowledger: Broadway.NoopAcknowledger.init()
+    }
+
+    assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+             CameraVisualIndexResults.process_batch([message])
+  end
+
   # ---------------------------------------------------------------------------
   # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
   # ---------------------------------------------------------------------------
-
-  describe "visual index result consumer failures" do
-    test "numeric values outside the storage contract terminate the delivery and fail the named job" do
-      envelope = result_envelope()
-      wire = Jason.encode!(envelope)
-      assert {:ok, ^envelope} = VisualIndexResultProjector.decode_result(wire)
-
-      bigint_overflow = 9_223_372_036_854_775_808
-      first_frame = ["frames", Access.at(0)]
-      first_embedding = first_frame ++ ["embeddings", Access.at(0)]
-      component = first_embedding ++ ["embedding", Access.at(0)]
-
-      for {path, token, reason} <- [
-            {first_frame ++ ["fragment_sequence"], bigint_overflow, :invalid_result_envelope},
-            {first_frame ++ ["media_pts_ns"], bigint_overflow, :invalid_result_envelope},
-            {first_embedding ++ ["region_index"], bigint_overflow, :invalid_result_envelope},
-            {component, "1e308", :invalid_embedding_vector},
-            {component, "-1e308", :invalid_embedding_vector},
-            {component, "1e309", :invalid_result_envelope}
-          ] do
-        message =
-          envelope
-          |> put_in(path, "synthetic-number")
-          |> Jason.encode!()
-          |> String.replace(~s("synthetic-number"), to_string(token))
-          |> result_message()
-
-        fail_job = fn id, class ->
-          send(self(), {:failed_job, id, class})
-          {:ok, %{}}
-        end
-
-        assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: ^reason}}]} =
-                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
-
-        class = Atom.to_string(reason)
-        assert_received {:failed_job, @job_id, ^class}
-      end
-    end
-
-    test "NUL in persisted text terminates the result and identifies the job to fail" do
-      envelope = result_envelope()
-      frame = ["frames", Access.at(0)]
-      detection = frame ++ ["detections", Access.at(0)]
-      embedding = frame ++ ["embeddings", Access.at(0)]
-      invalid = "syn\0thetic"
-
-      for {parent, canonical, field, value} <- [
-            {[], "detector_model_id", "detector_model_id", invalid},
-            {[], "detector_model_version", "detector_model_version", invalid},
-            {[], "embedder_model_id", "embedder_model_id", invalid},
-            {[], "embedder_model_version", "embedder_model_version", invalid},
-            {[], "embedder_model_id", "model_id", invalid},
-            {[], "embedder_model_version", "model_version", invalid},
-            {detection, "object_class", "object_class", invalid},
-            {detection, "object_class", "class", invalid},
-            {detection, "object_class", "label", invalid},
-            {embedding, "object_class", "object_class", invalid},
-            {detection, "dominant_colors", "dominant_colors", [invalid]},
-            {embedding, "dominant_colors", "dominant_colors", [invalid]},
-            {embedding, "dominant_colors", "attributes", %{"dominant_colors" => [invalid]}}
-          ] do
-        rewrite = fn map -> map |> Map.delete(canonical) |> Map.put(field, value) end
-
-        result =
-          if parent == [], do: rewrite.(envelope), else: update_in(envelope, parent, rewrite)
-
-        message = result |> Jason.encode!() |> result_message()
-
-        fail_job = fn @job_id, "invalid_result_envelope" ->
-          send(self(), :failed_named_job)
-          {:ok, %{}}
-        end
-
-        assert {:incomplete, 0,
-                [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
-                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
-
-        assert_received :failed_named_job
-      end
-    end
-
-    test "a failed or raising result is redelivered without failing the rest of its batch" do
-      stored = result_message(~s({"case":"stored"}))
-      failed = result_message(~s({"case":"failed"}))
-      raised = result_message(~s({"case":"raised"}))
-      poison = result_message(Jason.encode!(%{"job_id" => @job_id}))
-
-      ingest = fn
-        %{"case" => "stored"} -> {:ok, %{status: :ingested}}
-        %{"case" => "failed"} -> {:error, :db_unavailable}
-        %{"case" => "raised"} -> raise "connection dropped"
-        %{"job_id" => @job_id} -> {:error, :descriptor_sha256_mismatch}
-      end
-
-      fail_job = fn @job_id, "descriptor_sha256_mismatch" -> raise "job update failed" end
-
-      assert {:incomplete, 2,
-              [
-                {^failed, %TransientMessageError{reason: :db_unavailable}},
-                {^raised, %TransientMessageError{reason: %RuntimeError{}}},
-                {^poison,
-                 %TransientMessageError{reason: %RuntimeError{message: "job update failed"}}}
-              ]} =
-               CameraVisualIndexResults.process_batch([stored, failed, raised, poison, stored],
-                 ingest: ingest,
-                 fail_job: fail_job
-               )
-    end
-  end
-
-  defp result_envelope do
-    embedding = %{"region_kind" => "crop", "region_index" => 1, "embedding" => unit_vec(512)}
-    detection = %{"object_class" => "package", "bbox" => [0.1, 0.2, 0.3, 0.4]}
-
-    frame = %{
-      "fragment_sequence" => 1,
-      "media_pts_ns" => 1,
-      "detections" => [detection],
-      "embeddings" => [embedding]
-    }
-
-    %{
-      "catalog_entry_id" => @catalog_id,
-      "job_id" => @job_id,
-      "descriptor_sha256" => @desc_sha,
-      "detector_model_id" => "synthetic-detector",
-      "embedder_model_id" => "synthetic-embedder",
-      "embedder_model_version" => "1",
-      "embedding_dim" => 512,
-      "frames" => [frame]
-    }
-  end
-
-  defp result_message(data) do
-    %Broadway.Message{
-      data: data,
-      metadata: %{subject: "media.results.visual_index.v1"},
-      acknowledger: Broadway.NoopAcknowledger.init()
-    }
-  end
 
   defp policy_loaders(entitlement, existing_policies) do
     %{

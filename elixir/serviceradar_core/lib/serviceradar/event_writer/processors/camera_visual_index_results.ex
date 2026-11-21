@@ -8,12 +8,12 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
   Each message is stored on its own, in its own transaction:
 
     * stored, or a replay of a stored result: acknowledged. The projector
-      skips projection for a completed job, including after its frames or embeddings are purged.
+      skips projection for completed, cancelled and terminally failed jobs.
     * the recording was deleted or quarantined while the worker ran:
       acknowledged. The projector stores nothing and cancels the entry's jobs.
     * a result that can never be stored
-      (`VisualIndexResultProjector.terminal_drop?/1`): when the database accepts the update,
-      the job it names is marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
+      (`VisualIndexResultProjector.terminal_drop?/1`): when identity matches and the database accepts the update,
+      the admitted job is marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
       record), then the message fails with
       `ServiceRadar.EventWriter.TerminalMessageError`, which terminates it as a
       dead letter. A failed update is transient. If the database is unavailable for all
@@ -21,6 +21,7 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
       while the job is still dispatched. After the retention floor and deadline pass,
       expired-job reconciliation republishes the next attempt or marks the job
       `:failed_terminal` if its attempt budget is exhausted.
+    * a result with no matching admitted job is terminated as a dead letter without updating a job.
     * any other failure, including a raise: the message fails with
       `ServiceRadar.EventWriter.TransientMessageError`, which NAKs it with
       backoff.
@@ -33,7 +34,6 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias Broadway.Message
-  alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.EventWriter.TransientMessageError
@@ -42,19 +42,11 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
   def table_name, do: "camera_visual_embeddings"
 
   @impl true
-  def process_batch(messages), do: process_batch(messages, [])
-
-  @doc false
-  # `:ingest` replaces `VisualIndexResultProjector.ingest_result/1` (tests).
-  def process_batch(messages, opts) when is_list(messages) do
-    ingest = Keyword.get(opts, :ingest, &VisualIndexResultProjector.ingest_result/1)
-
-    fail_job = Keyword.get(opts, :fail_job, &VisualIndexDispatcher.reconcile_exhausted_job/2)
-
+  def process_batch(messages) do
     {stored, failures} =
       Enum.reduce(messages, {0, []}, fn message, {stored, failures} ->
-        case store(message, ingest, fail_job) do
-          :ok -> {stored + 1, failures}
+        case store(message) do
+          {:ok, count} -> {stored + count, failures}
           {:error, error} -> {stored, [{message, error} | failures]}
         end
       end)
@@ -65,42 +57,19 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
     end
   end
 
-  defp store(%Message{data: data}, ingest, fail_job) do
-    case VisualIndexResultProjector.decode_result(data) do
-      {:ok, envelope} -> project(envelope, ingest, fail_job)
-      {:error, reason, job_id} -> terminate(job_id, reason, fail_job)
+  defp store(%Message{data: data}) do
+    case VisualIndexResultProjector.ingest_result(data) do
+      {:ok, %{embedding_count: count}} -> {:ok, count}
+      {:error, :recording_gone} -> {:ok, 0}
+      {:error, reason} -> classify_error(reason)
     end
   rescue
     error -> {:error, %TransientMessageError{reason: error}}
   end
 
-  defp project(envelope, ingest, fail_job) do
-    case ingest.(envelope) do
-      {:ok, _projection} ->
-        :ok
-
-      {:error, :recording_gone} ->
-        :ok
-
-      {:error, reason} ->
-        if VisualIndexResultProjector.terminal_drop?(reason),
-          do: terminate(envelope["job_id"], reason, fail_job),
-          else: {:error, %TransientMessageError{reason: reason}}
-    end
+  defp classify_error(reason) do
+    if VisualIndexResultProjector.terminal_drop?(reason),
+      do: {:error, %TerminalMessageError{reason: reason}},
+      else: {:error, %TransientMessageError{reason: reason}}
   end
-
-  defp terminate(job_id, reason, fail_job) when is_binary(job_id) do
-    case fail_job.(job_id, Atom.to_string(reason)) do
-      {:ok, _job} ->
-        {:error, %TerminalMessageError{reason: reason}}
-
-      {:error, unknown} when unknown in [:job_not_found, :invalid_job_id] ->
-        {:error, %TerminalMessageError{reason: reason}}
-
-      {:error, error} ->
-        {:error, %TransientMessageError{reason: error}}
-    end
-  end
-
-  defp terminate(_job_id, reason, _fail_job), do: {:error, %TerminalMessageError{reason: reason}}
 end

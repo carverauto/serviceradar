@@ -20,7 +20,7 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 - **THEN** the relay SHALL NOT re-publish it or count another attempt
 
 #### Scenario: Dispatched job whose message can no longer be queued
-- **WHEN** a dispatched job has reached both its stored deadline and 72 hours from dispatch without a result
+- **WHEN** a dispatched job has reached both its stored deadline and 72 hours from the later of its dispatch timestamp and post-publish row update without a result
 - **THEN** the relay SHALL re-publish it under the next attempt, or mark it `failed_terminal` once its attempt budget is spent and attempt a best-effort `TripwireHealth` record
 
 #### Scenario: Visual indexing disabled for the deployment
@@ -31,15 +31,15 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 When the deployment enables camera recording and visual indexing, Core SHALL consume `media.results.visual_index.v1` through a durable EventWriter JetStream consumer bound to the worker-owned `CAMERA_MEDIA_RESULTS` stream and project each result into CNPG through the idempotent result projector, in batches of 10 with a pending acknowledgement budget of 20 per EventWriter worker (60 on a three-replica deployment).
 
 #### Scenario: Result is stored and acknowledged
-- **WHEN** a valid result for a playable catalog entry arrives
-- **THEN** Core SHALL upsert its visual frames and embeddings, mark the job `completed`, and acknowledge the message
+- **WHEN** a valid result matches an active admitted job for a playable catalog entry
+- **THEN** Core SHALL upsert its visual frames and embeddings, mark the job `completed`, and acknowledge the message. EventWriter SHALL count the embedding rows written, including in a partially successful batch
 
 #### Scenario: Replayed result
-- **WHEN** a result that was already stored is delivered again
-- **THEN** Core SHALL acknowledge the completed job's replay without writing frames or embeddings, including any that have since been purged
+- **WHEN** a matching result arrives for a completed, cancelled or terminally failed job with a playable recording
+- **THEN** Core SHALL acknowledge it with zero writes and preserve the final job state and any prior purge
 
 #### Scenario: Recording deleted or quarantined while the worker ran
-- **WHEN** a result arrives for a catalog entry that is missing or no longer playable
+- **WHEN** a matching result arrives for an admitted job whose catalog entry is no longer playable
 - **THEN** Core SHALL store nothing, cancel the entry's active jobs, and acknowledge the message
 
 #### Scenario: Transient failure
@@ -48,7 +48,11 @@ When the deployment enables camera recording and visual indexing, Core SHALL con
 
 #### Scenario: Result that can never be stored
 - **WHEN** a result fails validation, such as a malformed envelope, an invalid vector or bounding box, or a descriptor digest that does not match the catalog entry
-- **THEN** when the database accepts the update, Core SHALL first mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, attempt a best-effort `TripwireHealth` record for that failure, record the dead letter, and terminate the message without redelivery
+- **THEN** when the database accepts the update, Core SHALL first mark the active job whose identity matches the decoded envelope `failed_terminal` with the failure class, attempt a best-effort `TripwireHealth` record for that failure, record the dead letter, and terminate the message without redelivery
+
+#### Scenario: Result has no matching admitted job
+- **WHEN** the result does not match an admitted job by catalog entry, descriptor digest, detector and embedder IDs and versions, embedding dimension, and job ID when supplied
+- **THEN** Core SHALL terminate the delivery and emit the dead-letter metric without projecting data or changing any job
 
 #### Scenario: The database is unavailable throughout delivery of a permanently invalid result
 - **WHEN** the database is unavailable for all ten deliveries of a permanently invalid result for a dispatched job

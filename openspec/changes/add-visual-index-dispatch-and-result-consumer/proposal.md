@@ -44,7 +44,8 @@ attempt it read, so two concurrent relays could both advance one job.
   projector. It acks results that are stored or replayed, and results whose
   recording is gone. It NAKs transient failures with backoff. Results that can
   never be stored are terminated and recorded as dead letters. When the database
-  accepts the update, Core first marks the named job `failed_terminal`. If the
+  accepts the update, Core first marks a matching active job `failed_terminal`.
+  A result whose identity matches no admitted job leaves all jobs unchanged. If the
   database is unavailable for all ten deliveries, the result is terminated while
   its job is still dispatched. After the retention floor and deadline pass, the
   relay republishes the next attempt or marks the job `failed_terminal` if its

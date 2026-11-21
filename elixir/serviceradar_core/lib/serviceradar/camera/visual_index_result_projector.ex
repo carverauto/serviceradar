@@ -15,11 +15,13 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     matching `VisualIndexJob` `:completed`.
   """
 
-  alias Ash.Error.Changes.InvalidArgument
+  import Ash.Expr
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.VisualEmbedding
   alias ServiceRadar.Camera.VisualFrame
+  alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.JSONDocument
 
@@ -47,6 +49,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   schema/digest violation).
   """
   @spec terminal_drop?(term()) :: boolean()
+  def terminal_drop?(:unmatched_result_job), do: true
   def terminal_drop?(:recording_gone), do: true
   def terminal_drop?(:descriptor_sha256_mismatch), do: true
   def terminal_drop?(:invalid_result_envelope), do: true
@@ -64,15 +67,19 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   def ingest_result(raw_json, opts) when is_binary(raw_json) and is_list(opts) do
     case decode_result(raw_json) do
       {:ok, envelope} -> ingest_result(envelope, opts)
-      {:error, reason, _job_id} -> {:error, reason}
+      {:error, reason, nil} -> {:error, reason}
+      {:error, :invalid_result_envelope, header} -> ingest_result(header, opts)
     end
   end
 
   def ingest_result(envelope, opts) when is_map(envelope) and is_list(opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now())
+    with {:ok, identity} <- parse_identity(envelope) do
+      frames =
+        with :ok <- validate_schema_version(envelope) do
+          parse_frames(fetch_val(envelope, :frames), identity.embedding_dim)
+        end
 
-    with {:ok, parsed} <- validate_envelope(envelope) do
-      transact_projection(parsed, now)
+      transact_projection(identity, frames, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
     end
   end
 
@@ -91,7 +98,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       {%Jason.OrderedObject{} = object, nil, ""} ->
         case JSONDocument.to_map(object, arrays: true) do
           {:ok, _envelope} = result -> result
-          {:error, :invalid_request} -> {:error, :invalid_result_envelope, unique_job_id(object)}
+          {:error, :invalid_request} -> {:error, :invalid_result_envelope, result_header(object)}
         end
 
       _ ->
@@ -110,10 +117,14 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp decode_integer(token) when byte_size(token) <= 20, do: String.to_integer(token)
   defp decode_integer(_), do: :out_of_range
 
-  defp unique_job_id(%Jason.OrderedObject{values: pairs}) do
-    case for({"job_id", id} <- pairs, do: id) do
-      [id] when is_binary(id) -> id
-      _ -> nil
+  defp result_header(%Jason.OrderedObject{values: pairs}) do
+    keys = ~w(job_id catalog_entry_id descriptor_sha256 detector_model_id detector_model_version
+              embedder_model_id embedder_model_version model_id model_version embedding_dim)
+    header = Jason.OrderedObject.new(Enum.filter(pairs, fn {key, _} -> key in keys end))
+
+    case JSONDocument.to_map(header) do
+      {:ok, map} -> map
+      {:error, _} -> nil
     end
   end
 
@@ -121,26 +132,16 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   # Envelope Validation
   # ---------------------------------------------------------------------------
 
-  defp validate_envelope(env) when is_map(env) do
-    with :ok <- validate_schema_version(env),
-         {:ok, catalog_entry_id} <- cast_uuid(fetch_val(env, :catalog_entry_id)),
+  defp parse_identity(env) do
+    with {:ok, catalog_entry_id} <- cast_uuid(fetch_val(env, :catalog_entry_id)),
          {:ok, job_id} <- cast_optional_uuid(fetch_val(env, :job_id)),
          {:ok, descriptor_sha256} <- parse_hex64(fetch_val(env, :descriptor_sha256)),
          {:ok, det_model_id} <- parse_non_empty(fetch_val(env, :detector_model_id), 128),
          {:ok, det_model_ver} <-
-           parse_non_empty(fetch_val(env, :detector_model_version) || "2026.1", 64),
-         {:ok, emb_model_id} <-
-           parse_non_empty(
-             fetch_val(env, :embedder_model_id) || fetch_val(env, :model_id),
-             128
-           ),
-         {:ok, emb_model_ver} <-
-           parse_non_empty(
-             fetch_val(env, :embedder_model_version) || fetch_val(env, :model_version),
-             64
-           ),
-         {:ok, embedding_dim} <- parse_dim(fetch_val(env, :embedding_dim)),
-         {:ok, frames} <- parse_frames(fetch_val(env, :frames), embedding_dim) do
+           parse_non_empty(fetch_val(env, :detector_model_version), 64),
+         {:ok, emb_model_id} <- model_identity(env, :embedder_model_id, :model_id, 128),
+         {:ok, emb_model_ver} <- model_identity(env, :embedder_model_version, :model_version, 64),
+         {:ok, embedding_dim} <- parse_dim(fetch_val(env, :embedding_dim)) do
       {:ok,
        %{
          job_id: job_id,
@@ -150,9 +151,17 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
          detector_model_version: det_model_ver,
          embedder_model_id: emb_model_id,
          embedder_model_version: emb_model_ver,
-         embedding_dim: embedding_dim,
-         frames: frames
+         embedding_dim: embedding_dim
        }}
+    end
+  end
+
+  defp model_identity(env, field, alternate, max_length) do
+    case {fetch_val(env, field), fetch_val(env, alternate)} do
+      {nil, value} -> parse_non_empty(value, max_length)
+      {value, nil} -> parse_non_empty(value, max_length)
+      {value, value} -> parse_non_empty(value, max_length)
+      _ -> {:error, :unmatched_result_job}
     end
   end
 
@@ -419,15 +428,15 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   # Transactional Projection
   # ---------------------------------------------------------------------------
 
-  defp transact_projection(parsed, now) do
+  defp transact_projection(parsed, frames, now) do
     [RecordingCatalogEntry, VisualIndexJob, VisualFrame, VisualEmbedding]
     |> Ash.transact(fn ->
-      execute_projection(parsed, now)
+      execute_projection(parsed, frames, now)
     end)
     |> unwrap_transaction()
   end
 
-  defp execute_projection(parsed, now) do
+  defp execute_projection(parsed, frames, now) do
     entry_id = parsed.catalog_entry_id
 
     entry =
@@ -436,37 +445,46 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       |> Ash.Query.lock(:for_update)
       |> Ash.read_one!(actor: @system_actor)
 
+    with {:ok, job} <- matching_job(parsed) do
+      project_job(job, entry, parsed, frames, now)
+    end
+  end
+
+  defp project_job(nil, _entry, _parsed, _frames, _now), do: :unmatched_result_job
+
+  defp project_job(job, _entry, _parsed, {:error, reason}, _now), do: {:reject, job, reason}
+
+  defp project_job(job, entry, parsed, {:ok, frames}, now) do
     cond do
       is_nil(entry) or not RecordingCatalogEntry.playable?(entry) ->
-        cancel_jobs_for_entry(entry_id)
+        cancel_jobs_for_entry(parsed.catalog_entry_id)
+
+      job.state in [:completed, :cancelled, :failed_terminal] ->
+        projection_summary(job, [])
 
       entry.descriptor_sha256 != parsed.descriptor_sha256 ->
-        abort_tx(:descriptor_sha256_mismatch)
+        {:reject, job, :descriptor_sha256_mismatch}
 
       true ->
-        persist_frames_and_complete_job(entry, parsed, now)
+        store_frames(entry, parsed, frames)
+
+        with {:ok, _} <- complete_job(job, now), do: projection_summary(job, frames)
     end
   end
 
-  defp persist_frames_and_complete_job(entry, parsed, now) do
-    with {:ok, job} <- matching_job(entry.id, parsed),
-         {:ok, _} <- store_result(job, entry, parsed, now) do
-      {:ok,
-       %{
-         status: :ingested,
-         catalog_entry_id: entry.id,
-         job_id: job && job.id,
-         frame_count: length(parsed.frames),
-         embedding_count: Enum.sum_by(parsed.frames, &length(&1.embeddings))
-       }}
-    end
+  defp projection_summary(job, frames) do
+    {:ok,
+     %{
+       status: :ingested,
+       catalog_entry_id: job.catalog_entry_id,
+       job_id: job.id,
+       frame_count: length(frames),
+       embedding_count: Enum.sum_by(frames, &length(&1.embeddings))
+     }}
   end
 
-  defp store_result(%VisualIndexJob{state: :completed} = job, _entry, _parsed, _now),
-    do: {:ok, job}
-
-  defp store_result(job, entry, parsed, now) do
-    Enum.each(parsed.frames, fn f_spec ->
+  defp store_frames(entry, parsed, frames) do
+    Enum.each(frames, fn f_spec ->
       timeline_ts_us = compute_timeline_ts_us(entry, f_spec.media_pts_ns)
 
       {:ok, frame} =
@@ -492,8 +510,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
       upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, f_spec.embeddings)
     end)
-
-    complete_job(job, now)
   end
 
   defp upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, embeddings) do
@@ -532,30 +548,28 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     min(entry.timeline_end_us, candidate)
   end
 
-  defp matching_job(entry_id, parsed) do
-    emb_id = parsed.embedder_model_id
-    emb_ver = parsed.embedder_model_version
-
+  defp matching_job(parsed) do
     query =
-      if is_binary(parsed.job_id) do
-        job_id = parsed.job_id
-        Ash.Query.filter(VisualIndexJob, id == ^job_id and catalog_entry_id == ^entry_id)
-      else
-        Ash.Query.filter(
-          VisualIndexJob,
-          catalog_entry_id == ^entry_id and embedder_model_id == ^emb_id and
-            embedder_model_version == ^emb_ver
-        )
-      end
+      VisualIndexJob
+      |> Ash.Query.filter(
+        catalog_entry_id == ^parsed.catalog_entry_id and
+          descriptor_sha256 == ^parsed.descriptor_sha256 and
+          detector_model_id == ^parsed.detector_model_id and
+          detector_model_version == ^parsed.detector_model_version and
+          embedder_model_id == ^parsed.embedder_model_id and
+          embedder_model_version == ^parsed.embedder_model_version and
+          embedding_dim == ^parsed.embedding_dim
+      )
+      |> Ash.Query.lock(:for_update)
 
+    query = if parsed.job_id, do: Ash.Query.filter(query, id == ^parsed.job_id), else: query
     Ash.read_one(query, actor: @system_actor)
   end
-
-  defp complete_job(nil, _now), do: {:ok, nil}
 
   defp complete_job(job, now) do
     job
     |> Ash.Changeset.for_update(:mark_completed, %{completed_at: now})
+    |> Ash.Changeset.filter(expr(state in [:pending, :dispatched]))
     |> Ash.update(actor: @system_actor)
   end
 
@@ -573,28 +587,15 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     end
   end
 
-  defp abort_tx(reason) do
-    {:error,
-     InvalidArgument.exception(
-       field: :visual_index_result,
-       value: reason,
-       message: "visual index result rejected"
-     )}
-  end
-
   defp unwrap_transaction({:ok, {:ok, _} = projection}), do: projection
   defp unwrap_transaction({:ok, :recording_gone}), do: {:error, :recording_gone}
+  defp unwrap_transaction({:ok, :unmatched_result_job}), do: {:error, :unmatched_result_job}
 
-  defp unwrap_transaction({:error, %InvalidArgument{field: :visual_index_result, value: reason}}),
-    do: {:error, reason}
-
-  defp unwrap_transaction(
-         {:error,
-          %Ash.Error.Invalid{
-            errors: [%InvalidArgument{field: :visual_index_result, value: reason}]
-          }}
-       ),
-       do: {:error, reason}
+  defp unwrap_transaction({:ok, {:reject, job, reason}}) do
+    with {:ok, _} <- VisualIndexDispatcher.reconcile_exhausted_job(job, Atom.to_string(reason)) do
+      {:error, reason}
+    end
+  end
 
   defp unwrap_transaction(other), do: other
 
@@ -608,7 +609,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp cast_uuid(_), do: {:error, :invalid_result_envelope}
 
   defp cast_optional_uuid(nil), do: {:ok, nil}
-  defp cast_optional_uuid(""), do: {:ok, nil}
   defp cast_optional_uuid(val), do: cast_uuid(val)
 
   defp parse_hex64(val) when is_binary(val) do
