@@ -2,8 +2,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   @moduledoc """
   Durable authority for managed component certificates.
 
-  Mutations serialize on the component row. A replay can fill a missing
-  subject from the same certificate. Re-enrollment advances the component
+  Issuance and revocation serialize on the component row. A replay can fill
+  a missing subject before taking that lock. Re-enrollment advances the component
   generation, so old certificates cannot regain access. Recording a successor
   does not retire its predecessor.
 
@@ -67,10 +67,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   @doc """
   Adopts one existing public infrastructure certificate.
 
-  The permission block is a static NATS user block. An empty allow list is
-  stored as `[">"]` with its deny list. The caller must be allowed to adopt
-  infrastructure. The certificate is recorded in that same transaction, so a
-  refused certificate leaves no component.
+  The caller must be allowed to adopt infrastructure. First adoption creates
+  the component with its projected static NATS grant and records the
+  certificate in one transaction.
   """
   def adopt_existing_certificate(attrs, opts \\ []) do
     with {:ok, component, presented} <- InfrastructureCertificateAdoption.read_adoption(attrs),
