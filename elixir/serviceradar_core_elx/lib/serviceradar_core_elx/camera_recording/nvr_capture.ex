@@ -21,8 +21,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   capture Core itself stops before the worker hands its sender `:eof`, such as
   on a unit with a backwards timestamp, cannot have sent the end marker either,
   so it returns `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` the
-  same way; a Core abort after `:eof`, a capture timeout and caller loss stay
-  uncertain. Like any other failure, a refused or aborted capture closes the
+  same way. Without a verified seal receipt, a Core abort after `:eof`, a
+  capture timeout and caller loss stay uncertain. Like any other failure, a refused or aborted capture closes the
   relay when this call opened it.
 
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and

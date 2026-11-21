@@ -31,7 +31,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   block the run anchored at. Registration runs within the capture deadline and
   the held lease; the descriptor read and the freeze each run once.
 
-  The durable seal completes the capture. The receipt reports
+  The durable seal completes the capture even when the capture deadline or a
+  renewal failure prevents catalog registration. The receipt reports
   `{:registered, entry_id}` when the freeze returns success and
   `{:unregistered, reason}` for a definite refusal. A missed registration
   deadline or ambiguous failure returns `{:unconfirmed, reason}`. The block
@@ -55,9 +56,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   Core abort before the worker hands out `:eof` cannot have requested a seal of
   the block the NVR had open. That is a definite failure too: the worker reports
   `{:nvr_ingest_aborted, details}` with the abort `reason` and the correlation
-  fields and attempts to release the recorder claim. A Core abort after `:eof` stays
-  uncertain, because the end marker may have gone out and the NVR may have
-  sealed. Capture timeout and caller loss stay uncertain before `:eof` too. On
+  fields and attempts to release the recorder claim. Without a verified receipt,
+  a Core abort after `:eof` stays uncertain because the NVR may have sealed.
+  Capture timeout and caller loss stay uncertain before `:eof` too. On
   an NVR whose block limit a capture can exceed, the NVR may already have
   rotated and sealed an earlier block of an aborted or refused capture. It keeps
   that block, but reports mid-stream seals only in a 200 receipt, so Core never
@@ -278,7 +279,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{sender_monitor: ref} = state) do
-    finalize_uncertain(state, {:sender_crashed, reason})
+    finalize_uncertain(state, state.abort_reason || {:sender_crashed, reason})
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{capture: %{monitor: ref}} = state) do
@@ -650,7 +651,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     if state.sender_pid == nil do
       stop_failed(state, reason)
     else
-      finalize_uncertain(%{state | abort_reason: state.abort_reason || reason}, reason)
+      Process.exit(state.sender_pid, :kill)
+      {:noreply, %{state | abort_reason: state.abort_reason || reason}}
     end
   end
 
@@ -660,19 +662,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     expected_key = state.block.block_key
     expected_storage = state.storage_id
 
-    capture_status = check_capture(state.capture)
+    refusal_reason = state.abort_reason || capture_error(check_capture(state.capture))
     eof_replied? = state.eof_replied?
 
-    case {state.abort_reason, capture_status, state.frames_sent > 0, check_recovery_gate(), send_result} do
-      {nil, :ok, true, gate_status,
-       {:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}} ->
-        catalog = register_sealed_block(state, gate_status)
+    case {send_result, refusal_reason, check_recovery_gate()} do
+      {{:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}, reason, gate_status} ->
+        catalog = register_sealed_block(state, reason, gate_status)
         release = release_clean_consumer(state)
         payload = Map.merge(correlation_fields(state), %{status: :sealed_local, catalog: catalog, release: release})
         notify(state, {:completed, payload})
         {:stop, :normal, %{state | claim: nil}}
 
-      {nil, :ok, _has_frames, {:ok, _gate}, {:error, {:ingest_refused, status}}} when status in @definite_refusals ->
+      {{:error, {:ingest_refused, status}}, nil, {:ok, _gate}} when status in @definite_refusals ->
         refusal =
           state
           |> correlation_fields()
@@ -683,7 +684,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       # Core stopped the stream before the sender pulled `:eof`, so the client
       # never sent the end marker and the NVR sealed nothing it had open,
       # whatever the client returned.
-      {abort_reason, _capture_status, _has_frames, {:ok, _gate}, _result}
+      {_result, abort_reason, {:ok, _gate}}
       when not is_nil(abort_reason) and abort_reason not in @uncertain_interrupts and not eof_replied? ->
         abort =
           state
@@ -692,14 +693,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
         stop_failed(state, {:nvr_ingest_aborted, abort})
 
-      {abort_reason, capture_status, _has_frames, _gate_status, other_result} ->
-        reason = classify_send_failure(abort_reason || capture_error(capture_status), state.frames_sent, other_result)
+      {other_result, reason, _gate_status} ->
+        reason = classify_send_failure(reason, state.frames_sent, other_result)
         finalize_uncertain(state, reason)
     end
   end
 
-  defp register_sealed_block(state, gate_status) do
-    outcome = run_registration(state, gate_status)
+  defp register_sealed_block(state, refusal_reason, gate_status) do
+    outcome = if refusal_reason, do: {:unregistered, refusal_reason}, else: run_registration(state, gate_status)
 
     if !match?({:registered, _}, outcome) do
       Logger.warning("NVR block #{state.block.block_key} registration: #{inspect(outcome, limit: 8)}")
@@ -828,11 +829,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp finalize_uncertain(state, reason) do
     if state.inbox, do: Inbox.cancel(state.inbox)
     state = cancel_lease_timer(state)
-
-    if is_pid(state.sender_pid) and Process.alive?(state.sender_pid) do
-      if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
-      Process.exit(state.sender_pid, :kill)
-    end
 
     payload =
       state

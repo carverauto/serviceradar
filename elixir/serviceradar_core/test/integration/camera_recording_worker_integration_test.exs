@@ -1359,17 +1359,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              second
   end
 
-  test "NVRCapture keeps a capture Core aborts after the end marker uncertain, holding the recorder fence",
+  test "NVRCapture keeps a capture uncertain after a late Core abort and an unverified reply",
        ctx do
-    owner = owner(ctx, 30_000)
-    nvr = fake_nvr_member(ctx, "late-abort", &start_sealing_tls_peer(&1, self()))
-    task = start_fake_nvr_capture(ctx, nvr, 3)
-    worker = await_nvr_worker_attached(owner)
-    %{block: %{block_key: block_key}} = :sys.get_state(worker)
-    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
-
-    # The peer has read the end marker, so the worker handed its sender `:eof`.
-    assert_receive :nvr_sealing_peer_request_complete, 5_000
+    %{worker: worker, task: task, nvr: nvr, seal: seal} = capture_waiting_for_seal(ctx)
 
     # Closing the relay pipeline stops the stream from Core's side while the
     # seal answer is outstanding.
@@ -1384,16 +1376,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       System.monotonic_time(:millisecond) + 5_000
     )
 
-    # The end marker went out, so the NVR may have sealed; here it has.
-    seal =
-      Jason.encode!(%{
-        "version" => 1,
-        "status" => "sealed_local",
-        "storage_id" => nvr.storage_id,
-        "block_ids" => [block_key]
-      })
-
-    send(nvr.peer, {:seal, seal})
+    send(nvr.peer, {:seal, Jason.encode!(%{seal | "storage_id" => Ecto.UUID.generate()})})
 
     assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
     assert details.reason == :ingest_stopped
@@ -1402,6 +1385,70 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     claim = recorder_claim(ctx)
     assert claim.state == :active
     assert claim.recorder_epoch == 1
+  end
+
+  test "NVRCapture delivers a verified reply processed after its capture deadline", ctx do
+    capture = capture_waiting_for_seal(ctx)
+    %{sender_ref: sender_ref, capture: %{deadline: deadline}} = :sys.get_state(capture.worker)
+    :ok = :sys.suspend(capture.worker)
+
+    try do
+      send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+      await_worker_message(capture.worker, &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1))
+      Process.sleep(max(0, deadline - System.monotonic_time(:millisecond) + 1))
+    after
+      :ok = :sys.resume(capture.worker)
+    end
+
+    assert_registration_refused(ctx, capture, :capture_timeout)
+  end
+
+  test "NVRCapture delivers a verified reply already queued behind a timeout interrupt", ctx do
+    capture = capture_waiting_for_seal(ctx)
+    %{sender_ref: sender_ref} = :sys.get_state(capture.worker)
+    :ok = :sys.suspend(capture.worker)
+
+    try do
+      GenServer.cast(capture.worker, {:interrupt, :capture_timeout})
+      send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+      await_worker_message(capture.worker, &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1))
+    after
+      :ok = :sys.resume(capture.worker)
+    end
+
+    assert_registration_refused(ctx, capture, :capture_timeout)
+  end
+
+  test "NVRCapture delivers the seal when renewal observed recovery closure before the reply", ctx do
+    capture = capture_waiting_for_seal(ctx)
+    gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
+    ready = File.read!(gate.path)
+    close_recovery_gate()
+    send(capture.worker, :renew_lease)
+    assert %{abort_reason: :nvr_recovery_closed} = :sys.get_state(capture.worker)
+    File.write!(gate.path, ready)
+    send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+
+    assert_registration_refused(ctx, capture, :nvr_recovery_closed)
+  end
+
+  defp capture_waiting_for_seal(ctx) do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "pending-seal", &start_sealing_tls_peer(&1, self()))
+    task = start_fake_nvr_capture(ctx, nvr, 3)
+    worker = await_nvr_worker_attached(owner)
+    %{block: %{block_key: block_key}} = :sys.get_state(worker)
+    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive :nvr_sealing_peer_request_complete, 5_000
+
+    seal = %{
+      "version" => 1,
+      "status" => "sealed_local",
+      "storage_id" => nvr.storage_id,
+      "block_ids" => [block_key]
+    }
+
+    %{worker: worker, task: task, nvr: nvr, seal: seal}
   end
 
   test "NVRCapture keeps a capture uncertain when its caller dies while a unit is queued before the end marker, holding the recorder fence",
@@ -2010,10 +2057,10 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     File.write!(gate.path, "closed")
   end
 
-  defp assert_registration_refused(ctx, capture) do
+  defp assert_registration_refused(ctx, capture, reason \\ :nvr_recovery_closed) do
     assert {:ok, receipt} = Task.await(capture.task)
     assert receipt.status == :sealed_local
-    assert receipt.catalog == {:unregistered, :nvr_recovery_closed}
+    assert receipt.catalog == {:unregistered, reason}
     assert receipt.release == :released
 
     assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)

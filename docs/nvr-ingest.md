@@ -87,15 +87,16 @@ sending media over NATS/JetStream or ERTS distribution:
    UTC time the inbox admitted the capture's first unit and spans the
    descriptor's media duration, with unmeasured uncertainty. The receipt reports
    `catalog: {:registered, entry_id}` when the freeze returns success and
-   `{:unregistered, reason}` for a definite refusal. If the registration
+   `{:unregistered, reason}` for a definite refusal. An expired capture deadline
+   or recovery closure observed by renewal skips registration. If the registration
    deadline expires or the freeze outcome is ambiguous, the receipt reports
    `{:unconfirmed, reason}`. The block may or may not be cataloged and the
    reconciler decides. The NVR seal remains durable in every case.
    Core reserves lease time for claim release and relay close. It attempts both
    and returns `{:ok, receipt}` with `release: :released` or
    `release: {:release_pending_lease_expiry, reason}`. A failed release logs
-   a warning, and lease expiry permits takeover. Any `:outcome_unknown`, timeout
-   or caller loss aborts without sending the stream-end marker, never retries
+   a warning, and lease expiry permits takeover. Without a verified seal, an
+   unknown transport outcome, timeout or caller loss stops the stream, never retries
    or fails over to another replica, and leaves the reserved block and epoch
    intact for inspection or recovery. The recorder lease keeps renewing until
    the NVR answers. These uncertain outcomes return
@@ -248,17 +249,19 @@ A stream the coordinator stops before it releases the end marker is not an
 unknown outcome either: without the marker the NVR seals nothing it had open,
 whatever the transport reports. The coordinator treats that as a definite
 failure and attempts to release its recorder claim. Once the end marker may have gone out,
-a coordinator-side stop stays unknown. A capture timeout or caller loss stays
-unknown at any point in the stream.
+a coordinator-side stop, timeout or caller loss leaves the outcome unknown until
+Core receives a verified seal receipt for its reserved block. A verified receipt
+completes the capture and Core attempts claim release even if registration is
+refused.
 
 | When the stream ended | What Core knows | Capture result | Recorder claim |
 | --- | --- | --- | --- |
 | Verified `sealed_local` receipt naming the reserved block | Sealed | `{:ok, receipt}` | Release outcome on receipt |
 | NVR answered 400, 401, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Release attempted, expiry on failure |
 | Core stopped the stream before handing out the end marker | Open block not sealed | `{:error, {:nvr_ingest_aborted, details}}` | Release attempted, expiry on failure |
-| Core stopped the stream after handing out the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
-| Capture timeout, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
-| Caller loss, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Core stopped after the end marker, without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Capture timeout without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Caller loss without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 | Answer lost, cut short, malformed, or non-200 after the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 
 A refused or aborted capture with the recovery gate closed is reported as
