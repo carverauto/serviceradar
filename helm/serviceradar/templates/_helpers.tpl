@@ -151,21 +151,54 @@ compatibility Service and the namespace NetworkPolicy must all agree on it.
 {{- end -}}
 
 {{/*
-mediaWorker.enabled, validated once for every template that depends on it (the
-worker, its certificate, NATS grants, JetStream budget, network policies and
-core's dispatch flag). Absent means false; anything but a YAML boolean fails, so
-`--set-string mediaWorker.enabled=false` cannot read as true in some templates
-and false in others. Renders "true" or "false".
+A boolean value that must be a YAML boolean. A string such as the one
+`--set-string ...=false` produces is truthy in Go templates, so it fails here
+instead of reading as true in one template and false in another. Absent takes
+the default. Renders "true" or "false".
+Takes (dict "name" <value path, for the error> "value" <value> "default" <bool>).
+*/}}
+{{- define "serviceradar.strictBool" -}}
+{{- if kindIs "invalid" .value -}}
+{{- ternary "true" "false" .default -}}
+{{- else if kindIs "bool" .value -}}
+{{- ternary "true" "false" .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a boolean (true or false), got %s %q" .name (kindOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+A count that must be a whole number >= 0. Absent takes the default; a fraction,
+a negative number or a string fails rather than being truncated.
+Takes (dict "name" <value path> "value" <value> "default" <int>). Renders the number.
+*/}}
+{{- define "serviceradar.wholeCount" -}}
+{{- if kindIs "invalid" .value -}}
+{{- .default -}}
+{{- else if and (or (kindIs "int" .value) (kindIs "int64" .value) (kindIs "float64" .value)) (regexMatch `^[0-9]+$` (toString .value)) -}}
+{{- toString .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a whole number >= 0, got %s %q" .name (kindOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The media worker's booleans, validated once for every template that reads them.
+mediaWorker.enabled gates the worker, its certificate, NATS grants, JetStream
+budget, the namespace policies' exclusions and core's dispatch flag;
+networkPolicy.enabled the worker's own policy; networkPolicy.allowNvrRead both
+the worker's egress and the NVR's ingress for analysis reads.
 */}}
 {{- define "serviceradar.mediaWorkerEnabled" -}}
-{{- $enabled := (default (dict) .Values.mediaWorker).enabled -}}
-{{- if kindIs "invalid" $enabled -}}
-false
-{{- else if kindIs "bool" $enabled -}}
-{{- ternary "true" "false" $enabled -}}
-{{- else -}}
-{{- fail (printf "mediaWorker.enabled must be a boolean (true or false), got %s %q" (kindOf $enabled) (toString $enabled)) -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.enabled" "value" (default (dict) .Values.mediaWorker).enabled "default" false) -}}
 {{- end -}}
+
+{{- define "serviceradar.mediaWorkerNetworkPolicyEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.enabled" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).enabled "default" true) -}}
+{{- end -}}
+
+{{- define "serviceradar.mediaWorkerAllowNvrRead" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
 {{- end -}}
 
 {{- define "serviceradar.runtimeCertsSecretName" -}}

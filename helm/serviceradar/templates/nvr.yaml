@@ -25,7 +25,7 @@
 {{- $archive := default (dict) $nvr.archive -}}
 {{- $mediaWorker := default (dict) .Values.mediaWorker -}}
 {{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
-{{- $mediaWorkerRead := and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (default false $mediaWorkerPolicy.allowNvrRead) -}}
+{{- $mediaWorkerRead := and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
 {{- $mediaWorkerReadPort := int (default 8444 $mediaWorkerPolicy.nvrReadPort) -}}
 {{- $archiveEnabled := default false $archive.enabled -}}
 {{- $podSecurity := include "serviceradar.elixirReleasePodSecurityContext" . -}}

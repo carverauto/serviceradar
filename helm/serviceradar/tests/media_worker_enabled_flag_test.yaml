@@ -15,3 +15,23 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.enabled must be a boolean \\(true or false\\), got string \"false\""
+
+  # The same trap on the worker's other booleans: a string "false" would open
+  # the NVR port in both directions, or keep the worker's policy rendered.
+  - it: refuses a string where allowNvrRead expects a boolean
+    template: templates/media-worker.yaml
+    values:
+      - values/media_worker_enabled_base.yaml
+      - values/media_worker_allow_nvr_read_string.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.allowNvrRead must be a boolean \\(true or false\\), got string \"false\""
+
+  - it: refuses a string where the worker's networkPolicy.enabled expects a boolean
+    template: templates/media-worker.yaml
+    values:
+      - values/media_worker_enabled_base.yaml
+      - values/media_worker_network_policy_string.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.enabled must be a boolean \\(true or false\\), got string \"false\""

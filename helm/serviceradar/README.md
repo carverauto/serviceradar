@@ -591,12 +591,18 @@ core, which dispatches visual-index jobs only then.
 
 The chart refuses to render, instead of producing a pod that crash-loops, when:
 
-- `mediaWorker.enabled` is not a YAML boolean (`--set-string` values are
-  refused, so every template reads the same value);
+- `mediaWorker.enabled`, `mediaWorker.networkPolicy.enabled` or
+  `mediaWorker.networkPolicy.allowNvrRead` is not a YAML boolean (a
+  `--set-string` value is truthy in templates whatever it says, so it is
+  refused and every template reads the same value);
+- `mediaWorker.replicas` or `gpuCount` is not a whole number >= 0 (a fraction
+  is refused rather than truncated);
 - the `candle` backend has no `models.existingClaim`;
 - a GPU provider has no `runtimeClassName` or `gpuCount` below 1, or `device`
   contradicts the provider;
-- `cpu_explicit` has a GPU entry anywhere in `resources`;
+- `cpu_explicit` has a GPU entry anywhere in `resources`: `gpuResourceName`,
+  any `nvidia.com/` resource (which covers MIG slices) or any name containing
+  `gpu`;
 - the control plane is this release's web-ng and anything about it is wrong.
   The URL is compared after lower-casing the scheme and host, dropping a DNS
   root dot and supplying the scheme's default port. A host naming
@@ -604,11 +610,13 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   by the release namespace, `.svc` and `.cluster.local`) is this release's
   web-ng, and then web-ng must be enabled, the URL must be
   `http://serviceradar-web-ng-headless...:<webNg.controlPlaneRuntime.port>`
-  with no path (the ClusterIP Service does not expose that port, and the
-  listener serves plain HTTP), `webNg.controlPlaneRuntime.mediaWorker` must be
-  enabled, and its deployment reference and generation must equal
-  `mediaWorker.auth`'s. Any other host is treated as a remote control plane and
-  left to the operator;
+  with no path, query or fragment (the ClusterIP Service does not expose that
+  port, and the listener serves plain HTTP), `webNg.controlPlaneRuntime.mediaWorker`
+  must be enabled, its deployment reference and generation must equal
+  `mediaWorker.auth`'s, and both must reference the same token Secret and key.
+  Two Secrets holding identical bytes are deliberately not supported: a
+  rotation would update one and leave the other behind. Any other host is
+  treated as a remote control plane and left to the operator;
 - `image.tagSuffix` is combined with a pinned digest;
 - the worker's streams do not fit JetStream (below).
 
@@ -684,7 +692,13 @@ same-namespace egress: the `serviceradar-egress` NetworkPolicy (including with
 `networkPolicy.podSelectorMatchAll`) and the Calico
 `networkPolicy.calicoLogDenied` policy exclude it from their selectors, and
 CNPG's application ingress admits every pod in the namespace except the
-worker.
+worker. These exclusions apply whenever the worker is enabled, including with
+`mediaWorker.networkPolicy.enabled: false`. Turning the worker's own policy off
+therefore leaves it selected by no chart policy at all, so the operator must
+supply its policy (an unselected pod is not isolated by Kubernetes). It still
+never gains database access by default: CNPG's application ingress excludes it,
+and the `serviceradar-egress` same-namespace ingress rule admits it on every
+listed port except PostgreSQL's 5432.
 
 **Enabling it.** Create these in the release namespace first; Helm creates
 neither:

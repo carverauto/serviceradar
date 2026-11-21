@@ -104,7 +104,8 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def preserves(self, check, job_env, secret_dir):
-        """True when the Job keeps the Secret; the missing files when it regenerates it."""
+        """True when the Job keeps the Secret; otherwise why it regenerates it:
+        ("missing", files) or ("invalid", certificates that fail against root.pem)."""
         work = Path(tempfile.mkdtemp(dir=self.tmp.name))
         data = {
             path.name: base64.b64encode(path.read_bytes()).decode("ascii")
@@ -129,9 +130,14 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
         if result.returncode == 0 and "preserving current runtime certs" in result.stdout:
             return True
-        missing = re.search(r"is missing runtime cert files: (.*)$", result.stdout, re.M)
-        if result.returncode == 1 and missing and not result.stderr.strip():
-            return missing.group(1).split(", ")
+        reasons = (
+            ("missing", r"is missing runtime cert files: (.*)$"),
+            ("invalid", r"has runtime cert files that do not verify against root.pem: (.*)$"),
+        )
+        for reason, pattern in reasons:
+            found = re.search(pattern, result.stdout, re.M)
+            if result.returncode == 1 and found and not result.stderr.strip():
+                return reason, found.group(1).split(", ")
         raise AssertionError(
             f"preserve check reached neither decision (exit {result.returncode}):\n"
             f"{result.stdout}{result.stderr}"
@@ -155,8 +161,30 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
     def test_regenerates_a_secret_without_the_worker_pair_once_the_worker_is_enabled(self):
         self.assertEqual(
             self.preserves(self.enabled_check, self.enabled_env, self.disabled_certs),
-            ["media-worker.pem", "media-worker-key.pem"],
+            ("missing", ["media-worker.pem", "media-worker-key.pem"]),
         )
+
+    def test_reissues_a_worker_pair_kept_from_before_a_root_rotation(self):
+        # The worker was enabled, then disabled while the regenerator rotated the
+        # root: it generates a fresh set without the worker pair and merge-patches
+        # it into the Secret, so the old pair stays beside the new root.
+        rotation = Path(self.tmp.name) / "rotation"
+        generate(self.disabled_script, self.disabled_env, rotation, force=True)
+        secret = Path(self.tmp.name) / "rotated-secret"
+        shutil.copytree(self.enabled_certs, secret)
+        for path in rotation.rglob("*"):
+            if path.is_file():
+                shutil.copy2(path, secret / path.relative_to(rotation))
+        self.assertNotEqual(
+            (secret / "root.pem").read_bytes(), (self.enabled_certs / "root.pem").read_bytes(),
+        )
+        # Re-enabling the worker must not keep that stale pair.
+        self.assertEqual(
+            self.preserves(self.enabled_check, self.enabled_env, secret),
+            ("invalid", ["media-worker.pem"]),
+        )
+        generate(self.enabled_script, self.enabled_env, secret, force=True)
+        openssl("verify", "-CAfile", str(secret / "root.pem"), str(secret / "media-worker.pem"))
 
     def test_regeneration_keeps_the_root_and_issues_the_worker_pair_under_it(self):
         upgraded = Path(self.tmp.name) / "upgraded"

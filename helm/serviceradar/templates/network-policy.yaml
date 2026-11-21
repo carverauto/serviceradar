@@ -244,9 +244,12 @@
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
 {{- end -}}
 {{- /* The media worker carries its own policy, which keeps it off CNPG and StarRocks.
-     A match-all selector here would add same-namespace egress back. */ -}}
-{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
-{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (include "serviceradar.boolDefaultTrue" (list (default (dict) $mediaWorker.networkPolicy) "enabled") | eq "true") -}}
+     A match-all selector here would add same-namespace egress back, so the worker is
+     left out whenever it is enabled, even with its own policy turned off: the
+     operator then supplies its policy, and it never gains database access by
+     default. */ -}}
+{{- $mediaWorkerOn := eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- if $mediaWorkerOn -}}
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
 {{- end -}}
@@ -266,6 +269,40 @@ spec:
   ingress:
 {{- if or $allowIngressSameNs $hasIngressNamespaces $hasIngressCIDRs (and $ingressErlangDistEnabled $hasIngressErlangDistPorts) }}
 {{- if $allowIngressSameNs }}
+{{- if and $mediaWorkerOn $hasIngressPorts }}
+    {{- /* The media worker reaches NATS and the collectors through this rule but must
+         never reach PostgreSQL, also when its own policy is off and nothing limits its
+         egress, so it gets the same ports without 5432. */}}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: NotIn
+                values: [serviceradar-media-worker]
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+    {{- $mediaWorkerPorts := list }}
+    {{- range $port := $ingressAllowedPorts }}
+    {{- if not (and (eq (default "TCP" $port.protocol) "TCP") (eq (int $port.port) 5432)) }}
+    {{- $mediaWorkerPorts = append $mediaWorkerPorts $port }}
+    {{- end }}
+    {{- end }}
+    {{- /* An empty port list would mean every port, 5432 included. */}}
+    {{- if $mediaWorkerPorts }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $mediaWorkerPorts | trim | nindent 8 }}
+    {{- end }}
+{{- else }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -274,6 +311,7 @@ spec:
       ports:
 {{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
       {{- end }}
+{{- end }}
 {{- end }}
 {{- range $namespace := $ingressAllowedNamespaces }}
     - from:

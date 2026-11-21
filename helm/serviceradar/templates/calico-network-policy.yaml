@@ -71,10 +71,9 @@
 {{- if $nvr.enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
 {{- end -}}
-{{- /* Same exclusion as serviceradar-egress: the media worker carries its own policy,
-     and this one's same-namespace Allow would reopen CNPG to it. */ -}}
-{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
-{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (include "serviceradar.boolDefaultTrue" (list (default (dict) $mediaWorker.networkPolicy) "enabled") | eq "true") -}}
+{{- /* Same exclusion as serviceradar-egress, whenever the worker is enabled: this
+     policy's same-namespace Allow would reopen CNPG to it. */ -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-media-worker'" $selector -}}
 {{- end -}}
 ---

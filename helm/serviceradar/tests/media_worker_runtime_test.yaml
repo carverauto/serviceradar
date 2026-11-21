@@ -465,3 +465,146 @@ tests:
             from:
               - podSelector: {}
           any: true
+
+  - it: refuses a MIG slice left in resources under cpu_explicit
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.resources:
+        requests: {cpu: 500m, "nvidia.com/mig-1g.5gb": 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.resources.requests.nvidia.com/mig-1g.5gb requests a GPU under mediaWorker.executionProvider cpu_explicit"
+
+  - it: refuses the configured GPU resource name left in resources under cpu_explicit
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.gpuResourceName: example.com/accelerator
+      mediaWorker.resources:
+        limits: {cpu: "4", "example.com/accelerator": 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.resources.limits.example.com/accelerator requests a GPU under mediaWorker.executionProvider cpu_explicit"
+
+  - it: refuses a worker and web-ng that read the token from different Secrets
+    template: templates/media-worker.yaml
+    set:
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth-copy
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.auth \\(Secret \"example-media-worker-auth\", key \"media-worker-token\"\\) and webNg.controlPlaneRuntime.mediaWorker \\(Secret \"example-media-worker-auth-copy\", key \"media-worker-token\"\\) must reference the same Secret and key"
+
+  - it: refuses a query on this release's web-ng, which the worker would put before the endpoint path
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng-headless:4001/?revision=2
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng-headless:4001/\\?revision=2 must have no path, query or fragment"
+
+  - it: refuses a fractional replica count instead of truncating it
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: 0.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.replicas must be a whole number >= 0, got float64 \"0.5\""
+
+  - it: refuses a fractional GPU count instead of truncating it
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.gpuCount: 1.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.gpuCount must be a whole number >= 0"
+
+  - it: refuses the dispatch flag in core.extraEnv while core itself is disabled
+    template: templates/core.yaml
+    set:
+      core.enabled: false
+      core.extraEnv.SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED: "true"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnv"
+
+  # With its own policy off, the worker stays out of the namespace-wide allows:
+  # the operator supplies its policy, and PostgreSQL stays closed to it.
+  - it: keeps the worker out of the match-all namespace policy and off PostgreSQL with its own policy off
+    template: templates/network-policy.yaml
+    set:
+      mediaWorker.networkPolicy.enabled: false
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+      networkPolicy.ingress.allowedPorts:
+        - {protocol: TCP, port: 4222}
+        - {protocol: TCP, port: 5432}
+      logCollector.tcpCollector.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - contains:
+          path: spec.podSelector.matchExpressions
+          content: {key: app, operator: NotIn, values: [serviceradar-media-worker]}
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: sr-media-test
+                podSelector:
+                  matchExpressions:
+                    - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
+            ports:
+              - {protocol: TCP, port: 4222}
+              - {protocol: TCP, port: 5432}
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: sr-media-test
+                podSelector:
+                  matchLabels:
+                    app: serviceradar-media-worker
+            ports:
+              - {protocol: TCP, port: 4222}
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: sr-media-test
+            ports:
+              - {protocol: TCP, port: 4222}
+              - {protocol: TCP, port: 5432}
+
+  - it: gives the worker no namespace ingress rule when PostgreSQL is the only allowed port
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.allowedPorts:
+        - {protocol: TCP, port: 5432}
+      logCollector.tcpCollector.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - notExists:
+          path: spec.ingress[?(@.from[0].podSelector.matchLabels.app == "serviceradar-media-worker")]
+
+  - it: keeps the worker out of the Calico namespace policy with its own policy off
+    template: templates/calico-network-policy.yaml
+    set:
+      mediaWorker.networkPolicy.enabled: false
+      networkPolicy.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.selector: all()
+    asserts:
+      - equal:
+          path: spec.selector
+          value: "(all()) && app != 'serviceradar-media-worker'"
