@@ -54,6 +54,7 @@ defmodule ServiceRadar.EventWriter.Config do
   """
 
   alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -1233,15 +1234,17 @@ defmodule ServiceRadar.EventWriter.Config do
 
   The media worker creates `CAMERA_MEDIA_RESULTS` and owns its shape, so
   EventWriter only binds its durable (`ensure_stream: false`). A result can
-  carry a few MiB of vectors, so batches and in-flight messages stay small. A
-  transient failure is redelivered with backoff for up to ten deliveries.
+  carry a few MiB of vectors. Each EventWriter worker contributes 20 pending
+  acknowledgements to the durable (60 with three workers). A transient failure
+  is redelivered with backoff for up to ten deliveries.
   """
   @spec camera_visual_index_results_stream() :: stream_config()
   def camera_visual_index_results_stream do
     %{
       name: "CAMERA_VISUAL_INDEX_RESULTS",
       stream_name: "CAMERA_MEDIA_RESULTS",
-      subject: "media.results.visual_index.v1",
+      subject: VisualIndexResultProjector.result_subject(),
+      allow_stream_fallback: false,
       processor: ServiceRadar.EventWriter.Processors.CameraVisualIndexResults,
       ensure_stream: false,
       batch_size: 10,

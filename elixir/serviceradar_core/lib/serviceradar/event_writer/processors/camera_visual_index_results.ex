@@ -46,9 +46,11 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
   def process_batch(messages, opts) when is_list(messages) do
     ingest = Keyword.get(opts, :ingest, &VisualIndexResultProjector.ingest_result/1)
 
+    fail_job = Keyword.get(opts, :fail_job, &VisualIndexDispatcher.reconcile_exhausted_job/2)
+
     {stored, failures} =
       Enum.reduce(messages, {0, []}, fn message, {stored, failures} ->
-        case store(message, ingest) do
+        case store(message, ingest, fail_job) do
           :ok -> {stored + 1, failures}
           {:error, error} -> {stored, [{message, error} | failures]}
         end
@@ -60,8 +62,17 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
     end
   end
 
-  defp store(%Message{data: data}, ingest) do
-    case ingest_isolated(ingest, data) do
+  defp store(%Message{data: data}, ingest, fail_job) do
+    case VisualIndexResultProjector.decode_result(data) do
+      {:ok, envelope} -> project(envelope, ingest, fail_job)
+      {:error, reason, job_id} -> terminate(job_id, reason, fail_job)
+    end
+  rescue
+    error -> {:error, %TransientMessageError{reason: error}}
+  end
+
+  defp project(envelope, ingest, fail_job) do
+    case ingest.(envelope) do
       {:ok, _projection} ->
         :ok
 
@@ -70,40 +81,23 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
 
       {:error, reason} ->
         if VisualIndexResultProjector.terminal_drop?(reason),
-          do: terminate(data, reason),
+          do: terminate(envelope["job_id"], reason, fail_job),
           else: {:error, %TransientMessageError{reason: reason}}
     end
   end
 
-  # One message's raise must not fail the rest of its batch.
-  defp ingest_isolated(ingest, data) do
-    ingest.(data)
-  rescue
-    error -> {:error, error}
-  end
+  defp terminate(job_id, reason, fail_job) when is_binary(job_id) do
+    case fail_job.(job_id, Atom.to_string(reason)) do
+      {:ok, _job} ->
+        {:error, %TerminalMessageError{reason: reason}}
 
-  defp terminate(data, reason) do
-    terminal = {:error, %TerminalMessageError{reason: reason}}
+      {:error, unknown} when unknown in [:job_not_found, :invalid_job_id] ->
+        {:error, %TerminalMessageError{reason: reason}}
 
-    case result_job_id(data) do
-      nil ->
-        terminal
-
-      job_id ->
-        case VisualIndexDispatcher.reconcile_exhausted_job(job_id, Atom.to_string(reason)) do
-          {:ok, _job} -> terminal
-          {:error, unknown} when unknown in [:job_not_found, :invalid_job_id] -> terminal
-          {:error, record_error} -> {:error, %TransientMessageError{reason: record_error}}
-        end
+      {:error, error} ->
+        {:error, %TransientMessageError{reason: error}}
     end
   end
 
-  defp result_job_id(data) when is_binary(data) do
-    case Jason.decode(data) do
-      {:ok, %{"job_id" => job_id}} when is_binary(job_id) -> job_id
-      _ -> nil
-    end
-  end
-
-  defp result_job_id(_data), do: nil
+  defp terminate(_job_id, reason, _fail_job), do: {:error, %TerminalMessageError{reason: reason}}
 end

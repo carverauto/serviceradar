@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Scheduled visual index outbox relay
-When the deployment enables camera recording and visual indexing, Core SHALL relay `platform.camera_visual_index_jobs` to NATS JetStream on a fixed schedule. Each run SHALL do bounded work, publish live jobs before backfill jobs, and mark a job `dispatched` only after the stream acknowledges its publish. Core SHALL NOT create the worker-owned `CAMERA_MEDIA_JOBS` stream, and SHALL NOT re-publish a dispatched job while its earlier message can still be held by that stream.
+When the deployment enables camera recording and visual indexing, Core SHALL relay `platform.camera_visual_index_jobs` to NATS JetStream on a fixed schedule. Each run SHALL process at most ten batches of 100 jobs per phase, publish live jobs before backfill jobs, and mark a job `dispatched` only after `CAMERA_MEDIA_JOBS` acknowledges its publish. Core SHALL NOT create the worker-owned `CAMERA_MEDIA_JOBS` stream, and SHALL NOT re-publish a dispatched job while its earlier message can still be held by that stream.
 
 #### Scenario: Pending job is published once and marked after the acknowledgement
 - **WHEN** the relay runs and a `pending` job exists
@@ -20,7 +20,7 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 - **THEN** the relay SHALL NOT re-publish it or count another attempt
 
 #### Scenario: Dispatched job whose message can no longer be queued
-- **WHEN** a dispatched job's reconcile deadline has passed without a result
+- **WHEN** a dispatched job has reached both its stored deadline and 72 hours from dispatch without a result
 - **THEN** the relay SHALL re-publish it under the next attempt, or mark it `failed_terminal` with a `TripwireHealth` record once its attempt budget is spent
 
 #### Scenario: Visual indexing disabled for the deployment
@@ -28,7 +28,7 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 - **THEN** Core SHALL NOT schedule the relay
 
 ### Requirement: Durable visual index result consumer
-When the deployment enables camera recording and visual indexing, Core SHALL consume `media.results.visual_index.v1` through a durable EventWriter JetStream consumer bound to the worker-owned `CAMERA_MEDIA_RESULTS` stream and project each result into CNPG through the idempotent result projector, with bounded batch size and in-flight messages.
+When the deployment enables camera recording and visual indexing, Core SHALL consume `media.results.visual_index.v1` through a durable EventWriter JetStream consumer bound to the worker-owned `CAMERA_MEDIA_RESULTS` stream and project each result into CNPG through the idempotent result projector, in batches of 10 with a pending acknowledgement budget of 20 per EventWriter worker (60 on a three-replica deployment).
 
 #### Scenario: Result is stored and acknowledged
 - **WHEN** a valid result for a playable catalog entry arrives
@@ -48,4 +48,4 @@ When the deployment enables camera recording and visual indexing, Core SHALL con
 
 #### Scenario: Result that can never be stored
 - **WHEN** a result fails validation, such as a malformed envelope, an invalid vector or bounding box, or a descriptor digest that does not match the catalog entry
-- **THEN** Core SHALL mark the named job `failed_terminal` with the failure class, record the dead letter, and terminate the message without redelivery
+- **THEN** Core SHALL mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, record the dead letter, and terminate the message without redelivery

@@ -821,22 +821,31 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
 
   describe "visual index result consumer transient failures" do
     test "a failed or raising result is redelivered without failing the rest of its batch" do
-      stored = result_message("stored")
-      failed = result_message("failed")
-      raised = result_message("raised")
+      stored = result_message(~s({"case":"stored"}))
+      failed = result_message(~s({"case":"failed"}))
+      raised = result_message(~s({"case":"raised"}))
+      poison = result_message(Jason.encode!(%{"job_id" => @job_id}))
 
       ingest = fn
-        "stored" -> {:ok, %{status: :ingested}}
-        "failed" -> {:error, :db_unavailable}
-        "raised" -> raise "connection dropped"
+        %{"case" => "stored"} -> {:ok, %{status: :ingested}}
+        %{"case" => "failed"} -> {:error, :db_unavailable}
+        %{"case" => "raised"} -> raise "connection dropped"
+        %{"job_id" => @job_id} -> {:error, :descriptor_sha256_mismatch}
       end
 
-      assert {:incomplete, 1,
+      fail_job = fn @job_id, "descriptor_sha256_mismatch" -> raise "job update failed" end
+
+      assert {:incomplete, 2,
               [
                 {^failed, %TransientMessageError{reason: :db_unavailable}},
-                {^raised, %TransientMessageError{reason: %RuntimeError{}}}
+                {^raised, %TransientMessageError{reason: %RuntimeError{}}},
+                {^poison,
+                 %TransientMessageError{reason: %RuntimeError{message: "job update failed"}}}
               ]} =
-               CameraVisualIndexResults.process_batch([stored, failed, raised], ingest: ingest)
+               CameraVisualIndexResults.process_batch([stored, failed, raised, poison, stored],
+                 ingest: ingest,
+                 fail_job: fail_job
+               )
     end
   end
 

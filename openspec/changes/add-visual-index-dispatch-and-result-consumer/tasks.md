@@ -15,6 +15,7 @@
 
 ## 3. Permissions
 - [x] 3.1 Allow core to publish `media.jobs.visual_index.v1` and `media.jobs.visual_index.backfill.v1`, with a helm unittest.
+- [ ] 3.2 Before enabling visual indexing in any multi-identity deployment, the chart permissions follow-up must narrow the existing JetStream API grants for agent, web-ng, gateway, datasvc, flowgger, OTEL, trapd, BMP and Falco. These grants allow those identities to read camera job metadata and visual results outside camera-scoped search.
 
 ## 4. Verification
 - [x] 4.1 Integration tests on a scratch `srql-fixtures` database: publish once and mark after the acknowledgement, failed publish stays pending, concurrent relays advance a job once, a queued job is not re-published, an expired job is re-published, and the result consumer stores, replays, retries and terminates.

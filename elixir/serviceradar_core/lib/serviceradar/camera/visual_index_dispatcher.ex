@@ -33,7 +33,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   JetStream redelivers a delivered job itself (the worker's durable consumer
   has its own `MaxDeliver`). A dispatched job is re-published only after its
-  `deadline_at`, which is set to the stream's 72-hour retention: by then its
+  `deadline_at` and at least 72 hours after dispatch: by then its
   earlier message can no longer be queued, so a worker backlog never causes a
   duplicate publish or spends an attempt.
   """
@@ -52,6 +52,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   require Ash.Query
   require Logger
 
+  @jobs_stream "CAMERA_MEDIA_JOBS"
   @live_subject "media.jobs.visual_index.v1"
   @backfill_subject "media.jobs.visual_index.backfill.v1"
   @tripwire_check "camera.visual_index.failed_terminal"
@@ -59,7 +60,6 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   @default_budget_ms 30_000
   # The `max_age` the media worker creates CAMERA_MEDIA_JOBS with (rust/media-worker).
   @jobs_stream_max_age_seconds 72 * 3_600
-  @default_deadline_seconds @jobs_stream_max_age_seconds
   @default_batch_limit 50
   @max_batch_limit 250
   @relay_batch_limit 100
@@ -236,7 +236,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     deadline_at =
       case fetch_val(job, :deadline_at) do
         %DateTime{} = dt -> dt
-        _ -> DateTime.shift(now, second: @default_deadline_seconds)
+        _ -> DateTime.shift(now, second: @jobs_stream_max_age_seconds)
       end
 
     job_kind = normalize_job_kind(fetch_val(job, :job_kind))
@@ -293,7 +293,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   @doc """
   Publishes a single `:pending` (or retry-eligible `:dispatched`) `VisualIndexJob`
-  onto NATS JetStream via `opts[:publisher]` (default `&JetStreamPublish.publish/3`)
+  onto NATS JetStream via `opts[:publisher]` (default `&JetStreamPublish.publish_acked/3`)
   and marks it `:dispatched` once the publish is acknowledged.
 
   Cancels the job without publishing if its `RecordingCatalogEntry` has become
@@ -307,18 +307,12 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   def dispatch_job(job_or_id, opts \\ []) when is_list(opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    deadline_sec =
-      clamp_int(
-        Keyword.get(opts, :deadline_seconds, @default_deadline_seconds),
-        5,
-        @jobs_stream_max_age_seconds
-      )
-
-    deadline_at = DateTime.shift(now, second: deadline_sec)
-
     with {:ok, job} <- load_job(job_or_id, opts) do
       cond do
         job.state in [:completed, :cancelled, :failed_terminal] ->
+          {:ok, job}
+
+        job.state == :dispatched and not retry_eligible?(job, now) ->
           {:ok, job}
 
         job.attempt_count >= job.max_attempts ->
@@ -328,10 +322,22 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
           cancel_job(job, "source_deleted_or_quarantined")
 
         true ->
-          publish_and_mark_dispatched(job, now, deadline_at, opts)
+          publish_and_mark_dispatched(job, now, opts)
       end
     end
   end
+
+  defp retry_eligible?(
+         %{dispatched_at: %DateTime{} = sent, deadline_at: %DateTime{} = deadline},
+         now
+       ) do
+    DateTime.compare(sent, retention_cutoff(now)) != :gt and
+      DateTime.compare(deadline, now) != :gt
+  end
+
+  defp retry_eligible?(_job, _now), do: false
+
+  defp retention_cutoff(now), do: DateTime.shift(now, second: -@jobs_stream_max_age_seconds)
 
   @doc """
   Publishes up to `opts[:limit]` (default `50`) `:pending` `VisualIndexJob` rows,
@@ -432,7 +438,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   @doc """
   Reconciles up to `opts[:limit]` (default `50`) `:dispatched` jobs whose
-  `deadline_at` has passed: jobs that have reached `max_attempts` transition to
+  `deadline_at` and 72-hour stream retention have passed: jobs that have reached `max_attempts` transition to
   `:failed_terminal` (with `TripwireHealth`), while jobs with remaining attempts
   are re-dispatched or cancelled if deleted. Stops at the first publish that is
   not acknowledged and reports it as `publish_error`.
@@ -450,10 +456,12 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     limit = clamp_int(Keyword.get(opts, :limit, @default_batch_limit), 1, @max_batch_limit)
 
+    cutoff = retention_cutoff(now)
+
     expired =
       VisualIndexJob
       |> Ash.Query.filter(
-        state == :dispatched and not is_nil(deadline_at) and deadline_at <= ^now
+        state == :dispatched and deadline_at <= ^now and dispatched_at <= ^cutoff
       )
       |> Ash.Query.sort(deadline_at: :asc, id: :asc)
       |> Ash.Query.limit(limit)
@@ -471,28 +479,21 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   end
 
   defp reconcile_single_expired(job, acc, opts) do
-    if job.attempt_count >= job.max_attempts do
-      case reconcile_exhausted_job(job, "max_deliver_exhausted", opts) do
-        {:ok, _} -> {:cont, %{acc | failed_terminal_count: acc.failed_terminal_count + 1}}
-        _ -> {:cont, acc}
-      end
-    else
-      case dispatch_job(job, opts) do
-        {:ok, %{state: :dispatched}} ->
-          {:cont, %{acc | retried_count: acc.retried_count + 1}}
+    case dispatch_job(job, opts) do
+      {:ok, %{state: :dispatched}} ->
+        {:cont, %{acc | retried_count: acc.retried_count + 1}}
 
-        {:ok, %{state: :cancelled}} ->
-          {:cont, %{acc | cancelled_count: acc.cancelled_count + 1}}
+      {:ok, %{state: :cancelled}} ->
+        {:cont, %{acc | cancelled_count: acc.cancelled_count + 1}}
 
-        {:ok, %{state: :failed_terminal}} ->
-          {:cont, %{acc | failed_terminal_count: acc.failed_terminal_count + 1}}
+      {:ok, %{state: :failed_terminal}} ->
+        {:cont, %{acc | failed_terminal_count: acc.failed_terminal_count + 1}}
 
-        {:error, {:publish_failed, reason}} ->
-          {:halt, %{acc | publish_error: reason}}
+      {:error, {:publish_failed, reason}} ->
+        {:halt, %{acc | publish_error: reason}}
 
-        _ ->
-          {:cont, acc}
-      end
+      _ ->
+        {:cont, acc}
     end
   end
 
@@ -500,8 +501,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   One bounded relay pass, run by `ServiceRadar.Camera.VisualIndexDispatchWorker`.
 
   Reconciles expired dispatched jobs, then publishes pending jobs, each in
-  batches of `opts[:limit]` (default #{@relay_batch_limit}) for at most
-  `opts[:max_batches]` (default #{@relay_max_batches}) batches. A phase stops
+  batches of #{@relay_batch_limit} for at most #{@relay_max_batches} batches. A phase stops
   early at a batch shorter than the limit or at a publish that is not
   acknowledged; after a failed publish no pending job is published in this
   pass. Other options are passed to `dispatch_job/2`.
@@ -517,16 +517,13 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
              publish_error: term() | nil
            }}
   def relay(opts \\ []) when is_list(opts) do
-    limit = clamp_int(Keyword.get(opts, :limit, @relay_batch_limit), 1, @max_batch_limit)
-    max_batches = clamp_int(Keyword.get(opts, :max_batches, @relay_max_batches), 1, 100)
-    opts = Keyword.put(opts, :limit, limit)
-
-    reconciled = drain(&reconcile_expired_dispatched_jobs/1, opts, limit, max_batches)
+    opts = Keyword.put(opts, :limit, @relay_batch_limit)
+    reconciled = drain(&reconcile_expired_dispatched_jobs/1, opts, @relay_max_batches)
 
     dispatched =
       if reconciled.publish_error,
         do: %{},
-        else: drain(&dispatch_pending_jobs/1, opts, limit, max_batches)
+        else: drain(&dispatch_pending_jobs/1, opts, @relay_max_batches)
 
     summary =
       %{
@@ -543,18 +540,18 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     {:ok, summary}
   end
 
-  defp drain(phase, opts, limit, batches_left, acc \\ %{publish_error: nil})
+  defp drain(phase, opts, batches_left, acc \\ %{publish_error: nil})
 
-  defp drain(_phase, _opts, _limit, 0, acc), do: acc
+  defp drain(_phase, _opts, 0, acc), do: acc
 
-  defp drain(phase, opts, limit, batches_left, acc) do
+  defp drain(phase, opts, batches_left, acc) do
     {:ok, batch} = phase.(opts)
     acc = add_counts(acc, batch)
 
-    if batch.examined_count < limit or batch.publish_error do
+    if batch.examined_count < @relay_batch_limit or batch.publish_error do
       acc
     else
-      drain(phase, opts, limit, batches_left - 1, acc)
+      drain(phase, opts, batches_left - 1, acc)
     end
   end
 
@@ -670,7 +667,15 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     end
   end
 
-  defp publish_and_mark_dispatched(job, now, deadline_at, opts) do
+  defp publish_and_mark_dispatched(job, now, opts) do
+    deadline_seconds =
+      clamp_int(
+        Keyword.get(opts, :deadline_seconds, @jobs_stream_max_age_seconds),
+        5,
+        @jobs_stream_max_age_seconds
+      )
+
+    deadline_at = DateTime.shift(now, second: deadline_seconds)
     job_with_deadline = Map.put(job, :deadline_at, deadline_at)
 
     read_state = job.state
@@ -695,9 +700,14 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   end
 
   defp publish(subject, encoded, msg_id, opts) do
-    case invoke_publisher(subject, encoded, msg_id, opts) do
+    publisher = Keyword.get(opts, :publisher, &JetStreamPublish.publish_acked/3)
+    headers = [{"Nats-Expected-Stream", @jobs_stream}]
+
+    case publisher.(subject, encoded, msg_id: msg_id, headers: headers) do
       :ok -> :ok
+      {:ok, %{stream: @jobs_stream}} -> :ok
       {:error, reason} -> {:error, {:publish_failed, reason}}
+      other -> {:error, {:publish_failed, {:invalid_puback, other}}}
     end
   end
 
@@ -714,24 +724,6 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     id = fetch_val(job, :id)
     if attempt == 1, do: "visual-index:#{id}", else: "visual-index:#{id}:#{attempt}"
   end
-
-  defp invoke_publisher(subject, encoded, msg_id, opts) do
-    case Keyword.get(opts, :publisher) do
-      pub when is_function(pub, 3) ->
-        normalize_publish_result(pub.(subject, encoded, msg_id: msg_id))
-
-      pub when is_function(pub, 2) ->
-        normalize_publish_result(pub.(subject, encoded))
-
-      nil ->
-        JetStreamPublish.publish(subject, encoded, msg_id: msg_id)
-    end
-  end
-
-  defp normalize_publish_result(:ok), do: :ok
-  defp normalize_publish_result({:ok, _}), do: :ok
-  defp normalize_publish_result({:error, _} = err), do: err
-  defp normalize_publish_result(other), do: {:error, other}
 
   defp load_job(%VisualIndexJob{} = job, _opts), do: {:ok, job}
 
