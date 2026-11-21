@@ -221,9 +221,11 @@ config :serviceradar,
        :nats_chart_identities_file,
        System.get_env("SERVICERADAR_NATS_CHART_IDENTITIES_FILE")
 
-config :serviceradar,
-       :nats_chart_identity_partition_id,
-       System.get_env("SERVICERADAR_OTX_PARTITION", "default")
+chart_identity_partition = System.get_env("SERVICERADAR_OTX_PARTITION", "")
+
+if chart_identity_partition != "" do
+  config :serviceradar, :nats_chart_identity_partition_id, chart_identity_partition
+end
 
 config :serviceradar,
        :nats_infrastructure_certs_dir,
