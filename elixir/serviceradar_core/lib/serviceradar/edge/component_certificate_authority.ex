@@ -293,11 +293,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     now = DateTime.utc_now()
 
     transaction(fn ->
-      with {:ok, components} <-
-             ManagedComponent
-             |> Ash.Query.sort(:component_id)
-             |> Ash.Query.lock("FOR SHARE")
-             |> Ash.read(opts),
+      with {:ok, components} <- read_snapshot_components(ManagedComponent, opts),
            {:ok, certificates} <-
              ComponentCertificate
              |> Ash.Query.filter(not_after > ^now and generation == component.generation)
@@ -305,26 +301,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
              |> Ash.read(opts),
            fingerprints = Enum.map(certificates, & &1.fingerprint),
            {:ok, revocations} <-
-             RevokedComponentCertificate
-             |> Ash.Query.filter(
-               generation == component.generation and
-                 (is_nil(fingerprint) or fingerprint in ^fingerprints)
-             )
-             |> Ash.Query.sort([:component_id, :fingerprint])
-             |> Ash.read(opts) do
-        payload = %{
-          version: 1,
-          generated_at: now,
-          valid_until: DateTime.shift(now, second: @snapshot_seconds),
-          components: Enum.map(components, &Map.take(&1, @component_fields)),
-          certificates: Enum.map(certificates, &Map.take(&1, @certificate_fields)),
-          revocations: Enum.map(revocations, &Map.take(&1, @revocation_fields))
-        }
-
-        allowed =
-          certificates
-          |> Enum.filter(&(authorize(payload, &1.component_id, &1.fingerprint, now) == :ok))
-          |> Enum.map(& &1.fingerprint)
+             read_snapshot_revocations(RevokedComponentCertificate, fingerprints, opts) do
+        payload = authorization_payload(components, certificates, revocations, now)
+        allowed = allowed_fingerprints(payload)
 
         payload =
           payload
@@ -346,6 +325,65 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
         {:ok, Map.put(payload, :digest, digest)}
       end
     end)
+  end
+
+  def authorized_fingerprints([]), do: {:ok, MapSet.new()}
+
+  def authorized_fingerprints(fingerprints) when is_list(fingerprints) do
+    opts = [actor: SystemActor.system(:component_certificate_authority)]
+
+    transaction(fn ->
+      with {:ok, certificates} <-
+             ComponentCertificate
+             |> Ash.Query.filter(fingerprint in ^fingerprints)
+             |> Ash.read(opts),
+           ids = Enum.map(certificates, & &1.component_id),
+           {:ok, components} <-
+             ManagedComponent
+             |> Ash.Query.filter(component_id in ^ids)
+             |> read_snapshot_components(opts),
+           {:ok, revocations} <-
+             RevokedComponentCertificate
+             |> Ash.Query.filter(component_id in ^ids)
+             |> read_snapshot_revocations(fingerprints, opts) do
+        payload = authorization_payload(components, certificates, revocations, DateTime.utc_now())
+        {:ok, MapSet.new(allowed_fingerprints(payload))}
+      end
+    end)
+  end
+
+  defp read_snapshot_components(query, opts) do
+    query
+    |> Ash.Query.sort(:component_id)
+    |> Ash.Query.lock("FOR SHARE")
+    |> Ash.read(opts)
+  end
+
+  defp read_snapshot_revocations(query, fingerprints, opts) do
+    query
+    |> Ash.Query.filter(
+      generation == component.generation and (is_nil(fingerprint) or fingerprint in ^fingerprints)
+    )
+    |> Ash.Query.sort([:component_id, :fingerprint])
+    |> Ash.read(opts)
+  end
+
+  defp authorization_payload(components, certificates, revocations, now) do
+    %{
+      version: 1,
+      generated_at: now,
+      valid_until: DateTime.shift(now, second: @snapshot_seconds),
+      components: Enum.map(components, &Map.take(&1, @component_fields)),
+      certificates: Enum.map(certificates, &Map.take(&1, @certificate_fields)),
+      revocations: Enum.map(revocations, &Map.take(&1, @revocation_fields))
+    }
+  end
+
+  defp allowed_fingerprints(%{generated_at: now} = payload) do
+    for certificate <- payload.certificates,
+        authorize(payload, certificate.component_id, certificate.fingerprint, now) == :ok do
+      certificate.fingerprint
+    end
   end
 
   @doc "Public deployment key to pin during an authorized component enrollment."

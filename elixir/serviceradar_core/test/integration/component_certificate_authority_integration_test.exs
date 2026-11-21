@@ -124,6 +124,43 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert Enum.any?(old_decisions, &(&1.reason == "emergency" and is_nil(&1.fingerprint)))
   end
 
+  test "inventory authorization matches the snapshot for the requested fingerprints", ctx do
+    id = ctx.component.component_id
+    assert {:ok, old} = Authority.record_issuance(id, ctx.metadata, ctx.opts)
+    assert {:ok, %{generation: 2}} = Authority.reenroll_component(id, ctx.opts)
+
+    current = %{ctx.metadata | expected_generation: 2}
+    valid = fingerprint(id <> "-valid")
+    assert {:ok, _} = Authority.record_issuance(id, %{current | fingerprint: valid}, ctx.opts)
+
+    revoked = fingerprint(id <> "-revoked")
+    assert {:ok, _} = Authority.record_issuance(id, %{current | fingerprint: revoked}, ctx.opts)
+    assert {:ok, _} = Authority.revoke_certificate(revoked, "retired", ctx.opts)
+
+    expired = %{
+      current
+      | fingerprint: fingerprint(id <> "-expired"),
+        not_before: DateTime.shift(current.not_before, hour: -1),
+        not_after: current.not_before
+    }
+
+    assert {:ok, _} = Authority.record_issuance(id, expired, ctx.opts)
+
+    unrequested = fingerprint(id <> "-unrequested")
+
+    assert {:ok, _} =
+             Authority.record_issuance(id, %{current | fingerprint: unrequested}, ctx.opts)
+
+    requested = [valid, revoked, old.fingerprint, expired.fingerprint]
+    assert {:ok, snapshot} = Authority.snapshot()
+    assert unrequested in snapshot.allowed_fingerprints
+    assert {:ok, allowed} = Authority.authorized_fingerprints(requested)
+    assert allowed == MapSet.new([valid])
+
+    assert allowed ==
+             MapSet.intersection(MapSet.new(requested), MapSet.new(snapshot.allowed_fingerprints))
+  end
+
   test "resource boundary rejects stale issuance and requires edge ownership and permission",
        ctx do
     assert {:ok, _} =

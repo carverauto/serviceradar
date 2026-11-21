@@ -178,9 +178,21 @@ adopted infrastructure certificates are refused (`static identity grants
 unavailable`) rather than granted their stored grant, and no session is
 disconnected for its grant; host-enrolled components are unaffected.
 
-Core can adopt the chart's NATS clients from a public certificate inventory.
-The shipped chart does not mount this inventory. To configure it on core, supply
-all three paths along with the static users file described above.
+When core and the chart's NATS are enabled, Helm mounts the public certificate
+inventory on core and sets the three paths below. Core can adopt eligible
+certificates even with broker authorization callout disabled. On a non-hosted
+installation with `certs.generator.enabled` set to `true`, the chart owns the
+runtime certificate Secret and projects every chart NATS client certificate.
+
+On a hosted installation or one with the generator disabled, the supplier of
+the runtime certificate Secret lists the files it carries in
+`certs.inventoryCertificates`. The accepted filenames are the `file` entries in
+[`serviceradar.natsChartIdentities`](../helm/serviceradar/templates/_helpers.tpl).
+By default the list is empty and core mounts an empty directory. Each listed
+file must exist in the Secret for the volume to mount.
+
+For installations without the Helm chart, configure the static users file
+described above and supply all three inventory paths to core.
 
 | Core environment variable | Contents |
 | --- | --- |
@@ -195,8 +207,9 @@ before any writes.
 Core matches each client by its certificate subject. For a listed subject with
 a static grant and a valid chain to the deployment root, core records the first
 certificate as a `nats-client` with that grant. Its component ID depends only on
-the subject. The partition defaults to `default` and can be set with the
-`:serviceradar` application key `:nats_chart_identity_partition_id`.
+the subject. Core uses `SERVICERADAR_OTX_PARTITION` when it has a non-empty
+value. Otherwise it uses the `:serviceradar` application setting
+`:nats_chart_identity_partition_id`, which defaults to `default`.
 
 First adoption pauses while any recorded infrastructure certificate lacks a
 stored subject. Use the original-PEM procedure below to fill it. A recorded
@@ -204,13 +217,13 @@ certificate continues to hold its subject after revocation. The existing
 rotation procedure handles replacements for held subjects.
 
 Core logs changes in coverage for each listed subject. An identity counts as
-adopted when the authority snapshot allows its inventory fingerprint.
-`recorded_not_authorized` means the fingerprint is on record but the snapshot
+adopted when the certificate authority allows its inventory fingerprint.
+`recorded_not_authorized` means the fingerprint is on record but the authority
 excludes it. `held_unrecorded` means another recorded certificate holds the
 subject and the inventory fingerprint is absent from the record. Copies of the
 same certificate count once. If several distinct fingerprints name one subject,
 core skips first adoption for that subject and reports it as adopted only when
-the snapshot allows them all. Files with an unlisted subject or an undecodable
+the authority allows them all. Files with an unlisted subject or an undecodable
 certificate appear under `unlisted` in the reconciliation report.
 Coverage is advisory and is not exposed by the readiness API.
 
@@ -249,8 +262,10 @@ component, and a private key are refused. The route uses the same API key
 pipeline and `settings.edge.manage` permission as adoption. Broker
 authorization callout stays disabled.
 
-The chart's runtime certificate generator records its own rotations. When it
-reissues the runtime certificates (a `certs.runtimeLayoutVersion` change), it
+The chart's runtime certificate generator reissues the runtime certificates when
+`certs.runtimeLayoutVersion` changes. If an older generator-owned Secret lacks
+even one certificate in core's projection, the pre-upgrade hook also reissues
+the full runtime certificate set before core rolls. On reissue, the generator
 writes `runtime-cert-rotation.json` into the runtime certificate Secret. For each
 reissued public certificate, that record holds the fingerprint it replaced, its
 own fingerprint, and its PEM with the root CA. It holds no key. The core
