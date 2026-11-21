@@ -6,6 +6,8 @@ defmodule ServiceRadarNVR.Blocks do
   alias ServiceRadarRecording.Storage
   alias ServiceRadarRecordingMetadata.Descriptor
 
+  def valid_id?(id), do: is_binary(id) and Regex.match?(~r/\A[0-9a-f]{64}\z/, id)
+
   def inspect(storage, block_id, limits) do
     with {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits), do: with_format(snapshot)
   end
@@ -65,7 +67,6 @@ defmodule ServiceRadarNVR.Blocks do
              :invalid_timing,
              :invalid_tail_duration_source,
              :discontinuity,
-             :unsupported_codec,
              :invalid_recording_descriptor
            ], do: :block_not_sealed
 

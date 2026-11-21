@@ -105,11 +105,15 @@ defmodule ServiceRadarNVR do
   publication authority nor playback access. Inspection does not mutate disk.
   """
   def block_descriptor(block_id) do
-    Reads.run(fn ->
-      with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
-        Blocks.descriptor(storage, block_id, limits)
-      end
-    end)
+    if Blocks.valid_id?(block_id) do
+      Reads.run(fn ->
+        with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+          Blocks.descriptor(storage, block_id, limits)
+        end
+      end)
+    else
+      {:error, :invalid_block_id}
+    end
   end
 
   @doc """

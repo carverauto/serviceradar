@@ -127,9 +127,10 @@ requires expected identity and exclusive ownership before repairing tails.
 `ServiceRadarNVR.block_descriptor/1` performs the same read-only verification
 and returns canonical v1 JSON for the sealed block: identity, clock, native format,
 initialization/media digests and fragment ranges. It uses the same descriptor
-validator as Core's frozen blocks and archive manifests. The bytes contain no
-local paths or storage receipts; the API is trusted same-VM only, with no HTTP
-endpoint. Descriptor inspection itself does not persist a sidecar.
+validator as Core's frozen blocks and archive manifests. The private ingest listener serves the same
+bytes at `GET /v1/blocks/<block_id>/descriptor` after authenticating the client
+certificate and bearer token. The descriptor omits local paths and storage
+receipts. Inspection does not persist a sidecar.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not

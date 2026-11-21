@@ -55,7 +55,7 @@ defmodule ServiceRadarNVR.Archive do
   end
 
   defp parse(config, block_id, body) do
-    if Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id),
+    if Blocks.valid_id?(block_id),
       do: decode(config, block_id, body),
       else: {:error, :block_not_found}
   end

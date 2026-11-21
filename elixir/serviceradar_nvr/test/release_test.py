@@ -1913,6 +1913,8 @@ class NVRReleaseTest(unittest.TestCase):
         unavailable = self.spool.with_name("offline-spool")
         self.spool.rename(unavailable)
         try:
+            self.assertEqual(self.descriptor_request("not-a-block-id"), (404, b'{"error":"block_not_found"}'))
+            self.assertEqual(self.descriptor_request("not-a-block-id", token="incorrect-token")[0], 401)
             self.assertEqual(self.descriptor_request(block_id), (503, b'{"error":"descriptor_unavailable"}'))
         finally:
             unavailable.rename(self.spool)

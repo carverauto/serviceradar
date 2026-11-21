@@ -17,7 +17,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   the unfinished stream (400, 401, 422 or 503 before the end marker) has sealed
   nothing it had open, so that capture returns
   `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the worker's
-  correlation fields, after the worker has released the recorder claim. A
+  correlation fields. The worker attempts to release the recorder claim. A
   capture Core itself stops before the worker hands its sender `:eof`, such as
   on a unit with a backwards timestamp, cannot have sent the end marker either,
   so it returns `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` the
@@ -33,9 +33,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
 
   A sealed capture returns `{:ok, receipt}` with `status: :sealed_local`. Its
   `catalog` field is `{:registered, entry_id}` when the worker froze the block's
-  descriptor and created its catalog entry, or `{:unregistered, reason}` when
-  it could not, in which case the block stays sealed on the NVR and is left to
-  the reconciler.
+  descriptor and created its catalog entry. A refusal returns
+  `{:unregistered, reason}`. The reason `:registration_unconfirmed` means the
+  freeze may have committed. The `release` field is `:released` or
+  `{:release_pending_lease_expiry, reason}` when release could not be confirmed.
+  The latter permits takeover after the lease expires.
   """
 
   alias ServiceRadar.Actors.SystemActor
