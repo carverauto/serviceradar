@@ -1333,6 +1333,32 @@ fn admission_refuses_mismatched_precision_before_either_warmup() {
 }
 
 #[test]
+fn admission_refuses_an_advertised_width_that_differs_from_the_tower_outputs() {
+    let config = WorkerConfig::cpu_explicit_default().with_models(ModelPinConfig::new(
+        "synthetic-detector",
+        "v1",
+        "synthetic-embedder",
+        "v1",
+        768,
+    ));
+    let info = crate::InferenceBackendInfo::new(
+        InferenceBackendKind::Candle,
+        "cpu",
+        512,
+        "synthetic",
+        false,
+    );
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
+    let err = verify_startup_capabilities_with_backend(
+        &config,
+        &StaticProbe(GpuEnvironmentObservation::no_gpu()),
+        backend,
+    )
+    .expect_err("advertised width must match the configured index");
+    assert!(err.to_string().contains("embedding_dim"));
+}
+
+#[test]
 fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
     // Readiness (and therefore job claims and text-embedding RPCs, which start only
     // after admission) must wait for both towers to have run once: on CUDA that first

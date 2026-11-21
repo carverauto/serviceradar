@@ -302,6 +302,13 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         )));
     }
 
+    let expected_dim = config.models().embedding_dim();
+    if backend_info.embedding_dim() != expected_dim {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured embedding_dim is {expected_dim}, but the active backend advertises {}",
+            backend_info.embedding_dim()
+        )));
+    }
     let warmup_started = Instant::now();
     run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
     let warmup_ms = u64::try_from(warmup_started.elapsed().as_millis()).unwrap_or(u64::MAX);

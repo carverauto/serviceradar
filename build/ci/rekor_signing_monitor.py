@@ -284,10 +284,10 @@ class GitHub:
 
     def cuda_release_deployed_from(self, run, branch):
         query = """
-            query($suite: ID!) {
+            query($suite: ID!, $attempts: Int!, $filter: CheckRunFilter!) {
               node(id: $suite) {
                 ... on CheckSuite {
-                  checkRuns(first: 1, filterBy: {checkName: "publish"}) {
+                  checkRuns(first: $attempts, filterBy: $filter) {
                     nodes { deployment { originalEnvironment ref { prefix name } } }
                   }
                 }
@@ -295,7 +295,10 @@ class GitHub:
             }
         """
         reply = self.http.request(f"{self.api}/graphql", "POST", {
-            "query": query, "variables": {"suite": run["check_suite_node_id"]}})
+            "query": query, "variables": {
+                "suite": run["check_suite_node_id"], "attempts": run["run_attempt"],
+                "filter": {"checkName": "publish", "checkType": "ALL"},
+            }})
         if reply.get("errors"):
             raise MonitorFailure(f"cannot read deployment for CUDA run {run['id']}: {reply['errors']}")
         for job in reply["data"]["node"]["checkRuns"]["nodes"]:

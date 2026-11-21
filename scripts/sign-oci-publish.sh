@@ -10,7 +10,10 @@ if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
   exit 2
 fi
 capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
-python3 "${capacity_tool}" --check-capacity-only
+(
+  unset "${!VAULT_@}" "${!OPENBAO_@}" "${!BAO_@}"
+  exec python3 "${capacity_tool}" --check-capacity-only
+)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1090,SC1091

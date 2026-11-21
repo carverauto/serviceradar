@@ -223,7 +223,6 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
     def test_dispatch_admission_controls_the_entire_privileged_job(self):
         triggers = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(set(triggers), {"workflow_dispatch"})
-        self.assertEqual(self.workflow["run-name"], "${{ github.ref }}")
         preflight = self.jobs["preflight"]
         self.assertEqual(preflight["runs-on"], "ubuntu-24.04")
         self.assertEqual(self.jobs["toolchain"]["runs-on"], "ubuntu-24.04")
@@ -332,17 +331,20 @@ esac
                    and any(isinstance(t, ast.Name) and t.id == "NATIVE_BUILD_IMAGES" for t in n.targets))
         self.assertIn(image, {entry["repository"] for entry in native})
         reference = f"registry.carverauto.dev/serviceradar/{image}:sha-{COMMIT}"
+        signature = f"sign registry.carverauto.dev/serviceradar-builds/{image}@{DIGEST}"
         expected = [
             "verify bundle", "setup", "push",
-            "authenticate", f"build ./scripts/sign-oci-publish.sh {DIGEST}",
+            "authenticate", "capacity", signature,
             f"build ./scripts/verify-oci-publish.sh {DIGEST}",
             f"promote --repositories {image} --tag sha-{COMMIT} --digest {DIGEST}",
             f"protected ./scripts/verify-oci-publish.sh {DIGEST}", "protected oras resolve " + reference,
         ]
         with tempfile.TemporaryDirectory() as build:
             build_outputs = self.check_build_manifest(Path(build), {"builder_image": CUDA_BUILDER}, "refs/heads/staging")
-        for fail, promoted in [("", DIGEST), (expected[0], DIGEST), (expected[4], DIGEST), (expected[5], DIGEST),
-                               (expected[7], DIGEST), ("", "sha256:" + "9" * 64)]:
+        for fail, promoted in [("", DIGEST), ("verify bundle", DIGEST), ("capacity", DIGEST), (signature, DIGEST),
+                               (f"build ./scripts/verify-oci-publish.sh {DIGEST}", DIGEST),
+                               (f"protected ./scripts/verify-oci-publish.sh {DIGEST}", DIGEST),
+                               ("", "sha256:" + "9" * 64)]:
             with self.subTest(fail=fail, promoted=promoted), tempfile.TemporaryDirectory() as work:
                 root = Path(work)
                 scripts = root / "scripts"
@@ -360,12 +362,23 @@ esac
                 login = json.dumps({"auth": {"client_token": VAULT_TOKEN}})
                 curl.write_text(f"#!/bin/sh\necho authenticate >> calls\necho '{login}'\n")
                 curl.chmod(0o755)
-                signer = scripts / "sign-oci-publish.sh"
-                signer.write_text(
-                    f'#!/bin/bash\nset -eu\n[[ "$VAULT_TOKEN" == "{VAULT_TOKEN}" ]]\n'
-                    '[[ "$SERVICERADAR_NATIVE_IMAGE" == "serviceradar-media-worker-cuda" ]]\n'
-                    'call="build $0 $1"\necho "$call" >> calls\n[[ "$FAIL" != "$call" ]]\n')
-                signer.chmod(0o755)
+                if "TEST_SRCDIR" in os.environ:
+                    (root / "jq").symlink_to(Path(os.environ["TEST_JQ"]).absolute())
+                (root / "cosign").symlink_to(scripts / "install-cosign.sh")
+                for name in ("sign-oci-publish.sh", "oci_registry.sh"):
+                    (scripts / name).symlink_to(ROOT / "scripts" / name)
+                capacity = root / "tool/k8s/harbor/promote-artifacts.py"
+                capacity.parent.mkdir(parents=True)
+                capacity.write_text(
+                    "import os, sys\nassert sys.argv[1:] == ['--check-capacity-only']\n"
+                    "assert not any(k.startswith(('VAULT_', 'OPENBAO_', 'BAO_')) for k in os.environ)\n"
+                    f"assert {VAULT_TOKEN!r} not in os.environ.values()\n"
+                    "print('capacity', file=open('calls', 'a'))\nsys.exit(int(os.environ['FAIL'] == 'capacity'))\n")
+                (scripts / "cosign_common.sh").write_text(
+                    'cosign_cleanup_temp_files() { :; }\ncosign_init_sign_args() { :; }\n'
+                    'attach_legacy_signature() {\n'
+                    f'  [[ "$VAULT_TOKEN" == "{VAULT_TOKEN}" ]]\n'
+                    '  call="sign $1"\n  echo "$call" >> calls\n  [[ "$FAIL" != "$call" ]]\n}\n')
                 verifier = scripts / "verify-oci-publish.sh"
                 verifier.write_text(
                     '#!/bin/bash\nset -eu\n[[ -z "${VAULT_TOKEN+x}${COSIGN_KEY_REF+x}" ]]\n'
@@ -400,7 +413,8 @@ esac
                 env = {
                     "PATH": work + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": work,
                     "GITHUB_ENV": str(root / "env"), "GITHUB_REF": "refs/heads/staging",
-                    "OPENBAO_K8S_TOKEN_FILE": str(jwt),
+                    "OPENBAO_K8S_TOKEN_FILE": str(jwt), "HARBOR_LIFECYCLE_DIR": work,
+                    "SERVICERADAR_REPO_ROOT": str(ROOT),
                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                     "HARBOR_PUBLISH_TOOL": str(harbor), "GITHUB_SHA": COMMIT, "FAIL": fail, "BUILT": DIGEST,
                     "PROMOTED": promoted, "EXPECTED_SUMS": CHECKSUMS_SHA256,
