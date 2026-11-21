@@ -4,10 +4,8 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.InfrastructureCertificateAdoption, as: Adoption
 
-  @validity {{2026, 1, 1}, {2027, 6, 1}}
-
   test "adopts a static NATS client with its existing grant and public certificate" do
-    %{pem: pem, der: der} = self_signed(@validity)
+    %{pem: pem, der: der} = self_signed()
 
     assert {:ok, prepared} =
              Adoption.prepare(
@@ -63,7 +61,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   end
 
   test "refuses private keys, bad issuers, expired certificates, and non-infrastructure types" do
-    %{pem: pem} = self_signed(@validity)
+    %{pem: pem} = self_signed()
 
     assert {:error, :private_key} =
              Adoption.prepare(attrs(pem <> private_key_pem(), empty_subscribe()))
@@ -71,12 +69,12 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     assert {:error, :issuer_certificate_required} =
              Adoption.prepare(attrs(signed_chain().leaf_pem, empty_subscribe()))
 
-    unrelated = pem <> self_signed(@validity, ~c"example-other").pem
+    unrelated = pem <> self_signed(~c"example-other").pem
 
     assert {:error, :untrusted_issuer} =
              Adoption.prepare(attrs(unrelated, empty_subscribe()))
 
-    expired = self_signed({{2020, 1, 1}, {2020, 6, 1}})
+    expired = self_signed(~c"example-expired", validity: {{2020, 1, 1}, {2020, 6, 1}})
 
     assert {:error, :certificate_not_valid} =
              Adoption.prepare(attrs(expired.pem, empty_subscribe()))
@@ -104,8 +102,8 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     }
   end
 
-  defp self_signed(validity, name \\ ~c"example-gateway") do
-    %{cert: der} = :public_key.pkix_test_root_cert(name, validity: validity)
+  defp self_signed(name \\ ~c"example-gateway", opts \\ []) do
+    %{cert: der} = :public_key.pkix_test_root_cert(name, opts)
 
     %{
       der: der,
@@ -116,8 +114,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   defp signed_chain do
     alg = [
       {:digest, :sha256},
-      {:key, {:namedCurve, :secp256r1}},
-      {:validity, @validity}
+      {:key, {:namedCurve, :secp256r1}}
     ]
 
     data =

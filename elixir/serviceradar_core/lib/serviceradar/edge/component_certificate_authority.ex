@@ -72,31 +72,42 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   infrastructure. The certificate is recorded in that same transaction, so a
   refused certificate leaves no component.
   """
-  def adopt_existing_certificate(attrs, opts \\ []) do
-    with {:ok, prepared} <- InfrastructureCertificateAdoption.prepare(attrs) do
-      issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+  def adopt_existing_certificate(attrs, opts \\ [])
+  def adopt_existing_certificate(attrs, opts) when is_map(attrs) do
+    component_id =
+      attrs |> Map.get(:component_id, Map.get(attrs, "component_id")) |> cast_component_id()
 
-      changeset =
-        Ash.Changeset.for_create(
-          ComponentCertificate,
-          :record_issuance,
-          Map.put(prepared.issuance, :component_id, prepared.component.component_id),
-          issuance_opts
-        )
+    with {:ok, presented} <- InfrastructureCertificateAdoption.read_certificate(attrs),
+         :ok <- fill_missing_subject(component_id, presented.fields, opts),
+         {:ok, prepared} <- InfrastructureCertificateAdoption.prepare(attrs, presented) do
+      adopt_prepared_certificate(component_id, prepared, opts)
+    end
+  end
 
-      if changeset.valid? do
-        fn ->
-          with {:ok, component} <- adoption_component(prepared, opts),
-               {:ok, certificate} <-
-                 bound_issuance(component.component_id, changeset, issuance_opts) do
-            {:ok, %{component: component, certificate: certificate}}
-          end
+  def adopt_existing_certificate(_attrs, _opts), do: {:error, :invalid_adoption}
+
+  defp adopt_prepared_certificate(component_id, prepared, opts) do
+    write_opts = issuance_opts()
+
+    changeset =
+      Ash.Changeset.for_create(
+        ComponentCertificate,
+        :record_issuance,
+        Map.put(prepared.issuance, :component_id, prepared.component.component_id),
+        write_opts
+      )
+
+    if changeset.valid? do
+      fn ->
+        with {:ok, component} <- adoption_component(component_id, prepared, opts),
+             {:ok, certificate} <- bound_issuance(component.component_id, changeset, write_opts) do
+          {:ok, %{component: component, certificate: certificate}}
         end
-        |> transaction()
-        |> notify()
-      else
-        Ash.create(changeset, issuance_opts)
       end
+      |> transaction()
+      |> notify()
+    else
+      Ash.create(changeset, write_opts)
     end
   end
 
@@ -108,16 +119,18 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   certificates. A private key is refused before any record is written.
   """
   def record_infrastructure_successor(component_id, attrs, opts \\ []) do
-    with {:ok, issuance} <- InfrastructureCertificateAdoption.prepare_certificate(attrs) do
-      issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+    with {:ok, presented} <- InfrastructureCertificateAdoption.read_certificate(attrs),
+         :ok <- fill_missing_subject(cast_component_id(component_id), presented.fields, opts),
+         {:ok, issuance} <- InfrastructureCertificateAdoption.verify_certificate(presented) do
+      write_opts = issuance_opts()
 
       fn ->
         with {:ok, component} <- lock_component(component_id, opts),
              :ok <- infrastructure_successor(component),
-             :ok <- adopted_certificate(component, issuance_opts),
-             changeset = successor_changeset(component, issuance, issuance_opts),
+             :ok <- adopted_certificate(component, write_opts),
+             changeset = successor_changeset(component, issuance, write_opts),
              {:ok, certificate} <-
-               bound_issuance(component.component_id, changeset, issuance_opts) do
+               bound_issuance(component.component_id, changeset, write_opts) do
           {:ok, %{component: component, certificate: certificate}}
         end
       end
@@ -144,22 +157,21 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   """
   def record_rotated_infrastructure_successor(previous_fingerprint, attrs, opts \\ [])
       when is_binary(previous_fingerprint) do
-    issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
-
-    # The predecessor is looked up first: a certificate that was never adopted
-    # names its replacement as `:unknown_certificate`, whatever that replacement is.
-    fn ->
-      with {:ok, predecessor} <- find_certificate(previous_fingerprint, opts),
-           {:ok, issuance} <- InfrastructureCertificateAdoption.prepare_certificate(attrs),
-           {:ok, component} <- lock_component(predecessor.component_id, opts),
-           :ok <- infrastructure_successor(component),
-           {:ok, certificate} <-
-             rotated_successor(component, predecessor, issuance, opts, issuance_opts) do
-        {:ok, %{component: component, certificate: certificate}}
+    with {:ok, predecessor} <- find_certificate(previous_fingerprint, opts),
+         {:ok, presented} <- InfrastructureCertificateAdoption.read_certificate(attrs),
+         :ok <- fill_missing_subject(predecessor.component_id, presented.fields, opts),
+         {:ok, issuance} <- InfrastructureCertificateAdoption.verify_certificate(presented) do
+      fn ->
+        with {:ok, component} <- lock_component(predecessor.component_id, opts),
+             :ok <- infrastructure_successor(component),
+             {:ok, certificate} <-
+               rotated_successor(component, predecessor, issuance, opts, issuance_opts()) do
+          {:ok, %{component: component, certificate: certificate}}
+        end
       end
+      |> transaction()
+      |> notify()
     end
-    |> transaction()
-    |> notify()
   end
 
   def set_infrastructure_permissions(component_id, expected_generation, permissions, opts \\ []) do
@@ -180,9 +192,10 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
 
   @doc "Records an issued certificate, with mandatory expected_generation and host_agent_id binding."
   def record_issuance(component_id, metadata, opts \\ []) do
-    attrs = metadata |> Map.drop([:subject, "subject"]) |> Map.put(:component_id, component_id)
+    attrs = Map.put(metadata, :component_id, component_id)
 
-    changeset = Ash.Changeset.for_create(ComponentCertificate, :record_issuance, attrs, opts)
+    changeset =
+      Ash.Changeset.for_create(ComponentCertificate, :record_managed_issuance, attrs, opts)
 
     if changeset.valid? do
       fn -> bound_issuance(component_id, changeset, opts) end
@@ -452,7 +465,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
 
       {:ok, certificate} ->
         if same_certificate?(certificate, changeset) do
-          reuse_certificate(certificate, Ash.Changeset.get_attribute(changeset, :subject), opts)
+          reuse_certificate(certificate, opts)
         else
           {:error, :certificate_metadata_conflict}
         end
@@ -473,34 +486,54 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     end)
   end
 
-  defp reuse_certificate(certificate, subject, opts) do
-    with :ok <- unrevoked(certificate, opts) do
-      if is_nil(certificate.subject) and is_binary(subject) do
-        certificate
-        |> Ash.Changeset.for_update(:fill_subject, %{subject: subject}, opts)
-        |> Ash.update(opts)
-      else
-        {:ok, certificate}
+  defp reuse_certificate(certificate, opts) do
+    with :ok <- unrevoked(certificate, opts), do: {:ok, certificate}
+  end
+
+  defp cast_component_id(id) do
+    ManagedComponent
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.change_attribute(:component_id, id)
+    |> Ash.Changeset.get_attribute(:component_id)
+  end
+
+  defp fill_missing_subject(nil, _fields, _opts), do: :ok
+
+  defp fill_missing_subject(component_id, fields, opts) do
+    if Ash.can?({ComponentCertificate, :read}, opts[:actor], maybe_is: false) do
+      types = ManagedComponent.infrastructure_types()
+
+      query =
+        Ash.Query.filter(
+          ComponentCertificate,
+          fingerprint == ^fields.fingerprint and component_id == ^component_id and
+            is_nil(subject) and is_nil(component.host_agent_id) and component.component_type in ^types
+        )
+
+      case Ash.bulk_update(query, :fill_subject, %{subject: fields.subject},
+             actor: issuance_opts()[:actor],
+             strategy: [:atomic],
+             return_errors?: true
+           ) do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
       end
+    else
+      :ok
     end
   end
 
-  defp adoption_component(%{component: attrs, issuance: issuance}, opts) do
+  defp issuance_opts, do: [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+
+  defp adoption_component(component_id, %{component: attrs, issuance: issuance}, opts) do
     case find_certificate(issuance.fingerprint, opts) do
       {:error, :unknown_certificate} ->
         ManagedComponent
         |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
         |> Ash.create(opts)
 
-      {:ok, %{component_id: id}} when id == attrs.component_id ->
-        with {:ok, component} <- lock_component(id, opts) do
-          if component.component_type == attrs.component_type and
-               component.partition_id == attrs.partition_id and
-               component.server_hosts == attrs.server_hosts and
-               component.nats_permissions == attrs.permissions,
-             do: {:ok, component},
-             else: {:error, :certificate_metadata_conflict}
-        end
+      {:ok, %{component_id: ^component_id}} ->
+        lock_component(component_id, opts)
 
       {:ok, _} ->
         {:error, :certificate_metadata_conflict}
@@ -546,7 +579,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       {:ok, %{component_id: component_id} = certificate}
       when component_id == component.component_id ->
         if certificate.generation == component.generation,
-          do: reuse_certificate(certificate, issuance.subject, issuance_opts),
+          do: reuse_certificate(certificate, issuance_opts),
           else: {:error, :stale_generation}
 
       {:ok, _other_component} ->

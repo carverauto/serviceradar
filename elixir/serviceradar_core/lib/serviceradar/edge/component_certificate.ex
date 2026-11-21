@@ -27,23 +27,24 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
   actions do
     defaults [:read]
 
-    create :record_issuance do
-      accept [
-        :fingerprint,
-        :issuer_fingerprint,
-        :serial_number,
-        :component_id,
-        :role,
-        :subject,
-        :not_before,
-        :not_after
-      ]
+    for {action, subject_fields} <- [record_issuance: [:subject], record_managed_issuance: []] do
+      create action do
+        accept [
+          :fingerprint,
+          :issuer_fingerprint,
+          :serial_number,
+          :component_id,
+          :role,
+          :not_before,
+          :not_after
+        ] ++ subject_fields
 
-      argument :expected_generation, :integer, allow_nil?: false, constraints: [min: 1]
-      argument :host_agent_id, :string
-      change ServiceRadar.Edge.Changes.GuardComponentCertificateIssuance
-      validate attribute_in(:role, ["client", "upstream_client", "local_server"])
-      validate compare(:not_after, greater_than: :not_before)
+        argument :expected_generation, :integer, allow_nil?: false, constraints: [min: 1]
+        argument :host_agent_id, :string
+        change ServiceRadar.Edge.Changes.GuardComponentCertificateIssuance
+        validate attribute_in(:role, ["client", "upstream_client", "local_server"])
+        validate compare(:not_after, greater_than: :not_before)
+      end
     end
 
     update :fill_subject do

@@ -41,14 +41,25 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
              | :issuer_certificate_required
              | :untrusted_issuer}
   def prepare(attrs) when is_map(attrs) do
-    with {:ok, issuance} <- certificate(fetch(attrs, :certificate_pem)),
-         {:ok, permissions} <- project(fetch(attrs, :permissions)),
-         {:ok, identity} <- identity(attrs) do
-      {:ok, %{component: Map.put(identity, :permissions, permissions), issuance: issuance}}
+    with {:ok, presented} <- read_certificate(attrs) do
+      prepare(attrs, presented)
     end
   end
 
   def prepare(_attrs), do: {:error, :invalid_adoption}
+
+  @doc false
+  def prepare(attrs, presented) do
+    with {:ok, issuance} <- verify_certificate(presented),
+         {:ok, permissions} <- project(fetch(attrs, :permissions)),
+         {:ok, identity} <- identity(attrs) do
+      {:ok,
+       %{
+         component: Map.put(identity, :permissions, permissions),
+         issuance: Map.put(issuance, :expected_generation, 1)
+       }}
+    end
+  end
 
   @doc """
   Reads one public certificate for an infrastructure component that already exists.
@@ -64,13 +75,28 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
              | :certificate_not_valid
              | :issuer_certificate_required
              | :untrusted_issuer}
-  def prepare_certificate(attrs) when is_map(attrs) do
-    with {:ok, issuance} <- certificate(fetch(attrs, :certificate_pem)) do
-      {:ok, Map.delete(issuance, :expected_generation)}
+  def prepare_certificate(attrs) do
+    with {:ok, presented} <- read_certificate(attrs) do
+      verify_certificate(presented)
     end
   end
 
-  def prepare_certificate(_attrs), do: {:error, :invalid_certificate}
+  @doc "Reads the leaf and its metadata before checking validity and issuer trust."
+  def read_certificate(attrs) when is_map(attrs) do
+    with {:ok, [leaf | chain]} <- certificates(fetch(attrs, :certificate_pem)),
+         {:ok, fields} <- describe(leaf) do
+      {:ok, %{leaf: leaf, chain: chain, fields: fields}}
+    end
+  end
+
+  def read_certificate(_attrs), do: {:error, :invalid_certificate}
+
+  @doc false
+  def verify_certificate(%{leaf: leaf, chain: chain, fields: fields}) do
+    with :ok <- current?(fields) do
+      bind_issuer(leaf, fields, chain)
+    end
+  end
 
   defp project(permissions) when is_map(permissions),
     do: StaticNatsPermissionProjection.project(permissions)
@@ -110,24 +136,18 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   defp valid_id?(value), do: is_binary(value) and value != ""
   defp valid_hosts?(hosts), do: is_list(hosts) and Enum.all?(hosts, &is_binary/1)
 
-  defp certificate(pem) when is_binary(pem) do
+  defp certificates(pem) when is_binary(pem) do
     if String.contains?(pem, "PRIVATE KEY") do
       {:error, :private_key}
     else
-      with {:ok, ders} <- certificates(pem) do
-        issued(ders)
+      case decode_entries(pem) do
+        {:ok, entries} -> classify(entries)
+        :error -> {:error, :invalid_certificate}
       end
     end
   end
 
-  defp certificate(_pem), do: {:error, :invalid_certificate}
-
-  defp certificates(pem) do
-    case decode_entries(pem) do
-      {:ok, entries} -> classify(entries)
-      :error -> {:error, :invalid_certificate}
-    end
-  end
+  defp certificates(_pem), do: {:error, :invalid_certificate}
 
   defp decode_entries(pem) do
     {:ok, :public_key.pem_decode(pem)}
@@ -155,13 +175,6 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
   defp private_key_entry?({type, _der, _cipher}), do: type in @private_key_types
   defp private_key_entry?(_entry), do: false
-
-  defp issued([leaf | chain]) do
-    with {:ok, fields} <- describe(leaf),
-         :ok <- current?(fields) do
-      bind_issuer(leaf, fields, chain)
-    end
-  end
 
   defp bind_issuer(leaf, fields, []) do
     cond do
@@ -196,8 +209,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
       not_after: fields.not_after,
       subject: fields.subject,
       role: "client",
-      host_agent_id: nil,
-      expected_generation: 1
+      host_agent_id: nil
     }
   end
 

@@ -36,6 +36,12 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
 
   test "issuance retry and rotation retain predecessor until explicit durable revocation", ctx do
     id = ctx.component.component_id
+
+    for key <- [:subject, "subject"] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Authority.record_issuance(id, Map.put(ctx.metadata, key, "CN=example"), ctx.opts)
+    end
+
     assert {:ok, first} = Authority.record_issuance(id, ctx.metadata, ctx.opts)
     assert {:ok, retry} = Authority.record_issuance(id, ctx.metadata, ctx.opts)
     assert retry.fingerprint == first.fingerprint
@@ -348,12 +354,6 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert certificate.generation == 1
     assert "CN=example-gateway" in String.split(certificate.subject, ",")
 
-    assert {:ok, %{certificate: replay}} =
-             Authority.adopt_existing_certificate(attrs, actor: operator)
-
-    assert replay.subject == certificate.subject
-    assert replay.issued_at == certificate.issued_at
-
     assert {:ok, snapshot} = Authority.snapshot()
     assert certificate.fingerprint in snapshot.allowed_fingerprints
     assert snapshot.nats_permissions[certificate.fingerprint][:subscribe] == [">"]
@@ -362,6 +362,18 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
              "$SYS.>",
              "flow.example.>"
            ]
+
+    narrowed = Map.put(component.nats_permissions, "publish", ["metrics.example.health"])
+    assert {:ok, _} = Authority.set_infrastructure_permissions(id, 1, narrowed, actor: operator)
+
+    replay_attrs = %{attrs | component_id: id <> " "}
+
+    assert {:ok, %{component: replayed_component, certificate: replay}} =
+             Authority.adopt_existing_certificate(replay_attrs, actor: operator)
+
+    assert replayed_component.nats_permissions == narrowed
+    assert replay.subject == certificate.subject
+    assert replay.issued_at == certificate.issued_at
 
     duplicate_id = "example-gateway-#{System.unique_integer([:positive])}"
 
@@ -412,6 +424,38 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
       assert {:ok, stored} = Ash.get(ComponentCertificate, certificate.fingerprint, ctx.opts)
       assert Map.take(stored, fields) == expected
     end
+  end
+
+  test "revoked legacy subjects are filled only for an authorized owner and stay revoked", ctx do
+    id = ctx.component.component_id
+    %{pem: pem} = self_signed_certificate()
+    input = %{certificate_pem: pem}
+    assert {:ok, issuance} = InfrastructureCertificateAdoption.prepare_certificate(input)
+
+    attrs = issuance |> Map.delete(:subject) |> Map.put(:expected_generation, 1)
+    assert {:ok, legacy} = Authority.record_issuance(id, attrs, ctx.opts)
+    assert is_nil(legacy.subject)
+
+    assert {:ok, revocation} =
+             Authority.revoke_certificate(legacy.fingerprint, "retired", ctx.opts)
+
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+    assert {:error, _} = Authority.record_infrastructure_successor(id, input, actor: viewer)
+
+    assert {:error, :unknown_component} =
+             Authority.record_infrastructure_successor(id <> "-other", input, ctx.opts)
+
+    assert {:ok, %{subject: nil}} = Ash.get(ComponentCertificate, legacy.fingerprint, ctx.opts)
+
+    assert {:error, :certificate_revoked} =
+             Authority.record_infrastructure_successor(id, input, ctx.opts)
+
+    assert {:ok, stored} = Ash.get(ComponentCertificate, legacy.fingerprint, ctx.opts)
+    assert stored.subject == issuance.subject
+    assert {:ok, decision} = Ash.get(RevokedComponentCertificate, revocation.id, ctx.opts)
+    assert decision.fingerprint == legacy.fingerprint
+    assert {:ok, snapshot} = Authority.snapshot()
+    refute legacy.fingerprint in snapshot.allowed_fingerprints
   end
 
   test "records an infrastructure successor at the current generation and keeps the grant",
@@ -564,8 +608,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   @tag :tmp_dir
   test "records a chart-rotated certificate on the adopted component that held its predecessor",
        ctx do
-    root =
-      :public_key.pkix_test_root_cert(~c"example-root", validity: {{2026, 1, 1}, {2027, 6, 1}})
+    root = :public_key.pkix_test_root_cert(~c"example-root", [])
 
     other_root = self_signed_certificate(~c"example-other-root")
     adopted = issued_certificate(root)
@@ -699,8 +742,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   end
 
   defp self_signed_certificate(name \\ ~c"example-gateway") do
-    %{cert: der} =
-      :public_key.pkix_test_root_cert(name, validity: {{2026, 1, 1}, {2027, 6, 1}})
+    %{cert: der} = :public_key.pkix_test_root_cert(name, [])
 
     %{
       der: der,
