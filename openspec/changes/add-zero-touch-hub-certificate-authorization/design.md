@@ -31,9 +31,11 @@ Facts this design rests on, from the tree at the time of writing:
   allow `>`), matches no chart-generated certificate.
 - `edge install leaf` proceeds when the hub authorizer is not connected.
 - The address new edge-site leaves dial comes from
-  `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`, which the chart renders only when a
-  leaf host is set. When it is unset the code falls back to a hard-coded
-  hosted address.
+  `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`, which the chart renders only on the
+  web-ng pod, the only workload that receives it, and only when a leaf host
+  (`hostedRuntime.publicEndpoints.natsLeafHost`) is set. Web-ng copies it into
+  the application env only when it is non-empty. Core never has it. When it is
+  unset the edge site code falls back to a hard-coded hosted address.
 
 A chart identity, for this capability, is a subject for which the generator
 issues a distinct NATS client certificate. The three alias users and
@@ -80,8 +82,9 @@ A certificate that passes is then written in one of two ways:
 
 A certificate already recorded for its component needs no write.
 
-The stored grant is the static block for that subject, so the record is
-meaningful even if the static file is later unavailable.
+The stored grant is the static block for that subject. It is only the
+per-fingerprint record: admission of a chart identity still uses the static
+users file, and a missing or unread static file still refuses it.
 
 Why this adds no trust: a certificate that chains to the root and carries a
 chart subject is already accepted by the broker today through
@@ -167,17 +170,32 @@ then everything else connects or retries.
   it through a setting rendered from `nats.leafnodes.enabled` together with
   enforcement, the same condition under which the chart renders the listener;
 - `leaf_upstream_url`: whether the address new edge-site leaves dial is
-  configured for this install (today `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`).
-  The hard-coded hosted fallback used when it is unset is not treated as
-  configured.
+  configured for this install. This is decided in web-ng, the only workload
+  that receives `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`, by reading the
+  application env without a default; the key is set only when the variable is
+  non-empty. The hard-coded hosted fallback used when it is unset is not
+  treated as configured.
+
+`enforcement`, `chart_identities` and `leaf_listener` are decided on core. The
+bootstrap route is served by web-ng, which assembles the `hub` object from
+core's three fields and its own `leaf_upstream_url`.
 
 `serviceradar-cli edge hub status` prints it. The route is already inside the
 CLI's `edge.manage` scope; no scope is widened.
 
-`edge install leaf` reads the same object before any host change and stops
-when enforcement is off, when the leaf listener is not configured, when the
-leaf upstream URL is not configured, or when a chart identity is not adopted,
-naming which cause applies and the setting. It no longer
+`edge install leaf` reads the same object before any host change and stops on
+the first cause that applies, checked in this order, naming the cause and its
+resolver:
+
+1. enforcement off: `nats.certificateAuthorization.enabled`;
+2. leaf listener not configured while enforcement is on:
+   `nats.leafnodes.enabled`;
+3. no leaf upstream URL: the install's leaf host setting
+   (`hostedRuntime.publicEndpoints.natsLeafHost` today);
+4. a chart identity not adopted: the per-subject reason from
+   `chart_identities`; there is no Helm setting for this cause.
+
+It no longer
 continues with "hub enforcement stays unconfirmed" for a leaf. Collector
 installs keep today's behaviour.
 

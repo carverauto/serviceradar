@@ -14,7 +14,8 @@
 ## 3. Core
 - [ ] 3.1 Reconcile chart identities from the inventory: verify chain, validity, subject and revocation; adopt (create the component with the static grant) when no component holds the subject; record a successor when a component holds it with an adopted predecessor.
 - [ ] 3.2 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
-- [ ] 3.3 Report hub readiness (enforcement, chart identity coverage, leaf listener, leaf upstream URL, not counting the hosted fallback as configured).
+- [ ] 3.3 Report hub readiness from core (enforcement, chart identity coverage, leaf listener).
+- [ ] 3.4 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
 
 ## 4. CLI
 - [ ] 4.1 `edge hub status`.
@@ -25,7 +26,7 @@
 - [ ] 5.1 With enforcement off, every chart identity is reported adopted.
 - [ ] 5.2 Turn enforcement on; every client reconnects; the broker logs no refusal for a chart identity.
 - [ ] 5.3 Regenerate one certificate; the client is admitted again without operator action.
-- [ ] 5.4 Create an edge site and install a leaf with the CLI on a lab host; the leaf connects; record it as task 2.1 of `refactor-collectors-onto-shared-ingest-pipeline`.
+- [ ] 5.4 Create an edge site and install a leaf with the CLI on a lab host; the leaf connects. This is this change's leaf-connect check only; it supplies the leaf that task 2.1 of `refactor-collectors-onto-shared-ingest-pipeline` still has to exercise, and does not close that task.
 - [ ] 5.5 Turn enforcement off again and confirm clients are unaffected.
 
 ## 6. Documentation and follow-up

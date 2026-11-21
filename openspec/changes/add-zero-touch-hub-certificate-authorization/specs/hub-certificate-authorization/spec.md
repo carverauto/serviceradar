@@ -52,7 +52,8 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
 - **WHEN** the hub reports enforcement off, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names which cause applies and the setting that resolves it
+- **AND** it names the first cause that applies, checked in the order enforcement, leaf listener, leaf upstream URL, chart identity adoption
+- **AND** it names the resolver for that cause: `nats.certificateAuthorization.enabled` for enforcement off, `nats.leafnodes.enabled` for a missing leaf listener while enforcement is on, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
 
 #### Scenario: The leaf upstream URL is unset
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available

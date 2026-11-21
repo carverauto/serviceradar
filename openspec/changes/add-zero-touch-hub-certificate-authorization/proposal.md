@@ -72,12 +72,14 @@ the Secret that holds the CA keys, which is the opposite of secure.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
   them; none is known to.
-- **Core reports whether the hub can accept a leaf**, including how many chart
-  identities are adopted and which are not, whether the hub broker has the
-  leaf listener, and whether the leaf upstream URL is configured, and the CLI
-  shows it: `serviceradar-cli edge hub status`.
+- **The hub reports whether it can accept a leaf**: core reports how many chart
+  identities are adopted and which are not and whether the hub broker has the
+  leaf listener; web-ng reports whether the leaf upstream URL is configured;
+  the CLI shows both: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
-  accept the leaf**, with the reason and the one setting to change. Today it
+  accept the leaf**, naming the cause and what resolves it: the enforcement
+  value, `nats.leafnodes.enabled`, the leaf host setting, or the per-subject
+  reason a chart identity is not adopted. Today it
   continues and the leaf never connects.
 
 ## Decision needed from the owner
