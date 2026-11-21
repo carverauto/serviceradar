@@ -103,6 +103,18 @@ defmodule ServiceRadarWebNG.CameraTimelineAdmissionTest do
     assert CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto, readers: unavailable) ==
              {:error, :reader_unavailable}
 
+    assert CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto,
+             readers: %{local: fn _plan, _dl -> {:error, :not_found} end}
+           ) == {:error, :recording_unavailable}
+
+    assert {:ok, %{copy: :archive, copy_header: "archive", bytes: ^payload}} =
+             CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto,
+               readers: %{
+                 local: fn _plan, _dl -> {:error, :not_found} end,
+                 archive: fn _plan, _dl -> {:ok, payload} end
+               }
+             )
+
     # ...and archive-only footage reports that archive playback is not available.
     assert CameraTimelineReader.execute_plans([archive_plan], :auto) == {:error, :archive_reader_not_installed}
     assert CameraTimelineReader.execute_plans([archive_plan], :archive) == {:error, :archive_reader_not_installed}

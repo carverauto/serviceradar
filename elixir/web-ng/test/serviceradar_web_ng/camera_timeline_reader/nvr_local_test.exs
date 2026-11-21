@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.NVRLocalTest do
   @read_token "synthetic-web-ng-playback-read-token-0123"
 
   setup ctx do
+    {:ok, _} = Application.ensure_all_started(:ssl)
     previous = Application.get_env(:serviceradar_web_ng, :nvr_read_client)
     on_exit(fn -> Application.put_env(:serviceradar_web_ng, :nvr_read_client, previous) end)
     %{certs: write_certs(ctx.tmp_dir)}

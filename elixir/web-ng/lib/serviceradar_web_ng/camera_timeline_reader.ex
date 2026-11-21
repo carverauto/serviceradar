@@ -139,6 +139,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
       {:integrity_failed, false} ->
         {:error, :recording_integrity_failed}
 
+      {:error, :not_found} ->
+        archive_fallback(archive_plan, opts, :recording_unavailable)
+
       {:error, _recoverable_local_failure} ->
         archive_fallback(archive_plan, opts, :reader_unavailable)
     end
