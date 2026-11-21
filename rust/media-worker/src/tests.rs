@@ -1427,9 +1427,8 @@ async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
             b"avc1",
             &avcc_box(&[&[0x67]], &[&[0x68]]),
         );
-        let fragments = (0..2)
-            .map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])))
-            .collect();
+        let fragments =
+            (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));
         let block = assemble_cmaf_block(width, height, 90_000, init, fragments).unwrap();
         let (result, metrics, events) =
             index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
@@ -1480,15 +1479,46 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
     let aud: &[u8] = &[0x09, 0x10];
     let mut nals = vec![aud; 4096];
     nals.push(&[0x65]);
-    for descriptor_origin in [0, start] {
-        let container_origin = if descriptor_origin == 0 { start } else { 0 };
+    let excessive = build_fragment_m4s(0, start, duration, 90_000, &nals);
+    let mut bad_size = build_fragment_m4s(0, start, duration, 90_000, &[&[0x65]]);
+    let trun = bad_size.windows(4).position(|tag| tag == b"trun").unwrap();
+    bad_size[trun + 20..trun + 24].copy_from_slice(&128u32.to_be_bytes());
+    let mut non_sync = build_fragment_m4s(0, start, duration, 90_000, &[&[0x65]]);
+    non_sync[trun + 12..trun + 16].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    let _outside_capture =
+        tracing::subscriber::set_default(tracing::subscriber::NoSubscriber::new());
+    for (descriptor_origin, first, last, first_reason, last_reason) in [
+        (
+            0,
+            excessive.clone(),
+            vec![1, 2, 3],
+            "limit_exceeded",
+            "invalid_container",
+        ),
+        (
+            start,
+            build_fragment_m4s(0, 0, duration, 90_000, &nals),
+            vec![1, 2, 3],
+            "limit_exceeded",
+            "invalid_container",
+        ),
+        (
+            0,
+            bad_size,
+            excessive.clone(),
+            "invalid_container",
+            "limit_exceeded",
+        ),
+        (
+            0,
+            non_sync,
+            excessive,
+            "invalid_container",
+            "limit_exceeded",
+        ),
+    ] {
         let fragments = vec![
-            (
-                0,
-                descriptor_origin,
-                duration,
-                build_fragment_m4s(0, container_origin, duration, 90_000, &nals),
-            ),
+            (0, descriptor_origin, duration, first),
             (
                 1,
                 start + duration,
@@ -1501,7 +1531,7 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
                 duration,
                 source.fragment_slice_bytes(1).unwrap().to_vec(),
             ),
-            (3, start + 3 * duration, duration, vec![1, 2, 3]),
+            (3, start + 3 * duration, duration, last),
         ];
         let block =
             assemble_cmaf_block(128, 96, 90_000, source.init_mp4().to_vec(), fragments).unwrap();
@@ -1520,7 +1550,7 @@ async fn refused_first_sample_preserves_descriptor_or_container_origin_for_track
             .iter()
             .map(|k| (k.fragment_sequence(), k.reason()))
             .collect();
-        assert_eq!(reasons, [(0, "limit_exceeded"), (3, "invalid_container")]);
+        assert_eq!(reasons, [(0, first_reason), (3, last_reason)]);
         assert_eq!(metrics.keyframes_undecodable_count("limit_exceeded"), 1);
         assert_eq!(metrics.keyframes_undecodable_count("invalid_container"), 1);
         assert_eq!(result.tracks().len(), 1);

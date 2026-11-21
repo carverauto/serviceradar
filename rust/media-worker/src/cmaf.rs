@@ -41,6 +41,7 @@ impl VideoCodec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedInitSegment {
     codec: VideoCodec,
+    in_band_avc_sets: bool,
     width: u32,
     height: u32,
     timescale: u32,
@@ -119,62 +120,72 @@ struct BoxView<'a> {
     payload: &'a [u8],
 }
 
-fn iter_boxes(mut buf: &[u8]) -> Result<Vec<BoxView<'_>>, MediaWorkerError> {
-    let mut out = Vec::new();
-    while !buf.is_empty() {
-        if buf.len() < 8 {
-            return Err(MediaWorkerError::invalid_container(
-                "truncated ISO-BMFF box header (< 8 bytes)",
-            ));
+fn read_box<'a>(buf: &mut &'a [u8]) -> Result<BoxView<'a>, MediaWorkerError> {
+    if buf.len() < 8 {
+        return Err(MediaWorkerError::invalid_container(
+            "truncated ISO-BMFF box header (< 8 bytes)",
+        ));
+    }
+    let size32 = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+    let box_type = [buf[4], buf[5], buf[6], buf[7]];
+
+    let (header_len, total_len) = match size32 {
+        0 => (8usize, buf.len()),
+        1 => {
+            if buf.len() < 16 {
+                return Err(MediaWorkerError::invalid_container(
+                    "truncated 64-bit largesize ISO-BMFF box header",
+                ));
+            }
+            let size64 = u64::from_be_bytes([
+                buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
+            ]);
+            let len = usize::try_from(size64).map_err(|_| {
+                MediaWorkerError::invalid_container("64-bit box size overflows usize")
+            })?;
+            if len < 16 {
+                return Err(MediaWorkerError::invalid_container(
+                    "invalid 64-bit box size < 16",
+                ));
+            }
+            (16usize, len)
         }
-        let size32 = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-        let box_type = [buf[4], buf[5], buf[6], buf[7]];
-
-        let (header_len, total_len) = match size32 {
-            0 => (8usize, buf.len()),
-            1 => {
-                if buf.len() < 16 {
-                    return Err(MediaWorkerError::invalid_container(
-                        "truncated 64-bit largesize ISO-BMFF box header",
-                    ));
-                }
-                let size64 = u64::from_be_bytes([
-                    buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
-                ]);
-                let len = usize::try_from(size64).map_err(|_| {
-                    MediaWorkerError::invalid_container("64-bit box size overflows usize")
-                })?;
-                if len < 16 {
-                    return Err(MediaWorkerError::invalid_container(
-                        "invalid 64-bit box size < 16",
-                    ));
-                }
-                (16usize, len)
-            }
-            n if n < 8 => {
-                return Err(MediaWorkerError::invalid_container(format!(
-                    "invalid ISO-BMFF box size {n} < 8"
-                )));
-            }
-            n => (8usize, n as usize),
-        };
-
-        if total_len > buf.len() {
+        n if n < 8 => {
             return Err(MediaWorkerError::invalid_container(format!(
-                "ISO-BMFF box '{}' size {} exceeds remaining {} bytes",
-                core::str::from_utf8(&box_type).unwrap_or("????"),
-                total_len,
-                buf.len()
+                "invalid ISO-BMFF box size {n} < 8"
             )));
         }
+        n => (8usize, n as usize),
+    };
 
-        out.push(BoxView {
-            box_type,
-            payload: &buf[header_len..total_len],
-        });
-        buf = &buf[total_len..];
+    if total_len > buf.len() {
+        return Err(MediaWorkerError::invalid_container(format!(
+            "ISO-BMFF box '{}' size {} exceeds remaining {} bytes",
+            core::str::from_utf8(&box_type).unwrap_or("????"),
+            total_len,
+            buf.len()
+        )));
     }
-    Ok(out)
+
+    let payload = &buf[header_len..total_len];
+    *buf = &buf[total_len..];
+    Ok(BoxView { box_type, payload })
+}
+
+fn scan_boxes(mut buf: &[u8]) -> (Vec<BoxView<'_>>, Result<(), MediaWorkerError>) {
+    let mut boxes = Vec::new();
+    while !buf.is_empty() {
+        match read_box(&mut buf) {
+            Ok(view) => boxes.push(view),
+            Err(err) => return (boxes, Err(err)),
+        }
+    }
+    (boxes, Ok(()))
+}
+
+fn iter_boxes(buf: &[u8]) -> Result<Vec<BoxView<'_>>, MediaWorkerError> {
+    let (boxes, status) = scan_boxes(buf);
+    status.map(|()| boxes)
 }
 
 /// Parses an ISO-BMFF / CMAF `init.mp4` segment (`ftyp` + `moov`).
@@ -370,6 +381,7 @@ fn parse_stsd(
                 let (nal_length_size, parameter_sets) = parse_avcc(avcc.payload)?;
                 return Ok(Some(ParsedInitSegment {
                     codec,
+                    in_band_avc_sets: &entry.box_type == b"avc3",
                     width,
                     height,
                     timescale,
@@ -389,6 +401,7 @@ fn parse_stsd(
                 let (nal_length_size, parameter_sets) = parse_hvcc(hvcc.payload)?;
                 return Ok(Some(ParsedInitSegment {
                     codec,
+                    in_band_avc_sets: false,
                     width,
                     height,
                     timescale,
@@ -524,63 +537,51 @@ impl SampleTiming {
     }
 }
 
-pub(crate) struct FragmentSample<'a> {
-    sequence_number: u32,
-    timing: SampleTiming,
-    bytes: &'a [u8],
-}
-
-impl FragmentSample<'_> {
-    pub(crate) fn media_pts_ns(&self, timescale: u32) -> u64 {
-        self.timing.pts_ns(timescale)
-    }
-
-    pub(crate) fn keyframe(
-        &self,
-        init: &ParsedInitSegment,
-    ) -> Result<ParsedMediaFragment, MediaWorkerError> {
-        let (idr_nal_units, in_band_parameter_sets) =
-            extract_keyframe_nal_units(self.bytes, init.codec(), init.nal_length_size())?;
-        Ok(ParsedMediaFragment {
-            sequence_number: self.sequence_number,
-            timing: self.timing,
-            first_sample_size: self.bytes.len(),
-            idr_nal_units,
-            in_band_parameter_sets,
-        })
-    }
-}
-
 /// Parses a single CMAF `media.m4s` fragment (`moof` + `mdat`) and extracts the
 /// first sync (`IDR`) sample's NAL units.
 pub fn parse_media_fragment(
     fragment_bytes: &[u8],
     init: &ParsedInitSegment,
 ) -> Result<ParsedMediaFragment, MediaWorkerError> {
-    parse_fragment_sample(fragment_bytes, init)?.keyframe(init)
+    parse_timed_fragment(fragment_bytes, init).1
 }
 
-pub(crate) fn parse_fragment_sample<'a>(
-    fragment_bytes: &'a [u8],
+pub(crate) fn parse_timed_fragment(
+    bytes: &[u8],
     init: &ParsedInitSegment,
-) -> Result<FragmentSample<'a>, MediaWorkerError> {
-    if init.width > MAX_FRAME_DIMENSION || init.height > MAX_FRAME_DIMENSION {
-        return Err(KeyframeDecodeError::limit_exceeded(
-            "container picture exceeds dimension limit",
-        )
-        .into());
-    }
-    let boxes = iter_boxes(fragment_bytes)?;
+) -> (u64, Result<ParsedMediaFragment, MediaWorkerError>) {
+    let mut timing = SampleTiming {
+        decode_ticks: 0,
+        cts_offset: 0,
+    };
+    let sample = parse_fragment_sample(bytes, &mut timing);
+    let parsed = if init.width > MAX_FRAME_DIMENSION || init.height > MAX_FRAME_DIMENSION {
+        Err(KeyframeDecodeError::limit_exceeded("container picture exceeds dimension limit").into())
+    } else {
+        sample.and_then(|(sequence_number, bytes)| {
+            let (idr_nal_units, in_band_parameter_sets) = extract_keyframe_nal_units(bytes, init)?;
+            Ok(ParsedMediaFragment {
+                sequence_number,
+                timing,
+                first_sample_size: bytes.len(),
+                idr_nal_units,
+                in_band_parameter_sets,
+            })
+        })
+    };
+    (timing.pts_ns(init.timescale()), parsed)
+}
+
+fn parse_fragment_sample<'a>(
+    fragment_bytes: &'a [u8],
+    timing: &mut SampleTiming,
+) -> Result<(u32, &'a [u8]), MediaWorkerError> {
+    let (boxes, boxes_status) = scan_boxes(fragment_bytes);
     let moof = boxes
         .iter()
         .find(|b| &b.box_type == b"moof")
         .ok_or_else(|| MediaWorkerError::invalid_container("CMAF fragment missing 'moof' box"))?;
-    let mdat = boxes
-        .iter()
-        .find(|b| &b.box_type == b"mdat")
-        .ok_or_else(|| MediaWorkerError::invalid_container("CMAF fragment missing 'mdat' box"))?;
-
-    let moof_children = iter_boxes(moof.payload)?;
+    let (moof_children, moof_status) = scan_boxes(moof.payload);
     let sequence_number = moof_children
         .iter()
         .find(|b| &b.box_type == b"mfhd")
@@ -597,14 +598,14 @@ pub(crate) fn parse_fragment_sample<'a>(
         .ok_or_else(|| {
             MediaWorkerError::invalid_container("CMAF 'moof' missing 'traf' track fragment box")
         })?;
-    let traf_children = iter_boxes(traf.payload)?;
+    let (traf_children, traf_status) = scan_boxes(traf.payload);
 
     let default_sample_size = traf_children
         .iter()
         .find(|b| &b.box_type == b"tfhd")
         .and_then(|b| parse_tfhd_default_sample_size(b.payload));
 
-    let base_decode_time_ticks = traf_children
+    timing.decode_ticks = traf_children
         .iter()
         .find(|b| &b.box_type == b"tfdt")
         .and_then(|b| parse_tfdt(b.payload))
@@ -617,24 +618,29 @@ pub(crate) fn parse_fragment_sample<'a>(
             MediaWorkerError::invalid_container("CMAF 'traf' missing 'trun' track run box")
         })?;
 
-    let (first_sample_size, first_sample_cts_offset) =
-        parse_trun_first_sample(trun.payload, default_sample_size, mdat.payload.len())?;
-
-    if first_sample_size == 0 || first_sample_size > mdat.payload.len() {
-        return Err(MediaWorkerError::invalid_container(format!(
-            "first sample size {first_sample_size} invalid for mdat payload of {} bytes",
-            mdat.payload.len()
-        )));
+    let sample = parse_trun_first_sample(trun.payload, default_sample_size)?;
+    timing.cts_offset = sample.cts_offset;
+    boxes_status.and(moof_status).and(traf_status)?;
+    if !sample.sync {
+        return Err(MediaWorkerError::invalid_container(
+            "first sample in CMAF fragment is non-sync",
+        ));
     }
-
-    Ok(FragmentSample {
-        sequence_number,
-        timing: SampleTiming {
-            decode_ticks: base_decode_time_ticks,
-            cts_offset: first_sample_cts_offset,
-        },
-        bytes: &mdat.payload[..first_sample_size],
-    })
+    let mdat = boxes
+        .iter()
+        .find(|b| &b.box_type == b"mdat")
+        .ok_or_else(|| MediaWorkerError::invalid_container("CMAF fragment missing 'mdat' box"))?;
+    let size = sample.size.map_or(mdat.payload.len(), |size| size as usize);
+    let bytes = mdat
+        .payload
+        .get(..size)
+        .filter(|bytes| !bytes.is_empty())
+        .ok_or_else(|| {
+            MediaWorkerError::invalid_container(format!(
+                "invalid first sample size {size} for mdat payload"
+            ))
+        })?;
+    Ok((sequence_number, bytes))
 }
 
 fn parse_tfhd_default_sample_size(payload: &[u8]) -> Option<u32> {
@@ -688,11 +694,16 @@ fn parse_tfdt(payload: &[u8]) -> Option<u64> {
     }
 }
 
+struct FirstSample {
+    size: Option<u32>,
+    sync: bool,
+    cts_offset: i64,
+}
+
 fn parse_trun_first_sample(
     payload: &[u8],
     default_sample_size: Option<u32>,
-    mdat_len: usize,
-) -> Result<(usize, i64), MediaWorkerError> {
+) -> Result<FirstSample, MediaWorkerError> {
     if payload.len() < 8 {
         return Err(MediaWorkerError::invalid_container("truncated 'trun' box"));
     }
@@ -705,6 +716,7 @@ fn parse_trun_first_sample(
         ));
     }
 
+    let mut sync = true;
     let mut cursor = 8usize;
     if flags & 0x000001 != 0 {
         cursor += 4; // data_offset
@@ -722,11 +734,7 @@ fn parse_trun_first_sample(
             payload[cursor + 3],
         ]);
         // ISO 14496-12 bit 16 (`0x0001_0000`) is `sample_is_non_sync_sample`.
-        if first_flags & 0x0001_0000 != 0 {
-            return Err(MediaWorkerError::invalid_container(
-                "first sample in CMAF fragment is marked non-sync (not an IDR keyframe)",
-            ));
-        }
+        sync = first_flags & 0x0001_0000 == 0;
         cursor += 4;
     }
 
@@ -745,11 +753,11 @@ fn parse_trun_first_sample(
             payload[cursor + 1],
             payload[cursor + 2],
             payload[cursor + 3],
-        ]) as usize;
+        ]);
         cursor += 4;
-        sz
+        Some(sz)
     } else {
-        default_sample_size.map(|v| v as usize).unwrap_or(mdat_len)
+        default_sample_size
     };
 
     if flags & 0x000400 != 0 {
@@ -764,10 +772,8 @@ fn parse_trun_first_sample(
             payload[cursor + 2],
             payload[cursor + 3],
         ]);
-        if flags & 0x000004 == 0 && (sample_flags & 0x0001_0000 != 0) {
-            return Err(MediaWorkerError::invalid_container(
-                "first sample in CMAF fragment has sample_is_non_sync_sample=1",
-            ));
+        if flags & 0x000004 == 0 {
+            sync = sample_flags & 0x0001_0000 == 0;
         }
         cursor += 4;
     }
@@ -793,7 +799,11 @@ fn parse_trun_first_sample(
         0
     };
 
-    Ok((sample_size, cts_offset))
+    Ok(FirstSample {
+        size: sample_size,
+        cts_offset,
+        sync,
+    })
 }
 
 /// NAL units of one sample, each without its length prefix.
@@ -803,9 +813,10 @@ type NalUnits = Vec<Vec<u8>>;
 /// parameter sets. Other NAL units (AUD, SEI, ...) are dropped.
 fn extract_keyframe_nal_units(
     sample_bytes: &[u8],
-    codec: VideoCodec,
-    nal_length_size: u8,
+    init: &ParsedInitSegment,
 ) -> Result<(NalUnits, NalUnits), MediaWorkerError> {
+    let nal_length_size = init.nal_length_size();
+    let codec = init.codec();
     let len_bytes = usize::from(nal_length_size);
     let mut cursor = 0usize;
     let mut idr_nals = Vec::new();
@@ -862,6 +873,13 @@ fn extract_keyframe_nal_units(
                 );
             }
             match nal[0] & 0x1f {
+                19..=21 => {
+                    return Err(KeyframeDecodeError::unsupported_codec(
+                        "auxiliary or extension coded slice",
+                    )
+                    .into());
+                }
+                7 | 8 if !init.in_band_avc_sets => {}
                 7 | 8 if idr_nals.is_empty() => parameter_sets.push(nal.to_vec()),
                 1..=4 | 7 | 8 => {
                     return Err(KeyframeDecodeError::malformed_bitstream(
@@ -899,7 +917,7 @@ fn is_idr_nal(nal: &[u8], codec: VideoCodec) -> bool {
             }
             let forbidden_zero = nal[0] & 0x80;
             let nal_type = (nal[0] >> 1) & 0x3f;
-            forbidden_zero == 0 && matches!(nal_type, 19..=21)
+            forbidden_zero == 0 && matches!(nal_type, 16..=21)
         }
     }
 }
@@ -1228,23 +1246,20 @@ pub fn generate_synthetic_cmaf_block(
         b"avc1",
         &avcc_box(&[&sps], &[&pps]),
     );
-    let fragments = fragment_specs
-        .iter()
-        .map(|spec| {
-            let frame = render_synthetic_pattern_frame(width, height, spec);
-            let idr_nal = encode_synthetic_rle_idr_nal(&frame);
-            // Access unit delimiter NAL (`0x09, 0x10`) + IDR slice NAL (`0x65...`).
-            let aud_nal: [u8; 2] = [0x09, 0x10];
-            let bytes = build_fragment_m4s(
-                spec.sequence(),
-                spec.start_ns(),
-                spec.duration_ns(),
-                timescale,
-                &[&aud_nal, &idr_nal],
-            );
-            (spec.sequence(), spec.start_ns(), spec.duration_ns(), bytes)
-        })
-        .collect();
+    let fragments = fragment_specs.iter().map(|spec| {
+        let frame = render_synthetic_pattern_frame(width, height, spec);
+        let idr_nal = encode_synthetic_rle_idr_nal(&frame);
+        // Access unit delimiter NAL (`0x09, 0x10`) + IDR slice NAL (`0x65...`).
+        let aud_nal: [u8; 2] = [0x09, 0x10];
+        let bytes = build_fragment_m4s(
+            spec.sequence(),
+            spec.start_ns(),
+            spec.duration_ns(),
+            timescale,
+            &[&aud_nal, &idr_nal],
+        );
+        (spec.sequence(), spec.start_ns(), spec.duration_ns(), bytes)
+    });
     assemble_cmaf_block(width, height, timescale, init_mp4, fragments)
 }
 
@@ -1255,14 +1270,15 @@ pub(crate) fn assemble_cmaf_block(
     height: u32,
     timescale: u32,
     init_mp4: Vec<u8>,
-    fragments: Vec<(u32, u64, u64, Vec<u8>)>,
+    fragments: impl IntoIterator<Item = (u32, u64, u64, Vec<u8>)>,
 ) -> Result<SyntheticCmafBlock, MediaWorkerError> {
     let init_sha256 = hex::encode(Sha256::digest(&init_mp4));
     let init_plan = InitSlicePlan::new(init_mp4.len() as u64, init_sha256.clone());
 
     let mut media_m4s = Vec::new();
-    let mut fragment_plans = Vec::with_capacity(fragments.len());
-    let mut descriptor_fragments = Vec::with_capacity(fragments.len());
+    let fragments = fragments.into_iter();
+    let mut fragment_plans = Vec::with_capacity(fragments.size_hint().0);
+    let mut descriptor_fragments = Vec::with_capacity(fragments.size_hint().0);
 
     for (sequence, start_ns, duration_ns, frag_bytes) in fragments {
         let frag_sha = hex::encode(Sha256::digest(&frag_bytes));

@@ -22,11 +22,6 @@ const PROFILE_BASELINE: u8 = 66;
 const PROFILE_MAIN: u8 = 77;
 const PROFILE_HIGH: u8 = 100;
 
-/// `profile_idc` values whose SPS carries `chroma_format_idc`, bit depths and scaling lists
-/// (ITU-T H.264 7.3.2.1.1).
-const HIGH_FAMILY_PROFILES: [u8; 13] =
-    [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
-
 /// Luma/chroma matrix used for YCbCr to RGB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum YuvMatrix {
@@ -44,25 +39,21 @@ pub(crate) struct ColourSpec {
 
 /// The fields of an SPS this module acts on.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SpsInfo {
+struct SpsInfo {
     frame_num_bits: u32,
     frame_mbs_only: bool,
     poc_lsb_bits: Option<u32>,
     delta_poc_present: bool,
     crop_left: u32,
     crop_top: u32,
-    pub(crate) profile_idc: u8,
-    pub(crate) chroma_format_idc: u32,
-    pub(crate) bit_depth_luma: u32,
-    pub(crate) bit_depth_chroma: u32,
-    pub(crate) coded_width: u32,
-    pub(crate) coded_height: u32,
-    pub(crate) display_width: u32,
-    pub(crate) display_height: u32,
+    coded_width: u32,
+    coded_height: u32,
+    display_width: u32,
+    display_height: u32,
     /// `video_full_range_flag`, when the VUI carries a video signal type.
-    pub(crate) full_range: Option<bool>,
+    full_range: Option<bool>,
     /// `matrix_coefficients`, when the VUI carries a colour description.
-    pub(crate) matrix_coefficients: Option<u8>,
+    matrix_coefficients: Option<u8>,
 }
 
 /// A decoded, cropped I420 picture.
@@ -113,7 +104,6 @@ pub(crate) fn decode_access_unit(
 
     let mut sps_by_id = HashMap::new();
     let mut pps_by_id = HashMap::new();
-    let mut total_bytes = 0usize;
     for &nal in parameter_sets {
         if nal.len() > MAX_PARAMETER_SET_BYTES {
             return Err(KeyframeDecodeError::limit_exceeded(
@@ -122,70 +112,71 @@ pub(crate) fn decode_access_unit(
         }
         match nal_type(nal) {
             Some(NAL_SPS) => {
-                let rbsp = nal_rbsp(nal)?;
+                let rbsp = nal_rbsp(nal, 16)?;
                 let mut reader = BitReader::new(&rbsp);
                 reader.read_bits(24)?;
                 sps_by_id.insert(reader.read_ue_max(31, "seq_parameter_set_id")?, nal);
             }
             Some(NAL_PPS) => {
-                let rbsp = nal_rbsp(nal)?;
+                let rbsp = nal_rbsp(nal, 16)?;
                 let mut reader = BitReader::new(&rbsp);
                 pps_by_id.insert(reader.read_ue_max(255, "pic_parameter_set_id")?, nal);
             }
             _ => continue,
         }
-        total_bytes += nal.len() + 4;
     }
-    for slice in slices {
-        total_bytes = total_bytes.saturating_add(slice.len() + 4);
-    }
-    if total_bytes > MAX_KEYFRAME_ACCESS_UNIT_BYTES {
+    let slice_bytes: usize = slices.iter().map(|slice| slice.len() + 4).sum();
+    if slice_bytes > MAX_KEYFRAME_ACCESS_UNIT_BYTES {
         return Err(KeyframeDecodeError::limit_exceeded(
             "keyframe access unit exceeds byte limit",
         ));
     }
 
-    let first_header = slice_header_prefix(slices[0])?;
-    let (_, pps_id) = slice_start(&mut BitReader::new(&first_header))?;
+    let headers: Vec<_> = slices
+        .iter()
+        .map(|slice| slice_header_prefix(slice))
+        .collect::<Result<_, _>>()?;
+    let (_, _, pps_id) = slice_start(&mut BitReader::new(&headers[0]))?;
     let pps = *pps_by_id.get(&pps_id).ok_or_else(|| {
         KeyframeDecodeError::malformed_bitstream("IDR slice references missing PPS")
     })?;
-    let pps_rbsp = nal_rbsp(pps)?;
+    let pps_rbsp = nal_rbsp(pps, pps.len())?;
     let mut r = BitReader::new(&pps_rbsp);
     r.read_ue()?;
     let sps_id = r.read_ue_max(31, "seq_parameter_set_id")?;
-    r.read_flag()?;
-    let bottom_field_poc_present = r.read_flag()?;
     let sps_nal = *sps_by_id
         .get(&sps_id)
         .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("PPS references missing SPS"))?;
     let sps = parse_sps(sps_nal)?;
-    admit_sps(&sps)?;
+    let active_pps = rusty_h264_decoder::Pps::parse(&pps_rbsp).map_err(classify_decode_error)?;
+    if active_pps.chroma_qp_index_offset != active_pps.second_chroma_qp_index_offset {
+        return Err(KeyframeDecodeError::unsupported_codec(
+            "unequal Cb and Cr QP offsets",
+        ));
+    }
     let colour = colour_spec(&sps)?;
 
-    validate_picture_slices(slices, pps_id, &sps, bottom_field_poc_present)?;
+    let total_bytes = slice_bytes + sps_nal.len() + pps.len() + 8;
+    if total_bytes > MAX_KEYFRAME_ACCESS_UNIT_BYTES {
+        return Err(KeyframeDecodeError::limit_exceeded(
+            "keyframe access unit exceeds byte limit",
+        ));
+    }
+    validate_picture_slices(
+        &headers,
+        pps_id,
+        &sps,
+        active_pps.bottom_field_pic_order_present,
+    )?;
 
     let mut annex_b = Vec::with_capacity(total_bytes);
     for nal in [sps_nal, pps].into_iter().chain(slices.iter().copied()) {
-        if nal.windows(3).any(|bytes| bytes == [0, 0, 1]) {
-            return Err(KeyframeDecodeError::malformed_bitstream(
-                "unescaped start code inside NAL",
-            ));
-        }
         annex_b.extend_from_slice(&[0, 0, 0, 1]);
         annex_b.extend_from_slice(nal);
     }
     let frame = rusty_h264_decoder::Decoder::new()
         .decode(&annex_b)
-        .map_err(|err| match err {
-            rusty_h264_decoder::DecodeError::Unsupported(
-                tool @ ("slice groups (FMO)"
-                | "transform-bypass (lossless) macroblock"
-                | "interlace / field coding (MBAFF)"
-                | "interlace / field coding (field picture)"),
-            ) => KeyframeDecodeError::unsupported_codec(tool),
-            _ => KeyframeDecodeError::malformed_bitstream(err.to_string()),
-        })?
+        .map_err(classify_decode_error)?
         .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("incomplete IDR picture"))?;
 
     let (width, height) = (frame.width, frame.height);
@@ -230,8 +221,17 @@ pub(crate) fn decode_access_unit(
     })
 }
 
+fn classify_decode_error(err: rusty_h264_decoder::DecodeError) -> KeyframeDecodeError {
+    match err {
+        rusty_h264_decoder::DecodeError::Unsupported(
+            tool @ ("slice groups (FMO)" | "transform-bypass (lossless) macroblock"),
+        ) => KeyframeDecodeError::unsupported_codec(tool),
+        _ => KeyframeDecodeError::malformed_bitstream(err.to_string()),
+    }
+}
+
 fn validate_picture_slices(
-    slices: &[&[u8]],
+    headers: &[Vec<u8>],
     pps_id: u32,
     sps: &SpsInfo,
     bottom_field_poc_present: bool,
@@ -239,18 +239,31 @@ fn validate_picture_slices(
     let mut previous_mb = None;
     let mut picture_id = None;
     let mb_count = (sps.coded_width / 16) * (sps.coded_height / 16);
-    for slice in slices {
-        let header = slice_header_prefix(slice)?;
-        let mut r = BitReader::new(&header);
-        let (mb, slice_pps) = slice_start(&mut r)?;
-        if slice_pps != pps_id || mb >= mb_count || previous_mb.map_or(mb != 0, |prev| mb <= prev) {
+    for header in headers {
+        let mut r = BitReader::new(header);
+        let (mb, slice_type, slice_pps) = slice_start(&mut r)?;
+        if slice_pps != pps_id {
             return Err(KeyframeDecodeError::malformed_bitstream(
-                "inconsistent IDR slice order or PPS",
+                "inconsistent IDR slice PPS",
             ));
+        }
+        match slice_type {
+            2 | 7 => {}
+            4 | 9 => return Err(KeyframeDecodeError::unsupported_codec("SI slice")),
+            _ => {
+                return Err(KeyframeDecodeError::malformed_bitstream(
+                    "non-intra slice in IDR",
+                ));
+            }
         }
         let frame_num = r.read_bits(sps.frame_num_bits)?;
         if !sps.frame_mbs_only && r.read_flag()? {
             return Err(KeyframeDecodeError::unsupported_codec("field picture"));
+        }
+        if mb >= mb_count || previous_mb.map_or(mb != 0, |prev| mb <= prev) {
+            return Err(KeyframeDecodeError::malformed_bitstream(
+                "inconsistent IDR slice order",
+            ));
         }
         let idr_pic_id = r.read_ue_max(65_535, "idr_pic_id")?;
         let poc_lsb = sps.poc_lsb_bits.map(|bits| r.read_bits(bits)).transpose()?;
@@ -292,31 +305,6 @@ fn crop_plane(mut plane: Vec<u8>, stride: usize, left: usize, top: usize) -> Vec
 fn nal_type(nal: &[u8]) -> Option<u8> {
     let header = *nal.first()?;
     (header & 0x80 == 0).then_some(header & 0x1f)
-}
-
-fn admit_sps(sps: &SpsInfo) -> Result<(), KeyframeDecodeError> {
-    if !matches!(
-        sps.profile_idc,
-        PROFILE_BASELINE | PROFILE_MAIN | PROFILE_HIGH
-    ) {
-        return Err(KeyframeDecodeError::unsupported_codec(format!(
-            "h264 profile_idc {} (supported: 66 Baseline, 77 Main, 100 High)",
-            sps.profile_idc
-        )));
-    }
-    if sps.chroma_format_idc != 1 {
-        return Err(KeyframeDecodeError::unsupported_codec(format!(
-            "h264 chroma_format_idc {} (supported: 1, 4:2:0)",
-            sps.chroma_format_idc
-        )));
-    }
-    if sps.bit_depth_luma != 8 || sps.bit_depth_chroma != 8 {
-        return Err(KeyframeDecodeError::unsupported_codec(format!(
-            "h264 bit depth {}/{} (supported: 8-bit)",
-            sps.bit_depth_luma, sps.bit_depth_chroma
-        )));
-    }
-    Ok(())
 }
 
 /// Picks the YCbCr matrix and range from the VUI. Absent or unspecified values default to
@@ -420,21 +408,6 @@ impl RgbCoefficients {
 // Bitstream parsing
 // ---------------------------------------------------------------------------------------
 
-/// Removes emulation-prevention bytes (`00 00 03` -> `00 00`) from a NAL payload.
-fn rbsp_from_nal_payload(payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(payload.len());
-    let mut zeros = 0usize;
-    for &byte in payload {
-        if zeros >= 2 && byte == 3 {
-            zeros = 0;
-            continue;
-        }
-        zeros = if byte == 0 { zeros + 1 } else { 0 };
-        out.push(byte);
-    }
-    out
-}
-
 struct BitReader<'a> {
     data: &'a [u8],
     bit: usize,
@@ -503,38 +476,72 @@ impl<'a> BitReader<'a> {
     }
 }
 
-fn nal_rbsp(nal: &[u8]) -> Result<Vec<u8>, KeyframeDecodeError> {
-    match nal.get(1..) {
-        Some(payload) if !payload.is_empty() => Ok(rbsp_from_nal_payload(payload)),
-        _ => Err(KeyframeDecodeError::malformed_bitstream(
-            "h264 NAL unit has no payload",
-        )),
+fn nal_rbsp(nal: &[u8], retain: usize) -> Result<Vec<u8>, KeyframeDecodeError> {
+    let payload = nal
+        .get(1..)
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("h264 NAL unit has no payload"))?;
+    let mut rbsp = Vec::with_capacity(retain.min(payload.len()));
+    let mut zeros = 0;
+    for (index, &byte) in payload.iter().enumerate() {
+        if zeros == 2 {
+            match byte {
+                0..=2 => {
+                    return Err(KeyframeDecodeError::malformed_bitstream(
+                        "unescaped H.264 byte sequence",
+                    ));
+                }
+                3 => match payload.get(index + 1) {
+                    Some(0..=3) => {
+                        zeros = 0;
+                        continue;
+                    }
+                    None if nal_type(nal) == Some(NAL_IDR) => {}
+                    _ => {
+                        return Err(KeyframeDecodeError::malformed_bitstream(
+                            "invalid H.264 emulation-prevention byte",
+                        ));
+                    }
+                },
+                _ => {}
+            }
+        }
+        if rbsp.len() < retain {
+            rbsp.push(byte);
+        }
+        zeros = if byte == 0 { zeros + 1 } else { 0 };
     }
+    Ok(rbsp)
 }
 
 /// Parses the SPS fields this module needs (ITU-T H.264 7.3.2.1.1 and E.1.1).
-pub(crate) fn parse_sps(nal: &[u8]) -> Result<SpsInfo, KeyframeDecodeError> {
-    let rbsp = nal_rbsp(nal)?;
+fn parse_sps(nal: &[u8]) -> Result<SpsInfo, KeyframeDecodeError> {
+    let rbsp = nal_rbsp(nal, nal.len())?;
     let mut r = BitReader::new(&rbsp);
     let profile_idc = r.read_bits(8)? as u8;
     let _constraint_flags_and_reserved = r.read_bits(8)?;
     let _level_idc = r.read_bits(8)?;
     r.read_ue_max(31, "seq_parameter_set_id")?;
 
-    let mut chroma_format_idc = 1;
-    let mut bit_depth_luma = 8;
-    let mut bit_depth_chroma = 8;
-    if HIGH_FAMILY_PROFILES.contains(&profile_idc) {
-        chroma_format_idc = r.read_ue_max(3, "chroma_format_idc")?;
-        if chroma_format_idc == 3 {
-            let _separate_colour_plane = r.read_flag()?;
+    if !matches!(profile_idc, PROFILE_BASELINE | PROFILE_MAIN | PROFILE_HIGH) {
+        return Err(KeyframeDecodeError::unsupported_codec(format!(
+            "h264 profile_idc {profile_idc}"
+        )));
+    }
+    if profile_idc == PROFILE_HIGH {
+        if r.read_ue_max(3, "chroma_format_idc")? != 1 {
+            return Err(KeyframeDecodeError::unsupported_codec(
+                "non-4:2:0 chroma format",
+            ));
         }
-        bit_depth_luma = 8 + r.read_ue_max(6, "bit_depth_luma_minus8")?;
-        bit_depth_chroma = 8 + r.read_ue_max(6, "bit_depth_chroma_minus8")?;
+        let luma_depth = r.read_ue_max(6, "bit_depth_luma_minus8")?;
+        let chroma_depth = r.read_ue_max(6, "bit_depth_chroma_minus8")?;
+        if luma_depth != 0 || chroma_depth != 0 {
+            return Err(KeyframeDecodeError::unsupported_codec("non-8-bit picture"));
+        }
         let _qpprime_y_zero_transform_bypass = r.read_flag()?;
         if r.read_flag()? {
-            let lists = if chroma_format_idc == 3 { 12 } else { 8 };
-            for index in 0..lists {
+            for index in 0..8 {
                 if r.read_flag()? {
                     skip_scaling_list(&mut r, if index < 6 { 16 } else { 64 })?;
                 }
@@ -565,8 +572,8 @@ pub(crate) fn parse_sps(nal: &[u8]) -> Result<SpsInfo, KeyframeDecodeError> {
     let width_in_mbs = 1 + u64::from(r.read_ue()?);
     let height_in_map_units = 1 + u64::from(r.read_ue()?);
     let frame_mbs_only = r.read_flag()?;
-    if !frame_mbs_only {
-        let _mb_adaptive_frame_field = r.read_flag()?;
+    if !frame_mbs_only && r.read_flag()? {
+        return Err(KeyframeDecodeError::unsupported_codec("MBAFF picture"));
     }
     let _direct_8x8_inference = r.read_flag()?;
     let coded_width = width_in_mbs * 16;
@@ -621,10 +628,6 @@ pub(crate) fn parse_sps(nal: &[u8]) -> Result<SpsInfo, KeyframeDecodeError> {
         delta_poc_present,
         crop_left,
         crop_top,
-        profile_idc,
-        chroma_format_idc,
-        bit_depth_luma,
-        bit_depth_chroma,
         coded_width,
         coded_height,
         display_width: coded_width - crop_x,
@@ -689,19 +692,13 @@ fn slice_header_prefix(nal: &[u8]) -> Result<Vec<u8>, KeyframeDecodeError> {
             "invalid IDR NAL header",
         ));
     }
-    nal_rbsp(&nal[..nal.len().min(65)])
+    nal_rbsp(nal, 64)
 }
 
-fn slice_start(r: &mut BitReader<'_>) -> Result<(u32, u32), KeyframeDecodeError> {
-    let first_mb = r.read_ue()?;
-    match r.read_ue_max(9, "slice_type")? {
-        2 | 7 => {}
-        4 | 9 => return Err(KeyframeDecodeError::unsupported_codec("SI slice")),
-        _ => {
-            return Err(KeyframeDecodeError::malformed_bitstream(
-                "non-intra slice in IDR",
-            ));
-        }
-    }
-    Ok((first_mb, r.read_ue_max(255, "pic_parameter_set_id")?))
+fn slice_start(r: &mut BitReader<'_>) -> Result<(u32, u32, u32), KeyframeDecodeError> {
+    Ok((
+        r.read_ue()?,
+        r.read_ue_max(9, "slice_type")?,
+        r.read_ue_max(255, "pic_parameter_set_id")?,
+    ))
 }

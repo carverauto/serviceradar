@@ -3,7 +3,7 @@
 //! offline with x264 from the pattern described on `HIGH_FIXTURE`. No camera media.
 
 use crate::cmaf::{avcc_box, build_fragment_m4s, build_init_mp4};
-use crate::h264::{decode_access_unit, parse_sps};
+use crate::h264::decode_access_unit;
 use crate::keyframe_decoder::{
     DefaultKeyframeDecoder, KeyframeDecodeErrorKind, KeyframeDecoder, MAX_KEYFRAME_SLICES,
 };
@@ -195,11 +195,8 @@ fn h264_idr_keyframes_decode_to_the_encoded_pattern_for_every_supported_profile(
     for (label, cfg, profile_idc, cabac) in cases {
         let annex_b = encode_idr(cfg, &source);
         let nals = annex_b_nals(&annex_b);
-        let sps = parse_sps(nals_of_type(&nals, 7)[0]).expect("parse encoder SPS");
-        assert_eq!(
-            sps.profile_idc, profile_idc,
-            "{label}: profile actually encoded"
-        );
+        let sps = nals_of_type(&nals, 7)[0];
+        assert_eq!(sps[1], profile_idc, "{label}: profile actually encoded");
         // entropy_coding_mode_flag follows two ue(v) ids that are both 0 ("1" "1").
         let pps = nals_of_type(&nals, 8)[0];
         assert_eq!(
@@ -282,23 +279,24 @@ fn hevc_keyframe_is_reported_unsupported_instead_of_fabricated() {
     config.extend_from_slice(b"hvcC");
     config.extend_from_slice(&hvcc);
     let init_bytes = build_init_mp4(W as u32, H as u32, 90_000, b"hvc1", &config);
-    // IDR_W_RADL (type 19) NAL header followed by arbitrary slice bytes.
-    let idr: [u8; 8] = [0x26, 0x01, 0xaf, 0x10, 0x22, 0x5c, 0x81, 0x3e];
-    let fragment_bytes = build_fragment_m4s(
-        0,
-        0,
-        2_000_000_000,
-        90_000,
-        &[&[0x40, 1], &[0x42, 1], &[0x44, 1], &idr],
-    );
     let init = parse_init_segment(&init_bytes).expect("parse hvc1 init");
-    let fragment = parse_media_fragment(&fragment_bytes, &init).expect("parse hevc fragment");
+    for nal_type in 16..=21 {
+        let idr: [u8; 8] = [nal_type << 1, 0x01, 0xaf, 0x10, 0x22, 0x5c, 0x81, 0x3e];
+        let fragment_bytes = build_fragment_m4s(
+            0,
+            0,
+            2_000_000_000,
+            90_000,
+            &[&[0x40, 1], &[0x42, 1], &[0x44, 1], &idr],
+        );
+        let fragment = parse_media_fragment(&fragment_bytes, &init).expect("parse hevc fragment");
 
-    assert!(fragment.in_band_parameter_sets().is_empty());
-    let err = DefaultKeyframeDecoder::new()
-        .decode_keyframe(&init, &fragment)
-        .expect_err("HEVC must not yield a frame");
-    assert_eq!(err.reason(), "unsupported_codec");
+        assert!(fragment.in_band_parameter_sets().is_empty());
+        let err = DefaultKeyframeDecoder::new()
+            .decode_keyframe(&init, &fragment)
+            .expect_err("HEVC must not yield a frame");
+        assert_eq!(err.reason(), "unsupported_codec");
+    }
 }
 
 /// Builds a High 10 SPS (`bit_depth_luma_minus8 = 2`) for `sps_id` 0 at 128x96.
@@ -549,6 +547,193 @@ fn avc3_replacement_decodes_with_only_the_active_parameter_sets() {
         .unwrap();
     let (mean, max) = rgb_error_vs_source(&frame, &source);
     assert!(mean < 3.0 && max < 40.0);
+}
+
+#[test]
+fn avc1_uses_its_sample_entry_and_refuses_auxiliary_and_extension_slices() {
+    let source = pattern(W, H);
+    let stream = encode_idr(EncoderConfig::baseline(W, H), &source);
+    let nals = annex_b_nals(&stream);
+    let sps = nals_of_type(&nals, 7)[0];
+    let pps = nals_of_type(&nals, 8)[0];
+    let idr = nals_of_type(&nals, 5)[0];
+    let init = parse_init_segment(&build_init_mp4(
+        W as u32,
+        H as u32,
+        90_000,
+        b"avc1",
+        &avcc_box(&[sps], &[pps]),
+    ))
+    .unwrap();
+    let replacement = high10_sps();
+    let bytes = build_fragment_m4s(
+        0,
+        0,
+        1,
+        90_000,
+        &[&replacement, pps, idr, &replacement, pps],
+    );
+    let fragment = parse_media_fragment(&bytes, &init).unwrap();
+    let frame = DefaultKeyframeDecoder
+        .decode_keyframe(&init, &fragment)
+        .unwrap();
+    let (mean, max) = rgb_error_vs_source(&frame, &source);
+    assert!(mean < 3.0 && max < 40.0);
+    for kind in [19, 20, 21] {
+        let extension = [0x60 | kind, 0x80];
+        for sample in [[idr, &extension], [&extension, idr]] {
+            let bytes = build_fragment_m4s(0, 0, 1, 90_000, &sample);
+            assert_eq!(
+                parse_media_fragment(&bytes, &init)
+                    .unwrap_err()
+                    .error_class(),
+                "unsupported_codec"
+            );
+        }
+    }
+}
+
+#[test]
+fn active_pps_requires_equal_chroma_qp_offsets_and_raster_slice_groups() {
+    let cfg = EncoderConfig::new(16, 16);
+    let sps = rusty_h264_encoder::Sps::from_config(&cfg)
+        .to_nal()
+        .to_annex_b();
+    for (cb, cr) in [(0, 6), (-2, -2)] {
+        let mut w = BitWriter::new();
+        w.write_ue(0);
+        w.write_ue(0);
+        w.write_bits(0, 2);
+        for _ in 0..3 {
+            w.write_ue(0);
+        }
+        w.write_bits(0, 3);
+        w.write_se(0);
+        w.write_se(0);
+        w.write_se(cb);
+        w.write_bits(4, 3);
+        w.write_bits(0, 2);
+        w.write_se(cr);
+        w.rbsp_trailing_bits();
+        let pps = NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b();
+        let picture = decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0, 0, 0)]);
+        if cb == cr {
+            assert_eq!(picture.unwrap().y[0], 100);
+        } else {
+            assert_eq!(picture.unwrap_err().reason(), "unsupported_codec");
+        }
+    }
+    let mut w = BitWriter::new();
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_bits(0, 2);
+    w.write_ue(1);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_bits(0, 3);
+    for _ in 0..3 {
+        w.write_se(0);
+    }
+    w.write_bits(4, 3);
+    w.rbsp_trailing_bits();
+    let fmo = NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b();
+    assert_eq!(
+        decode_access_unit(
+            &[&baseline_sps([2, 1], [0; 4], 2, false), &fmo[4..]],
+            &[&pcm_slice(1, 0, 0), &pcm_slice(0, 0, 0)]
+        )
+        .unwrap_err()
+        .reason(),
+        "unsupported_codec"
+    );
+}
+
+#[test]
+fn unsupported_chroma_format_is_classified_before_420_cropping() {
+    let mut w = BitWriter::new();
+    w.write_bits(0xf4001e, 24);
+    w.write_ue(0);
+    w.write_ue(3);
+    w.write_bit(false);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_bits(0, 2);
+    for value in [0, 0, 4, 1] {
+        w.write_ue(value);
+    }
+    w.write_bit(false);
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_bits(7, 3);
+    for value in [8, 0, 0, 0] {
+        w.write_ue(value);
+    }
+    w.write_bit(false);
+    w.rbsp_trailing_bits();
+    let sps = NalUnit::new(3, NalUnitType::Sps, w.into_bytes()).to_annex_b();
+    let pps = rusty_h264_encoder::Pps::from_config(&EncoderConfig::baseline(16, 16))
+        .to_nal()
+        .to_annex_b();
+    assert_eq!(
+        decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0, 0, 0)])
+            .unwrap_err()
+            .reason(),
+        "unsupported_codec"
+    );
+}
+
+#[test]
+fn slice_escape_validation_includes_the_byte_beyond_the_header_prefix() {
+    let sps = baseline_sps([1, 1], [0; 4], 2, false);
+    let pps = rusty_h264_encoder::Pps::from_config(&EncoderConfig::baseline(16, 16))
+        .to_nal()
+        .to_annex_b();
+    for start in [62, 130] {
+        let mut slice = pcm_slice(0, 0, 0);
+        slice[start..start + 3].copy_from_slice(&[0, 0, 1]);
+        slice.insert(start + 2, 3);
+        let good = decode_access_unit(&[&sps, &pps[4..]], &[&slice]).unwrap();
+        assert!(good.y.windows(3).any(|bytes| bytes == [0, 0, 1]));
+        slice[start + 3] = 4;
+        assert_eq!(
+            decode_access_unit(&[&sps, &pps[4..]], &[&slice])
+                .unwrap_err()
+                .reason(),
+            "malformed_bitstream"
+        );
+    }
+}
+
+#[test]
+fn access_unit_limit_counts_only_the_serialized_active_sets_and_slices() {
+    let nals = annex_b_nals(HIGH_FIXTURE);
+    let sps = nals_of_type(&nals, 7)[0];
+    let pps = nals_of_type(&nals, 8)[0];
+    let mut idr = nals_of_type(&nals, 5)[0].to_vec();
+    let limit = crate::keyframe_decoder::MAX_KEYFRAME_ACCESS_UNIT_BYTES;
+    let spare = limit - sps.len() - pps.len() - idr.len() - 12;
+    for _ in 0..spare / 3 {
+        idr.extend_from_slice(&[0, 0, 3]);
+    }
+    let inactive = high10_sps();
+    let sets = [&inactive[..], sps, pps];
+    let picture = decode_access_unit(&sets, &[&idr]).unwrap();
+    let mut digest = Sha256::new();
+    for plane in [&picture.y, &picture.u, &picture.v] {
+        digest.update(plane);
+    }
+    assert_eq!(
+        hex::encode(digest.finalize()),
+        HIGH_FIXTURE_FFMPEG_I420_SHA256
+    );
+    idr.extend_from_slice(&[0, 0, 3]);
+    assert_eq!(
+        decode_access_unit(&sets, &[&idr]).unwrap_err().reason(),
+        "limit_exceeded"
+    );
 }
 
 #[test]

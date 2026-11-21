@@ -17,11 +17,11 @@ implementation, `DefaultKeyframeDecoder`, decodes H.264 in pure Rust with
 
 Supported:
 
-- H.264 Constrained Baseline, Main and High profile;
+- H.264 Constrained Baseline, Main and High profile with equal Cb and Cr quantization offsets;
 - 8-bit 4:2:0, frame (progressive) coding;
 - CAVLC and CABAC, 8x8 transform, scaling matrices, multiple slices per picture;
 - SPS cropping;
-- parameter sets from `avcC` and in-band (`avc3`); in-band sets win.
+- parameter sets from `avcC` for `avc1`; `avc3` also accepts in-band replacements.
 
 Colour: the VUI `matrix_coefficients` picks BT.709 (1), BT.601 (5 or 6) or BT.2020 non-constant luminance (9) and
 `video_full_range_flag` picks the range. Absent range means limited range. An absent or unspecified matrix (2) selects
@@ -29,9 +29,13 @@ BT.709 above 576 display lines and BT.601 otherwise. Other codes produce `unsupp
 
 Not supported, reported as `unsupported_codec`: HEVC, other H.264 profiles (High 10,
 4:2:2, 4:4:4 and so on), interlaced/MBAFF coding, FMO, SP/SI slices, lossless macroblocks,
-CABAC I_PCM, and non-YCbCr VUI matrices.
+unequal Cb and Cr quantization offsets, auxiliary and extension coded slices, and unsupported VUI matrices.
 
-A keyframe that cannot be decoded is never replaced by a fabricated frame. It is listed in
+The per-keyframe outcome applies to granted, verified fragments. If any sampled fragment
+exceeds 4 MiB, the read-grant service rejects the whole request before the worker can
+fetch the fragments. The worker handles that rejection as a job-level failure.
+
+A verified keyframe that cannot be decoded is listed in
 the result envelope's `undecodable_keyframes` (`fragment_sequence`, `reason`, `codec`) and counted in `keyframes_undecodable_total{reason}`. Reasons:
 `unsupported_codec`, `malformed_bitstream`, `limit_exceeded`, `invalid_container`. The rest
 of the block is still indexed and the job completes.

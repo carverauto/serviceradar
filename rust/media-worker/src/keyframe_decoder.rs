@@ -14,9 +14,7 @@ use crate::h264;
 use crate::vision::RgbFrame;
 use core::fmt::{self, Display, Formatter};
 
-/// Largest keyframe access unit (parameter sets plus IDR slices) handed to a decoder. It
-/// equals the per-fragment fetch bound, so a valid fragment never trips it; it exists so the
-/// decoder input stays bounded even if that fetch bound changes.
+/// Largest serialized keyframe access unit handed to a decoder.
 pub const MAX_KEYFRAME_ACCESS_UNIT_BYTES: usize = 4 * 1024 * 1024;
 
 /// Most IDR slice NAL units accepted for one picture. One slice per macroblock row of a

@@ -27,3 +27,6 @@
 - [ ] 3.3 Hardware decode (NVDEC) for fleet-scale throughput.
 - [ ] 3.4 Detect truncated CABAC slices (upstream overread check).
 - [ ] 3.5 Request upstream continuity checks at CAVLC and CABAC slice boundaries.
+- [ ] 3.6 Request upstream support for separate Cb and Cr quantization offsets.
+- [ ] 3.7 Extend read grants to identify an oversized sampled fragment while granting
+  its eligible siblings, so the worker can publish a partial result.

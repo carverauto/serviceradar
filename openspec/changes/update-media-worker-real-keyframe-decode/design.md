@@ -37,13 +37,17 @@ inside the coded picture. For CAVLC and CABAC, the end of each slice is private 
 decoder. A missing middle slice or an overlap with increasing starts can therefore pass
 admission. Request an upstream check for contiguous decoded macroblock coverage.
 
+The pinned decoder reconstructs both chroma planes with the Cb quantization offset.
+An active PPS with unequal Cb and Cr offsets produces `unsupported_codec`.
+
 ## Bounded work
 
 Decoding is a synchronous call that cannot be interrupted, so there is no wall-clock
 timeout. Work is bounded by the input instead: the coded picture size is checked from the
 SPS before the decoder allocates, and the access unit size and slice count are capped.
 All slices must refer to one picture and its admitted PPS and SPS. Only those sets reach
-the fresh decoder. The worker runs decode on the blocking pool under the index permit.
+the fresh decoder and count toward the access-unit byte limit along with the slices and
+Annex B start codes. The worker runs decode on the blocking pool under the index permit.
 
 ## Colour
 

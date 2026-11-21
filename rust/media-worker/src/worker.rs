@@ -2,7 +2,7 @@
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
 use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
-use crate::cmaf::{parse_fragment_sample, parse_init_segment};
+use crate::cmaf::{parse_init_segment, parse_timed_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
@@ -914,24 +914,20 @@ where
         let mut undecodable_keyframes = Vec::new();
         let mut base_pts_ns = 0;
         for (index, frag) in verified_block.fragments().iter().enumerate() {
-            let sample = parse_fragment_sample(frag.bytes(), &init_seg);
+            let (container_pts_ns, sample) = parse_timed_fragment(frag.bytes(), &init_seg);
             let media_pts_ns = if frag.start_ns() == 0 {
-                sample
-                    .as_ref()
-                    .map_or(0, |s| s.media_pts_ns(init_seg.timescale()))
+                container_pts_ns
             } else {
                 frag.start_ns()
             };
             if index == 0 {
                 base_pts_ns = media_pts_ns;
             }
-            let decoded = sample
-                .and_then(|s| s.keyframe(&init_seg))
-                .and_then(|parsed| {
-                    self.keyframe_decoder
-                        .decode_keyframe(&init_seg, &parsed)
-                        .map_err(MediaWorkerError::from)
-                });
+            let decoded = sample.and_then(|parsed| {
+                self.keyframe_decoder
+                    .decode_keyframe(&init_seg, &parsed)
+                    .map_err(MediaWorkerError::from)
+            });
             match decoded {
                 Ok(frame) => {
                     self.metrics.inc_keyframes_decoded(1);
