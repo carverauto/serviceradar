@@ -877,9 +877,9 @@ impl CliArgs {
 }
 
 /// A literal NATS subject prefix: dot-separated, non-empty tokens with no
-/// wildcards or whitespace. The client appends `.<id>` to it for every inbox.
-fn validate_nats_inbox_prefix(raw: &str) -> Result<String, CapabilityError> {
-    let prefix = raw.trim();
+/// wildcards or whitespace, taken as given (no trimming), since it must match the
+/// broker's ACL byte for byte. The client appends `.<id>` to it for every inbox.
+fn validate_nats_inbox_prefix(prefix: &str) -> Result<String, CapabilityError> {
     let valid = !prefix.is_empty()
         && prefix.split('.').all(|token| {
             !token.is_empty()
@@ -891,7 +891,7 @@ fn validate_nats_inbox_prefix(raw: &str) -> Result<String, CapabilityError> {
         Ok(prefix.to_string())
     } else {
         Err(CapabilityError::invalid_configuration(format!(
-            "invalid nats_inbox_prefix '{raw}': expected dot-separated subject tokens without wildcards or whitespace"
+            "invalid nats_inbox_prefix '{prefix}': expected dot-separated subject tokens without wildcards or whitespace"
         )))
     }
 }
@@ -937,6 +937,7 @@ mod nats_inbox_prefix_tests {
             "_INBOX..worker",
             "_INBOX.",
             "_INBOX.a b",
+            " _INBOX.media-worker ",
         ] {
             assert!(
                 parse(&["--nats-inbox-prefix", prefix]).is_err(),
