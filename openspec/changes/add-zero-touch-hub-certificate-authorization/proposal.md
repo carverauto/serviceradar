@@ -58,13 +58,15 @@ the Secret that holds the CA keys, which is the opposite of secure.
   never block a leaf install.
 - **Core adopts chart identities from that inventory by itself.** A
   certificate qualifies when it chains to the deployment root, is valid, is
-  not revoked, and its subject is a chart identity. When no component holds
-  that subject, core adopts it; this is the first adoption the existing
-  rotation record lacks, and it complements that record rather than replacing
-  it. When a component already holds the subject, the inventory writes
-  nothing: replacing an adopted certificate stays solely with the existing
-  rotation record, unchanged, so revocation is unchanged. Hand adoption
-  remains, unchanged, for clients the chart does not define.
+  not revoked, and its subject is a chart identity present in the static
+  users file. When that subject is not held (no recorded certificate on any
+  component carries it, revoked or not), core adopts it; this is the first
+  adoption the existing rotation record lacks, and it complements that record
+  rather than replacing it. To make that check possible, recorded
+  certificates gain a stored subject. When the subject is held, the inventory
+  writes nothing: replacing an adopted certificate stays solely with the
+  existing rotation record, unchanged, so revocation is unchanged. Hand
+  adoption remains, unchanged, for clients the chart does not define.
 - **The chart owns the callout signing keys.** The generator creates the three
   nkeys once, stores the seeds in a Secret mounted only into core, and writes
   the public half into a configuration fragment the broker includes. Nothing

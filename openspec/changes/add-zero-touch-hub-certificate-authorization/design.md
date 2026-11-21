@@ -74,25 +74,49 @@ inventory is checked first:
 
 A certificate that fails a check is reported with the reason and nothing is
 written. For a certificate that passes, the inventory performs first adoption
-only: when no component holds the subject, core creates the component with
-the static grant for that subject and records the certificate. When a
-component already holds the subject, the inventory writes nothing.
+only: when the subject is not held, core creates the component with the
+static grant for that subject and records the certificate. When the subject is
+held, the inventory writes nothing.
+
+"Held" must be computable from stored rows, and today it is not: a recorded
+certificate stores fingerprint, issuer, serial, generation, role and validity,
+but neither its subject nor its PEM, and a hand-adopted component's id is
+chosen by the operator. This change therefore:
+
+- adds a subject to the certificate record, written whenever a certificate is
+  recorded (inventory adoption, hand adoption, successor and rotation
+  recording), from the PEM available at that moment;
+- gives a component created by the inventory a deterministic component id
+  derived from the chart identity's subject;
+- defines a subject as **held** when any recorded certificate, on any
+  component and whether or not it is revoked or superseded, carries that
+  subject. First adoption applies only when the subject is not held.
+
+Rows recorded before this change have no subject and cannot be backfilled,
+because the PEM was not stored. While any infrastructure component has a
+recorded certificate without a subject, the inventory adopts nothing and
+reports that state with the remedy: record those certificates again through
+the existing adoption API, or remove the component. No install is known to
+have adopted infrastructure, so this set is expected to be empty in practice;
+task 1.4 checks live deployments.
 
 Replacement of an adopted certificate stays solely with the existing
 `ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
 `runtime-cert-rotation.json`, unchanged by this change, including its refusal
-when the predecessor is revoked, superseded or from another issuer. Nothing is
-lost by this split: the rotation path skips a replacement only when its
-predecessor was never adopted, in which case no component holds the subject
-and first adoption applies, or when the replacement must be refused, in which
-case it stays refused. A subject whose certificate was revoked therefore stays
-refused until an operator acts, as today.
+when the predecessor is revoked, superseded or from another issuer. A subject
+whose certificate was revoked therefore stays refused until an operator acts,
+as today. One residual case is not covered by either path: when the rotation
+manifest's predecessor is an unrecorded intermediate certificate while an
+older certificate of that subject is recorded, the rotation path skips it and
+the subject is held, so neither path records the current certificate. The
+identity is reported unadopted with that reason, and an operator records the
+successor through the existing API. This is fail-closed and visible.
 
 Coverage: a chart identity counts as adopted when the inventory's certificate
-for that subject is recorded on the component and not revoked. Otherwise it is
-reported with the reason: a failed check, or a component holding the subject
+for that subject is recorded and not revoked. Otherwise it is reported with
+the reason: a failed check, legacy rows without a subject, or a held subject
 whose recorded certificates do not include the inventory's certificate (for
-example after a refused rotation or a revocation).
+example after a refused rotation, a revocation, or the residual case above).
 
 The stored grant is the static block for that subject. It is only the
 per-fingerprint record: admission of a chart identity still uses the static
@@ -153,6 +177,13 @@ values are removed.
 
 This is a chart value, and the control plane renders the same value for
 tenants, so it is not a Helm-only switch.
+
+The chart keeps refusing `nats.certificateAuthorization.enabled` together
+with `certs.regenerator.enabled`. The regenerator mints a new root and writes
+no rotation manifest, so its certificates could be neither rotated onto nor
+first-adopted (their subjects are held). Only `infrastructureAdopted` and the
+three key values are removed; that exclusion stays. Adoption under a new root
+is out of scope.
 
 ### Decision 4: Default (owner decision)
 
@@ -224,12 +255,12 @@ already adopted has its successor recorded by
 `ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
 before workloads roll onto it, so its client is not refused; the inventory
 does not record it. The inventory changes in the same generator run; on the
-authorizer's next tick core adopts a qualifying certificate whose subject no
-component holds. Only such a certificate is refused until then, and its client
+authorizer's next tick core adopts a qualifying certificate whose subject is
+not held. Only such a certificate is refused until then, and its client
 retries; the window is bounded by the authorizer's 10 second tick (the
 rotation reconciler separately runs every 30 seconds). A replacement whose
 predecessor was revoked or superseded is refused by the rotation path, is not
-recorded by the inventory because a component holds the subject, and is
+recorded by the inventory because the subject is held, and is
 reported with the reason.
 
 ## Risks / Trade-offs
@@ -239,9 +270,17 @@ reported with the reason.
   connections and reconnections made during it wait.
 - **Regeneration does not undo a revocation.** If a chart identity's
   certificate was revoked, its regenerated replacement is not recorded by the
-  rotation record, the inventory writes nothing because a component holds the
-  subject, and the subject is reported with the revocation reason. Its client
+  rotation record, the inventory writes nothing because the subject is held,
+  and the subject is reported with the revocation reason. Its client
   stays refused until an operator acts.
+- **Residual unrecorded rotation.** When a rotation manifest names an
+  unrecorded intermediate predecessor while an older certificate of that
+  subject is recorded, neither path records the current certificate. The
+  identity is reported unadopted with that reason and an operator records the
+  successor through the existing API.
+- **Legacy certificate rows without a subject** block all inventory adoption
+  until they are recorded again or their component is removed. Expected to be
+  empty; task 1.4 checks.
 - **The static user `O=ServiceRadar`** (publish allow `>` with deny
   `logs.normalized.>`, subscribe allow `>`) is not a chart identity: no
   chart-generated certificate carries that subject. A broker experiment on the

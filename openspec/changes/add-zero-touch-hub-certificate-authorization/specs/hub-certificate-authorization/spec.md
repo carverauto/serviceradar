@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Chart identities are adopted without operator action
-On a chart install, core SHALL adopt the NATS client certificate of every chart identity from a public certificate inventory the chart publishes, and SHALL NOT require an operator to submit those certificates. A chart identity is a subject for which the chart's certificate generator issues a distinct NATS client certificate. A static user whose certificate file is a copy of another identity's certificate (`serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector`) and the `O=ServiceRadar` static user are not chart identities: they SHALL NOT be counted in adoption coverage and SHALL NOT block a leaf install.
+On a chart install, core SHALL adopt a chart identity's NATS client certificate from a public certificate inventory the chart publishes when the subject is not held and the certificate qualifies, SHALL report every chart identity that is not adopted with the reason, and SHALL NOT require an operator to submit those certificates. A subject is held when any recorded certificate, on any component and whether or not it is revoked or superseded, carries that subject; recorded certificates SHALL store their subject whenever they are recorded. A chart identity is a subject for which the chart's certificate generator issues a distinct NATS client certificate. A static user whose certificate file is a copy of another identity's certificate (`serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector`) and the `O=ServiceRadar` static user are not chart identities: they SHALL NOT be counted in adoption coverage and SHALL NOT block a leaf install.
 
 #### Scenario: Alias and organization users are not chart identities
 - **WHEN** core reports adoption coverage on a chart install
@@ -9,14 +9,14 @@ On a chart install, core SHALL adopt the NATS client certificate of every chart 
 - **AND** a leaf install is not stopped on their account
 
 #### Scenario: An install is upgraded to a release with the inventory
-- **WHEN** core starts with the chart's public certificate inventory mounted, no component holds a chart identity's subject, and the inventory holds a certificate for it that chains to the deployment root, is valid, is not revoked, and whose subject is present in the static users file
-- **THEN** core creates the component with the static grant for that subject and records the certificate
+- **WHEN** core starts with the chart's public certificate inventory mounted, a chart identity's subject is not held, and the inventory holds a certificate for it that chains to the deployment root, is valid, is not revoked, and whose subject is present in the static users file
+- **THEN** core creates the component, with a component id derived from the subject and the static grant for that subject, and records the certificate with its subject
 - **AND** no administrator API call was made
 
 #### Scenario: An adopted certificate is regenerated
 - **WHEN** the chart regenerates a chart identity's certificate whose predecessor was adopted
 - **THEN** the replacement is recorded by the existing runtime certificate rotation path, not by the inventory
-- **AND** the inventory writes nothing for that subject because a component holds it
+- **AND** the inventory writes nothing for that subject because it is held
 - **AND** once the static users file has been read, the client presenting the recorded replacement is admitted without operator action
 - **AND** while the static users file is missing or unread, the chart identity is still refused
 
@@ -26,10 +26,20 @@ On a chart install, core SHALL adopt the NATS client certificate of every chart 
 - **AND** core reports the subject in chart identity coverage with the reason
 - **AND** the client presenting the replacement stays refused until an operator acts
 
-#### Scenario: A regenerated certificate has no component
-- **WHEN** the chart regenerates its certificates and no component holds a chart identity's subject
+#### Scenario: A regenerated certificate's subject is not held
+- **WHEN** the chart regenerates its certificates and a chart identity's subject is not held
 - **THEN** core adopts the inventory certificate for that subject only if it chains to the deployment root, is valid, is not revoked, and its subject is a chart identity present in the static users file
 - **AND** a certificate that fails any of these checks is reported with the reason and nothing is written
+
+#### Scenario: A rotation names an unrecorded predecessor
+- **WHEN** the rotation manifest names a predecessor that was never recorded while an older certificate of that subject is recorded
+- **THEN** neither the rotation path nor the inventory records the current certificate
+- **AND** core reports the chart identity as not adopted with that reason
+
+#### Scenario: Legacy certificate rows have no subject
+- **WHEN** any infrastructure component has a recorded certificate without a stored subject
+- **THEN** the inventory adopts nothing
+- **AND** core reports that state with the remedy: record those certificates again through the existing adoption API, or remove the component
 
 #### Scenario: A certificate does not belong to the install
 - **WHEN** the inventory contains a certificate that does not chain to the deployment root or whose subject is not a chart identity
