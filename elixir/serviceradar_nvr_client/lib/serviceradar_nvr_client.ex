@@ -66,6 +66,8 @@ defmodule ServiceRadarNVRClient do
 
   def archive_block(_, _, _, _), do: {:error, :invalid_archive_request}
 
+  def descriptor_timeout_ms, do: 15_000
+
   @doc """
   Reads the canonical v1 descriptor of sealed block `block_id`.
 
@@ -79,7 +81,7 @@ defmodule ServiceRadarNVRClient do
   `{:error, :descriptor_unavailable}`. An invalid block id or configuration is
   refused before connecting.
   """
-  def block_descriptor(config, block_id, timeout_ms \\ 15_000)
+  def block_descriptor(config, block_id, timeout_ms \\ descriptor_timeout_ms())
 
   def block_descriptor(%Config{} = config, block_id, timeout_ms) when timeout_ms in 1..300_000 do
     with :ok <- Config.validate(config),

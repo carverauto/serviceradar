@@ -2,10 +2,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
@@ -14,6 +16,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarCoreElx.CameraRecording.Capture
   alias ServiceRadarCoreElx.CameraRecording.NVRCapture
@@ -1848,6 +1851,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
   test "NVRCapture catalogs a sealed block under its live recorder claim with the received time basis",
        ctx do
+    enable_deployment_archive(ctx)
+
     {:ok, _profile} =
       StreamProfile.update_profile(ctx.profile, %{relay_eligible: true}, actor: ctx.actor)
 
@@ -1890,16 +1895,17 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     # A local-only camera's block is not owed an archive copy.
     assert entry.policy_id == policy.id
     assert entry.archive_state == :not_required
+    assert is_nil(entry.archive_binding_id)
 
     # One capture is one run anchored at its first admitted unit; the window
-    # spans the descriptor's 4 s of media from there, and its uncertainty is unmeasured.
+    # spans the descriptor's one second of media, and its uncertainty is unmeasured.
     assert entry.time_basis == :received
     assert entry.time_uncertainty_us == nil
     assert entry.first_unit_pts == hd(units).pts
     received_us = DateTime.to_unix(entry.first_unit_received_at, :microsecond)
     assert received_us in admitted
     assert entry.timeline_start_us == received_us
-    assert entry.timeline_end_us == received_us + 4_000_000
+    assert entry.timeline_end_us == received_us + 1_000_000
     assert entry.run_id == "#{ctx.relay.id}:1"
     assert entry.anchor_id == "#{ctx.relay.id}:1:0"
 
@@ -1927,17 +1933,117 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert recorder_claim(ctx).state == :released
   end
 
-  # Captures three units against a fake NVR that seals the reserved block and
-  # answers its descriptor read with `answer.(canonical_descriptor_bytes)`.
+  test "NVRCapture registers a slow descriptor locally when the camera has no policy", ctx do
+    enable_deployment_archive(ctx)
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    {_descriptor, bytes} = capture.descriptor
+    Process.sleep(12_500)
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, %{status: :sealed_local, catalog: {:registered, entry_id}}} =
+             Task.await(capture.task)
+
+    assert [entry] = catalog_entries(capture.nvr.storage_id)
+    assert entry.id == entry_id
+    assert is_nil(entry.policy_id)
+    assert entry.archive_state == :not_required
+    assert is_nil(entry.archive_binding_id)
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture skips registration when the held lease only covers cleanup", ctx do
+    capture = sealing_capture(ctx, 4_000)
+
+    assert {:ok,
+            %{status: :sealed_local, catalog: {:unregistered, :registration_cleanup_reserve}}} =
+             Task.await(capture.task)
+
+    refute_received {:nvr_descriptor_read, _}
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture releases its claim when the descriptor read exhausts its lease budget", ctx do
+    capture = sealing_capture(ctx, 9_000)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+
+    assert {:ok, %{status: :sealed_local, catalog: {:unregistered, :descriptor_unavailable}}} =
+             Task.await(capture.task, 10_000)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture returns the sealed receipt and releases its claim when the freeze times out",
+       ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    {_descriptor, bytes} = capture.descriptor
+
+    assert {:ok, {:ok, %{status: :sealed_local, catalog: {:unregistered, _reason}}}} =
+             Repo.transaction(fn ->
+               assert %{num_rows: 1} =
+                        Repo.query!(
+                          "SELECT id FROM platform.camera_recording_blocks WHERE id = $1 FOR UPDATE",
+                          [
+                            Ecto.UUID.dump!(capture.block.id)
+                          ]
+                        )
+
+               send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+               await_capture(
+                 fn ->
+                   sql =
+                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid)))"
+
+                   if Repo.query!(sql).rows == [[true]], do: {:ready, :locked}, else: :waiting
+                 end,
+                 System.monotonic_time(:millisecond) + 4_000
+               )
+
+               Task.await(capture.task, 10_000)
+             end)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  defp enable_deployment_archive(ctx) do
+    {:ok, binding} =
+      ArchiveBinding.register(Fixtures.archive_destination(Ecto.UUID.generate()),
+        actor: ctx.actor
+      )
+
+    {:ok, _settings} =
+      RecordingArchiveSettings.save_settings(
+        %{archive_enabled: true, active_archive_binding_id: binding.id},
+        actor: ctx.actor
+      )
+  end
+
   defp registering_capture(ctx, answer) do
-    owner = owner(ctx, 30_000)
-    nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
-    task = start_fake_nvr_capture(ctx, nvr, 3)
-    _worker = await_nvr_worker_attached(owner)
-    [block] = recording_blocks(ctx)
-    descriptor = synthetic_descriptor(RecordingBlock.identity(block))
-    {:ok, bytes} = Descriptor.encode(descriptor)
+    capture = sealing_capture(ctx)
+    {_descriptor, bytes} = capture.descriptor
     {status, body} = answer.(bytes)
+    send(capture.nvr.peer, {:descriptor, status, body})
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    Map.put(capture, :receipt, receipt)
+  end
+
+  defp sealing_capture(ctx, lease_ms \\ 30_000) do
+    nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
+    owner = owner(ctx, lease_ms)
+    task = start_fake_nvr_capture(ctx, nvr, 3, 25_000)
+    worker = await_nvr_worker_attached(owner)
+    [block] = recording_blocks(ctx)
+    descriptor = Fixtures.recording_descriptor(block)
+    {:ok, bytes} = Descriptor.encode(descriptor)
 
     receipt =
       Jason.encode!(%{
@@ -1948,47 +2054,20 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       })
 
     send(nvr.peer, {:seal, receipt})
-    send(nvr.peer, {:descriptor, status, body})
-
-    units = Enum.take(ctx.media.units, 3)
+    [first | later] = units = Enum.take(ctx.media.units, 3)
     admitted_from = System.os_time(:microsecond)
-    Enum.each(units, &send(ctx.pipeline, {:media_chunk, &1}))
-    assert {:ok, receipt} = Task.await(task, 10_000)
+    send(ctx.pipeline, {:media_chunk, first})
+    await_sender_blocked_in_pull(worker)
+    admitted_until = System.os_time(:microsecond)
+    Enum.each(later, &send(ctx.pipeline, {:media_chunk, &1}))
 
     %{
-      receipt: receipt,
+      task: task,
       nvr: nvr,
       block: block,
       descriptor: {descriptor, bytes},
       units: units,
-      admitted: admitted_from..System.os_time(:microsecond)
-    }
-  end
-
-  # An invented descriptor for `identity`: two 2 s fragments of invented bytes.
-  defp synthetic_descriptor(identity) do
-    digest = &Base.encode16(:crypto.hash(:sha256, &1), case: :lower)
-
-    fragment = fn sequence, offset ->
-      %{
-        "sequence" => sequence,
-        "offset" => offset,
-        "length" => 1_000,
-        "start_ns" => sequence * 2_000_000_000,
-        "duration_ns" => 2_000_000_000,
-        "sha256" => digest.("synthetic-fragment-#{sequence}"),
-        "tail_duration_source" => nil,
-        "motion" => "unknown"
-      }
-    end
-
-    %{
-      "version" => 1,
-      "identity" => identity,
-      "format" => %{"codec" => "avc1.64001f", "timescale" => 90_000},
-      "init" => %{"length" => 600, "sha256" => digest.("synthetic-init")},
-      "media" => %{"length" => 2_000, "sha256" => digest.("synthetic-media")},
-      "fragments" => [fragment.(0, 0), fragment.(1, 1_000)]
+      admitted: admitted_from..admitted_until
     }
   end
 
@@ -2111,13 +2190,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     result
   end
 
-  defp start_fake_nvr_capture(ctx, nvr, max_frames) do
+  defp start_fake_nvr_capture(ctx, nvr, max_frames, timeout_ms \\ 8_000) do
     Task.async(fn ->
       NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
         actor: ctx.actor,
         config_file: nvr.config_file,
         token_file: nvr.token_file,
-        timeout_ms: 8_000,
+        timeout_ms: timeout_ms,
         bounds: %{max_frames: max_frames, max_bytes: 8_388_608, max_duration_ms: 6_000}
       )
     end)

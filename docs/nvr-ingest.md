@@ -82,8 +82,8 @@ sending media over NATS/JetStream or ERTS distribution:
    under that still-live claim, freezes it on the `RecordingBlock` and creates
    the block's `RecordingCatalogEntry` in one transaction
    (`RecordingBlocks.freeze_and_catalog/6`). The entry's archive state follows
-   the camera's `CameraRecordingPolicy` storage mode and the archive settings,
-   and its timeline uses the `received` time basis: the block starts at the
+   the camera's `CameraRecordingPolicy` storage mode and the archive settings.
+   A capture without a policy has no archive obligation. Its timeline uses the `received` time basis: the block starts at the
    UTC time the inbox admitted the capture's first unit and spans the
    descriptor's media duration, with unmeasured uncertainty. The receipt's
    `catalog` field is `{:registered, entry_id}`. If the descriptor read or the
@@ -91,7 +91,8 @@ sending media over NATS/JetStream or ERTS distribution:
    written to the catalog, the block stays `:open_local` and sealed on the NVR
    for the reconciler, `catalog` is `{:unregistered, reason}`, and the capture
    still returns `{:ok, receipt}` and releases its claim, because the seal is
-   durable. Each step runs once. Any `:outcome_unknown`, timeout
+   durable. Each registration step reserves lease time for claim release and
+   relay close, and runs once. Any `:outcome_unknown`, timeout
    or caller loss aborts without sending the stream-end marker, never retries
    or fails over to another replica, and leaves the reserved block and epoch
    intact for inspection or recovery. The recorder lease keeps renewing until

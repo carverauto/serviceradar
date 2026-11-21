@@ -114,7 +114,6 @@ defmodule ServiceRadarNVRClient.Wire do
   # and the digest Core freezes, are the NVR's bytes.
   def descriptor(bytes, block_id) do
     with {:ok, descriptor} <- Jason.decode(bytes),
-         :ok <- Descriptor.validate(descriptor),
          {:ok, ^bytes} <- Descriptor.encode(descriptor),
          true <- Descriptor.block_key(descriptor["identity"]) == block_id do
       {:ok, descriptor}

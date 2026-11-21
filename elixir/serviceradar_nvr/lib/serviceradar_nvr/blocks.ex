@@ -3,10 +3,29 @@ defmodule ServiceRadarNVR.Blocks do
 
   alias ServiceRadarRecording.Initialization
   alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
   alias ServiceRadarRecordingMetadata.Descriptor
 
   def inspect(storage, block_id, limits) do
     with {:ok, snapshot} <- Spool.inspect_sealed(storage, block_id, limits), do: with_format(snapshot)
+  end
+
+  def descriptor(storage, block_id, limits) do
+    case inspect(storage, block_id, limits) do
+      {:ok, snapshot} -> descriptor(snapshot)
+      {:error, :enoent} -> missing_descriptor_input(storage, block_id)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp missing_descriptor_input(storage, block_id) do
+    with :ok <- Storage.verify(storage) do
+      case File.lstat(Path.join(storage.root, block_id)) do
+        {:error, :enoent} -> {:error, :block_not_found}
+        {:ok, _stat} -> {:error, :unsealed_block}
+        {:error, _} = error -> error
+      end
+    end
   end
 
   def descriptor(snapshot) do
@@ -18,9 +37,39 @@ defmodule ServiceRadarNVR.Blocks do
   # `:block_not_found` when the ID names no retained block, `:block_not_sealed`
   # when the block is present but no seal verifies, `:read_unavailable` when the
   # read pool or recovery state refused the read, and `:other` for anything else.
-  def read_error(reason) when reason in [:enoent, :invalid_block_id], do: :block_not_found
+  def read_error(reason, route \\ :archive)
 
-  def read_error(reason)
+  def read_error(:enoent, :archive), do: :block_not_found
+  def read_error(reason, _route) when reason in [:block_not_found, :invalid_block_id], do: :block_not_found
+
+  def read_error(reason, :descriptor)
+      when reason in [
+             :invalid_block_directory,
+             :invalid_block_file,
+             :invalid_journal_record,
+             :invalid_record_size,
+             :empty_journal,
+             :journal_too_large,
+             :incomplete_header,
+             :identity_or_header_mismatch,
+             :invalid_identity,
+             :invalid_init,
+             :invalid_initialization,
+             :records_after_seal,
+             :invalid_record,
+             :invalid_offset,
+             :fragment_too_large,
+             :fragment_too_long,
+             :block_full,
+             :invalid_fragment_record,
+             :invalid_timing,
+             :invalid_tail_duration_source,
+             :discontinuity,
+             :unsupported_codec,
+             :invalid_recording_descriptor
+           ], do: :block_not_sealed
+
+  def read_error(reason, _route)
       when reason in [
              :nvr_read_capacity,
              :nvr_read_timeout,
@@ -29,7 +78,7 @@ defmodule ServiceRadarNVR.Blocks do
              :nvr_storage_not_configured
            ], do: :read_unavailable
 
-  def read_error(reason)
+  def read_error(reason, _route)
       when reason in [
              :unsealed_block,
              :empty_block,
@@ -41,7 +90,7 @@ defmodule ServiceRadarNVR.Blocks do
              :truncated_media
            ], do: :block_not_sealed
 
-  def read_error(_reason), do: :other
+  def read_error(_reason, _route), do: :other
 
   def with_format(snapshot) do
     with {:ok, init} <- Spool.read_init(snapshot),

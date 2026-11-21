@@ -2,11 +2,10 @@ defmodule ServiceRadarNVRClient.HTTP do
   @moduledoc false
   alias ServiceRadarNVRClient.Config
   alias ServiceRadarNVRClient.Wire
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @max_body 67_108_864
   @max_response 32_768
-  # The descriptor's own encoding bound (`ServiceRadarRecordingMetadata.Descriptor`).
-  @max_descriptor_response 2_097_152
   @empty_response %{status: nil, body: "", done: false, limit: @max_response}
 
   def send_recording(config, header, bytes, units, deadline, owner) do
@@ -147,7 +146,7 @@ defmodule ServiceRadarNVRClient.HTTP do
         deadline,
         owner,
         &descriptor_result(&1, &2, block_id),
-        %{@empty_response | limit: @max_descriptor_response}
+        %{@empty_response | limit: Descriptor.max_json_bytes()}
       )
     else
       _ -> {:error, :outcome_unknown}

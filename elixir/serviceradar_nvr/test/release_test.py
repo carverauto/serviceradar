@@ -1899,6 +1899,38 @@ class NVRReleaseTest(unittest.TestCase):
         (block / "journal").write_bytes(journal)
         self.assertEqual(self.descriptor_request(block_id), (200, body))
 
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        for name in ("journal", "init.mp4", "media.m4s"):
+            with self.subTest(missing=name):
+                path = block / name
+                retained = path.read_bytes()
+                path.unlink()
+                self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+                path.write_bytes(retained)
+
+        unavailable = self.spool.with_name("offline-spool")
+        self.spool.rename(unavailable)
+        try:
+            self.assertEqual(self.descriptor_request(block_id), (503, b'{"error":"descriptor_unavailable"}'))
+        finally:
+            unavailable.rename(self.spool)
+        self.assertEqual(self.descriptor_request(block_id), (200, body))
+
+        fragment = descriptor["fragments"][0]
+        fragments = [{**fragment, "sequence": n, "offset": n * fragment["length"],
+                      "start_ns": fragment["start_ns"] + n * fragment["duration_ns"]} for n in range(256)]
+        large = {**descriptor, "fragments": fragments,
+                 "media": {**descriptor["media"], "length": len(fragments) * fragment["length"]}}
+        encoded = canonical(large)
+        self.assertGreater(len(encoded), 32 * 1024)
+        self.assertLess(len(encoded), 2 * 1024 * 1024)
+        requests, port = self.descriptor_peer(200, encoded)
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000},
+                                         config_changes={"port": port}), {"ok": large})
+        self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
+
         # The client accepts only canonical bytes whose identity derives the block it asked for.
         other = {**identity, "block_sequence": identity["block_sequence"] + 1}
         refused = (json.dumps(descriptor, indent=1).encode(), canonical({**descriptor, "identity": other}),
@@ -2143,6 +2175,10 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
             offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
         (block / "journal").write_bytes(journal[:last])
         self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_unavailable"}'))
+        (block / "journal").unlink()
+        self.assertEqual(self.archive_request(block_id, document), (404, b'{"error":"block_not_found"}'))
         (block / "journal").write_bytes(journal)
         self.assertEqual(store["requests"], [])
         self.assertFalse((block / "archive-receipt.json").exists())

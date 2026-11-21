@@ -102,8 +102,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   @cleanup_timeout_ms 2_000
   @min_call_timeout_ms 250
   @max_capture_timeout_ms 300_000
-  # The NVR read pool retires a descriptor read after 10 s.
-  @descriptor_timeout_ms 12_000
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
   @default_bounds %{
     max_frames: 240,
@@ -162,7 +160,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         claim: nil,
         lease_deadline: nil,
         block: nil,
-        clock_epoch: nil,
         recovery_gate: nil,
         wire_header: nil,
         inbox: nil,
@@ -336,10 +333,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   defp open_and_attach(state, deadline_ms) do
-    clock_epoch = "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}"
-
     retained_clock = %{
-      "clock_epoch" => clock_epoch,
+      "clock_epoch" => "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}",
       "timebase" => 90_000,
       "dts_source" => "pts_no_reordering",
       "utc_mapping" => "unknown"
@@ -356,12 +351,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
          :ok <- Inbox.usable(inbox),
          {:ok, reserve_opts} <- capture_call_opts(state),
          {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, reserve_opts),
-         {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block, clock_epoch),
+         {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block),
          {:ok, attach_timeout} <- capture_call_timeout(state.capture),
          :ok <- attach_pipeline(state.pipeline, inbox, attach_timeout) do
       next =
         state
-        |> Map.merge(%{inbox: inbox, block: block, clock_epoch: clock_epoch, wire_header: header, drain_reason: nil})
+        |> Map.merge(%{inbox: inbox, block: block, wire_header: header, drain_reason: nil})
         |> schedule_renewal()
 
       notify(next, {:attached, correlation_fields(next)})
@@ -371,7 +366,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp build_wire_header(storage_id, recovery_generation, block, clock_epoch) do
+  defp build_wire_header(storage_id, recovery_generation, block) do
     identity =
       block
       |> RecordingBlock.identity()
@@ -383,7 +378,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
        "storage_id" => storage_id,
        "recovery_generation" => recovery_generation,
        "identity" => identity,
-       "clock_epoch" => clock_epoch
+       "clock_epoch" => block.clock["clock_epoch"]
      }}
   end
 
@@ -709,20 +704,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   # Runs before `terminate/2` releases the claim, which the live freeze needs.
   # The block is already sealed, so a failure only leaves it to the reconciler.
   defp register_sealed_block(state) do
-    with {:ok, read_timeout} <- registration_timeout(state, @descriptor_timeout_ms),
+    with {:ok, read_timeout} <- registration_timeout(state, ServiceRadarNVRClient.descriptor_timeout_ms()),
          {:ok, descriptor} <-
            ServiceRadarNVRClient.block_descriptor(state.client_config, state.block.block_key, read_timeout),
-         {:ok, policy} <- recording_policy(state),
-         {:ok, freeze_opts} <- registration_call_opts(state),
-         {:ok, entry} <-
-           RecordingBlocks.freeze_and_catalog(
-             state.owner,
-             state.claim,
-             state.block,
-             descriptor,
-             catalog_attrs(state, policy),
-             freeze_opts
-           ) do
+         {:ok, entry} <- catalog_sealed_block(state, descriptor) do
       {:registered, entry.id}
     else
       {:error, reason} ->
@@ -732,12 +717,33 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  # The live freeze needs the claim, so registration ends at the capture
-  # deadline or when the held lease lapses, whichever comes first.
+  defp catalog_sealed_block(state, descriptor) do
+    with {:ok, policy} <- recording_policy(state),
+         {:ok, opts} <- registration_call_opts(state) do
+      RecordingBlocks.freeze_and_catalog(
+        state.owner,
+        state.claim,
+        state.block,
+        descriptor,
+        catalog_attrs(state, policy),
+        opts
+      )
+    end
+  rescue
+    _error in DBConnection.ConnectionError -> {:error, :registration_database_unavailable}
+  catch
+    :exit, {:timeout, _call} -> {:error, :registration_database_timeout}
+  end
+
   defp registration_timeout(state, cap_ms) do
-    case min(state.capture.deadline, state.lease_deadline) - now() do
-      remaining_ms when remaining_ms < @min_call_timeout_ms -> {:error, :registration_deadline}
-      remaining_ms -> {:ok, min(cap_ms, remaining_ms)}
+    now = now()
+    lease_budget = state.lease_deadline - now - 2 * @cleanup_timeout_ms
+    capture_budget = state.capture.deadline - now
+
+    cond do
+      lease_budget < @min_call_timeout_ms -> {:error, :registration_cleanup_reserve}
+      capture_budget < @min_call_timeout_ms -> {:error, :registration_deadline}
+      true -> {:ok, min(cap_ms, min(lease_budget, capture_budget))}
     end
   end
 
@@ -759,20 +765,22 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   # One capture is one run, anchored at its first admitted unit.
   defp catalog_attrs(state, policy) do
+    clock_epoch = state.block.clock["clock_epoch"]
+
     Map.merge(
       %{
         time_basis: :received,
         first_unit_pts: state.first_pts,
         first_unit_received_at: DateTime.from_unix!(state.first_admitted_at_us, :microsecond),
-        run_id: state.clock_epoch,
-        anchor_id: "#{state.clock_epoch}:#{state.block.block_sequence}"
+        run_id: clock_epoch,
+        anchor_id: "#{clock_epoch}:#{state.block.block_sequence}"
       },
       policy_attrs(policy)
     )
   end
 
   defp policy_attrs(%CameraRecordingPolicy{id: id, storage: storage}), do: %{policy_id: id, policy_storage: storage}
-  defp policy_attrs(nil), do: %{}
+  defp policy_attrs(nil), do: %{policy_storage: :local_only}
 
   defp capture_error(:ok), do: nil
   defp capture_error({:error, reason}), do: reason

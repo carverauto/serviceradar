@@ -104,7 +104,7 @@ defmodule ServiceRadarNVR.Ingest do
   defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "descriptor"]} = conn, _config) do
     case ServiceRadarNVR.block_descriptor(block_id) do
       {:ok, descriptor} -> respond(conn, 200, descriptor)
-      {:error, reason} -> descriptor_refusal(conn, Blocks.read_error(reason))
+      {:error, reason} -> descriptor_refusal(conn, Blocks.read_error(reason, :descriptor))
     end
   end
 

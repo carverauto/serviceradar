@@ -106,8 +106,8 @@ defmodule ServiceRadarNVR do
   """
   def block_descriptor(block_id) do
     Reads.run(fn ->
-      with {:ok, snapshot} <- inspect_block(block_id) do
-        Blocks.descriptor(snapshot)
+      with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
+        Blocks.descriptor(storage, block_id, limits)
       end
     end)
   end
