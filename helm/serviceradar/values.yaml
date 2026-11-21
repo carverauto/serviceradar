@@ -313,6 +313,13 @@ certs:
   issuerSecretName: ""
   cnpgIssuerSecretName: ""
   runtimeLayoutVersion: "6"
+  # Only for a runtime certificate Secret this chart's generator does not
+  # write (a hosted install, or generator.enabled false): the public
+  # certificate keys of the chart's NATS client identities that the Secret
+  # carries, such as ["core.pem", "web.pem"]. Core is given exactly these for
+  # first adoption. Leave it empty unless every listed key exists: core does
+  # not start while a listed key is missing. Never list a private key.
+  inventoryCertificates: []
   # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
   # all certificate consumers restart onto the reconciled Secret generation.
   runtimeRevision: initial

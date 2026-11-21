@@ -161,6 +161,12 @@ spec:
               "runtime-cert-layout-version",
               agent_component_cert,
               agent_component_key,
+              # Every certificate core is given for first adoption. A Secret
+              # written by an older chart release may lack one, and core's
+              # volume does not mount without it.
+{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
+              {{ .file | quote }},
+{{- end }}
             ]
 
             missing = [name for name in required if not os.path.exists(os.path.join(cert_dir, name))]
