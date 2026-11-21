@@ -24,6 +24,10 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **WHEN** an expired or revoked leaf token is presented
 - **THEN** it is refused and nothing on the site changes
 
+#### Scenario: A bound token past expiry cannot resume
+- **WHEN** a leaf token that has already registered a leaf is presented again naming the stored agent id after its expiry time, whether or not the expiry job has marked the package expired
+- **THEN** it is refused and the attempt is recorded as a security event
+
 #### Scenario: A first attempt fails before registration
 - **WHEN** a leaf token is presented while the hub cannot accept a leaf or the host has no enrolled agent
 - **THEN** the command stops with the reason
@@ -75,8 +79,12 @@ The system SHALL report a leaf as connected only while its recorded certificate 
 - **AND** the leaf is shown as connected and its site as active
 
 #### Scenario: A leaf stops
-- **WHEN** a leaf's hub session has been absent for a full scan interval
+- **WHEN** a successful, complete pass over every hub server's connection pages shows a leaf's certificate absent
 - **THEN** the leaf is shown as disconnected and its site as offline
+
+#### Scenario: The connection listing fails or is partial
+- **WHEN** a hub connection read fails or only part of the connection pages has been read
+- **THEN** no leaf is marked disconnected and each leaf keeps its last known status
 
 #### Scenario: A leaf reconnects
 - **WHEN** a leaf that was connected has been marked disconnected and its site offline, and its hub session returns

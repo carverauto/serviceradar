@@ -88,12 +88,24 @@ operator for every site. So:
   one registered component, able to do only the calls listed below;
 - a leaf package has its own transitions: `:bind` moves `:issued` to `:bound`
   and stores the agent id at the first successful registration, and
-  `:complete` moves `:bound` to `:completed` when the leaf is reported
-  active. `:revoke` and `:expire` apply from `:issued` or `:bound`. A leaf
-  package never enters `:delivered`, so the `:active` read
-  (`edge/onboarding_package.ex:120-122`) never treats a completed one as
-  usable;
+  `:complete` moves `:bound` to the existing `:activated` status when the leaf
+  is reported active. `:revoke` and `:expire` apply from `:issued` or
+  `:bound`. The only status added is `:bound`, which joins the status
+  constraint (`edge/onboarding_package.ex:336`). A leaf package never enters
+  `:delivered`;
 - a leaf package stores no join token and no bundle.
+
+Expiry is enforced at redemption. Every presentation of a leaf token compares
+the package's token expiry timestamp (`download_token_expires_at`) with the
+current time, whatever the status (`:issued` or `:bound`), and refuses and
+records an expired token even if no background job has run. Redemption is not
+gated on the `:active` read or `is_usable`
+(`edge/onboarding_package.ex:120-122`, `:503`), which check status only. The
+hourly expiry job is bookkeeping: its `:needs_expiration` selection
+(`edge/onboarding_package.ex:143-146`) requires `:issued` and an expired join
+token, so it is extended to also select `nats_leaf` packages in `:issued` or
+`:bound` by the token expiry timestamp alone, since a leaf package has no join
+token. Their stored status then becomes `:expired`.
 
 What differs is what redemption does. An agent package delivers a join token
 and a certificate bundle. A leaf package delivers no key material. Redeeming
@@ -114,7 +126,7 @@ gateway session. When a registration first succeeds, core stores on the
 onboarding package the agent id it registered the leaf on; that stored value
 is the bound identity. Every later presentation is compared with the stored
 value. The same agent id may resume an interrupted install until the token
-expires or is revoked: registration is idempotent for the same site and agent
+expires (checked on every presentation, above) or is revoked: registration is idempotent for the same site and agent
 id, and the token authorizes requesting issuance for, and reading the status
 of, the component it registered. Any other agent id is refused and recorded
 as a security event, including a host whose agent identity changed after a
@@ -147,8 +159,13 @@ other than the stored one is refused.
 
 On each scan the authorizer already has the fingerprints of connected leaf
 sessions. It marks the leaf server connected when its recorded certificate is
-present and disconnected when it has been absent for a full scan interval. The
-page stops inferring status from provisioning state.
+present. A scan tick does not yield a complete listing: connection reads are
+paged with offsets carried across ticks, and a failed read returns an empty
+list (`nats/managed_certificate_authorization.ex:508-531`, `:599-612`). A leaf
+is therefore marked disconnected only after a successful, complete pass over
+every server's connection pages shows its certificate absent; a failed or
+partial read leaves the last known status in place. The page stops inferring
+status from provisioning state.
 
 The existing state machines cannot carry this as they stand, so they change:
 
