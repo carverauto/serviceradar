@@ -195,7 +195,8 @@ spec:
           UPLOAD_SECRET
           }
 
-          if python3 <<'PY'
+          fetch_status=0
+          python3 <<'PY' || fetch_status=$?
           import os
           import base64
           import json
@@ -217,6 +218,14 @@ spec:
           try:
             request = urllib.request.Request(secret_url, headers=headers, method="GET")
             payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
+            if (
+              not isinstance(payload, dict)
+              or payload.get("kind") != "Secret"
+              or not isinstance(payload.get("metadata"), dict)
+              or payload["metadata"].get("name") != secret_name
+              or (payload.get("data") is not None and not isinstance(payload.get("data"), dict))
+            ):
+              raise ValueError("unexpected Secret response payload")
             os.makedirs(cert_dir, exist_ok=True)
 
             for name, encoded in (payload.get("data") or {}).items():
@@ -226,26 +235,38 @@ spec:
                 handle.write(base64.b64decode(encoded))
           except urllib.error.HTTPError as exc:
             if exc.code == 404:
-              sys.exit(1)
-            raise
+              sys.exit(44)
+            print(f"Failed to fetch Secret {secret_name}: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+            sys.exit(1)
+          except Exception as exc:
+            print(f"Failed to fetch Secret {secret_name}: {exc}", file=sys.stderr)
+            sys.exit(1)
           PY
-          then
-            provision_signing
-            if python3 - "${CERT_DIR}" "${RUNTIME_CERT_LAYOUT_VERSION}" "$@" <<'CHECK_CERTS'
+
+          case "${fetch_status}" in
+            0)
+              provision_signing
+              if python3 - "${CERT_DIR}" "${RUNTIME_CERT_LAYOUT_VERSION}" "$@" <<'CHECK_CERTS'
 {{ required "files/check-runtime-certs.py is required" (.Files.Get "files/check-runtime-certs.py") | indent 10 }}
           CHECK_CERTS
-            then
-              # The certificates are kept. The Secret is written only when the
-              # signing step added or repaired an entry.
-              if [ "${signing_changed}" = "1" ]; then
-                upload_secret
+              then
+                # The certificates are kept. The Secret is written only when the
+                # signing step added or repaired an entry.
+                if [ "${signing_changed}" = "1" ]; then
+                  upload_secret
+                fi
+                exit 0
               fi
-              exit 0
-            fi
-          else
-            mkdir -p "${CERT_DIR}"
-            provision_signing
-          fi
+              ;;
+            44)
+              mkdir -p "${CERT_DIR}"
+              provision_signing
+              ;;
+            *)
+              echo "Failed to fetch Secret ${SECRET_NAME} (exit ${fetch_status}); aborting without generating or uploading." >&2
+              exit 1
+              ;;
+          esac
 
           cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
 {{ tpl (.Files.Get "files/generate-certs.sh") . | b64enc | indent 12 }}

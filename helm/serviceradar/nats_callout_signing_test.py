@@ -25,9 +25,13 @@ RFC8032_SEED = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60
 RFC8032_PUBLIC = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
 
 
-def run(directory):
+def run(directory, env=None):
     return subprocess.run(
-        [sys.executable, str(SCRIPT), str(directory)], capture_output=True, text=True, check=False
+        [sys.executable, str(SCRIPT), str(directory)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
     )
 
 
@@ -45,11 +49,52 @@ def nkey_payload(text, first_character, length):
     return body
 
 
+def ed25519_public(seed_bytes):
+    der = subprocess.run(
+        ["openssl", "pkey", "-inform", "DER", "-pubout", "-outform", "DER"],
+        input=bytes.fromhex("302e020100300506032b657004220420") + seed_bytes,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    ).stdout
+    return der[-32:]
+
+
 class CalloutSigningTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR"))
         self.addCleanup(self._tmp.cleanup)
         self.directory = Path(self._tmp.name)
+
+    def assert_fragments_match_seeds(self):
+        seeds = {name: (self.directory / name).read_text().strip() for name in SEEDS}
+        authorization = (self.directory / "nats-callout-authorization.conf").read_text()
+        accounts = (self.directory / "nats-callout-accounts.conf").read_text()
+
+        match = re.fullmatch(
+            r'authorization: \{auth_callout: \{issuer: "(A[A-Z2-7]{55})", account: AUTH, '
+            r'auth_users: \["(U[A-Z2-7]{55})", "(U[A-Z2-7]{55})"\]\}\}\n',
+            authorization,
+        )
+        self.assertIsNotNone(match, authorization)
+        issuer, auth, system = match.groups()
+        for seed_file, public, letter in (
+            ("nats-callout-issuer.seed", issuer, "A"),
+            ("nats-callout-auth.seed", auth, "U"),
+            ("nats-callout-system.seed", system, "U"),
+        ):
+            seed_raw = nkey_payload(seeds[seed_file], "S", 34)[2:]
+            public_raw = nkey_payload(public, letter, 33)[1:]
+            self.assertEqual(public_raw, ed25519_public(seed_raw), seed_file)
+
+        # The accounts fragment grants each connection user only its own subjects.
+        self.assertIn(f'{{nkey: "{system}", permissions: {{publish: {{allow: ["$SYS.REQ.SERVER.*.CONNZ", "$SYS.REQ.SERVER.*.KICK"]}}', accounts)
+        self.assertIn(f'{{nkey: "{auth}", permissions: {{subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}}}', accounts)
+        self.assertNotIn(issuer, accounts)
+
+        # No fragment carries a seed.
+        for seed in seeds.values():
+            self.assertNotIn(seed, authorization + accounts)
 
     def test_public_key_matches_the_published_ed25519_vector(self):
         spec = importlib.util.spec_from_file_location("signing", SCRIPT)
@@ -57,6 +102,7 @@ class CalloutSigningTest(unittest.TestCase):
         spec.loader.exec_module(module)
 
         self.assertEqual(module.public_raw(bytes.fromhex(RFC8032_SEED)).hex(), RFC8032_PUBLIC)
+        self.assertEqual(ed25519_public(bytes.fromhex(RFC8032_SEED)).hex(), RFC8032_PUBLIC)
 
     def test_an_empty_directory_gets_three_seeds_and_matching_fragments(self):
         result = run(self.directory)
@@ -75,27 +121,7 @@ class CalloutSigningTest(unittest.TestCase):
             nkey_payload(seeds[name], "S", 34)
             self.assertEqual((self.directory / name).stat().st_mode & 0o777, 0o600)
 
-        authorization = (self.directory / "nats-callout-authorization.conf").read_text()
-        accounts = (self.directory / "nats-callout-accounts.conf").read_text()
-
-        match = re.fullmatch(
-            r'authorization: \{auth_callout: \{issuer: "(A[A-Z2-7]{55})", account: AUTH, '
-            r'auth_users: \["(U[A-Z2-7]{55})", "(U[A-Z2-7]{55})"\]\}\}\n',
-            authorization,
-        )
-        self.assertIsNotNone(match, authorization)
-        issuer, auth, system = match.groups()
-        for public, letter in ((issuer, "A"), (auth, "U"), (system, "U")):
-            nkey_payload(public, letter, 33)
-
-        # The accounts fragment grants each connection user only its own subjects.
-        self.assertIn(f'{{nkey: "{system}", permissions: {{publish: {{allow: ["$SYS.REQ.SERVER.*.CONNZ", "$SYS.REQ.SERVER.*.KICK"]}}', accounts)
-        self.assertIn(f'{{nkey: "{auth}", permissions: {{subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}}}', accounts)
-        self.assertNotIn(issuer, accounts)
-
-        # No fragment carries a seed.
-        for seed in seeds.values():
-            self.assertNotIn(seed, authorization + accounts)
+        self.assert_fragments_match_seeds()
 
     def test_a_matching_set_is_left_untouched(self):
         self.assertEqual(run(self.directory).returncode, CHANGED)
@@ -117,6 +143,7 @@ class CalloutSigningTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, CHANGED, result.stdout + result.stderr)
         self.assertEqual(contents(self.directory), before)
+        self.assert_fragments_match_seeds()
 
     def test_a_missing_seed_fails_without_writing(self):
         self.assertEqual(run(self.directory).returncode, CHANGED)
@@ -138,18 +165,51 @@ class CalloutSigningTest(unittest.TestCase):
         result = run(self.directory)
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for name in SEEDS:
+            self.assertIn(name, result.stdout)
         self.assertEqual(contents(self.directory), before)
 
     def test_an_unreadable_seed_fails_without_writing(self):
         self.assertEqual(run(self.directory).returncode, CHANGED)
-        (self.directory / "nats-callout-system.seed").write_text("not a seed\n")
-        (self.directory / "nats-callout-accounts.conf").unlink()
-        before = contents(self.directory)
+        issuer_seed = (self.directory / "nats-callout-issuer.seed").read_text()
+        cases = (
+            ("corrupt text", "nats-callout-system.seed", "not a seed\n"),
+            ("wrong seed type", "nats-callout-auth.seed", issuer_seed),
+        )
+        for label, seed_file, bad_content in cases:
+            with self.subTest(label=label):
+                original = (self.directory / seed_file).read_text()
+                (self.directory / seed_file).write_text(bad_content)
+                (self.directory / "nats-callout-accounts.conf").unlink(missing_ok=True)
+                before = contents(self.directory)
 
-        result = run(self.directory)
+                result = run(self.directory)
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(seed_file, result.stdout)
+                for other in SEEDS:
+                    if other != seed_file:
+                        self.assertNotIn(other, result.stdout)
+                self.assertIn("Restore each unreadable seed", result.stdout)
+                self.assertIn("remove every nats-callout-* entry", result.stdout)
+                self.assertIn("Nothing was changed.", result.stdout)
+                self.assertEqual(contents(self.directory), before)
+
+                (self.directory / seed_file).write_text(original)
+                self.assertEqual(run(self.directory).returncode, CHANGED)
+
+    def test_failed_derivation_on_first_provisioning_writes_nothing(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as bin_dir:
+            fake_openssl = Path(bin_dir) / "openssl"
+            fake_openssl.write_text(f"#!{sys.executable}\nimport sys\nsys.exit(1)\n")
+            fake_openssl.chmod(0o755)
+            env = dict(os.environ, PATH=bin_dir + os.pathsep + os.environ.get("PATH", ""))
+
+            result = run(self.directory, env=env)
 
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertEqual(contents(self.directory), before)
+        self.assertIn("Nothing was changed.", result.stdout)
+        self.assertEqual(contents(self.directory), {})
 
     def test_other_files_in_the_directory_are_left_alone(self):
         (self.directory / "root.pem").write_text("synthetic\n")

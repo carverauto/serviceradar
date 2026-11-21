@@ -117,7 +117,6 @@ def write(path, text, mode):
 
 def main():
     directory = Path(sys.argv[1])
-    directory.mkdir(parents=True, exist_ok=True)
 
     seed_paths = {name: directory / file for name, (file, _kind) in SEED_FILES.items()}
     fragment_paths = [directory / AUTHORIZATION_FRAGMENT, directory / ACCOUNTS_FRAGMENT]
@@ -125,12 +124,13 @@ def main():
     any_present = bool(present_seeds) or any(path.exists() for path in fragment_paths)
 
     changed = False
+    generated_seeds = None
 
     if not any_present:
-        for name, (_file, kind) in SEED_FILES.items():
-            write(seed_paths[name], seed_text(kind, secrets.token_bytes(32)) + "\n", 0o600)
-        changed = True
-        print("Generated the NATS authorization callout signing seeds")
+        generated_seeds = {
+            name: seed_text(kind, secrets.token_bytes(32)) + "\n"
+            for name, (_file, kind) in SEED_FILES.items()
+        }
     elif len(present_seeds) != len(SEED_FILES):
         missing = sorted(SEED_FILES[name][0] for name in SEED_FILES if name not in present_seeds)
         print(
@@ -140,18 +140,50 @@ def main():
         )
         return 1
 
-    try:
-        public = {
-            name: public_text(kind, seed_raw(kind, seed_paths[name].read_text(encoding="utf-8")))
-            for name, (_file, kind) in SEED_FILES.items()
-        }
-    except (ValueError, binascii.Error, subprocess.CalledProcessError) as error:
-        print(f"A NATS authorization callout signing seed is unreadable: {error}. Nothing was changed.")
+    raw_seeds = {}
+    unreadable = []
+    for name in sorted(SEED_FILES, key=lambda n: SEED_FILES[n][0]):
+        file, kind = SEED_FILES[name]
+        try:
+            text = (
+                generated_seeds[name]
+                if generated_seeds is not None
+                else seed_paths[name].read_text(encoding="utf-8")
+            )
+            raw_seeds[name] = seed_raw(kind, text)
+        except (ValueError, binascii.Error, OSError) as error:
+            unreadable.append(f"{file} ({error})")
+    if unreadable:
+        print(
+            "The NATS authorization callout signing set is unreadable: "
+            f"{', '.join(unreadable)}. Restore each unreadable seed, or remove every "
+            "nats-callout-* entry to provision a new signing set. Nothing was changed."
+        )
         return 1
 
-    for file, text in fragments(public).items():
+    try:
+        public = {
+            name: public_text(kind, raw_seeds[name])
+            for name, (_file, kind) in SEED_FILES.items()
+        }
+        rendered_fragments = fragments(public)
+    except (subprocess.CalledProcessError, OSError) as error:
+        print(
+            f"Failed to derive NATS authorization callout public keys: {error}. "
+            "Nothing was changed."
+        )
+        return 1
+
+    directory.mkdir(parents=True, exist_ok=True)
+    if generated_seeds is not None:
+        for name, text in generated_seeds.items():
+            write(seed_paths[name], text, 0o600)
+        changed = True
+        print("Generated the NATS authorization callout signing seeds")
+
+    for file, text in rendered_fragments.items():
         path = directory / file
-        if not path.exists() or path.read_text(encoding="utf-8") != text:
+        if not path.exists() or path.read_bytes() != text.encode("utf-8"):
             write(path, text, 0o644)
             changed = True
             print(f"Wrote {file} from the signing seeds")
