@@ -192,6 +192,13 @@ runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"]}
 rustls-pemfile = "2"
+# Pure-Rust H.264 decoder for media-worker keyframes. Exact-pinned: a young crate with a fast
+# release cadence, so every bump is a deliberate, reviewed change. Default features are OFF
+# because they install a process-wide #[global_allocator]; `asm` is the stable-Rust SIMD
+# kernels (SSE2/AVX2 + aarch64 NEON intrinsics in rusty_h264-accel), not assembly.
+rusty_h264-common = { version = "=0.17.3", default-features = false, features = ["std"] }
+rusty_h264-decoder = { version = "=0.17.3", default-features = false, features = ["std", "asm"] }
+rusty_h264-encoder = { version = "=0.17.3", default-features = false, features = ["std"] }
 safetensors = "0.8"
 serde = { version = "1.0", default-features = false, features = ["std"] }
 serde_json = "1.0"
