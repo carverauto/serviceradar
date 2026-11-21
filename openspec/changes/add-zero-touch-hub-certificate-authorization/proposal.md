@@ -70,13 +70,15 @@ the runtime Secret, exposing every component's private key to the caller.
   writes nothing: replacing an adopted certificate stays solely with the
   existing rotation record, unchanged, so revocation is unchanged. Hand
   adoption remains, unchanged, for clients the chart does not define.
-- **Signing key provisioning follows issuer Secret ownership.** When the
-  issuer and runtime Secret names match, the generator provisions all five
+- **Signing key provisioning follows issuer Secret ownership.** On a non-hosted install with
+  `certs.generator.enabled` true and matching issuer and runtime Secret names,
+  the generator provisions all five
   signing entries together only when none exist. On upgrade or rerun, it
   preserves all three existing seeds and uses them to repair missing or stale
   fragments. If any entry remains but a seed is missing, the job fails without
   writing and names the seeds to restore. The operator can instead deliberately
-  remove the remaining signing entries to provision a new set. For a distinct issuer, its owner provisions the seeds
+  remove the remaining signing entries to provision a new set. In every other configuration, the
+  Secret supplier provisions the seeds
   in the issuer Secret and the fragments in the runtime Secret. The generator
   leaves both sets alone and keeps its existing Role. Only with enforcement
   on does core project the seeds and NATS project the fragments. The chart

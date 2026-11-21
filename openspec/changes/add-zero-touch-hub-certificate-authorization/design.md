@@ -70,7 +70,7 @@ step on the path where the generator finds existing certificates and exits
 early, and a second object the hosted control plane would have to supply.
 
 A required Secret volume fails to mount when a listed key is missing, and a pod with a
-failed mount does not start. On a chart install the generator always creates
+failed mount does not start. When the chart generates certificates it creates
 every chart identity's certificate. A Secret supplied by the hosted control
 plane may not carry the same files, so in hosted mode the list of inventory
 certificate files is a chart value the control plane sets to what it supplies (task 2.7),
@@ -166,28 +166,31 @@ Alternatives considered:
 
 ### Decision 2: Signing key provisioning follows issuer Secret ownership
 
-Compare the Secret names resolved by `serviceradar.runtimeIssuerSecretName`
-and `serviceradar.runtimeCertsSecretName`. When they match (the self-managed
-default), the runtime Secret already holds the CA key. On every run,
-including before the existing-certificate early exit, the generator inspects
-the three signing seeds and two public broker fragments in that Secret.
+The generator owns the signing set only on a non-hosted install with
+`certs.generator.enabled` true and the same Secret name resolved by
+`serviceradar.runtimeIssuerSecretName` and `serviceradar.runtimeCertsSecretName`.
+In the self-managed default this shared runtime Secret also holds the CA key.
+In every other configuration the Secret supplier provides the three seeds in
+the issuer Secret and both matching fragments in the runtime Secret. This
+covers distinct Secret names, hosted installs and self-managed installs
+with generation disabled, even when both names identify the same Secret.
+Any generator running in those configurations leaves all five entries alone.
+Its Role stays unchanged. The chart documents all five keys and their destinations.
+
+On the generator-owned path the signing step runs both before the
+existing-certificates early exit and when certificates are generated or
+regenerated. Certificate reconciliation controls the successful exit and
+writes the rotation manifest when it reissues certificates.
 
 - If all five entries are absent, generate the issuer, auth and system seeds
   and publish them together with both fragments derived from their public keys.
 - If all three seeds are present, preserve them and rebuild only missing or
-  stale fragments from those seeds. A matching set needs no write.
+  stale fragments from those seeds. A matching set leaves all five signing entries untouched.
 - If any signing entry remains but a seed is missing, fail the job without
   writing. Name each missing seed and direct the operator to restore it or
   deliberately remove all remaining signing entries to provision a new set.
 
 Signing key rotation is outside this change.
-
-When `certs.issuerSecretName` resolves to a distinct Secret, its owner
-provisions the three seeds there and both matching fragments in the runtime
-Secret. This applies to self-managed and hosted installs. The generator
-leaves all five entries alone on install, upgrade and certificate regeneration.
-Its Role stays unchanged. The chart documents all five required Secret keys
-and their destinations.
 
 With enforcement enabled, the chart renders two fixed signing projections.
 Core mounts the three issuer Secret seeds in a separate optional volume so
@@ -300,7 +303,7 @@ resolver:
 2. enforcement not configured: set `nats.certificateAuthorization.enabled`;
 3. enforcement configured but any of the three mounted seeds is absent: core reports `signing keys not provisioned`.
    Hub status displays that reason and leaf install stops, directing the
-   issuer Secret owner to provision the missing seeds;
+   signing set owner from Decision 2 to provision the missing seeds;
 4. enforcement configured but the authorizer otherwise not answering: no setting to
    change; check NATS and core health, then retry, with the readiness reason
    shown;
@@ -318,7 +321,7 @@ installs keep today's behaviour.
 
 Admission and reconnection in this rollout apply while at least one broker is serving and core's authorizer is connected.
 Core adopts chart identities whether or not enforcement is on. So the order
-for an existing install, once its issuer owner has provisioned any externally
+for an existing install, once its Secret supplier has provisioned any externally
 managed signing material, is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first

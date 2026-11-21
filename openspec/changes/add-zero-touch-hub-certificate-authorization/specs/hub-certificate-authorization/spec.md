@@ -50,26 +50,31 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **THEN** it contains public certificates only and no private key or CA key
 
 ### Requirement: Signing keys are created by the install, not pasted by an operator
-When the issuer and runtime Secret names match, the chart generator SHALL provision the three seeds and both matching public fragments together only if all five entries are absent. With all three seeds present it SHALL preserve them and rebuild only missing or stale fragments from them. For any other nonempty signing set it SHALL fail without writing. When the names differ, the issuer Secret owner SHALL provision the three seeds in the issuer Secret and both matching public fragments in the runtime Secret. In that configuration the generator SHALL leave all five entries untouched. The chart SHALL project the seeds only into core and the fragments only into the broker, and only when enforcement is enabled.
+The chart generator SHALL own the signing set only on non-hosted installs with `certs.generator.enabled` true and matching issuer and runtime Secret names. For a generator-owned set it SHALL provision the three seeds and both matching public fragments together only if all five entries are absent. With all three seeds present it SHALL preserve them and rebuild only missing or stale fragments from them. For any other nonempty signing set it SHALL fail without writing. In every other configuration the Secret supplier SHALL provision the three seeds in the issuer Secret and both matching public fragments in the runtime Secret. Any running generator in those configurations SHALL leave all five entries untouched. The chart SHALL project the seeds only into core and the fragments only into the broker, and only when enforcement is enabled.
 
 #### Scenario: Enforcement is turned on
 - **WHEN** an operator sets the enforcement value on an install with the signing seeds present
 - **THEN** the chart configures the broker to include the public key fragments
 - **AND** while at least one broker is serving and core's authorizer is connected, the authorizer authenticates with the mounted seeds
 
-#### Scenario: First provisioning in the shared issuer and runtime Secret
+#### Scenario: First provisioning of a generator-owned signing set
 - **WHEN** the generator finds none of the five signing entries, including on an upgrade with existing certificates
-- **THEN** it writes three new seeds and both matching fragments together before exiting
+- **THEN** it writes three new seeds and both matching fragments together on either certificate reconciliation path
 
-#### Scenario: The generator reruns with all three seeds in the shared Secret
+#### Scenario: Certificate reconciliation with a generator-owned signing set
 - **WHEN** all three seeds are present
 - **THEN** the generator preserves every seed and derives each missing or stale fragment from their public keys
-- **AND** it writes nothing when both fragments already match
+- **AND** it leaves all five signing entries unchanged when both fragments already match
+- **AND** on either signing outcome the certificate check still determines whether to preserve existing certificates or regenerate them and write the rotation manifest
 
-#### Scenario: The shared Secret has lost signing seeds
+#### Scenario: A generator-owned signing set has lost seeds
 - **WHEN** any signing entry remains and one or more seeds are missing, including when only fragments remain
 - **THEN** the job fails without writing and names each missing seed
 - **AND** the error directs the operator to restore the missing seeds or deliberately remove all remaining signing entries to provision a new set
+
+#### Scenario: The supplier provides a shared Secret with generation disabled
+- **WHEN** a self-managed install uses the same Secret for issuer and runtime certificates and disables the generator
+- **THEN** the supplier provisions all five signing entries in that Secret before enabling enforcement
 
 #### Scenario: A previously bootstrapped install upgrades to the chart
 - **WHEN** the bootstrap API created a signing record before upgrade and enforcement is enabled with the three chart seeds mounted
