@@ -9,13 +9,21 @@ defmodule ServiceRadarNVR.Ingest do
 
   The same authenticated listener accepts `POST /v1/blocks/<block_id>/archive`,
   which copies one sealed block to the request's bucket through
-  `ServiceRadarNVR.Archive` under its own 120-second deadline.
+  `ServiceRadarNVR.Archive` under its own 120-second deadline, and
+  `GET /v1/blocks/<block_id>/descriptor`, which answers the canonical v1
+  descriptor bytes of one verified sealed block (`ServiceRadarNVR.block_descriptor/1`,
+  run in the shared read pool). Core freezes exactly those bytes when it
+  catalogs the block. The read verifies the whole sealed block first; it is
+  404 `block_not_found` for an ID that names no retained block, 409
+  `block_not_sealed` for a block with no seal that verifies, and 503
+  `descriptor_unavailable` when the read pool or recovery state refuses it.
   """
   @behaviour Plug
 
   import Plug.Conn
 
   alias ServiceRadarNVR.Archive
+  alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.IngestStream
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
@@ -23,6 +31,8 @@ defmodule ServiceRadarNVR.Ingest do
   require Logger
 
   @archive_request_bytes 8192
+  # The read pool retires an admitted read after 10 s and its caller after 11 s.
+  @descriptor_deadline_ms 15_000
 
   @impl true
   def init(config), do: config
@@ -91,10 +101,23 @@ defmodule ServiceRadarNVR.Ingest do
     end
   end
 
+  defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "descriptor"]} = conn, _config) do
+    case ServiceRadarNVR.block_descriptor(block_id) do
+      {:ok, descriptor} -> respond(conn, 200, descriptor)
+      {:error, reason} -> descriptor_refusal(conn, Blocks.read_error(reason))
+    end
+  end
+
   defp route(conn, _config), do: respond(conn, 404, %{error: "not_found"})
 
-  # The archive route has its own deadline; every other route keeps the ingest one.
+  defp descriptor_refusal(conn, :block_not_found), do: respond(conn, 404, %{error: "block_not_found"})
+  defp descriptor_refusal(conn, :block_not_sealed), do: respond(conn, 409, %{error: "block_not_sealed"})
+  defp descriptor_refusal(conn, _class), do: respond(conn, 503, %{error: "descriptor_unavailable"})
+
+  # The archive and descriptor routes have their own deadlines; every other
+  # route keeps the ingest one.
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "archive"]}, _config), do: Archive.request_timeout_ms()
+  defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "descriptor"]}, _config), do: @descriptor_deadline_ms
   defp deadline_ms(_conn, config), do: config.max_duration_ms
 
   defp consume(stream, worker, inbox, blocks) do
@@ -175,7 +198,8 @@ defmodule ServiceRadarNVR.Ingest do
     :exit, _ -> :ok
   end
 
-  # A binary result is already canonical JSON, such as an archive receipt.
+  # A binary result is already canonical JSON, such as an archive receipt or a
+  # block descriptor.
   defp respond(conn, status, result) do
     body = if is_binary(result), do: result, else: Jason.encode!(result)
 

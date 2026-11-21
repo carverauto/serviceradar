@@ -5,7 +5,9 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   @max_body 67_108_864
   @max_response 32_768
-  @empty_response %{status: nil, body: "", done: false}
+  # The descriptor's own encoding bound (`ServiceRadarRecordingMetadata.Descriptor`).
+  @max_descriptor_response 2_097_152
+  @empty_response %{status: nil, body: "", done: false, limit: @max_response}
 
   def send_recording(config, header, bytes, units, deadline, owner) do
     connect(config, deadline, owner, &transmit(&1, config.token, header, bytes, units, deadline, owner))
@@ -13,6 +15,10 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   def archive_block(config, block_id, request, body, deadline, owner) do
     connect(config, deadline, owner, &request_archive(&1, config.token, block_id, request, body, deadline, owner))
+  end
+
+  def block_descriptor(config, block_id, deadline, owner) do
+    connect(config, deadline, owner, &request_descriptor(&1, config.token, block_id, deadline, owner))
   end
 
   defp connect(config, deadline, owner, exchange) do
@@ -125,9 +131,35 @@ defmodule ServiceRadarNVRClient.HTTP do
   defp archive_result(200, body, block_id, request), do: Wire.archive_receipt(body, block_id, request)
 
   defp archive_result(status, body, _block_id, _request) when is_integer(status),
-    do: {:error, {:archive_status, status, Wire.archive_error(body)}}
+    do: {:error, {:archive_status, status, Wire.error_body(body)}}
 
   defp archive_result(_status, _body, _block_id, _request), do: {:error, :outcome_unknown}
+
+  defp request_descriptor(connection, token, block_id, deadline, owner) do
+    headers = [{"authorization", "Bearer " <> token}]
+
+    with :ok <- current(deadline, owner),
+         {:ok, connection, ref} <-
+           Mint.HTTP1.request(connection, "GET", "/v1/blocks/" <> block_id <> "/descriptor", headers, nil) do
+      response(
+        connection,
+        ref,
+        deadline,
+        owner,
+        &descriptor_result(&1, &2, block_id),
+        %{@empty_response | limit: @max_descriptor_response}
+      )
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp descriptor_result(200, body, block_id), do: Wire.descriptor(body, block_id)
+
+  defp descriptor_result(status, body, _block_id) when is_integer(status),
+    do: {:error, {:descriptor_status, status, Wire.error_body(body)}}
+
+  defp descriptor_result(_status, _body, _block_id), do: {:error, :outcome_unknown}
 
   defp stream(units, connection, ref, size, deadline, owner) do
     Enum.reduce_while(units, {:ok, connection, size}, fn unit, {:ok, connection, size} ->
@@ -169,7 +201,7 @@ defmodule ServiceRadarNVRClient.HTTP do
         {:headers, ^ref, _} ->
           {:cont, {:ok, acc}}
 
-        {:data, ^ref, bytes} when byte_size(acc.body) + byte_size(bytes) <= @max_response ->
+        {:data, ^ref, bytes} when byte_size(acc.body) + byte_size(bytes) <= acc.limit ->
           {:cont, {:ok, %{acc | body: acc.body <> bytes}}}
 
         {:done, ^ref} ->

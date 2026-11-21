@@ -32,6 +32,11 @@ sealed block's init, media and descriptor through Longshore, reads every object
 back and only then retains `archive-receipt.json` beside the block. The local
 block is kept. See [archive upload](../../docs/nvr-ingest.md#archive-upload).
 
+It also answers `GET /v1/blocks/<block_id>/descriptor` with the canonical
+descriptor bytes of one verified sealed block, read in the shared read pool.
+Core freezes those bytes when it catalogs the block. See
+[block descriptor](../../docs/nvr-ingest.md#block-descriptor).
+
 ## Deployment recovery admission
 
 Runtime admission requires an external boot-pinned recovery generation and a

@@ -77,8 +77,21 @@ sending media over NATS/JetStream or ERTS distribution:
    control processes, and streams contiguous 90000 Hz H264 AnnexB access units
    through `ServiceRadarNVRClient.send_recording/4`.
 4. A verified `sealed_local` receipt returns the correlated `recording_block_id`
-   and `block_key` while keeping the `RecordingBlock` in `:open_local` (never
-   published or playable by local seal alone). Any `:outcome_unknown`, timeout
+   and `block_key`. Before it releases its recorder claim, the worker reads the
+   block's canonical descriptor (`GET /v1/blocks/<block_id>/descriptor`) and,
+   under that still-live claim, freezes it on the `RecordingBlock` and creates
+   the block's `RecordingCatalogEntry` in one transaction
+   (`RecordingBlocks.freeze_and_catalog/6`). The entry's archive state follows
+   the camera's `CameraRecordingPolicy` storage mode and the archive settings,
+   and its timeline uses the `received` time basis: the block starts at the
+   UTC time the inbox admitted the capture's first unit and spans the
+   descriptor's media duration, with unmeasured uncertainty. The receipt's
+   `catalog` field is `{:registered, entry_id}`. If the descriptor read or the
+   freeze fails, or the capture deadline leaves no time for them, nothing is
+   written to the catalog, the block stays `:open_local` and sealed on the NVR
+   for the reconciler, `catalog` is `{:unregistered, reason}`, and the capture
+   still returns `{:ok, receipt}` and releases its claim, because the seal is
+   durable. Each step runs once. Any `:outcome_unknown`, timeout
    or caller loss aborts without sending the stream-end marker, never retries
    or fails over to another replica, and leaves the reserved block and epoch
    intact for inspection or recovery. The recorder lease keeps renewing until
@@ -117,8 +130,8 @@ sending media over NATS/JetStream or ERTS distribution:
 A capture ends at the first of its frame, byte and media-duration bounds
 (defaults 240 frames, 8 MiB and 6 seconds; ceilings 8,100 frames, 12 MiB and
 270 seconds, about 4.5 minutes at 30 fps). The call's `timeout_ms` must cover
-the capture, relay start-up and the NVR seal: about 295,000 ms for a 270-second
-capture. The NVR side must allow the same: `nvr.maxDurationMs` defaults to
+the capture, relay start-up, the NVR seal and the block's registration: about
+295,000 ms for a 270-second capture. The NVR side must allow the same: `nvr.maxDurationMs` defaults to
 300000 in the Helm chart for this reason.
 
 One capture is one NVR block, `block_sequence: 0`, and the worker accepts only
@@ -263,6 +276,21 @@ Closing recovery during work withholds success even if some bytes have already
 been written. Inspection and explicit recovery remain separate operations under
 their existing authority requirements.
 
+## Block descriptor
+
+The same authenticated listener answers `GET /v1/blocks/<block_id>/descriptor`
+with the canonical v1 descriptor JSON of one sealed block: its identity and
+clock, codec, initialization and media lengths and SHA-256, and every fragment's
+offset, length, timing and SHA-256. Core freezes exactly these bytes when it
+catalogs the block. The read runs in the NVR's shared read pool (four slots, no
+queue, ten seconds per read), verifies the whole sealed block before answering
+and changes nothing on disk. Answers: 200 with the descriptor bytes, 401 for a
+client that fails the certificate pin or token, 404 `block_not_found` for an ID
+that names no retained block (including a malformed ID), 409 `block_not_sealed`
+for a block with no seal that verifies, and 503 `descriptor_unavailable` when
+the read pool is full or the recovery state refuses the read. The request is
+bounded by 15 seconds.
+
 ## Archive upload
 
 The same authenticated listener copies one sealed local block to an
@@ -352,6 +380,10 @@ neither deployed-camera behavior nor physical Longhorn node-loss durability.
 The same target runs the packaged client against the packaged NVR and an
 independent TLS peer to check wire bytes, receipt binding, server identity,
 byte limits, no retries and bounded cleanup after producer or caller failure.
+The same target reads a network-ingested block's descriptor over mutual TLS,
+checks it against the block's files and the packaged client, and checks the
+401, 404 and 409 answers and that the client refuses non-canonical bytes and
+descriptors for another block.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every

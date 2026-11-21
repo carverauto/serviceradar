@@ -2,11 +2,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
@@ -22,6 +24,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
@@ -1011,7 +1014,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert String.trim(output) == Integer.to_string(expected)
   end
 
-  test "NVRCapture.once_source streams bounded relay media into serviceradar_nvr, retains decodable fMP4 across restart, and keeps catalog state open_local",
+  test "NVRCapture.once_source streams bounded relay media into serviceradar_nvr, retains decodable fMP4 across restart, and catalogs the sealed block",
        ctx do
     nvr_ctx = Fixtures.context()
     nvr = setup_nvr_release(ctx.tmp_dir)
@@ -1090,11 +1093,24 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert block.id == receipt.recording_block_id
     assert block.block_key == receipt.block_key
     assert block.storage_id == nvr.storage_id
-    assert block.state == :open_local
-    assert block.descriptor == nil
     assert block.archive_published_at == nil
 
-    assert {:error, :recording_block_unfrozen} =
+    # The frozen descriptor is the NVR's own description of the bytes it sealed.
+    assert block.state == :sealed
+    assert block.descriptor["identity"] == RecordingBlock.identity(block)
+    media_path = Path.join([nvr.spool_dir, block.block_key, "media.m4s"])
+    assert block.descriptor["media"]["length"] == File.stat!(media_path).size
+
+    assert {:registered, entry_id} = receipt.catalog
+    assert [entry] = catalog_entries(nvr.storage_id)
+    assert entry.id == entry_id
+    assert entry.recording_block_id == block.id
+    assert entry.block_key == block.block_key
+    assert entry.descriptor_sha256 == block.descriptor_sha256
+    assert entry.local_state == :present
+
+    # A block on an NVR volume is archived by the NVR, never by the older upload path.
+    assert {:error, :nvr_local_storage_block} =
              RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
                actor: nvr_ctx.actor
              )
@@ -1527,7 +1543,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     [block] = recording_blocks(ctx)
     assert block.block_key == receipt.block_key
-    assert block.state == :open_local
+    assert block.state == :sealed
+    assert {:registered, _entry_id} = receipt.catalog
   end
 
   test "NVRCapture rejects a capture timeout beyond the NVR client limit before taking the recorder fence",
@@ -1827,6 +1844,158 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     claim = recorder_claim(ctx)
     assert claim.state == :released
     assert claim.lease_expires_at == last_permitted_renewal
+  end
+
+  test "NVRCapture catalogs a sealed block under its live recorder claim with the received time basis",
+       ctx do
+    {:ok, _profile} =
+      StreamProfile.update_profile(ctx.profile, %{relay_eligible: true}, actor: ctx.actor)
+
+    {:ok, policy} =
+      CameraRecordingPolicy
+      |> Ash.Changeset.for_create(:create, %{
+        camera_source_id: ctx.source.id,
+        stream_profile_id: ctx.profile.id,
+        storage: :local_only
+      })
+      |> Ash.create(actor: ctx.actor)
+
+    %{
+      receipt: receipt,
+      nvr: nvr,
+      block: block,
+      descriptor: {descriptor, bytes},
+      units: units,
+      admitted: admitted
+    } =
+      registering_capture(ctx, fn bytes -> {200, bytes} end)
+
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert_receive {:nvr_descriptor_read, request_line}, 1_000
+    assert request_line == "GET /v1/blocks/#{block.block_key}/descriptor HTTP/1.1"
+
+    frozen = Ash.get!(RecordingBlock, block.id, actor: ctx.actor)
+    assert frozen.state == :sealed
+    assert frozen.descriptor == descriptor
+
+    assert frozen.descriptor_sha256 ==
+             :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+
+    assert [entry] = catalog_entries(nvr.storage_id)
+    assert entry.id == entry_id
+    assert entry.recording_block_id == block.id
+    assert entry.block_key == block.block_key
+    assert entry.local_state == :present
+    # A local-only camera's block is not owed an archive copy.
+    assert entry.policy_id == policy.id
+    assert entry.archive_state == :not_required
+
+    # One capture is one run anchored at its first admitted unit; the window
+    # spans the descriptor's 4 s of media from there, and its uncertainty is unmeasured.
+    assert entry.time_basis == :received
+    assert entry.time_uncertainty_us == nil
+    assert entry.first_unit_pts == hd(units).pts
+    received_us = DateTime.to_unix(entry.first_unit_received_at, :microsecond)
+    assert received_us in admitted
+    assert entry.timeline_start_us == received_us
+    assert entry.timeline_end_us == received_us + 4_000_000
+    assert entry.run_id == "#{ctx.relay.id}:1"
+    assert entry.anchor_id == "#{ctx.relay.id}:1:0"
+
+    # The freeze ran under the claim; only then was the claim released.
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture leaves a sealed block it cannot read back to the reconciler and still releases its claim",
+       ctx do
+    unavailable = ~s({"error":"descriptor_unavailable"})
+
+    %{receipt: receipt, nvr: nvr, block: block} =
+      registering_capture(ctx, fn _bytes -> {503, unavailable} end)
+
+    # The NVR sealed the media, so the capture completes; the block is not cataloged.
+    assert receipt.status == :sealed_local
+    assert receipt.block_key == block.block_key
+
+    assert receipt.catalog ==
+             {:unregistered, {:descriptor_status, 503, %{"error" => "descriptor_unavailable"}}}
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(nvr.storage_id) == []
+    # A released claim is the writer retirement the reconciler's historical freeze needs.
+    assert recorder_claim(ctx).state == :released
+  end
+
+  # Captures three units against a fake NVR that seals the reserved block and
+  # answers its descriptor read with `answer.(canonical_descriptor_bytes)`.
+  defp registering_capture(ctx, answer) do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
+    task = start_fake_nvr_capture(ctx, nvr, 3)
+    _worker = await_nvr_worker_attached(owner)
+    [block] = recording_blocks(ctx)
+    descriptor = synthetic_descriptor(RecordingBlock.identity(block))
+    {:ok, bytes} = Descriptor.encode(descriptor)
+    {status, body} = answer.(bytes)
+
+    receipt =
+      Jason.encode!(%{
+        "version" => 1,
+        "status" => "sealed_local",
+        "storage_id" => nvr.storage_id,
+        "block_ids" => [block.block_key]
+      })
+
+    send(nvr.peer, {:seal, receipt})
+    send(nvr.peer, {:descriptor, status, body})
+
+    units = Enum.take(ctx.media.units, 3)
+    admitted_from = System.os_time(:microsecond)
+    Enum.each(units, &send(ctx.pipeline, {:media_chunk, &1}))
+    assert {:ok, receipt} = Task.await(task, 10_000)
+
+    %{
+      receipt: receipt,
+      nvr: nvr,
+      block: block,
+      descriptor: {descriptor, bytes},
+      units: units,
+      admitted: admitted_from..System.os_time(:microsecond)
+    }
+  end
+
+  # An invented descriptor for `identity`: two 2 s fragments of invented bytes.
+  defp synthetic_descriptor(identity) do
+    digest = &Base.encode16(:crypto.hash(:sha256, &1), case: :lower)
+
+    fragment = fn sequence, offset ->
+      %{
+        "sequence" => sequence,
+        "offset" => offset,
+        "length" => 1_000,
+        "start_ns" => sequence * 2_000_000_000,
+        "duration_ns" => 2_000_000_000,
+        "sha256" => digest.("synthetic-fragment-#{sequence}"),
+        "tail_duration_source" => nil,
+        "motion" => "unknown"
+      }
+    end
+
+    %{
+      "version" => 1,
+      "identity" => identity,
+      "format" => %{"codec" => "avc1.64001f", "timescale" => 90_000},
+      "init" => %{"length" => 600, "sha256" => digest.("synthetic-init")},
+      "media" => %{"length" => 2_000, "sha256" => digest.("synthetic-media")},
+      "fragments" => [fragment.(0, 0), fragment.(1, 1_000)]
+    }
+  end
+
+  defp catalog_entries(storage_id) do
+    RecordingCatalogEntry
+    |> Ash.Query.filter(storage_id == ^storage_id)
+    |> Ash.read!(actor: SystemActor.system(:camera_recording_test))
   end
 
   test "NVRCapture returns a verified seal receipt when worker cleanup outlasts the exit wait",
@@ -2509,6 +2678,67 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       tail = binary_part(seen, byte_size(seen) - keep, keep)
       if tail == @ingest_request_end, do: :ok, else: read_until_request_end(ssl_sock, tail)
     end
+  end
+
+  # Answers the ingest request with the receipt it is handed, then answers the
+  # descriptor read on the next connection with the status and body it is handed,
+  # reporting that read's request line.
+  defp start_registering_tls_peer(certs, notify_pid) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> registering_peer_accept(listen, notify_pid) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    {port, pid}
+  end
+
+  defp registering_peer_accept(listen, notify_pid) do
+    with {:ok, ingest} <- accept_tls_peer(listen),
+         :ok <- read_until_request_end(ingest, <<>>) do
+      receive do
+        {:seal, body} -> answer_tls_peer(ingest, 200, body)
+      end
+
+      _ = :ssl.close(ingest)
+
+      with {:ok, read} <- accept_tls_peer(listen),
+           {:ok, request_line} <- read_request_line(read, <<>>) do
+        send(notify_pid, {:nvr_descriptor_read, request_line})
+
+        receive do
+          {:descriptor, status, body} -> answer_tls_peer(read, status, body)
+        end
+
+        _ = :ssl.recv(read, 0, 5_000)
+      end
+    end
+  end
+
+  defp accept_tls_peer(listen) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         do: :ssl.handshake(transport, 5_000)
+  end
+
+  defp read_request_line(ssl_sock, seen) do
+    case :binary.split(seen, "\r\n\r\n") do
+      [head, _rest] ->
+        {:ok, head |> String.split("\r\n") |> hd()}
+
+      [_partial] ->
+        with {:ok, chunk} <- :ssl.recv(ssl_sock, 0, 10_000),
+             do: read_request_line(ssl_sock, seen <> chunk)
+    end
+  end
+
+  defp answer_tls_peer(ssl_sock, status, body) do
+    headers =
+      "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n"
+
+    :ok = :ssl.send(ssl_sock, ["HTTP/1.1 #{status} Answer\r\n", headers, body])
   end
 
   defp decode_rawvideo(path) do

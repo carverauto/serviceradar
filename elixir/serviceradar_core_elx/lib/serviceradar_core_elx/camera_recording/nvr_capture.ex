@@ -28,8 +28,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
   `:bounds` sets the worker's frame, byte and media-duration bounds (see
   `ServiceRadarCoreElx.CameraRecording.NVRWorker`). The timeout must cover the
-  capture plus relay start-up and the NVR seal: a 270 s capture, the duration
-  ceiling, needs about 295,000 ms.
+  capture plus relay start-up, the NVR seal and the block's registration: a
+  270 s capture, the duration ceiling, needs about 295,000 ms.
+
+  A sealed capture returns `{:ok, receipt}` with `status: :sealed_local`. Its
+  `catalog` field is `{:registered, entry_id}` when the worker froze the block's
+  descriptor and created its catalog entry, or `{:unregistered, reason}` when
+  it could not, in which case the block stays sealed on the NVR and is left to
+  the reconciler.
   """
 
   alias ServiceRadar.Actors.SystemActor
