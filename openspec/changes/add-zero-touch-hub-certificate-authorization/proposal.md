@@ -70,13 +70,16 @@ the runtime Secret, exposing every component's private key to the caller.
   writes nothing: replacing an adopted certificate stays solely with the
   existing rotation record, unchanged, so revocation is unchanged. Hand
   adoption remains, unchanged, for clients the chart does not define.
-- **The chart owns the callout signing keys.** The generator creates the three
-  nkeys once and stores their seeds in the existing issuer Secret. Only core
-  projects those seeds. The generator stores two public broker fragments in
-  the runtime certificate Secret. Only the NATS pod projects and includes
-  those fragments when enforcement is enabled. Nothing
-  is pasted into values. The existing API bootstrap stays for installs that
-  have no chart.
+- **Signing key provisioning follows issuer Secret ownership.** When the
+  issuer and runtime Secret names match, the generator creates the three
+  seeds and two matching public broker fragments once and backfills missing
+  entries on upgrade. For a distinct issuer, its owner provisions the seeds
+  in the issuer Secret and the fragments in the runtime Secret. The generator
+  leaves both sets alone and keeps its existing Role. Only with enforcement
+  on does core project the seeds and NATS project the fragments. The chart
+  documents the required keys. If any are missing on a distinct-issuer
+  install, core reports `signing keys not provisioned` in hub status and
+  leaf install stops. The API bootstrap stays for installs without a chart.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
@@ -94,7 +97,7 @@ the runtime Secret, exposing every component's private key to the caller.
   the CLI shows both: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, naming the cause and what resolves it: the enforcement
-  value, waiting for core's authorizer, `nats.leafnodes.enabled`, the leaf
+  value, provisioning missing signing material, waiting for core's authorizer, `nats.leafnodes.enabled`, the leaf
   host setting, or the per-subject reason a chart identity is not adopted. It
   also stops when the hub status is missing or unreadable. Today it
   continues and the leaf never connects.

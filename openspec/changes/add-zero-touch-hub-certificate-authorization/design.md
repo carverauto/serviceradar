@@ -164,20 +164,30 @@ Alternatives considered:
   the existing design keeps a per-fingerprint record so one certificate can be
   revoked and used certificates can be listed; this keeps that.
 
-### Decision 2: The chart owns the signing keys
+### Decision 2: Signing key provisioning follows issuer Secret ownership
 
-The generator creates the issuer, auth and system nkeys once and never
-replaces existing ones. It stores all three seeds in the issuer Secret
-selected by `certs.issuerSecretName` and resolved by
-`serviceradar.runtimeIssuerSecretName`. Only core projects the seeds from
-that Secret. The two broker fragments contain only public keys and live
-alongside the public inventory certificates in the runtime certificate
-Secret. Only the NATS pod projects and includes the fragments.
+Compare the Secret names resolved by `serviceradar.runtimeIssuerSecretName`
+and `serviceradar.runtimeCertsSecretName`. When they match (the self-managed
+default), the generator creates the issuer, auth and system nkeys once and
+stores their three seeds and two matching public broker fragments in the
+runtime Secret, which already holds the CA key. Before the existing-certificate
+early exit it backfills missing entries and preserves existing keys on reruns.
 
-On self-managed installs the issuer Secret defaults to the runtime certificate
-Secret, which already holds the CA key. Hosted installs use a distinct issuer
-Secret so the CA key and callout seeds stay there. Pod projections limit the
-files mounted into workloads. In either mode, Kubernetes principals with read
+When `certs.issuerSecretName` resolves to a distinct Secret, its owner
+provisions the three seeds there and both matching fragments in the runtime
+Secret. This applies to self-managed and hosted installs. The generator
+leaves all five entries alone on install, upgrade and certificate regeneration.
+Its Role stays unchanged. The chart documents all five required Secret keys
+and their destinations.
+
+Render the signing projections only with enforcement enabled. Only core
+projects the seeds and only NATS projects the fragments. For a distinct
+issuer, a missing seed must allow core to start and serve readiness. Either
+missing fragment must leave broker enforcement closed and its provisioning
+failure visible to core, even if NATS cannot start (Decision 5).
+
+On hosted installs the distinct issuer Secret holds both the CA signing key
+and the callout seeds. Pod projections limit the files mounted into workloads. In either mode, Kubernetes principals with read
 access to the issuer Secret can read the seeds and use the signing keys.
 
 A broker experiment confirmed that nats-server accepts the callout
@@ -185,11 +195,6 @@ authorization from an included file at the top level and the two extra
 accounts from a file included inside the accounts block, and that empty
 fragments leave the static configuration as it is today. With enforcement off
 the NATS pod includes nothing.
-
-On an install that already has certificates the generator finds them and
-exits before generating anything, so it gains one step on that path: add the
-signing keys and fragments when they are absent, and change nothing when they
-are present.
 
 Core reads the seeds from the mounted files when they are present. The
 database record and `POST /nats/certificate-authorization/bootstrap` remain
@@ -275,13 +280,17 @@ resolver:
 1. hub status missing or unreadable: no setting to change; wait and retry,
    and check core's health;
 2. enforcement not configured: set `nats.certificateAuthorization.enabled`;
-3. enforcement configured but the authorizer not answering: no setting to
+3. enforcement configured but a seed or broker fragment is missing on a
+   distinct-issuer install: core reports `signing keys not provisioned`.
+   Hub status displays that reason and leaf install stops, directing the
+   issuer Secret owner to provision the missing entries;
+4. enforcement configured but the authorizer otherwise not answering: no setting to
    change; wait and retry, and check core's health, with the readiness reason
    shown;
-4. leaf listener not configured: `nats.leafnodes.enabled`;
-5. no leaf upstream URL: the install's leaf host setting
+5. leaf listener not configured: `nats.leafnodes.enabled`;
+6. no leaf upstream URL: the install's leaf host setting
    (`hostedRuntime.publicEndpoints.natsLeafHost` today);
-6. a chart identity not adopted: the per-subject reason from
+7. a chart identity not adopted: the per-subject reason from
    `chart_identities`; there is no Helm setting for this cause.
 
 In every case it changes nothing on the host. It no longer
@@ -291,7 +300,8 @@ installs keep today's behaviour.
 ### Decision 6: Turning it on is safe by construction
 
 Core adopts chart identities whether or not enforcement is on. So the order
-for an existing install is: upgrade to this release with the value off; check
+for an existing install, once its issuer owner has provisioned any externally
+managed signing material, is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first
 reconciliation, and they retry, but only when every chart identity can be

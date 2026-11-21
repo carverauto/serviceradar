@@ -50,10 +50,10 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **THEN** it contains public certificates only and no private key or CA key
 
 ### Requirement: Signing keys are created by the install, not pasted by an operator
-On a chart install, the callout signing keys SHALL be generated once by the chart, with the seeds available only to core and the public keys delivered to the broker without an operator copying them into values.
+When the issuer and runtime Secret names match, the chart generator SHALL create the callout signing keys once and backfill missing entries. When the names differ, the issuer Secret owner SHALL provision the three seeds in the issuer Secret and both matching public fragments in the runtime Secret. In that configuration the generator SHALL leave all five entries untouched. The chart SHALL project the seeds only into core and the fragments only into the broker, and only when enforcement is enabled.
 
 #### Scenario: Enforcement is turned on
-- **WHEN** an operator sets the enforcement value and no other certificate authorization value
+- **WHEN** an operator sets the enforcement value on an install with provisioned signing material
 - **THEN** the broker is configured with the public keys and core's authorizer authenticates with the seeds
 
 #### Scenario: The generator runs again
@@ -72,17 +72,21 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 - **THEN** it shows whether enforcement is configured, whether core's authorizer is answering, how many chart identities are adopted and which are not, whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
 
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
-- **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, the authorizer not answering, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
+- **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, signing keys not provisioned, the authorizer otherwise not answering, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
-- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, wait and retry and check core's health (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
+- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, signing material provisioned, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
+- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, provision the missing seeds or broker fragments for `signing keys not provisioned`, wait and retry and check core's health (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
+
+#### Scenario: A distinct issuer has incomplete signing material
+- **WHEN** enforcement is enabled and any required seed or broker fragment is absent
+- **THEN** core reports `signing keys not provisioned` and hub status shows that reason even if the broker cannot start
 
 #### Scenario: The leaf upstream URL is unset
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
 - **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
-When the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
+With signing material provisioned, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
 - **WHEN** enforcement is turned on after the hub status has reported every chart identity adopted
