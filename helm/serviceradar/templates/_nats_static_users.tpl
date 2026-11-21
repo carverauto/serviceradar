@@ -333,14 +333,35 @@ Add or change a built-in identity's subjects only here.
       - "$JS.ACK.>"
       - "_INBOX.>"
     deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
-{{- /* The log collector follows its Zen ruleset in the rule bucket through
-     the JetStream API; it also replies to the flow control of the ordered
-     consumer that watches the bucket, which is not under $JS.API. */}}
+{{- /* The log collector publishes syslog, OTLP and RUM into the events stream,
+     which its syslog and OTLP outputs create, inspect and update, and follows
+     its Zen ruleset in the rule bucket. Reading and watching that bucket takes
+     its stream info, a direct get of the key, an ordered push consumer the
+     client creates (and deletes when it recreates one) on the bucket's stream,
+     and replies to that consumer's flow control. Every JetStream API grant
+     names the events stream or the rule bucket's, so the collector reaches no
+     other stream or key-value data. Replies arrive on _INBOX. */}}
 - user: "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
-    allow: ["logs.syslog", "logs.normalized.>", "otel.>", "logs.otel", "rum.beacons.>", "metrics.rum.>", "config.rum.policy.snapshot", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>", "$JS.FC.KV_{{ $zenRuleBucket }}.>"]
+    allow:
+      - "logs.syslog"
+      - "logs.normalized.>"
+      - "otel.>"
+      - "logs.otel"
+      - "rum.beacons.>"
+      - "metrics.rum.>"
+      - "config.rum.policy.snapshot"
+      - "$JS.API.STREAM.INFO.events"
+      - "$JS.API.STREAM.CREATE.events"
+      - "$JS.API.STREAM.UPDATE.events"
+      - "$JS.API.STREAM.INFO.KV_{{ $zenRuleBucket }}"
+      - "$JS.API.DIRECT.GET.KV_{{ $zenRuleBucket }}.>"
+      - "$JS.API.CONSUMER.CREATE.KV_{{ $zenRuleBucket }}"
+      - "$JS.API.CONSUMER.CREATE.KV_{{ $zenRuleBucket }}.>"
+      - "$JS.API.CONSUMER.DELETE.KV_{{ $zenRuleBucket }}.>"
+      - "$JS.FC.KV_{{ $zenRuleBucket }}.>"
   subscribe:
-    allow: ["config.rum.policy.updates", "$JS.API.>", "_INBOX.>"]
+    allow: ["config.rum.policy.updates", "_INBOX.>"]
 - user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
