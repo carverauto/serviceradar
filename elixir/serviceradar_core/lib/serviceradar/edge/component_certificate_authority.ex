@@ -497,29 +497,34 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     |> Ash.Changeset.get_attribute(:component_id)
   end
 
-  defp fill_missing_subject(nil, _fields, _opts), do: :ok
-
   defp fill_missing_subject(component_id, fields, opts) do
-    if Ash.can?({ComponentCertificate, :read}, opts[:actor], maybe_is: false) do
-      types = ManagedComponent.infrastructure_types()
+    actor = Ash.Actions.Helpers.apply_scope_to_opts(opts)[:actor]
 
-      query =
-        Ash.Query.filter(
-          ComponentCertificate,
-          fingerprint == ^fields.fingerprint and component_id == ^component_id and
-            is_nil(subject) and is_nil(component.host_agent_id) and component.component_type in ^types
-        )
+    cond do
+      not Ash.can?({ComponentCertificate, :read}, actor, maybe_is: false) ->
+        {:error, :forbidden}
 
-      case Ash.bulk_update(query, :fill_subject, %{subject: fields.subject},
-             actor: issuance_opts()[:actor],
-             strategy: [:atomic],
-             return_errors?: true
-           ) do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-      end
-    else
-      :ok
+      is_nil(component_id) ->
+        :ok
+
+      true ->
+        types = ManagedComponent.infrastructure_types()
+
+        query =
+          Ash.Query.filter(
+            ComponentCertificate,
+            fingerprint == ^fields.fingerprint and component_id == ^component_id and
+              is_nil(subject) and is_nil(component.host_agent_id) and component.component_type in ^types
+          )
+
+        case Ash.bulk_update(query, :fill_subject, %{subject: fields.subject},
+               actor: issuance_opts()[:actor],
+               strategy: [:atomic],
+               return_errors?: true
+             ) do
+          %Ash.BulkResult{status: :success} -> :ok
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
     end
   end
 
