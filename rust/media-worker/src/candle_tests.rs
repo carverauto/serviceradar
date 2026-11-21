@@ -1288,6 +1288,51 @@ fn cpu_explicit_refuses_a_supplied_cuda_backend_before_warmup() {
 }
 
 #[test]
+fn admission_refuses_mismatched_precision_before_either_warmup() {
+    use std::sync::atomic::Ordering;
+
+    let probe = StaticProbe(GpuEnvironmentObservation::new(
+        1,
+        false,
+        false,
+        None,
+        Some(24_576),
+        OrtRuntimeProbeResult::synthetic("test", true, false),
+    ));
+    for (provider, device, requested, active) in [
+        ("cpu_explicit", "cpu", "auto", InferencePrecision::F16),
+        ("cuda", "cuda:0", "auto", InferencePrecision::F32),
+        ("cpu_explicit", "cpu", "f16", InferencePrecision::F32),
+        ("cuda", "cuda:0", "f32", InferencePrecision::F16),
+    ] {
+        let config = CliArgs::try_parse_from([
+            "serviceradar-media-worker",
+            "--execution-provider",
+            provider,
+            "--dtype",
+            requested,
+        ])
+        .expect("parse requested precision")
+        .into_worker_config()
+        .expect("worker config");
+        let info = crate::InferenceBackendInfo::new(
+            InferenceBackendKind::Candle,
+            device,
+            config.models().embedding_dim(),
+            "synthetic",
+            false,
+        )
+        .with_dtype(active);
+        let backend = Arc::new(RecordingBackend::new(config.models(), info));
+        let err = verify_startup_capabilities_with_backend(&config, &probe, backend.clone())
+            .expect_err("mismatched precision");
+        assert!(err.to_string().contains("precision"));
+        assert_eq!(backend.image_batches.load(Ordering::SeqCst), 0);
+        assert_eq!(backend.text_queries.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
 fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
     // Readiness (and therefore job claims and text-embedding RPCs, which start only
     // after admission) must wait for both towers to have run once: on CUDA that first

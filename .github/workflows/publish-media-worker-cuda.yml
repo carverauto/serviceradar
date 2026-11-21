@@ -202,7 +202,7 @@ jobs:
           [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
 
-      - name: Sign and promote the pushed digest
+      - name: Sign the pushed digest
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
@@ -219,13 +219,31 @@ jobs:
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
+          python3 "${HARBOR_PUBLISH_TOOL}" build bash -ec '
+            source ./scripts/ci/prepare-openbao-cosign-env.sh
+            ./scripts/sign-oci-publish.sh "${DIGEST}"
+            unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+          '
+
+      - name: Verify and promote the signed digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          SERVICERADAR_NATIVE_IMAGE: ${{ env.IMAGE }}
+          COSIGN_PUBLIC_KEY_FILE: docs/cosign.pub
+          SIGSTORE_TRUSTED_ROOT: ${{ secrets.SIGSTORE_TRUSTED_ROOT }}
+          SIGSTORE_TRUSTED_ROOT_FILE: ${{ secrets.SIGSTORE_TRUSTED_ROOT_FILE }}
+          SIGSTORE_ROOT_PEM: ${{ secrets.SIGSTORE_ROOT_PEM }}
+          SIGSTORE_ROOT_FILE: ${{ secrets.SIGSTORE_ROOT_FILE }}
+          SIGSTORE_CT_LOG_PUBLIC_KEY: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY }}
+          SIGSTORE_CT_LOG_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_CT_LOG_PUBLIC_KEY_FILE }}
+          SIGSTORE_REKOR_PUBLIC_KEY_PEM: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_PEM }}
+          SIGSTORE_REKOR_PUBLIC_KEY_FILE: ${{ secrets.SIGSTORE_REKOR_PUBLIC_KEY_FILE }}
+        run: |
+          set -euo pipefail
           tag="sha-${GITHUB_SHA}"
-          source ./scripts/ci/prepare-openbao-cosign-env.sh
-          python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/sign-oci-publish.sh "${DIGEST}"
           python3 "${HARBOR_PUBLISH_TOOL}" build ./scripts/verify-oci-publish.sh "${DIGEST}"
           python3 "${HARBOR_PUBLISH_TOOL}" promote --repositories "${IMAGE}" --tag "${tag}" --digest "${DIGEST}"
           python3 "${HARBOR_PUBLISH_TOOL}" protected ./scripts/verify-oci-publish.sh "${DIGEST}"
-          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
           protected_reference="${OCI_REGISTRY}/serviceradar/${IMAGE}:${tag}"
           promoted="$(python3 "${HARBOR_PUBLISH_TOOL}" protected oras resolve "${protected_reference}")"

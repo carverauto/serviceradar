@@ -81,6 +81,7 @@ class World:
         self.bodies = []
         self.runs = {}
         self.ledgers = {}
+        self.deployments = {}
         self.issues = []
         self.labels = {"security"}
         self.discord = []
@@ -108,10 +109,14 @@ class World:
 
     def add_run(self, workflow, run_id, start, end, ledger=None, ref="refs/heads/staging"):
         runs = self.runs.setdefault(workflow, [])
+        suite = f"synthetic-suite-{run_id}"
+        prefix, name = ref.split("/", 2)[1:]
+        self.deployments[suite] = {"originalEnvironment": "release",
+                                   "ref": {"prefix": f"refs/{prefix}/", "name": name}}
         runs.insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
                         "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
                         "status": "completed" if end else "in_progress",
-                        "head_branch": ref.split("/", 2)[2], "display_title": ref,
+                        "head_branch": name, "display_title": "refs/heads/staging", "check_suite_node_id": suite,
                         "html_url": f"https://github.example/run/{run_id}"})
         if ledger is not None:
             self.ledgers[run_id] = ledger
@@ -236,6 +241,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         payload = self.body()
         if self.injected_failure(path) or self.github_rejects():
             return None
+        if path == "/graphql":
+            deployment = world.deployments[payload["variables"]["suite"]]
+            return self.reply(200, {"data": {"node": {"checkRuns": {"nodes": [{"deployment": deployment}]}}}})
         if path == "/api/v1/log/entries/retrieve":
             return self.reply(200, [world.entry(index) for index in payload["logIndexes"]])
         if path == prefix + "/labels":
@@ -408,9 +416,16 @@ class MonitorTest(unittest.TestCase):
         self.world.add_run(workflow, 14, start, NOW - timedelta(hours=2),
                            [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
                            ref="refs/heads/feature")
+        self.world.add_run(workflow, 16, start, NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/tags/staging")
+        self.world.add_run(workflow, 15, start, None, ref="refs/heads/staging")
+        self.world.deployments["synthetic-suite-15"] = None
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
-        self.assertNotIn("14", json.loads(self.state.read_text())["canary_checked"])
+        checked = json.loads(self.state.read_text())["canary_checked"]
+        self.assertNotIn("14", checked)
+        self.assertNotIn("16", checked)
 
     def test_an_explained_entry_stays_explained_after_its_run_ages_out(self):
         entry = self.world.add_entry(b"release payload")

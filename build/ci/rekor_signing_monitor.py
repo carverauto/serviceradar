@@ -282,6 +282,29 @@ class GitHub:
         created = urllib.parse.quote(f">={since:%Y-%m-%dT%H:%M:%SZ}")
         return list(self.pages(f"actions/workflows/{workflow}/runs?created={created}", "workflow_runs"))
 
+    def cuda_release_deployed_from(self, run, branch):
+        query = """
+            query($suite: ID!) {
+              node(id: $suite) {
+                ... on CheckSuite {
+                  checkRuns(first: 1, filterBy: {checkName: "publish"}) {
+                    nodes { deployment { originalEnvironment ref { prefix name } } }
+                  }
+                }
+              }
+            }
+        """
+        reply = self.http.request(f"{self.api}/graphql", "POST", {
+            "query": query, "variables": {"suite": run["check_suite_node_id"]}})
+        if reply.get("errors"):
+            raise MonitorFailure(f"cannot read deployment for CUDA run {run['id']}: {reply['errors']}")
+        for job in reply["data"]["node"]["checkRuns"]["nodes"]:
+            deployment = job["deployment"]
+            if (deployment and deployment["originalEnvironment"] == "release"
+                    and deployment["ref"] == {"prefix": "refs/heads/", "name": branch}):
+                return True
+        return False
+
     def ledger_lines(self, run_id):
         lines = []
         for artifact in self.pages(f"actions/runs/{run_id}/artifacts", "artifacts"):
@@ -346,7 +369,7 @@ def signing_runs(github, since):
             if workflow == "publish-media-worker-cuda.yml":
                 branch = run.get("head_branch") or ""
                 if (not re.fullmatch(r"staging|test/demo-test-[0-9]+", branch)
-                        or run.get("display_title") != f"refs/heads/{branch}"):
+                        or not github.cuda_release_deployed_from(run, branch)):
                     continue
             # created_at, not run_started_at: a re-run attempt restarts the latter, and an earlier
             # attempt's entries must still fall inside the run's window.

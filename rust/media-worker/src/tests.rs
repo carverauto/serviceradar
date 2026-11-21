@@ -54,7 +54,8 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
             cfg.models().embedding_dim(),
             "synthetic",
             false,
-        );
+        )
+        .with_dtype(crate::InferencePrecision::F16);
         let backend = crate::candle_tests::RecordingBackend::new(cfg.models(), info);
         crate::verify_startup_capabilities_with_backend(
             cfg,

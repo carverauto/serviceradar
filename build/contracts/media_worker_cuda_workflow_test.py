@@ -53,6 +53,42 @@ def scalar_values(value):
         yield value
 
 
+SECRET = "synthetic-credential/"
+VAULT_TOKEN = SECRET + "VAULT_TOKEN"
+CONTEXT_READ = re.compile(
+    r"""\b(secrets|github|env)\b(?:\s*\.\s*([\w-]+)|\s*\[\s*['"]([^'"]+)['"]\s*\])?""", re.I)
+
+
+def resolve_bindings(value, env, outputs):
+    def expression(match):
+        if match[0] in outputs:
+            return outputs[match[0]]
+
+        def read(selector):
+            context, dotted, bracketed = selector.groups()
+            key = dotted or bracketed
+            if context.lower() == "secrets":
+                return SECRET + (key or "VAULT_TOKEN").upper()
+            values = env if context.lower() == "env" else {"token": SECRET + "GITHUB_TOKEN"}
+            if key is None:
+                return json.dumps(values)
+            return next((v for k, v in values.items() if k.lower() == key.lower()), "")
+
+        return CONTEXT_READ.sub(read, match[1].strip())
+
+    return re.sub(r"\$\{\{(.*?)\}\}", expression, str(value), flags=re.S)
+
+
+def effective_bindings(workflow, job, step, outputs=None, runner_env=None):
+    env = {}
+    outputs = outputs or {}
+    for scope in (workflow.get("env", {}), job.get("env", {}), runner_env or {}, step.get("env", {})):
+        env.update({k: resolve_bindings(v, env, outputs) for k, v in scope.items()})
+    inputs = [resolve_bindings(v, env, outputs) for v in scalar_values(
+        {k: v for k, v in step.items() if k != "env"})]
+    return env, inputs
+
+
 def load_image_tool():
     spec = importlib.util.spec_from_file_location("media_worker_cuda_image", IMAGE_TOOL)
     module = importlib.util.module_from_spec(spec)
@@ -75,9 +111,10 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
                 self.assertEqual(permissions, {} if name == "preflight" else {"contents": "read"})
                 if name != "publish":
                     self.assertNotIn("environment", job)
-                    for value in scalar_values([self.workflow.get("env"), job]):
-                        for expression in re.findall(r"\$\{\{(.*?)\}\}", value, re.S):
-                            self.assertNotRegex(expression.lower(), r"\bsecrets\b|\bgithub\s*(?:\.|\[)\s*['\"]?token")
+                    job_settings = {k: v for k, v in job.items() if k not in ("steps", "env")}
+                    for step in [job_settings, *job["steps"]]:
+                        env, inputs = effective_bindings(self.workflow, job, step)
+                        self.assertFalse(any(SECRET in v for v in [*env.values(), *inputs]), step)
                 for step in job["steps"]:
                     if action(step) == "actions/checkout":
                         persist = step.get("with", {}).get("persist-credentials", True)
@@ -304,7 +341,7 @@ esac
         ]
         with tempfile.TemporaryDirectory() as build:
             build_outputs = self.check_build_manifest(Path(build), {"builder_image": CUDA_BUILDER}, "refs/heads/staging")
-        for fail, promoted in [("", DIGEST), (expected[0], DIGEST), (expected[5], DIGEST),
+        for fail, promoted in [("", DIGEST), (expected[0], DIGEST), (expected[4], DIGEST), (expected[5], DIGEST),
                                (expected[7], DIGEST), ("", "sha256:" + "9" * 64)]:
             with self.subTest(fail=fail, promoted=promoted), tempfile.TemporaryDirectory() as work:
                 root = Path(work)
@@ -316,7 +353,26 @@ esac
                     installer.write_text("#!/bin/bash\nexit 0\n")
                     installer.chmod(0o755)
                 auth = ci / "prepare-openbao-cosign-env.sh"
-                auth.write_text('echo authenticate >> calls\nexport VAULT_TOKEN=synthetic\n')
+                shutil.copyfile(ROOT / "scripts/ci" / auth.name, auth)
+                jwt = root / "service-account-token"
+                jwt.write_text("synthetic-jwt")
+                curl = root / "curl"
+                login = json.dumps({"auth": {"client_token": VAULT_TOKEN}})
+                curl.write_text(f"#!/bin/sh\necho authenticate >> calls\necho '{login}'\n")
+                curl.chmod(0o755)
+                signer = scripts / "sign-oci-publish.sh"
+                signer.write_text(
+                    f'#!/bin/bash\nset -eu\n[[ "$VAULT_TOKEN" == "{VAULT_TOKEN}" ]]\n'
+                    '[[ "$SERVICERADAR_NATIVE_IMAGE" == "serviceradar-media-worker-cuda" ]]\n'
+                    'call="build $0 $1"\necho "$call" >> calls\n[[ "$FAIL" != "$call" ]]\n')
+                signer.chmod(0o755)
+                verifier = scripts / "verify-oci-publish.sh"
+                verifier.write_text(
+                    '#!/bin/bash\nset -eu\n[[ -z "${VAULT_TOKEN+x}${COSIGN_KEY_REF+x}" ]]\n'
+                    '[[ "$COSIGN_PUBLIC_KEY_FILE" == docs/cosign.pub ]]\n'
+                    '[[ "$SERVICERADAR_NATIVE_IMAGE" == "serviceradar-media-worker-cuda" ]]\n'
+                    'call="$ROLE $0 $1"\necho "$call" >> calls\n[[ "$FAIL" != "$call" ]]\n')
+                verifier.chmod(0o755)
                 calls = root / "calls"
                 calls.touch()
                 (ci / "media-worker-cuda-image.py").write_text(
@@ -326,8 +382,10 @@ esac
                     "sys.exit(int(os.environ['FAIL'] == 'verify bundle'))\n")
                 harbor = ci / "harbor-publish.py"
                 harbor.write_text(
-                    "import os, sys\nfrom pathlib import Path\n"
+                    "import os, subprocess, sys\nfrom pathlib import Path\n"
                     "args = sys.argv[1:]\ncall = ' '.join(args)\n"
+                    "assert 'VAULT_TOKEN' not in os.environ\n"
+                    f"assert not any({VAULT_TOKEN!r} in v for v in os.environ.values())\n"
                     "if args[:2] == ['build', 'python3']:\n"
                     "    assert args[3] == 'push'\n    call = 'push'\n"
                     "    assert args[args.index('--sums-sha256') + 1] == os.environ['EXPECTED_SUMS']\n"
@@ -335,25 +393,33 @@ esac
                     "elif args[1:3] == ['oras', 'resolve']:\n"
                     "    print(os.environ['PROMOTED'])\n"
                     "elif len(args) > 1 and args[0] in ('build', 'protected'):\n"
-                    "    assert os.environ['SERVICERADAR_NATIVE_IMAGE'] == 'serviceradar-media-worker-cuda'\n"
-                    "    assert os.environ['VAULT_TOKEN'] == 'synthetic'\n"
+                    "    sys.exit(subprocess.run(args[1:], env=os.environ | {'ROLE': args[0]}).returncode)\n"
                     "print(call, file=open('calls', 'a'))\nsys.exit(int(call == os.environ['FAIL']))\n")
                 summary = root / "summary"
                 output = root / "outputs"
-                env = self.workflow["env"] | {
-                    "PATH": os.environ["PATH"], "RUNNER_TEMP": work, "GITHUB_ENV": str(root / "env"),
+                env = {
+                    "PATH": work + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": work,
+                    "GITHUB_ENV": str(root / "env"), "GITHUB_REF": "refs/heads/staging",
+                    "OPENBAO_K8S_TOKEN_FILE": str(jwt),
                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                     "HARBOR_PUBLISH_TOOL": str(harbor), "GITHUB_SHA": COMMIT, "FAIL": fail, "BUILT": DIGEST,
                     "PROMOTED": promoted, "EXPECTED_SUMS": CHECKSUMS_SHA256,
                 }
-                env.update({k: build_outputs.get(v, v) for k, v in self.jobs["publish"].get("env", {}).items()})
-                bindings = {"${{ env.IMAGE }}": env["IMAGE"]}
-                for step in self.jobs["publish"]["steps"]:
+                bindings = dict(build_outputs)
+                runner_env = {}
+                job = self.jobs["publish"]
+                job_settings = {k: v for k, v in job.items() if k not in ("steps", "env")}
+                for step in [job_settings, *job["steps"]]:
+                    settings, inputs = effective_bindings(self.workflow, job, step,
+                                                          bindings, runner_env)
+                    values = [*settings.values(), *inputs]
+                    self.assertNotIn("VAULT_TOKEN", settings)
+                    self.assertFalse(any(VAULT_TOKEN in v for v in values), step)
+                    if any(SECRET in v for v in values):
+                        self.assertIn("verify bundle", calls.read_text().splitlines(), step)
                     if "run" not in step or "if" in step:
                         continue
-                    settings = {k: bindings.get(v, v) for k, v in step.get("env", {}).items()}
-                    if any(re.search(r"\bsecrets\.", value) for value in settings.values()):
-                        self.assertIn("verify bundle", calls.read_text().splitlines())
+                    Path(env["GITHUB_ENV"]).write_text("")
                     output.write_text("")
                     result = subprocess.run(["bash", "-ec", step["run"]], cwd=root,
                                             env=env | settings, capture_output=True, text=True)
@@ -362,6 +428,7 @@ esac
                         if promoted != DIGEST:
                             self.assertIn(f"is {promoted}, expected {DIGEST}", result.stderr)
                         break
+                    runner_env.update(line.split("=", 1) for line in Path(env["GITHUB_ENV"]).read_text().splitlines())
                     for line in output.read_text().splitlines():
                         key, value = line.split("=", 1)
                         bindings["${{ steps." + step["id"] + ".outputs." + key + " }}"] = value

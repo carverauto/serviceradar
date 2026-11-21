@@ -211,6 +211,7 @@ py_test(
         "//docker/images:image_inventory.bzl",
         "//scripts:build-media-worker-cuda.sh",
         "//scripts:ci/media-worker-cuda-image.py",
+        "//scripts:ci/prepare-openbao-cosign-env.sh",
     ],
     deps = ["@pyyaml//:yaml"],
 )

@@ -292,6 +292,16 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
     let obs = probe.observe(config)?;
     let sharing_mode = verify_provider_and_classify_sharing(config, &obs, &backend_info)?;
 
+    let precision = config
+        .precision()
+        .resolve(config.execution_provider().requires_gpu());
+    if backend_info.dtype() != precision {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured precision resolves to {precision}, but the active backend uses {}",
+            backend_info.dtype()
+        )));
+    }
+
     let warmup_started = Instant::now();
     run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
     let warmup_ms = u64::try_from(warmup_started.elapsed().as_millis()).unwrap_or(u64::MAX);

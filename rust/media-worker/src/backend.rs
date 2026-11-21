@@ -137,6 +137,14 @@ pub enum InferencePrecision {
 }
 
 impl InferencePrecision {
+    pub(crate) fn resolve(self, cuda: bool) -> Self {
+        match self {
+            Self::Auto if cuda => Self::F16,
+            Self::Auto => Self::F32,
+            explicit => explicit,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",

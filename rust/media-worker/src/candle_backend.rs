@@ -118,7 +118,7 @@ impl CandleBackend {
         }
 
         let (device, device_name) = resolve_candle_device(options.device, options.require_gpu)?;
-        let precision = resolve_precision(options.precision, &device);
+        let precision = options.precision.resolve(device.is_cuda());
         if device.is_cuda() {
             report_cuda_jit_cache(&|key| std::env::var_os(key));
         } else if precision == InferencePrecision::F16 {
@@ -362,18 +362,6 @@ fn verify_embedding_widths(cfg: &siglip::Config, expected: usize) -> Result<(), 
         )));
     }
     Ok(())
-}
-
-/// Resolves `auto` to the precision for `device`: `f16` on CUDA, `f32` on the CPU.
-pub(crate) fn resolve_precision(
-    requested: InferencePrecision,
-    device: &Device,
-) -> InferencePrecision {
-    match requested {
-        InferencePrecision::Auto if device.is_cuda() => InferencePrecision::F16,
-        InferencePrecision::Auto => InferencePrecision::F32,
-        explicit => explicit,
-    }
 }
 
 fn candle_dtype(precision: InferencePrecision) -> DType {
