@@ -262,7 +262,13 @@ Core adopts chart identities whether or not enforcement is on. So the order
 for an existing install is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first
-reconciliation, and they retry.
+reconciliation, and they retry, but only when every chart identity can be
+adopted automatically. In three cases an operator must act first, and refusal
+lasts until the operator acts: an infrastructure certificate row without a
+stored subject (Decision 1's legacy-row gate), a rotation that names an
+unrecorded predecessor, and a revoked subject. `edge hub status` shows each of
+them as an unadopted chart identity with that reason before enforcement
+is turned on, which is why the documented order checks hub status first.
 
 Certificate regeneration changes every fingerprint. A certificate that was
 already adopted has its successor recorded by

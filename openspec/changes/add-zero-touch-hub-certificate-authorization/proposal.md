@@ -79,7 +79,11 @@ the Secret that holds the CA keys, which is the opposite of secure.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
-  them; none is known to.
+  them; none is known to. Turning it on needs no prior manual step once hub
+  status reports every chart identity adopted. Three cases need an operator
+  first, and hub status shows them before enforcement is turned on: an
+  infrastructure certificate row without a stored subject, a rotation that
+  names an unrecorded predecessor, and a revoked subject.
 - **The hub reports whether it can accept a leaf**: core reports whether
   enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the

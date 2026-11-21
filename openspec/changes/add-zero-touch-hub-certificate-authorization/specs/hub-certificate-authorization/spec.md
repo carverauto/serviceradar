@@ -82,11 +82,16 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 - **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
-Turning enforcement on SHALL NOT require any prior manual step for chart identities, and turning it off SHALL return the install to static certificate authorization.
+On an install where core reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities, and turning it off SHALL return the install to static certificate authorization. In three cases an operator must act before enforcement is turned on: an infrastructure certificate row lacks a stored subject, a rotation names an unrecorded predecessor, or a chart identity's subject is revoked. The hub status SHALL show each of these before enforcement is turned on.
 
 #### Scenario: Enforcement is enabled on a running install
-- **WHEN** enforcement is turned on after core has reported every chart identity adopted
+- **WHEN** enforcement is turned on after core has reported every chart identity adopted, with no infrastructure certificate row lacking a stored subject, no rotation naming an unrecorded predecessor, and no revoked chart identity subject
 - **THEN** every chart client reconnects and none is refused
+
+#### Scenario: Enforcement is enabled while an operator action is pending
+- **WHEN** enforcement is turned on while core reports an infrastructure certificate row without a stored subject, a rotation naming an unrecorded predecessor, or a revoked chart identity subject
+- **THEN** the affected chart clients stay refused until an operator acts
+- **AND** the hub status showed that state before enforcement was turned on
 
 #### Scenario: Enforcement is disabled
 - **WHEN** the enforcement value is set back to off
