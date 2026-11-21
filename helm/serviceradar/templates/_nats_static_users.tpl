@@ -60,7 +60,7 @@ _INBOX.media-worker
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" }}
 {{- /* Camera semantic search (serviceradar-media-worker). The stream and durable
      consumer names are fixed in the worker binary (rust/media-worker/src/config.rs). */}}
-{{- $mediaWorkerEnabled := default false (default (dict) .Values.mediaWorker).enabled }}
+{{- $mediaWorkerEnabled := eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- $mediaJobsStream := "CAMERA_MEDIA_JOBS" }}
 {{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
 {{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}

@@ -10,17 +10,18 @@ The generator Job keeps an existing runtime Secret unless a file it requires
 is missing, so an installation that enables the worker after its first install
 gets the certificate only if the Job then treats the Secret as incomplete.
 
-The test runs the rendered generate-certs.sh with openssl, and the Job's
-rendered preserve check against a fake Kubernetes API that serves a synthetic
-Secret. The oracle for the subject is the static user the chart renders for the
-broker.
+The test runs the generator script embedded in the rendered Job with openssl,
+and the Job's rendered preserve check against a fake Kubernetes API that serves
+a synthetic Secret. The oracle for the subject is the static user the chart
+renders for the broker; the preserve check's decision is read from the message
+it prints for that decision, so a crash cannot pass for "regenerate".
 """
 
 import base64
-import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,23 +47,24 @@ urllib.request.urlopen = lambda request, context=None: io.BytesIO(_secret)
 
 
 def generator_inputs(values):
-    """generate-certs.sh, the Job's preserve check, and the Job's environment."""
-    config_map = render_document(
-        "templates/cert-scripts-configmap.yaml", values, namespace=NAMESPACE, kind="ConfigMap",
-    )
+    """The Job's embedded generate-certs.sh, its preserve check, and its environment."""
     job = render_document(
         "templates/cert-generator-job.yaml", values, namespace=NAMESPACE, kind="Job",
     )
     container = job["spec"]["template"]["spec"]["containers"][0]
-    match = re.search(r"if python3 <<'PY'\n(.*?)\nPY\nthen", container["args"][0], re.S)
-    if match is None:
-        raise AssertionError("preserve check not found in the generator Job script")
+    script = container["args"][0]
+    check = re.search(r"if python3 <<'PY'\n(.*?)\nPY\nthen", script, re.S)
+    embedded = re.search(r"<<'EOF_SCRIPT_B64'\n(.*?)\nEOF_SCRIPT_B64", script, re.S)
+    if check is None or embedded is None:
+        raise AssertionError("preserve check or embedded generator not found in the Job script")
+    generator = base64.b64decode("".join(embedded.group(1).split())).decode("utf-8")
     env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
-    return config_map["data"]["generate-certs.sh"], match.group(1), env
+    return generator, check.group(1), env
 
 
-def generate(script, job_env, cert_dir):
-    env = dict(os.environ, CERT_DIR=str(cert_dir))
+def generate(script, job_env, cert_dir, *, force=False):
+    """Run the generator as the Job does (FORCE_REGENERATE=true after a failed check)."""
+    env = dict(os.environ, CERT_DIR=str(cert_dir), FORCE_REGENERATE="true" if force else "false")
     for name in ("DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID"):
         env[name] = job_env[name]
     subprocess.run(["bash", "-c", script], env=env, check=True, capture_output=True)
@@ -102,7 +104,7 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         cls.tmp.cleanup()
 
     def preserves(self, check, job_env, secret_dir):
-        """True when the Job keeps the Secret, False when it regenerates it."""
+        """True when the Job keeps the Secret; the missing files when it regenerates it."""
         work = Path(tempfile.mkdtemp(dir=self.tmp.name))
         data = {
             path.name: base64.b64encode(path.read_bytes()).decode("ascii")
@@ -125,9 +127,15 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
             )},
         )
         result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
-        if result.returncode not in (0, 1):
-            raise AssertionError(f"preserve check crashed:\n{result.stdout}{result.stderr}")
-        return result.returncode == 0
+        if result.returncode == 0 and "preserving current runtime certs" in result.stdout:
+            return True
+        missing = re.search(r"is missing runtime cert files: (.*)$", result.stdout, re.M)
+        if result.returncode == 1 and missing and not result.stderr.strip():
+            return missing.group(1).split(", ")
+        raise AssertionError(
+            f"preserve check reached neither decision (exit {result.returncode}):\n"
+            f"{result.stdout}{result.stderr}"
+        )
 
     def test_issues_the_subject_the_broker_maps_for_its_key_under_the_root(self):
         cert = self.enabled_certs / "media-worker.pem"
@@ -145,13 +153,25 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         self.assertFalse((self.disabled_certs / "media-worker-key.pem").exists())
 
     def test_regenerates_a_secret_without_the_worker_pair_once_the_worker_is_enabled(self):
-        self.assertFalse(self.preserves(self.enabled_check, self.enabled_env, self.disabled_certs))
+        self.assertEqual(
+            self.preserves(self.enabled_check, self.enabled_env, self.disabled_certs),
+            ["media-worker.pem", "media-worker-key.pem"],
+        )
+
+    def test_regeneration_keeps_the_root_and_issues_the_worker_pair_under_it(self):
+        upgraded = Path(self.tmp.name) / "upgraded"
+        shutil.copytree(self.disabled_certs, upgraded)
+        generate(self.enabled_script, self.enabled_env, upgraded, force=True)
+        self.assertEqual(
+            (upgraded / "root.pem").read_bytes(), (self.disabled_certs / "root.pem").read_bytes(),
+        )
+        openssl("verify", "-CAfile", str(upgraded / "root.pem"), str(upgraded / "media-worker.pem"))
 
     def test_keeps_a_secret_that_already_holds_the_worker_pair(self):
-        self.assertTrue(self.preserves(self.enabled_check, self.enabled_env, self.enabled_certs))
+        self.assertIs(self.preserves(self.enabled_check, self.enabled_env, self.enabled_certs), True)
 
     def test_keeps_a_secret_without_the_worker_pair_while_the_worker_is_off(self):
-        self.assertTrue(self.preserves(self.disabled_check, self.disabled_env, self.disabled_certs))
+        self.assertIs(self.preserves(self.disabled_check, self.disabled_env, self.disabled_certs), True)
 
 
 if __name__ == "__main__":

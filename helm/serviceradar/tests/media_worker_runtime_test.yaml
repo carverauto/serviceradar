@@ -5,6 +5,8 @@ templates:
   - templates/nvr.yaml
   - templates/nats.yaml
   - templates/core.yaml
+  - templates/calico-network-policy.yaml
+  - templates/cnpg-application-network-policy.yaml
 release:
   name: serviceradar
   namespace: sr-media-test
@@ -39,9 +41,15 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: MEDIA_WORKER_MODEL_DIR, value: /opt/synthetic-models}
-      - contains:
+      # Only the three SigLIP files: a detector file on the PVC must stay invisible.
+      - equal:
           path: spec.template.spec.containers[0].volumeMounts
-          content: {name: models, mountPath: /opt/synthetic-models, readOnly: true}
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cert-data, mountPath: /etc/serviceradar/certs, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/config.json, subPath: config.json, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/model.safetensors, subPath: model.safetensors, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/tokenizer.json, subPath: tokenizer.json, readOnly: true}
 
   - it: runs the deterministic stub only when chosen, on the CPU and without weights
     template: templates/media-worker.yaml
@@ -188,10 +196,43 @@ tests:
   - it: refuses this release's web-ng on a port other than its control-plane listener
     template: templates/media-worker.yaml
     set:
-      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng.sr-media-test.svc.cluster.local:4000
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng-headless.sr-media-test.svc.cluster.local:4000
     asserts:
       - failedTemplate:
-          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng.sr-media-test.svc.cluster.local:4000 must use webNg.controlPlaneRuntime.port 4001"
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng-headless.sr-media-test.svc.cluster.local:4000 must use webNg.controlPlaneRuntime.port 4001"
+
+  - it: recognises this release's web-ng regardless of host case and a DNS root dot
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: HTTP://ServiceRadar-Web-NG-Headless.SR-Media-Test.svc.cluster.local.:4001
+      webNg.controlPlaneRuntime.mediaWorker.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.enabled needs webNg.controlPlaneRuntime.mediaWorker.enabled"
+
+  - it: refuses the ClusterIP web-ng Service, which does not expose the control-plane port
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng:4001
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng:4001 names the serviceradar-web-ng Service, which does not expose web-ng's private control-plane port"
+
+  - it: refuses HTTPS to web-ng's plain-HTTP control-plane listener
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: https://serviceradar-web-ng-headless:4001
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl https://serviceradar-web-ng-headless:4001 must use http"
+
+  - it: refuses a path the worker would prefix to the read-grant endpoint
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.controlPlaneUrl: http://serviceradar-web-ng-headless:4001/api
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.controlPlaneUrl http://serviceradar-web-ng-headless:4001/api must have no path"
 
   - it: leaves the read-grant listener to an explicitly configured remote control plane
     template: templates/media-worker.yaml
@@ -367,3 +408,60 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED, value: "false"}
+
+  - it: refuses a GPU entry left in resources under cpu_explicit
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.resources:
+        limits: {cpu: "4", "nvidia.com/gpu": 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.resources.limits.nvidia.com/gpu requests a GPU under mediaWorker.executionProvider cpu_explicit"
+
+  - it: keeps core's dispatch flag out of core.extraEnv
+    template: templates/core.yaml
+    set:
+      core.extraEnv.SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED: "false"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnv"
+
+  - it: keeps core's dispatch flag out of core.extraEnvValueFrom
+    template: templates/core.yaml
+    set:
+      core.extraEnvValueFrom.SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED:
+        configMapKeyRef: {name: synthetic-flags, key: visual-indexing}
+    asserts:
+      - failedTemplate:
+          errorPattern: "^SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.extraEnvValueFrom"
+
+  - it: keeps the worker out of the Calico namespace policy that would reopen CNPG
+    template: templates/calico-network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.selector: all()
+    asserts:
+      - equal:
+          path: spec.selector
+          value: "(all()) && app != 'serviceradar-media-worker'"
+
+  - it: admits every namespace pod but the worker to CNPG
+    template: templates/cnpg-application-network-policy.yaml
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchExpressions:
+                    - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
+            ports:
+              - {protocol: TCP, port: 5432}
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector: {}
+          any: true

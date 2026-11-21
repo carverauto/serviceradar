@@ -200,7 +200,8 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: models
-            mountPath: /var/lib/serviceradar-media-worker/models
+            mountPath: /var/lib/serviceradar-media-worker/models/model.safetensors
+            subPath: model.safetensors
             readOnly: true
         documentSelector:
           path: kind
