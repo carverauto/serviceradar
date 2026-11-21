@@ -21,7 +21,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraRecordingSettings
-  alias ServiceRadarWebNGWeb.CameraLive.Recordings
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
   alias ServiceRadarWebNGWeb.CameraLive.Show, as: CameraShowLive
   alias ServiceRadarWebNGWeb.Settings.Catalog
@@ -3791,65 +3790,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       for preset <- ["window", "15m", "1h", "24h"] do
         assert doc |> LazyHTML.query("#timeline-hold-preset-#{preset}") |> Enum.count() == 1
       end
-    end
-
-    test "timeline playlist requests source=local in auto mode until an archive reader is installed" do
-      source_id = "00000000-0000-4000-8000-000000000061"
-      from_us = 1_794_844_800_000_000
-      to_us = 1_794_848_400_000_000
-
-      archive_only_block = %{
-        timeline_start_us: from_us + 1_000_000,
-        timeline_end_us: from_us + 11_000_000,
-        local_state: :reclaimed,
-        archive_state: :verified
-      }
-
-      local_block = %{
-        timeline_start_us: from_us + 20_000_000,
-        timeline_end_us: from_us + 30_000_000,
-        local_state: :present,
-        archive_state: :not_required
-      }
-
-      mixed = %{blocks: [archive_only_block, local_block]}
-      archive_only = %{blocks: [archive_only_block]}
-
-      previous_readers = Application.get_env(:serviceradar_web_ng, :camera_timeline_readers)
-
-      on_exit(fn ->
-        if is_nil(previous_readers) do
-          Application.delete_env(:serviceradar_web_ng, :camera_timeline_readers)
-        else
-          Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, previous_readers)
-        end
-      end)
-
-      query_source = fn path ->
-        path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.get("source")
-      end
-
-      Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, [])
-
-      auto_without_archive = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "auto")
-
-      assert query_source.(auto_without_archive) == "local"
-      assert Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "archive") == nil
-      assert Recordings.build_playlist_path_if_playable(source_id, archive_only, from_us, to_us, "", "auto") == nil
-
-      archive_reader = fn _plan, _deadline -> {:ok, <<>>} end
-      Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, archive: archive_reader)
-
-      auto_with_archive = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "auto")
-
-      archive_with_reader =
-        Recordings.build_playlist_path_if_playable(source_id, archive_only, from_us, to_us, "", "archive")
-
-      local_with_reader = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "local")
-
-      assert query_source.(auto_with_archive) == "auto"
-      assert query_source.(archive_with_reader) == "archive"
-      assert query_source.(local_with_reader) == "local"
     end
   end
 

@@ -367,6 +367,71 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(lv, "#camera-timeline-player.hidden")
   end
 
+  test "auto mode requests source=local in mixed local and archive-only windows until an archive reader is installed",
+       %{viewer: viewer, actor: actor} do
+    previous_readers = Application.get_env(:serviceradar_web_ng, :camera_timeline_readers)
+
+    on_exit(fn ->
+      if is_nil(previous_readers) do
+        Application.delete_env(:serviceradar_web_ng, :camera_timeline_readers)
+      else
+        Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, previous_readers)
+      end
+    end)
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    ctx = seed_rich_timeline_camera(actor, now)
+
+    Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, [])
+
+    {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
+
+    assert has_element?(view, "#camera-timeline-blocks [data-copy-state='archive_only']")
+    assert has_element?(view, "#camera-timeline-blocks [data-copy-state='local_and_archived']")
+
+    mixed_local_path = player_playlist_path(view)
+    assert playlist_query_source(mixed_local_path) == "local"
+
+    mixed_local_playlist = viewer |> authed_conn() |> get(mixed_local_path) |> response(200)
+    assert mixed_local_playlist =~ ctx.local_and_archived_entry.id
+    refute mixed_local_playlist =~ ctx.archived_entry.id
+
+    archive_from = ctx.archived_entry.timeline_start_us - 1_000_000
+    archive_to = ctx.archived_entry.timeline_end_us + 1_000_000
+
+    {:ok, archive_only_view, _html} =
+      live(
+        authed_conn(viewer),
+        ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline&from=#{archive_from}&to=#{archive_to}"
+      )
+
+    assert player_playlist_path(archive_only_view) == ""
+    assert has_element?(archive_only_view, "#camera-timeline-archive-only")
+
+    archive_reader = fn _plan, _deadline -> {:ok, <<>>} end
+    Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, archive: archive_reader)
+
+    view |> element("#camera-timeline-refresh") |> render_click()
+
+    mixed_auto_path = player_playlist_path(view)
+    assert playlist_query_source(mixed_auto_path) == "auto"
+
+    mixed_auto_playlist = viewer |> authed_conn() |> get(mixed_auto_path) |> response(200)
+    assert mixed_auto_playlist =~ ctx.local_and_archived_entry.id
+    assert mixed_auto_playlist =~ ctx.archived_entry.id
+
+    view |> element("#camera-timeline-source-archive") |> render_click()
+    assert playlist_query_source(player_playlist_path(view)) == "archive"
+    refute has_element?(view, "#camera-timeline-archive-only")
+
+    view |> element("#camera-timeline-source-local") |> render_click()
+    assert playlist_query_source(player_playlist_path(view)) == "local"
+
+    archive_only_view |> element("#camera-timeline-refresh") |> render_click()
+    assert playlist_query_source(player_playlist_path(archive_only_view)) == "auto"
+    refute has_element?(archive_only_view, "#camera-timeline-archive-only")
+  end
+
   defp player_playlist_path(view) do
     view
     |> render()
@@ -374,6 +439,10 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     |> LazyHTML.query("#camera-timeline-player")
     |> LazyHTML.attribute("data-playlist-path")
     |> List.first()
+  end
+
+  defp playlist_query_source(path) do
+    path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.get("source")
   end
 
   defp authed_conn(user), do: log_in_user(build_conn(), user)

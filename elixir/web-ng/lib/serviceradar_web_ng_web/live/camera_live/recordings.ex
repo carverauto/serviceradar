@@ -946,8 +946,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  @doc false
-  def build_playlist_path_if_playable(source_id, coverage, play_from_us, play_to_us, profile_id, source_str) do
+  defp build_playlist_path_if_playable(source_id, coverage, play_from_us, play_to_us, profile_id, source_str) do
     has_playable? =
       is_map(coverage) and
         Enum.any?(coverage.blocks, fn block ->
