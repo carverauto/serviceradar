@@ -2,39 +2,10 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   @moduledoc """
   First adoption of the chart's own NATS client certificates.
 
-  The chart mounts into core the public certificate of each identity it defines
-  (the inventory), the list of those identities' subjects, and the static users
-  file with each identity's permissions. With the certificate authorization
-  callout enabled a client is admitted by recorded fingerprint, so a chart
-  identity whose certificate was never recorded would be refused. This module
-  records it, once, so that no operator has to submit it.
-
-  It only ever performs a first adoption, by one ordered rule:
-
-    1. While any infrastructure certificate row has no stored subject, nothing
-       is adopted. Such a row was recorded before subjects were stored, so
-       whether its identity is already held cannot be decided.
-    2. Otherwise, an inventory certificate that chains to the deployment root,
-       is within its validity period, is not revoked and carries the subject of
-       a chart identity that has a static user is adopted when its subject is
-       not held, that is, when no recorded certificate carries that subject,
-       revoked or not.
-
-  Copies of the same certificate count once. Multiple distinct certificates for
-  one subject prevent first adoption. Coverage then lists their fingerprints and
-  reports the identity as adopted only when the snapshot authorizes all of them.
-
-  When the subject is held this module writes nothing. Replacing a recorded
-  certificate stays with `ServiceRadar.Edge.RuntimeCertificateRotation`, and a
-  revoked identity stays revoked.
-
-  `reconcile/1` also returns the coverage of every chart identity: whether the
-  inventory's certificate for it is one the authority's snapshot currently
-  authorizes, and the reason when it is not. Coverage is advisory. Admission is decided by
-  `ServiceRadar.NATS.ManagedCertificateAuthorization` as before.
-
-  Nothing is configured, and nothing is done, on an install whose chart does
-  not mount an inventory.
+  Runs independently of `ServiceRadar.NATS.ManagedCertificateAuthorization` so
+  admission does not wait for inventory reads or certificate writes.
+  See `docs/managed-component-certificates.md` for configuration, eligibility,
+  and coverage.
   """
   use GenServer
 
@@ -78,7 +49,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc "The configured inputs, or nil when the chart mounts no inventory."
+  @doc "Returns the inventory inputs, or nil if any of its three paths is unset or empty."
   def configured do
     with dir when is_binary(dir) and dir != "" <-
            Application.get_env(:serviceradar, :nats_infrastructure_certs_dir),

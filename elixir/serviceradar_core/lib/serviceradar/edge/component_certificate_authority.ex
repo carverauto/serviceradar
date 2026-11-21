@@ -85,11 +85,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   @doc """
   Adopts a certificate only while no recorded certificate carries its subject.
 
-  The check and the write happen in one transaction under the subject's lock,
-  which every write that records a certificate with a subject also takes. So a
-  certificate another caller records for the same subject either is seen here,
-  and this returns `{:error, :subject_held}` and writes nothing, or waits and
-  sees this one.
+  Returns `{:error, :subject_held}` without creating a component or certificate
+  if the subject is held when checked under its transaction lock. A revoked
+  certificate still holds its subject.
   """
   def adopt_unheld_certificate(attrs, opts) do
     with {:ok, component, presented} <- InfrastructureCertificateAdoption.read_adoption(attrs),

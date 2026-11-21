@@ -216,14 +216,11 @@ nats_certificate_grant_ttl =
 config :serviceradar, :nats_account_name, nats_account_name
 config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
+# Chart certificate inventory inputs are documented in docs/managed-component-certificates.md.
 config :serviceradar,
        :nats_chart_identities_file,
        System.get_env("SERVICERADAR_NATS_CHART_IDENTITIES_FILE")
 
-# The chart's own NATS client certificates, for first adoption
-# (ServiceRadar.Edge.ChartIdentityInventory): the directory of their public
-# certificates, the list of their subjects, and the deployment root they chain
-# to. Any of them unset adopts nothing.
 config :serviceradar,
        :nats_infrastructure_certs_dir,
        System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR")
