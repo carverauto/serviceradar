@@ -25,7 +25,7 @@ The system SHALL decouple `detector_model_id` and `detector_model_version` from 
 - **THEN** Core and Helm SHALL validate both `(detector_model_id, detector_model_version)` and `(embedder_model_id, embedder_model_version)` independently without blocking detector weight mounts
 
 ### Requirement: Partitioned halfvec visual embedding storage and high-throughput dispatch
-The system SHALL store `platform.camera_visual_embeddings` in `timeline_ts_us`-partitioned PostgreSQL 18 tables using `halfvec(768)` HNSW indexes, maintain a composite `(state, deadline_at)` index on `platform.camera_visual_index_jobs`, and sustain outbox dispatch throughput above 318 jobs/s via event-driven or sharded parallel dispatch without losing carried-forward validity intervals.
+The system SHALL store `platform.camera_visual_embeddings` in `timeline_ts_us`-partitioned PostgreSQL 18 tables using `halfvec(768)` HNSW indexes, maintain a composite `(state, deadline_at)` index on `platform.camera_visual_index_jobs`, and sustain outbox dispatch throughput above 318 jobs/s continuous arrival with at least 500 jobs/s burst drain via event-driven or sharded parallel dispatch (replacing the 16.7 jobs/s ceiling) without losing carried-forward validity intervals.
 
 #### Scenario: Retention drop removes expired embedding partition without HNSW tombstone bloat
 - **WHEN** a daily or weekly time-range partition of `platform.camera_visual_embeddings` ages past its configured retention window and holds no active `RecordingHold` rows

@@ -6,7 +6,7 @@ The system SHALL allow live object detection and tracking pipelines to consume b
 #### Scenario: Live tracking attaches to active relay without opening a second camera session
 - **WHEN** live object tracking is enabled for camera `cam-synth-0001` (`192.0.2.90`, `Gate North`) while live viewers or continuous recording already hold an upstream session
 - **THEN** the platform SHALL tap bounded frames from that single existing upstream ingest
-- **AND** SHALL NOT instruct `agent-edge-01` to open a second RTSP/RTSPS session to `192.0.2.10`
+- **AND** SHALL NOT instruct `agent-edge-01` to open a second RTSP/RTSPS session to `192.0.2.90`
 
 #### Scenario: Slow tracking consumer drops stale frames to protect relay and recording
 - **WHEN** the stateful live tracker mailbox for a camera reaches its bounded capacity

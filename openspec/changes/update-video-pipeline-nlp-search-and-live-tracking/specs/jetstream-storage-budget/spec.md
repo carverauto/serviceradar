@@ -13,8 +13,9 @@ The `serviceradar-media-worker` stream ensure logic SHALL read `max_bytes` and `
 - **THEN** `helm template` render-time JetStream budget validation SHALL pass below the 85% `max_file_store` ceiling
 
 ### Requirement: Live tracking event stream fits JetStream sizing profiles
-The system SHALL bind `CAMERA_LIVE_TRACKS` (`media.events.live_tracks.v1`) to a finite `max_bytes` and `DiscardPolicy::Old` in every JetStream sizing profile so live object detection and tracking traffic cannot exhaust NATS file-store space or evict unrelated telemetry streams.
+The system SHALL bind `CAMERA_LIVE_TRACKS` (`media.events.live_tracks.v1`) to a finite `max_bytes` (honoring `SERVICERADAR_JS_CAMERA_LIVE_TRACKS_MAX_BYTES` and `SERVICERADAR_JS_CAMERA_LIVE_TRACKS_REPLICAS`, defaulting to `512 MiB` / `1` replica in `small` pilot profiles to stay within the `28.50 GiB` 85% ceiling and `2-4 GiB` in `large` ~8,000-camera deployments with `max_age` 1800-3600 s) and `DiscardPolicy::Old` in every JetStream sizing profile so bounded live object detection and tracking traffic (`~75-150 KB/s` opt-in at `<= 1,000` cams or `~200-400 KB/s` fleet `0.5 fps` substream + Tier-2 gate) cannot exhaust NATS file-store space or evict unrelated telemetry streams.
 
 #### Scenario: Sustained live tracking burst respects finite stream cap
-- **WHEN** live tracking publishes high-rate detection and track-summary events across active cameras
-- **THEN** `CAMERA_LIVE_TRACKS` SHALL evict its oldest messages at its configured `max_bytes` ceiling without starving `CAMERA_MEDIA_JOBS`, `CAMERA_MEDIA_RESULTS`, or telemetry streams
+- **WHEN** live tracking publishes bounded detection and track-summary events across active cameras (`~75-400 KB/s` steady or burst traffic)
+- **THEN** `CAMERA_LIVE_TRACKS` SHALL evict its oldest messages at its configured `max_bytes` ceiling (`SERVICERADAR_JS_CAMERA_LIVE_TRACKS_MAX_BYTES`) without starving `CAMERA_MEDIA_JOBS`, `CAMERA_MEDIA_RESULTS`, or telemetry streams
+- **AND** Helm render-time budget checks SHALL account for `CAMERA_LIVE_TRACKS` alongside `CAMERA_MEDIA_JOBS` and `CAMERA_MEDIA_RESULTS` against the 85% `max_file_store` ceiling
