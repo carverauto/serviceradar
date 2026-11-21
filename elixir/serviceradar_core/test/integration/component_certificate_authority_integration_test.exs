@@ -463,7 +463,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert advisory_locks() == after_first
 
     assert {:ok, _adopted} =
-             Authority.adopt_unheld_certificate(
+             Authority.adopt_existing_certificate(
                adoption("example-lock-c-#{System.unique_integer([:positive])}", other.pem),
                ctx.opts
              )
