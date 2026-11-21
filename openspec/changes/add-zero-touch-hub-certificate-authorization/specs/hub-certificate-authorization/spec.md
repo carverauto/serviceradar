@@ -25,8 +25,8 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 
 #### Scenario: A held subject has an unrecorded inventory certificate
 - **WHEN** a recorded certificate holds the subject and the existing rotation path has not recorded the current inventory certificate
-- **THEN** the inventory writes nothing and hub status reports the identity as not adopted with the rotation path's reason
-- **AND** the operator uses the existing successor API
+- **THEN** the inventory writes nothing and hub status reports the identity as not adopted because the subject is held and the current inventory certificate is unrecorded
+- **AND** hub status directs the operator to the existing successor API and includes a rotation reason only when rotation produced one for that certificate
 
 #### Scenario: A revoked chart identity is regenerated
 - **WHEN** a recorded certificate still holds the regenerated certificate's subject after revocation

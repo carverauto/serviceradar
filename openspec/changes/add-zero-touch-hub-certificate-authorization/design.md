@@ -120,8 +120,10 @@ task 1.4 checks live deployments.
 Replacements remain with `ServiceRadar.Edge.RuntimeCertificateRotation`,
 which processes `runtime-cert-rotation.json` as before. If a subject is held
 and rotation has not recorded the current inventory certificate, hub status
-reports it as not adopted with the rotation path's reason and the operator
-uses the existing successor API.
+reports the identity as not adopted, explains that the subject is held and the
+current inventory certificate is unrecorded, and directs the operator to the
+existing successor API. It includes a rotation reason only when the rotation
+path produced one for that certificate.
 
 Coverage counts the inventory certificate for a subject when it is recorded
 and unrevoked. Hub status warns about each uncovered identity with its reason.
