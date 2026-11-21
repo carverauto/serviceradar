@@ -3,16 +3,21 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   Idempotent JetStream result projector (`media.results.visual_index.v1`) for
   `VisualFrame`, `VisualEmbedding`, and `VisualIndexJob` (`3.1`, `design.md` `4.2`).
 
-  - Validates the `media.results.visual_index.v1` schema, model metadata,
-    bounding-box normalization, and L2-normalized vector dimensions (`512 | 768`).
-  - Locks/verifies the `RecordingCatalogEntry` inside a CNPG transaction:
-    refuses/drops late results if `descriptor_sha256` mismatches or if the block
-    is quarantined, absent, or terminally deleted (`{:error, :recording_gone}`).
-  - Derives authoritative `timeline_ts_us` and `time_basis` from the catalog
-    entry (`timeline_start_us`, `media_start_ns`, `time_basis`) rather than
-    worker wall clocks.
-  - Upserts `VisualFrame` and `VisualEmbedding` idempotently and marks the
-    matching `VisualIndexJob` `:completed`.
+  Core validates the worker envelope before resolving the admitted job and recording under lock.
+  The following dispositions apply in order. A job match requires the catalog entry, descriptor
+  digest, detector and embedder identities, dimension, and job ID when supplied.
+
+  | Validation | Job | Recording | Action |
+  | --- | --- | --- | --- |
+  | Any | No matching identity | Any | Dead-letter without writes |
+  | Invalid | Final | Any | Dead-letter without changing the job or health |
+  | Valid | Final | Any | Acknowledge without writes |
+  | Any | Active | Gone | Cancel active jobs for the recording and acknowledge |
+  | Any | Active | Temporarily unavailable | Retry without writes |
+  | Invalid, including a stale catalog digest | Active | Playable | Fail the job, report health, and dead-letter |
+  | Valid | Active | Playable | Store frames and embeddings, complete the job, and acknowledge |
+
+  Pending and dispatched jobs are active. Completed, cancelled and terminally failed jobs are final.
   """
 
   import Ash.Expr
@@ -23,25 +28,18 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
+  alias ServiceRadar.Camera.VisualIndexResultEnvelope
   alias ServiceRadar.JSONDocument
 
   require Ash.Query
 
-  @result_subject "media.results.visual_index.v1"
-  @hex64 ~r/\A[0-9a-f]{64}\z/
   @max_envelope_bytes 4_194_304
-  @max_frames_per_result 512
-  @max_embeddings_per_frame 16
-  @max_colors_per_embedding 16
-  @max_bigint 9_223_372_036_854_775_807
-  @norm_tolerance 0.05
-  @allowed_dims [512, 768]
 
   @system_actor SystemActor.system(:camera_visual_index_result_projector)
 
   @doc "JetStream result subject consumed by the projector."
   @spec result_subject() :: String.t()
-  def result_subject, do: @result_subject
+  defdelegate result_subject(), to: VisualIndexResultEnvelope
 
   @doc """
   Returns `true` when an ingestion error indicates the message should be
@@ -73,21 +71,15 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   end
 
   def ingest_result(envelope, opts) when is_map(envelope) and is_list(opts) do
-    with {:ok, identity} <- parse_identity(envelope) do
-      frames =
-        with :ok <- validate_schema_version(envelope) do
-          parse_frames(fetch_val(envelope, :frames), identity.embedding_dim)
-        end
-
-      transact_projection(identity, frames, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
+    with {:ok, identity, validation} <- VisualIndexResultEnvelope.validate(envelope) do
+      transact_projection(identity, validation, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
     end
   end
 
   def ingest_result(_, _), do: {:error, :invalid_result_envelope}
 
-  @doc false
-  def decode_result(raw_json)
-      when is_binary(raw_json) and byte_size(raw_json) <= @max_envelope_bytes do
+  defp decode_result(raw_json)
+       when is_binary(raw_json) and byte_size(raw_json) <= @max_envelope_bytes do
     decoders = [
       object_finish: fn pairs, acc -> {Jason.OrderedObject.new(Enum.reverse(pairs)), acc} end,
       float: &decode_float/1,
@@ -106,12 +98,13 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     end
   end
 
-  def decode_result(_), do: {:error, :invalid_result_envelope, nil}
+  defp decode_result(_), do: {:error, :invalid_result_envelope, nil}
 
   defp decode_float(token) do
-    String.to_float(token)
-  rescue
-    ArgumentError -> :out_of_range
+    case Float.parse(token) do
+      {value, ""} -> value
+      _ -> :out_of_range
+    end
   end
 
   defp decode_integer(token) when byte_size(token) <= 20, do: String.to_integer(token)
@@ -128,315 +121,15 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Envelope Validation
-  # ---------------------------------------------------------------------------
-
-  defp parse_identity(env) do
-    with {:ok, catalog_entry_id} <- cast_uuid(fetch_val(env, :catalog_entry_id)),
-         {:ok, job_id} <- cast_optional_uuid(fetch_val(env, :job_id)),
-         {:ok, descriptor_sha256} <- parse_hex64(fetch_val(env, :descriptor_sha256)),
-         {:ok, det_model_id} <- parse_non_empty(fetch_val(env, :detector_model_id), 128),
-         {:ok, det_model_ver} <-
-           parse_non_empty(fetch_val(env, :detector_model_version), 64),
-         {:ok, emb_model_id} <- model_identity(env, :embedder_model_id, :model_id, 128),
-         {:ok, emb_model_ver} <- model_identity(env, :embedder_model_version, :model_version, 64),
-         {:ok, embedding_dim} <- parse_dim(fetch_val(env, :embedding_dim)) do
-      {:ok,
-       %{
-         job_id: job_id,
-         catalog_entry_id: catalog_entry_id,
-         descriptor_sha256: descriptor_sha256,
-         detector_model_id: det_model_id,
-         detector_model_version: det_model_ver,
-         embedder_model_id: emb_model_id,
-         embedder_model_version: emb_model_ver,
-         embedding_dim: embedding_dim
-       }}
-    end
-  end
-
-  defp model_identity(env, field, alternate, max_length) do
-    case {fetch_val(env, field), fetch_val(env, alternate)} do
-      {nil, value} -> parse_non_empty(value, max_length)
-      {value, nil} -> parse_non_empty(value, max_length)
-      {value, value} -> parse_non_empty(value, max_length)
-      _ -> {:error, :unmatched_result_job}
-    end
-  end
-
-  defp validate_schema_version(env) do
-    ver = fetch_val(env, :schema_version)
-    schema = fetch_val(env, :schema)
-
-    if ver in [nil, 1] and schema in [nil, @result_subject] do
-      :ok
-    else
-      {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp parse_dim(dim) when dim in @allowed_dims, do: {:ok, dim}
-  defp parse_dim(_), do: {:error, :invalid_embedding_vector}
-
-  defp parse_frames(frames, dim)
-       when is_list(frames) and length(frames) <= @max_frames_per_result do
-    frames
-    |> Enum.reduce_while({:ok, []}, fn raw_frame, {:ok, acc} ->
-      case parse_single_frame(raw_frame, dim) do
-        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
-        {:error, _} = err -> {:halt, err}
-      end
-    end)
-    |> case do
-      {:ok, rev} -> {:ok, Enum.reverse(rev)}
-      err -> err
-    end
-  end
-
-  defp parse_frames(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_single_frame(frame, dim) when is_map(frame) do
-    seq = fetch_val(frame, :fragment_sequence) || fetch_val(frame, :fragment_index)
-    pts_ns = fetch_val(frame, :media_pts_ns) || fetch_val(frame, :media_offset_ns)
-    suppressed = fetch_val(frame, :scene_suppressed) == true
-    raw_detections = fetch_val(frame, :detections) || []
-    raw_embeddings = fetch_val(frame, :embeddings) || []
-
-    with true <- seq in 0..@max_bigint,
-         true <- pts_ns in 0..@max_bigint,
-         {:ok, detections} <- parse_detections(raw_detections),
-         {:ok, embeddings} <- parse_embeddings(raw_embeddings, dim) do
-      {:ok,
-       %{
-         fragment_sequence: seq,
-         media_pts_ns: pts_ns,
-         scene_suppressed: suppressed,
-         detections: detections,
-         embeddings: embeddings
-       }}
-    else
-      {:error, _} = err -> err
-      _ -> {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp parse_single_frame(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_detections(list) when is_list(list) and length(list) <= 64 do
-    list
-    |> Enum.reduce_while({:ok, []}, fn det, {:ok, acc} ->
-      case normalize_detection(det) do
-        {:ok, norm} -> {:cont, {:ok, [norm | acc]}}
-        {:error, _} = err -> {:halt, err}
-      end
-    end)
-    |> case do
-      {:ok, rev} -> {:ok, Enum.reverse(rev)}
-      err -> err
-    end
-  end
-
-  defp parse_detections(_), do: {:error, :invalid_result_envelope}
-
-  defp normalize_detection(det) when is_map(det) do
-    cls = fetch_val(det, :object_class) || fetch_val(det, :class) || fetch_val(det, :label)
-    conf = fetch_val(det, :confidence) || fetch_val(det, :score)
-    raw_bbox = fetch_val(det, :bbox) || fetch_val(det, :bbox_norm)
-
-    with {:ok, norm_cls} <- parse_non_empty(cls, 64),
-         true <- is_nil(conf) or (is_number(conf) and conf >= 0.0 and conf <= 1.0),
-         {:ok, bbox} <- parse_required_bbox(raw_bbox),
-         {:ok, colors} <- parse_colors(fetch_val(det, :dominant_colors)) do
-      {:ok,
-       %{
-         "object_class" => norm_cls,
-         "confidence" => if(is_number(conf), do: conf * 1.0),
-         "bbox" => bbox,
-         "dominant_colors" => colors
-       }}
-    else
-      {:error, :invalid_bbox} = err -> err
-      _ -> {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp normalize_detection(_), do: {:error, :invalid_result_envelope}
-
-  defp parse_embeddings(list, dim)
-       when is_list(list) and length(list) <= @max_embeddings_per_frame do
-    list
-    |> Enum.reduce_while({:ok, []}, fn emb, {:ok, acc} ->
-      case parse_single_embedding(emb, dim) do
-        {:ok, norm} -> {:cont, {:ok, [norm | acc]}}
-        {:error, _} = err -> {:halt, err}
-      end
-    end)
-    |> case do
-      {:ok, rev} -> {:ok, Enum.reverse(rev)}
-      err -> err
-    end
-  end
-
-  defp parse_embeddings(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_single_embedding(emb, dim) when is_map(emb) do
-    raw_kind = fetch_val(emb, :region_kind) || fetch_val(emb, :embedding_kind)
-    raw_idx = fetch_val(emb, :region_index) || fetch_val(emb, :crop_index) || 0
-    raw_cls = fetch_val(emb, :object_class)
-    raw_conf = fetch_val(emb, :confidence) || fetch_val(emb, :detector_confidence)
-    raw_bbox = fetch_val(emb, :bbox) || fetch_val(emb, :bbox_norm)
-    attrs = fetch_val(emb, :attributes) || %{}
-
-    raw_colors =
-      fetch_val(emb, :dominant_colors) ||
-        (is_map(attrs) && fetch_val(attrs, :dominant_colors)) ||
-        []
-
-    raw_vec = fetch_val(emb, :embedding) || fetch_val(emb, :vector)
-
-    with {:ok, kind} <- parse_region_kind(raw_kind),
-         true <- raw_idx in 0..@max_bigint,
-         {:ok, obj_class} <- parse_optional_class(kind, raw_cls),
-         {:ok, conf} <- parse_optional_confidence(kind, raw_conf),
-         {:ok, bbox} <- parse_region_bbox(kind, raw_bbox),
-         {:ok, colors} <- parse_colors(raw_colors),
-         {:ok, vec} <- normalize_l2_vector(raw_vec, dim) do
-      {:ok,
-       %{
-         region_kind: kind,
-         region_index: if(kind == :scene, do: 0, else: raw_idx),
-         object_class: obj_class,
-         confidence: conf,
-         bbox: bbox,
-         dominant_colors: colors,
-         embedding: vec
-       }}
-    else
-      {:error, _} = err -> err
-      _ -> {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp parse_single_embedding(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_region_kind(k) when k in [:scene, "scene"], do: {:ok, :scene}
-  defp parse_region_kind(k) when k in [:crop, "crop"], do: {:ok, :crop}
-  defp parse_region_kind(_), do: {:error, :invalid_result_envelope}
-
-  defp parse_optional_class(:scene, nil), do: {:ok, nil}
-  defp parse_optional_class(:scene, ""), do: {:ok, nil}
-  defp parse_optional_class(:scene, _), do: {:error, :invalid_result_envelope}
-  defp parse_optional_class(:crop, nil), do: {:ok, nil}
-
-  defp parse_optional_class(:crop, cls), do: parse_non_empty(cls, 64)
-  defp parse_optional_class(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_optional_confidence(:scene, nil), do: {:ok, nil}
-  defp parse_optional_confidence(:scene, _), do: {:error, :invalid_result_envelope}
-  defp parse_optional_confidence(:crop, nil), do: {:ok, nil}
-
-  defp parse_optional_confidence(:crop, c) when is_number(c) and c >= 0.0 and c <= 1.0,
-    do: {:ok, c * 1.0}
-
-  defp parse_optional_confidence(_, _), do: {:error, :invalid_result_envelope}
-
-  defp parse_region_bbox(:scene, nil), do: {:ok, nil}
-  defp parse_region_bbox(:scene, _), do: {:error, :invalid_bbox}
-  defp parse_region_bbox(:crop, nil), do: {:ok, nil}
-  defp parse_region_bbox(:crop, raw), do: parse_required_bbox(raw)
-
-  defp parse_required_bbox([x1, y1, x2, y2]) do
-    validate_bbox_coords(x1, y1, x2, y2)
-  end
-
-  defp parse_required_bbox(map) when is_map(map) do
-    validate_bbox_coords(
-      fetch_val(map, :x1),
-      fetch_val(map, :y1),
-      fetch_val(map, :x2),
-      fetch_val(map, :y2)
-    )
-  end
-
-  defp parse_required_bbox(_), do: {:error, :invalid_bbox}
-
-  defp validate_bbox_coords(x1, y1, x2, y2) do
-    if unit_num?(x1) and unit_num?(y1) and unit_num?(x2) and unit_num?(y2) and x1 < x2 and y1 < y2 do
-      {:ok, %{"x1" => x1 * 1.0, "y1" => y1 * 1.0, "x2" => x2 * 1.0, "y2" => y2 * 1.0}}
-    else
-      {:error, :invalid_bbox}
-    end
-  end
-
-  defp unit_num?(v), do: is_number(v) and v >= 0.0 and v <= 1.0
-
-  defp parse_colors(list) when is_list(list) do
-    colors = Enum.filter(list, &is_binary/1)
-
-    if Enum.any?(colors, &String.contains?(&1, <<0>>)) do
-      {:error, :invalid_result_envelope}
-    else
-      normalized =
-        colors
-        |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
-        |> Enum.reject(&(&1 == "" or byte_size(&1) > 32))
-        |> Enum.uniq()
-        |> Enum.take(@max_colors_per_embedding)
-
-      {:ok, normalized}
-    end
-  end
-
-  defp parse_colors(_), do: {:ok, []}
-
-  defp normalize_l2_vector(%Ash.Vector{dimensions: dim} = vec, expected_dim)
-       when dim == expected_dim do
-    normalize_l2_vector(Ash.Vector.to_list(vec), expected_dim)
-  end
-
-  defp normalize_l2_vector(values, expected_dim)
-       when is_list(values) and length(values) == expected_dim do
-    sum_sq =
-      Enum.reduce_while(values, 0.0, fn
-        v, acc when is_number(v) and abs(v) <= 1.0 + @norm_tolerance -> {:cont, acc + v * v}
-        _, _ -> {:halt, :invalid}
-      end)
-
-    case sum_sq do
-      :invalid ->
-        {:error, :invalid_embedding_vector}
-
-      sq when is_float(sq) and sq > 1.0e-12 ->
-        norm = :math.sqrt(sq)
-
-        if abs(norm - 1.0) <= @norm_tolerance do
-          normalized = Enum.map(values, &(&1 / norm))
-          Ash.Vector.new(normalized)
-        else
-          {:error, :invalid_embedding_vector}
-        end
-
-      _ ->
-        {:error, :invalid_embedding_vector}
-    end
-  end
-
-  defp normalize_l2_vector(_, _), do: {:error, :invalid_embedding_vector}
-
-  # ---------------------------------------------------------------------------
-  # Transactional Projection
-  # ---------------------------------------------------------------------------
-
-  defp transact_projection(parsed, frames, now) do
+  defp transact_projection(parsed, validation, now) do
     [RecordingCatalogEntry, VisualIndexJob, VisualFrame, VisualEmbedding]
     |> Ash.transact(fn ->
-      execute_projection(parsed, frames, now)
+      execute_projection(parsed, validation, now)
     end)
     |> unwrap_transaction()
   end
 
-  defp execute_projection(parsed, frames, now) do
+  defp execute_projection(parsed, validation, now) do
     entry_id = parsed.catalog_entry_id
 
     entry =
@@ -446,31 +139,51 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       |> Ash.read_one!(actor: @system_actor)
 
     with {:ok, job} <- matching_job(parsed) do
-      project_job(job, entry, parsed, frames, now)
+      recording = RecordingCatalogEntry.availability(entry)
+
+      validation =
+        if match?({:ok, _}, validation) and recording == :playable and
+             entry.descriptor_sha256 != parsed.descriptor_sha256,
+           do: {:error, :descriptor_sha256_mismatch},
+           else: validation
+
+      case disposition(validation, job && job.state, recording) do
+        {:store, frames} ->
+          store_frames(entry, parsed, frames)
+          with {:ok, _} <- complete_job(job, now), do: projection_summary(job, frames)
+
+        :ack ->
+          projection_summary(job, [])
+
+        :cancel ->
+          cancel_jobs_for_entry(entry_id)
+
+        {:fail, reason} ->
+          {:reject, job, reason}
+
+        {:report, reason} ->
+          {:report, reason}
+      end
     end
   end
 
-  defp project_job(nil, _entry, _parsed, _frames, _now), do: :unmatched_result_job
+  defp disposition(_, nil, _), do: {:report, :unmatched_result_job}
 
-  defp project_job(job, _entry, _parsed, {:error, reason}, _now), do: {:reject, job, reason}
+  defp disposition({:error, reason}, state, _)
+       when state in [:completed, :cancelled, :failed_terminal],
+       do: {:report, reason}
 
-  defp project_job(job, entry, parsed, {:ok, frames}, now) do
-    cond do
-      is_nil(entry) or not RecordingCatalogEntry.playable?(entry) ->
-        cancel_jobs_for_entry(parsed.catalog_entry_id)
+  defp disposition({:ok, _}, state, :recording_gone)
+       when state in [:completed, :cancelled, :failed_terminal],
+       do: {:report, :recording_gone}
 
-      job.state in [:completed, :cancelled, :failed_terminal] ->
-        projection_summary(job, [])
+  defp disposition({:ok, _}, state, _) when state in [:completed, :cancelled, :failed_terminal],
+    do: :ack
 
-      entry.descriptor_sha256 != parsed.descriptor_sha256 ->
-        {:reject, job, :descriptor_sha256_mismatch}
-
-      true ->
-        store_frames(entry, parsed, frames)
-
-        with {:ok, _} <- complete_job(job, now), do: projection_summary(job, frames)
-    end
-  end
+  defp disposition(_, _, :recording_gone), do: :cancel
+  defp disposition(_, _, :recording_unavailable), do: {:report, :recording_unavailable}
+  defp disposition({:error, reason}, _, :playable), do: {:fail, reason}
+  defp disposition({:ok, %{frames: frames}}, _, :playable), do: {:store, frames}
 
   defp projection_summary(job, frames) do
     {:ok,
@@ -589,7 +302,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
   defp unwrap_transaction({:ok, {:ok, _} = projection}), do: projection
   defp unwrap_transaction({:ok, :recording_gone}), do: {:error, :recording_gone}
-  defp unwrap_transaction({:ok, :unmatched_result_job}), do: {:error, :unmatched_result_job}
+  defp unwrap_transaction({:ok, {:report, reason}}), do: {:error, reason}
 
   defp unwrap_transaction({:ok, {:reject, job, reason}}) do
     with {:ok, _} <- VisualIndexDispatcher.reconcile_exhausted_job(job, Atom.to_string(reason)) do
@@ -598,41 +311,4 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   end
 
   defp unwrap_transaction(other), do: other
-
-  defp cast_uuid(val) when is_binary(val) do
-    case Ecto.UUID.cast(val) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp cast_uuid(_), do: {:error, :invalid_result_envelope}
-
-  defp cast_optional_uuid(nil), do: {:ok, nil}
-  defp cast_optional_uuid(val), do: cast_uuid(val)
-
-  defp parse_hex64(val) when is_binary(val) do
-    if Regex.match?(@hex64, val), do: {:ok, val}, else: {:error, :invalid_result_envelope}
-  end
-
-  defp parse_hex64(_), do: {:error, :invalid_result_envelope}
-
-  defp parse_non_empty(val, max_len) when is_binary(val) do
-    trimmed = String.trim(val)
-
-    if byte_size(trimmed) in 1..max_len and not String.contains?(trimmed, <<0>>) do
-      {:ok, trimmed}
-    else
-      {:error, :invalid_result_envelope}
-    end
-  end
-
-  defp parse_non_empty(_, _), do: {:error, :invalid_result_envelope}
-
-  defp fetch_val(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, val} -> val
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
 end

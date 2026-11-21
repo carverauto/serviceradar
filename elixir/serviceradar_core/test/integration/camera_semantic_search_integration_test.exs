@@ -36,6 +36,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.EventWriter.TransientMessageError
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadar.TestSupport
@@ -1150,10 +1151,15 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       job = job_for(entry, actor)
       sent = ~U[2026-11-10 12:00:00.000000Z]
 
-      publisher = fn subject, _, opts ->
-        assert subject == "media.jobs.visual_index.backfill.v1"
-        assert {"Nats-Expected-Stream", "CAMERA_MEDIA_JOBS"} in opts[:headers]
-        send(self(), :backfill_published)
+      job_id = job.id
+
+      publisher = fn subject, data, opts ->
+        if Jason.decode!(data)["job_id"] == job_id do
+          assert subject == "media.jobs.visual_index.backfill.v1"
+          assert {"Nats-Expected-Stream", "CAMERA_MEDIA_JOBS"} in opts[:headers]
+          send(self(), {:backfill_published, job_id})
+        end
+
         {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
       end
 
@@ -1179,10 +1185,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         assert {:ok, %{attempt_count: 1, state: :dispatched}} =
                  VisualIndexDispatcher.dispatch_job(job.id, opts)
 
-        assert {:ok, %{examined_count: 0}} =
-                 VisualIndexDispatcher.reconcile_expired_dispatched_jobs(opts)
+        assert {:ok, _} = VisualIndexDispatcher.reconcile_expired_dispatched_jobs(opts)
 
-        refute_received :backfill_published
+        refute_received {:backfill_published, ^job_id}
         assert %{attempt_count: 1, state: :dispatched} = reload(job, actor)
       end
 
@@ -1192,7 +1197,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                  now: DateTime.shift(sent, hour: 73)
                )
 
-      assert_received :backfill_published
+      assert_received {:backfill_published, ^job_id}
     end
   end
 
@@ -1238,11 +1243,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       entry = create_indexed_playable_entry(cam, prof, 1_750_007_000_000_000, actor)
       job = job_for(entry, actor)
 
-      # The only copy went missing while the worker ran; nothing purges on this state.
       {:ok, _} =
         SQL.query(
           Repo,
-          "UPDATE platform.camera_recording_catalog SET local_state = 'missing' WHERE id = $1",
+          """
+          UPDATE platform.camera_recording_catalog SET local_state = 'missing',
+            quarantine_reason = 'binding_compromised', quarantine_receipt = '{}', quarantined_bytes = 0
+          WHERE id = $1
+          """,
           [Ecto.UUID.dump!(entry.id)]
         )
 
@@ -1270,6 +1278,39 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       assert {:ok, 0} = CameraVisualIndexResults.process_batch([message])
       assert %{state: :cancelled} = reload(job, actor)
       assert projection_counts(entry, actor) == {0, 0}
+    end
+
+    test "recoverable copy loss retries the result until the recording is playable", %{
+      tmp_dir: tmp_dir
+    } do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:recoverable_result_test)
+      {job, result} = admitted_result(actor, "Recoverable Copy Camera")
+      id = Ecto.UUID.dump!(job.catalog_entry_id)
+      message = result_message(result)
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_recording_catalog SET local_state = 'missing', archive_state = 'pending' WHERE id = $1",
+        [id]
+      )
+
+      assert {:incomplete, 0,
+              [{^message, %TransientMessageError{reason: :recording_unavailable}}]} =
+               CameraVisualIndexResults.process_batch([message])
+
+      assert reload(job, actor).state == :pending
+      assert projection_counts(%{id: job.catalog_entry_id}, actor) == {0, 0}
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_recording_catalog SET local_state = 'present' WHERE id = $1",
+        [id]
+      )
+
+      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert reload(job, actor).state == :completed
+      assert projection_counts(%{id: job.catalog_entry_id}, actor) == {1, 1}
     end
 
     test "a failed matching-job read rolls back the projection", %{tmp_dir: tmp_dir} do
@@ -1529,13 +1570,37 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                })
                |> Ash.update(actor: actor)
 
-      for {job, result} <- [{exhausted, exhausted_result}, {cancelled, cancelled_result}] do
+      {completed, completed_result} = admitted_result(actor, "Completed Result Camera")
+      assert {:ok, 1} = CameraVisualIndexResults.process_batch([result_message(completed_result)])
+
+      assert {:ok, health} =
+               HealthTracker.current_status(:core, "camera.visual_index.failed_terminal")
+
+      assert health.metadata["last_error_class"] == "max_deliver_exhausted"
+
+      for {job, result} <- [
+            {exhausted, exhausted_result},
+            {cancelled, cancelled_result},
+            {completed, completed_result}
+          ] do
         final_job = reload(job, actor)
 
         for envelope <- [result, Map.delete(result, "job_id")] do
           assert {:ok, 0} = CameraVisualIndexResults.process_batch([result_message(envelope)])
-          assert projection_counts(%{id: job.catalog_entry_id}, actor) == {0, 0}
+          counts = if job.id == completed.id, do: {1, 1}, else: {0, 0}
+
+          invalid =
+            envelope |> put_in(["frames", Access.at(0), "embeddings"], false) |> result_message()
+
+          assert {:incomplete, 0,
+                  [{^invalid, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+                   CameraVisualIndexResults.process_batch([invalid])
+
+          assert projection_counts(%{id: job.catalog_entry_id}, actor) == counts
           assert reload(job, actor) == final_job
+
+          assert {:ok, ^health} =
+                   HealthTracker.current_status(:core, "camera.visual_index.failed_terminal")
         end
       end
     end
@@ -1609,8 +1674,13 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       _gate = Fixtures.recording_recovery_gate(tmp_dir)
       actor = SystemActor.system(:invalid_number_test)
       {job, envelope} = admitted_result(actor, "Numeric Validation Camera")
-      wire = Jason.encode!(envelope)
-      assert {:ok, ^envelope} = VisualIndexResultProjector.decode_result(wire)
+      {valid_job, valid} = admitted_result(actor, "Valid Numeric Camera")
+
+      assert {:ok, %{frame_count: 1, embedding_count: 1}} =
+               VisualIndexResultProjector.ingest_result(Jason.encode!(valid))
+
+      assert reload(valid_job, actor).state == :completed
+      assert projection_counts(%{id: valid_job.catalog_entry_id}, actor) == {1, 1}
 
       bigint_overflow = 9_223_372_036_854_775_808
       first_frame = ["frames", Access.at(0)]
@@ -1734,10 +1804,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       assert projection_counts(entry, actor) == {0, 0}
     end
   end
-
-  # ---------------------------------------------------------------------------
-  # Synthetic DB test helpers
-  # ---------------------------------------------------------------------------
 
   defp admitted_result(actor, name) do
     {cam, prof} = create_camera_and_profile(actor, name)
@@ -1944,6 +2010,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         block,
         desc,
         %{
+          # ---------------------------------------------------------------------------
+          # Synthetic DB test helpers
+          # ---------------------------------------------------------------------------
           first_unit_pts: 0,
           first_unit_received_at: first_dt,
           reanchored: false

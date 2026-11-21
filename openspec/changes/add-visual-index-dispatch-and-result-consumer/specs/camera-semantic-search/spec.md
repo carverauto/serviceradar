@@ -39,8 +39,16 @@ When the deployment enables camera recording and visual indexing, Core SHALL con
 - **THEN** Core SHALL acknowledge it with zero writes and preserve the final job state and any prior purge
 
 #### Scenario: Recording deleted or quarantined while the worker ran
-- **WHEN** a matching result arrives for an admitted job whose catalog entry is no longer playable
+- **WHEN** a matching result arrives for an admitted job whose catalog entry is quarantined or terminally deleted
 - **THEN** Core SHALL store nothing, cancel the entry's active jobs, and acknowledge the message
+
+#### Scenario: Recording copy temporarily unavailable
+- **WHEN** a matching result arrives for an active job while its recording has no playable copy and can still recover
+- **THEN** Core SHALL retry the delivery without writing projections or cancelling jobs
+
+#### Scenario: Invalid result for a final job
+- **WHEN** a matching malformed result arrives after completion, cancellation or terminal failure
+- **THEN** Core SHALL dead-letter the result and preserve the job and its recorded health metadata
 
 #### Scenario: Transient failure
 - **WHEN** storing a result fails for a reason a later delivery can overcome, such as a database error, and deliveries remain

@@ -391,25 +391,19 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     normalized_err = sanitize_error_class(error_class)
 
     with {:ok, job} <- load_job(job_or_id, opts) do
-      cond do
-        job.state in [:completed, :cancelled] ->
-          {:ok, job}
-
-        job.state == :failed_terminal ->
-          record_tripwire_failure(job, normalized_err, opts)
-          {:ok, job}
-
-        true ->
-          with {:ok, updated} <-
-                 job
-                 |> Ash.Changeset.for_update(:mark_failed_terminal, %{
-                   last_error_class: normalized_err
-                 })
-                 |> Ash.Changeset.filter(expr(state in [:pending, :dispatched]))
-                 |> Ash.update(actor: @system_actor) do
-            record_tripwire_failure(updated, normalized_err, opts)
-            {:ok, updated}
-          end
+      if job.state in [:completed, :cancelled, :failed_terminal] do
+        {:ok, job}
+      else
+        with {:ok, updated} <-
+               job
+               |> Ash.Changeset.for_update(:mark_failed_terminal, %{
+                 last_error_class: normalized_err
+               })
+               |> Ash.Changeset.filter(expr(state in [:pending, :dispatched]))
+               |> Ash.update(actor: @system_actor) do
+          record_tripwire_failure(updated, normalized_err, opts)
+          {:ok, updated}
+        end
       end
     end
   end
@@ -741,7 +735,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   defp dispatch_for_catalog_entry(job, now, opts) do
     with {:ok, entry} <- load_catalog_entry(job.catalog_entry_id, opts) do
-      if gone_or_quarantined?(entry) do
+      if RecordingCatalogEntry.availability(entry) == :recording_gone do
         cancel_job(job, "source_deleted_or_quarantined")
       else
         publish_and_mark_dispatched(job, now, opts)
@@ -754,16 +748,6 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
       nil -> Ash.get(RecordingCatalogEntry, id, actor: @system_actor, not_found_error?: false)
       loader -> loader.(id)
     end
-  end
-
-  defp gone_or_quarantined?(nil), do: true
-
-  defp gone_or_quarantined?(entry) do
-    local_state = fetch_val(entry, :local_state)
-    archive_state = fetch_val(entry, :archive_state)
-
-    local_state == :quarantined or
-      (local_state == :reclaimed and archive_state in [:deleted, :not_required])
   end
 
   defp cancel_job(job, reason_class) do

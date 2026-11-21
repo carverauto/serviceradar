@@ -44,7 +44,6 @@ defmodule ServiceRadar.JSONDocument do
     end
   end
 
-  defp plain_value(:out_of_range, _arrays?), do: {:error, :invalid_request}
   defp plain_value(value, _arrays?) when is_list(value), do: {:error, :invalid_request}
   defp plain_value(value, _arrays?), do: {:ok, value}
 end

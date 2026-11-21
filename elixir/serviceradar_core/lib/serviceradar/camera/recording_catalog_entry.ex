@@ -735,16 +735,36 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
   Quarantined entries are never playable (`B2`, `R2`).
   """
   @spec playable?(map()) :: boolean()
-  def playable?(%{
-        recording_block_id: block_id,
-        local_state: local_state,
-        archive_state: archive_state
-      })
-      when not is_nil(block_id) and local_state != :quarantined do
-    local_state == :present or archive_state == :verified
+  def playable?(entry), do: availability(entry) == :playable
+
+  @doc "Classifies the catalog copies for visual indexing and worker read grants."
+  def availability(entry) when is_map(entry) do
+    local = fetch_val(entry, :local_state)
+    archive = fetch_val(entry, :archive_state)
+
+    cond do
+      is_nil(fetch_val(entry, :recording_block_id)) ->
+        :recording_gone
+
+      not is_nil(fetch_val(entry, :quarantine_reason)) ->
+        :recording_gone
+
+      local in [:quarantined, "quarantined"] ->
+        :recording_gone
+
+      local in [:reclaimed, "reclaimed"] and
+          archive in [:deleted, :not_required, "deleted", "not_required"] ->
+        :recording_gone
+
+      local in [:present, "present"] or archive in [:verified, "verified"] ->
+        :playable
+
+      true ->
+        :recording_unavailable
+    end
   end
 
-  def playable?(_), do: false
+  def availability(_), do: :recording_gone
 
   @doc """
   Registers a never-frozen quarantined catalog entry (`recording_block_id = nil`)

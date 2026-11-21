@@ -9,6 +9,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
+  alias ServiceRadar.Camera.VisualIndexResultEnvelope
   alias ServiceRadar.Camera.VisualWorkerReadGrants
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.TerminalMessageError
@@ -865,6 +866,78 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     end
   end
 
+  test "every worker payload field rejects an invalid value before disposition" do
+    envelope = worker_result()
+    frame = [:frames, Access.at(0)]
+    detection = frame ++ [:detections, Access.at(0)]
+    crop = frame ++ [:embeddings, Access.at(0)]
+    track = [:tracks, Access.at(0)]
+
+    for {path, value} <- [
+          {[:schema], nil},
+          {[:schema_version], 1.0},
+          {[:job_id], nil},
+          {[:catalog_entry_id], <<0::128>>},
+          {[:descriptor_sha256], 123},
+          {[:detector_model_id], false},
+          {[:detector_model_version], "a\0b"},
+          {[:embedder_model_id], nil},
+          {[:embedder_model_version], 1},
+          {[:model_id], false},
+          {[:model_version], nil},
+          {[:embedding_dim], 512.0},
+          {[:frames], %{}},
+          {[:tracks], nil},
+          {[:tracks, Access.at(0)], false},
+          {frame ++ [:fragment_sequence], 4_294_967_296},
+          {frame ++ [:media_pts_ns], -1},
+          {frame ++ [:scene_suppressed], "false"},
+          {frame ++ [:detections], false},
+          {frame ++ [:embeddings], false},
+          {detection ++ [:object_class], false},
+          {detection ++ [:confidence], "0.5"},
+          {detection ++ [:bbox], [1.0, 0.0, 0.5, 1.0]},
+          {detection ++ [:dominant_colors], [123]},
+          {detection ++ [:track_id], -1},
+          {crop ++ [:region_kind], :crop},
+          {crop ++ [:region_index], 0.5},
+          {crop ++ [:object_class], false},
+          {crop ++ [:confidence], 1},
+          {crop ++ [:bbox], %{}},
+          {crop ++ [:dominant_colors], false},
+          {crop ++ [:track_id], "1"},
+          {crop ++ [:embedding], unit_vec(768)},
+          {crop ++ [:embedding, Access.at(0)], 1},
+          {crop ++ [:attributes], false},
+          {track ++ [:track_id], -1},
+          {track ++ [:object_class], ""},
+          {track ++ [:first_seen_offset_ms], "0"},
+          {track ++ [:last_seen_offset_ms], 0.5},
+          {track ++ [:dwell_ms], 9_223_372_036_854_775_808},
+          {track ++ [:frame_count], -1},
+          {track ++ [:peak_confidence], 1.1}
+        ] do
+      outcome = VisualIndexResultEnvelope.validate(put_in(envelope, path, value))
+
+      assert match?({:error, _}, outcome) or match?({:ok, _, {:error, _}}, outcome),
+             "accepted invalid value at #{inspect(path)}"
+    end
+
+    assert {:ok, _, {:ok, %{frames: [parsed], tracks: [summary]}}} =
+             VisualIndexResultEnvelope.validate(Map.put(envelope, :future_field, %{}))
+
+    assert summary.track_id == 1
+    assert [%{region_kind: :crop, embedding: vector}] = parsed.embeddings
+    assert Ash.Vector.to_list(vector) == unit_vec(512)
+
+    omitted =
+      update_in(envelope, frame, &Map.drop(&1, [:scene_suppressed, :detections, :embeddings]))
+
+    assert {:ok, _,
+            {:ok, %{frames: [%{scene_suppressed: false, detections: [], embeddings: []}]}}} =
+             VisualIndexResultEnvelope.validate(omitted)
+  end
+
   test "a bare job ID cannot authorize a terminal job update" do
     message = %Broadway.Message{
       data: Jason.encode!(%{"job_id" => @job_id}),
@@ -878,6 +951,53 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   # ---------------------------------------------------------------------------
   # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
   # ---------------------------------------------------------------------------
+
+  defp worker_result do
+    detection = %{
+      object_class: "parcel",
+      confidence: 0.75,
+      bbox: [0.0, 0.1, 0.5, 0.9],
+      dominant_colors: ["blue"],
+      track_id: 1
+    }
+
+    crop = Map.merge(detection, %{region_kind: "crop", region_index: 1, embedding: unit_vec(512)})
+
+    frame = %{
+      fragment_sequence: 1,
+      media_pts_ns: 0,
+      scene_suppressed: false,
+      detections: [detection],
+      embeddings: [crop]
+    }
+
+    track = %{
+      track_id: 1,
+      object_class: "parcel",
+      first_seen_offset_ms: 0,
+      last_seen_offset_ms: 5,
+      dwell_ms: 5,
+      frame_count: 1,
+      peak_confidence: 0.75
+    }
+
+    %{
+      schema: "media.results.visual_index.v1",
+      schema_version: 1,
+      job_id: @job_id,
+      catalog_entry_id: @catalog_id,
+      descriptor_sha256: @desc_sha,
+      detector_model_id: "detector",
+      detector_model_version: "1",
+      embedder_model_id: "embedder",
+      embedder_model_version: "1",
+      model_id: "embedder",
+      model_version: "1",
+      embedding_dim: 512,
+      frames: [frame],
+      tracks: [track]
+    }
+  end
 
   defp policy_loaders(entitlement, existing_policies) do
     %{

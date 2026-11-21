@@ -281,43 +281,18 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   end
 
   defp load_and_check_catalog_entry(entry_id, job_id, loaders) do
-    case load_catalog_entry(entry_id, loaders) do
-      {:ok, nil} ->
-        maybe_cancel_job(job_id, loaders)
-        {:error, :recording_gone}
+    with {:ok, entry} <- load_catalog_entry(entry_id, loaders) do
+      case RecordingCatalogEntry.availability(entry) do
+        :playable ->
+          {:ok, entry}
 
-      {:ok, entry} ->
-        classify_catalog_entry_availability(entry, job_id, loaders)
+        :recording_gone ->
+          maybe_cancel_job(job_id, loaders)
+          {:error, :recording_gone}
 
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  defp classify_catalog_entry_availability(entry, job_id, loaders) do
-    local_state = normalize_atom(fetch_val(entry, :local_state))
-    archive_state = normalize_atom(fetch_val(entry, :archive_state))
-    q_reason = fetch_val(entry, :quarantine_reason)
-    block_id = fetch_val(entry, :recording_block_id)
-
-    cond do
-      local_state == :quarantined or not is_nil(q_reason) ->
-        maybe_cancel_job(job_id, loaders)
-        {:error, :recording_gone}
-
-      local_state == :reclaimed and archive_state in [:deleted, :not_required] ->
-        maybe_cancel_job(job_id, loaders)
-        {:error, :recording_gone}
-
-      is_nil(block_id) ->
-        maybe_cancel_job(job_id, loaders)
-        {:error, :recording_gone}
-
-      local_state == :present or archive_state == :verified ->
-        {:ok, entry}
-
-      true ->
-        {:error, :recording_unavailable}
+        :recording_unavailable ->
+          {:error, :recording_unavailable}
+      end
     end
   end
 

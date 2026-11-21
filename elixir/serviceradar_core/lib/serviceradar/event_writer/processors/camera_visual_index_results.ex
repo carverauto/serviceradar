@@ -10,9 +10,10 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
     * stored, or a replay of a stored result: acknowledged. The projector
       skips projection for completed, cancelled and terminally failed jobs.
     * the recording was deleted or quarantined while the worker ran:
-      acknowledged. The projector stores nothing and cancels the entry's jobs.
+      acknowledged. The projector cancels active jobs for a gone recording.
+      A recoverable copy outage is transient and leaves active jobs eligible for redelivery.
     * a result that can never be stored
-      (`VisualIndexResultProjector.terminal_drop?/1`): when identity matches and the database accepts the update,
+      (`VisualIndexResultProjector.terminal_drop?/1`): when identity matches an active job and the database accepts the update,
       the admitted job is marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
       record), then the message fails with
       `ServiceRadar.EventWriter.TerminalMessageError`, which terminates it as a
