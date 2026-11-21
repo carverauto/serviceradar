@@ -80,10 +80,12 @@ the Secret that holds the CA keys, which is the opposite of secure.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
   them; none is known to. Turning it on needs no prior manual step once hub
-  status reports every chart identity adopted. Three cases need an operator
-  first, and hub status shows them before enforcement is turned on: an
-  infrastructure certificate row without a stored subject, a rotation that
-  names an unrecorded predecessor, and a revoked subject.
+  status reports every chart identity adopted, however its certificate came to
+  be recorded. A chart identity that hub status reports as not adopted stays
+  refused after enforcement is on until its reported reason is resolved (for
+  example rows without a subject blocking new adoption, a refused or skipped
+  rotation, a revoked subject, or a failed qualification check); hub status
+  shows it with its reason before enforcement is turned on.
 - **The hub reports whether it can accept a leaf**: core reports whether
   enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the

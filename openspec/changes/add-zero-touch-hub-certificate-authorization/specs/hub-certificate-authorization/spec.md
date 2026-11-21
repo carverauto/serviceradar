@@ -82,16 +82,22 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 - **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
-On an install where core reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities, and turning it off SHALL return the install to static certificate authorization. In three cases an operator must act before enforcement is turned on: an infrastructure certificate row lacks a stored subject, a rotation names an unrecorded predecessor, or a chart identity's subject is revoked. The hub status SHALL show each of these before enforcement is turned on.
+When the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
-- **WHEN** enforcement is turned on after core has reported every chart identity adopted, with no infrastructure certificate row lacking a stored subject, no rotation naming an unrecorded predecessor, and no revoked chart identity subject
+- **WHEN** enforcement is turned on after the hub status has reported every chart identity adopted
 - **THEN** every chart client reconnects and none is refused
 
-#### Scenario: Enforcement is enabled while an operator action is pending
-- **WHEN** enforcement is turned on while core reports an infrastructure certificate row without a stored subject, a rotation naming an unrecorded predecessor, or a revoked chart identity subject
-- **THEN** the affected chart clients stay refused until an operator acts
-- **AND** the hub status showed that state before enforcement was turned on
+#### Scenario: Hand-adopted certificates are recorded without a subject
+- **WHEN** every chart identity's certificate was recorded by the earlier hand adoption procedure, so its rows have no stored subject, and the hub status reports every chart identity adopted
+- **AND** enforcement is turned on
+- **THEN** every chart client is admitted by its recorded fingerprint
+- **AND** the rows without a subject block only new inventory adoption
+
+#### Scenario: Enforcement is enabled while a chart identity is not adopted
+- **WHEN** enforcement is turned on while the hub status reports a chart identity as not adopted with a reason
+- **THEN** that chart identity's client stays refused until the reported reason is resolved
+- **AND** the hub status showed that chart identity and its reason before enforcement was turned on
 
 #### Scenario: Enforcement is disabled
 - **WHEN** the enforcement value is set back to off

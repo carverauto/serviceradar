@@ -263,12 +263,15 @@ for an existing install is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first
 reconciliation, and they retry, but only when every chart identity can be
-adopted automatically. In three cases an operator must act first, and refusal
-lasts until the operator acts: an infrastructure certificate row without a
-stored subject (Decision 1's legacy-row gate), a rotation that names an
-unrecorded predecessor, and a revoked subject. `edge hub status` shows each of
-them as an unadopted chart identity with that reason before enforcement
-is turned on, which is why the documented order checks hub status first.
+adopted automatically. A chart identity that hub status reports as not adopted
+stays refused after enforcement is on until its reported reason is resolved,
+whatever the reason: for example, rows without a subject blocking new
+inventory adoption, a refused or skipped rotation, a revoked subject, or a
+failed qualification check. Rows without a subject block only new adoption;
+fingerprints already recorded, including by the earlier hand procedure, are
+admitted and count as adopted. `edge hub status` shows every not adopted chart
+identity with its reason before enforcement is turned on, which is why the
+documented order checks hub status first.
 
 Certificate regeneration changes every fingerprint. A certificate that was
 already adopted has its successor recorded by
