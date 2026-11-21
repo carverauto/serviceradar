@@ -48,8 +48,8 @@ the hook also provisions the NATS authorization callout signing set. The first
 upgrade of a Secret with valid certificates and no signing entries adds the
 three seeds and two public configuration fragments in one write, even with
 enforcement disabled. In other configurations, the issuer Secret's supplier
-owns the seeds and the runtime Secret's supplier owns the fragments. Core and
-NATS do not yet use these entries.
+provides the three `nats-callout-*.seed` files and the runtime Secret's
+supplier provides the two matching `nats-callout-*.conf` fragments.
 
 The hook reuses all three seeds and rebuilds any missing or stale fragment
 from them. If both certificates and signing entries are current, it skips the
@@ -57,6 +57,16 @@ Secret write. If a seed is missing from an existing set or is unreadable, the
 hook reports the affected file and fails before updating the Secret. Restore
 the named seeds to keep the same identities. To deliberately provision new
 identities, remove every remaining `nats-callout-*` entry before retrying.
+
+Certificate authorization is off by default. Before setting
+`nats.certificateAuthorization.enabled` to `true`, check that core has
+adopted each chart identity. The chart does not check adoption when rendering.
+With enforcement enabled, only core mounts the signing seeds. If a seed is
+missing or undecodable, core can start and its authorizer reports
+`signing_keys_not_provisioned` even if a bootstrap record exists.
+NATS reads the public fragments at startup.
+A missing fragment prevents the Secret volume from mounting. An empty
+fragment stops the container before it starts the broker.
 
 ### Dgraph server TLS (separate path)
 

@@ -9,8 +9,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   hours with +/-20% jitter, capped at certificate expiry. Policy freshness remains
   short and independent: stale policy cannot admit a new connection.
   Local leaf authorization has a separate offline policy contract.
-  A stored account other than the deployment account is answered with an
-  authorization error and no user JWT.
+  When the stored signing record supplies credentials, an account mismatch
+  produces an authorization error and no user JWT.
 
   An adopted infrastructure certificate that presents one of the chart's
   built-in identities is granted that identity's static permissions instead of
@@ -30,7 +30,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   waits `@grant_retry_ms` before it is disconnected for it again, so a
   responder that still disagrees cannot keep a client reconnecting.
 
-  Configuration and policy are database reads. A failed read keeps the last
+  A database read failure during configuration or policy refresh keeps the last
   state, so a database outage cannot restart the authorizer and discard its
   static list, sessions and subscription.
   """
