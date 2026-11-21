@@ -2,6 +2,9 @@
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
 use crate::backend::{InferenceBackend, build_inference_backend};
+use crate::capability::{
+    CapabilityManifest, SystemGpuEnvironmentProbe, verify_startup_capabilities_with_backend,
+};
 use crate::cmaf::{VideoCodec, parse_init_segment_with_codec, parse_timed_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
@@ -1309,6 +1312,38 @@ pub async fn spawn_nats_text_embed_responder(
     Ok(handle)
 }
 
+pub struct AdmittedWorker {
+    config: WorkerConfig,
+    backend: Arc<dyn InferenceBackend>,
+}
+
+pub async fn load_and_admit_worker(
+    config: WorkerConfig,
+) -> Result<(AdmittedWorker, CapabilityManifest), MediaWorkerError> {
+    admit_worker(config, build_inference_backend).await
+}
+
+async fn admit_worker(
+    config: WorkerConfig,
+    load: impl FnOnce(&WorkerConfig) -> Result<Arc<dyn InferenceBackend>, MediaWorkerError>
+    + Send
+    + 'static,
+) -> Result<(AdmittedWorker, CapabilityManifest), MediaWorkerError> {
+    tokio::task::spawn_blocking(move || {
+        let backend = load(&config)?;
+        let manifest = verify_startup_capabilities_with_backend(
+            &config,
+            &SystemGpuEnvironmentProbe,
+            Arc::clone(&backend),
+        )?;
+        Ok((AdmittedWorker { config, backend }, manifest))
+    })
+    .await
+    .map_err(|err| {
+        MediaWorkerError::inference_failed(format!("startup admission task failed: {err}"))
+    })?
+}
+
 /// Connects to NATS (with optional mTLS + `serviceradar-cert-policy`) and runs
 /// both the reserved interactive text-embedder responder and the JetStream
 /// visual-index pull loop until `shutdown` signals termination.
@@ -1317,8 +1352,8 @@ pub async fn run_nats_worker_loops(
     metrics: Arc<WorkerMetrics>,
     shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), MediaWorkerError> {
-    let backend = build_inference_backend(&config)?;
-    run_nats_worker_loops_with_backend(config, backend, metrics, shutdown).await
+    let (worker, _) = load_and_admit_worker(config).await?;
+    run_admitted_nats_worker(worker, metrics, shutdown).await
 }
 
 /// Runs the NATS worker loops using a pre-initialized `InferenceBackend`.
@@ -1326,8 +1361,18 @@ pub async fn run_nats_worker_loops_with_backend(
     config: WorkerConfig,
     backend: Arc<dyn InferenceBackend>,
     metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    let (worker, _) = admit_worker(config, move |_| Ok(backend)).await?;
+    run_admitted_nats_worker(worker, metrics, shutdown).await
+}
+
+pub async fn run_admitted_nats_worker(
+    worker: AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), MediaWorkerError> {
+    let AdmittedWorker { config, backend } = worker;
     let auth = config.worker_auth().cloned().unwrap_or_else(|| {
         WorkerAuthCredentials::new(
             "unconfigured-media-worker-token",

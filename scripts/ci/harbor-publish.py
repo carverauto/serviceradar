@@ -266,9 +266,10 @@ def main():
     selection.add_argument("--metadata-dir")
     selection.add_argument("--repositories", nargs="+")
     promote_parser.add_argument("--tag", dest="tags", action="append", required=True)
-    promote_parser.add_argument("--digest")
-    promote_parser.add_argument("--unsigned", action="store_true",
-                                help="artifacts without a Cosign signature (Helm chart bundles)")
+    mode = promote_parser.add_mutually_exclusive_group()
+    mode.add_argument("--digest")
+    mode.add_argument("--unsigned", action="store_true",
+                      help="artifacts without a Cosign signature (Helm chart bundles)")
     tool = commands.add_parser("publish-tool")
     tool.add_argument("--gitops-commit", required=True)
     tool.add_argument("--source", required=True, help="k8s/harbor/promote-artifacts.py at that commit")

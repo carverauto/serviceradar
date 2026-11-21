@@ -440,8 +440,10 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
     def test_layer_is_reproducible_and_runs_as_the_service_user(self):
         listed = self.tool.verify(self.bundle, self.sums_sha256, COMMIT)
         first, second = self.bundle.parent / "a.tar", self.bundle.parent / "b.tar"
-        for out in (first, second):
-            self.tool.write_layer(self.bundle, listed, b"synthetic CA bundle\n", out)
+        for out, names, mtime in [(first, list(listed), 1_000_000), (second, list(reversed(listed)), 2_000_000)]:
+            for name in names:
+                os.utime(self.bundle / name, (mtime, mtime))
+            self.tool.write_layer(self.bundle, names, b"synthetic CA bundle\n", out)
         self.assertEqual(first.read_bytes(), second.read_bytes())
 
         with tarfile.open(first) as layer:
@@ -466,13 +468,15 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
         repo = "registry.carverauto.dev/serviceradar-builds/serviceradar-media-worker-cuda"
         config = {}
         top_layer = None
+        arm64_digest = "sha256:" + "b" * 64
 
         def registry(command, *args):
             nonlocal top_layer
             if command == "digest" and args[0] == "--platform":
                 self.assertEqual(args[1:], ("linux/arm64", self.tool.BASE_INDEX))
-                return "sha256:" + "b" * 64
+                return arm64_digest
             if command == "mutate":
+                self.assertEqual(args[0], f"registry.carverauto.dev/mirror/library/ubuntu@{arm64_digest}")
                 self.assertEqual(args[args.index("--tag") + 1], f"{repo}:sha-{COMMIT}")
                 self.assertEqual(args[args.index("--entrypoint") + 1], "/usr/local/bin/serviceradar-media-worker")
                 top_layer = hashlib.sha256(Path(args[args.index("--append") + 1]).read_bytes()).hexdigest()

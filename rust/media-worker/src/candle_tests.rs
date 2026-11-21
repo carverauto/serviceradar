@@ -421,16 +421,31 @@ fn write_tiny_siglip_fixture(dir: &Path) {
         (vec![1], const_f32_bytes(1, -10.0)),
     );
 
-    for (head, first, second) in [
-        ("vision_model.head.attention.out_proj", 1.0_f32, 1.0_f32),
-        ("vision_model.head.mlp.fc2", 0.0, 1.0 / 4096.0),
-        ("text_model.head", 1.0, 1.0 + 1.0 / 4096.0),
+    let delta = 1.0_f32 / 4096.0;
+    for (head, biases) in [
+        ("vision_model.head.attention.out_proj", &[1.0, 1.0, 0.0][..]),
+        ("vision_model.head.mlp.fc1", &[8.0, 8.0]),
+        ("vision_model.head.mlp.fc2", &[0.0, delta, -8.0]),
+        ("text_model.head", &[1.0, 1.0 + delta, -8.0]),
     ] {
         let (shape, weights) = t.get_mut(&format!("{head}.weight")).expect("head weights");
-        weights[..2 * shape[1] * size_of::<f32>()].fill(0);
+        let row_bytes = shape[1] * size_of::<f32>();
+        weights[..biases.len() * row_bytes].fill(0);
+        if matches!(head, "vision_model.head.mlp.fc2" | "text_model.head") {
+            let third_row = &mut weights[2 * row_bytes..3 * row_bytes];
+            third_row[..4].copy_from_slice(&1.0_f32.to_le_bytes());
+            third_row[4..8].copy_from_slice(&delta.to_le_bytes());
+        }
         let (_, bias) = t.get_mut(&format!("{head}.bias")).expect("head bias");
-        bias[..4].copy_from_slice(&first.to_le_bytes());
-        bias[4..8].copy_from_slice(&second.to_le_bytes());
+        for (slot, value) in bias.chunks_exact_mut(4).zip(biases) {
+            slot.copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    for (parameter, value) in [("weight", 0.0), ("bias", 8.0_f32)] {
+        let (_, data) = t
+            .get_mut(&format!("text_model.final_layer_norm.{parameter}"))
+            .expect("text output normalization");
+        data[..8].copy_from_slice(&const_f32_bytes(2, value));
     }
     write_safetensors_file(&dir.join("model.safetensors"), &t);
 }
@@ -1028,20 +1043,73 @@ fn parallel_siglip_preprocessing_matches_single_threaded_output_bit_for_bit() {
     }
 }
 
+#[tokio::test]
+async fn nats_worker_entry_points_refuse_failed_admission_before_connecting() {
+    let config = WorkerConfig::default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_execution_provider(crate::ExecutionProvider::CpuExplicit)
+        .with_concurrency(3, 1)
+        .with_nats_url("invalid://");
+    let backend = build_inference_backend(&config).expect("load CPU stub");
+    let metrics = Arc::new(WorkerMetrics::new());
+    let (_shutdown, rx) = tokio::sync::watch::channel(false);
+    let configured =
+        crate::run_nats_worker_loops(config.clone(), metrics.clone(), rx.clone()).await;
+    let supplied = crate::run_nats_worker_loops_with_backend(config, backend, metrics, rx).await;
+    for result in [configured, supplied] {
+        let error = result.expect_err("invalid CPU worker must fail before NATS setup");
+        assert!(
+            error.to_string().contains("index_concurrency <= 2"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
-    let load = |precision| {
-        CandleBackend::load(
-            dir.path(),
-            &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32)
-                .with_precision(precision),
+    let identity = ("synthetic-siglip", "rounding-fixture-v1", 32);
+    let load = |dtype| {
+        let config = CliArgs::try_parse_from([
+            "serviceradar-media-worker",
+            "--backend",
+            "candle",
+            "--execution-provider",
+            "cpu_explicit",
+            "--model-dir",
+            dir.path().to_str().expect("checkpoint path"),
+            "--dtype",
+            dtype,
+            "--embedder-model-id",
+            identity.0,
+            "--embedder-model-version",
+            identity.1,
+            "--embedding-dim",
+            "32",
+        ])
+        .expect("parse precision configuration")
+        .into_worker_config()
+        .expect("worker config");
+        let backend = build_inference_backend(&config).expect("load configured synthetic SigLIP");
+        let manifest = verify_startup_capabilities_with_backend(
+            &config,
+            &StaticProbe(GpuEnvironmentObservation::no_gpu()),
+            Arc::clone(&backend),
         )
-        .expect("load synthetic SigLIP")
+        .expect("admit configured synthetic SigLIP");
+        assert_eq!(
+            (
+                manifest.embedder_model_id(),
+                manifest.embedder_model_version(),
+                manifest.embedding_dim()
+            ),
+            identity
+        );
+        backend
     };
-    let f32_backend = load(InferencePrecision::Auto);
-    let f16_backend = load(InferencePrecision::F16);
+    let f32_backend = load("auto");
+    let f16_backend = load("f16");
     // `auto` is f32 on the CPU; an explicit f16 is honoured and reported.
     assert_eq!(f32_backend.info().dtype(), InferencePrecision::F32);
     assert_eq!(f16_backend.info().dtype(), InferencePrecision::F16);
@@ -1074,6 +1142,11 @@ fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
         assert!(half[0] > 0.0);
         assert_eq!(half[0], half[1], "binary16 rounds 1 + 2^-12 to 1");
         assert!((full[1] / full[0] - (1.0 + 1.0 / 4096.0)).abs() < 1e-6);
+        assert_eq!(
+            half[2], 0.0,
+            "binary16 rounds 8 + 2^-9 to 8 before subtracting 8"
+        );
+        assert!((full[2] / full[0] - 1.0 / 512.0).abs() < 1e-7);
         let norm: f32 = half.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!(
             (norm - 1.0).abs() < 1e-4,

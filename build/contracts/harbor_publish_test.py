@@ -537,10 +537,16 @@ class ImagePromotionTagsTest(unittest.TestCase):
     def test_explicit_digest_promotes_the_verified_build_when_the_source_tag_moves(self):
         tag = "sha-example"
         self.state.write_text(json.dumps({"serviceradar-builds/example-db": {tag: self.NEW}}))
-        result = subprocess.run([sys.executable, str(SCRIPT), "promote", "--repositories", "example-db",
-                                 "--tag", tag, "--digest", self.OLD], env=self.env, text=True, capture_output=True)
+        command = [sys.executable, str(SCRIPT), "promote", "--repositories", "example-db",
+                   "--tag", tag, "--digest", self.OLD]
+        refused = subprocess.run([*command, "--unsigned"], env=self.env, text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 2, refused.stderr)
+        self.assertFalse(self.bundle.exists())
+        result = subprocess.run(command, env=self.env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(self.bundle.read_text())["artifacts"][0]["digest"], self.OLD)
+        artifact, = json.loads(self.bundle.read_text())["artifacts"]
+        self.assertEqual(artifact["digest"], self.OLD)
+        self.assertTrue(artifact["legacy_signature"])
         self.assertEqual(json.loads(self.state.read_text())["serviceradar/example-db"][tag], self.OLD)
 
     def test_existing_static_tag_with_another_image_is_kept_while_release_tags_publish(self):
