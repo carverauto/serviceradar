@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.InfrastructureCertificateAdoption, as: Adoption
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.NATS.StaticIdentityGrants
 
@@ -115,23 +116,25 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     with {:ok, subjects} <- chart_subjects(inputs.identities_file),
          {:ok, grants} <- static_grants(inputs.static_users_file),
          {:ok, root} <- root_certificate(inputs.root_file),
-         {:ok, legacy} <- legacy_certificates(),
-         {:ok, authorized} <- authorized_fingerprints() do
+         {:ok, legacy} <- legacy_certificates() do
       {listed, unlisted} = inventory(inputs.certificates_dir, root, subjects)
 
-      stored = %{
-        authorized: authorized,
-        legacy: legacy,
-        root_pem: root.pem,
-        partition_id: inputs.partition_id
-      }
-
-      identities =
+      attempts =
         Enum.map(subjects, fn subject ->
-          cover(subject, Map.get(listed, subject), Map.get(grants, subject), stored)
+          case Map.fetch(listed, subject) do
+            :error ->
+              {subject, nil, :no_inventory_certificate}
+
+            {:ok, certificate} ->
+              outcome = first_adoption(certificate, grants, legacy, inputs.partition_id)
+              {subject, certificate.fingerprint, outcome}
+          end
         end)
 
-      {:ok, %{identities: identities, unlisted: unlisted, legacy_certificates: legacy}}
+      with {:ok, authorized} <- authorized_fingerprints() do
+        identities = Enum.map(attempts, &cover(&1, authorized))
+        {:ok, %{identities: identities, unlisted: unlisted, legacy_certificates: legacy}}
+      end
     end
   end
 
@@ -214,29 +217,25 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     end)
   end
 
-  defp static_grants(path) do
-    with {:ok, contents} <- read_static_users(path),
-         {:ok, users} when is_list(users) <- YamlElixir.read_from_string(contents) do
-      {:ok,
-       for %{"user" => subject} = user <- users,
-           {:ok, canonical} <- [StaticIdentityGrants.configured_subject(subject)],
-           into: %{} do
-         {canonical, Map.take(user, ["publish", "subscribe"])}
-       end}
-    else
-      _ -> {:error, :invalid_static_users}
+  defp static_grants(path) when is_binary(path) do
+    case File.read(path) do
+      {:ok, contents} -> StaticIdentityGrants.parse(contents)
+      {:error, _reason} -> {:error, :invalid_static_users}
     end
   end
 
-  defp read_static_users(path) when is_binary(path) and path != "", do: File.read(path)
-  defp read_static_users(_path), do: {:error, :enoent}
+  defp static_grants(_path), do: {:error, :invalid_static_users}
 
   defp root_certificate(path) do
-    with {:ok, pem} <- File.read(path),
-         [{:Certificate, der, :not_encrypted} | _] <- :public_key.pem_decode(pem) do
-      {:ok, %{der: der, pem: :public_key.pem_encode([{:Certificate, der, :not_encrypted}])}}
-    else
+    case read_certificate_file(path) do
+      {:ok, %{leaf: root}} -> {:ok, root}
       _ -> {:error, :invalid_root_certificate}
+    end
+  end
+
+  defp read_certificate_file(path) do
+    with {:ok, pem} <- File.read(path) do
+      Adoption.read_certificate(%{certificate_pem: pem})
     end
   end
 
@@ -244,8 +243,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   # chart identity. A file that is not a certificate is reported, not fatal.
   defp inventory(dir, root, subjects) do
     dir
-    |> Path.join("*.pem")
+    |> Path.join("*")
     |> Path.wildcard()
+    |> Enum.filter(&File.regular?/1)
     |> Enum.sort()
     |> Enum.reduce({%{}, []}, fn path, {listed, unlisted} ->
       case read_inventory_certificate(path, root) do
@@ -263,89 +263,86 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   end
 
   defp read_inventory_certificate(path, root) do
-    with {:ok, pem} <- File.read(path),
-         [{:Certificate, der, :not_encrypted} | _] <- :public_key.pem_decode(pem),
-         {:ok, subject} <- StaticIdentityGrants.certificate_subject(der) do
+    with {:ok, presented} <- read_certificate_file(path) do
+      chain = presented.chain ++ [root]
+
       {:ok,
        %{
-         subject: subject,
-         fingerprint: :sha256 |> :crypto.hash(der) |> Base.encode16(case: :lower),
-         pem: :public_key.pem_encode([{:Certificate, der, :not_encrypted}]),
-         trust: trust(root.der, der)
+         subject: presented.fields.subject,
+         fingerprint: presented.fields.fingerprint,
+         leaf: presented.leaf,
+         pem:
+           :public_key.pem_encode(
+             Enum.map([presented.leaf | chain], &{:Certificate, &1, :not_encrypted})
+           ),
+         verification: Adoption.verify_certificate(%{presented | chain: chain})
        }}
     else
       _ -> :error
     end
   end
 
-  defp trust(root_der, der) do
-    case :public_key.pkix_path_validation(root_der, [der], []) do
-      {:ok, _} -> :ok
-      {:error, {:bad_cert, :cert_expired}} -> {:error, :certificate_not_valid}
-      {:error, _reason} -> {:error, :untrusted_issuer}
-    end
-  rescue
-    _ -> {:error, :untrusted_issuer}
-  end
+  defp first_adoption(_certificate, _grants, legacy, _partition_id) when legacy > 0,
+    do: :legacy_certificates_without_subject
 
-  # --- the rule
+  defp first_adoption(%{verification: {:error, reason}}, _grants, _legacy, _partition_id),
+    do: reason
 
-  defp cover(subject, nil, _grant, _stored),
-    do: not_adopted(subject, nil, :no_inventory_certificate)
-
-  defp cover(subject, %{trust: {:error, reason}} = certificate, _grant, _stored),
-    do: not_adopted(subject, certificate.fingerprint, reason)
-
-  defp cover(subject, certificate, nil, _stored),
-    do: not_adopted(subject, certificate.fingerprint, :no_static_user)
-
-  # A recorded certificate the snapshot does not authorize is revoked,
-  # superseded or on a blocked component. That is the authority's decision and
-  # this module does not undo it.
-  defp cover(subject, certificate, grant, stored) do
-    opts = system()
+  defp first_adoption(certificate, grants, _legacy, partition_id) do
+    grant = StaticIdentityGrants.grant(grants, @component_type, certificate.leaf)
 
     cond do
-      certificate.fingerprint in stored.authorized ->
-        adopted(subject, certificate.fingerprint)
+      is_nil(grant) ->
+        :no_static_user
 
-      recorded?(certificate.fingerprint, opts) ->
-        not_adopted(subject, certificate.fingerprint, :recorded_not_authorized)
+      recorded?(certificate.fingerprint) ->
+        :recorded
 
-      held?(subject, opts) ->
-        not_adopted(subject, certificate.fingerprint, :held_unrecorded)
-
-      stored.legacy > 0 ->
-        not_adopted(subject, certificate.fingerprint, :legacy_certificates_without_subject)
+      held?(certificate.subject) ->
+        :held
 
       true ->
-        adopt(subject, certificate, grant, stored)
+        adopt(certificate, grant, partition_id)
     end
   end
 
-  defp adopt(subject, certificate, grant, stored) do
+  defp adopt(certificate, grant, partition_id) do
     attrs = %{
-      component_id: component_id(subject),
+      component_id: component_id(certificate.subject),
       component_type: @component_type,
-      partition_id: stored.partition_id,
-      certificate_pem: certificate.pem <> stored.root_pem,
-      permissions: grant
+      partition_id: partition_id,
+      certificate_pem: certificate.pem,
+      permissions: %{
+        publish: %{allow: grant.publish, deny: grant.publish_deny},
+        subscribe: %{allow: grant.subscribe, deny: grant.subscribe_deny}
+      }
     }
 
     case Authority.adopt_existing_certificate(attrs, system()) do
-      {:ok, _adopted} ->
-        adopted(subject, certificate.fingerprint)
-
-      {:error, reason} ->
-        not_adopted(subject, certificate.fingerprint, {:adoption_failed, reason})
+      {:ok, _adopted} -> :recorded
+      {:error, reason} -> {:adoption_failed, reason}
     end
   end
 
-  @doc """
-  The component id of a chart identity, derived from its subject only.
-  """
-  @spec component_id(String.t()) :: String.t()
-  def component_id(subject) when is_binary(subject) do
+  defp cover({subject, nil, reason}, _authorized), do: not_adopted(subject, nil, reason)
+
+  defp cover({subject, fingerprint, outcome}, authorized) do
+    cond do
+      fingerprint in authorized ->
+        adopted(subject, fingerprint)
+
+      outcome == :recorded or recorded?(fingerprint) ->
+        not_adopted(subject, fingerprint, :recorded_not_authorized)
+
+      outcome == :held or held?(subject) ->
+        not_adopted(subject, fingerprint, :held_unrecorded)
+
+      true ->
+        not_adopted(subject, fingerprint, outcome)
+    end
+  end
+
+  defp component_id(subject) do
     digest = :sha256 |> :crypto.hash(subject) |> Base.encode16(case: :lower)
     "chart-identity-" <> binary_part(digest, 0, 32)
   end
@@ -368,16 +365,16 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     |> Ash.count(system())
   end
 
-  defp recorded?(fingerprint, opts) do
+  defp recorded?(fingerprint) do
     ComponentCertificate
     |> Ash.Query.filter(fingerprint == ^fingerprint)
-    |> Ash.exists?(opts)
+    |> Ash.exists?(system())
   end
 
-  defp held?(subject, opts) do
+  defp held?(subject) do
     ComponentCertificate
     |> Ash.Query.filter(subject == ^subject)
-    |> Ash.exists?(opts)
+    |> Ash.exists?(system())
   end
 
   defp authorized_fingerprints do

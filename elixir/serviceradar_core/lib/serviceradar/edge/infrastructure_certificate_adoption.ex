@@ -228,13 +228,10 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   end
 
   defp bind_issuer(leaf, fields, [issuer | _] = chain) do
-    anchor = List.last(chain)
-    path = [leaf | Enum.drop(chain, -1)]
+    [anchor | path] = Enum.reverse([leaf | chain])
 
-    if path_valid?(anchor, path) do
+    with :ok <- validate_path(anchor, path) do
       {:ok, issuance(fields, fingerprint(issuer))}
-    else
-      {:error, :untrusted_issuer}
     end
   end
 
@@ -292,10 +289,14 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
     end
   end
 
-  defp path_valid?(anchor, path) do
-    match?({:ok, _}, :public_key.pkix_path_validation(anchor, path, []))
+  defp validate_path(anchor, path) do
+    case :public_key.pkix_path_validation(anchor, path, []) do
+      {:ok, _} -> :ok
+      {:error, {:bad_cert, :cert_expired}} -> {:error, :certificate_not_valid}
+      {:error, _reason} -> {:error, :untrusted_issuer}
+    end
   rescue
-    _ -> false
+    _ -> {:error, :untrusted_issuer}
   end
 
   defp verify_self_signed?(der) do
