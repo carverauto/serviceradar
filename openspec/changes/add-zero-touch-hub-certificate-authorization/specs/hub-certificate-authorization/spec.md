@@ -93,17 +93,17 @@ The chart generator SHALL own the signing set only on non-hosted installs with `
 - **AND** core logs once that the stored record is unused
 
 ### Requirement: Hub readiness is reported before a leaf is installed
-The system SHALL report whether the hub can accept a leaf, and the CLI SHALL show it. The leaf install command SHALL NOT change an edge host when the hub cannot accept a leaf or its status cannot be read; collector installs keep their current behaviour.
+The system SHALL report whether the hub can accept a leaf, and the CLI SHALL show it. The leaf install command SHALL NOT change an edge host when the hub cannot accept a leaf or its status cannot be read; coverage warnings SHALL be advisory for the operator and SHALL NOT stop leaf installation. Collector installs keep their current behaviour.
 
 #### Scenario: An operator checks the hub
 - **WHEN** an operator runs the hub status command with the CLI's edge scope
-- **THEN** it shows whether enforcement is configured, whether core's authorizer is answering, how many chart identities are adopted and which are not, whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
+- **THEN** it shows whether enforcement is configured, whether core's authorizer is answering, how many chart identities are adopted and which lack coverage (each with a warning and reason), whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
 
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
-- **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, signing keys not provisioned, the authorizer otherwise not answering, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
+- **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, signing keys not provisioned, the authorizer otherwise not answering, no leaf listener, or no configured leaf upstream URL
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, all three seeds mounted, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
-- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, provision the missing seeds for `signing keys not provisioned`, check NATS and core health and retry (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
+- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, all three seeds mounted, authorizer answering, leaf listener, leaf upstream URL
+- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, provision the missing seeds for `signing keys not provisioned`, check NATS and core health and retry (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, and the install's leaf host setting for a missing leaf upstream URL
 
 #### Scenario: Core lacks a signing seed
 - **WHEN** enforcement is enabled and any of the three seeds is absent from core's mounted files
@@ -120,7 +120,7 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 - **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
-With the signing seeds present, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client while at least one broker is serving and core's authorizer is connected. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
+With the signing seeds present, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client while at least one broker is serving and core's authorizer is connected. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. Hub status SHALL warn about each identity lacking inventory coverage and show the reason before enforcement. Broker admission SHALL continue to use the presented fingerprint and existing authorization and grant checks regardless of inventory coverage. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
 - **WHEN** the signing seeds are present and enforcement is turned on after the hub status has reported every chart identity adopted
@@ -132,10 +132,11 @@ With the signing seeds present, when the hub status reports every chart identity
 - **THEN** while at least one broker is serving and core's authorizer is connected, every chart client is admitted by its recorded fingerprint
 - **AND** the rows without a subject block only new inventory adoption
 
-#### Scenario: Enforcement is enabled while a chart identity is not adopted
-- **WHEN** enforcement is turned on while the hub status reports a chart identity as not adopted with a reason
-- **THEN** that chart identity's client stays refused until the reported reason is resolved
-- **AND** the hub status showed that chart identity and its reason before enforcement was turned on
+#### Scenario: The inventory omits a hand-adopted certificate
+- **WHEN** an otherwise ready hub enforces authorization and its inventory omits a chart service whose presented fingerprint is recorded, unrevoked and has a grant
+- **THEN** hub status warns that no inventory certificate is supplied for that identity and leaf installation proceeds
+- **AND** while a broker is serving and core's authorizer is connected with the static permissions loaded, the service is admitted under its existing grant and static permissions
+- **AND** a client presenting a fingerprint without a matching unrevoked record is refused
 
 #### Scenario: Enforcement is disabled
 - **WHEN** the enforcement value is set back to off

@@ -123,9 +123,7 @@ task 1.4 checks live deployments.
 Replacement of an adopted certificate stays solely with the existing
 `ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
 `runtime-cert-rotation.json`, unchanged by this change, including its refusal
-when the predecessor is revoked, superseded or from another issuer. A subject
-whose certificate was revoked therefore stays refused until an operator acts,
-as today. One residual case is not covered by either path: when the rotation
+when the predecessor is revoked, superseded or from another issuer. A client presenting the revoked fingerprint is refused. One residual case is not covered by either path: when the rotation
 manifest's predecessor is an unrecorded intermediate certificate while an
 older certificate of that subject is recorded, the rotation path skips it and
 the subject is held, so neither path records the current certificate. The
@@ -294,7 +292,8 @@ then everything else connects or retries.
 which assembles the `hub` object from core's fields and its own
 `leaf_upstream_url`.
 
-`serviceradar-cli edge hub status` prints it. The route is already inside the
+`serviceradar-cli edge hub status` prints it, marking each uncovered identity as a warning with its
+reason for the operator's pre-enforcement review. The route is already inside the
 CLI's `edge.manage` scope; no scope is widened.
 
 `edge install leaf` reads the same object before any host change and stops on
@@ -312,9 +311,10 @@ resolver:
    shown;
 5. leaf listener not configured: `nats.leafnodes.enabled`;
 6. no leaf upstream URL: the install's leaf host setting
-   (`hostedRuntime.publicEndpoints.natsLeafHost` today);
-7. a chart identity not adopted: the per-subject reason from
-   `chart_identities`; there is no Helm setting for this cause.
+   (`hostedRuntime.publicEndpoints.natsLeafHost` today).
+
+When these checks pass, leaf installation proceeds regardless of chart
+identity coverage.
 
 In every case it changes nothing on the host. It no longer
 continues with "hub enforcement stays unconfirmed" for a leaf. Collector
@@ -328,18 +328,15 @@ hook checks the fixed inventory before core rolls. For a supplied Secret, core
 uses only the supplier's inventory list, which may be empty. Review
 `edge hub status` and supply any omitted public certificates and list them
 before expecting full coverage. Once all chart identities are adopted and the
-signing material is provisioned, turn enforcement on. If it
-is turned on first anyway, clients are refused only until core's first
-reconciliation, and they retry, provided the signing seeds are present and every chart identity
-can be adopted automatically. A chart identity that hub status reports as not adopted
-stays refused after enforcement is on until its reported reason is resolved,
-whatever the reason: for example, rows without a subject blocking new
-inventory adoption, a refused or skipped rotation, a revoked subject, or a
-failed qualification check. Rows without a subject block only new adoption;
-fingerprints already recorded, including by the earlier hand procedure, are
-admitted and count as adopted. `edge hub status` shows every not adopted chart
-identity with its reason before enforcement is turned on, which is why the
-documented order checks hub status first.
+signing material is provisioned, turn enforcement on.
+
+Coverage compares each inventory certificate with the unrevoked records. An
+omitted chart identity produces a warning even if its client was previously
+hand-adopted. At connection time the broker uses the presented fingerprint.
+With the existing grant and static permission checks satisfied, a recorded,
+unrevoked fingerprint is admitted whether or not it appears in the inventory.
+A presented certificate with no matching unrevoked record is refused. Legacy
+rows without subjects block new inventory adoption only.
 
 Certificate regeneration changes every fingerprint. A certificate that was
 already adopted has its successor recorded by
@@ -362,8 +359,7 @@ reported with the reason.
 - **Regeneration does not undo a revocation.** If a chart identity's
   certificate was revoked, its regenerated replacement is not recorded by the
   rotation record, the inventory writes nothing because the subject is held,
-  and the subject is reported with the revocation reason. Its client
-  stays refused until an operator acts.
+  and the subject is reported with the revocation reason. A client presenting the unrecorded replacement is refused.
 - **Residual unrecorded rotation.** When a rotation manifest names an
   unrecorded intermediate predecessor while an older certificate of that
   subject is recorded, neither path records the current certificate. The

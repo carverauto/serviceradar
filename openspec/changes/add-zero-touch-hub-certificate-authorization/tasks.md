@@ -16,14 +16,14 @@
 ## 3. Core
 - [ ] 3.1 Migration: add a subject to the certificate record; write it from the PEM whenever a certificate is recorded (inventory adoption, hand adoption, successor and rotation recording). Existing rows stay without a subject.
 - [ ] 3.2 First adoption from the inventory, one ordered rule: step 1, while any infrastructure certificate row lacks a subject, adopt nothing and report the remedy; step 2, otherwise verify chain, validity, chart-identity subject present in the static users file, and revocation (a failed check is reported and nothing is written), and for a qualifying certificate whose subject is not held (no recorded certificate carries it, revoked or not), create the component with a component id derived from the subject only and that subject's static grant as its stored permissions, and record the certificate; when the subject is held, write nothing (replacement stays with `RuntimeCertificateRotation`, unchanged). Report coverage: adopted when the inventory's certificate is recorded and not revoked, otherwise the reason.
-- [ ] 3.3 Tests: a revoked then regenerated chart identity is recorded by neither path, no second component exists, and the subject is reported with the reason; a rotation naming an unrecorded predecessor leaves the identity reported unadopted; a legacy row without a subject blocks adoption.
+- [ ] 3.3 Tests: a revoked then regenerated chart identity is recorded by neither path, no second component exists, and the subject is reported with the reason; a rotation naming an unrecorded predecessor leaves the identity reported unadopted; a legacy row without a subject blocks adoption. Verify that omitting a hand-adopted certificate leaves its recorded fingerprint and grant effective under the existing static permission checks.
 - [ ] 3.4 Use mounted chart seeds and log once when a stored signing record is unused. After upgrading from API bootstrap, verify core answers with the mounted seeds while at least one broker is serving and core's authorizer is connected, even when the stored keys differ. Reserve the stored keys and bootstrap API for installs without a chart.
-- [ ] 3.5 Report hub readiness from core (enforcement configured, authorizer answering with reason, chart identity coverage, leaf listener).
+- [ ] 3.5 Report hub readiness from core (enforcement configured, authorizer answering with reason, leaf listener) and include chart identity coverage for operator review.
 - [ ] 3.6 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
 
 ## 4. CLI
-- [ ] 4.1 `edge hub status`.
-- [ ] 4.2 `edge install leaf` stops before any host change when the hub status is missing or unreadable or the hub cannot accept the leaf, in the design's check order with each cause's resolver; collector installs keep today's behaviour.
+- [ ] 4.1 Show inventory coverage in `edge hub status`, with a warning and reason per uncovered identity.
+- [ ] 4.2 `edge install leaf` stops before any host change when the hub status is missing or unreadable or the hub cannot accept the leaf, in the design's check order with each cause's resolver. Verify an otherwise ready leaf install proceeds even with an empty or partial inventory. Collector installs keep today's behaviour.
 - [ ] 4.3 Publish the CLI release that carries both.
 
 ## 5. Verify on the demo deployment

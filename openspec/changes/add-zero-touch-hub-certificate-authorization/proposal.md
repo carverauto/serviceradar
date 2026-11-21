@@ -103,11 +103,12 @@ the runtime Secret, exposing every component's private key to the caller.
   them; none is known to. Once the signing seeds are present and hub
   status reports every chart identity adopted, enforcement needs no further
   manual step for those identities, however their certificates came to
-  be recorded. Those clients can reconnect while at least one broker is serving and core's authorizer is connected. A chart identity that hub status reports as not adopted stays
-  refused after enforcement is on until its reported reason is resolved (for
-  example rows without a subject blocking new adoption, a refused or skipped
-  rotation, a revoked subject, or a failed qualification check); hub status
-  shows it with its reason before enforcement is turned on.
+  be recorded. Those clients can reconnect while at least one broker is serving and core's authorizer is connected.
+  Hub status warns about each uncovered identity and gives the reason for
+  review before enforcement. A previously hand-adopted client can still
+  present its recorded, unrevoked fingerprint and use its grant when omitted
+  from the inventory. A client presenting an unrecorded or revoked fingerprint
+  is refused.
 - **The hub reports whether it can accept a leaf**: core reports whether
   enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the
@@ -116,7 +117,7 @@ the runtime Secret, exposing every component's private key to the caller.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, naming the cause and what resolves it: the enforcement
   value, provisioning missing seeds, checking NATS and core health, `nats.leafnodes.enabled`, the leaf
-  host setting, or the per-subject reason a chart identity is not adopted. It
+  host setting. Leaf installation proceeds with coverage warnings if all readiness checks pass. It
   also stops when the hub status is missing or unreadable. Today it
   continues and the leaf never connects.
 
