@@ -72,7 +72,8 @@
 {{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
 {{- end -}}
 {{- /* Same exclusion as serviceradar-egress, whenever the worker is enabled: this
-     policy's same-namespace Allow would reopen CNPG to it. */ -}}
+     policy grants egress to whatever it selects, and the worker's only egress grant
+     is its own policy. */ -}}
 {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-media-worker'" $selector -}}
 {{- end -}}
