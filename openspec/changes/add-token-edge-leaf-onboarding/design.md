@@ -70,8 +70,8 @@ task 1.2.
 A leaf token is an onboarding package of a new component type, `nats_leaf`,
 with a reference to the edge site. Everything else is reused unchanged: the
 `edgepkg-v3` envelope and signing key, the hashed secret, expiry (24 hours by
-default), the single-use consume transition, revoke, the package events and
-the security events.
+default), the consume transition, revoke, the package events and the security
+events.
 
 What differs is what redemption does. An agent package delivers a join token
 and a certificate bundle. A leaf package delivers no key material. Redeeming
@@ -84,10 +84,17 @@ for that one site:
 3. request certificate issuance and read that component's status until it is
    active.
 
-The token is consumed by step 2 succeeding. Until then a failed attempt (hub
-not ready, host not enrolled) can be retried with the same token. After it,
-the token is spent and the component's own status calls are authorized by the
-host agent's enrolled identity, which the CLI already reads from the host.
+The token is bound to a host on first use, not spent on first use. Until
+step 2 succeeds a failed attempt (hub not ready, host not enrolled) can be
+retried with the same token. The first successful registration binds the
+token to the enrolled host agent that presented it. Until the token expires
+or is revoked, that same agent may present it again to resume an interrupted
+install: registration is idempotent for the same site and agent, and the
+token authorizes requesting issuance for, and reading the status of, the
+component it registered. A presentation naming any other agent after binding
+is refused and recorded as a security event. When the leaf is reported
+active the package takes the consume transition, and the token authorizes
+nothing further.
 
 Alternatives considered:
 - A short-lived operator bearer token scoped to the edge routes. Rejected: it
@@ -102,19 +109,34 @@ The token does not name a host, because the operator issuing it usually does
 not know the agent's identifier. The CLI reads the host's enrolled agent
 identity as it does today and sends it; core accepts the registration only if
 that agent exists, is enrolled and has a live authenticated gateway session.
-Certificates are then requested by that agent over its session. A token
-replayed from a machine with no enrolled agent can register nothing.
-
-The issue dialog may optionally pin a host agent. When it does, redemption
-from any other agent is refused.
+The first successful registration binds the token to that agent (Decision 2).
+The CLI's issuance request, authorized by the token, makes that agent generate
+the keys on the host and send the signing requests over its session. A token
+replayed from a machine with no enrolled agent can register nothing, and one
+replayed from another enrolled host after binding is refused.
 
 ### Decision 4: Status comes from the hub
 
 On each scan the authorizer already has the fingerprints of connected leaf
 sessions. It marks the leaf server connected when its recorded certificate is
-present and disconnected when it has been absent for a full scan interval, and
-the existing transitions set the site active or offline. The page stops
-inferring status from provisioning state.
+present and disconnected when it has been absent for a full scan interval. The
+page stops inferring status from provisioning state.
+
+The existing state machines cannot carry this as they stand, so they change:
+
+- `NatsLeafServer`: a new row is `:pending`, and `:connect` is allowed today
+  only from `:provisioned` or `:disconnected`
+  (`edge/nats_leaf_server.ex:62`). The only way out of `:pending` is
+  `:provision`, performed by the `ProvisionLeafWorker` this change removes.
+  `:connect` becomes legal from `:pending`, and the `:provisioned` state and
+  the `:provision` and `:reprovision` transitions are dropped with server-side
+  key issuance.
+- `EdgeSite`: `update_edge_site_status` always calls `:activate` for a live
+  leaf (`edge/nats_leaf_server.ex:424-428`), and `:activate` runs only from
+  `:pending` (`edge/edge_site.ex:60`). A connect for a site in `:pending`
+  takes `:activate`; a connect for a site in `:offline` takes `:come_online`
+  (`edge/edge_site.ex:62`); a disconnect for a site in `:active` takes
+  `:go_offline`.
 
 ### Decision 5: The hub address is configured or the site cannot be created
 
@@ -166,6 +188,12 @@ grant in the existing account closes the exposure now.
 ## Open Questions
 
 - Whether the direct-leaf identity feature (assignment-scoped certificates
-  authorized on the leaf, managed today only by a mix task) is kept. Its
-  eligibility check requires states nothing currently sets, so it has not
-  been reachable. Task 1.2 decides with the owner.
+  authorized on the leaf) is kept. It is live on the write path: every add-on
+  assignment create and update runs `SetDirectLeafAccess`
+  (`plugins/addon_assignment.ex:122`, `:134`), and `:issue_direct_access`
+  stores a gateway-issued certificate and private key
+  (`plugins/addon_assignment.ex:166`, `issue_direct_leaf_access.ex:24-53`); the
+  mix task is one caller of that action. What is unreachable is its
+  eligibility gate, which requires an `:active` site and a `:connected` leaf
+  (`direct_leaf_eligibility.ex:62-70`) that nothing sets today. Task 1.2
+  leaves the keep-or-remove choice with the owner.

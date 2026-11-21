@@ -8,9 +8,17 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **THEN** the leaf is registered for that site, its certificates are issued through the host's agent, and the leaf service is started
 - **AND** no operator credential was entered on the host
 
-#### Scenario: The token is used a second time
-- **WHEN** a leaf token that has already registered a leaf is presented again
+#### Scenario: The token is presented from another host after binding
+- **WHEN** a leaf token that has already registered a leaf is presented naming a different host agent
 - **THEN** it is refused and the attempt is recorded as a security event
+
+#### Scenario: The same host resumes an interrupted install
+- **WHEN** a leaf token that has already registered a leaf is presented again by the same host agent for the same site, before it expires or is revoked and before the leaf is reported active
+- **THEN** registration succeeds without creating a second leaf, and the token authorizes requesting issuance for, and reading the status of, that leaf
+
+#### Scenario: The leaf is active
+- **WHEN** a leaf token is presented after its leaf has been reported active
+- **THEN** it is refused
 
 #### Scenario: The token is expired or revoked
 - **WHEN** an expired or revoked leaf token is presented
@@ -22,7 +30,7 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **AND** the same token can be used again once the cause is resolved
 
 ### Requirement: A leaf token grants no more than one leaf install
-A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates, and SHALL NOT carry or return private key material.
+A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the host agent of its first successful registration, and SHALL NOT carry or return private key material.
 
 #### Scenario: The token is used against another site
 - **WHEN** a leaf token for one site is presented for a different site or any other edge resource
@@ -32,20 +40,21 @@ A leaf onboarding token SHALL authorize only reading its edge site and hub readi
 - **WHEN** a leaf token is presented by a client that names no enrolled agent with a live gateway session
 - **THEN** no leaf is registered
 
-#### Scenario: A host agent was pinned at issue
-- **WHEN** a leaf token pinned to one host agent is presented naming another agent
-- **THEN** the request is refused
-
 #### Scenario: Keys stay on the host
 - **WHEN** a leaf is deployed from a token
 - **THEN** its private keys are generated on the host and no response to the token contains a private key
 
 ### Requirement: There is one leaf deployment path
-The system SHALL deploy leaves only through agent-managed registration and SHALL NOT offer a downloadable leaf bundle, a leaf setup script, or server-generated leaf private keys.
+The system SHALL deploy leaves only through agent-managed registration and SHALL NOT offer a downloadable leaf bundle, a leaf setup script, or server-generated leaf private keys. The UI SHALL offer issuing a leaf token as its deployment action. The CLI SHALL also accept an operator login in place of a leaf token for the same managed install.
 
 #### Scenario: An operator opens an edge site
 - **WHEN** an operator views an edge site in the UI or the CLI
-- **THEN** the only deployment action offered is issuing a leaf token
+- **THEN** no leaf bundle download, setup script or server-generated key is offered
+- **AND** the UI offers issuing a leaf token as the deployment action
+
+#### Scenario: Automation installs a leaf with an operator login
+- **WHEN** `edge install leaf` is run with an operator login instead of a leaf token
+- **THEN** the leaf is installed through the same agent-managed registration
 
 ### Requirement: Leaf and site status reflect the hub connection
 The system SHALL report a leaf as connected only while its recorded certificate has a live session on the hub, and SHALL derive the site's active or offline state from it.
@@ -63,11 +72,15 @@ The system SHALL report a leaf as connected only while its recorded certificate 
 - **THEN** leaf status is shown as unknown
 
 ### Requirement: A site is not created with an unconfigured hub address
-The system SHALL refuse to create an edge site or issue a leaf token when the install has no configured address for leaves to dial, and SHALL NOT substitute a default address.
+The system SHALL refuse to create an edge site or issue a leaf token when the install has no configured address for leaves to dial, SHALL NOT substitute a default address, and SHALL refresh the site's stored hub address from configuration when a leaf token is issued.
 
 #### Scenario: The install has no leaf address
 - **WHEN** an operator tries to create an edge site or issue a leaf token on an install with no configured leaf address
 - **THEN** the action is refused with a message naming the missing setting
+
+#### Scenario: A site was created under the old default address
+- **WHEN** a leaf token is issued for a site whose stored hub address is the former hard-coded default and the install now has a configured leaf address
+- **THEN** the site's stored hub address is replaced with the configured address before the token is returned
 
 ### Requirement: A leaf has least privilege on the hub
 The hub SHALL grant a leaf only the subjects an edge site needs, and SHALL refuse it any other subject.

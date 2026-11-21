@@ -40,12 +40,16 @@ as a token the CLI consumes, the way agent onboarding works.
   API route, `edge site bundle`), the `setup.sh` generator, server-side leaf
   key issuance on site creation and the leaf credential-file minting are
   removed. **BREAKING** for anyone using the bundle; it cannot connect to a
-  chart hub today.
+  chart hub today. `edge install leaf` keeps accepting an operator login for
+  automation; it is the same managed path with a different credential.
 - **"Deploy leaf" issues a token.** The edge site page issues a signed,
-  single-use, expiring leaf onboarding token and shows one command:
+  host-bound, expiring leaf onboarding token and shows one command:
   `serviceradar-cli edge install leaf --token <token>`. The CLI needs no login
   for it. The token reuses the agent onboarding token's envelope, signing key,
-  hashed single-use secret, expiry, revoke and audit events.
+  hashed secret, expiry, consume, revoke and audit events. The token is bound
+  to the host agent that first registers the leaf with it; that host may
+  resume an interrupted install with it, any other host is refused, and it
+  authorizes nothing once the leaf is active.
 - **The token carries no key and yields none.** It authorizes registering the
   leaf for one site on one enrolled host and starting certificate issuance.
   Keys are generated on the host by its agent, as on the managed path today.
@@ -57,8 +61,8 @@ as a token the CLI consumes, the way agent onboarding works.
   is missing. Hub readiness comes from `add-zero-touch-hub-certificate-authorization`.
 - **The leaf gets a narrow grant on the hub**: the subjects an edge site
   publishes and the hub data it reads, not `>`.
-- **Wording.** "SaaS" is removed from pages that also serve self-hosted
-  installs.
+- **Wording.** "SaaS" is removed from the edge site pages, which also serve
+  self-hosted installs.
 
 ## Impact
 
