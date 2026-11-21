@@ -9,28 +9,11 @@ the broker has to refuse that subject to every identity but the log collector.
 An identity whose feature is off must be refused everything.
 """
 
-from pathlib import Path
-import json
-import os
-import shutil
-import subprocess
-import tempfile
 import unittest
 
 import yaml
 
-
-def _repo_root() -> Path:
-    srcdir = os.environ.get("TEST_SRCDIR")
-    workspace = os.environ.get("TEST_WORKSPACE")
-    if srcdir and workspace:
-        candidate = Path(srcdir) / workspace
-        if candidate.is_dir():
-            return candidate
-    return Path(__file__).resolve().parent.parent.parent
-
-
-CHART_DIR = _repo_root() / "helm" / "serviceradar"
+from chart_render import render_document
 
 
 NORMALIZED_SUBJECT = "logs.normalized.syslog"
@@ -49,56 +32,12 @@ RENDERINGS = {
 
 
 def render_static_users_configmap(values=None):
-    """Consume helm-unittest's snapshot of the static-users ConfigMap."""
-    binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
-        chart = Path(tmp) / "chart"
-        chart.mkdir()
-        for name in (
-            "Chart.yaml", "values.yaml", "templates", "charts", "crds",
-            "dashboards", "files",
-        ):
-            source = CHART_DIR / name
-            if source.is_dir():
-                shutil.copytree(source, chart / name)
-            elif source.is_file():
-                shutil.copy2(source, chart / name)
-        tests = chart / "tests"
-        tests.mkdir()
-        suite = {
-            "suite": "nats static users",
-            "templates": ["templates/nats.yaml"],
-            "release": {"name": "nats-test", "namespace": "nats-test"},
-            "tests": [{
-                "it": "static users",
-                "set": values or {},
-                "documentSelector": {
-                    "path": "metadata.name",
-                    "value": "serviceradar-nats-static-users",
-                },
-                "asserts": [{"matchSnapshot": {"path": "data"}}],
-            }],
-        }
-        (tests / "nats_static_users_test.yaml").write_text(json.dumps(suite), encoding="utf-8")
-        env = {
-            key: value for key, value in os.environ.items()
-            if not key.startswith("HELM_")
-        }
-        rendered = subprocess.run(
-            [str(binary), str(chart)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if rendered.returncode:
-            raise AssertionError(f"Helm rendering failed:\n{rendered.stdout}{rendered.stderr}")
-        snapshot_path = tests / "__snapshot__" / "nats_static_users_test.yaml.snap"
-        with snapshot_path.open(encoding="utf-8") as snapshot:
-            snapshots = list(yaml.safe_load(snapshot)["static users"].values())
-        if len(snapshots) != 1:
-            raise AssertionError(f"expected one emitted snapshot, got {len(snapshots)}")
-        return yaml.safe_load(snapshots[0])
+    """The static-users ConfigMap's data, which core and the broker read."""
+    config_map = render_document(
+        "templates/nats.yaml", values or {}, namespace="nats-test",
+        kind="ConfigMap", name="serviceradar-nats-static-users",
+    )
+    return config_map["data"]
 
 
 def render_static_users(values=None):
@@ -254,6 +193,10 @@ LIVE_JOBS = "media.jobs.visual_index.v1"
 BACKFILL_JOBS = "media.jobs.visual_index.backfill.v1"
 # Camera.SemanticSearch requests on the embedder's id and version.
 TEXT_EMBED_REQUEST = "media.rpc.visual_text_embed.v1.siglip-b16-384.2026.1"
+# The worker's own inboxes (SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX), and an
+# inbox of the kind EventWriter pulls telemetry into.
+WORKER_INBOX = "_INBOX.media-worker.Zk3x9.1"
+OTHER_INBOX = "_INBOX.Qa71c.4"
 
 
 class MediaWorkerPermissionsTest(unittest.TestCase):
@@ -285,11 +228,12 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             f"$JS.ACK.{JOBS_STREAM}.{BACKFILL_CONSUMER}.1.3.3.1700000000000000000.0",
             "media.results.visual_index.v1",
             "telemetry.media_worker.metrics.v1",
-            "_INBOX.synthetic.reply",
+            # The embedding reply goes to web-ng's reply subject.
+            OTHER_INBOX,
         ):
             with self.subTest(subject=subject):
                 self.assertTrue(may_publish(worker, subject))
-        for subject in (TEXT_EMBED_REQUEST, "_INBOX.synthetic.reply"):
+        for subject in (TEXT_EMBED_REQUEST, WORKER_INBOX):
             with self.subTest(subscribe=subject):
                 self.assertTrue(may(worker, "subscribe", subject))
 
@@ -309,7 +253,9 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         ):
             with self.subTest(publish=subject):
                 self.assertFalse(may_publish(worker, subject))
-        for subject in (LIVE_JOBS, "media.results.visual_index.v1", "events.synthetic"):
+        # Deliveries for other services' inboxes (EventWriter pulls telemetry
+        # into _INBOX.<id>) must not reach the worker.
+        for subject in (LIVE_JOBS, "media.results.visual_index.v1", "events.synthetic", OTHER_INBOX):
             with self.subTest(subscribe=subject):
                 self.assertFalse(may(worker, "subscribe", subject))
 

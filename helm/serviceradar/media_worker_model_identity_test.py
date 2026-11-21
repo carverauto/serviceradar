@@ -14,32 +14,14 @@ This test reads core's defaults from source and the identity from the rendered
 Deployment, so a change on either side without the other fails here.
 """
 
-from pathlib import Path
-import json
-import os
 import re
-import shutil
-import subprocess
-import tempfile
 import unittest
 
-import yaml
+from chart_render import render_document, repo_root
 
 
-def _repo_root() -> Path:
-    srcdir = os.environ.get("TEST_SRCDIR")
-    workspace = os.environ.get("TEST_WORKSPACE")
-    if srcdir and workspace:
-        candidate = Path(srcdir) / workspace
-        if candidate.is_dir():
-            return candidate
-    return Path(__file__).resolve().parent.parent.parent
-
-
-REPO_ROOT = _repo_root()
-CHART_DIR = REPO_ROOT / "helm" / "serviceradar"
 DISPATCHER = (
-    REPO_ROOT / "elixir" / "serviceradar_core" / "lib" / "serviceradar"
+    repo_root() / "elixir" / "serviceradar_core" / "lib" / "serviceradar"
     / "camera" / "visual_index_dispatcher.ex"
 )
 
@@ -78,56 +60,13 @@ def core_identity() -> dict[str, str]:
 
 
 def rendered_worker_env() -> dict[str, str]:
-    """Consume helm-unittest's snapshot of the worker's container env."""
-    binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
-        chart = Path(tmp) / "chart"
-        chart.mkdir()
-        for name in (
-            "Chart.yaml", "values.yaml", "templates", "charts", "crds",
-            "dashboards", "files",
-        ):
-            source = CHART_DIR / name
-            if source.is_dir():
-                shutil.copytree(source, chart / name)
-            elif source.is_file():
-                shutil.copy2(source, chart / name)
-        tests = chart / "tests"
-        tests.mkdir()
-        suite = {
-            "suite": "media worker identity",
-            "templates": ["templates/media-worker.yaml"],
-            "release": {"name": "identity-test", "namespace": "identity-test"},
-            "tests": [{
-                "it": "worker env",
-                "set": ENABLED_WORKER,
-                "documentSelector": {"path": "kind", "value": "Deployment"},
-                "asserts": [{"matchSnapshot": {"path": "spec.template.spec.containers[0].env"}}],
-            }],
-        }
-        (tests / "identity_test.yaml").write_text(json.dumps(suite), encoding="utf-8")
-        env = {
-            key: value for key, value in os.environ.items()
-            if not key.startswith("HELM_")
-        }
-        rendered = subprocess.run(
-            [str(binary), str(chart)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if rendered.returncode:
-            raise AssertionError(f"Helm rendering failed:\n{rendered.stdout}{rendered.stderr}")
-        snapshot_path = tests / "__snapshot__" / "identity_test.yaml.snap"
-        with snapshot_path.open(encoding="utf-8") as snapshot:
-            snapshots = list(yaml.safe_load(snapshot)["worker env"].values())
-        if len(snapshots) != 1:
-            raise AssertionError(f"expected one emitted snapshot, got {len(snapshots)}")
-        return {
-            entry["name"]: entry.get("value")
-            for entry in yaml.safe_load(snapshots[0])
-        }
+    deployment = render_document(
+        "templates/media-worker.yaml", ENABLED_WORKER, namespace="identity-test", kind="Deployment",
+    )
+    return {
+        entry["name"]: entry.get("value")
+        for entry in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
 
 
 class MediaWorkerModelIdentityTest(unittest.TestCase):

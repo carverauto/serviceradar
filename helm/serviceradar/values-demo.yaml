@@ -724,6 +724,8 @@ nvr:
 # that must exist in the namespace first (never created by Helm): the PVC
 # serviceradar-media-worker-models holding the SigLIP weights and the Secret
 # serviceradar-media-worker-auth (key media-worker-token), which web-ng reads too.
+# Its 2.5 GiB of fixed JetStream streams do not fit the current NATS budget
+# below, which must gain that room before the worker is switched on.
 mediaWorker:
   enabled: false  # switched on once the CUDA image and the weights PVC exist
   executionProvider: cuda

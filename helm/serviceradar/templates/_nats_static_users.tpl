@@ -22,6 +22,14 @@ Two consumers read it, so they cannot drift apart:
 
 Add or change a built-in identity's subjects only here.
 */ -}}
+{{- /* The media worker's NATS inbox prefix (SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX).
+     Its own JetStream API replies, pull deliveries and publish acknowledgements arrive
+     under it, so its user subscribes to this prefix instead of the account-wide
+     _INBOX.>, which also carries other services' JetStream deliveries. */ -}}
+{{- define "serviceradar.mediaWorkerNatsInboxPrefix" -}}
+_INBOX.media-worker
+{{- end -}}
+
 {{- define "serviceradar.natsStaticUsers" -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- /* ServiceRadar.Observability.Zen.RuleBucket.bucket/0 and the collector's
@@ -57,6 +65,7 @@ Add or change a built-in identity's subjects only here.
 {{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
 {{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}
 {{- $mediaBackfillConsumer := "camera_visual_index_worker_v1_backfill" }}
+{{- $mediaWorkerInbox := include "serviceradar.mediaWorkerNatsInboxPrefix" . }}
 {{- /* logs.normalized.> carries log batches the log collector has already
      normalized, which EventWriter stores without running Zen rules. Only the
      log collector may publish there, so every identity whose allow list would
@@ -474,8 +483,12 @@ Add or change a built-in identity's subjects only here.
      consumers, acknowledges their deliveries, publishes results and its own
      metrics snapshot, and answers query-embedding requests from web-ng. Every
      JetStream API grant names its own stream or consumer, so it cannot read,
-     purge or delete anything else. Replies to its own requests and publishes
-     arrive on _INBOX; its embedding replies go to the requester's _INBOX. */}}
+     purge or delete anything else. Everything addressed to the worker arrives
+     under its own inbox prefix, the only inbox it may subscribe to.
+     Publishing to _INBOX.> remains: an embedding reply goes to web-ng's reply
+     subject, which Gnat draws from web-ng's single connection-wide _INBOX.
+     prefix. Narrowing it needs a dedicated reply prefix for those requests in
+     web-ng (follow-up). */}}
 - user: "CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
   publish:
     {{- if $mediaWorkerEnabled }}
@@ -501,7 +514,7 @@ Add or change a built-in identity's subjects only here.
     {{- end }}
   subscribe:
     {{- if $mediaWorkerEnabled }}
-    allow: ["media.rpc.visual_text_embed.v1.>", "_INBOX.>"]
+    allow: ["media.rpc.visual_text_embed.v1.>", "{{ $mediaWorkerInbox }}.>"]
     {{- else }}
     allow: []
     deny: [">"]
