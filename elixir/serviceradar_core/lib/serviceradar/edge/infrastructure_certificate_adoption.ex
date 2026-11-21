@@ -153,8 +153,8 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   def cast_fingerprint(value),
     do: cast_id(ComponentCertificate, :fingerprint, value, :unknown_certificate)
 
-  defp cast_id(resource, field, value, error) when is_binary(value) do
-    with true <- String.valid?(value) and not String.contains?(value, <<0>>),
+  defp cast_id(resource, field, value, error) do
+    with true <- valid_text?(value),
          %{valid?: true} = changeset <-
            resource |> Ash.Changeset.new() |> Ash.Changeset.change_attribute(field, value),
          id when is_binary(id) <- Ash.Changeset.get_attribute(changeset, field) do
@@ -164,28 +164,28 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
     end
   end
 
-  defp cast_id(_resource, _field, _value, error), do: {:error, error}
+  defp valid_hosts?(hosts) when is_list(hosts) do
+    Enum.all?(hosts, &valid_text?/1) and
+      Ash.Changeset.change_attribute(Ash.Changeset.new(ManagedComponent), :server_hosts, hosts).valid?
+  end
 
-  defp valid_hosts?(hosts), do: is_list(hosts) and Enum.all?(hosts, &is_binary/1)
+  defp valid_hosts?(_hosts), do: false
+
+  defp valid_text?(value) do
+    is_binary(value) and String.valid?(value) and not String.contains?(value, <<0>>)
+  end
 
   defp certificates(pem) when is_binary(pem) do
-    if String.contains?(pem, "PRIVATE KEY") do
-      {:error, :private_key}
-    else
-      case decode_entries(pem) do
-        {:ok, entries} -> classify(entries)
-        :error -> {:error, :invalid_certificate}
-      end
+    cond do
+      String.contains?(pem, "PRIVATE KEY") -> {:error, :private_key}
+      valid_text?(pem) -> pem |> :public_key.pem_decode() |> classify()
+      true -> {:error, :invalid_certificate}
     end
+  rescue
+    _ -> {:error, :invalid_certificate}
   end
 
   defp certificates(_pem), do: {:error, :invalid_certificate}
-
-  defp decode_entries(pem) do
-    {:ok, :public_key.pem_decode(pem)}
-  rescue
-    _ -> :error
-  end
 
   defp classify([]), do: {:error, :invalid_certificate}
 

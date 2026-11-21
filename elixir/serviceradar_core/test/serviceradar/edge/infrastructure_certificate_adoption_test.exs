@@ -2,6 +2,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.CertificateLifetimePolicy
+  alias ServiceRadar.Edge.ComponentCertificateAuthority
   alias ServiceRadar.Edge.InfrastructureCertificateAdoption, as: Adoption
 
   test "adopts a static NATS client with its existing grant and public certificate" do
@@ -40,6 +41,22 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
 
     assert {:ok, prepared} = Adoption.prepare(attrs(pem, empty_subscribe()))
     assert prepared.issuance.subject == "#300d310b300906035504031e020141"
+  end
+
+  test "rejects blank or NUL-containing hosts before recording a certificate" do
+    request = attrs(self_signed().pem, empty_subscribe())
+
+    for host <- ["", " \t ", "edge\0.example"] do
+      assert {:error, :invalid_adoption} =
+               ComponentCertificateAuthority.adopt_existing_certificate(
+                 Map.put(request, "server_hosts", ["gateway.example", host])
+               )
+    end
+  end
+
+  test "rejects a NUL in the PEM text even after a complete certificate" do
+    assert {:error, :invalid_certificate} =
+             Adoption.prepare_certificate(%{certificate_pem: self_signed().pem <> <<0>>})
   end
 
   test "keeps an explicit allow and uses the issuer certificate that signed the leaf" do
