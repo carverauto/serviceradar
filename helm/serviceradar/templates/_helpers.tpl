@@ -249,6 +249,57 @@ Secret: every chart identity's certificate is then guaranteed to be in it.
 {{- end -}}
 
 {{/*
+"true" when NATS certificate authorization is turned on. The one setting.
+*/}}
+{{- define "serviceradar.natsCertificateAuthorizationEnabled" -}}
+{{- $certAuth := default dict (get (default dict .Values.nats) "certificateAuthorization") -}}
+{{- ternary "true" "false" (eq (toString (default false (get $certAuth "enabled"))) "true") -}}
+{{- end -}}
+
+{{/*
+The callout signing seeds, for core only, from the issuer Secret: with
+certificate authorization on, core signs every grant with them. Optional, so
+core starts without them and reports that they are not provisioned.
+*/}}
+{{- define "serviceradar.natsCalloutSeedsEnv" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: SERVICERADAR_NATS_CALLOUT_SEEDS_DIR
+  value: "/etc/serviceradar/nats-callout-seeds"
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.natsCalloutSeedsVolumeMount" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: nats-callout-seeds
+  mountPath: /etc/serviceradar/nats-callout-seeds
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.natsCalloutSeedsVolume" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: nats-callout-seeds
+  secret:
+    secretName: {{ include "serviceradar.runtimeIssuerSecretName" . | quote }}
+    optional: true
+    defaultMode: 0440
+    items:
+{{ include "serviceradar.runtimeCertItems" (list "nats-callout-issuer.seed" "nats-callout-auth.seed" "nats-callout-system.seed") | indent 4 }}
+{{- end }}
+{{- end -}}
+
+{{/*
+"true" when the chart's generator provisions the NATS authorization callout
+signing set: it owns the runtime certificate Secret, and that is also the
+issuer Secret the seeds belong in. With a distinct issuer Secret, a hosted
+install or a disabled generator, whoever supplies the Secrets supplies the
+three seeds and both broker fragments.
+*/}}
+{{- define "serviceradar.natsCalloutSigningGeneratorOwned" -}}
+{{- ternary "true" "false" (and (eq "true" (include "serviceradar.runtimeCertGeneratorOwned" .)) (eq (include "serviceradar.runtimeIssuerSecretName" .) (include "serviceradar.runtimeCertsSecretName" .))) -}}
+{{- end -}}
+
+{{/*
 The public certificate files core is given for first adoption of the chart's
 NATS client identities (ServiceRadar.Edge.ChartIdentityInventory), as a JSON
 list. When the generator owns the Secret it is every chart identity. Otherwise

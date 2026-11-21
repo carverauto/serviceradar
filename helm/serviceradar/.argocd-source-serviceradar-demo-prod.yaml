@@ -1,8 +1,18 @@
 helm:
   parameters:
   - name: global.imageTag
-    value: sha-dcd523f2cc3b435b09157c46a152af0717d2cb42
+    value: sha-a12a0b02d1bd62fab3634d6b734eb38dc2ccd28b
     forcestring: true
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
+    forcestring: true
+  # Edge leaf test: the leaf port, the name leaves dial (added to the broker
+  # certificate, which needs the runtime certificates reissued once).
+  - name: nats.leafnodes.enabled
+    value: "true"
+  - name: hostedRuntime.publicEndpoints.natsLeafHost
+    value: nats-leaf-demo.serviceradar.cloud
+    forcestring: true
+  - name: certs.runtimeLayoutVersion
+    value: "7"
     forcestring: true

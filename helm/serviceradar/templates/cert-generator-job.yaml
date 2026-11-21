@@ -107,69 +107,30 @@ spec:
         - |
           set -euo pipefail
 
-          if python3 <<'PY'
-          import os
-          import base64
-          import json
-          import ssl
-          import sys
-          import urllib.error
-          import urllib.request
+          # The NATS authorization callout signing set (three seeds and two
+          # public broker fragments). It is provisioned here only when this job
+          # owns the Secret the seeds belong in; otherwise the Secret's supplier
+          # provides all five entries and this job leaves them alone. It never
+          # decides whether the job regenerates certificates.
+          signing_changed=0
+          provision_signing() {
+{{- if eq "true" (include "serviceradar.natsCalloutSigningGeneratorOwned" .) }}
+            local status=0
+            python3 - "${CERT_DIR}" <<'CALLOUT_SIGNING' || status=$?
+{{ required "files/nats-callout-signing.py is required" (.Files.Get "files/nats-callout-signing.py") | indent 10 }}
+          CALLOUT_SIGNING
+            case "${status}" in
+              0) ;;
+              10) signing_changed=1 ;;
+              *) exit 1 ;;
+            esac
+{{- else }}
+            :
+{{- end }}
+          }
 
-          secret_name = os.environ["SECRET_NAME"]
-          cert_dir = os.environ["CERT_DIR"]
-          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
-          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
-          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
-          cafile = os.path.join(serviceaccount, "ca.crt")
-          context = ssl.create_default_context(cafile=cafile)
-          secret_url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{namespace}/secrets/{secret_name}"
-          headers = {"Authorization": f"Bearer {token}"}
-
-          try:
-            request = urllib.request.Request(secret_url, headers=headers, method="GET")
-            payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
-            os.makedirs(cert_dir, exist_ok=True)
-
-            for name, encoded in (payload.get("data") or {}).items():
-              path = os.path.join(cert_dir, name)
-              os.makedirs(os.path.dirname(path), exist_ok=True)
-              with open(path, "wb") as handle:
-                handle.write(base64.b64decode(encoded))
-          except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-              sys.exit(1)
-            raise
-          PY
-          then
-            if python3 - "${CERT_DIR}" "${RUNTIME_CERT_LAYOUT_VERSION}" "$@" <<'CHECK_CERTS'
-{{ required "files/check-runtime-certs.py is required" (.Files.Get "files/check-runtime-certs.py") | indent 10 }}
-          CHECK_CERTS
-            then
-              exit 0
-            fi
-          fi
-
-          cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
-{{ tpl (.Files.Get "files/generate-certs.sh") . | b64enc | indent 12 }}
-          EOF_SCRIPT_B64
-          tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
-          chmod +x /tmp/generate-certs.sh
-          # Names each reissued certificate with the one it replaced, so core
-          # records it on the adopted component before workloads roll onto it
-          # (ServiceRadar.Edge.RuntimeCertificateRotation).
-          cat >/tmp/runtime-cert-rotation.py.b64 <<'EOF_ROTATION_B64'
-{{ .Files.Get "files/runtime-cert-rotation.py" | b64enc | indent 12 }}
-          EOF_ROTATION_B64
-          tr -d '[:space:]' </tmp/runtime-cert-rotation.py.b64 | base64 -d >/tmp/runtime-cert-rotation.py
-          mkdir -p "${CERT_DIR}"
-          python3 /tmp/runtime-cert-rotation.py snapshot "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
-          export FORCE_REGENERATE=true
-          bash /tmp/generate-certs.sh
-          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
-          python3 /tmp/runtime-cert-rotation.py manifest "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
-
-          python3 <<'PY'
+          upload_secret() {
+            python3 <<'UPLOAD_SECRET'
           import base64
           import json
           import os
@@ -231,7 +192,102 @@ spec:
           request = urllib.request.Request(url, data=body, headers=headers, method=method)
           urllib.request.urlopen(request, context=context).read()
           print(f"{action} Secret {secret_name}")
+          UPLOAD_SECRET
+          }
+
+          fetch_status=0
+          python3 <<'PY' || fetch_status=$?
+          import os
+          import base64
+          import json
+          import ssl
+          import sys
+          import urllib.error
+          import urllib.request
+
+          secret_name = os.environ["SECRET_NAME"]
+          cert_dir = os.environ["CERT_DIR"]
+          serviceaccount = "/var/run/secrets/kubernetes.io/serviceaccount"
+          token = open(os.path.join(serviceaccount, "token"), encoding="utf-8").read().strip()
+          namespace = open(os.path.join(serviceaccount, "namespace"), encoding="utf-8").read().strip()
+          cafile = os.path.join(serviceaccount, "ca.crt")
+          context = ssl.create_default_context(cafile=cafile)
+          secret_url = f"https://kubernetes.default.svc.cluster.local/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+          headers = {"Authorization": f"Bearer {token}"}
+
+          try:
+            request = urllib.request.Request(secret_url, headers=headers, method="GET")
+            payload = json.loads(urllib.request.urlopen(request, context=context).read().decode("utf-8"))
+            if (
+              not isinstance(payload, dict)
+              or payload.get("kind") != "Secret"
+              or not isinstance(payload.get("metadata"), dict)
+              or payload["metadata"].get("name") != secret_name
+              or (payload.get("data") is not None and not isinstance(payload.get("data"), dict))
+            ):
+              raise ValueError("unexpected Secret response payload")
+            os.makedirs(cert_dir, exist_ok=True)
+
+            for name, encoded in (payload.get("data") or {}).items():
+              path = os.path.join(cert_dir, name)
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, "wb") as handle:
+                handle.write(base64.b64decode(encoded, validate=True))
+          except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+              sys.exit(44)
+            print(f"Failed to fetch Secret {secret_name}: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+            sys.exit(1)
+          except Exception as exc:
+            print(f"Failed to fetch Secret {secret_name}: {exc}", file=sys.stderr)
+            sys.exit(1)
           PY
+
+          case "${fetch_status}" in
+            0)
+              provision_signing
+              if python3 - "${CERT_DIR}" "${RUNTIME_CERT_LAYOUT_VERSION}" "$@" <<'CHECK_CERTS'
+{{ required "files/check-runtime-certs.py is required" (.Files.Get "files/check-runtime-certs.py") | indent 10 }}
+          CHECK_CERTS
+              then
+                # The certificates are kept. The Secret is written only when the
+                # signing step added or repaired an entry.
+                if [ "${signing_changed}" = "1" ]; then
+                  upload_secret
+                fi
+                exit 0
+              fi
+              ;;
+            44)
+              mkdir -p "${CERT_DIR}"
+              provision_signing
+              ;;
+            *)
+              echo "Failed to fetch Secret ${SECRET_NAME} (exit ${fetch_status}); aborting without generating or uploading." >&2
+              exit 1
+              ;;
+          esac
+
+          cat >/tmp/generate-certs.sh.b64 <<'EOF_SCRIPT_B64'
+{{ tpl (.Files.Get "files/generate-certs.sh") . | b64enc | indent 12 }}
+          EOF_SCRIPT_B64
+          tr -d '[:space:]' </tmp/generate-certs.sh.b64 | base64 -d >/tmp/generate-certs.sh
+          chmod +x /tmp/generate-certs.sh
+          # Names each reissued certificate with the one it replaced, so core
+          # records it on the adopted component before workloads roll onto it
+          # (ServiceRadar.Edge.RuntimeCertificateRotation).
+          cat >/tmp/runtime-cert-rotation.py.b64 <<'EOF_ROTATION_B64'
+{{ .Files.Get "files/runtime-cert-rotation.py" | b64enc | indent 12 }}
+          EOF_ROTATION_B64
+          tr -d '[:space:]' </tmp/runtime-cert-rotation.py.b64 | base64 -d >/tmp/runtime-cert-rotation.py
+          mkdir -p "${CERT_DIR}"
+          python3 /tmp/runtime-cert-rotation.py snapshot "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
+          export FORCE_REGENERATE=true
+          bash /tmp/generate-certs.sh
+          printf '%s' "${RUNTIME_CERT_LAYOUT_VERSION}" > "${CERT_DIR}/runtime-cert-layout-version"
+          python3 /tmp/runtime-cert-rotation.py manifest "${CERT_DIR}" /tmp/runtime-cert-snapshot.json
+
+          upload_secret
         - runtime-cert-generator
         args:
         - root.pem

@@ -130,6 +130,14 @@ py_test(
     data = ["files/check-runtime-certs.py"],
 )
 
+# The generator provisions the NATS authorization callout signing keys. A
+# mismatched or rotated set would stop the broker accepting core's authorizer.
+py_test(
+    name = "nats_callout_signing_test",
+    srcs = ["nats_callout_signing_test.py"],
+    data = ["files/nats-callout-signing.py"],
+)
+
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
 # checkpoint every ~14s at this product's ingest rate and parked every backend on
 # LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the
