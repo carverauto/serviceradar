@@ -51,6 +51,7 @@ SIGNING_WORKFLOWS = (
     "native-addons.yml",
     "external-wasm-plugin.yml",
     "publish-dockerfile-image.yml",
+    "publish-media-worker-cuda.yml",
 )
 LEDGER_ARTIFACT_PREFIX = "signing-ledger-"
 MONITOR_WORKFLOW = "rekor-signing-monitor.yml"

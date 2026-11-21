@@ -58,7 +58,7 @@ impl FromStr for InferenceBackendKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "stub" => Ok(Self::Stub),
-            "candle" => Ok(Self::Candle),
+            _ if s.trim().is_empty() || s.trim().eq_ignore_ascii_case("candle") => Ok(Self::Candle),
             other => Err(CapabilityError::invalid_configuration(format!(
                 "unsupported MEDIA_WORKER_BACKEND '{other}'; expected 'candle' or 'stub'"
             ))),

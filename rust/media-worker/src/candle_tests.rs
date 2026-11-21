@@ -775,10 +775,18 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
         .expect("Candle requires a checkpoint");
     assert!(error.to_string().contains("MEDIA_WORKER_MODEL_DIR"));
 
-    assert!(
-        CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", "deterministic"])
-            .is_err()
-    );
+    for value in ["CANDLE", "  cAnDlE  ", "", "   "] {
+        let config = CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", value])
+            .expect("accepted Candle spelling")
+            .into_worker_config()
+            .expect("worker config");
+        assert_eq!(config.backend_kind(), InferenceBackendKind::Candle);
+    }
+    for value in ["deterministic", "STUB", " stub ", "other"] {
+        assert!(
+            CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", value]).is_err()
+        );
+    }
 
     let cli_stub = CliArgs::try_parse_from([
         "serviceradar-media-worker",
@@ -1170,6 +1178,26 @@ impl InferenceBackend for RecordingBackend {
     fn info(&self) -> crate::backend::InferenceBackendInfo {
         self.info.clone()
     }
+}
+
+#[test]
+fn cpu_explicit_refuses_a_supplied_cuda_backend_before_warmup() {
+    use std::sync::atomic::Ordering;
+    let config = WorkerConfig::cpu_explicit_default();
+    let info = crate::InferenceBackendInfo::new(
+        InferenceBackendKind::Candle,
+        "cuda:0",
+        config.models().embedding_dim(),
+        "synthetic",
+        false,
+    );
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
+    let probe = StaticProbe(GpuEnvironmentObservation::no_gpu());
+    let err = verify_startup_capabilities_with_backend(&config, &probe, backend.clone())
+        .expect_err("CUDA under cpu_explicit");
+    assert!(err.to_string().contains("cpu_explicit"));
+    assert_eq!(backend.image_batches.load(Ordering::SeqCst), 0);
+    assert_eq!(backend.text_queries.load(Ordering::SeqCst), 0);
 }
 
 #[test]

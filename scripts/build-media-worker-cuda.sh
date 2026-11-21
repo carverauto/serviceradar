@@ -36,6 +36,7 @@ CUDA_RUNTIME_LIBRARIES=(
   libcublasLt.so.13
   libcurand.so.10
   libnvrtc.so.13
+  libnvrtc-builtins.so.13.0
   libcudart.so.13
 )
 BINARY_NAME="serviceradar-media-worker"
@@ -159,16 +160,14 @@ collect_cuda_libraries() {
       # Never ship a driver library (e.g. a cuda-compat libcuda): it must come from the
       # host through the NVIDIA container runtime, matching the host kernel module.
       [[ "${BASH_REMATCH[1]}" == libcuda.so* || "${BASH_REMATCH[1]}" == libnvidia-* ]] && continue
-      wanted["${BASH_REMATCH[1]}"]=1
+      name="${BASH_REMATCH[1]}"
+      if [[ "${name}" == libnvrtc-builtins.so.* && "${name}" != libnvrtc-builtins.so.13.0 ]]; then
+        die "unexpected NVRTC builtins dependency: ${name}"
+      fi
+      wanted["${name}"]=1
     fi
   done < <(ldd "${binary}" || true)
   ((${#missing[@]} == 0)) || die "unresolved shared libraries: ${missing[*]}"
-  # nvrtc loads its builtins library by soname at run time; ship it with nvrtc.
-  if [[ -n "${wanted[libnvrtc.so.13]:-}" ]]; then
-    for path in /usr/local/cuda/lib64/libnvrtc-builtins.so.13.*; do
-      [[ -e "${path}" ]] && wanted["$(basename "${path}")"]=1
-    done
-  fi
   mkdir -p "${libdir}"
   for name in "${!wanted[@]}"; do
     path="/usr/local/cuda/lib64/${name}"
@@ -193,7 +192,7 @@ write_manifest() {
       "$(json_string "${BINARY_NAME}")" "$(json_string "$(sha256_of "${out}/${BINARY_NAME}")")"
     printf '  "cargo_features": ["cuda"],\n'
     printf '  "cuda_compute_cap": %s,\n' "$(json_string "${CUDA_COMPUTE_CAP}")"
-    printf '  "builder_image": %s,\n' "$(json_string "${CUDA_BUILDER_IMAGE:-unknown}")"
+    printf '  "builder_image": %s,\n' "$(json_string "${CUDA_BUILDER_IMAGE}")"
     printf '  "toolchain": {"rustc": %s, "cargo": %s, "nvcc": %s, "cc": %s},\n' \
       "$(json_string "$(rustc --version)")" \
       "$(json_string "$(cargo --version)")" \
@@ -213,6 +212,8 @@ build() (
   local toolchain_dir="$1" out="$2"
   require_empty_dir "${out}"
   [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die "GITHUB_SHA must be the full commit SHA"
+  [[ "${CUDA_BUILDER_IMAGE:-}" == "docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266" ]] \
+    || die "CUDA_BUILDER_IMAGE must identify the pinned CUDA 13.0.3 devel image"
   require nvcc tar gzip sha256sum ldd cc awk
   [[ -n "${HOME:-}" && -d "${HOME}" ]] || die "HOME must name an existing writable directory"
 

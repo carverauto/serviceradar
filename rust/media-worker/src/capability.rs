@@ -430,6 +430,12 @@ fn verify_provider_and_classify_sharing(
 ) -> Result<GpuSharingMode, CapabilityError> {
     match config.execution_provider() {
         ExecutionProvider::CpuExplicit => {
+            if backend_info.device() != "cpu" {
+                return Err(CapabilityError::invalid_configuration(format!(
+                    "cpu_explicit execution_provider requires a CPU backend, got '{}'",
+                    backend_info.device()
+                )));
+            }
             if let Some(declared) = config.declared_gpu_sharing_mode()
                 && declared != GpuSharingMode::CpuExplicit
             {

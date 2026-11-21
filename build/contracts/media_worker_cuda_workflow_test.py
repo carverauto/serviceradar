@@ -32,7 +32,7 @@ COMMIT = "a" * 40
 DIGEST = "sha256:" + "d" * 64
 NOTICE_PACKAGES = ("libcublas-13-0", "libcurand-13-0", "cuda-nvrtc-13-0", "cuda-cudart-13-0")
 LIBRARIES = ("libcublas.so.13", "libcublasLt.so.13", "libcurand.so.10",
-             "libnvrtc.so.13", "libcudart.so.13")
+             "libnvrtc.so.13", "libnvrtc-builtins.so.13.0", "libcudart.so.13")
 
 
 def action(step):
@@ -184,28 +184,61 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
                                                   "cancel-in-progress": False})
 
     def test_excluded_dispatch_runs_only_unprivileged_build_operations(self):
-        with tempfile.TemporaryDirectory() as work:
-            root = Path(work)
-            scripts = root / "scripts"
-            scripts.mkdir()
-            builder = scripts / BUILD_SCRIPT.name
-            builder.write_text('#!/bin/bash\nset -eu\necho "$1" >> commands\n'
-                               'case "$1" in fetch-toolchain) ;; build) [[ "$CUDA_BUILDER_IMAGE" == "$EXPECTED_BUILDER" ]]; mkdir -p "$3"; : > "$3/SHA256SUMS";; *) exit 1;; esac\n')
-            builder.chmod(0o755)
-            for tool in ("mkdir", "awk", "sha256sum", "cat"):
-                (root / tool).symlink_to(shutil.which(tool))
-            env = self.workflow["env"] | {"PATH": work, "HOME": work, "RUNNER_TEMP": work, "EXPECTED_BUILDER": CUDA_BUILDER,
-                                          "GITHUB_REF": "refs/heads/test/demo-test-x", "GITHUB_SHA": COMMIT,
-                                          "GITHUB_OUTPUT": str(root / "outputs"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
-            for name in ("toolchain", "build"):
-                job = self.jobs[name]
-                for step in job["steps"]:
-                    if "uses" in step:
-                        self.assertIn(action(step), {"actions/checkout", "actions/upload-artifact", "actions/download-artifact"})
-                    else:
-                        subprocess.run(["/bin/bash", "-e", "-o", "pipefail", "-c", step["run"]], check=True,
-                                       cwd=root, env=env | job.get("env", {}) | step.get("env", {}))
-            self.assertEqual((root / "commands").read_text().splitlines(), ["fetch-toolchain", "build"])
+        for manifest in ({"builder_image": CUDA_BUILDER}, {}, {"builder_image": "unknown"}):
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as work:
+                self.check_build_manifest(Path(work), manifest)
+
+    def check_build_manifest(self, root, manifest):
+        scripts = root / "scripts"
+        scripts.mkdir()
+        builder = scripts / BUILD_SCRIPT.name
+        builder.write_text('''#!/bin/bash
+set -eu
+echo "$1" >> commands
+case "$1" in
+    fetch-toolchain) ;;
+    build)
+        [[ "$CUDA_BUILDER_IMAGE" == "$EXPECTED_BUILDER" ]]
+        mkdir -p "$3"
+        printf '%s' "$BUILD_MANIFEST" > "$3/manifest.json"
+        : > "$3/SHA256SUMS"
+        ;;
+    *) exit 1 ;;
+esac
+''')
+        builder.chmod(0o755)
+        for tool in ("mkdir", "awk", "sha256sum", "cat", "tr"):
+            (root / tool).symlink_to(shutil.which(tool))
+        env = self.workflow["env"] | {"PATH": str(root), "HOME": str(root), "RUNNER_TEMP": str(root),
+                                      "BUILD_MANIFEST": json.dumps(manifest), "EXPECTED_BUILDER": CUDA_BUILDER,
+                                      "GITHUB_REF": "refs/heads/test/demo-test-x", "GITHUB_SHA": COMMIT,
+                                      "GITHUB_OUTPUT": str(root / "outputs"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
+        outputs = {}
+        for name in ("toolchain", "build"):
+            job = self.jobs[name]
+            for step in job["steps"]:
+                if "uses" in step:
+                    self.assertIn(action(step), {"actions/checkout", "actions/upload-artifact", "actions/download-artifact"})
+                    continue
+                settings = env | job.get("env", {})
+                for key, value in step.get("env", {}).items():
+                    output = re.fullmatch(r"\$\{\{ fromJSON\(steps\.(\w+)\.outputs\.(\w+)\)\.(\w+) \}\}", value)
+                    settings[key] = json.loads(outputs[output[1], output[2]]).get(output[3], "") if output else value
+                output_file = root / "outputs"
+                output_file.write_text("")
+                result = subprocess.run(["/bin/bash", "-e", "-o", "pipefail", "-c", step["run"]],
+                                        cwd=root, env=settings, text=True, capture_output=True)
+                if result.returncode:
+                    self.assertNotEqual(manifest.get("builder_image"), CUDA_BUILDER, result.stderr)
+                    self.assertIn("incorrect manifest builder_image", result.stderr)
+                    self.assertFalse(output_file.read_text())
+                    return
+                for line in output_file.read_text().splitlines():
+                    key, value = line.split("=", 1)
+                    outputs[step["id"], key] = value
+        emitted = json.loads((root / "media-worker-cuda/manifest.json").read_bytes())
+        self.assertEqual(emitted.get("builder_image"), CUDA_BUILDER)
+        self.assertEqual((root / "commands").read_text().splitlines(), ["fetch-toolchain", "build"])
 
     def test_publish_verifies_each_digest_before_reporting_success(self):
         image = "serviceradar-media-worker-cuda"
@@ -296,7 +329,8 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
         for package in NOTICE_PACKAGES:
             files[f"third-party/{package}.copyright"] = f"synthetic notice for {package}".encode()
         binary_sha = hashlib.sha256(files["serviceradar-media-worker"]).hexdigest()
-        files["manifest.json"] = json.dumps({"commit": COMMIT, "cuda_compute_cap": "121", "binary": {"sha256": binary_sha}}).encode()
+        files["manifest.json"] = json.dumps({"commit": COMMIT, "builder_image": CUDA_BUILDER, "cuda_compute_cap": "121",
+                                             "binary": {"sha256": binary_sha}}).encode()
         for name, data in files.items():
             (self.bundle / name).parent.mkdir(parents=True, exist_ok=True)
             (self.bundle / name).write_bytes(data)
@@ -324,8 +358,30 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
         with self.assertRaisesRegex(self.tool.BundleError, "digest the build job reported"):
             self.tool.verify(self.bundle, self.sums_sha256, COMMIT)
 
+    def test_build_and_bundle_require_the_approved_builder(self):
+        manifest_path = self.bundle / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        for value in (None, "unknown", "docker.io/nvidia/cuda@sha256:" + "0" * 64):
+            with self.subTest(builder=value):
+                env = os.environ | {"GITHUB_SHA": COMMIT}
+                if value is None:
+                    env.pop("CUDA_BUILDER_IMAGE", None)
+                    del manifest["builder_image"]
+                else:
+                    env["CUDA_BUILDER_IMAGE"] = manifest["builder_image"] = value
+                result = subprocess.run(["bash", str(BUILD_SCRIPT), "build", "toolchain", str(self.bundle.parent / "out")],
+                                        env=env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("CUDA_BUILDER_IMAGE", result.stderr)
+                manifest_path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(self.tool.BundleError, "builder_image"):
+                    self.tool.verify(self.bundle, self.write_sums(), COMMIT)
+
     def test_verify_rejects_unlisted_unexpected_or_missing_files(self):
         cases = {
+            "missing builtins": lambda: ((self.bundle / "lib/libnvrtc-builtins.so.13.0").unlink(), self.write_sums()),
+            "duplicate builtins": lambda: (shutil.copyfile(self.bundle / "lib/libnvrtc-builtins.so.13.0",
+                                                         self.bundle / "lib/libnvrtc-builtins.so.13.0.88"), self.write_sums()),
             "missing notice": lambda: ((self.bundle / "third-party/libcurand-13-0.copyright").unlink(), self.write_sums()),
             "extra notice": lambda: ((self.bundle / "third-party/random.txt").write_bytes(b"x"), self.write_sums()),
             "unlisted": lambda: (self.bundle / "lib/libextra.so.1").write_bytes(b"x"),
@@ -353,6 +409,8 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
             self.assertEqual((binary.mode, binary.uid), (0o755, 0))
             for library in LIBRARIES:
                 self.assertIn(f"usr/local/lib/serviceradar-cuda/{library}", members)
+            builtins = [name for name in layer.getnames() if Path(name).name.startswith("libnvrtc-builtins.so.")]
+            self.assertEqual(builtins, ["usr/local/lib/serviceradar-cuda/libnvrtc-builtins.so.13.0"])
             self.assertNotIn("usr/local/lib/serviceradar-cuda/libcuda.so.1", members)
             for package in NOTICE_PACKAGES:
                 member = f"usr/share/doc/serviceradar-media-worker-cuda/third-party/{package}.copyright"

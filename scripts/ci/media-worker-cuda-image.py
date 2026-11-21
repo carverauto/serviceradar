@@ -37,9 +37,10 @@ BASE_INDEX = ("registry.carverauto.dev/mirror/library/ubuntu@"
 CA_BUNDLE_URL = "https://curl.se/ca/cacert-2026-07-16.pem"
 CA_BUNDLE_SHA256 = "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4eaf91"
 
+CUDA_BUILDER = "docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266"
 BINARY = "serviceradar-media-worker"
 REQUIRED_LIBRARIES = ("libcublas.so.13", "libcublasLt.so.13", "libcurand.so.10",
-                      "libnvrtc.so.13", "libcudart.so.13")
+                      "libnvrtc.so.13", "libnvrtc-builtins.so.13.0", "libcudart.so.13")
 NOTICE_DIR = "usr/share/doc/serviceradar-media-worker-cuda/third-party"
 NOTICE_FILES = {f"third-party/{package}.copyright" for package in
                ("libcublas-13-0", "libcurand-13-0", "cuda-nvrtc-13-0", "cuda-cudart-13-0")}
@@ -100,6 +101,8 @@ def verify(bundle, sums_sha256, commit):
     if present != set(listed):
         raise BundleError(f"bundle files differ from SHA256SUMS: {sorted(present ^ set(listed))}")
     for name in listed:
+        if name.startswith("lib/libnvrtc-builtins.so.") and name != "lib/libnvrtc-builtins.so.13.0":
+            raise BundleError(f"unexpected NVRTC builtins library: {name}")
         if name not in (BINARY, "manifest.json") and name not in NOTICE_FILES and not LIBRARY_NAME.fullmatch(name):
             raise BundleError(f"unexpected file in bundle: {name}")
     missing = [lib for lib in REQUIRED_LIBRARIES if f"lib/{lib}" not in listed]
@@ -114,6 +117,8 @@ def verify(bundle, sums_sha256, commit):
     manifest = json.loads((bundle / "manifest.json").read_text())
     if not re.fullmatch(r"[0-9a-f]{40}", commit or "") or manifest.get("commit") != commit:
         raise BundleError("manifest commit must match the expected full commit SHA")
+    if manifest.get("builder_image") != CUDA_BUILDER:
+        raise BundleError("manifest builder_image must match the pinned CUDA devel image")
     if manifest.get("cuda_compute_cap") != "121":
         raise BundleError("manifest must target CUDA compute capability 121")
     if manifest.get("binary", {}).get("sha256") != listed[BINARY]:

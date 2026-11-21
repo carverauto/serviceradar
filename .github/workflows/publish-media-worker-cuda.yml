@@ -102,12 +102,21 @@ jobs:
           path: ${{ runner.temp }}/rust-toolchain
 
       - name: Build the CUDA media worker
-        run: ./scripts/build-media-worker-cuda.sh build "${RUNNER_TEMP}/rust-toolchain" "${RUNNER_TEMP}/media-worker-cuda"
+        id: compile
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/media-worker-cuda"
+          ./scripts/build-media-worker-cuda.sh build "${RUNNER_TEMP}/rust-toolchain" "${bundle}"
+          manifest="$(tr '\n' ' ' < "${bundle}/manifest.json")"
+          printf 'manifest=%s\n' "${manifest}" >> "${GITHUB_OUTPUT}"
 
       - name: Record the bundle digest
         id: bundle
+        env:
+          RECORDED_BUILDER: ${{ fromJSON(steps.compile.outputs.manifest).builder_image }}
         run: |
           set -euo pipefail
+          [[ "${RECORDED_BUILDER}" == "${CUDA_BUILDER_IMAGE}" ]] || { echo "incorrect manifest builder_image" >&2; exit 1; }
           sums_sha256="$(sha256sum "${RUNNER_TEMP}/media-worker-cuda/SHA256SUMS" | awk '{print $1}')"
           echo "sums_sha256=${sums_sha256}" >> "${GITHUB_OUTPUT}"
           {

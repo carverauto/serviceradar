@@ -79,7 +79,7 @@ class World:
         self.other_key, self.other_pub = openssl_key(root, "other")
         self.served_key = self.log_pub.read_text()
         self.bodies = []
-        self.runs = {workflow: [] for workflow in monitor.SIGNING_WORKFLOWS}
+        self.runs = {}
         self.ledgers = {}
         self.issues = []
         self.labels = {"security"}
@@ -107,10 +107,11 @@ class World:
         return "0000000000000001" + hashlib.sha256(b"\x00" + self.bodies[index][0]).hexdigest()
 
     def add_run(self, workflow, run_id, start, end, ledger=None):
-        self.runs[workflow].insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
-                                    "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
-                                    "status": "completed" if end else "in_progress",
-                                    "html_url": f"https://github.example/run/{run_id}"})
+        runs = self.runs.setdefault(workflow, [])
+        runs.insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
+                        "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
+                        "status": "completed" if end else "in_progress",
+                        "html_url": f"https://github.example/run/{run_id}"})
         if ledger is not None:
             self.ledgers[run_id] = ledger
 
@@ -380,10 +381,17 @@ class MonitorTest(unittest.TestCase):
         self.assertIn("certificate cannot be decoded", self.world.discord[-1])
 
     def test_entry_in_a_finished_runs_ledger_is_explained(self):
-        entry = self.world.add_entry(b"release payload")
-        self.world.add_run("release.yml", 7, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
-                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+        entries = {}
+        for run_id, workflow in [(7, "release.yml"), (8, "publish-media-worker-cuda.yml")]:
+            entry = self.world.add_entry(f"synthetic payload {run_id}".encode())
+            entries[entry["uuid"]] = run_id
+            self.world.add_run(workflow, run_id, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                               [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
         self.assertEqual(self.run_monitor(), 0)
+        state = json.loads(self.state.read_text())
+        for uuid, run_id in entries.items():
+            self.assertEqual(state["decisions"][uuid]["status"], "explained")
+            self.assertIn(str(run_id), state["canary_checked"])
         self.assertEqual(self.world.issues, [])
         self.assertEqual(self.world.blob_requests_with_auth, 0, "the GitHub token followed the artifact redirect")
 

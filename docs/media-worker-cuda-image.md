@@ -96,7 +96,9 @@ Dispatching from any other branch builds the bundle and stops; it is the way to
 try a change on the hardware without publishing.
 
 For a manual build, set `GITHUB_SHA` to the checkout's full commit SHA in the
-arm64 devel container. Fetch the toolchain on a host with curl and mount it in
+arm64 devel container and set `CUDA_BUILDER_IMAGE` to its pinned reference,
+`docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266`.
+Fetch the toolchain on a host with curl and mount it in
 the container.
 
 ```bash
