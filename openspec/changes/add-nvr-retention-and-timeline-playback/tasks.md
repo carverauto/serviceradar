@@ -41,11 +41,11 @@ gate.
 - [x] B.4 `RecordingBlocks.acquire_upload/4` refuses blocks stored on an NVR `LocalStorageBinding`.
 
 ### serviceradar_nvr and serviceradar_nvr_client
-- [ ] B.5 `GET /v1/blocks/<id>/descriptor` returning canonical descriptor bytes from the existing read pool; client function.
+- [x] B.5 `GET /v1/blocks/<id>/descriptor` returning canonical descriptor bytes from the existing read pool; client function.
 
 ### serviceradar_core_elx
-- [ ] B.6 `NVRWorker` registers its block through B.3 before releasing its claim; a block it cannot register is left to the reconciler (R).
-- [ ] B.7 Time basis observation: inbox stamps admission UTC per access unit; worker records first-unit PTS and receipt time (design T).
+- [x] B.6 `NVRWorker` registers its block through B.3 before releasing its claim; a block it cannot register is left to the reconciler (R).
+- [x] B.7 Time basis observation: inbox stamps admission UTC per access unit; worker records first-unit PTS and receipt time (design T).
 
 ### web-ng
 - [x] B.8 Settings `cameras` tab block list reads catalog state (copy states, time basis) alongside the settings change's lookup join.

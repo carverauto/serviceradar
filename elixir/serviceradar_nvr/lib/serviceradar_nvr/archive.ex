@@ -55,7 +55,7 @@ defmodule ServiceRadarNVR.Archive do
   end
 
   defp parse(config, block_id, body) do
-    if Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id),
+    if Blocks.valid_id?(block_id),
       do: decode(config, block_id, body),
       else: {:error, :block_not_found}
   end
@@ -253,30 +253,13 @@ defmodule ServiceRadarNVR.Archive do
   defp object({name, bytes}),
     do: %{name: name, bytes: bytes, size: byte_size(bytes), digest: :crypto.hash(:sha256, bytes)}
 
-  defp block_error(reason) when reason in [:enoent, :invalid_block_id], do: :block_not_found
-
-  defp block_error(reason)
-       when reason in [
-              :nvr_read_capacity,
-              :nvr_read_timeout,
-              :nvr_read_unavailable,
-              :nvr_recovery_closed,
-              :nvr_storage_not_configured
-            ], do: :archive_unavailable
-
-  defp block_error(reason)
-       when reason in [
-              :unsealed_block,
-              :empty_block,
-              :block_identity_mismatch,
-              :uncommitted_block_bytes,
-              :block_digest_mismatch,
-              :journal_digest_mismatch,
-              :media_digest_mismatch,
-              :truncated_media
-            ], do: :block_not_sealed
-
-  defp block_error(reason), do: {:archive_local, :block, class(reason)}
+  defp block_error(reason) do
+    case Blocks.read_error(reason) do
+      :read_unavailable -> :archive_unavailable
+      :other -> {:archive_local, :block, class(reason)}
+      error -> error
+    end
+  end
 
   # A retained receipt is returned only when it re-encodes byte-for-byte from
   # this request's destination and the block just verified.

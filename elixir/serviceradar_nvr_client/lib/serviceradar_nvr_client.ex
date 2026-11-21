@@ -1,7 +1,8 @@
 defmodule ServiceRadarNVRClient do
   @moduledoc """
   Sends one finite, already-authorized H264 capture to one installed NVR endpoint,
-  or asks that endpoint to archive one sealed local block.
+  asks that endpoint to archive one sealed local block, or reads one sealed
+  block's canonical descriptor.
 
   The lazy enumerable yields maps containing `payload`, `sequence`, `pts` and
   `dts`. It runs in a separate, bounded process: do not pass a caller-owned socket
@@ -24,6 +25,9 @@ defmodule ServiceRadarNVRClient do
 
   `archive_block/4` sends one small JSON request that carries a bucket
   credential. No returned error contains that credential.
+
+  `block_descriptor/3` is a read with no effect on the NVR, so it can be
+  repeated freely.
   """
 
   alias ServiceRadarNVRClient.Config
@@ -61,6 +65,35 @@ defmodule ServiceRadarNVRClient do
   end
 
   def archive_block(_, _, _, _), do: {:error, :invalid_archive_request}
+
+  def descriptor_timeout_ms, do: 15_000
+
+  @doc """
+  Reads the canonical v1 descriptor of sealed block `block_id`.
+
+  Returns `{:ok, descriptor}` with the decoded string-keyed descriptor only when
+  the 200 body is a valid descriptor whose canonical encoding is exactly the
+  bytes received and whose identity derives `block_id`, so its SHA-256 is the
+  digest of the NVR's bytes. A 200 body that fails any of those checks is
+  `{:error, :invalid_descriptor_response}`. A non-200 answer is
+  `{:error, {:descriptor_status, status, error}}`, with `error` decoded as for
+  `archive_block/4`. A lost, truncated or late answer is
+  `{:error, :descriptor_unavailable}`. An invalid block id or configuration is
+  refused before connecting.
+  """
+  def block_descriptor(config, block_id, timeout_ms \\ descriptor_timeout_ms())
+
+  def block_descriptor(%Config{} = config, block_id, timeout_ms) when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config),
+         :ok <- Wire.block_id(block_id) do
+      case bounded(timeout_ms, &HTTP.block_descriptor(config, block_id, &1, &2)) do
+        {:error, :outcome_unknown} -> {:error, :descriptor_unavailable}
+        result -> result
+      end
+    end
+  end
+
+  def block_descriptor(_, _, _), do: {:error, :invalid_descriptor_request}
 
   defp bounded(timeout_ms, operation) do
     caller = self()

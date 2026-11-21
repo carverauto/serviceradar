@@ -30,11 +30,11 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 ## Deployment checkpoint
 
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
-and health probes. A separately installed [private finite-stream listener](nvr-ingest.md)
-can accept authenticated media from the bounded relay coordinator described there;
-continuous recorder scheduling and pool assignment are not wired yet. Local catalog publication, automatic archive
-scheduling and reclamation, and automated restart reconciliation remain pending;
-an explicit, verified copy of one sealed block to a bucket is described under
+and health probes. A separately installed private listener accepts authenticated
+media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator),
+which registers sealed blocks in Core. Continuous recorder scheduling and pool
+assignment, automatic archive scheduling and reclamation, and automated restart
+reconciliation remain pending. For an explicit, verified copy to a bucket, see
 [Archive upload](#archive-upload). Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
@@ -235,8 +235,10 @@ reads use `archive_read_unavailable`, with private/no-store responses. The exist
 post-fetch range recheck withholds media if recovery closes during provider I/O.
 Bytes already delivered cannot be recalled; retained plans are not bearer grants.
 
-Stop and status, recorder/upload release, freezing already allocated blocks,
-media preparation and late observations remain available for preservation.
+Stop and status, recorder/upload release, descriptor-only freeze of an allocated
+block, media preparation and late observations remain available for preservation.
+Freezing a block together with its catalog entry requires ready recovery before
+the transaction and again before Core confirms registration.
 General Core health remains independent of this gate. These paths are not a
 claim that current-history reconciliation or all recovery consumers are complete.
 No ready result is cached. Closing the gate cannot recall bytes already returned,

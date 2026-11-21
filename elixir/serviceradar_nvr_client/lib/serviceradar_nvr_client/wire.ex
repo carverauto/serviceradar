@@ -108,7 +108,21 @@ defmodule ServiceRadarNVRClient.Wire do
     end
   end
 
-  def archive_error(bytes) do
+  def block_id(block_id), do: if(matches?(block_id, @hex64), do: :ok, else: {:error, :invalid_descriptor_request})
+
+  # Only the exact canonical bytes are accepted, so the caller's re-encoding,
+  # and the digest Core freezes, are the NVR's bytes.
+  def descriptor(bytes, block_id) do
+    with {:ok, descriptor} <- Jason.decode(bytes),
+         {:ok, ^bytes} <- Descriptor.encode(descriptor),
+         true <- Descriptor.block_key(descriptor["identity"]) == block_id do
+      {:ok, descriptor}
+    else
+      _ -> {:error, :invalid_descriptor_response}
+    end
+  end
+
+  def error_body(bytes) do
     case Jason.decode(bytes) do
       {:ok, %{} = error} -> error
       _ -> %{}

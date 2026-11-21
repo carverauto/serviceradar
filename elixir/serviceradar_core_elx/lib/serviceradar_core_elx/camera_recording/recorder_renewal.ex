@@ -15,9 +15,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.RecorderRenewal do
   """
 
   @floor_ms 2_000
-  @teardown_ms 4_000
+  @cleanup_timeout_ms 2_000
+
+  def cleanup_timeout_ms, do: @cleanup_timeout_ms
+  def teardown_ms, do: 2 * @cleanup_timeout_ms
 
   @spec skip?(integer(), integer(), integer()) :: boolean()
   def skip?(now, capture_deadline, lease_deadline),
-    do: capture_deadline - now < @floor_ms and lease_deadline >= capture_deadline + @teardown_ms
+    do: capture_deadline - now < @floor_ms and lease_deadline >= capture_deadline + teardown_ms()
 end
