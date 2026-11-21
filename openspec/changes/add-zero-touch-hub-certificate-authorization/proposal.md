@@ -1,4 +1,4 @@
-# Change: Turn on hub certificate authorization with one setting and no hand steps
+# Change: Turn on hub certificate authorization with one enforcement setting
 
 ## Why
 
@@ -77,14 +77,17 @@ the runtime Secret, exposing every component's private key to the caller.
   in the issuer Secret and the fragments in the runtime Secret. The generator
   leaves both sets alone and keeps its existing Role. Only with enforcement
   on does core project the seeds and NATS project the fragments. The chart
-  documents the required keys. If any are missing on a distinct-issuer
-  install, core reports `signing keys not provisioned` in hub status and
-  leaf install stops. The API bootstrap stays for installs without a chart.
+  documents the fixed signing projections. If core lacks any mounted seed,
+  hub status reports `signing keys not provisioned`. If all seeds are
+  present but a broker fragment is missing, hub status reports the authorizer
+  is not answering. Kubernetes names the missing key in the NATS pod mount
+  error. Leaf install stops in either case. The API bootstrap stays for installs without a chart.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
-  them; none is known to. Turning it on needs no prior manual step once hub
-  status reports every chart identity adopted, however its certificate came to
+  them; none is known to. Once signing material is provisioned and hub
+  status reports every chart identity adopted, enforcement needs no further
+  manual step for those identities, however its certificate came to
   be recorded. A chart identity that hub status reports as not adopted stays
   refused after enforcement is on until its reported reason is resolved (for
   example rows without a subject blocking new adoption, a refused or skipped
@@ -97,7 +100,7 @@ the runtime Secret, exposing every component's private key to the caller.
   the CLI shows both: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, naming the cause and what resolves it: the enforcement
-  value, provisioning missing signing material, waiting for core's authorizer, `nats.leafnodes.enabled`, the leaf
+  value, provisioning missing seeds, checking NATS and core health, `nats.leafnodes.enabled`, the leaf
   host setting, or the per-subject reason a chart identity is not adopted. It
   also stops when the hub status is missing or unreadable. Today it
   continues and the leaf never connects.
@@ -122,7 +125,7 @@ connection depends on core and its database being up.
 - Follow-up outside this repository: `serviceradar-control` supplies the
   public inventory certificates and both broker fragments in the hosted runtime
   certificate Secret and the three seeds in the hosted issuer Secret. It
-  configures the projections for the keys it supplies before enabling enforcement.
+  sets the inventory certificate list, which defaults to empty in hosted mode.
 - Not in scope: Docker Compose and packaged hubs, a dedicated edge account for
   leaf subject isolation, and opening the leaf port to the outside, which
   stays an operator or control-plane action.

@@ -69,12 +69,12 @@ earlier draft proposed: that needed new write permissions for the job, a new
 step on the path where the generator finds existing certificates and exits
 early, and a second object the hosted control plane would have to supply.
 
-A Secret volume fails to mount when a listed key is missing, and a pod with a
+A required Secret volume fails to mount when a listed key is missing, and a pod with a
 failed mount does not start. On a chart install the generator always creates
 every chart identity's certificate. A Secret supplied by the hosted control
-plane may not carry the same files, so in hosted mode the list of projected
-files is a chart value the control plane sets to what it supplies (task 2.7),
-and nothing is projected by default there.
+plane may not carry the same files, so in hosted mode the list of inventory
+certificate files is a chart value the control plane sets to what it supplies (task 2.7),
+and that inventory list defaults to empty.
 
 Core reconciles on the authorizer's existing tick. Each certificate in the
 inventory is checked first:
@@ -180,11 +180,14 @@ leaves all five entries alone on install, upgrade and certificate regeneration.
 Its Role stays unchanged. The chart documents all five required Secret keys
 and their destinations.
 
-Render the signing projections only with enforcement enabled. Only core
-projects the seeds and only NATS projects the fragments. For a distinct
-issuer, a missing seed must allow core to start and serve readiness. Either
-missing fragment must leave broker enforcement closed and its provisioning
-failure visible to core, even if NATS cannot start (Decision 5).
+With enforcement enabled, the chart renders two fixed signing projections.
+Core mounts the three issuer Secret seeds in a separate optional volume so
+it can start and report a missing seed. NATS requires both runtime Secret
+fragments. If either is missing, Kubernetes prevents the NATS pod from
+starting and names the missing key in the volume mount event. With all seeds
+present, core reports only that the authorizer is not answering. The runbook
+directs operators to the NATS pod events when checking broker health.
+With enforcement disabled the chart omits both signing projections.
 
 On hosted installs the distinct issuer Secret holds both the CA signing key
 and the callout seeds. Pod projections limit the files mounted into workloads. In either mode, Kubernetes principals with read
@@ -207,7 +210,7 @@ render time.
 
 For hosted tenants the control plane adds the seeds to its existing issuer
 Secret and the fragments to its existing runtime certificate Secret. It
-configures the projection lists for the files it supplies. This is tracked in
+sets only the inventory certificate list to the files it supplies. This is tracked in
 `serviceradar-control`.
 
 ### Decision 3: One value, and the unverifiable promise is removed
@@ -280,12 +283,11 @@ resolver:
 1. hub status missing or unreadable: no setting to change; wait and retry,
    and check core's health;
 2. enforcement not configured: set `nats.certificateAuthorization.enabled`;
-3. enforcement configured but a seed or broker fragment is missing on a
-   distinct-issuer install: core reports `signing keys not provisioned`.
+3. enforcement configured but any of the three mounted seeds is absent: core reports `signing keys not provisioned`.
    Hub status displays that reason and leaf install stops, directing the
-   issuer Secret owner to provision the missing entries;
+   issuer Secret owner to provision the missing seeds;
 4. enforcement configured but the authorizer otherwise not answering: no setting to
-   change; wait and retry, and check core's health, with the readiness reason
+   change; check NATS and core health, then retry, with the readiness reason
    shown;
 5. leaf listener not configured: `nats.leafnodes.enabled`;
 6. no leaf upstream URL: the install's leaf host setting
@@ -304,8 +306,8 @@ for an existing install, once its issuer owner has provisioned any externally
 managed signing material, is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first
-reconciliation, and they retry, but only when every chart identity can be
-adopted automatically. A chart identity that hub status reports as not adopted
+reconciliation, and they retry, provided the signing material is in place and every chart identity
+can be adopted automatically. A chart identity that hub status reports as not adopted
 stays refused after enforcement is on until its reported reason is resolved,
 whatever the reason: for example, rows without a subject blocking new
 inventory adoption, a refused or skipped rotation, a revoked subject, or a

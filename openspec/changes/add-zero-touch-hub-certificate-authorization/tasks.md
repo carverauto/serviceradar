@@ -11,7 +11,7 @@
 - [ ] 2.4 Remove `infrastructureAdopted` and the three key values; update chart tests and the values comments. Keep the failure when enforcement is combined with `certs.regenerator.enabled`.
 - [ ] 2.5 Broker test: nats-server boots from the rendered configuration with enforcement on, and each chart identity connects through a callout answered by a test authorizer.
 - [ ] 2.6 Render settings for core: one from `nats.certificateAuthorization.enabled` saying enforcement is configured, and one from `nats.leafnodes.enabled` together with enforcement saying the hub broker has the leafnodes listener; a chart test covers each combination.
-- [ ] 2.7 Document the five required keys for a distinct issuer. Its owner supplies three seeds in the issuer Secret and two matching public fragments in the runtime Secret before enabling enforcement. For hosted installs the control plane sets the projection lists to the files it supplies. Default these lists to empty. A missing required inventory file prevents core from mounting its volume. For both hosted and self-managed distinct issuers, verify that each missing seed or fragment with enforcement enabled yields `signing keys not provisioned` in hub status and stops leaf install before host changes. With enforcement off neither signing projection is rendered.
+- [ ] 2.7 Document the five required keys for a distinct issuer. Its owner supplies three seeds in the issuer Secret and two matching public fragments in the runtime Secret before enabling enforcement. Only the hosted inventory certificate list is configurable and defaults to empty. A missing listed inventory certificate blocks core startup. Verify the fixed signing projections are omitted with enforcement off. With enforcement on, omit each seed in turn and check that core starts and hub status reports `signing keys not provisioned`. With all seeds present, omit either fragment and check that Kubernetes names the missing key in the NATS pod mount error and hub status reports the authorizer is not answering. Verify leaf install stops before host changes in both cases. Document the mount error and NATS pod event check in the runbook.
 
 ## 3. Core
 - [ ] 3.1 Migration: add a subject to the certificate record; write it from the PEM whenever a certificate is recorded (inventory adoption, hand adoption, successor and rotation recording). Existing rows stay without a subject.
@@ -28,7 +28,7 @@
 
 ## 5. Verify on the demo deployment
 - [ ] 5.1 With enforcement off, every chart identity is reported adopted.
-- [ ] 5.2 Turn enforcement on; every client reconnects; the broker logs no refusal for a chart identity.
+- [ ] 5.2 With signing material provisioned and all chart identities adopted, turn enforcement on; every client reconnects; the broker logs no refusal for a chart identity.
 - [ ] 5.3 Regenerate one adopted certificate; the existing rotation path records the replacement, the inventory writes nothing for it, and the client is admitted again without operator action.
 - [ ] 5.4 Create an edge site and install a leaf with the CLI on a lab host; the leaf connects. This is this change's leaf-connect check only; it supplies the leaf that task 2.1 of `refactor-collectors-onto-shared-ingest-pipeline` still has to exercise, and does not close that task.
 - [ ] 5.5 Turn enforcement off again and confirm clients are unaffected.

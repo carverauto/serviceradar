@@ -17,7 +17,7 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **WHEN** the chart regenerates a chart identity's certificate whose predecessor was adopted
 - **THEN** the replacement is recorded by the existing runtime certificate rotation path, not by the inventory
 - **AND** the inventory writes nothing for that subject because it is held
-- **AND** once the static users file has been read, the client presenting the recorded replacement is admitted without operator action
+- **AND** with signing material provisioned and the static users file read, the client presenting the recorded replacement is admitted without operator action
 - **AND** while the static users file is missing or unread, the chart identity is still refused
 
 #### Scenario: A revoked chart identity is regenerated
@@ -74,12 +74,17 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
 - **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, signing keys not provisioned, the authorizer otherwise not answering, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, signing material provisioned, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
-- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, provision the missing seeds or broker fragments for `signing keys not provisioned`, wait and retry and check core's health (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
+- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, all three seeds mounted, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
+- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, provision the missing seeds for `signing keys not provisioned`, check NATS and core health and retry (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
 
-#### Scenario: A distinct issuer has incomplete signing material
-- **WHEN** enforcement is enabled and any required seed or broker fragment is absent
-- **THEN** core reports `signing keys not provisioned` and hub status shows that reason even if the broker cannot start
+#### Scenario: Core lacks a signing seed
+- **WHEN** enforcement is enabled and any of the three seeds is absent from core's mounted files
+- **THEN** core starts and hub status shows `signing keys not provisioned`
+
+#### Scenario: NATS lacks a broker fragment
+- **WHEN** enforcement is enabled, core has all three seeds, and either required broker fragment is absent
+- **THEN** Kubernetes prevents the NATS pod from starting and reports the missing key in its mount error
+- **AND** hub status reports the authorizer is not answering and the leaf install directs the operator to check NATS and core health
 
 #### Scenario: The leaf upstream URL is unset
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
@@ -89,12 +94,12 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 With signing material provisioned, when the hub status reports every chart identity adopted, turning enforcement on SHALL NOT require any prior manual step for chart identities and SHALL NOT strand any chart client. A chart identity is adopted when the inventory's certificate for its subject is recorded and not revoked, however it came to be recorded, including by the earlier hand adoption procedure. A chart identity that the hub status reports as not adopted SHALL stay refused after enforcement is on until its reported reason is resolved, whatever the reason; examples are certificate rows without a subject blocking new adoption, a refused or skipped rotation, a revoked subject, and a failed qualification check. The hub status SHALL show every not adopted chart identity with its reason before enforcement is turned on. Turning enforcement off SHALL return the install to static certificate authorization.
 
 #### Scenario: Enforcement is enabled on a running install
-- **WHEN** enforcement is turned on after the hub status has reported every chart identity adopted
+- **WHEN** signing material is provisioned and enforcement is turned on after the hub status has reported every chart identity adopted
 - **THEN** every chart client reconnects and none is refused
 
 #### Scenario: Hand-adopted certificates are recorded without a subject
 - **WHEN** every chart identity's certificate was recorded by the earlier hand adoption procedure, so its rows have no stored subject, and the hub status reports every chart identity adopted
-- **AND** enforcement is turned on
+- **AND** signing material is provisioned and enforcement is turned on
 - **THEN** every chart client is admitted by its recorded fingerprint
 - **AND** the rows without a subject block only new inventory adoption
 
