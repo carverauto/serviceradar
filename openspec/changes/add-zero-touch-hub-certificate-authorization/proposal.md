@@ -61,10 +61,9 @@ the Secret that holds the CA keys, which is the opposite of secure.
   not revoked, and its subject is a chart identity. When no component holds
   that subject, core adopts it; this is the first adoption the existing
   rotation record lacks, and it complements that record rather than replacing
-  it. When a component already holds the subject, core records a successor
-  only under the same conditions the rotation record applies today (a
-  current, unrevoked predecessor from the same issuer); otherwise it records
-  nothing and reports the reason, so revocation is unchanged. Hand adoption
+  it. When a component already holds the subject, the inventory writes
+  nothing: replacing an adopted certificate stays solely with the existing
+  rotation record, unchanged, so revocation is unchanged. Hand adoption
   remains, unchanged, for clients the chart does not define.
 - **The chart owns the callout signing keys.** The generator creates the three
   nkeys once, stores the seeds in a Secret mounted only into core, and writes

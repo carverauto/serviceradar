@@ -12,8 +12,8 @@
 - [ ] 2.6 Render a setting for core, from `nats.leafnodes.enabled` together with enforcement, that says the hub broker has the leafnodes listener; a chart test covers each combination.
 
 ## 3. Core
-- [ ] 3.1 Reconcile chart identities from the inventory: verify chain, validity, subject and revocation; write A (create the component with the static grant and record the certificate) when no component holds the subject; write B (record a successor) when a component holds it, only under the conditions `record_rotated_infrastructure_successor` applies (current, unrevoked predecessor, same issuer); otherwise record nothing and report the reason, never falling back to write A.
-- [ ] 3.2 A test revokes a chart identity's certificate, regenerates it, and shows the replacement is not recorded, no second component exists, and the subject is reported with the revocation reason.
+- [ ] 3.1 First adoption from the inventory: verify chain, validity, chart-identity subject present in the static users file, and revocation; a failed check is reported and nothing is written; for a qualifying certificate whose subject no component holds, create the component with the static grant and record the certificate; when a component already holds the subject, write nothing (replacement stays with `RuntimeCertificateRotation`, unchanged). Report coverage: adopted when the inventory's certificate is recorded on the component and not revoked, otherwise the reason.
+- [ ] 3.2 A test revokes a chart identity's certificate, regenerates it, and shows neither the rotation path nor the inventory records the replacement, no second component exists, and the subject is reported with the reason.
 - [ ] 3.3 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
 - [ ] 3.4 Report hub readiness from core (enforcement, chart identity coverage, leaf listener).
 - [ ] 3.5 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
@@ -26,7 +26,7 @@
 ## 5. Verify on the demo deployment
 - [ ] 5.1 With enforcement off, every chart identity is reported adopted.
 - [ ] 5.2 Turn enforcement on; every client reconnects; the broker logs no refusal for a chart identity.
-- [ ] 5.3 Regenerate one certificate; the client is admitted again without operator action.
+- [ ] 5.3 Regenerate one adopted certificate; the existing rotation path records the replacement, the inventory writes nothing for it, and the client is admitted again without operator action.
 - [ ] 5.4 Create an edge site and install a leaf with the CLI on a lab host; the leaf connects. This is this change's leaf-connect check only; it supplies the leaf that task 2.1 of `refactor-collectors-onto-shared-ingest-pipeline` still has to exercise, and does not close that task.
 - [ ] 5.5 Turn enforcement off again and confirm clients are unaffected.
 

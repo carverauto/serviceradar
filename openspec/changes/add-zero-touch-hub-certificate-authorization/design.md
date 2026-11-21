@@ -72,23 +72,27 @@ inventory is checked first:
 - its subject is a chart identity with a static user in the static users file;
 - its fingerprint is not revoked.
 
-A certificate that passes is then written in exactly one of two ways:
+A certificate that fails a check is reported with the reason and nothing is
+written. For a certificate that passes, the inventory performs first adoption
+only: when no component holds the subject, core creates the component with
+the static grant for that subject and records the certificate. When a
+component already holds the subject, the inventory writes nothing.
 
-- **Write A, first adoption.** When no component holds the subject, core
-  creates the component with the static grant for that subject and records
-  the certificate.
-- **Write B, successor.** When a component already holds the subject, core
-  records the certificate as that component's successor only under the
-  conditions `record_rotated_infrastructure_successor` applies today: the
-  predecessor is the component's current certificate, is not revoked, and
-  names the same issuer. When those conditions fail (predecessor revoked,
-  superseded, or from another issuer), core records nothing, reports the
-  reason against that subject in chart identity coverage, and never creates a
-  second component or falls back to write A.
+Replacement of an adopted certificate stays solely with the existing
+`ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
+`runtime-cert-rotation.json`, unchanged by this change, including its refusal
+when the predecessor is revoked, superseded or from another issuer. Nothing is
+lost by this split: the rotation path skips a replacement only when its
+predecessor was never adopted, in which case no component holds the subject
+and first adoption applies, or when the replacement must be refused, in which
+case it stays refused. A subject whose certificate was revoked therefore stays
+refused until an operator acts, as today.
 
-A certificate already recorded for its component needs no write. A subject
-whose certificate was revoked therefore stays refused until an operator acts,
-as today.
+Coverage: a chart identity counts as adopted when the inventory's certificate
+for that subject is recorded on the component and not revoked. Otherwise it is
+reported with the reason: a failed check, or a component holding the subject
+whose recorded certificates do not include the inventory's certificate (for
+example after a refused rotation or a revocation).
 
 The stored grant is the static block for that subject. It is only the
 per-fingerprint record: admission of a chart identity still uses the static
@@ -104,8 +108,7 @@ rotation record cannot: it only records successors of certificates already
 adopted, and skips the rest. The inventory complements that record and does
 not replace it. The rotation record keeps handling replacements of
 already-adopted certificates before workloads roll; the inventory performs
-first adoption (write A) and, for a rotation the rotation record did not
-reach, the same successor write under the same conditions (write B).
+first adoption only.
 
 Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
 the chart does not define.
@@ -219,14 +222,15 @@ reconciliation, and they retry.
 Certificate regeneration changes every fingerprint. A certificate that was
 already adopted has its successor recorded by
 `ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
-before workloads roll onto it, so its client is not refused. The inventory
-changes in the same generator run; on the authorizer's next tick core applies
-write A to a subject no component holds, and write B under the same
-conditions to a replacement the rotation record has not yet recorded. Only
-such a certificate is refused until then, and its client retries; the window
-is bounded by the authorizer's 10 second tick (the rotation reconciler
-separately runs every 30 seconds). A replacement whose predecessor was
-revoked or superseded is never recorded by either path.
+before workloads roll onto it, so its client is not refused; the inventory
+does not record it. The inventory changes in the same generator run; on the
+authorizer's next tick core adopts a qualifying certificate whose subject no
+component holds. Only such a certificate is refused until then, and its client
+retries; the window is bounded by the authorizer's 10 second tick (the
+rotation reconciler separately runs every 30 seconds). A replacement whose
+predecessor was revoked or superseded is refused by the rotation path, is not
+recorded by the inventory because a component holds the subject, and is
+reported with the reason.
 
 ## Risks / Trade-offs
 
@@ -235,8 +239,9 @@ revoked or superseded is never recorded by either path.
   connections and reconnections made during it wait.
 - **Regeneration does not undo a revocation.** If a chart identity's
   certificate was revoked, its regenerated replacement is not recorded by the
-  rotation record or the inventory, and the subject is reported with the
-  revocation reason. Its client stays refused until an operator acts.
+  rotation record, the inventory writes nothing because a component holds the
+  subject, and the subject is reported with the revocation reason. Its client
+  stays refused until an operator acts.
 - **The static user `O=ServiceRadar`** (publish allow `>` with deny
   `logs.normalized.>`, subscribe allow `>`) is not a chart identity: no
   chart-generated certificate carries that subject. A broker experiment on the
