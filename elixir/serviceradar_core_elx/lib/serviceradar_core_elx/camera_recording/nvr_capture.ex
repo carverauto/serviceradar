@@ -34,8 +34,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   A sealed capture returns `{:ok, receipt}` with `status: :sealed_local`. Its
   `catalog` field is `{:registered, entry_id}` when the worker froze the block's
   descriptor and created its catalog entry. A refusal returns
-  `{:unregistered, reason}`. The reason `:registration_unconfirmed` means the
-  freeze may have committed. The `release` field is `:released` or
+  `{:unregistered, reason}`. An ambiguous result returns `{:unconfirmed, reason}`.
+  The block may or may not be cataloged and the reconciler decides. The
+  `release` field is `:released` or
   `{:release_pending_lease_expiry, reason}` when release could not be confirmed.
   The latter permits takeover after the lease expires.
   """

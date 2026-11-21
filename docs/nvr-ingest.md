@@ -86,14 +86,11 @@ sending media over NATS/JetStream or ERTS distribution:
    A capture without a policy has no archive obligation. Its timeline uses the `received` time basis: the block starts at the
    UTC time the inbox admitted the capture's first unit and spans the
    descriptor's media duration, with unmeasured uncertainty. The receipt reports
-   `catalog: {:registered, entry_id}` on success. A descriptor or policy read
-   failure, a definite freeze refusal, or insufficient time leaves the block
-   in the CNPG `:open_local` state for the reconciler. After an ambiguous freeze failure,
-   Core checks the block key once within the remaining registration budget.
-   A frozen block with a catalog entry confirms registration. An open row
-   confirms the failure. If the read cannot establish the outcome, the receipt
-   reports `{:unregistered, :registration_unconfirmed}`. The freeze may have
-   committed. The NVR seal remains durable in every case.
+   `catalog: {:registered, entry_id}` when the freeze returns success and
+   `{:unregistered, reason}` for a definite refusal. If the registration
+   deadline expires or the freeze outcome is ambiguous, the receipt reports
+   `{:unconfirmed, reason}`. The block may or may not be cataloged and the
+   reconciler decides. The NVR seal remains durable in every case.
    Core reserves lease time for claim release and relay close. It attempts both
    and returns `{:ok, receipt}` with `release: :released` or
    `release: {:release_pending_lease_expiry, reason}`. A failed release logs

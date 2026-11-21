@@ -534,12 +534,7 @@ defmodule ServiceRadar.Camera.IngestOwnership do
     )
     |> transaction_result()
   rescue
-    error in DBConnection.ConnectionError ->
-      if error.reason == :queue_timeout,
-        do: {:error, :database_checkout_refused},
-        else: {:error, :ingest_ownership_unavailable}
-
-    _error in Postgrex.Error ->
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
       {:error, :ingest_ownership_unavailable}
   end
 

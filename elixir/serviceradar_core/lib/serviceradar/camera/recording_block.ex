@@ -276,9 +276,6 @@ defmodule ServiceRadar.Camera.RecordingBlock do
   end
 
   relationships do
-    has_one :catalog_entry, ServiceRadar.Camera.RecordingCatalogEntry,
-      destination_attribute: :recording_block_id
-
     belongs_to :archive_manifest_dispatch, ServiceRadar.Camera.ArchiveUploadDispatch,
       define_attribute?: false
 
@@ -303,10 +300,6 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     belongs_to :relay_session, ServiceRadar.Camera.RelaySession,
       allow_nil?: false,
       define_attribute?: false
-  end
-
-  aggregates do
-    first :catalog_entry_id, :catalog_entry, :id
   end
 
   calculations do

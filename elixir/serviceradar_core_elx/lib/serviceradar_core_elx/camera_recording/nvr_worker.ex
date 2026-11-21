@@ -31,11 +31,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   block the run anchored at. Registration runs within the capture deadline and
   the held lease; the descriptor read and the freeze each run once.
 
-  The durable seal completes the capture. The receipt reports `catalog` as
-  `{:registered, entry_id}` or `{:unregistered, reason}`. After an ambiguous
-  freeze failure, one bounded read checks the reserved block and its catalog
-  entry. If Core cannot confirm the result, the reason is
-  `:registration_unconfirmed` and the transaction may have committed.
+  The durable seal completes the capture. The receipt reports
+  `{:registered, entry_id}` when the freeze returns success and
+  `{:unregistered, reason}` for a definite refusal. A missed registration
+  deadline or ambiguous failure returns `{:unconfirmed, reason}`. The block
+  may or may not be cataloged and the reconciler decides.
 
   The worker attempts claim release and requests relay close before reporting
   completion. The receipt's `release` is `:released` or
@@ -95,7 +95,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
-  require Ash.Query
   require Logger
 
   @lease_ms 30_000
@@ -700,120 +699,95 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   defp register_sealed_block(state) do
-    with {:ok, read_timeout} <- registration_timeout(state, ServiceRadarNVRClient.descriptor_timeout_ms()),
+    lease_limit = state.lease_deadline - RecorderRenewal.teardown_ms()
+    deadline = min(lease_limit, state.capture.deadline)
+    now = now()
+
+    outcome =
+      cond do
+        lease_limit - now < @min_call_timeout_ms ->
+          {:unregistered, :registration_cleanup_reserve}
+
+        deadline - now < @min_call_timeout_ms ->
+          {:unregistered, :registration_deadline}
+
+        true ->
+          case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
+            {:ok, result} -> result
+            {:exit, reason} -> {:unconfirmed, reason}
+          end
+      end
+
+    if !match?({:registered, _}, outcome) do
+      Logger.warning("NVR block #{state.block.block_key} registration: #{inspect(outcome, limit: 8)}")
+    end
+
+    outcome
+  end
+
+  defp catalog_sealed_block(state, deadline) do
+    with {:ok, read_timeout} <- step_timeout(deadline, ServiceRadarNVRClient.descriptor_timeout_ms()),
          {:ok, descriptor} <-
            ServiceRadarNVRClient.block_descriptor(state.client_config, state.block.block_key, read_timeout),
-         {:ok, policy} <- recording_policy(state),
-         {:ok, opts} <- registration_call_opts(state),
-         {:ok, entry_id} <- freeze_sealed_block(state, descriptor, policy, opts) do
-      {:registered, entry_id}
+         {:ok, policy_timeout} <- step_timeout(deadline, @call_cap_ms),
+         {:ok, policy} <-
+           CameraRecordingPolicy.get_by_camera_profile(state.owner.camera_source_id, state.owner.stream_profile_id,
+             actor: state.actor,
+             timeout: policy_timeout,
+             not_found_error?: false
+           ),
+         {:ok, freeze_timeout} <- step_timeout(deadline, @call_cap_ms) do
+      state.owner
+      |> RecordingBlocks.freeze_and_catalog(state.claim, state.block, descriptor, catalog_attrs(state, policy),
+        actor: state.actor,
+        timeout: freeze_timeout
+      )
+      |> freeze_outcome()
     else
-      {:error, reason} ->
-        details = Map.put(correlation_fields(state), :reason, reason)
-        Logger.warning("NVR block sealed without confirmed catalog registration: #{inspect(details, limit: 8)}")
-        {:unregistered, reason}
+      {:error, reason} -> {:unregistered, reason}
     end
   end
 
-  defp freeze_sealed_block(state, descriptor, policy, opts) do
-    result =
-      database_call(fn ->
-        RecordingBlocks.freeze_and_catalog(
-          state.owner,
-          state.claim,
-          state.block,
-          descriptor,
-          catalog_attrs(state, policy),
-          opts
-        )
-      end)
-
-    case result do
-      {:ok, entry} ->
-        {:ok, entry.id}
-
-      {:error, reason}
-      when reason in [:ingest_ownership_unavailable, :registration_database_timeout, :registration_database_unavailable] ->
-        confirm_registration(state, reason)
-
-      {:error, _} = refusal ->
-        refusal
-    end
+  defp step_timeout(deadline, cap) do
+    remaining = deadline - now()
+    if remaining < @min_call_timeout_ms, do: {:error, :registration_deadline}, else: {:ok, min(remaining, cap)}
   end
 
-  defp confirm_registration(state, reason) do
-    query =
-      RecordingBlock
-      |> Ash.Query.filter(block_key == ^state.block.block_key)
-      |> Ash.Query.select([:state])
-      |> Ash.Query.load(:catalog_entry_id)
+  defp freeze_outcome({:ok, entry}), do: {:registered, entry.id}
 
-    with {:ok, opts} <- registration_call_opts(state),
-         {:ok, block} <- database_call(fn -> Ash.read_one(query, opts) end) do
-      case block do
-        %{state: block_state, catalog_entry_id: id} when block_state in [:sealed, :uploading] and is_binary(id) ->
-          {:ok, id}
+  defp freeze_outcome({:error, reason})
+       when reason in [
+              :invalid_recording_descriptor,
+              :invalid_catalog_attributes,
+              :recording_descriptor_conflict,
+              :recording_block_mismatch,
+              :recording_block_not_found,
+              :ownership_lost,
+              :recorder_claim_lost,
+              :recorder_ingest_mismatch,
+              :owner_unavailable
+            ], do: {:unregistered, reason}
 
-        %{state: :open_local} ->
-          {:error, reason}
-
-        _ ->
-          {:error, :registration_unconfirmed}
-      end
-    else
-      {:error, _} -> {:error, :registration_unconfirmed}
-    end
+  defp freeze_outcome({:error, %Ash.Error.Invalid{errors: errors} = reason}) do
+    if Enum.all?(errors, &validation_error?/1), do: {:unregistered, reason}, else: {:unconfirmed, reason}
   end
 
-  defp database_call(fun) do
-    case fun.() do
-      {:error, reason} -> {:error, database_failure(reason) || reason}
-      success -> success
-    end
-  rescue
-    error ->
-      case database_failure(error) do
-        nil -> reraise error, __STACKTRACE__
-        reason -> {:error, reason}
-      end
-  catch
-    :exit, :timeout -> {:error, :registration_database_timeout}
-    :exit, {:timeout, _call} -> {:error, :registration_database_timeout}
-  end
+  defp freeze_outcome({:error, %Ash.Error.Forbidden{} = reason}), do: {:unregistered, reason}
+  defp freeze_outcome({:error, reason}), do: {:unconfirmed, reason}
 
-  defp database_failure(%DBConnection.ConnectionError{reason: :queue_timeout}), do: :database_checkout_refused
-  defp database_failure(%DBConnection.ConnectionError{}), do: :registration_database_unavailable
-  defp database_failure(%Ash.Error.Invalid.Timeout{}), do: :registration_database_timeout
-  defp database_failure(%Postgrex.Error{postgres: %{code: :query_canceled}}), do: :registration_database_timeout
-  defp database_failure(%{errors: [error]}), do: database_failure(error)
-  defp database_failure(%Ash.Error.Unknown.UnknownError{error: error}), do: database_failure(error)
-  defp database_failure(_), do: nil
+  defp validation_error?(%Ash.Error.Invalid.Timeout{}), do: false
+  defp validation_error?(error), do: match?(%{class: :invalid}, error)
 
-  defp registration_timeout(state, cap_ms) do
-    now = now()
-    lease_budget = state.lease_deadline - now - RecorderRenewal.teardown_ms()
-    capture_budget = state.capture.deadline - now
+  defp run_until(deadline, operation) do
+    task = Task.async(operation)
 
-    cond do
-      lease_budget < @min_call_timeout_ms -> {:error, :registration_cleanup_reserve}
-      capture_budget < @min_call_timeout_ms -> {:error, :registration_deadline}
-      true -> {:ok, min(cap_ms, min(lease_budget, capture_budget))}
-    end
-  end
+    case Task.yield(task, max(0, deadline - now())) do
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+        {:exit, :timeout}
 
-  defp registration_call_opts(state) do
-    with {:ok, timeout} <- registration_timeout(state, @call_cap_ms), do: {:ok, [actor: state.actor, timeout: timeout]}
-  end
-
-  defp recording_policy(state) do
-    with {:ok, opts} <- registration_call_opts(state) do
-      database_call(fn ->
-        CameraRecordingPolicy.get_by_camera_profile(
-          state.owner.camera_source_id,
-          state.owner.stream_profile_id,
-          Keyword.put(opts, :not_found_error?, false)
-        )
-      end)
+      reply ->
+        if now() < deadline, do: reply, else: {:exit, :timeout}
     end
   end
 
@@ -898,15 +872,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   defp release_claim(state) do
-    case RecorderOwnership.release(state.owner, state.claim,
-           actor: state.actor,
-           timeout: RecorderRenewal.cleanup_timeout_ms()
-         ) do
-      {:ok, :released} -> :released
-      {:error, reason} -> release_pending(state, reason)
+    timeout = RecorderRenewal.cleanup_timeout_ms()
+
+    case run_until(now() + timeout, fn ->
+           RecorderOwnership.release(state.owner, state.claim, actor: state.actor, timeout: timeout)
+         end) do
+      {:ok, {:ok, :released}} -> :released
+      {:ok, {:error, reason}} -> release_pending(state, reason)
+      {:exit, reason} -> release_pending(state, reason)
     end
-  catch
-    kind, reason -> release_pending(state, {kind, reason})
   end
 
   defp release_pending(state, reason) do
