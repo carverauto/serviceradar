@@ -73,8 +73,9 @@ the Secret that holds the CA keys, which is the opposite of secure.
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
   them; none is known to.
 - **Core reports whether the hub can accept a leaf**, including how many chart
-  identities are adopted and which are not, and the CLI shows it:
-  `serviceradar-cli edge hub status`.
+  identities are adopted and which are not, whether the hub broker has the
+  leaf listener, and whether the leaf upstream URL is configured, and the CLI
+  shows it: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, with the reason and the one setting to change. Today it
   continues and the leaf never connects.

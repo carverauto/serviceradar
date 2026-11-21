@@ -15,7 +15,8 @@ On a chart install, core SHALL adopt the NATS client certificate of every chart 
 
 #### Scenario: Certificates are regenerated
 - **WHEN** the chart regenerates its certificates and the inventory changes
-- **THEN** core records each new certificate as the successor of the component with that subject
+- **THEN** core records each new certificate whose subject is held by a component with an adopted predecessor as that component's successor
+- **AND** core adopts each new certificate whose subject no component holds, creating the component with the static grant for that subject
 - **AND** the client presenting it is admitted without operator action
 
 #### Scenario: A certificate does not belong to the install
@@ -46,12 +47,16 @@ The system SHALL report whether the hub can accept a leaf, and the CLI SHALL sho
 
 #### Scenario: An operator checks the hub
 - **WHEN** an operator runs the hub status command with the CLI's edge scope
-- **THEN** it shows whether enforcement is active, how many chart identities are adopted and which are not, and whether a leaf listener is configured
+- **THEN** it shows whether enforcement is active, how many chart identities are adopted and which are not, whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
 
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
-- **WHEN** the hub reports enforcement off, no leaf listener, or an unadopted chart identity
+- **WHEN** the hub reports enforcement off, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names the cause and the setting that resolves it
+- **AND** it names which cause applies and the setting that resolves it
+
+#### Scenario: The leaf upstream URL is unset
+- **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
+- **THEN** the hub reports the leaf upstream URL as not configured
 
 ### Requirement: Enabling enforcement does not strand chart clients
 Turning enforcement on SHALL NOT require any prior manual step for chart identities, and turning it off SHALL return the install to static certificate authorization.

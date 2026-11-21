@@ -9,11 +9,12 @@
 - [ ] 2.3 NATS pod includes the fragment; core mounts the inventory and the seeds; no other pod mounts the seeds.
 - [ ] 2.4 Remove `infrastructureAdopted` and the three key values; update chart tests and the values comments.
 - [ ] 2.5 Broker test: nats-server boots from the rendered configuration with enforcement on, and each chart identity connects through a callout answered by a test authorizer.
+- [ ] 2.6 Render a setting for core, from `nats.leafnodes.enabled` together with enforcement, that says the hub broker has the leafnodes listener; a chart test covers each combination.
 
 ## 3. Core
-- [ ] 3.1 Reconcile chart identities from the inventory: adopt, record successors, verify chain, validity, subject and revocation.
+- [ ] 3.1 Reconcile chart identities from the inventory: verify chain, validity, subject and revocation; adopt (create the component with the static grant) when no component holds the subject; record a successor when a component holds it with an adopted predecessor.
 - [ ] 3.2 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
-- [ ] 3.3 Report hub readiness (enforcement, chart identity coverage, leaf listener).
+- [ ] 3.3 Report hub readiness (enforcement, chart identity coverage, leaf listener, leaf upstream URL, not counting the hosted fallback as configured).
 
 ## 4. CLI
 - [ ] 4.1 `edge hub status`.

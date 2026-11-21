@@ -29,12 +29,16 @@ Facts this design rests on, from the tree at the time of writing:
   files are copies of another identity's certificate. One static user,
   `O=ServiceRadar` (publish allow `>` with deny `logs.normalized.>`, subscribe
   allow `>`), matches no chart-generated certificate.
+- `edge install leaf` proceeds when the hub authorizer is not connected.
+- The address new edge-site leaves dial comes from
+  `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`, which the chart renders only when a
+  leaf host is set. When it is unset the code falls back to a hard-coded
+  hosted address.
 
 A chart identity, for this capability, is a subject for which the generator
 issues a distinct NATS client certificate. The three alias users and
 `O=ServiceRadar` are not chart identities: they are not counted in adoption
 coverage and never block the leaf install gate.
-- `edge install leaf` proceeds when the hub authorizer is not connected.
 
 ## Goals / Non-Goals
 
@@ -51,18 +55,30 @@ coverage and never block the leaf install gate.
 
 The generator writes a ConfigMap, `serviceradar-nats-infrastructure-certs`,
 holding one PEM certificate per chart identity. It contains no private key and
-not the CA key. Core mounts it read-only, like the static users ConfigMap. The
-generator already publishes public certificates this way in
-`runtime-cert-rotation.json`; the inventory follows that precedent.
+not the CA key. Core mounts it read-only, like the static users ConfigMap. It
+is a separate ConfigMap and not another key in the runtime Secret, from which
+core mounts only its own items. The precedent for the generator publishing
+public certificates is `runtime-cert-rotation.json`, a JSON document inside
+the runtime Secret that holds public certificates and the fingerprints they
+replaced, with no key material.
 
-Core reconciles on the authorizer's existing tick. For each certificate in the
-inventory it adopts the certificate, or records it as a successor of the
-component that already holds that subject, when all of these hold:
+Core reconciles on the authorizer's existing tick. Each certificate in the
+inventory is checked first:
 
 - it chains to the deployment `root.pem` that core already mounts;
 - it is within its validity period;
 - its subject is a chart identity with a static user in the static users file;
 - its fingerprint is not revoked.
+
+A certificate that passes is then written in one of two ways:
+
+- **Adopt.** When no component holds the subject, core adopts the certificate:
+  it creates the component with the static grant for that subject.
+- **Record a successor.** When a component already holds the subject and has
+  an adopted predecessor, core records the certificate as that component's
+  successor.
+
+A certificate already recorded for its component needs no write.
 
 The stored grant is the static block for that subject, so the record is
 meaningful even if the static file is later unavailable.
@@ -74,8 +90,10 @@ changing the chart's static users. Revocation still wins.
 
 This provides the first adoption of chart certificates, which the existing
 rotation record cannot: it only records successors of certificates already
-adopted. The inventory complements that record and does not replace it; both
-write through the same successor recording, which is idempotent.
+adopted, and skips the rest. The inventory complements that record and does
+not replace it. The rotation record keeps handling replacements of
+already-adopted certificates before workloads roll; the inventory performs
+first adoption and also covers a rotation the rotation record skipped.
 
 Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
 the chart does not define.
@@ -144,14 +162,22 @@ then everything else connects or retries.
 - `enforcement`: whether the authorizer is answering the broker;
 - `chart_identities`: total, adopted, and the subjects not adopted with the
   reason for each;
-- `leaf_listener`: whether a leaf upstream URL is configured for this install.
+- `leaf_listener`: whether the hub broker is configured with the leafnodes
+  listener. Core cannot inspect the broker configuration, so the chart tells
+  it through a setting rendered from `nats.leafnodes.enabled` together with
+  enforcement, the same condition under which the chart renders the listener;
+- `leaf_upstream_url`: whether the address new edge-site leaves dial is
+  configured for this install (today `SERVICERADAR_NATS_LEAF_UPSTREAM_URL`).
+  The hard-coded hosted fallback used when it is unset is not treated as
+  configured.
 
 `serviceradar-cli edge hub status` prints it. The route is already inside the
 CLI's `edge.manage` scope; no scope is widened.
 
 `edge install leaf` reads the same object before any host change and stops
-when enforcement is off, when the leaf listener is not configured, or when a
-chart identity is not adopted, naming the cause and the setting. It no longer
+when enforcement is off, when the leaf listener is not configured, when the
+leaf upstream URL is not configured, or when a chart identity is not adopted,
+naming which cause applies and the setting. It no longer
 continues with "hub enforcement stays unconfirmed" for a leaf. Collector
 installs keep today's behaviour.
 
@@ -205,3 +231,5 @@ Rollback at any step is setting the value back to false.
 - Whether the leaf listener should follow the same value, removing
   `nats.leafnodes.enabled` as a separate setting. Proposed: keep it separate,
   because it adds a Service port and is what the exposure settings key on.
+  Either way, `leaf_listener` is rendered from the same condition the chart
+  uses to render the listener.
