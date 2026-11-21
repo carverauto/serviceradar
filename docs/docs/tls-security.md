@@ -30,10 +30,12 @@ certificate generator that issues the runtime mTLS certificates for you:
 - `cert-generator-job` runs as a `pre-install` / `pre-upgrade` Helm hook. It
   generates a CA and per-service certificates and stores them in the
   `serviceradar-runtime-certs` secret (`certs.runtimeSecretName`). If the secret
-  already exists with the expected layout, it is preserved rather than
-  regenerated.
-- `certs.runtimeLayoutVersion` tracks the certificate layout. When it changes,
-  the generator re-issues the runtime certificates.
+  already exists, the generator preserves it when its
+  `certs.runtimeLayoutVersion` matches, all required files are present, and
+  each required leaf certificate verifies against `root.pem`. The check
+  ignores certificate validity dates, so expiry alone does not trigger
+  reissue. A missing required file, a leaf from a previous root, or a layout
+  version change triggers reissue of the runtime certificate set.
 - `cert-regenerator-job` provides an explicit rotation path. It is gated by
   `certs.regenerator.enabled`, which defaults to `false` so that upgrades do not
   trigger unexpected certificate rotation. Set it to `true` for a single
