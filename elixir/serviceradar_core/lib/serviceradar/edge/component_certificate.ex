@@ -30,14 +30,14 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
     for {action, subject_fields} <- [record_issuance: [:subject], record_managed_issuance: []] do
       create action do
         accept [
-          :fingerprint,
-          :issuer_fingerprint,
-          :serial_number,
-          :component_id,
-          :role,
-          :not_before,
-          :not_after
-        ] ++ subject_fields
+                 :fingerprint,
+                 :issuer_fingerprint,
+                 :serial_number,
+                 :component_id,
+                 :role,
+                 :not_before,
+                 :not_after
+               ] ++ subject_fields
 
         argument :expected_generation, :integer, allow_nil?: false, constraints: [min: 1]
         argument :host_agent_id, :string

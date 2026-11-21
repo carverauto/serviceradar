@@ -117,6 +117,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
   defp identity(attrs) do
     component_type = fetch(attrs, :component_type)
+
     server_hosts =
       case fetch(attrs, :server_hosts) do
         nil -> []
@@ -125,7 +126,12 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
     with {:ok, component_id} <- cast_component_id(fetch(attrs, :component_id)),
          {:ok, partition_id} <-
-           cast_id(ManagedComponent, :partition_id, fetch(attrs, :partition_id), :invalid_adoption) do
+           cast_id(
+             ManagedComponent,
+             :partition_id,
+             fetch(attrs, :partition_id),
+             :invalid_adoption
+           ) do
       cond do
         not valid_hosts?(server_hosts) ->
           {:error, :invalid_adoption}

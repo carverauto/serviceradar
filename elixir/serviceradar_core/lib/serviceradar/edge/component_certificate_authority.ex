@@ -75,7 +75,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   def adopt_existing_certificate(attrs, opts \\ []) do
     with {:ok, component, presented} <- InfrastructureCertificateAdoption.read_adoption(attrs),
          :ok <- fill_missing_subject(component.component_id, presented.fields, opts),
-         {:ok, prepared} <- InfrastructureCertificateAdoption.verify_adoption(component, presented) do
+         {:ok, prepared} <-
+           InfrastructureCertificateAdoption.verify_adoption(component, presented) do
       adopt_prepared_certificate(prepared, opts)
     end
   end
@@ -497,7 +498,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
         Ash.Query.filter(
           ComponentCertificate,
           fingerprint == ^fields.fingerprint and component_id == ^component_id and
-            is_nil(subject) and is_nil(component.host_agent_id) and component.component_type in ^types
+            is_nil(subject) and is_nil(component.host_agent_id) and
+            component.component_type in ^types
         )
 
       case Ash.bulk_update(query, :fill_subject, %{subject: fields.subject},
