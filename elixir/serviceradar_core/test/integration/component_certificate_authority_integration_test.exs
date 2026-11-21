@@ -345,6 +345,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert certificate.issuer_fingerprint == certificate.fingerprint
     assert certificate.role == "client"
     assert certificate.generation == 1
+    assert "CN=example-gateway" in String.split(certificate.subject, ",")
 
     assert {:ok, snapshot} = Authority.snapshot()
     assert certificate.fingerprint in snapshot.allowed_fingerprints
@@ -456,6 +457,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert successor.fingerprint == fingerprint(next.der)
     assert successor.generation == 1
     refute successor.fingerprint == first.fingerprint
+    assert "CN=example-gateway" in String.split(first.subject, ",")
+    assert "CN=example-gateway-next" in String.split(successor.subject, ",")
 
     assert {:ok, stored} = Ash.get(ManagedComponent, id, actor: operator)
     assert stored.generation == 1

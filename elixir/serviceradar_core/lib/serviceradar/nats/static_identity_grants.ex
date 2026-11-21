@@ -102,6 +102,33 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
 
   def presented_grant(_grants, _component_type, _subject), do: nil
 
+  @doc """
+  A certificate's subject in one canonical spelling: its attributes as
+  `TYPE=value`, sorted and joined by `,`, with `\\` and `,` in a value escaped
+  by a backslash. Two certificates carry the same identity exactly when this
+  string is equal, whatever order their attributes are encoded in.
+  """
+  @spec certificate_subject(binary()) :: {:ok, String.t()} | :error
+  def certificate_subject(certificate_der) when is_binary(certificate_der) do
+    with {:ok, key} <- certificate_subject_key(certificate_der) do
+      {:ok, canonical(key)}
+    end
+  end
+
+  @doc "The canonical spelling of a subject as the static users file writes it."
+  @spec configured_subject(String.t()) :: {:ok, String.t()} | :error
+  def configured_subject(subject) when is_binary(subject) do
+    with {:ok, key} <- subject_key(subject) do
+      {:ok, canonical(key)}
+    end
+  end
+
+  defp canonical(key) do
+    Enum.map_join(key, ",", fn {type, value} ->
+      type <> "=" <> String.replace(value, ["\\", ","], &("\\" <> &1))
+    end)
+  end
+
   defp lookup(grants, component_type, subject_key) do
     if is_binary(component_type) and ManagedComponent.infrastructure_type?(component_type) do
       case subject_key.() do

@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.StaticNatsPermissionProjection
+  alias ServiceRadar.NATS.StaticIdentityGrants
 
   @private_key_types [
     :RSAPrivateKey,
@@ -193,6 +194,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
       serial_number: fields.serial_number,
       not_before: fields.not_before,
       not_after: fields.not_after,
+      subject: fields.subject,
       role: "client",
       host_agent_id: nil,
       expected_generation: 1
@@ -205,10 +207,12 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
     with {:ok, not_before} <- asn1_time(not_before),
          {:ok, not_after} <- asn1_time(not_after),
-         serial when is_integer(serial) <- elem(tbs, 2) do
+         serial when is_integer(serial) <- elem(tbs, 2),
+         {:ok, subject} <- StaticIdentityGrants.certificate_subject(der) do
       {:ok,
        %{
          fingerprint: fingerprint(der),
+         subject: subject,
          serial_number: serial |> Integer.to_string(16) |> String.downcase(),
          not_before: not_before,
          not_after: not_after,

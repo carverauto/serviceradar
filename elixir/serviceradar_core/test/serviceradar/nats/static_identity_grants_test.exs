@@ -67,6 +67,59 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
     end
   end
 
+  # A recorded certificate is looked up by this string, and a chart identity is
+  # named by the subject in the static users file. They must agree for the same
+  # identity whatever order a certificate encodes its attributes in, and must
+  # not agree for a different one.
+  test "a certificate's canonical subject is the configured subject's, in any attribute order" do
+    listed = "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
+    assert {:ok, configured} = StaticIdentityGrants.configured_subject(listed)
+
+    for attributes <- [
+          [
+            c: "US",
+            st: "EX",
+            l: "Example City",
+            o: "ExampleOrg",
+            ou: "Kubernetes",
+            cn: "example-core"
+          ],
+          [
+            cn: "example-core",
+            ou: "Kubernetes",
+            o: "ExampleOrg",
+            l: "Example City",
+            st: "EX",
+            c: "US"
+          ]
+        ] do
+      assert StaticIdentityGrants.certificate_subject(subject_certificate(attributes)) ==
+               {:ok, configured}
+    end
+
+    assert {:ok, other} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(o: "ExampleOrg", cn: "example-web")
+             )
+
+    refute other == configured
+  end
+
+  # One attribute whose value contains a comma is not two attributes.
+  test "a comma inside a value does not read as a second attribute" do
+    assert {:ok, one} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(cn: "example,O=ExampleOrg")
+             )
+
+    assert {:ok, two} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(cn: "example", o: "ExampleOrg")
+             )
+
+    refute one == two
+  end
+
   @oids %{
     c: {2, 5, 4, 6},
     st: {2, 5, 4, 8},

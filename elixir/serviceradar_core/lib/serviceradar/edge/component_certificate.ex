@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
 
     custom_indexes do
       index [:component_id, :generation, :not_after]
+      index [:subject]
     end
   end
 
@@ -31,6 +32,7 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
         :serial_number,
         :component_id,
         :role,
+        :subject,
         :not_before,
         :not_after
       ]
@@ -74,6 +76,18 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
 
     attribute :not_before, :utc_datetime_usec, allow_nil?: false, public?: true
     attribute :not_after, :utc_datetime_usec, allow_nil?: false, public?: true
+
+    attribute :subject, :string do
+      public? true
+
+      description """
+      The certificate's subject, as `ServiceRadar.NATS.StaticIdentityGrants.certificate_subject/1`
+      writes it. Recorded for infrastructure certificates, so an identity can be
+      looked up by subject. Nil on a certificate recorded before the subject was
+      stored, and on a host-enrolled component's certificate.
+      """
+    end
+
     create_timestamp :issued_at
   end
 
