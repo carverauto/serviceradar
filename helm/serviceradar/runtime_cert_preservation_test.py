@@ -67,6 +67,29 @@ class RuntimeCertPreservationTest(unittest.TestCase):
                     check(1, f"do not verify against root.pem: {name}")
                     (certs / name).write_bytes(issued)
 
+            (certs / "newcerts").mkdir()
+            (certs / "index.txt").write_text("")
+            (certs / "serial").write_text("1000\n")
+            (certs / "ca.cnf").write_text(
+                "[ca]\n"
+                "default_ca = ca_default\n"
+                "[ca_default]\n"
+                f"database = {certs / 'index.txt'}\n"
+                f"serial = {certs / 'serial'}\n"
+                f"new_certs_dir = {certs / 'newcerts'}\n"
+                "default_md = sha256\n"
+                "policy = policy_anything\n"
+                "[policy_anything]\n"
+                "commonName = supplied\n"
+            )
+            openssl("ca", "-batch", "-config", "ca.cnf",
+                    "-cert", "root.pem", "-keyfile", "root-key.pem",
+                    "-startdate", "20200101000000Z", "-enddate", "20200102000000Z",
+                    "-in", "client.csr", "-out", "expired.pem")
+            (certs / "gateway.pem").write_bytes((certs / "expired.pem").read_bytes())
+            check(0, "preserving current runtime certs")
+            (certs / "gateway.pem").write_bytes(issued)
+
             (certs / LAYOUT).write_text("1")
             check(1, "layout version 1; expected 2")
 
