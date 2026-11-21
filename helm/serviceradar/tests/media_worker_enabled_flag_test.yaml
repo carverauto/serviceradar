@@ -20,8 +20,9 @@ tests:
   # the NVR port in both directions, or keep the worker's policy rendered.
   - it: refuses a string where allowNvrRead expects a boolean
     template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
     values:
-      - values/media_worker_enabled_base.yaml
       - values/media_worker_allow_nvr_read_string.yaml
     asserts:
       - failedTemplate:
@@ -29,8 +30,9 @@ tests:
 
   - it: refuses a string where the worker's networkPolicy.enabled expects a boolean
     template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
     values:
-      - values/media_worker_enabled_base.yaml
       - values/media_worker_network_policy_string.yaml
     asserts:
       - failedTemplate:

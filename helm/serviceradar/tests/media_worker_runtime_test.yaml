@@ -668,7 +668,7 @@ tests:
     asserts:
       - contains:
           path: spec.podSelector.matchExpressions
-          content: {key: cnpg.io/podRole, operator: NotIn, values: [instance]}
+          content: {key: cnpg.io/cluster, operator: NotIn, values: [cnpg]}
       - contains:
           path: spec.podSelector.matchExpressions
           content: {key: cnpg.io/poolerName, operator: NotIn, values: [cnpg-pooler-rw]}
@@ -728,3 +728,144 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # Another CNPG cluster's instances in the namespace stay under the main rules:
+  # the complement of "this cluster's instances" is two selectors.
+  - it: keeps this cluster's non-instance pods under the main rules in a second selector
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress-cnpg-cluster-other
+    asserts:
+      - equal:
+          path: spec.podSelector.matchExpressions
+          value:
+            - {key: app, operator: NotIn, values: [serviceradar-media-worker]}
+            - {key: cnpg.io/cluster, operator: In, values: [cnpg]}
+            - {key: cnpg.io/podRole, operator: NotIn, values: [instance]}
+            - {key: cnpg.io/poolerName, operator: NotIn, values: [cnpg-pooler-rw]}
+
+  - it: excludes the worker only where it can live, the release namespace
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+      networkPolicy.ingress.allowSameNamespace: false
+      networkPolicy.ingress.allowedNamespaces: [synthetic-other]
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress-cnpg-instances
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: synthetic-other
+
+  # Layouts the chart's policies cannot reach are refused rather than covered.
+  - it: refuses a CNPG cluster outside the release namespace
+    template: templates/media-worker.yaml
+    set:
+      cnpg.namespace: synthetic-database
+    asserts:
+      - failedTemplate:
+          errorPattern: "^cnpg.namespace \"synthetic-database\" is not the release namespace \"sr-media-test\": the media worker's database isolation cannot be guaranteed in that layout"
+
+  - it: refuses a StarRocks catalog policy that admits the release namespace to the primary
+    template: templates/media-worker.yaml
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.enabled: true
+      analytics.starrocks.catalog.sourceNamespace: sr-media-test
+    asserts:
+      - failedTemplate:
+          errorPattern: "^analytics.starrocks.catalog.sourceNamespace \"sr-media-test\" is the release namespace, so its policy admits every pod there to the CNPG primary: the media worker's database isolation cannot be guaranteed in that layout"
+
+  - it: refuses a customised namespace policy selector
+    template: templates/media-worker.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.podSelector:
+        matchLabels: {synthetic-tier: app}
+    asserts:
+      - failedTemplate:
+          errorPattern: "^networkPolicy.podSelector is customised .*: the media worker's database isolation cannot be guaranteed in that layout"
+
+  # The guard covers only database pods no other chart policy selects.
+  - it: guards only the replicas when another chart policy already restricts the primary
+    template: templates/cnpg-media-worker-guard-network-policy.yaml
+    set:
+      cnpg.applicationAccess.enabled: false
+      cnpg.localDevAccess.enabled: true
+      cnpg.localDevAccess.allowedCIDRs: ["192.0.2.0/24"]
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels
+          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance, cnpg.io/instanceRole: replica}
+
+  - it: guards the replicas under the namespace-wide policy when no CNPG policy selects them
+    template: templates/cnpg-media-worker-guard-network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.cnpgOperator.enabled: false
+      networkPolicy.ingress.cnpgInstanceManager.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.podSelector.matchLabels
+          value: {cnpg.io/cluster: cnpg, cnpg.io/podRole: instance, cnpg.io/instanceRole: replica}
+
+  # Another repository never takes the packaged CPU digest.
+  - it: refuses a repository override that would fall back to the packaged CPU digest
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.image.tag: ""
+      image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.image.repository registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda needs mediaWorker.image.tag .* image.digests.mediaWorker pins the release CPU build and does not apply to it"
+
+  - it: pins the overridden repository by its own digest, ignoring the packaged one
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.image.tag: ""
+      mediaWorker.image.digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda@sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+  - it: refuses half precision under cpu_explicit
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.dtype: f16
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.dtype f16 is not supported under cpu_explicit"
+
+  - it: pins the release CPU build by an explicit digest instead of the packaged one
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.image.repository: ""
+      mediaWorker.image.tag: ""
+      mediaWorker.image.digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      image.digests.mediaWorker: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.carverauto.dev/serviceradar/serviceradar-media-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333
