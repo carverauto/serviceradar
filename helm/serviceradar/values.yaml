@@ -491,10 +491,9 @@ archiveReader:
 # fixed streams (512Mi jobs, 2Gi results), and, for GPU execution, a GPU node,
 # its runtime class and an image built with CUDA. The chart then issues the
 # worker's NATS client certificate (CN=serviceradar-media-worker) and grants it,
-# core and web-ng the camera media subjects. The worker does not yet decode
-# real H.264/HEVC keyframes, so embeddings of real camera recordings are not
-# meaningful until its decoder lands. See README.md, Camera semantic search
-# worker.
+# core and web-ng the camera media subjects. The worker indexes whole scenes
+# from H.264 single-slice IDR keyframes; HEVC and other variants are recorded
+# as undecodable. See README.md, Camera semantic search worker.
 mediaWorker:
   enabled: false
   # 0 is honoured (scaled to zero). A GPU worker is replaced with the Recreate

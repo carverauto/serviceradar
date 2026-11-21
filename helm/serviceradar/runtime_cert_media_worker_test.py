@@ -2,28 +2,24 @@
 """The runtime certificate generator issues the media worker's NATS identity.
 
 The broker maps a client certificate's subject to a static NATS user
-(verify_and_map), so the worker connects as CN=serviceradar-media-worker only
-if the generator issues a certificate with exactly that user's subject, for a
-key it also writes, signed by the runtime root.
+(verify_and_map), and core adopts the chart's identities from the subject list
+in the static-users ConfigMap. So the worker connects as itself only if the
+generator issues a certificate with exactly the subject that list names, for a
+key it also writes, signed by the runtime root; and an installation that
+enables the worker later gets it only if the generator Job then requires it.
 
-The generator Job keeps an existing runtime Secret unless a file it requires
-is missing, so an installation that enables the worker after its first install
-gets the certificate only if the Job then treats the Secret as incomplete.
-
-The test runs the generator script embedded in the rendered Job with openssl,
-and the Job's rendered preserve check against a fake Kubernetes API that serves
-a synthetic Secret. The oracle for the subject is the static user the chart
-renders for the broker; the preserve check's decision is read from the message
-it prints for that decision, so a crash cannot pass for "regenerate".
+The test runs the generator script embedded in the rendered Job with openssl.
+Whether the Job keeps or regenerates a given Secret is the check script's
+contract, covered by runtime_cert_preservation_test.py; here the rendered
+required-file list is checked to name the worker's certificate exactly while
+the worker is enabled.
 """
 
 import base64
-import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,40 +31,37 @@ from chart_render import render_document
 NAMESPACE = "sr-cert-test"
 ENABLED = {"mediaWorker.enabled": True}
 DISABLED = {"mediaWorker.enabled": False}
-
-# Replaces the Kubernetes API for the Job's preserve check: urlopen serves the
-# Secret in FAKE_SECRET_JSON and the service-account files come from FAKE_SA_DIR.
-FAKE_API = '''
-import io, os, ssl, urllib.request
-ssl.create_default_context = lambda *args, **kwargs: None
-_secret = open(os.environ["FAKE_SECRET_JSON"], "rb").read()
-urllib.request.urlopen = lambda request, context=None: io.BytesIO(_secret)
-'''
+WORKER_CERT = "media-worker.pem"
 
 
-def generator_inputs(values):
-    """The Job's embedded generate-certs.sh, its preserve check, and its environment."""
+def generator_job(values):
+    """The Job's embedded generate-certs.sh, its required files, and its environment."""
     job = render_document(
         "templates/cert-generator-job.yaml", values, namespace=NAMESPACE, kind="Job",
     )
     container = job["spec"]["template"]["spec"]["containers"][0]
-    script = container["args"][0]
-    check = re.search(r"if python3 <<'PY'\n(.*?)\nPY\nthen", script, re.S)
-    embedded = re.search(r"<<'EOF_SCRIPT_B64'\n(.*?)\nEOF_SCRIPT_B64", script, re.S)
-    if check is None or embedded is None:
-        raise AssertionError("preserve check or embedded generator not found in the Job script")
+    embedded = re.search(r"<<'EOF_SCRIPT_B64'\n(.*?)\nEOF_SCRIPT_B64", container["command"][2], re.S)
+    if embedded is None:
+        raise AssertionError("embedded generator not found in the Job script")
     generator = base64.b64decode("".join(embedded.group(1).split())).decode("utf-8")
     env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
-    return generator, check.group(1), env
+    return generator, container.get("args") or [], env
+
+
+def chart_identity_subjects(values):
+    config_map = render_document(
+        "templates/nats.yaml", values, namespace=NAMESPACE,
+        kind="ConfigMap", name="serviceradar-nats-static-users",
+    )
+    return yaml.safe_load(config_map["data"]["chart-identities.yaml"]) or []
 
 
 def generate(script, job_env, cert_dir, *, force=False):
-    """Run the generator as the Job does (FORCE_REGENERATE=true after a failed check)."""
+    """Run the generator as the Job does (FORCE_REGENERATE=true when it regenerates)."""
     env = dict(os.environ, CERT_DIR=str(cert_dir), FORCE_REGENERATE="true" if force else "false")
     for name in ("DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID"):
         env[name] = job_env[name]
     subprocess.run(["bash", "-c", script], env=env, check=True, capture_output=True)
-    (cert_dir / "runtime-cert-layout-version").write_text(job_env["RUNTIME_CERT_LAYOUT_VERSION"])
 
 
 def openssl(*args):
@@ -77,23 +70,13 @@ def openssl(*args):
     ).stdout.strip()
 
 
-def media_worker_user():
-    config_map = render_document(
-        "templates/nats.yaml", ENABLED, namespace=NAMESPACE,
-        kind="ConfigMap", name="serviceradar-nats-static-users",
-    )
-    users = yaml.safe_load(config_map["data"]["static-users.yaml"])
-    (user,) = [u["user"] for u in users if u["user"].startswith("CN=serviceradar-media-worker,")]
-    return user
-
-
 class RuntimeCertMediaWorkerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR"))
         root = Path(cls.tmp.name)
-        cls.enabled_script, cls.enabled_check, cls.enabled_env = generator_inputs(ENABLED)
-        cls.disabled_script, cls.disabled_check, cls.disabled_env = generator_inputs(DISABLED)
+        cls.enabled_script, cls.enabled_required, cls.enabled_env = generator_job(ENABLED)
+        cls.disabled_script, cls.disabled_required, cls.disabled_env = generator_job(DISABLED)
         cls.enabled_certs = root / "enabled"
         cls.disabled_certs = root / "disabled"
         generate(cls.enabled_script, cls.enabled_env, cls.enabled_certs)
@@ -103,103 +86,42 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def preserves(self, check, job_env, secret_dir):
-        """True when the Job keeps the Secret; otherwise why it regenerates it:
-        ("missing", files) or ("invalid", certificates that fail against root.pem)."""
-        work = Path(tempfile.mkdtemp(dir=self.tmp.name))
-        data = {
-            path.name: base64.b64encode(path.read_bytes()).decode("ascii")
-            for path in secret_dir.rglob("*") if path.is_file()
-        }
-        (work / "secret.json").write_text(json.dumps({"data": data}))
-        sa = work / "sa"
-        sa.mkdir()
-        (sa / "token").write_text("synthetic-token")
-        (sa / "namespace").write_text(NAMESPACE)
-        (sa / "ca.crt").write_text("")
-        script = FAKE_API + check.replace("/var/run/secrets/kubernetes.io/serviceaccount", str(sa))
-        env = dict(
-            os.environ,
-            FAKE_SECRET_JSON=str(work / "secret.json"),
-            SECRET_NAME="serviceradar-runtime-certs",
-            CERT_DIR=str(work / "certs"),
-            **{k: job_env[k] for k in (
-                "DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID", "RUNTIME_CERT_LAYOUT_VERSION",
-            )},
-        )
-        result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
-        if result.returncode == 0 and "preserving current runtime certs" in result.stdout:
-            return True
-        reasons = (
-            ("missing", r"is missing runtime cert files: (.*)$"),
-            ("invalid", r"has runtime cert files that do not verify against root.pem: (.*)$"),
-        )
-        for reason, pattern in reasons:
-            found = re.search(pattern, result.stdout, re.M)
-            if result.returncode == 1 and found and not result.stderr.strip():
-                return reason, found.group(1).split(", ")
-        raise AssertionError(
-            f"preserve check reached neither decision (exit {result.returncode}):\n"
-            f"{result.stdout}{result.stderr}"
-        )
-
-    def test_issues_the_subject_the_broker_maps_for_its_key_under_the_root(self):
-        cert = self.enabled_certs / "media-worker.pem"
+    def test_issues_the_listed_subject_for_its_key_under_the_root(self):
+        worker_subjects = [
+            subject for subject in chart_identity_subjects(ENABLED)
+            if subject.startswith("CN=serviceradar-media-worker,")
+        ]
+        self.assertEqual(len(worker_subjects), 1)
+        cert = self.enabled_certs / WORKER_CERT
         key = self.enabled_certs / "media-worker-key.pem"
         subject = openssl("x509", "-in", str(cert), "-noout", "-subject", "-nameopt", "RFC2253")
-        self.assertEqual(subject, f"subject={media_worker_user()}")
+        self.assertEqual(subject, f"subject={worker_subjects[0]}")
         self.assertEqual(
             openssl("x509", "-in", str(cert), "-noout", "-pubkey"),
             openssl("pkey", "-in", str(key), "-pubout"),
         )
         openssl("verify", "-CAfile", str(self.enabled_certs / "root.pem"), str(cert))
 
-    def test_issues_no_worker_certificate_while_the_worker_is_off(self):
-        self.assertFalse((self.disabled_certs / "media-worker.pem").exists())
-        self.assertFalse((self.disabled_certs / "media-worker-key.pem").exists())
+    def test_requires_the_worker_certificate_exactly_while_the_worker_is_enabled(self):
+        self.assertIn(WORKER_CERT, self.enabled_required)
+        self.assertNotIn(WORKER_CERT, self.disabled_required)
 
-    def test_regenerates_a_secret_without_the_worker_pair_once_the_worker_is_enabled(self):
-        self.assertEqual(
-            self.preserves(self.enabled_check, self.enabled_env, self.disabled_certs),
-            ("missing", ["media-worker.pem", "media-worker-key.pem"]),
-        )
-
-    def test_reissues_a_worker_pair_kept_from_before_a_root_rotation(self):
-        # The worker was enabled, then disabled while the regenerator rotated the
-        # root: it generates a fresh set without the worker pair and merge-patches
-        # it into the Secret, so the old pair stays beside the new root.
-        rotation = Path(self.tmp.name) / "rotation"
-        generate(self.disabled_script, self.disabled_env, rotation, force=True)
-        secret = Path(self.tmp.name) / "rotated-secret"
-        shutil.copytree(self.enabled_certs, secret)
-        for path in rotation.rglob("*"):
-            if path.is_file():
-                shutil.copy2(path, secret / path.relative_to(rotation))
-        self.assertNotEqual(
-            (secret / "root.pem").read_bytes(), (self.enabled_certs / "root.pem").read_bytes(),
-        )
-        # Re-enabling the worker must not keep that stale pair.
-        self.assertEqual(
-            self.preserves(self.enabled_check, self.enabled_env, secret),
-            ("invalid", ["media-worker.pem"]),
-        )
-        generate(self.enabled_script, self.enabled_env, secret, force=True)
-        openssl("verify", "-CAfile", str(secret / "root.pem"), str(secret / "media-worker.pem"))
+    def test_has_no_worker_identity_while_the_worker_is_off(self):
+        self.assertFalse((self.disabled_certs / WORKER_CERT).exists())
+        self.assertFalse(any(
+            subject.startswith("CN=serviceradar-media-worker,")
+            for subject in chart_identity_subjects(DISABLED)
+        ))
 
     def test_regeneration_keeps_the_root_and_issues_the_worker_pair_under_it(self):
+        # What the Job does once the check finds the pair missing after enabling.
         upgraded = Path(self.tmp.name) / "upgraded"
         shutil.copytree(self.disabled_certs, upgraded)
         generate(self.enabled_script, self.enabled_env, upgraded, force=True)
         self.assertEqual(
             (upgraded / "root.pem").read_bytes(), (self.disabled_certs / "root.pem").read_bytes(),
         )
-        openssl("verify", "-CAfile", str(upgraded / "root.pem"), str(upgraded / "media-worker.pem"))
-
-    def test_keeps_a_secret_that_already_holds_the_worker_pair(self):
-        self.assertIs(self.preserves(self.enabled_check, self.enabled_env, self.enabled_certs), True)
-
-    def test_keeps_a_secret_without_the_worker_pair_while_the_worker_is_off(self):
-        self.assertIs(self.preserves(self.disabled_check, self.disabled_env, self.disabled_certs), True)
+        openssl("verify", "-CAfile", str(upgraded / "root.pem"), str(upgraded / WORKER_CERT))
 
 
 if __name__ == "__main__":

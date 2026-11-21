@@ -262,7 +262,8 @@ issues for a NATS client, and the common name of its subject. One list feeds
 core's inventory projection, the subject list core reads, and the generator's
 required-files check, so the three cannot drift. The files that are copies of
 another identity's certificate (flowgger, otel, netflow-collector) are not
-identities and are not listed.
+identities and are not listed. The media worker's identity exists only while the
+worker is enabled, as its certificate does.
 */}}
 {{- define "serviceradar.natsChartIdentities" -}}
 - {file: "tools.pem", cn: "serviceradar-tools"}
@@ -278,6 +279,9 @@ identities and are not listed.
 - {file: "falcosidekick.pem", cn: "serviceradar-falcosidekick"}
 - {file: "trivy-sidecar.pem", cn: "serviceradar-trivy-sidecar"}
 - {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+- {file: "media-worker.pem", cn: "serviceradar-media-worker"}
+{{- end }}
 {{- end -}}
 
 {{/*
