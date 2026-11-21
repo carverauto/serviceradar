@@ -851,20 +851,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
 
   describe "visual index result consumer failures" do
     test "numeric values outside the storage contract terminate the delivery and fail the named job" do
-      embedding = %{"region_kind" => "crop", "region_index" => 1, "embedding" => unit_vec(512)}
-      frame = %{"fragment_sequence" => 1, "media_pts_ns" => 1, "embeddings" => [embedding]}
-
-      envelope = %{
-        "catalog_entry_id" => @catalog_id,
-        "job_id" => @job_id,
-        "descriptor_sha256" => @desc_sha,
-        "detector_model_id" => "synthetic-detector",
-        "embedder_model_id" => "synthetic-embedder",
-        "embedder_model_version" => "1",
-        "embedding_dim" => 512,
-        "frames" => [frame]
-      }
-
+      envelope = result_envelope()
       wire = Jason.encode!(envelope)
       assert {:ok, ^envelope} = VisualIndexResultProjector.decode_result(wire)
 
@@ -901,6 +888,48 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       end
     end
 
+    test "NUL in persisted text terminates the result and identifies the job to fail" do
+      envelope = result_envelope()
+      frame = ["frames", Access.at(0)]
+      detection = frame ++ ["detections", Access.at(0)]
+      embedding = frame ++ ["embeddings", Access.at(0)]
+      invalid = "syn\0thetic"
+
+      for {parent, canonical, field, value} <- [
+            {[], "detector_model_id", "detector_model_id", invalid},
+            {[], "detector_model_version", "detector_model_version", invalid},
+            {[], "embedder_model_id", "embedder_model_id", invalid},
+            {[], "embedder_model_version", "embedder_model_version", invalid},
+            {[], "embedder_model_id", "model_id", invalid},
+            {[], "embedder_model_version", "model_version", invalid},
+            {detection, "object_class", "object_class", invalid},
+            {detection, "object_class", "class", invalid},
+            {detection, "object_class", "label", invalid},
+            {embedding, "object_class", "object_class", invalid},
+            {detection, "dominant_colors", "dominant_colors", [invalid]},
+            {embedding, "dominant_colors", "dominant_colors", [invalid]},
+            {embedding, "dominant_colors", "attributes", %{"dominant_colors" => [invalid]}}
+          ] do
+        rewrite = fn map -> map |> Map.delete(canonical) |> Map.put(field, value) end
+
+        result =
+          if parent == [], do: rewrite.(envelope), else: update_in(envelope, parent, rewrite)
+
+        message = result |> Jason.encode!() |> result_message()
+
+        fail_job = fn @job_id, "invalid_result_envelope" ->
+          send(self(), :failed_named_job)
+          {:ok, %{}}
+        end
+
+        assert {:incomplete, 0,
+                [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
+
+        assert_received :failed_named_job
+      end
+    end
+
     test "a failed or raising result is redelivered without failing the rest of its batch" do
       stored = result_message(~s({"case":"stored"}))
       failed = result_message(~s({"case":"failed"}))
@@ -928,6 +957,29 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                  fail_job: fail_job
                )
     end
+  end
+
+  defp result_envelope do
+    embedding = %{"region_kind" => "crop", "region_index" => 1, "embedding" => unit_vec(512)}
+    detection = %{"object_class" => "package", "bbox" => [0.1, 0.2, 0.3, 0.4]}
+
+    frame = %{
+      "fragment_sequence" => 1,
+      "media_pts_ns" => 1,
+      "detections" => [detection],
+      "embeddings" => [embedding]
+    }
+
+    %{
+      "catalog_entry_id" => @catalog_id,
+      "job_id" => @job_id,
+      "descriptor_sha256" => @desc_sha,
+      "detector_model_id" => "synthetic-detector",
+      "embedder_model_id" => "synthetic-embedder",
+      "embedder_model_version" => "1",
+      "embedding_dim" => 512,
+      "frames" => [frame]
+    }
   end
 
   defp result_message(data) do

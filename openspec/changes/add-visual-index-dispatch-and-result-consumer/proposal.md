@@ -43,8 +43,12 @@ attempt it read, so two concurrent relays could both advance one job.
   `CAMERA_MEDIA_RESULTS` stream with a durable consumer and calls the result
   projector. It acks results that are stored or replayed, and results whose
   recording is gone. It NAKs transient failures with backoff. Results that can
-  never be stored are terminated, recorded as dead letters, and their job is
-  marked `failed_terminal`.
+  never be stored are terminated and recorded as dead letters. When the database
+  accepts the update, Core first marks the named job `failed_terminal`. If the
+  database is unavailable for all ten deliveries, the result is terminated while
+  its job is still dispatched. After the retention floor and deadline pass, the
+  relay republishes the next attempt or marks the job `failed_terminal` if its
+  attempt budget is exhausted.
 - The relay and the consumer run only when the deployment enables both camera
   recording (`SERVICERADAR_CAMERA_RECORDING_ENABLED`) and visual indexing
   (`SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED`).

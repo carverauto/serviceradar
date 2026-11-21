@@ -36,16 +36,21 @@ When the deployment enables camera recording and visual indexing, Core SHALL con
 
 #### Scenario: Replayed result
 - **WHEN** a result that was already stored is delivered again
-- **THEN** Core SHALL leave one projection set for the entry and model and acknowledge the message
+- **THEN** Core SHALL acknowledge the completed job's replay without writing frames or embeddings, including any that have since been purged
 
 #### Scenario: Recording deleted or quarantined while the worker ran
 - **WHEN** a result arrives for a catalog entry that is missing or no longer playable
 - **THEN** Core SHALL store nothing, cancel the entry's active jobs, and acknowledge the message
 
 #### Scenario: Transient failure
-- **WHEN** storing a result fails for a reason a later delivery can overcome, such as a database error
+- **WHEN** storing a result fails for a reason a later delivery can overcome, such as a database error, and deliveries remain
 - **THEN** Core SHALL NAK the message with backoff so JetStream redelivers it
 
 #### Scenario: Result that can never be stored
 - **WHEN** a result fails validation, such as a malformed envelope, an invalid vector or bounding box, or a descriptor digest that does not match the catalog entry
-- **THEN** Core SHALL mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, attempt a best-effort `TripwireHealth` record for that failure, record the dead letter, and terminate the message without redelivery
+- **THEN** when the database accepts the update, Core SHALL first mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, attempt a best-effort `TripwireHealth` record for that failure, record the dead letter, and terminate the message without redelivery
+
+#### Scenario: The database is unavailable throughout delivery of a permanently invalid result
+- **WHEN** the database is unavailable for all ten deliveries of a permanently invalid result for a dispatched job
+- **THEN** Core SHALL terminate the tenth delivery while the job is still dispatched
+- **AND** after the retention floor and stored deadline pass, expired-job reconciliation SHALL republish the job as the next attempt or mark it `failed_terminal` if its attempt budget is exhausted

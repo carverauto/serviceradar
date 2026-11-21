@@ -484,8 +484,8 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   Reconciles expired dispatched jobs, then publishes pending jobs, each in
   batches of #{@relay_batch_limit} for at most #{@relay_max_batches} batches. A phase stops
-  early at a batch shorter than the limit or at a publish that is not
-  acknowledged; after a failed publish no pending job is published in this
+  after a short batch, a batch where every row failed, or an unacknowledged
+  publish; after a failed publish no pending job is published in this
   pass. Other options are passed to `dispatch_job/2`.
   """
   @spec relay(keyword()) ::
@@ -530,7 +530,8 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     {:ok, batch} = phase.(opts)
     acc = add_counts(acc, batch)
 
-    if batch.examined_count < @relay_batch_limit or batch.publish_error do
+    if batch.examined_count < @relay_batch_limit or batch.failed_count == batch.examined_count or
+         batch.publish_error do
       acc
     else
       drain(phase, opts, batches_left - 1, acc)

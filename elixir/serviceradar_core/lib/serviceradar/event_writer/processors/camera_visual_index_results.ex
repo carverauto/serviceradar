@@ -8,16 +8,19 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
   Each message is stored on its own, in its own transaction:
 
     * stored, or a replay of a stored result: acknowledged. The projector
-      upserts by frame and region identity, so a replay changes nothing.
+      skips projection for a completed job, including after its frames or embeddings are purged.
     * the recording was deleted or quarantined while the worker ran:
       acknowledged. The projector stores nothing and cancels the entry's jobs.
     * a result that can never be stored
-      (`VisualIndexResultProjector.terminal_drop?/1`): the job it names is
-      marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
+      (`VisualIndexResultProjector.terminal_drop?/1`): when the database accepts the update,
+      the job it names is marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
       record), then the message fails with
       `ServiceRadar.EventWriter.TerminalMessageError`, which terminates it as a
-      dead letter. If that job update fails, the message fails transiently so a
-      later delivery records it.
+      dead letter. A failed update is transient. If the database is unavailable for all
+      ten deliveries of a permanently invalid result, the tenth delivery is terminated
+      while the job is still dispatched. After the retention floor and deadline pass,
+      expired-job reconciliation republishes the next attempt or marks the job
+      `:failed_terminal` if its attempt budget is exhausted.
     * any other failure, including a raise: the message fails with
       `ServiceRadar.EventWriter.TransientMessageError`, which NAKs it with
       backoff.

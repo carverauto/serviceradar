@@ -32,6 +32,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.EventWriter.TransientMessageError
@@ -987,6 +988,58 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              |> Ash.count!(actor: actor) >= 1
     end
 
+    test "a full batch of failed rows is attempted only once per phase and tick",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:stalled_relay_test)
+      {cam, prof} = create_camera_and_profile(actor, "Stalled Relay Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_003_300_000_000, actor)
+      entry_id = Ecto.UUID.dump!(entry.id)
+
+      SQL.query!(
+        Repo,
+        """
+        INSERT INTO platform.camera_visual_index_jobs
+          (catalog_entry_id, camera_source_id, stream_profile_id, descriptor_sha256, embedder_model_version)
+        SELECT catalog_entry_id, camera_source_id, stream_profile_id, descriptor_sha256, 'stalled-' || n
+        FROM platform.camera_visual_index_jobs CROSS JOIN generate_series(1, 99) AS n
+        WHERE catalog_entry_id = $1
+        """,
+        [entry_id]
+      )
+
+      calls = :counters.new(1, [:atomics])
+
+      loaders = %{
+        entry_loader: fn id ->
+          if id == entry.id, do: :counters.add(calls, 1, 1)
+          {:error, :catalog_unavailable}
+        end
+      }
+
+      for state <- ["pending", "dispatched"] do
+        SQL.query!(
+          Repo,
+          """
+          UPDATE platform.camera_visual_index_jobs SET state = $2, attempt_count = 1,
+            inserted_at = '1970-01-01', dispatched_at = '1970-01-01', deadline_at = '1970-01-04'
+          WHERE catalog_entry_id = $1
+          """,
+          [entry_id, state]
+        )
+
+        for _tick <- 1..2 do
+          before_tick = :counters.get(calls, 1)
+
+          assert {:ok, %{failed_count: failures, publish_error: nil}} =
+                   VisualIndexDispatcher.relay(loaders: loaders)
+
+          assert failures >= 100
+          assert :counters.get(calls, 1) - before_tick == 100
+        end
+      end
+    end
+
     test "two relays that read the same job advance it once under one message id",
          %{tmp_dir: tmp_dir} do
       _gate = Fixtures.recording_recovery_gate(tmp_dir)
@@ -1147,11 +1200,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       entry = create_indexed_playable_entry(cam, prof, 1_750_006_000_000_000, actor)
       job = job_for(entry, actor)
 
-      message =
-        entry
-        |> build_single_crop_envelope(basis_vector(768, 3))
-        |> Map.put("job_id", to_string(job.id))
-        |> result_message()
+      envelope = build_single_crop_envelope(entry, basis_vector(768, 3))
+      message = result_message(Map.put(envelope, "job_id", job.id))
 
       assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
       assert reload(job, actor).state == :completed
@@ -1160,6 +1210,19 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
       assert projection_counts(entry, actor) == counts
+
+      assert {:ok, _} =
+               VisualIndexBackfill.cleanup_superseded_embeddings(%{
+                 keep_model_version: "synthetic-next"
+               })
+
+      assert projection_counts(entry, actor) == {0, 0}
+
+      for replay <- [message, result_message(envelope)] do
+        assert {:ok, 1} = CameraVisualIndexResults.process_batch([replay])
+        assert projection_counts(entry, actor) == {0, 0}
+        assert reload(job, actor).state == :completed
+      end
     end
 
     test "acknowledges a result whose recording is gone only after cancellation succeeds",
@@ -1282,6 +1345,92 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                reload(job, actor)
 
       assert projection_counts(entry, actor) == {0, 0}
+    end
+
+    test "expiry reconciliation recovers a dispatched job after ten failed terminal updates",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:result_outage_test)
+      {cam, prof} = create_camera_and_profile(actor, "Result Outage Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_007_500_000_000, actor)
+      job = job_for(entry, actor)
+      job_id = job.id
+
+      SQL.query!(
+        Repo,
+        "UPDATE platform.camera_visual_index_jobs SET max_attempts = 2 WHERE id = $1",
+        [
+          Ecto.UUID.dump!(job_id)
+        ]
+      )
+
+      publisher = fn _, data, opts ->
+        if Jason.decode!(data)["job_id"] == job_id, do: send(self(), {:published, opts[:msg_id]})
+        {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
+      end
+
+      assert {:ok, sent} = VisualIndexDispatcher.dispatch_job(job_id, publisher: publisher)
+      assert_received {:published, _}
+      poison = result_message(%{"job_id" => job_id})
+      fail_job = fn ^job_id, "invalid_result_envelope" -> {:error, :db_unavailable} end
+
+      for delivery <- 1..10 do
+        metadata =
+          Map.merge(poison.metadata, %{
+            jetstream_ack: %{delivery_count: delivery},
+            max_deliver: 10
+          })
+
+        ack_fun = fn action -> send(self(), {:ack_action, action}) end
+
+        message = %{
+          poison
+          | metadata: metadata,
+            acknowledger: {Pipeline, :ack_ref, %{ack_fun: ack_fun}}
+        }
+
+        assert {:incomplete, 0, [{^message, %TransientMessageError{} = error}]} =
+                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
+
+        assert :ok = Pipeline.ack(:ack_ref, [], [Message.failed(message, error)])
+
+        if delivery < 10 do
+          assert_received {:ack_action, {:nack, _delay}}
+        else
+          assert_received {:ack_action, :term}
+        end
+      end
+
+      assert %{state: :dispatched, attempt_count: 1} = reload(job, actor)
+
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 now: DateTime.shift(sent.dispatched_at, hour: 71),
+                 publisher: publisher
+               )
+
+      refute_received {:published, _}
+
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 now: DateTime.shift(sent.dispatched_at, hour: 73),
+                 publisher: publisher
+               )
+
+      retry_id = "visual-index:#{job_id}:2"
+      assert_received {:published, ^retry_id}
+      assert %{state: :dispatched, attempt_count: 2} = retried = reload(job, actor)
+
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 now: DateTime.shift(retried.deadline_at, hour: 73),
+                 publisher: publisher
+               )
+
+      assert %{state: :failed_terminal, last_error_class: "max_deliver_exhausted"} =
+               reload(job, actor)
+
+      refute_received {:published, _}
     end
 
     test "terminates a result that can never be stored and fails its job",

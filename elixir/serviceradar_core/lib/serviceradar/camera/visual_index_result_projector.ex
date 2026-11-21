@@ -234,11 +234,11 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     cls = fetch_val(det, :object_class) || fetch_val(det, :class) || fetch_val(det, :label)
     conf = fetch_val(det, :confidence) || fetch_val(det, :score)
     raw_bbox = fetch_val(det, :bbox) || fetch_val(det, :bbox_norm)
-    colors = normalize_colors(fetch_val(det, :dominant_colors) || [])
 
     with {:ok, norm_cls} <- parse_non_empty(cls, 64),
          true <- is_nil(conf) or (is_number(conf) and conf >= 0.0 and conf <= 1.0),
-         {:ok, bbox} <- parse_required_bbox(raw_bbox) do
+         {:ok, bbox} <- parse_required_bbox(raw_bbox),
+         {:ok, colors} <- parse_colors(fetch_val(det, :dominant_colors)) do
       {:ok,
        %{
          "object_class" => norm_cls,
@@ -291,6 +291,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
          {:ok, obj_class} <- parse_optional_class(kind, raw_cls),
          {:ok, conf} <- parse_optional_confidence(kind, raw_conf),
          {:ok, bbox} <- parse_region_bbox(kind, raw_bbox),
+         {:ok, colors} <- parse_colors(raw_colors),
          {:ok, vec} <- normalize_l2_vector(raw_vec, dim) do
       {:ok,
        %{
@@ -299,7 +300,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
          object_class: obj_class,
          confidence: conf,
          bbox: bbox,
-         dominant_colors: normalize_colors(raw_colors),
+         dominant_colors: colors,
          embedding: vec
        }}
     else
@@ -319,14 +320,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp parse_optional_class(:scene, _), do: {:error, :invalid_result_envelope}
   defp parse_optional_class(:crop, nil), do: {:ok, nil}
 
-  defp parse_optional_class(:crop, cls) when is_binary(cls) do
-    trimmed = String.trim(cls)
-
-    if trimmed != "" and byte_size(trimmed) <= 64,
-      do: {:ok, trimmed},
-      else: {:error, :invalid_result_envelope}
-  end
-
+  defp parse_optional_class(:crop, cls), do: parse_non_empty(cls, 64)
   defp parse_optional_class(_, _), do: {:error, :invalid_result_envelope}
 
   defp parse_optional_confidence(:scene, nil), do: {:ok, nil}
@@ -368,16 +362,24 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
 
   defp unit_num?(v), do: is_number(v) and v >= 0.0 and v <= 1.0
 
-  defp normalize_colors(list) when is_list(list) do
-    list
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
-    |> Enum.reject(&(&1 == "" or byte_size(&1) > 32))
-    |> Enum.uniq()
-    |> Enum.take(@max_colors_per_embedding)
+  defp parse_colors(list) when is_list(list) do
+    colors = Enum.filter(list, &is_binary/1)
+
+    if Enum.any?(colors, &String.contains?(&1, <<0>>)) do
+      {:error, :invalid_result_envelope}
+    else
+      normalized =
+        colors
+        |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+        |> Enum.reject(&(&1 == "" or byte_size(&1) > 32))
+        |> Enum.uniq()
+        |> Enum.take(@max_colors_per_embedding)
+
+      {:ok, normalized}
+    end
   end
 
-  defp normalize_colors(_), do: []
+  defp parse_colors(_), do: {:ok, []}
 
   defp normalize_l2_vector(%Ash.Vector{dimensions: dim} = vec, expected_dim)
        when dim == expected_dim do
@@ -447,53 +449,55 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   end
 
   defp persist_frames_and_complete_job(entry, parsed, now) do
-    {frame_count, emb_count} =
-      Enum.reduce(parsed.frames, {0, 0}, fn f_spec, {fc, ec} ->
-        timeline_ts_us = compute_timeline_ts_us(entry, f_spec.media_pts_ns)
-
-        {:ok, frame} =
-          VisualFrame
-          |> Ash.Changeset.for_create(
-            :upsert_frame,
-            %{
-              catalog_entry_id: entry.id,
-              camera_source_id: entry.camera_source_id,
-              stream_profile_id: entry.stream_profile_id,
-              fragment_sequence: f_spec.fragment_sequence,
-              media_pts_ns: f_spec.media_pts_ns,
-              timeline_ts_us: timeline_ts_us,
-              time_basis: entry.time_basis || :received,
-              scene_suppressed: f_spec.scene_suppressed,
-              detector_model_id: parsed.detector_model_id,
-              detector_model_version: parsed.detector_model_version,
-              detections: f_spec.detections
-            },
-            actor: @system_actor
-          )
-          |> Ash.create(actor: @system_actor)
-
-        upserted_embs =
-          upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, f_spec.embeddings)
-
-        {fc + 1, ec + upserted_embs}
-      end)
-
-    with {:ok, completed_job} <- complete_matching_job(entry.id, parsed, now) do
+    with {:ok, job} <- matching_job(entry.id, parsed),
+         {:ok, _} <- store_result(job, entry, parsed, now) do
       {:ok,
        %{
          status: :ingested,
          catalog_entry_id: entry.id,
-         job_id: completed_job && completed_job.id,
-         frame_count: frame_count,
-         embedding_count: emb_count
+         job_id: job && job.id,
+         frame_count: length(parsed.frames),
+         embedding_count: Enum.sum_by(parsed.frames, &length(&1.embeddings))
        }}
     end
   end
 
-  defp upsert_frame_embeddings(_entry, _frame, _timeline_ts_us, _parsed, []), do: 0
+  defp store_result(%VisualIndexJob{state: :completed} = job, _entry, _parsed, _now),
+    do: {:ok, job}
+
+  defp store_result(job, entry, parsed, now) do
+    Enum.each(parsed.frames, fn f_spec ->
+      timeline_ts_us = compute_timeline_ts_us(entry, f_spec.media_pts_ns)
+
+      {:ok, frame} =
+        VisualFrame
+        |> Ash.Changeset.for_create(
+          :upsert_frame,
+          %{
+            catalog_entry_id: entry.id,
+            camera_source_id: entry.camera_source_id,
+            stream_profile_id: entry.stream_profile_id,
+            fragment_sequence: f_spec.fragment_sequence,
+            media_pts_ns: f_spec.media_pts_ns,
+            timeline_ts_us: timeline_ts_us,
+            time_basis: entry.time_basis || :received,
+            scene_suppressed: f_spec.scene_suppressed,
+            detector_model_id: parsed.detector_model_id,
+            detector_model_version: parsed.detector_model_version,
+            detections: f_spec.detections
+          },
+          actor: @system_actor
+        )
+        |> Ash.create(actor: @system_actor)
+
+      upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, f_spec.embeddings)
+    end)
+
+    complete_job(job, now)
+  end
 
   defp upsert_frame_embeddings(entry, frame, timeline_ts_us, parsed, embeddings) do
-    Enum.reduce(embeddings, 0, fn emb_spec, acc ->
+    Enum.each(embeddings, fn emb_spec ->
       {:ok, _} =
         VisualEmbedding
         |> Ash.Changeset.for_create(
@@ -518,8 +522,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
           actor: @system_actor
         )
         |> Ash.create(actor: @system_actor)
-
-      acc + 1
     end)
   end
 
@@ -530,7 +532,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     min(entry.timeline_end_us, candidate)
   end
 
-  defp complete_matching_job(entry_id, parsed, now) do
+  defp matching_job(entry_id, parsed) do
     emb_id = parsed.embedder_model_id
     emb_ver = parsed.embedder_model_version
 
@@ -546,18 +548,15 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
         )
       end
 
-    case Ash.read_one(query, actor: @system_actor) do
-      {:ok, %VisualIndexJob{state: :completed}} = done ->
-        done
+    Ash.read_one(query, actor: @system_actor)
+  end
 
-      {:ok, %VisualIndexJob{} = job} ->
-        job
-        |> Ash.Changeset.for_update(:mark_completed, %{completed_at: now})
-        |> Ash.update(actor: @system_actor)
+  defp complete_job(nil, _now), do: {:ok, nil}
 
-      result ->
-        result
-    end
+  defp complete_job(job, now) do
+    job
+    |> Ash.Changeset.for_update(:mark_completed, %{completed_at: now})
+    |> Ash.update(actor: @system_actor)
   end
 
   defp cancel_jobs_for_entry(entry_id) do
@@ -621,7 +620,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp parse_non_empty(val, max_len) when is_binary(val) do
     trimmed = String.trim(val)
 
-    if byte_size(trimmed) in 1..max_len do
+    if byte_size(trimmed) in 1..max_len and not String.contains?(trimmed, <<0>>) do
       {:ok, trimmed}
     else
       {:error, :invalid_result_envelope}
