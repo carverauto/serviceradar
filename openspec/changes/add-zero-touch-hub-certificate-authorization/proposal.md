@@ -78,16 +78,20 @@ the runtime Secret, exposing every component's private key to the caller.
   leaves both sets alone and keeps its existing Role. Only with enforcement
   on does core project the seeds and NATS project the fragments. The chart
   documents the fixed signing projections. If core lacks any mounted seed,
-  hub status reports `signing keys not provisioned`. If all seeds are
-  present but a broker fragment is missing, hub status reports the authorizer
-  is not answering. Kubernetes names the missing key in the NATS pod mount
-  error. Leaf install stops in either case. The API bootstrap stays for installs without a chart.
+  hub status reports `signing keys not provisioned` and leaf install stops.
+  A missing broker fragment blocks startup of the affected NATS pod.
+  Kubernetes names the missing key in its mount error. An otherwise ready
+  hub stays ready and leaf install proceeds while core answers through a
+  surviving broker. If core loses its authorizer connection, hub status
+  reports the authorizer is not answering and leaf install stops.
+  Core uses the mounted seeds and logs once if a stored signing record is
+  unused. Installs without a chart retain the bootstrap API and stored keys.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
-  them; none is known to. Once signing material is provisioned and hub
+  them; none is known to. Once the signing seeds are present and hub
   status reports every chart identity adopted, enforcement needs no further
-  manual step for those identities, however its certificate came to
+  manual step for those identities, however their certificates came to
   be recorded. A chart identity that hub status reports as not adopted stays
   refused after enforcement is on until its reported reason is resolved (for
   example rows without a subject blocking new adoption, a refused or skipped

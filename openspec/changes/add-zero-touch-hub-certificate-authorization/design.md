@@ -183,10 +183,12 @@ and their destinations.
 With enforcement enabled, the chart renders two fixed signing projections.
 Core mounts the three issuer Secret seeds in a separate optional volume so
 it can start and report a missing seed. NATS requires both runtime Secret
-fragments. If either is missing, Kubernetes prevents the NATS pod from
-starting and names the missing key in the volume mount event. With all seeds
-present, core reports only that the authorizer is not answering. The runbook
-directs operators to the NATS pod events when checking broker health.
+fragments. When either is missing, Kubernetes blocks the affected pod at
+startup and names the missing key in its mount event. If core keeps answering
+through another broker, an otherwise ready hub stays ready and leaf install
+proceeds. If core loses its authorizer connection, hub status reports the
+authorizer is not answering and leaf install stops. The runbook directs
+operators to the affected pod's events when checking NATS and core health.
 With enforcement disabled the chart omits both signing projections.
 
 On hosted installs the distinct issuer Secret holds both the CA signing key
@@ -199,10 +201,11 @@ accounts from a file included inside the accounts block, and that empty
 fragments leave the static configuration as it is today. With enforcement off
 the NATS pod includes nothing.
 
-Core reads the seeds from the mounted files when they are present. The
-database record and `POST /nats/certificate-authorization/bootstrap` remain
-for installs with no chart; when both exist and disagree, core reports
-`signing_key_conflict` and does not answer authorization requests.
+On chart installs core uses the three mounted seeds. The broker fragments
+carry their public keys. Core ignores any database signing record and logs
+once that the record is unused. An incomplete or absent seed mount with
+enforcement enabled still yields `signing keys not provisioned`. Only installs
+without a chart use the database record and the bootstrap API.
 
 Why not keep the keys in the database and copy public keys into values: that
 copy is the hand step being removed, and Helm cannot read the database at
@@ -306,7 +309,7 @@ for an existing install, once its issuer owner has provisioned any externally
 managed signing material, is: upgrade to this release with the value off; check
 `edge hub status` shows every chart identity adopted; turn the value on. If it
 is turned on first anyway, clients are refused only until core's first
-reconciliation, and they retry, provided the signing material is in place and every chart identity
+reconciliation, and they retry, provided the signing seeds are present and every chart identity
 can be adopted automatically. A chart identity that hub status reports as not adopted
 stays refused after enforcement is on until its reported reason is resolved,
 whatever the reason: for example, rows without a subject blocking new
@@ -363,7 +366,10 @@ reported with the reason.
 ## Migration Plan
 
 1. Ship inventory, automatic adoption, generated keys and readiness with
-   enforcement off. Nothing changes for running installs.
+   enforcement off. This release removes `issuerPublicKey`, `authUserPublicKey`
+   and `systemUserPublicKey`. After upgrade the chart ignores public keys
+   pasted into these values from a bootstrap record. Enabling enforcement
+   uses the mounted seeds without migrating the record.
 2. Turn enforcement on in demo; verify every client and a leaf.
 3. Control plane change for hosted tenants.
 4. Decide the default.
