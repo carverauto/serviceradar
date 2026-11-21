@@ -693,8 +693,8 @@ static user that may:
 
 Follow-ups: a dedicated web-ng reply prefix for embedding requests (to narrow
 the worker's `_INBOX.>` publish), a startup check of the checkpoint's embedding
-width, the worker's real keyframe decoder, the NVR analysis-read listener, and
-a subject detector enabled by an explicit chart setting.
+width, HEVC and multi-slice keyframe decoding, the NVR analysis-read listener,
+and a subject detector enabled by an explicit chart setting.
 
 With the worker on, core may also publish `media.jobs.visual_index.v1` and
 `media.jobs.visual_index.backfill.v1`, and web-ng may publish
@@ -725,6 +725,14 @@ operator supplies and owns the worker's isolation.
 `media_worker_egress_isolation_test.py` checks this over the default, demo,
 tenant and HA values.
 
+With `operatorManaged`, the chart also stops rendering the matching ingress
+exception on web-ng (`serviceradar-media-worker-control-ingress`), which lets
+the worker reach web-ng's private control-plane port
+(`webNg.controlPlaneRuntime.port`, 4001 by default) when
+`networkPolicy.enabled` restricts web-ng's ingress; that port is not in the
+namespace-wide ingress allowlist. The operator's policies must then also admit
+the worker to web-ng on that port, or every recording read grant times out.
+
 **Enabling it.** Create these in the release namespace first; Helm creates
 neither:
 
@@ -741,8 +749,11 @@ neither:
 
 Then set `mediaWorker.enabled` and `webNg.controlPlaneRuntime.mediaWorker.enabled`
 together, select the CUDA image for a GPU provider (plus the TensorRT runtime
-for `tensorrt`), and make sure the JetStream budget has room for the worker's
-streams. The worker reports ready only after loading the model and warming up,
+for `tensorrt`), and, since the published CUDA image is arm64-only, place the
+worker on arm64 GPU nodes (`mediaWorker.nodeSelector` with
+`kubernetes.io/arch: arm64`, or equivalent affinity, as `values-demo.yaml`
+does; a site-built amd64 image needs no such selector). Make sure the
+JetStream budget has room for the worker's streams. The worker reports ready only after loading the model and warming up,
 which on a first CUDA start takes about ten seconds plus the model load;
 `/readyz` answers 503 until then while `/healthz` (liveness) stays healthy, so
 the pod simply stays unready meanwhile.
@@ -795,8 +806,9 @@ run there:
   `webNg.controlPlaneRuntime.mediaWorker`, with the same `deploymentRef`
   (the installed deployment's identity) and `generation` in both;
 - network access: `mediaWorker.networkPolicy.enabled` (and `operatorManaged`
-  if the platform supplies the worker's policy), `allowNvrRead`, `nvrReadPort`,
-  `s3EgressCidrs` and `s3ExceptCidrs`;
+  if the platform supplies the worker's policy, together with web-ng ingress
+  from the worker on `webNg.controlPlaneRuntime.port`), `allowNvrRead`,
+  `nvrReadPort`, `s3EgressCidrs` and `s3ExceptCidrs`;
 - a JetStream sizing profile with room for the worker's streams (not
   `tenant-2g`).
 

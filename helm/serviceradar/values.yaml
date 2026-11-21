@@ -596,7 +596,9 @@ mediaWorker:
     # the top-level networkPolicy.enabled. Turning it off requires operatorManaged.
     enabled: true
     # Set true, with enabled false, to state that you supply the worker's network
-    # policy and own its isolation; the chart then renders none for it.
+    # policy and own its isolation; the chart then renders none for it, nor the
+    # web-ng ingress exception for it, so your policies must also admit the
+    # worker to web-ng on webNg.controlPlaneRuntime.port (4001 by default).
     operatorManaged: false
     # Network preparation only: opens the worker's egress to the NVR pods, and
     # their ingress from it, on nvrReadPort for local (not yet archived)
