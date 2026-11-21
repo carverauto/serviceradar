@@ -1,6 +1,6 @@
 ## 1. Confirm before building
 - [ ] 1.1 Owner decision on the default (design Decision 4).
-- [ ] 1.2 Find the holder of the `O=ServiceRadar` static user and decide whether it stays.
+- [ ] 1.2 No chart-generated certificate carries the subject `O=ServiceRadar`, and a broker experiment on the chart configuration showed only a certificate whose whole subject is exactly `O=ServiceRadar` maps to that static user (other unlisted subjects are refused). Check live deployments for a holder of such a certificate, then remove the user or document it.
 - [ ] 1.3 Confirm on a disposable broker that nats-server accepts the authorization and accounts blocks from an included file, and what a rollout needs when that file changes.
 
 ## 2. Chart
@@ -13,8 +13,7 @@
 ## 3. Core
 - [ ] 3.1 Reconcile chart identities from the inventory: adopt, record successors, verify chain, validity, subject and revocation.
 - [ ] 3.2 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
-- [ ] 3.3 Hand adoption verifies the chain against the deployment root.
-- [ ] 3.4 Report hub readiness (enforcement, chart identity coverage, leaf listener).
+- [ ] 3.3 Report hub readiness (enforcement, chart identity coverage, leaf listener).
 
 ## 4. CLI
 - [ ] 4.1 `edge hub status`.

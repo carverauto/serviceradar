@@ -25,8 +25,12 @@ Enabling the callout today is a hand procedure with three parts
    which is a promise the chart cannot check.
 
 A client missed in step 1 is refused by the broker as soon as step 3 rolls
-out. A certificate regeneration (a layout change or a missing file regenerates
-every certificate) silently invalidates every adoption, and nothing re-adopts.
+out. Regeneration is already handled for a certificate that was adopted: the
+generator writes `runtime-cert-rotation.json` and
+`ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
+certificate as the successor of the adopted one, from the core migrations hook
+before workloads roll. That path skips a certificate that was never adopted.
+What is missing is the first adoption of the chart's certificates.
 No CLI command covers steps 1 and 2; their routes are outside the CLI's edge
 scope on purpose. The hosted control plane enables the leaf port for tenants
 but never the callout, so a hosted tenant has the port and no listener.
@@ -44,13 +48,21 @@ the Secret that holds the CA keys, which is the opposite of secure.
 - **The chart publishes a public inventory of its own NATS client
   certificates.** The certificate generator already holds every certificate.
   It writes a ConfigMap with the public certificate of each chart identity and
-  no key material. Core mounts it next to the static users file it already
-  reads.
+  no key material, as it already publishes public certificates in
+  `runtime-cert-rotation.json`. Core mounts it next to the static users file it
+  already reads. A chart identity is a subject for which the generator issues
+  a distinct NATS client certificate. The alias users `serviceradar-flowgger`,
+  `serviceradar-otel` and `serviceradar-netflow-collector`, whose certificate
+  files are copies of another identity's certificate, and the `O=ServiceRadar`
+  user are not chart identities: they are not counted in adoption coverage and
+  never block a leaf install.
 - **Core adopts chart identities from that inventory by itself.** A
   certificate is adopted when it chains to the deployment root, is valid, and
-  its subject is one of the chart's static identities. Core keeps doing this
-  continuously, so a regenerated certificate is adopted as a successor without
-  an operator. Hand adoption remains for clients the chart does not define.
+  its subject is a chart identity. This is the first adoption the existing
+  rotation record lacks; it complements that record and does not replace it.
+  Core keeps reconciling, so a chart certificate that the rotation record did
+  not adopt is still adopted without an operator. Hand adoption remains,
+  unchanged, for clients the chart does not define.
 - **The chart owns the callout signing keys.** The generator creates the three
   nkeys once, stores the seeds in a Secret mounted only into core, and writes
   the public half into a configuration fragment the broker includes. Nothing

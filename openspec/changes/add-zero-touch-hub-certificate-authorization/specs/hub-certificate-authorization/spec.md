@@ -1,7 +1,12 @@
 ## ADDED Requirements
 
 ### Requirement: Chart identities are adopted without operator action
-On a chart install, core SHALL adopt the NATS client certificate of every identity the chart defines from a public certificate inventory the chart publishes, and SHALL NOT require an operator to submit those certificates.
+On a chart install, core SHALL adopt the NATS client certificate of every chart identity from a public certificate inventory the chart publishes, and SHALL NOT require an operator to submit those certificates. A chart identity is a subject for which the chart's certificate generator issues a distinct NATS client certificate. A static user whose certificate file is a copy of another identity's certificate (`serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector`) and the `O=ServiceRadar` static user are not chart identities: they SHALL NOT be counted in adoption coverage and SHALL NOT block a leaf install.
+
+#### Scenario: Alias and organization users are not chart identities
+- **WHEN** core reports adoption coverage on a chart install
+- **THEN** `serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector` and `O=ServiceRadar` are neither counted nor listed as not adopted
+- **AND** a leaf install is not stopped on their account
 
 #### Scenario: An install is upgraded to a release with the inventory
 - **WHEN** core starts with the chart's public certificate inventory mounted

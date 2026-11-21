@@ -17,10 +17,23 @@ Facts this design rests on, from the tree at the time of writing:
   regenerates all of them when the layout version changes or a required file
   is missing. Each pod mounts only its own certificate and `root.pem`. Core's
   Role cannot read Secrets or ConfigMaps.
-- Three static identities (`serviceradar-flowgger`, `serviceradar-otel`,
+- When the generator reissues certificates it writes
+  `runtime-cert-rotation.json` (public certificates and the fingerprints they
+  replace, no key material) into the runtime Secret.
+  `ServiceRadar.Edge.RuntimeCertificateRotation` records each reissued
+  certificate as the successor of an adopted predecessor, from the core
+  migrations hook before workloads roll and again on a 30 second reconcile. A
+  certificate whose predecessor was never adopted is skipped.
+- Three static users (`serviceradar-flowgger`, `serviceradar-otel`,
   `serviceradar-netflow-collector`) have no certificate of their own; their
   files are copies of another identity's certificate. One static user,
-  `O=ServiceRadar` with full permissions, matches no chart certificate.
+  `O=ServiceRadar` (publish allow `>` with deny `logs.normalized.>`, subscribe
+  allow `>`), matches no chart-generated certificate.
+
+A chart identity, for this capability, is a subject for which the generator
+issues a distinct NATS client certificate. The three alias users and
+`O=ServiceRadar` are not chart identities: they are not counted in adoption
+coverage and never block the leaf install gate.
 - `edge install leaf` proceeds when the hub authorizer is not connected.
 
 ## Goals / Non-Goals
@@ -37,9 +50,10 @@ Facts this design rests on, from the tree at the time of writing:
 ### Decision 1: The chart publishes its public certificates; core adopts them
 
 The generator writes a ConfigMap, `serviceradar-nats-infrastructure-certs`,
-holding one PEM certificate per chart NATS client certificate. It contains no
-private key and not the CA key. Core mounts it read-only, like the static
-users ConfigMap.
+holding one PEM certificate per chart identity. It contains no private key and
+not the CA key. Core mounts it read-only, like the static users ConfigMap. The
+generator already publishes public certificates this way in
+`runtime-cert-rotation.json`; the inventory follows that precedent.
 
 Core reconciles on the authorizer's existing tick. For each certificate in the
 inventory it adopts the certificate, or records it as a successor of the
@@ -47,7 +61,7 @@ component that already holds that subject, when all of these hold:
 
 - it chains to the deployment `root.pem` that core already mounts;
 - it is within its validity period;
-- its subject equals a static identity in the static users file;
+- its subject is a chart identity with a static user in the static users file;
 - its fingerprint is not revoked.
 
 The stored grant is the static block for that subject, so the record is
@@ -58,9 +72,13 @@ chart subject is already accepted by the broker today through
 `verify_and_map`. Writing the ConfigMap needs the same Kubernetes rights as
 changing the chart's static users. Revocation still wins.
 
-Hand adoption (`POST /managed-components/adopt`) stays for clients the chart
-does not define. It gains the same check that the chain ends at the deployment
-root; today it anchors on the last certificate supplied.
+This provides the first adoption of chart certificates, which the existing
+rotation record cannot: it only records successors of certificates already
+adopted. The inventory complements that record and does not replace it; both
+write through the same successor recording, which is idempotent.
+
+Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
+the chart does not define.
 
 Alternatives considered:
 - A CLI command that reads the runtime Secret and calls adopt per certificate.
@@ -145,21 +163,28 @@ for an existing install is: upgrade to this release with the value off; check
 is turned on first anyway, clients are refused only until core's first
 reconciliation, and they retry.
 
-Certificate regeneration changes every fingerprint. The inventory changes in
-the same generator run, and core adopts the successors on its next tick.
-Until then clients presenting new certificates are refused and retry; the
-window is bounded by the authorizer's reconcile and policy refresh intervals
-(10 and 30 seconds today).
+Certificate regeneration changes every fingerprint. A certificate that was
+already adopted has its successor recorded by
+`ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
+before workloads roll onto it, so its client is not refused. The inventory
+changes in the same generator run and adopts any chart certificate that record
+did not, on the authorizer's next tick. Only such a certificate is refused
+until then, and its client retries; the window is bounded by the authorizer's
+10 second tick (the rotation reconciler separately runs every 30 seconds).
 
 ## Risks / Trade-offs
 
 - **Availability dependency on core** when enforcement is on. Stated in
   Decision 4. Established sessions are not affected by a core restart;
   connections and reconnections made during it wait.
-- **The static user `O=ServiceRadar`** has full permissions and no chart
-  certificate. With enforcement on, a certificate with that subject would not
-  be in the inventory and would be refused. Task 1.2 finds its holder before
-  any behaviour changes; the outcome may be to delete it.
+- **The static user `O=ServiceRadar`** (publish allow `>` with deny
+  `logs.normalized.>`, subscribe allow `>`) is not a chart identity: no
+  chart-generated certificate carries that subject. A broker experiment on the
+  chart configuration showed that only a certificate whose whole subject is
+  exactly `O=ServiceRadar` maps to it; other unlisted subjects are refused.
+  With enforcement on, such a certificate would not be in the inventory and
+  would be refused. Task 1.2 checks live deployments for a holder before any
+  behaviour changes, then removes the user or documents it.
 - **Included broker configuration** is a new shape for the NATS pod. Covered
   by a broker test that boots nats-server from the rendered files, as the
   existing chart permission tests do.
