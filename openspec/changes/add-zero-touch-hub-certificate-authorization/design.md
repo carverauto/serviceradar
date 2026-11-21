@@ -72,15 +72,23 @@ inventory is checked first:
 - its subject is a chart identity with a static user in the static users file;
 - its fingerprint is not revoked.
 
-A certificate that passes is then written in one of two ways:
+A certificate that passes is then written in exactly one of two ways:
 
-- **Adopt.** When no component holds the subject, core adopts the certificate:
-  it creates the component with the static grant for that subject.
-- **Record a successor.** When a component already holds the subject and has
-  an adopted predecessor, core records the certificate as that component's
-  successor.
+- **Write A, first adoption.** When no component holds the subject, core
+  creates the component with the static grant for that subject and records
+  the certificate.
+- **Write B, successor.** When a component already holds the subject, core
+  records the certificate as that component's successor only under the
+  conditions `record_rotated_infrastructure_successor` applies today: the
+  predecessor is the component's current certificate, is not revoked, and
+  names the same issuer. When those conditions fail (predecessor revoked,
+  superseded, or from another issuer), core records nothing, reports the
+  reason against that subject in chart identity coverage, and never creates a
+  second component or falls back to write A.
 
-A certificate already recorded for its component needs no write.
+A certificate already recorded for its component needs no write. A subject
+whose certificate was revoked therefore stays refused until an operator acts,
+as today.
 
 The stored grant is the static block for that subject. It is only the
 per-fingerprint record: admission of a chart identity still uses the static
@@ -96,7 +104,8 @@ rotation record cannot: it only records successors of certificates already
 adopted, and skips the rest. The inventory complements that record and does
 not replace it. The rotation record keeps handling replacements of
 already-adopted certificates before workloads roll; the inventory performs
-first adoption and also covers a rotation the rotation record skipped.
+first adoption (write A) and, for a rotation the rotation record did not
+reach, the same successor write under the same conditions (write B).
 
 Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
 the chart does not define.
@@ -211,16 +220,23 @@ Certificate regeneration changes every fingerprint. A certificate that was
 already adopted has its successor recorded by
 `ServiceRadar.Edge.RuntimeCertificateRotation` from the core migrations hook
 before workloads roll onto it, so its client is not refused. The inventory
-changes in the same generator run and adopts any chart certificate that record
-did not, on the authorizer's next tick. Only such a certificate is refused
-until then, and its client retries; the window is bounded by the authorizer's
-10 second tick (the rotation reconciler separately runs every 30 seconds).
+changes in the same generator run; on the authorizer's next tick core applies
+write A to a subject no component holds, and write B under the same
+conditions to a replacement the rotation record has not yet recorded. Only
+such a certificate is refused until then, and its client retries; the window
+is bounded by the authorizer's 10 second tick (the rotation reconciler
+separately runs every 30 seconds). A replacement whose predecessor was
+revoked or superseded is never recorded by either path.
 
 ## Risks / Trade-offs
 
 - **Availability dependency on core** when enforcement is on. Stated in
   Decision 4. Established sessions are not affected by a core restart;
   connections and reconnections made during it wait.
+- **Regeneration does not undo a revocation.** If a chart identity's
+  certificate was revoked, its regenerated replacement is not recorded by the
+  rotation record or the inventory, and the subject is reported with the
+  revocation reason. Its client stays refused until an operator acts.
 - **The static user `O=ServiceRadar`** (publish allow `>` with deny
   `logs.normalized.>`, subscribe allow `>`) is not a chart identity: no
   chart-generated certificate carries that subject. A broker experiment on the

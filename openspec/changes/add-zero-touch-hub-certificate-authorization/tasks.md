@@ -12,10 +12,11 @@
 - [ ] 2.6 Render a setting for core, from `nats.leafnodes.enabled` together with enforcement, that says the hub broker has the leafnodes listener; a chart test covers each combination.
 
 ## 3. Core
-- [ ] 3.1 Reconcile chart identities from the inventory: verify chain, validity, subject and revocation; adopt (create the component with the static grant) when no component holds the subject; record a successor when a component holds it with an adopted predecessor.
-- [ ] 3.2 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
-- [ ] 3.3 Report hub readiness from core (enforcement, chart identity coverage, leaf listener).
-- [ ] 3.4 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
+- [ ] 3.1 Reconcile chart identities from the inventory: verify chain, validity, subject and revocation; write A (create the component with the static grant and record the certificate) when no component holds the subject; write B (record a successor) when a component holds it, only under the conditions `record_rotated_infrastructure_successor` applies (current, unrevoked predecessor, same issuer); otherwise record nothing and report the reason, never falling back to write A.
+- [ ] 3.2 A test revokes a chart identity's certificate, regenerates it, and shows the replacement is not recorded, no second component exists, and the subject is reported with the revocation reason.
+- [ ] 3.3 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
+- [ ] 3.4 Report hub readiness from core (enforcement, chart identity coverage, leaf listener).
+- [ ] 3.5 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
 
 ## 4. CLI
 - [ ] 4.1 `edge hub status`.

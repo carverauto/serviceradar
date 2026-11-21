@@ -9,15 +9,25 @@ On a chart install, core SHALL adopt the NATS client certificate of every chart 
 - **AND** a leaf install is not stopped on their account
 
 #### Scenario: An install is upgraded to a release with the inventory
-- **WHEN** core starts with the chart's public certificate inventory mounted
-- **THEN** each inventory certificate that chains to the deployment root, is valid, is not revoked and carries a chart identity's subject is recorded as adopted
+- **WHEN** core starts with the chart's public certificate inventory mounted, no component holds a chart identity's subject, and the inventory holds a certificate for it that chains to the deployment root, is valid, and is not revoked
+- **THEN** core creates the component with the static grant for that subject and records the certificate
 - **AND** no administrator API call was made
 
 #### Scenario: Certificates are regenerated
 - **WHEN** the chart regenerates its certificates and the inventory changes
-- **THEN** core records each new certificate whose subject is held by a component with an adopted predecessor as that component's successor
-- **AND** core adopts each new certificate whose subject no component holds, creating the component with the static grant for that subject
-- **AND** the client presenting it is admitted without operator action
+- **THEN** for each new certificate whose subject a component holds, core records it as that component's successor only when the predecessor is the component's current certificate, is not revoked, and names the same issuer
+- **AND** for each new certificate whose subject no component holds, core creates the component with the static grant for that subject and records the certificate
+- **AND** once the static users file has been read, the client presenting a recorded certificate is admitted without operator action
+- **AND** while the static users file is missing or unread, the chart identity is still refused
+
+#### Scenario: A revoked chart identity is regenerated
+- **WHEN** a chart identity's certificate was revoked and the chart then regenerates a replacement for that subject
+- **THEN** core does not record the replacement, does not create a second component for the subject, and reports the subject in chart identity coverage with the revocation reason
+- **AND** the client presenting the replacement stays refused until an operator acts
+
+#### Scenario: A successor cannot be recorded
+- **WHEN** a component holds the subject of an inventory certificate and its predecessor is superseded or names another issuer
+- **THEN** core records nothing for that certificate and reports the reason against the subject
 
 #### Scenario: A certificate does not belong to the install
 - **WHEN** the inventory contains a certificate that does not chain to the deployment root or whose subject is not a chart identity
