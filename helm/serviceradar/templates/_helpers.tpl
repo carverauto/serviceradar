@@ -242,6 +242,12 @@ Secret: every chart identity's certificate is then guaranteed to be in it.
 {{- ternary "true" "false" (and $enabled (ne "true" (include "serviceradar.hostedRuntimeEnabled" .))) -}}
 {{- end -}}
 
+{{- define "serviceradar.coreProjectsFixedNatsInventory" -}}
+{{- if and (dig "enabled" true (default dict .Values.core)) (dig "enabled" true (default dict .Values.nats)) -}}
+{{- include "serviceradar.runtimeCertGeneratorOwned" . -}}
+{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{/*
 The public certificate files core is given for first adoption of the chart's
 NATS client identities (ServiceRadar.Edge.ChartIdentityInventory), as a JSON
@@ -256,7 +262,7 @@ missing, and core must start whatever a supplier's Secret holds.
 {{- $allowed = append $allowed .file -}}
 {{- end -}}
 {{- $files := $allowed -}}
-{{- if ne "true" (include "serviceradar.runtimeCertGeneratorOwned" .) -}}
+{{- if ne "true" (include "serviceradar.coreProjectsFixedNatsInventory" .) -}}
 {{- $files = default list (get (default dict .Values.certs) "inventoryCertificates") -}}
 {{- range $files -}}
 {{- if not (has . $allowed) -}}

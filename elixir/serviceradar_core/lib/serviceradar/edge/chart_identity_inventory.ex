@@ -93,7 +93,10 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
           attempt(subject, Map.get(listed, subject, []), grants, legacy, inputs.partition_id)
         end)
 
-      with {:ok, authorized} <- authorized_fingerprints(listed) do
+      fingerprints =
+        for {_subject, certificates} <- listed, cert <- certificates, do: cert.fingerprint
+
+      with {:ok, authorized} <- Authority.authorized_fingerprints(fingerprints) do
         identities = Enum.map(attempts, &cover(&1, authorized))
         {:ok, %{identities: identities, unlisted: unlisted, legacy_certificates: legacy}}
       end
@@ -382,13 +385,5 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     ComponentCertificate
     |> Ash.Query.filter(subject == ^subject)
     |> Ash.exists?(system())
-  end
-
-  defp authorized_fingerprints(listed) when map_size(listed) == 0, do: {:ok, MapSet.new()}
-
-  defp authorized_fingerprints(_listed) do
-    with {:ok, snapshot} <- Authority.snapshot() do
-      {:ok, MapSet.new(snapshot.allowed_fingerprints)}
-    end
   end
 end

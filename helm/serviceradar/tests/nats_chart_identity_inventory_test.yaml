@@ -234,3 +234,37 @@ tests:
             - falcosidekick.pem
             - trivy-sidecar.pem
             - k8s-inventory.pem
+
+  - it: keeps the previous generator requirements with external NATS
+    template: templates/cert-generator-job.yaml
+    set:
+      nats.enabled: false
+    documentSelector:
+      path: kind
+      value: Job
+    asserts: &previousGeneratorRequirements
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - root.pem
+            - root-key.pem
+            - tools-key.pem
+            - falcosidekick-key.pem
+            - trivy-sidecar-key.pem
+            - k8s-inventory-key.pem
+            - runtime-cert-layout-version
+            - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-chain.pem"
+            - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-key.pem"
+            - tools.pem
+            - falcosidekick.pem
+            - trivy-sidecar.pem
+            - k8s-inventory.pem
+
+  - it: keeps the previous generator requirements with core disabled
+    template: templates/cert-generator-job.yaml
+    set:
+      core.enabled: false
+    documentSelector:
+      path: kind
+      value: Job
+    asserts: *previousGeneratorRequirements

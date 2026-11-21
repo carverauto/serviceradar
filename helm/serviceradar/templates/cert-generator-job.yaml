@@ -243,8 +243,15 @@ spec:
         - runtime-cert-layout-version
         - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-chain.pem"
         - "$(DEFAULT_AGENT_COMPONENT_ID)-$(DEFAULT_PARTITION_ID)-key.pem"
+        {{- $baselineCerts := list "tools.pem" "falcosidekick.pem" "trivy-sidecar.pem" "k8s-inventory.pem" }}
+        {{- $projectedCerts := list }}
+        {{- if eq "true" (include "serviceradar.coreProjectsFixedNatsInventory" .) }}
         {{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
-        - {{ .file | quote }}
+        {{- $projectedCerts = append $projectedCerts .file }}
+        {{- end }}
+        {{- end }}
+        {{- range concat $projectedCerts $baselineCerts | uniq }}
+        - {{ . | quote }}
         {{- end }}
         volumeMounts:
         - name: tmp
