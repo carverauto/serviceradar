@@ -9,6 +9,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualWorkerReadGrants
+  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+  alias ServiceRadar.EventWriter.TransientMessageError
   alias ServiceRadar.Storage.StorageEntitlement
   alias ServiceRadar.Storage.StorageEntitlements
 
@@ -816,6 +818,35 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   # ---------------------------------------------------------------------------
   # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
   # ---------------------------------------------------------------------------
+
+  describe "visual index result consumer transient failures" do
+    test "a failed or raising result is redelivered without failing the rest of its batch" do
+      stored = result_message("stored")
+      failed = result_message("failed")
+      raised = result_message("raised")
+
+      ingest = fn
+        "stored" -> {:ok, %{status: :ingested}}
+        "failed" -> {:error, :db_unavailable}
+        "raised" -> raise "connection dropped"
+      end
+
+      assert {:incomplete, 1,
+              [
+                {^failed, %TransientMessageError{reason: :db_unavailable}},
+                {^raised, %TransientMessageError{reason: %RuntimeError{}}}
+              ]} =
+               CameraVisualIndexResults.process_batch([stored, failed, raised], ingest: ingest)
+    end
+  end
+
+  defp result_message(data) do
+    %Broadway.Message{
+      data: data,
+      metadata: %{subject: "media.results.visual_index.v1"},
+      acknowledger: Broadway.NoopAcknowledger.init()
+    }
+  end
 
   defp policy_loaders(entitlement, existing_policies) do
     %{

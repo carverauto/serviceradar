@@ -49,8 +49,29 @@ defmodule ServiceRadar.Jobs.CoreCrontabTest do
            end)
   end
 
-  defp entries do
-    Enum.map(CoreCrontab.cron_entries(fn _name, default -> default end), fn
+  test "relays visual index jobs each minute only where recording and visual indexing are enabled" do
+    relay = {"* * * * *", ServiceRadar.Camera.VisualIndexDispatchWorker, [queue: :maintenance]}
+
+    for {recording, indexing, scheduled?} <- [
+          {"true", "true", true},
+          {"true", nil, false},
+          {nil, "true", false},
+          {"true", "false", false}
+        ] do
+      env = %{
+        "SERVICERADAR_CAMERA_RECORDING_ENABLED" => recording,
+        "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" => indexing
+      }
+
+      fetch = fn name, default -> Map.get(env, name) || default end
+
+      assert relay in entries(fetch) == scheduled?,
+             "recording=#{inspect(recording)} indexing=#{inspect(indexing)}"
+    end
+  end
+
+  defp entries(fetch \\ fn _name, default -> default end) do
+    Enum.map(CoreCrontab.cron_entries(fetch), fn
       {expr, worker} -> {expr, worker, []}
       {expr, worker, opts} -> {expr, worker, opts}
     end)

@@ -23,7 +23,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   alias ServiceRadar.Camera.VisualEmbedding
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Camera.VisualIndexJob
-  alias ServiceRadar.JSONDocument
 
   require Ash.Query
 
@@ -61,10 +60,13 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   @spec ingest_result(binary() | map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_result(envelope, opts \\ [])
 
-  def ingest_result(raw_json, opts) when is_binary(raw_json) and is_list(opts) do
-    case JSONDocument.decode_object(raw_json, @max_envelope_bytes) do
-      {:ok, map} -> ingest_result(map, opts)
-      {:error, _} -> {:error, :invalid_result_envelope}
+  # A result is an object of arrays (frames, detections, embeddings, vectors),
+  # so it is decoded as plain JSON rather than as an array-free JSONDocument.
+  def ingest_result(raw_json, opts)
+      when is_binary(raw_json) and byte_size(raw_json) <= @max_envelope_bytes and is_list(opts) do
+    case Jason.decode(raw_json) do
+      {:ok, map} when is_map(map) -> ingest_result(map, opts)
+      _ -> {:error, :invalid_result_envelope}
     end
   end
 
@@ -384,7 +386,16 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       execute_projection(parsed, now)
     end)
     |> unwrap_transaction()
+    |> cancel_jobs_when_gone(parsed.catalog_entry_id)
   end
+
+  # The aborted projection rolls back, so the entry's jobs are cancelled after it.
+  defp cancel_jobs_when_gone({:error, :recording_gone} = gone, entry_id) do
+    cancel_jobs_for_entry(entry_id)
+    gone
+  end
+
+  defp cancel_jobs_when_gone(result, _entry_id), do: result
 
   defp execute_projection(parsed, now) do
     entry_id = parsed.catalog_entry_id
@@ -400,7 +411,6 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
         abort_tx(:recording_gone)
 
       not RecordingCatalogEntry.playable?(entry) ->
-        cancel_jobs_for_entry(entry.id)
         abort_tx(:recording_gone)
 
       entry.descriptor_sha256 != parsed.descriptor_sha256 ->

@@ -2,6 +2,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ash.Error.Forbidden
+  alias Broadway.Message
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveDestinations
@@ -30,6 +31,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+  alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadar.TestSupport
@@ -790,9 +793,246 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              |> Ash.count!(actor: actor)
   end
 
+  describe "scheduled outbox relay" do
+    test "publishes a pending job once and marks it dispatched only after the PubAck",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_relay_test)
+      {cam, prof} = create_camera_and_profile(actor, "Relay Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_002_000_000_000, actor)
+      job = job_for(entry, actor)
+      test_pid = self()
+
+      publisher = fn subject, payload, opts ->
+        published = Jason.decode!(payload)
+
+        if published["job_id"] == to_string(job.id) do
+          # Still pending while the publish is in flight.
+          send(test_pid, {:published, subject, opts[:msg_id], reload(job, actor).state})
+        end
+
+        :ok
+      end
+
+      assert {:ok, _summary} = VisualIndexDispatcher.relay(publisher: publisher)
+      assert_received {:published, "media.jobs.visual_index.v1", msg_id, :pending}
+      assert msg_id == "visual-index:#{job.id}"
+
+      dispatched = reload(job, actor)
+      assert dispatched.state == :dispatched
+      assert dispatched.attempt_count == 1
+
+      assert {:ok, _summary} = VisualIndexDispatcher.relay(publisher: publisher)
+      refute_received {:published, _subject, _msg_id, _state}
+      assert reload(job, actor).attempt_count == 1
+    end
+
+    test "a publish the stream does not acknowledge leaves the jobs pending and stops the pass",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_relay_unacked_test)
+      {cam_a, prof_a} = create_camera_and_profile(actor, "Unacked Camera A")
+      {cam_b, prof_b} = create_camera_and_profile(actor, "Unacked Camera B")
+      entry_a = create_indexed_playable_entry(cam_a, prof_a, 1_750_003_000_000_000, actor)
+      entry_b = create_indexed_playable_entry(cam_b, prof_b, 1_750_003_000_000_000, actor)
+      jobs = [job_for(entry_a, actor), job_for(entry_b, actor)]
+      test_pid = self()
+
+      publisher = fn _subject, _payload, _opts ->
+        send(test_pid, :publish_attempted)
+        {:error, :timeout}
+      end
+
+      assert {:ok, %{publish_error: :timeout, dispatched_count: 0}} =
+               VisualIndexDispatcher.dispatch_pending_jobs(publisher: publisher)
+
+      assert_received :publish_attempted
+      refute_received :publish_attempted
+
+      for job <- jobs do
+        assert %{state: :pending, attempt_count: 0} = reload(job, actor)
+      end
+    end
+
+    test "two relays that read the same job advance it once under one message id",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_relay_race_test)
+      {cam, prof} = create_camera_and_profile(actor, "Concurrent Relay Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_004_000_000_000, actor)
+      read_by_both = job_for(entry, actor)
+      test_pid = self()
+
+      publisher = fn _subject, _payload, opts ->
+        send(test_pid, {:msg_id, opts[:msg_id]})
+        :ok
+      end
+
+      assert {:ok, %{state: :dispatched, attempt_count: 1}} =
+               VisualIndexDispatcher.dispatch_job(read_by_both, publisher: publisher)
+
+      assert {:error, :dispatch_superseded} =
+               VisualIndexDispatcher.dispatch_job(read_by_both, publisher: publisher)
+
+      expected = "visual-index:#{read_by_both.id}"
+      assert_received {:msg_id, ^expected}
+      assert_received {:msg_id, ^expected}
+      assert %{state: :dispatched, attempt_count: 1} = reload(read_by_both, actor)
+    end
+
+    test "a dispatched job is re-published only once the jobs stream can no longer hold it",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_relay_expiry_test)
+      {cam, prof} = create_camera_and_profile(actor, "Backlogged Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_005_000_000_000, actor)
+      job = job_for(entry, actor)
+      dispatched_at = ~U[2026-11-20 08:00:00.000000Z]
+      test_pid = self()
+
+      publisher = fn _subject, payload, opts ->
+        if Jason.decode!(payload)["job_id"] == to_string(job.id),
+          do: send(test_pid, {:published, opts[:msg_id]})
+
+        :ok
+      end
+
+      assert {:ok, %{state: :dispatched}} =
+               VisualIndexDispatcher.dispatch_job(job, publisher: publisher, now: dispatched_at)
+
+      assert_received {:published, _first}
+
+      # Still queued behind a worker backlog five minutes later.
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 publisher: publisher,
+                 now: DateTime.shift(dispatched_at, minute: 5)
+               )
+
+      refute_received {:published, _}
+      assert reload(job, actor).attempt_count == 1
+
+      # Past the stream's 72-hour retention the message cannot be queued any more.
+      assert {:ok, _} =
+               VisualIndexDispatcher.reconcile_expired_dispatched_jobs(
+                 publisher: publisher,
+                 now: DateTime.shift(dispatched_at, second: 72 * 3_600 + 1)
+               )
+
+      retry_msg_id = "visual-index:#{job.id}:2"
+      assert_received {:published, ^retry_msg_id}
+      assert %{state: :dispatched, attempt_count: 2} = reload(job, actor)
+    end
+  end
+
+  describe "visual index result consumer" do
+    test "stores a result and acknowledges it and its replay",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_consumer_test)
+      {cam, prof} = create_camera_and_profile(actor, "Result Consumer Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_006_000_000_000, actor)
+      job = job_for(entry, actor)
+
+      message =
+        entry
+        |> build_single_crop_envelope(basis_vector(768, 3))
+        |> Map.put("job_id", to_string(job.id))
+        |> result_message()
+
+      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert reload(job, actor).state == :completed
+      counts = projection_counts(entry, actor)
+      assert counts == {1, 1}
+
+      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert projection_counts(entry, actor) == counts
+    end
+
+    test "acknowledges a result whose recording is gone and cancels its job",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_consumer_gone_test)
+      {cam, prof} = create_camera_and_profile(actor, "Lost Copy Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_007_000_000_000, actor)
+      job = job_for(entry, actor)
+
+      # The only copy went missing while the worker ran; nothing purges on this state.
+      {:ok, _} =
+        SQL.query(
+          Repo,
+          "UPDATE platform.camera_recording_catalog SET local_state = 'missing' WHERE id = $1",
+          [Ecto.UUID.dump!(entry.id)]
+        )
+
+      message =
+        entry
+        |> build_single_crop_envelope(basis_vector(768, 4))
+        |> Map.put("job_id", to_string(job.id))
+        |> result_message()
+
+      assert {:ok, 1} = CameraVisualIndexResults.process_batch([message])
+      assert %{state: :cancelled} = reload(job, actor)
+      assert projection_counts(entry, actor) == {0, 0}
+    end
+
+    test "terminates a result that can never be stored and fails its job",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:semantic_consumer_poison_test)
+      {cam, prof} = create_camera_and_profile(actor, "Poison Result Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_008_000_000_000, actor)
+      job = job_for(entry, actor)
+
+      message =
+        entry
+        |> build_single_crop_envelope(basis_vector(768, 5))
+        |> Map.merge(%{
+          "job_id" => to_string(job.id),
+          "descriptor_sha256" => String.duplicate("ab", 32)
+        })
+        |> result_message()
+
+      assert {:incomplete, 0,
+              [{^message, %TerminalMessageError{reason: :descriptor_sha256_mismatch}}]} =
+               CameraVisualIndexResults.process_batch([message])
+
+      assert %{state: :failed_terminal, last_error_class: "descriptor_sha256_mismatch"} =
+               reload(job, actor)
+
+      assert projection_counts(entry, actor) == {0, 0}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Synthetic DB test helpers
   # ---------------------------------------------------------------------------
+
+  defp job_for(entry, actor) do
+    [job] =
+      VisualIndexJob
+      |> Ash.Query.filter(catalog_entry_id == ^entry.id)
+      |> Ash.read!(actor: actor)
+
+    job
+  end
+
+  defp reload(job, actor), do: VisualIndexJob.get_by_id!(job.id, actor: actor)
+
+  defp result_message(envelope) do
+    %Message{
+      data: Jason.encode!(envelope),
+      metadata: %{subject: "media.results.visual_index.v1"},
+      acknowledger: Broadway.NoopAcknowledger.init()
+    }
+  end
+
+  defp projection_counts(entry, actor) do
+    {VisualFrame |> Ash.Query.filter(catalog_entry_id == ^entry.id) |> Ash.count!(actor: actor),
+     VisualEmbedding
+     |> Ash.Query.filter(catalog_entry_id == ^entry.id)
+     |> Ash.count!(actor: actor)}
+  end
 
   defp create_camera_and_profile(actor, display_name) do
     uid = Ecto.UUID.generate()

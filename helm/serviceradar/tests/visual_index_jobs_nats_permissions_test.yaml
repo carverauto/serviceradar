@@ -1,0 +1,27 @@
+suite: visual index job NATS permissions
+templates:
+  - templates/nats.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: lets core publish live and backfill visual index jobs
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-core,[^"]+"\s+permissions: \{\s+publish: \{\s+allow: \[[^\]]*"media\.jobs\.visual_index\.v1",\s+"media\.jobs\.visual_index\.backfill\.v1",[^\]]*\]'
+
+  # Core's certificate authorization callout grants an adopted core
+  # certificate the block in this ConfigMap, not the broker's static config.
+  - it: grants core the visual index job subjects through the authorization callout list
+    template: templates/nats.yaml
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-nats-static-users
+    asserts:
+      - matchRegex:
+          path: data["static-users.yaml"]
+          pattern: '(?m)^- publish:\n    allow:\n(?: .*\n)*    - media\.jobs\.visual_index\.v1\n    - media\.jobs\.visual_index\.backfill\.v1\n(?: .*\n)*  user: CN=serviceradar-core,'

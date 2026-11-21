@@ -7,6 +7,8 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   """
 
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
+  alias ServiceRadar.EventWriter.TerminalMessageError
+  alias ServiceRadar.EventWriter.TransientMessageError
 
   @retention_warning_byte_ratio 0.75
   @retention_critical_byte_ratio 0.90
@@ -105,6 +107,10 @@ defmodule ServiceRadar.EventWriter.Telemetry do
     |> EdgeRecordRefusedError.normalize_reason()
     |> failure_class()
   end
+
+  def failure_class(%struct{reason: reason})
+      when struct in [TerminalMessageError, TransientMessageError],
+      do: failure_class(reason)
 
   def failure_class(reason) when is_atom(reason), do: Atom.to_string(reason)
   def failure_class(%_{} = reason), do: reason.__struct__ |> Module.split() |> List.last()
