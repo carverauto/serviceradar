@@ -2,9 +2,10 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   @moduledoc """
   Durable authority for managed component certificates.
 
-  Mutations serialize on the component row. Issuance records are immutable;
-  re-enrollment advances the component generation, so old certificates cannot
-  regain access. Recording a successor does not retire its predecessor.
+  Mutations serialize on the component row. A replay can fill a missing
+  subject from the same certificate. Re-enrollment advances the component
+  generation, so old certificates cannot regain access. Recording a successor
+  does not retire its predecessor.
 
   Snapshot expiry is a receiver authorization lease, not certificate expiry or
   spool retention. Receivers must refresh before `valid_until` and close affected
@@ -85,7 +86,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
 
       if changeset.valid? do
         fn ->
-          with {:ok, component} <- create_infrastructure(prepared.component, opts),
+          with {:ok, component} <- adoption_component(prepared, opts),
                {:ok, certificate} <-
                  bound_issuance(component.component_id, changeset, issuance_opts) do
             {:ok, %{component: component, certificate: certificate}}
@@ -179,13 +180,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
 
   @doc "Records an issued certificate, with mandatory expected_generation and host_agent_id binding."
   def record_issuance(component_id, metadata, opts \\ []) do
-    changeset =
-      Ash.Changeset.for_create(
-        ComponentCertificate,
-        :record_issuance,
-        Map.put(metadata, :component_id, component_id),
-        opts
-      )
+    attrs = metadata |> Map.drop([:subject, "subject"]) |> Map.put(:component_id, component_id)
+
+    changeset = Ash.Changeset.for_create(ComponentCertificate, :record_issuance, attrs, opts)
 
     if changeset.valid? do
       fn -> bound_issuance(component_id, changeset, opts) end
@@ -454,9 +451,11 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
         Ash.create(changeset, opts)
 
       {:ok, certificate} ->
-        if same_certificate?(certificate, changeset),
-          do: reuse_certificate(certificate, opts),
-          else: {:error, :certificate_metadata_conflict}
+        if same_certificate?(certificate, changeset) do
+          reuse_certificate(certificate, Ash.Changeset.get_attribute(changeset, :subject), opts)
+        else
+          {:error, :certificate_metadata_conflict}
+        end
 
       error ->
         error
@@ -474,26 +473,41 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     end)
   end
 
-  defp reuse_certificate(certificate, opts) do
-    query =
-      RevokedComponentCertificate
-      |> Ash.Query.filter(
-        component_id == ^certificate.component_id and generation == ^certificate.generation and
-          (is_nil(fingerprint) or fingerprint == ^certificate.fingerprint)
-      )
-      |> Ash.Query.limit(1)
-
-    case Ash.read_one(query, opts) do
-      {:ok, nil} -> {:ok, certificate}
-      {:ok, _} -> {:error, :certificate_revoked}
-      error -> error
+  defp reuse_certificate(certificate, subject, opts) do
+    with :ok <- unrevoked(certificate, opts) do
+      if is_nil(certificate.subject) and is_binary(subject) do
+        certificate
+        |> Ash.Changeset.for_update(:fill_subject, %{subject: subject}, opts)
+        |> Ash.update(opts)
+      else
+        {:ok, certificate}
+      end
     end
   end
 
-  defp create_infrastructure(attrs, opts) do
-    ManagedComponent
-    |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
-    |> Ash.create(opts)
+  defp adoption_component(%{component: attrs, issuance: issuance}, opts) do
+    case find_certificate(issuance.fingerprint, opts) do
+      {:error, :unknown_certificate} ->
+        ManagedComponent
+        |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
+        |> Ash.create(opts)
+
+      {:ok, %{component_id: id}} when id == attrs.component_id ->
+        with {:ok, component} <- lock_component(id, opts) do
+          if component.component_type == attrs.component_type and
+               component.partition_id == attrs.partition_id and
+               component.server_hosts == attrs.server_hosts and
+               component.nats_permissions == attrs.permissions,
+             do: {:ok, component},
+             else: {:error, :certificate_metadata_conflict}
+        end
+
+      {:ok, _} ->
+        {:error, :certificate_metadata_conflict}
+
+      error ->
+        error
+    end
   end
 
   defp infrastructure_successor(%{blocked: true}), do: {:error, :issuance_binding_unavailable}
@@ -532,7 +546,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       {:ok, %{component_id: component_id} = certificate}
       when component_id == component.component_id ->
         if certificate.generation == component.generation,
-          do: reuse_certificate(certificate, issuance_opts),
+          do: reuse_certificate(certificate, issuance.subject, issuance_opts),
           else: {:error, :stale_generation}
 
       {:ok, _other_component} ->
@@ -558,16 +572,16 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
         {:error, :untrusted_issuer}
 
       true ->
-        unrevoked(component, predecessor.fingerprint, opts)
+        unrevoked(predecessor, opts)
     end
   end
 
-  defp unrevoked(component, certificate_fingerprint, opts) do
+  defp unrevoked(certificate, opts) do
     query =
       RevokedComponentCertificate
       |> Ash.Query.filter(
-        component_id == ^component.component_id and generation == ^component.generation and
-          (is_nil(fingerprint) or fingerprint == ^certificate_fingerprint)
+        component_id == ^certificate.component_id and generation == ^certificate.generation and
+          (is_nil(fingerprint) or fingerprint == ^certificate.fingerprint)
       )
       |> Ash.Query.limit(1)
 

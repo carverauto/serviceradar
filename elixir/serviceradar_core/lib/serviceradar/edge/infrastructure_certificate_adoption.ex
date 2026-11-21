@@ -207,12 +207,11 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
 
     with {:ok, not_before} <- asn1_time(not_before),
          {:ok, not_after} <- asn1_time(not_after),
-         serial when is_integer(serial) <- elem(tbs, 2),
-         {:ok, subject} <- StaticIdentityGrants.certificate_subject(der) do
+         serial when is_integer(serial) <- elem(tbs, 2) do
       {:ok,
        %{
          fingerprint: fingerprint(der),
-         subject: subject,
+         subject: stored_subject(der, elem(tbs, 6)),
          serial_number: serial |> Integer.to_string(16) |> String.downcase(),
          not_before: not_before,
          not_after: not_after,
@@ -223,6 +222,13 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
     end
   rescue
     _ -> {:error, :invalid_certificate}
+  end
+
+  defp stored_subject(der, name) do
+    case StaticIdentityGrants.certificate_subject(der) do
+      {:ok, subject} -> subject
+      :error -> "#" <> Base.encode16(:public_key.der_encode(:Name, name), case: :lower)
+    end
   end
 
   defp current?(fields) do

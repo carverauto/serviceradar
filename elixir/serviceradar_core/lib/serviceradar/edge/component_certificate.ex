@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Edge.ComponentCertificate do
   @moduledoc """
-  Immutable public metadata for a certificate authorized by one issuance generation.
+  Public metadata for a certificate authorized by one issuance generation.
+  Issuance metadata is immutable except that the subject of a certificate
+  recorded before subjects were stored may be filled in once.
   Private keys never enter this resource. The full certificate fingerprint is the
   identity; serial numbers are display metadata and are not revocation selectors.
   """
@@ -43,6 +45,12 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
       validate attribute_in(:role, ["client", "upstream_client", "local_server"])
       validate compare(:not_after, greater_than: :not_before)
     end
+
+    update :fill_subject do
+      accept [:subject]
+      require_attributes [:subject]
+      validate changing(:subject, from: nil)
+    end
   end
 
   policies do
@@ -82,10 +90,10 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
       constraints trim?: false, allow_empty?: true
 
       description """
-      The certificate's subject, as `ServiceRadar.NATS.StaticIdentityGrants.certificate_subject/1`
-      writes it. Recorded for infrastructure certificates, so an identity can be
-      looked up by subject. Nil on a certificate recorded before the subject was
-      stored, and on a host-enrolled component's certificate.
+      The canonical infrastructure certificate subject. If the static identity
+      matcher cannot read the name, this holds '#' followed by the lowercase
+      hex of the DER-encoded subject Name. Nil until a legacy certificate is
+      presented again, and on host-enrolled certificates.
       """
     end
 

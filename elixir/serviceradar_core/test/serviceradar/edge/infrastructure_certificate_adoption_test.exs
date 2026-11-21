@@ -32,6 +32,18 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     assert DateTime.after?(prepared.issuance.not_after, prepared.issuance.not_before)
   end
 
+  test "records the DER Name when the matcher cannot read a BMPString common name" do
+    %{cert: root, key: key} = :public_key.pkix_test_root_cert(~c"example-root", [])
+    {:OTPCertificate, tbs, _, _} = :public_key.pkix_decode_cert(root, :otp)
+    cn = {:AttributeTypeAndValue, {2, 5, 4, 3}, {:bmpString, [{0, 0, 1, 65}]}}
+    name = {:rdnSequence, [[cn]]}
+    der = tbs |> put_elem(4, name) |> put_elem(6, name) |> :public_key.pkix_sign(key)
+    pem = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+
+    assert {:ok, prepared} = Adoption.prepare(attrs(pem, empty_subscribe()))
+    assert prepared.issuance.subject == "#300d310b300906035504031e020141"
+  end
+
   test "keeps an explicit allow and uses the issuer certificate that signed the leaf" do
     %{leaf: leaf, issuer: issuer, pem: pem} = signed_chain()
 

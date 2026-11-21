@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.InfrastructureCertificateAdoption
   alias ServiceRadar.Edge.ManagedCertificatePolicyKey
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
@@ -347,6 +348,12 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert certificate.generation == 1
     assert "CN=example-gateway" in String.split(certificate.subject, ",")
 
+    assert {:ok, %{certificate: replay}} =
+             Authority.adopt_existing_certificate(attrs, actor: operator)
+
+    assert replay.subject == certificate.subject
+    assert replay.issued_at == certificate.issued_at
+
     assert {:ok, snapshot} = Authority.snapshot()
     assert certificate.fingerprint in snapshot.allowed_fingerprints
     assert snapshot.nats_permissions[certificate.fingerprint][:subscribe] == [">"]
@@ -371,6 +378,40 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
 
     assert {:ok, stored} = Ash.get(ManagedComponent, id, ctx.opts)
     assert stored.component_id == id
+  end
+
+  test "successor replay fills only a missing subject and preserves a recorded spelling", ctx do
+    id = ctx.component.component_id
+    fields = ComponentCertificate.__schema__(:fields)
+
+    for initial <- [nil, "CN=example-recorded-spelling"] do
+      %{pem: pem} = self_signed_certificate()
+      input = %{certificate_pem: pem}
+      assert {:ok, issuance} = InfrastructureCertificateAdoption.prepare_certificate(input)
+      assert "CN=example-gateway" in String.split(issuance.subject, ",")
+      attrs = Map.merge(issuance, %{component_id: id, expected_generation: 1, subject: initial})
+
+      certificate =
+        ComponentCertificate
+        |> Ash.Changeset.for_create(:record_issuance, attrs, ctx.opts)
+        |> Ash.create!(ctx.opts)
+
+      assert certificate.subject == initial
+      expected = certificate |> Map.take(fields) |> Map.put(:subject, initial || issuance.subject)
+
+      assert {:ok, %{certificate: replay}} =
+               Authority.record_infrastructure_successor(id, input, ctx.opts)
+
+      assert Map.take(replay, fields) == expected
+
+      assert {:error, _} =
+               certificate
+               |> Ash.Changeset.for_update(:fill_subject, %{subject: "CN=example-new"}, ctx.opts)
+               |> Ash.update(ctx.opts)
+
+      assert {:ok, stored} = Ash.get(ComponentCertificate, certificate.fingerprint, ctx.opts)
+      assert Map.take(stored, fields) == expected
+    end
   end
 
   test "records an infrastructure successor at the current generation and keeps the grant",
