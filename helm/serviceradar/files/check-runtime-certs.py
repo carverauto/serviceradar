@@ -24,7 +24,7 @@ def main():
     invalid = []
     for name in leaves:
         result = subprocess.run(
-            ["openssl", "verify", "-CAfile", cert_dir / "root.pem", cert_dir / name],
+            ["openssl", "verify", "-no_check_time", "-CAfile", cert_dir / "root.pem", cert_dir / name],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

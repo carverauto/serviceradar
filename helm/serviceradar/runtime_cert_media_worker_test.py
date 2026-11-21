@@ -215,6 +215,55 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
                 shutil.copy2(path, secret / path.relative_to(rotation))
         self.assertEqual(self.decide(secret), ("invalid", [WORKER_CERT]))
 
+    def test_preserves_an_expired_leaf_signed_by_the_current_root(self):
+        secret = Path(self.tmp.name) / "expired-leaf-secret"
+        shutil.copytree(self.enabled_certs, secret)
+        ca_work = Path(self.tmp.name) / "expired-ca"
+        ca_work.mkdir()
+        (ca_work / "newcerts").mkdir()
+        (ca_work / "index.txt").write_text("")
+        (ca_work / "serial").write_text("1000\n")
+        ca_cfg = ca_work / "ca.cnf"
+        ca_cfg.write_text(
+            "[ca]\n"
+            "default_ca = ca_default\n"
+            "[ca_default]\n"
+            f"database = {ca_work / 'index.txt'}\n"
+            f"serial = {ca_work / 'serial'}\n"
+            f"new_certs_dir = {ca_work / 'newcerts'}\n"
+            "default_md = sha256\n"
+            "policy = policy_anything\n"
+            "[policy_anything]\n"
+            "commonName = supplied\n"
+        )
+        agent_id = self.enabled_env["DEFAULT_AGENT_COMPONENT_ID"]
+        partition_id = self.enabled_env["DEFAULT_PARTITION_ID"]
+        chain_name = f"{agent_id}-{partition_id}-chain.pem"
+        openssl(
+            "req", "-new", "-nodes", "-newkey", "rsa:2048",
+            "-subj", f"/CN={agent_id}.{partition_id}.serviceradar",
+            "-keyout", str(ca_work / "agent-key.pem"),
+            "-out", str(ca_work / "agent.csr"),
+        )
+        openssl(
+            "ca", "-batch", "-notext", "-config", str(ca_cfg),
+            "-cert", str(secret / "root.pem"),
+            "-keyfile", str(secret / "root-key.pem"),
+            "-startdate", "20200101000000Z",
+            "-enddate", "20200102000000Z",
+            "-in", str(ca_work / "agent.csr"),
+            "-out", str(ca_work / "expired-leaf.pem"),
+        )
+        (secret / chain_name).write_bytes(
+            (ca_work / "expired-leaf.pem").read_bytes() + (secret / "root.pem").read_bytes()
+        )
+        time_checked = subprocess.run(
+            ["openssl", "verify", "-CAfile", str(secret / "root.pem"), str(secret / chain_name)],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(time_checked.returncode, 0, "test chain must actually be expired")
+        self.assertEqual(self.decide(secret), ("preserve",))
+
     def test_reports_a_crash_rather_than_a_regeneration(self):
         decision = self.decide(self.enabled_certs, secret_json="{not json")
         self.assertEqual(decision[0], "crash")
