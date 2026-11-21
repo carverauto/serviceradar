@@ -9,9 +9,11 @@ From the tree at the time of writing (nothing here was run):
   No managed component or certificate record is written for them.
 - `NatsLeafServer :connect` and `:disconnect` have no callers. `EdgeSite`
   becomes active only through them.
-- The hub address copied into a new site comes from
-  `:nats_leaf_upstream_url`, defaulting to a hard-coded hosted hostname
-  (`edge/edge_site.ex:238-243`).
+- The hub dial address is the leaf server row's `upstream_url`, copied when a
+  site is created from `:nats_leaf_upstream_url`, defaulting to a hard-coded
+  hosted hostname (`edge/edge_site.ex:238-251`). `EdgeSite.nats_leaf_url` is
+  a different field: the collector-facing address, set from the CLI's
+  advertise URL at registration.
 - The site page's primary button builds the bundle
   (`live/admin/edge_sites_live/show.ex:67-86`); it is offered for managed
   sites too, and both `setup.sh` and the managed install write
@@ -30,8 +32,9 @@ From the tree at the time of writing (nothing here was run):
   every redemption attempt is written as a security event
   (`edge/onboarding_token.ex`, `edge/onboarding_packages.ex:208-251`,
   `controllers/api/edge_controller.ex:472-545`). The package's component type
-  is limited to gateway, agent, checker and sync, and it has no site
-  reference.
+  is limited to gateway, agent, checker and sync, and it has no edge site
+  reference: its `site` field is a partition alias, overwritten with the
+  partition id on create (`edge/onboarding_packages.ex:560-568`).
 - A managed leaf's hub grant is publish and subscribe `>`
   (`edge/managed_component_nats_permissions.ex:4`).
 - The hub authorizer scans hub connections, including leaf connections, with
@@ -69,7 +72,9 @@ task 1.2.
 ### Decision 2: A leaf onboarding token on the existing package machinery
 
 A leaf token is an onboarding package of a new component type, `nats_leaf`,
-with a reference to the edge site. Reused from the agent onboarding package:
+with a new attribute, `edge_site_id`, referencing the edge site. The existing
+`site` field is a partition alias and is left alone; the package's partition
+is set as for any other package. Reused from the agent onboarding package:
 the `edgepkg-v3` envelope and signing key, the hashed secret with its expiry
 (24 hours by default) on the package row, revoke, the package events and the
 security events.
@@ -111,7 +116,8 @@ operator for every site. So:
   `:delivered`;
 - a leaf package stores no join token and no bundle;
 - a leaf token always carries the instance URL in the envelope's `api` field,
-  signed with the rest of the payload, and the package references the site.
+  signed with the rest of the payload, and the package's `edge_site_id`
+  references the site.
   `serviceradar-cli edge install leaf --token <token>` therefore needs no
   `--instance` and no `--site`: the CLI takes the instance from the token
   (https only, except loopback, as it already requires) and the site from the
@@ -158,9 +164,10 @@ expires (checked on every presentation, above) or is revoked: registration is id
 id, and the token authorizes requesting issuance for, and reading the status
 of, the component it registered. Any other agent id is refused and recorded
 as a security event, including a host whose agent identity changed after a
-reinstall, which needs a new token. When the leaf is reported active the
-package takes the `:complete` transition, and the token authorizes nothing
-further.
+reinstall, which needs a new token. The status read that observes the leaf
+active succeeds, returns active, and takes the `:complete` transition in that
+same request. Only a presentation after the package is `:activated` is
+refused; the token authorizes nothing further.
 
 Alternatives considered:
 - A short-lived operator bearer token scoped to the edge routes. Rejected: it
@@ -218,11 +225,14 @@ The existing state machines cannot carry this as they stand, so they change:
 
 ### Decision 5: The hub address is configured or the site cannot be created
 
-The hard-coded hosted default is removed. With no configured leaf address the
-create action fails with a message naming the setting, the page explains it
-before the form is submitted, and the API returns the same reason. An existing
-site's address is refreshed from configuration when its token is issued, so a
+The hard-coded hosted default for the leaf server row's `upstream_url` is
+removed. With no configured leaf upstream address the create action fails
+with a message naming the setting, the page explains it before the form is
+submitted, and the API returns the same reason. An existing site's leaf server
+`upstream_url` is refreshed from configuration when its token is issued, so a
 site created before the address was corrected is not stuck with the old one.
+`EdgeSite.nats_leaf_url`, the collector-facing address, is never written from
+hub configuration.
 
 ### Decision 6: A narrow hub grant for the leaf
 

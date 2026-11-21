@@ -25,8 +25,9 @@ design.md):
 - Nothing marks a leaf connected or a site active. The status badge can never
   show "Connected", and a site never appears in the collector form's site
   list, which only lists active or installed sites.
-- A new site's hub address silently defaults to a hosted product hostname
-  when the install has not configured one.
+- A new site's hub dial address (its leaf server's upstream URL) silently
+  defaults to a hosted product hostname when the install has not configured
+  one.
 - Provisioning waits forever with a spinner when no gateway is reachable.
 - The site page's actions have no tests.
 - A leaf's grant on the hub is publish and subscribe on every subject.
@@ -46,7 +47,8 @@ as a token the CLI consumes, the way agent onboarding works.
   host-bound, expiring leaf onboarding token and shows one command:
   `serviceradar-cli edge install leaf --token <token>`. The CLI needs no login
   for it, and no `--instance` or `--site`: the token carries the signed
-  instance URL and the package references the site. The token reuses the agent onboarding token's envelope, signing key,
+  instance URL and the package references the site through a new edge site
+  attribute. The token reuses the agent onboarding token's envelope, signing key,
   hashed secret with expiry, revoke, package events and security events. It
   does not reuse the agent package's single-use deliver transition, its join
   token or bundle, the existing download and bundle routes (which refuse a
@@ -56,8 +58,9 @@ as a token the CLI consumes, the way agent onboarding works.
   permission. Agent onboarding is unchanged. The token is
   bound to the agent id it first registers the leaf on; that agent id may
   resume an interrupted install with it, a different agent id is refused,
-  including the same host after its agent identity changed, and it
-  authorizes nothing once the leaf is active.
+  including the same host after its agent identity changed. The status read
+  that observes the leaf active succeeds and completes the package; after
+  that the token authorizes nothing.
 - **The token carries no key and yields none.** It authorizes registering the
   leaf for one site on one enrolled host and starting certificate issuance.
   Keys are generated on the host by its agent, as on the managed path today.
@@ -65,8 +68,10 @@ as a token the CLI consumes, the way agent onboarding works.
   connections by certificate fingerprint; it marks the leaf connected or
   disconnected and the site active or offline.
 - **No silent hub address.** A site cannot be created, and a token cannot be
-  issued, while the install has no configured leaf address; the page says what
-  is missing. Hub readiness comes from `add-zero-touch-hub-certificate-authorization`.
+  issued, while the install has no configured leaf upstream address; the page
+  says what is missing. Issuing a token refreshes the site's leaf server
+  upstream URL from configuration; the collector-facing site address is not
+  touched. Hub readiness comes from `add-zero-touch-hub-certificate-authorization`.
 - **The leaf gets a narrow grant on the hub**: the subjects an edge site
   publishes and the hub data it reads, not `>`.
 - **Wording.** "SaaS" is removed from the edge site pages, which also serve

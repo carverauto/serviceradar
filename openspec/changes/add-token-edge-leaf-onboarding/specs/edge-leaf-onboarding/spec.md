@@ -18,11 +18,16 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **THEN** it is refused and the attempt is recorded as a security event
 
 #### Scenario: The same host resumes an interrupted install
-- **WHEN** a leaf token that has already registered a leaf is presented again naming the agent id stored on its onboarding package at the first successful registration, for the same site, before it expires or is revoked and before the leaf is reported active
+- **WHEN** a leaf token that has already registered a leaf is presented again naming the agent id stored on its onboarding package at the first successful registration, for the same site, before it expires or is revoked and before the package is activated
 - **THEN** registration succeeds without creating a second leaf, and the token authorizes requesting issuance for, and reading the status of, that leaf
 
+#### Scenario: The status read observes the leaf active
+- **WHEN** a status read presented with the bound token finds the leaf active
+- **THEN** the read succeeds and returns active
+- **AND** the package takes the complete transition to activated in that same request
+
 #### Scenario: The leaf is active
-- **WHEN** a leaf token is presented after its leaf has been reported active
+- **WHEN** a leaf token is presented after its package has been activated
 - **THEN** it is refused
 
 #### Scenario: The token is expired or revoked
@@ -39,7 +44,7 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **AND** the same token can be used again once the cause is resolved
 
 ### Requirement: A leaf token grants no more than one leaf install
-A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the agent id stored on its onboarding package at its first successful registration, and SHALL NOT carry or return private key material.
+A leaf onboarding token SHALL authorize only reading its edge site, hub readiness and the policy public key, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the agent id stored on its onboarding package at its first successful registration, and SHALL NOT carry or return private key material.
 
 #### Scenario: A leaf token is presented to the agent package download or bundle route
 - **WHEN** a leaf token is presented to the existing onboarding package download or bundle route
@@ -49,6 +54,7 @@ A leaf onboarding token SHALL authorize only reading its edge site and hub readi
 #### Scenario: A leaf token is redeemed
 - **WHEN** a leaf token is presented to the leaf redemption endpoints
 - **THEN** each request is authorized by the verified token and its package row and acts only on its one site and the one component it registers
+- **AND** it may only read the install context (site, hub readiness, policy public key), register, request issuance and read status
 - **AND** no RBAC permission is granted to it and the package moves only through bind and complete, never to delivered
 
 #### Scenario: A leaf token is presented to an admin edge route
@@ -109,15 +115,16 @@ The system SHALL report a leaf as connected only while its recorded certificate 
 - **THEN** leaf status is shown as unknown
 
 ### Requirement: A site is not created with an unconfigured hub address
-The system SHALL refuse to create an edge site or issue a leaf token when the install has no configured address for leaves to dial, SHALL NOT substitute a default address, and SHALL refresh the site's stored hub address from configuration when a leaf token is issued.
+The system SHALL refuse to create an edge site or issue a leaf token when the install has no configured address for leaves to dial, SHALL NOT substitute a default address, SHALL refresh the site's leaf server `upstream_url` from configuration when a leaf token is issued, and SHALL NOT write the collector-facing `EdgeSite.nats_leaf_url` from hub configuration.
 
 #### Scenario: The install has no leaf address
 - **WHEN** an operator tries to create an edge site or issue a leaf token on an install with no configured leaf address
 - **THEN** the action is refused with a message naming the missing setting
 
 #### Scenario: A site was created under the old default address
-- **WHEN** a leaf token is issued for a site whose stored hub address is the former hard-coded default and the install now has a configured leaf address
-- **THEN** the site's stored hub address is replaced with the configured address before the token is returned
+- **WHEN** a leaf token is issued for a site whose leaf server `upstream_url` is the former hard-coded default and the install now has a configured leaf address
+- **THEN** the leaf server `upstream_url` is replaced with the configured address before the token is returned
+- **AND** the site's collector-facing `nats_leaf_url` is unchanged
 
 ### Requirement: A leaf has least privilege on the hub
 The hub SHALL grant a leaf only the subjects an edge site needs, and SHALL refuse it any other subject.
