@@ -1360,9 +1360,16 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              second
   end
 
-  test "NVRCapture keeps a capture uncertain after a late Core abort and an unverified reply",
-       ctx do
-    %{worker: worker, task: task, nvr: nvr, seal: seal} = capture_waiting_for_seal(ctx)
+  test "NVRCapture registers a verified seal after a late Core abort", ctx do
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {_descriptor, bytes}
+    } =
+      capture_waiting_for_seal(ctx)
 
     # Closing the relay pipeline stops the stream from Core's side while the
     # seal answer is outstanding.
@@ -1377,14 +1384,22 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       System.monotonic_time(:millisecond) + 5_000
     )
 
-    send(nvr.peer, {:seal, Jason.encode!(%{seal | "storage_id" => Ecto.UUID.generate()})})
+    send(nvr.peer, {:seal, Jason.encode!(seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(nvr.peer, {:descriptor, 200, bytes})
 
-    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
-    assert details.reason == :ingest_stopped
-    assert details.frames_sent == 3
+    assert {:ok, receipt} = Task.await(task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert receipt.frames_sent == 3
+
+    assert [%{id: sealed_id, state: :sealed}] = recording_blocks(ctx)
+    assert sealed_id == block.id
+    assert [%{id: ^entry_id, recording_block_id: ^sealed_id}] = catalog_entries(nvr.storage_id)
 
     claim = recorder_claim(ctx)
-    assert claim.state == :active
+    assert claim.state == :released
     assert claim.recorder_epoch == 1
   end
 
@@ -1406,12 +1421,15 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       :ok = :sys.resume(capture.worker)
     end
 
-    assert_registration_refused(ctx, capture, :capture_timeout)
+    assert_registration_refused(ctx, capture, :registration_deadline)
+    refute_received {:nvr_descriptor_read, _}
   end
 
-  test "NVRCapture delivers a verified reply already queued behind a timeout interrupt", ctx do
+  test "NVRCapture registers a verified reply queued behind a timeout interrupt before the deadline",
+       ctx do
     capture = capture_waiting_for_seal(ctx)
     %{sender_ref: sender_ref} = :sys.get_state(capture.worker)
+    {_descriptor, bytes} = capture.descriptor
     :ok = :sys.suspend(capture.worker)
 
     try do
@@ -1426,12 +1444,20 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       :ok = :sys.resume(capture.worker)
     end
 
-    assert_registration_refused(ctx, capture, :capture_timeout)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
   end
 
-  test "NVRCapture delivers the seal when renewal observed recovery closure before the reply",
-       ctx do
+  test "NVRCapture registers the seal when recovery reopens before the reply", ctx do
     capture = capture_waiting_for_seal(ctx)
+    {_descriptor, bytes} = capture.descriptor
     gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
     ready = File.read!(gate.path)
     close_recovery_gate()
@@ -1439,16 +1465,25 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert %{abort_reason: :nvr_recovery_closed} = :sys.get_state(capture.worker)
     File.write!(gate.path, ready)
     send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
 
-    assert_registration_refused(ctx, capture, :nvr_recovery_closed)
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
   end
 
   defp capture_waiting_for_seal(ctx) do
     owner = owner(ctx, 30_000)
-    nvr = fake_nvr_member(ctx, "pending-seal", &start_sealing_tls_peer(&1, self()))
+    nvr = fake_nvr_member(ctx, "pending-seal", &start_registering_tls_peer(&1, self()))
     task = start_fake_nvr_capture(ctx, nvr, 3)
     worker = await_nvr_worker_attached(owner)
-    %{block: %{block_key: block_key}} = :sys.get_state(worker)
+    %{block: block} = :sys.get_state(worker)
+    descriptor = Fixtures.recording_descriptor(block)
+    {:ok, bytes} = Descriptor.encode(descriptor)
     Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
     assert_receive :nvr_sealing_peer_request_complete, 5_000
 
@@ -1456,10 +1491,17 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       "version" => 1,
       "status" => "sealed_local",
       "storage_id" => nvr.storage_id,
-      "block_ids" => [block_key]
+      "block_ids" => [block.block_key]
     }
 
-    %{worker: worker, task: task, nvr: nvr, seal: seal}
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {descriptor, bytes}
+    }
   end
 
   test "NVRCapture keeps a capture uncertain when its caller dies while a unit is queued before the end marker, holding the recorder fence",
@@ -3257,6 +3299,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp registering_peer_accept(listen, notify_pid) do
     with {:ok, ingest} <- accept_tls_peer(listen),
          :ok <- read_until_request_end(ingest, <<>>) do
+      send(notify_pid, :nvr_sealing_peer_request_complete)
+
       receive do
         {:seal, body} -> answer_tls_peer(ingest, 200, body)
       end

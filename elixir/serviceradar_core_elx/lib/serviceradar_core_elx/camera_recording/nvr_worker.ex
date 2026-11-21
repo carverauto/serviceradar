@@ -29,6 +29,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   uncertain. See `ServiceRadarCoreElx.CameraRecording.NVRCapture` for the receipt
   fields.
 
+  Accepted limit (`verified-seal-lost-before-finalization`): if a late capture
+  timeout, caller loss or other interrupt kills the sender before the worker
+  receives a verified `sealed_local` reply, the worker cannot observe the seal,
+  finalizes the capture as uncertain and leaves the sealed block to the
+  reconciler's historical freeze. Once a verified `sealed_local` reply reaches
+  finalization, registration is gated only by the recovery gate, cleanup
+  reserve and capture deadline, not by a prior stream abort.
+
   An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
   refused the unfinished stream and sealed nothing it had open. That is a
   definite failure: the worker reports `{:nvr_ingest_refused, details}` with the
@@ -652,8 +660,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     eof_replied? = state.eof_replied?
 
     case {send_result, refusal_reason, check_recovery_gate()} do
-      {{:ok, %{status: :sealed_local, storage_id: ^storage_id, block_ids: [^block_key]}}, reason, gate_status} ->
-        catalog = register_sealed_block(state, reason, gate_status)
+      {{:ok, %{status: :sealed_local, storage_id: ^storage_id, block_ids: [^block_key]}}, _reason, gate_status} ->
+        catalog = register_sealed_block(state, gate_status)
         release = release_clean_consumer(state)
         payload = Map.merge(correlation_fields(state), %{status: :sealed_local, catalog: catalog, release: release})
         notify(state, {:completed, payload})
@@ -685,8 +693,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp register_sealed_block(state, refusal_reason, gate_status) do
-    outcome = if refusal_reason, do: {:unregistered, refusal_reason}, else: run_registration(state, gate_status)
+  defp register_sealed_block(state, gate_status) do
+    outcome = run_registration(state, gate_status)
 
     if !match?({:registered, _}, outcome) do
       Logger.warning("NVR block #{state.block.block_key} registration: #{inspect(outcome, limit: 8)}")
