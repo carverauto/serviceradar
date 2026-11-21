@@ -359,9 +359,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:recorder_running?, coverage_field(coverage, :continuous_recording_active?) == true)
       |> assign(
         :archive_only_unplayable?,
-        not assigns.archive_playback_available and blocks != [] and
-          (assigns.timeline_source == "archive" or
-             Enum.all?(blocks, &(coverage_field(&1, :local_state) != :present)))
+        archive_only_unplayable?(blocks, assigns.timeline_source, assigns.archive_playback_available)
       )
 
     ~H"""
@@ -1405,6 +1403,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     Enum.any?(buckets, &(bucket_state_name(&1) == "local_only_after_archive")) or
       Enum.any?(blocks, &(block_copy_state_name(&1) == "local_only_after_archive"))
   end
+
+  defp archive_only_unplayable?(_blocks, _source, true), do: false
+
+  defp archive_only_unplayable?(blocks, source, false) do
+    has_verified_archive? = Enum.any?(blocks, &block_archive_verified?/1)
+
+    case source do
+      "archive" -> has_verified_archive?
+      "local" -> false
+      _auto -> has_verified_archive? and not Enum.any?(blocks, &block_local_present?/1)
+    end
+  end
+
+  defp block_local_present?(block), do: coverage_field(block, :local_state) in [:present, "present"]
+  defp block_archive_verified?(block), do: coverage_field(block, :archive_state) in [:verified, "verified"]
 
   defp extract_reanchors(coverage, blocks) do
     case coverage_list(coverage, :reanchors) do

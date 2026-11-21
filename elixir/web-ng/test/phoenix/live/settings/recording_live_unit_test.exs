@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraRecordingSettings
+  alias ServiceRadarWebNGWeb.CameraLive.Recordings
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
   alias ServiceRadarWebNGWeb.CameraLive.Show, as: CameraShowLive
   alias ServiceRadarWebNGWeb.Settings.Catalog
@@ -3695,7 +3696,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert doc |> LazyHTML.query("#camera-timeline-not-recording") |> LazyHTML.text() =~
                "no recorder is running for it"
 
-      render_timeline = fn coverage, archive_playback_available ->
+      render_timeline = fn coverage, archive_playback_available, timeline_source ->
         (&RecordingsComponents.recordings/1)
         |> render_component(
           source: source,
@@ -3704,6 +3705,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
           timezone: "America/Chicago",
           can_view_recording_settings: true,
           can_manage_holds: true,
+          timeline_source: timeline_source,
           timeline_coverage: Map.merge(%{blocks: [], buckets: [], gaps: [], scheduled_continuous?: true}, coverage),
           archive_playback_available: archive_playback_available,
           timeline_jump_at: "2026-11-16T15:00:00",
@@ -3714,24 +3716,57 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
         |> LazyHTML.from_fragment()
       end
 
-      recording = render_timeline.(%{continuous_recording_active?: true}, false)
+      recording = render_timeline.(%{continuous_recording_active?: true}, false, "auto")
 
       assert recording |> LazyHTML.query("#camera-timeline-recorder-state") |> LazyHTML.text() |> normalize_ws() ==
                "Recording"
 
       assert recording |> LazyHTML.query("#camera-timeline-not-recording") |> Enum.count() == 0
 
-      # Footage stored only in the archive is reported as not playable yet, not as missing.
       archived = %{id: "00000000-0000-4000-8000-000000000611", local_state: :reclaimed, archive_state: :verified}
-      archive_only = render_timeline.(%{blocks: [archived]}, false)
+
+      missing_no_archive = %{
+        id: "00000000-0000-4000-8000-000000000612",
+        local_state: :missing,
+        archive_state: :not_required
+      }
+
+      deleted_block = %{id: "00000000-0000-4000-8000-000000000613", local_state: :reclaimed, archive_state: :deleted}
+      local_and_archived = %{id: "00000000-0000-4000-8000-000000000614", local_state: :present, archive_state: :verified}
+
+      archive_only = render_timeline.(%{blocks: [archived]}, false, "auto")
 
       assert archive_only |> LazyHTML.query("#camera-timeline-archive-only") |> LazyHTML.text() |> normalize_ws() =~
                "Archive copies cannot be played yet"
 
       assert %{blocks: [archived]}
-             |> render_timeline.(true)
+             |> render_timeline.(true, "auto")
              |> LazyHTML.query("#camera-timeline-archive-only")
              |> Enum.count() == 0
+
+      assert %{blocks: [archived]}
+             |> render_timeline.(false, "local")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 0
+
+      assert %{blocks: [local_and_archived]}
+             |> render_timeline.(false, "archive")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 1
+
+      assert %{blocks: [local_and_archived]}
+             |> render_timeline.(false, "auto")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 0
+
+      for unarchived <- [missing_no_archive, deleted_block], mode <- ["auto", "archive", "local"] do
+        rendered = render_timeline.(%{blocks: [unarchived]}, false, mode)
+
+        assert rendered |> LazyHTML.query("#camera-timeline-archive-only") |> Enum.count() == 0
+
+        assert rendered |> LazyHTML.query("#camera-timeline-empty-state") |> LazyHTML.text() =~
+                 "No playable footage in selected window"
+      end
 
       [video_class] = LazyHTML.attribute(LazyHTML.query(doc, "#camera-timeline-player"), "class")
       assert video_class =~ "hidden"
@@ -3756,6 +3791,65 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       for preset <- ["window", "15m", "1h", "24h"] do
         assert doc |> LazyHTML.query("#timeline-hold-preset-#{preset}") |> Enum.count() == 1
       end
+    end
+
+    test "timeline playlist requests source=local in auto mode until an archive reader is installed" do
+      source_id = "00000000-0000-4000-8000-000000000061"
+      from_us = 1_794_844_800_000_000
+      to_us = 1_794_848_400_000_000
+
+      archive_only_block = %{
+        timeline_start_us: from_us + 1_000_000,
+        timeline_end_us: from_us + 11_000_000,
+        local_state: :reclaimed,
+        archive_state: :verified
+      }
+
+      local_block = %{
+        timeline_start_us: from_us + 20_000_000,
+        timeline_end_us: from_us + 30_000_000,
+        local_state: :present,
+        archive_state: :not_required
+      }
+
+      mixed = %{blocks: [archive_only_block, local_block]}
+      archive_only = %{blocks: [archive_only_block]}
+
+      previous_readers = Application.get_env(:serviceradar_web_ng, :camera_timeline_readers)
+
+      on_exit(fn ->
+        if is_nil(previous_readers) do
+          Application.delete_env(:serviceradar_web_ng, :camera_timeline_readers)
+        else
+          Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, previous_readers)
+        end
+      end)
+
+      query_source = fn path ->
+        path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.get("source")
+      end
+
+      Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, [])
+
+      auto_without_archive = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "auto")
+
+      assert query_source.(auto_without_archive) == "local"
+      assert Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "archive") == nil
+      assert Recordings.build_playlist_path_if_playable(source_id, archive_only, from_us, to_us, "", "auto") == nil
+
+      archive_reader = fn _plan, _deadline -> {:ok, <<>>} end
+      Application.put_env(:serviceradar_web_ng, :camera_timeline_readers, archive: archive_reader)
+
+      auto_with_archive = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "auto")
+
+      archive_with_reader =
+        Recordings.build_playlist_path_if_playable(source_id, archive_only, from_us, to_us, "", "archive")
+
+      local_with_reader = Recordings.build_playlist_path_if_playable(source_id, mixed, from_us, to_us, "", "local")
+
+      assert query_source.(auto_with_archive) == "auto"
+      assert query_source.(archive_with_reader) == "archive"
+      assert query_source.(local_with_reader) == "local"
     end
   end
 

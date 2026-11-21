@@ -946,7 +946,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp build_playlist_path_if_playable(source_id, coverage, play_from_us, play_to_us, profile_id, source_str) do
+  @doc false
+  def build_playlist_path_if_playable(source_id, coverage, play_from_us, play_to_us, profile_id, source_str) do
     has_playable? =
       is_map(coverage) and
         Enum.any?(coverage.blocks, fn block ->
@@ -960,12 +961,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         [
           {"from", Integer.to_string(play_from_us)},
           {"to", Integer.to_string(play_to_us)},
-          {"source", source_str}
+          {"source", playlist_source_param(source_str)}
         ] ++
           if(profile_id in [nil, ""], do: [], else: [{"profile", profile_id}])
 
       "/api/cameras/#{source_id}/timeline/playlist.m3u8?" <> URI.encode_query(query_items)
     end
+  end
+
+  defp playlist_source_param("local"), do: "local"
+  defp playlist_source_param("archive"), do: "archive"
+
+  defp playlist_source_param(_auto) do
+    if CameraTimelineReader.archive_reader_installed?(), do: "auto", else: "local"
   end
 
   defp block_playable_for_source?(block, "local"), do: block.local_state == :present

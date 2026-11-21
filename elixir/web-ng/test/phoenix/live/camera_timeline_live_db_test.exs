@@ -157,6 +157,8 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(view, "#camera-timeline-archive-only")
 
     view |> element("#camera-timeline-source-auto") |> render_click()
+    assert player_playlist_path(view) =~ "source=local"
+    refute player_playlist_path(view) =~ "source=auto"
 
     # Profile filter selects specific relay profile
     view

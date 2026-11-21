@@ -29,7 +29,6 @@ defmodule ServiceRadarNVRClient.Members do
          {:ok, token} <- Config.read(token_path, @max_token_bytes) do
       validate_document(document, token)
     else
-      {:error, :duplicate_nvr_storage_id} = error -> error
       _ -> {:error, :invalid_nvr_client_config}
     end
   end
