@@ -8,6 +8,7 @@ bundle verification and layer contents.
 import ast
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,8 @@ BUILD_SCRIPT = ROOT / "scripts/build-media-worker-cuda.sh"
 CUDA_BUILDER = "docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266"
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "d" * 64
+CHECKSUMS = hashlib.sha256(b"synthetic worker").hexdigest() + "  serviceradar-media-worker\n"
+CHECKSUMS_SHA256 = hashlib.sha256(CHECKSUMS.encode()).hexdigest()
 NOTICE_PACKAGES = ("libcublas-13-0", "libcurand-13-0", "cuda-nvrtc-13-0", "cuda-cudart-13-0")
 LIBRARIES = ("libcublas.so.13", "libcublasLt.so.13", "libcurand.so.10",
              "libnvrtc.so.13", "libnvrtc-builtins.so.13.0", "libcudart.so.13")
@@ -225,9 +228,9 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
     def test_excluded_dispatch_runs_only_unprivileged_build_operations(self):
         for manifest in ({"builder_image": CUDA_BUILDER}, {}, {"builder_image": "unknown"}):
             with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as work:
-                self.check_build_manifest(Path(work), manifest)
+                self.check_build_manifest(Path(work), manifest, "refs/heads/test/demo-test-x")
 
-    def check_build_manifest(self, root, manifest):
+    def check_build_manifest(self, root, manifest, ref):
         scripts = root / "scripts"
         scripts.mkdir()
         builder = scripts / BUILD_SCRIPT.name
@@ -240,7 +243,8 @@ case "$1" in
         [[ "$CUDA_BUILDER_IMAGE" == "$EXPECTED_BUILDER" ]]
         mkdir -p "$3"
         printf '%s' "$BUILD_MANIFEST" > "$3/manifest.json"
-        : > "$3/SHA256SUMS"
+        printf '%s' 'synthetic worker' > "$3/serviceradar-media-worker"
+        printf '%s' "$CHECKSUMS" > "$3/SHA256SUMS"
         ;;
     *) exit 1 ;;
 esac
@@ -250,7 +254,7 @@ esac
             (root / tool).symlink_to(shutil.which(tool))
         env = self.workflow["env"] | {"PATH": str(root), "HOME": str(root), "RUNNER_TEMP": str(root),
                                       "BUILD_MANIFEST": json.dumps(manifest), "EXPECTED_BUILDER": CUDA_BUILDER,
-                                      "GITHUB_REF": "refs/heads/test/demo-test-x", "GITHUB_SHA": COMMIT,
+                                      "GITHUB_REF": ref, "GITHUB_SHA": COMMIT, "CHECKSUMS": CHECKSUMS,
                                       "GITHUB_OUTPUT": str(root / "outputs"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
         outputs = {}
         for name in ("toolchain", "build"):
@@ -278,6 +282,11 @@ esac
         emitted = json.loads((root / "media-worker-cuda/manifest.json").read_bytes())
         self.assertEqual(emitted.get("builder_image"), CUDA_BUILDER)
         self.assertEqual((root / "commands").read_text().splitlines(), ["fetch-toolchain", "build"])
+        step_outputs = {f"${{{{ steps.{step}.outputs.{key} }}}}": value for (step, key), value in outputs.items()}
+        bindings = {f"${{{{ needs.build.outputs.{key} }}}}": step_outputs[expression]
+                    for key, expression in self.jobs["build"]["outputs"].items() if expression in step_outputs}
+        self.assertIn(CHECKSUMS_SHA256, bindings.values())
+        return bindings
 
     def test_publish_verifies_each_digest_before_reporting_success(self):
         image = "serviceradar-media-worker-cuda"
@@ -293,8 +302,11 @@ esac
             f"promote --repositories {image} --tag sha-{COMMIT} --digest {DIGEST}",
             f"protected ./scripts/verify-oci-publish.sh {DIGEST}", "protected oras resolve " + reference,
         ]
-        for fail in ("", expected[0], expected[5], expected[7]):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as work:
+        with tempfile.TemporaryDirectory() as build:
+            build_outputs = self.check_build_manifest(Path(build), {"builder_image": CUDA_BUILDER}, "refs/heads/staging")
+        for fail, promoted in [("", DIGEST), (expected[0], DIGEST), (expected[5], DIGEST),
+                               (expected[7], DIGEST), ("", "sha256:" + "9" * 64)]:
+            with self.subTest(fail=fail, promoted=promoted), tempfile.TemporaryDirectory() as work:
                 root = Path(work)
                 scripts = root / "scripts"
                 ci = scripts / "ci"
@@ -309,6 +321,7 @@ esac
                 calls.touch()
                 (ci / "media-worker-cuda-image.py").write_text(
                     "import os, sys\nassert sys.argv[1] == 'verify'\n"
+                    "assert sys.argv[sys.argv.index('--sums-sha256') + 1] == os.environ['EXPECTED_SUMS']\n"
                     "print('verify bundle', file=open('calls', 'a'))\n"
                     "sys.exit(int(os.environ['FAIL'] == 'verify bundle'))\n")
                 harbor = ci / "harbor-publish.py"
@@ -317,9 +330,10 @@ esac
                     "args = sys.argv[1:]\ncall = ' '.join(args)\n"
                     "if args[:2] == ['build', 'python3']:\n"
                     "    assert args[3] == 'push'\n    call = 'push'\n"
+                    "    assert args[args.index('--sums-sha256') + 1] == os.environ['EXPECTED_SUMS']\n"
                     "    Path(args[args.index('--digest-file') + 1]).write_text(os.environ['BUILT'])\n"
                     "elif args[1:3] == ['oras', 'resolve']:\n"
-                    "    print(os.environ['BUILT'])\n"
+                    "    print(os.environ['PROMOTED'])\n"
                     "elif len(args) > 1 and args[0] in ('build', 'protected'):\n"
                     "    assert os.environ['SERVICERADAR_NATIVE_IMAGE'] == 'serviceradar-media-worker-cuda'\n"
                     "    assert os.environ['VAULT_TOKEN'] == 'synthetic'\n"
@@ -330,8 +344,9 @@ esac
                     "PATH": os.environ["PATH"], "RUNNER_TEMP": work, "GITHUB_ENV": str(root / "env"),
                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                     "HARBOR_PUBLISH_TOOL": str(harbor), "GITHUB_SHA": COMMIT, "FAIL": fail, "BUILT": DIGEST,
-                    "SUMS_SHA256": "c" * 64,
+                    "PROMOTED": promoted, "EXPECTED_SUMS": CHECKSUMS_SHA256,
                 }
+                env.update({k: build_outputs.get(v, v) for k, v in self.jobs["publish"].get("env", {}).items()})
                 bindings = {"${{ env.IMAGE }}": env["IMAGE"]}
                 for step in self.jobs["publish"]["steps"]:
                     if "run" not in step or "if" in step:
@@ -343,14 +358,17 @@ esac
                     result = subprocess.run(["bash", "-ec", step["run"]], cwd=root,
                                             env=env | settings, capture_output=True, text=True)
                     if result.returncode:
-                        self.assertTrue(fail, result.stderr)
+                        self.assertTrue(fail or promoted != DIGEST, result.stderr)
+                        if promoted != DIGEST:
+                            self.assertIn(f"is {promoted}, expected {DIGEST}", result.stderr)
                         break
                     for line in output.read_text().splitlines():
                         key, value = line.split("=", 1)
                         bindings["${{ steps." + step["id"] + ".outputs." + key + " }}"] = value
                 observed = calls.read_text().splitlines()
                 self.assertEqual(observed, expected[:expected.index(fail) + 1] if fail else expected)
-                if fail:
+                if fail or promoted != DIGEST:
+                    self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(summary.exists())
                 else:
                     self.assertIn(DIGEST, summary.read_text())
@@ -494,6 +512,44 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
         self.assertEqual(config["Labels"]["org.opencontainers.image.revision"], COMMIT)
         self.assertEqual(config["Env"]["LD_LIBRARY_PATH"], "/usr/local/lib/serviceradar-cuda")
         self.assertNotIn("NVIDIA_VISIBLE_DEVICES", config["Env"])
+
+        for field, value, reason in [
+            ("repository", f"{repo}-other@{DIGEST}", "invalid pushed reference"),
+            ("digest", f"{repo}@sha256:123", "invalid pushed reference"),
+            ("revision", "9" * 40, "revision"),
+            ("os", "windows", "linux/arm64"),
+            ("architecture", "amd64", "linux/arm64"),
+            ("user", "0:0", "serviceradar user"),
+            ("layer", "sha256:" + "0" * 64, "top layer"),
+        ]:
+            with self.subTest(field=field):
+                def inconsistent_registry(command, *args):
+                    result = registry(command, *args)
+                    if command == "mutate" and field in ("repository", "digest"):
+                        return value
+                    if command != "config":
+                        return result
+                    inspected = json.loads(result)
+                    if field in ("os", "architecture"):
+                        inspected[field] = value
+                    elif field == "revision":
+                        inspected["config"]["Labels"]["org.opencontainers.image.revision"] = value
+                    elif field == "user":
+                        inspected["config"]["User"] = value
+                    elif field == "layer":
+                        inspected["rootfs"]["diff_ids"] = ["sha256:" + top_layer, value]
+                    return json.dumps(inspected)
+
+                output = self.bundle.parent / "digest"
+                argv = [str(IMAGE_TOOL), "push", str(self.bundle), "--sums-sha256", self.sums_sha256,
+                        "--digest-file", str(output)]
+                with (mock.patch.object(self.tool, "crane", inconsistent_registry),
+                      mock.patch.object(self.tool, "fetch_ca_bundle", return_value=b"CA"),
+                      mock.patch.dict(os.environ, GITHUB_SHA=COMMIT), mock.patch.object(sys, "argv", argv),
+                      mock.patch.object(sys, "stderr", new_callable=io.StringIO) as stderr):
+                    self.assertEqual(self.tool.main(), 1, stderr.getvalue())
+                    self.assertIn(reason, stderr.getvalue())
+                self.assertFalse(output.exists())
 
     def test_push_refuses_another_commit_or_destination(self):
         with self.assertRaisesRegex(self.tool.BundleError, "manifest commit"):

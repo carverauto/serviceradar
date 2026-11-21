@@ -80,12 +80,12 @@ pub use vision::{
 pub use worker::{
     AdmittedWorker, DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,
     JetStreamResultPublisher, JobDelivery, JobOutcome, ResultPublisher, TextEmbedRpcRequest,
-    TextEmbedRpcResponse, TextEmbedService, TrackSummaryPayload, UndecodableKeyframePayload,
+    TextEmbedRpcResponse, TrackSummaryPayload, UndecodableKeyframePayload,
     VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT, VISUAL_INDEX_RESULTS_SUBJECT,
     VISUAL_TEXT_EMBED_QUEUE_GROUP, VISUAL_TEXT_EMBED_RPC_PREFIX, VisualIndexJobEnvelope,
     VisualIndexProcessor, VisualIndexResultEnvelope, load_and_admit_worker,
     run_admitted_nats_worker, run_nats_worker_loops, run_nats_worker_loops_with_backend,
-    spawn_nats_text_embed_responder, text_embed_rpc_subject,
+    text_embed_rpc_subject,
 };
 pub use yolo_v8::{
     YoloV8Config, YoloV8Detector, coco_class_to_object_class, coco_name_to_object_class,

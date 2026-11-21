@@ -17,11 +17,11 @@ use crate::{
     MediaWorkerError, MediaWorkerErrorKind, ModelPinConfig, NvrAnalysisReader, ObjectClass,
     OrtRuntimeProbeResult, ReadGrantPlan, ReadGrantRequest, ReadinessState, ResultPublisher,
     SyntheticColor, SyntheticFragmentSpec, SyntheticObjectSpec, TextEmbedRpcRequest,
-    TextEmbedRpcResponse, TextEmbedService, VISUAL_INDEX_RESULTS_SUBJECT, VerifiedKeyframeBlock,
+    TextEmbedRpcResponse, VISUAL_INDEX_RESULTS_SUBJECT, VerifiedKeyframeBlock,
     VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, WorkerAuthCredentials,
     WorkerConfig, WorkerMetrics, coalesce_fragment_ranges, cosine_similarity, embed_query_text,
     generate_synthetic_cmaf_block, longshore_registered_pool_bytes, serve_http_probes,
-    spawn_nats_text_embed_responder, text_embed_rpc_subject, verify_startup_capabilities,
+    text_embed_rpc_subject, verify_startup_capabilities,
 };
 use crate::{
     KeyframeDecodeError, KeyframeDecoder, ParsedInitSegment, ParsedMediaFragment, RgbFrame,
@@ -1798,10 +1798,12 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         &models,
     );
 
-    let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+    let (worker, _) = crate::load_and_admit_worker(cfg.clone())
+        .await
+        .expect("admit CPU stub");
     let processor = VisualIndexProcessor::with_backend(
         &cfg,
-        Arc::clone(&backend),
+        Arc::clone(&worker.backend),
         DelayedMockGrantClient {
             resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
                 &job, &block,
@@ -1855,13 +1857,15 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         .await
         .expect("caller connect to loopback NATS");
 
-    let text_service =
-        TextEmbedService::with_backend(models.clone(), backend, 4, Arc::clone(&metrics));
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let _responder =
-        spawn_nats_text_embed_responder(worker_nats.clone(), text_service, shutdown_rx)
-            .await
-            .expect("spawn text-embed responder");
+    let _responder = crate::worker::spawn_nats_text_embed_responder(
+        worker_nats.clone(),
+        &worker,
+        Arc::clone(&metrics),
+        shutdown_rx,
+    )
+    .await
+    .expect("spawn text-embed responder");
     worker_nats.flush().await.expect("flush worker sub");
 
     let subject = text_embed_rpc_subject(&models);

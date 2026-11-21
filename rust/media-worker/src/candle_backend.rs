@@ -528,34 +528,28 @@ pub(crate) fn preprocess_siglip_batch(
         }
     };
 
-    std::thread::scope(|scope| {
+    let unassigned = std::thread::scope(|scope| {
         let mut groups = frames
             .chunks(images_per_worker)
             .zip(out.chunks_mut(images_per_worker * per_image));
-        let first = groups.next();
-        for (group, slots) in groups {
-            let spawned = std::thread::Builder::new()
+        let last = groups.next_back();
+        for (index, (group, slots)) in groups.enumerate() {
+            if let Err(err) = std::thread::Builder::new()
                 .name("siglip-preprocess".to_string())
-                .spawn_scoped(scope, move || process(group, slots));
-            if let Err(err) = spawned {
-                // The closure (and its slice) is dropped with the error; redo this
-                // group inline rather than fail the batch.
+                .spawn_scoped(scope, move || process(group, slots))
+            {
                 warn!(error = %err, "could not spawn a preprocessing thread; continuing inline");
-                return Err(());
+                return Some(index * images_per_worker);
             }
         }
-        if let Some((group, slots)) = first {
+        if let Some((group, slots)) = last {
             process(group, slots);
         }
-        Ok(())
-    })
-    .unwrap_or_else(|()| {
-        // A spawn failed after some groups were handed out: recompute everything on
-        // this thread so no slot is left unwritten.
-        for (frame, slot) in frames.iter().zip(out.chunks_mut(per_image)) {
-            preprocess_siglip_rgb_into(frame, target, slot);
-        }
+        None
     });
+    if let Some(start) = unassigned {
+        process(&frames[start..], &mut out[start * per_image..]);
+    }
     out
 }
 

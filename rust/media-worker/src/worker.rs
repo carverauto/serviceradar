@@ -591,43 +591,16 @@ pub fn text_embed_rpc_subject(models: &ModelPinConfig) -> String {
 /// Reserved interactive text-embedding lane (`2.5`), isolated on its own semaphore
 /// from bulk `media.jobs.visual_index.v1` processing.
 #[derive(Clone)]
-pub struct TextEmbedService {
+struct TextEmbedService {
     models: ModelPinConfig,
     backend: Arc<dyn InferenceBackend>,
     semaphore: Arc<Semaphore>,
     metrics: Arc<WorkerMetrics>,
 }
 
-impl core::fmt::Debug for TextEmbedService {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("TextEmbedService")
-            .field("models", &self.models)
-            .field("backend_info", &self.backend.info())
-            .finish()
-    }
-}
-
 impl TextEmbedService {
-    pub fn with_backend(
-        models: ModelPinConfig,
-        backend: Arc<dyn InferenceBackend>,
-        concurrency: usize,
-        metrics: Arc<WorkerMetrics>,
-    ) -> Self {
-        Self {
-            models,
-            backend,
-            semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
-            metrics,
-        }
-    }
-
-    pub fn subject(&self) -> String {
-        text_embed_rpc_subject(&self.models)
-    }
-
     /// Evaluates a JSON `TextEmbedRpcRequest` within `<= 250 ms` on reserved capacity.
-    pub async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
+    async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
         let req: TextEmbedRpcRequest = match serde_json::from_slice(raw_payload) {
             Ok(parsed) => parsed,
             Err(_) => return TextEmbedRpcResponse::error("invalid_json_request"),
@@ -1268,12 +1241,20 @@ impl ResultPublisher for JetStreamResultPublisher {
 
 /// Spawns the reserved NATS request-reply subscriber on
 /// `media.rpc.visual_text_embed.v1.<model_id>.<model_version>`.
-pub async fn spawn_nats_text_embed_responder(
+pub(crate) async fn spawn_nats_text_embed_responder(
     client: Client,
-    service: TextEmbedService,
+    worker: &AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<tokio::task::JoinHandle<()>, MediaWorkerError> {
-    let subject = service.subject();
+    let models = worker.config.models();
+    let subject = text_embed_rpc_subject(models);
+    let service = TextEmbedService {
+        models: models.clone(),
+        backend: Arc::clone(&worker.backend),
+        semaphore: Arc::new(Semaphore::new(worker.config.text_embed_concurrency())),
+        metrics,
+    };
     let mut subscription = client
         .queue_subscribe(subject.clone(), VISUAL_TEXT_EMBED_QUEUE_GROUP.to_string())
         .await
@@ -1314,7 +1295,7 @@ pub async fn spawn_nats_text_embed_responder(
 
 pub struct AdmittedWorker {
     config: WorkerConfig,
-    backend: Arc<dyn InferenceBackend>,
+    pub(crate) backend: Arc<dyn InferenceBackend>,
 }
 
 pub async fn load_and_admit_worker(
@@ -1372,7 +1353,7 @@ pub async fn run_admitted_nats_worker(
     metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), MediaWorkerError> {
-    let AdmittedWorker { config, backend } = worker;
+    let config = &worker.config;
     let auth = config.worker_auth().cloned().unwrap_or_else(|| {
         WorkerAuthCredentials::new(
             "unconfigured-media-worker-token",
@@ -1381,17 +1362,16 @@ pub async fn run_admitted_nats_worker(
         )
     });
 
-    let (client, js, cert_policy) = connect_nats_and_jetstream(&config).await?;
-    ensure_media_streams(&js, &config).await?;
+    let (client, js, cert_policy) = connect_nats_and_jetstream(config).await?;
+    ensure_media_streams(&js, config).await?;
 
-    let text_service = TextEmbedService::with_backend(
-        config.models().clone(),
-        Arc::clone(&backend),
-        config.text_embed_concurrency(),
+    let _text_handle = spawn_nats_text_embed_responder(
+        client.clone(),
+        &worker,
         Arc::clone(&metrics),
-    );
-    let _text_handle =
-        spawn_nats_text_embed_responder(client.clone(), text_service, shutdown.clone()).await?;
+        shutdown.clone(),
+    )
+    .await?;
 
     let grant_client =
         HttpControlPlaneGrantClient::new(config.control_plane_url(), auth, Duration::from_secs(10));
@@ -1408,8 +1388,8 @@ pub async fn run_admitted_nats_worker(
     );
     let publisher = JetStreamResultPublisher::new(js.clone(), cert_policy, Duration::from_secs(10));
     let processor = VisualIndexProcessor::with_backend(
-        &config,
-        backend,
+        config,
+        worker.backend,
         grant_client,
         store,
         publisher,
