@@ -32,15 +32,17 @@ defmodule ServiceRadarRecordingControl.RecoveryGate do
     end
   end
 
-  def check(nil), do: {:error, :nvr_recovery_closed}
+  def check(gate), do: check(gate, :nvr_recovery_closed)
 
-  def check(%{generation: generation, path: path}) do
+  defp check(nil, reason), do: {:error, reason}
+
+  defp check(%{generation: generation, path: path}, reason) do
     with {:ok, %{type: :regular, size: size}} when size in 1..@max_bytes <- File.stat(path),
          {:ok, expected} <- CanonicalJSON.encode(%{"generation" => generation, "state" => "ready"}),
          {:ok, ^expected} <- File.open(path, [:read, :binary], &IO.binread(&1, @max_bytes + 1)) do
       :ok
     else
-      _ -> {:error, :nvr_recovery_closed}
+      _ -> {:error, reason}
     end
   end
 
@@ -51,11 +53,11 @@ defmodule ServiceRadarRecordingControl.RecoveryGate do
   undoing work. Database callers must reject ambient transactions first and
   complete their own transaction inside the callback.
   """
-  def with_ready(gate, fun) when is_function(fun, 0) do
+  def with_ready(gate, closed_after_work \\ :nvr_recovery_closed, fun) when is_function(fun, 0) do
     with :ok <- check(gate),
          result = fun.(),
          :ok <- successful(result),
-         :ok <- check(gate) do
+         :ok <- check(gate, closed_after_work) do
       result
     end
   end

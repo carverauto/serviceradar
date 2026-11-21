@@ -1964,6 +1964,63 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert recorder_claim(ctx).state == :released
   end
 
+  test "NVRCapture preserves the seal when recovery closes before descriptor read", ctx do
+    capture = sealing_capture(ctx, owner(ctx, 30_000), &close_recovery_gate/0)
+
+    assert_registration_refused(ctx, capture)
+    refute_received {:nvr_descriptor_read, _}
+  end
+
+  test "NVRCapture refuses the freeze when recovery closes during the descriptor read", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+    close_recovery_gate()
+    {_descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+    assert_registration_refused(ctx, capture)
+  end
+
+  test "NVRCapture refuses the freeze when recovery closes during the policy read", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+    fault_on_action(capture.worker, CameraRecordingPolicy, :by_camera_profile, &close_recovery_gate/0)
+    {_descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+    assert_registration_refused(ctx, capture)
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture withholds registration success when recovery closes during freeze", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+    fault_on_action(capture.worker, RecordingCatalogEntry, :register_sealed, &close_recovery_gate/0)
+
+    %{receipt: receipt} = registering_capture(capture, fn bytes -> {200, bytes} end)
+    assert receipt.status == :sealed_local
+    assert receipt.catalog == {:unconfirmed, :nvr_recovery_closed_after_freeze}
+    assert receipt.release == :released
+    assert recorder_claim(ctx).state == :released
+    assert [%{state: :sealed, id: id}] = recording_blocks(ctx)
+    assert id == capture.block.id
+    assert [%{recording_block_id: ^id}] = catalog_entries(capture.nvr.storage_id)
+  end
+
+  defp close_recovery_gate do
+    gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
+    File.write!(gate.path, "closed")
+  end
+
+  defp assert_registration_refused(ctx, capture) do
+    assert {:ok, receipt} = Task.await(capture.task)
+    assert receipt.status == :sealed_local
+    assert receipt.catalog == {:unregistered, :nvr_recovery_closed}
+    assert receipt.release == :released
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
   test "NVRCapture registers a slow descriptor locally when the camera has no policy", ctx do
     enable_deployment_archive(ctx)
     capture = sealing_capture(ctx)
@@ -2329,7 +2386,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
   defp sealing_capture(ctx), do: sealing_capture(ctx, owner(ctx, 30_000))
 
-  defp sealing_capture(ctx, owner) do
+  defp sealing_capture(ctx, owner, before_seal \\ fn -> :ok end) do
     nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
     task = start_fake_nvr_capture(ctx, nvr, 3, 25_000)
     worker = await_nvr_worker_attached(owner)
@@ -2345,13 +2402,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         "block_ids" => [block.block_key]
       })
 
-    send(nvr.peer, {:seal, receipt})
     [first | later] = units = Enum.take(ctx.media.units, 3)
-    admitted_from = System.os_time(:microsecond)
-    send(ctx.pipeline, {:media_chunk, first})
+    admitted = admit_first_unit(ctx.pipeline, worker, first)
     await_sender_blocked_in_pull(worker)
-    admitted_until = System.os_time(:microsecond)
     Enum.each(later, &send(ctx.pipeline, {:media_chunk, &1}))
+    before_seal.()
+    send(nvr.peer, {:seal, receipt})
 
     %{
       task: task,
@@ -2360,8 +2416,21 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       block: block,
       descriptor: {descriptor, bytes},
       units: units,
-      admitted: admitted_from..admitted_until
+      admitted: admitted
     }
+  end
+
+  defp admit_first_unit(pipeline, worker, %{sequence: sequence} = first) do
+    :ok = :sys.suspend(worker)
+
+    try do
+      admitted_from = System.os_time(:microsecond)
+      send(pipeline, {:media_chunk, first})
+      await_worker_message(worker, &match?({:recording_media, _, %{sequence: ^sequence}}, &1))
+      admitted_from..System.os_time(:microsecond)
+    after
+      :ok = :sys.resume(worker)
+    end
   end
 
   defp catalog_entries(storage_id) do

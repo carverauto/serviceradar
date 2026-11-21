@@ -664,9 +664,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     eof_replied? = state.eof_replied?
 
     case {state.abort_reason, capture_status, state.frames_sent > 0, check_recovery_gate(), send_result} do
-      {nil, :ok, true, {:ok, _gate},
+      {nil, :ok, true, gate_status,
        {:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}} ->
-        catalog = register_sealed_block(state)
+        catalog = register_sealed_block(state, gate_status)
         release = release_clean_consumer(state)
         payload = Map.merge(correlation_fields(state), %{status: :sealed_local, catalog: catalog, release: release})
         notify(state, {:completed, payload})
@@ -698,31 +698,36 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp register_sealed_block(state) do
-    lease_limit = state.lease_deadline - RecorderRenewal.teardown_ms()
-    deadline = min(lease_limit, state.capture.deadline)
-    now = now()
-
-    outcome =
-      cond do
-        lease_limit - now < @min_call_timeout_ms ->
-          {:unregistered, :registration_cleanup_reserve}
-
-        deadline - now < @min_call_timeout_ms ->
-          {:unregistered, :registration_deadline}
-
-        true ->
-          case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
-            {:ok, result} -> result
-            {:exit, reason} -> {:unconfirmed, reason}
-          end
-      end
+  defp register_sealed_block(state, gate_status) do
+    outcome = run_registration(state, gate_status)
 
     if !match?({:registered, _}, outcome) do
       Logger.warning("NVR block #{state.block.block_key} registration: #{inspect(outcome, limit: 8)}")
     end
 
     outcome
+  end
+
+  defp run_registration(_state, {:error, reason}), do: {:unregistered, reason}
+
+  defp run_registration(state, {:ok, _gate}) do
+    lease_limit = state.lease_deadline - RecorderRenewal.teardown_ms()
+    deadline = min(lease_limit, state.capture.deadline)
+    now = now()
+
+    cond do
+      lease_limit - now < @min_call_timeout_ms ->
+        {:unregistered, :registration_cleanup_reserve}
+
+      deadline - now < @min_call_timeout_ms ->
+        {:unregistered, :registration_deadline}
+
+      true ->
+        case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
+          {:ok, result} -> result
+          {:exit, reason} -> {:unconfirmed, reason}
+        end
+    end
   end
 
   defp catalog_sealed_block(state, deadline) do
@@ -757,6 +762,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
   defp freeze_outcome({:error, reason})
        when reason in [
+              :ambient_transaction,
+              :nvr_recovery_closed,
               :invalid_recording_descriptor,
               :invalid_catalog_attributes,
               :recording_descriptor_conflict,
