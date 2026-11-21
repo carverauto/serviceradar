@@ -1,0 +1,43 @@
+suite: the certificate generator provisions callout signing keys only for a Secret it owns
+templates:
+  - templates/cert-generator-job.yaml
+release:
+  namespace: sr-signing
+tests:
+  - it: provisions the signing set when the issuer Secret is the generator's own runtime Secret
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'nats-callout-issuer\.seed'
+
+  # A distinct issuer Secret is someone else's: the generator has no access to
+  # it and must not write seeds anywhere else.
+  - it: leaves the signing set to the supplier of a distinct issuer Secret
+    documentSelector:
+      path: kind
+      value: Job
+    set:
+      certs.issuerSecretName: example-issuer
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'nats-callout-'
+
+  - it: does not widen the generator's access to Secrets
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              resourceNames: ["serviceradar-runtime-certs"]
+              verbs: ["get", "patch"]
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["create"]
