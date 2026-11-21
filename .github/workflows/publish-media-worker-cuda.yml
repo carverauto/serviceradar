@@ -95,11 +95,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - id: paths
+        name: Resolve container temp paths
+        run: |
+          set -euo pipefail
+          printf 'toolchain=%s/rust-toolchain\n' "${RUNNER_TEMP}" >> "${GITHUB_OUTPUT}"
+          printf 'bundle=%s/media-worker-cuda\n' "${RUNNER_TEMP}" >> "${GITHUB_OUTPUT}"
+
       - name: Download the toolchain
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           artifact-ids: ${{ needs.toolchain.outputs.artifact_id }}
-          path: ${{ runner.temp }}/rust-toolchain
+          path: ${{ steps.paths.outputs.toolchain }}
 
       - name: Build the CUDA media worker
         id: compile
@@ -131,7 +138,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: media-worker-cuda-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/media-worker-cuda
+          path: ${{ steps.paths.outputs.bundle }}
           if-no-files-found: error
           retention-days: 7
 

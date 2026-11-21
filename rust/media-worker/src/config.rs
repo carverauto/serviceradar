@@ -52,7 +52,7 @@ impl FromStr for ExecutionProvider {
             "cuda" => Ok(Self::Cuda),
             "cpu_explicit" => Ok(Self::CpuExplicit),
             other => Err(CapabilityError::invalid_configuration(format!(
-                "unsupported execution_provider '{other}'; expected 'tensorrt', 'cuda', or 'cpu_explicit'"
+                "unsupported execution_provider '{other}'; expected 'cuda' or 'cpu_explicit'"
             ))),
         }
     }

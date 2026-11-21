@@ -298,6 +298,13 @@ esac
             for step in job["steps"]:
                 if "uses" in step:
                     self.assertIn(action(step), {"actions/checkout", "actions/upload-artifact", "actions/download-artifact"})
+                    if name == "build" and action(step) in {"actions/download-artifact", "actions/upload-artifact"}:
+                        expected_dir = "rust-toolchain" if action(step) == "actions/download-artifact" else "media-worker-cuda"
+                        resolved = resolve_bindings(
+                            step["with"]["path"], {},
+                            {f"${{{{ steps.{s}.outputs.{k} }}}}": v for (s, k), v in outputs.items()},
+                        )
+                        self.assertEqual(resolved, str(root / expected_dir))
                     continue
                 settings = env | job.get("env", {})
                 for key, value in step.get("env", {}).items():
