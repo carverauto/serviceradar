@@ -198,6 +198,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
       {:ok, %{auth_mode: mode}} ->
         %{state | reason: "unsupported_auth_mode:#{mode}"}
 
+      {:error, :signing_keys_not_provisioned} ->
+        %{state | reason: "signing_keys_not_provisioned"}
+
       _ ->
         state
     end

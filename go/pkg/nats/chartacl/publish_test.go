@@ -27,12 +27,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io/fs"
 	"math/big"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -185,14 +187,10 @@ func TestCalloutGrantsMatchStaticUsers(t *testing.T) {
 	authUser := newKey(t, nkeys.CreateUser)
 	systemUser := newKey(t, nkeys.CreateUser)
 
+	writeCalloutFragments(t, pki, publicKey(t, issuer), publicKey(t, authUser), publicKey(t, systemUser))
+
 	rendered := renderChart(t, pki, map[string]any{
-		"certificateAuthorization": map[string]any{
-			"enabled":               true,
-			"infrastructureAdopted": true,
-			"issuerPublicKey":       publicKey(t, issuer),
-			"authUserPublicKey":     publicKey(t, authUser),
-			"systemUserPublicKey":   publicKey(t, systemUser),
-		},
+		"certificateAuthorization": map[string]any{"enabled": true},
 	})
 
 	opts, err := server.ProcessConfigFile(rendered.conf)
@@ -210,6 +208,38 @@ func TestCalloutGrantsMatchStaticUsers(t *testing.T) {
 	serveCallout(t, srv, pki, authUser, issuer, rendered.staticUsers)
 
 	assertChartPublishers(t, srv, pki)
+}
+
+// catSubstitution matches a command substitution the rendered script uses to
+// splice a mounted file into the broker configuration.
+var catSubstitution = regexp.MustCompile(`\$\(cat ([^)\s]+)\)`)
+
+// writeCalloutFragments writes the broker's half of the signing set where the
+// rendered configuration reads it: the two fragments, holding public keys only,
+// that the certificate generator (files/nats-callout-signing.py) or the
+// Secret's supplier puts in the runtime certificate Secret.
+func writeCalloutFragments(t *testing.T, pki *testPKI, issuer, authUser, systemUser string) {
+	t.Helper()
+
+	authorization := fmt.Sprintf(
+		"authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q, %q]}}\n",
+		issuer, authUser, systemUser,
+	)
+
+	accounts := fmt.Sprintf(`SYS: {
+  users: [
+    {nkey: %q, permissions: {publish: {allow: ["$SYS.REQ.SERVER.*.CONNZ", "$SYS.REQ.SERVER.*.KICK"]}, subscribe: {allow: ["_INBOX.>"]}}}
+  ]
+}
+AUTH: {
+  users: [
+    {nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}
+  ]
+}
+`, systemUser, authUser)
+
+	writeFile(t, filepath.Join(pki.dir, "nats-callout-authorization.conf"), []byte(authorization), 0o600)
+	writeFile(t, filepath.Join(pki.dir, "nats-callout-accounts.conf"), []byte(accounts), 0o600)
 }
 
 func assertChartPublishers(t *testing.T, srv *server.Server, pki *testPKI) {
@@ -626,6 +656,18 @@ func renderChart(t *testing.T, pki *testPKI, natsValues map[string]any) rendered
 		"/etc/serviceradar/certs", pki.dir,
 		"/data/jetstream", filepath.Join(work, "jetstream"),
 	).Replace(body[:end])
+
+	// The pod's shell also splices in the files the config reads with cat.
+	conf = catSubstitution.ReplaceAllStringFunc(conf, func(match string) string {
+		path := catSubstitution.FindStringSubmatch(match)[1]
+
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("rendered config reads %s, which the test did not provide: %v", path, err)
+		}
+
+		return strings.TrimRight(string(contents), "\n")
+	})
 
 	confPath := filepath.Join(work, "nats-server.conf")
 	writeFile(t, confPath, []byte(conf), 0o600)
