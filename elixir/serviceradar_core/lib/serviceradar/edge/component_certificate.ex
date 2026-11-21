@@ -79,6 +79,7 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
 
     attribute :subject, :string do
       public? true
+      constraints trim?: false, allow_empty?: true
 
       description """
       The certificate's subject, as `ServiceRadar.NATS.StaticIdentityGrants.certificate_subject/1`

@@ -73,7 +73,8 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
   # not agree for a different one.
   test "a certificate's canonical subject is the configured subject's, in any attribute order" do
     listed = "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
-    assert {:ok, configured} = StaticIdentityGrants.configured_subject(listed)
+    expected = "C=US,CN=example-core,L=Example City,O=ExampleOrg,OU=Kubernetes,ST=EX"
+    assert StaticIdentityGrants.configured_subject(listed) == {:ok, expected}
 
     for attributes <- [
           [
@@ -94,7 +95,7 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
           ]
         ] do
       assert StaticIdentityGrants.certificate_subject(subject_certificate(attributes)) ==
-               {:ok, configured}
+               {:ok, expected}
     end
 
     assert {:ok, other} =
@@ -102,22 +103,35 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
                subject_certificate(o: "ExampleOrg", cn: "example-web")
              )
 
-    refute other == configured
+    refute other == expected
   end
 
   # One attribute whose value contains a comma is not two attributes.
   test "a comma inside a value does not read as a second attribute" do
     assert {:ok, one} =
              StaticIdentityGrants.certificate_subject(
-               subject_certificate(cn: "example,O=ExampleOrg")
+               subject_certificate(cn: "example\\name,O=ExampleOrg")
              )
+
+    assert one == ~S(CN=example\\name\,O=ExampleOrg)
 
     assert {:ok, two} =
              StaticIdentityGrants.certificate_subject(
-               subject_certificate(cn: "example", o: "ExampleOrg")
+               subject_certificate(cn: "example\\name", o: "ExampleOrg")
              )
 
     refute one == two
+  end
+
+  test "a zero byte is preserved in hex and cannot collide with text" do
+    for {value, expected} <- [
+          {<<0, ?Z>>, "CN=#005a"},
+          {"Z", "CN=Z"},
+          {"#005a", ~S(CN=\#005a)}
+        ] do
+      assert StaticIdentityGrants.certificate_subject(subject_certificate(cn: value)) ==
+               {:ok, expected}
+    end
   end
 
   @oids %{

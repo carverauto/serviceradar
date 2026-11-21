@@ -105,8 +105,11 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
   @doc """
   A certificate's subject in one canonical spelling: its attributes as
   `TYPE=value`, sorted and joined by `,`, with `\\` and `,` in a value escaped
-  by a backslash. Two certificates carry the same identity exactly when this
-  string is equal, whatever order their attributes are encoded in.
+  by a backslash. A leading '#' is also escaped. Values containing invalid
+  UTF-8, U+0000 through U+001F, or U+007F are written as '#' followed by
+  the lowercase hexadecimal encoding of their bytes. Two certificates carry
+  the same identity exactly when this string is equal, whatever order their
+  attributes are encoded in.
   """
   @spec certificate_subject(binary()) :: {:ok, String.t()} | :error
   def certificate_subject(certificate_der) when is_binary(certificate_der) do
@@ -125,8 +128,18 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
 
   defp canonical(key) do
     Enum.map_join(key, ",", fn {type, value} ->
-      type <> "=" <> String.replace(value, ["\\", ","], &("\\" <> &1))
+      type <> "=" <> canonical_value(value)
     end)
+  end
+
+  defp canonical_value(value) do
+    if String.valid?(value) and not String.match?(value, ~r/[\x00-\x1f\x7f]/) do
+      value
+      |> String.replace(["\\", ","], &("\\" <> &1))
+      |> String.replace_prefix("#", "\\#")
+    else
+      "#" <> Base.encode16(value, case: :lower)
+    end
   end
 
   defp lookup(grants, component_type, subject_key) do
