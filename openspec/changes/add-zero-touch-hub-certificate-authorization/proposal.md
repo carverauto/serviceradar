@@ -1,0 +1,93 @@
+# Change: Turn on hub certificate authorization with one setting and no hand steps
+
+## Why
+
+An edge NATS leaf can only connect to a chart-installed hub after the hub's
+certificate authorization (the NATS auth callout answered by core) is enabled.
+The chart renders the leaf listener only with the callout, because NATS places
+a leaf with no authorization block in the global account
+(`helm/serviceradar/templates/nats.yaml:187-204`).
+
+Enabling the callout today is a hand procedure with three parts
+(`docs/managed-component-certificates.md`):
+
+1. **Adopt every existing NATS client.** One `POST
+   /api/admin/managed-components/adopt` per component, each with that
+   component's public certificate and a copy of its static permissions. There
+   is no bulk call and no list call. Neither core nor web-ng can read another
+   component's certificate, so the operator has to extract each one from the
+   runtime Secret, which also holds the CA keys.
+2. **Create the signing keys.** `POST
+   /api/admin/nats/certificate-authorization/bootstrap` returns three public
+   nkeys.
+3. **Edit Helm values.** Paste the three nkeys, set
+   `certificateAuthorization.enabled`, and set `infrastructureAdopted: true`,
+   which is a promise the chart cannot check.
+
+A client missed in step 1 is refused by the broker as soon as step 3 rolls
+out. A certificate regeneration (a layout change or a missing file regenerates
+every certificate) silently invalidates every adoption, and nothing re-adopts.
+No CLI command covers steps 1 and 2; their routes are outside the CLI's edge
+scope on purpose. The hosted control plane enables the leaf port for tenants
+but never the callout, so a hosted tenant has the port and no listener.
+
+The result is that leaf onboarding, which the CLI otherwise does in two
+commands, depends on a risky manual hub procedure that has not been run on a
+chart install. The owner asked for one-touch provisioning that is secure.
+
+## What Changes
+
+The hand steps are removed rather than wrapped in CLI commands. A CLI command
+that extracts certificates from the cluster would need Kubernetes access to
+the Secret that holds the CA keys, which is the opposite of secure.
+
+- **The chart publishes a public inventory of its own NATS client
+  certificates.** The certificate generator already holds every certificate.
+  It writes a ConfigMap with the public certificate of each chart identity and
+  no key material. Core mounts it next to the static users file it already
+  reads.
+- **Core adopts chart identities from that inventory by itself.** A
+  certificate is adopted when it chains to the deployment root, is valid, and
+  its subject is one of the chart's static identities. Core keeps doing this
+  continuously, so a regenerated certificate is adopted as a successor without
+  an operator. Hand adoption remains for clients the chart does not define.
+- **The chart owns the callout signing keys.** The generator creates the three
+  nkeys once, stores the seeds in a Secret mounted only into core, and writes
+  the public half into a configuration fragment the broker includes. Nothing
+  is pasted into values. The existing API bootstrap stays for installs that
+  have no chart.
+- **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
+  `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
+  `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
+  them; none is known to.
+- **Core reports whether the hub can accept a leaf**, including how many chart
+  identities are adopted and which are not, and the CLI shows it:
+  `serviceradar-cli edge hub status`.
+- **`edge install leaf` stops before changing the host when the hub cannot
+  accept the leaf**, with the reason and the one setting to change. Today it
+  continues and the leaf never connects.
+
+## Decision needed from the owner
+
+Whether enforcement is on by default. See design.md, Decision 4. The proposal
+as written keeps it off by default for this release and has the hosted control
+plane set it for tenants, because with enforcement on every new NATS
+connection depends on core and its database being up.
+
+## Impact
+
+- Affected specs: new capability `hub-certificate-authorization`.
+- Related active changes: `add-managed-component-certificates` (task 3.4,
+  adoption of existing installations, and 4.1, readiness errors, are delivered
+  by this change for chart identities) and `add-hosted-edge-leaf-connectivity`.
+- Affected code: `helm/serviceradar` (generator script and job, `nats.yaml`,
+  `core.yaml`, values, chart tests), `elixir/serviceradar_core` NATS
+  certificate authorization modules, the web-ng managed component controller,
+  `js/cli` edge commands, `docs/managed-component-certificates.md`.
+- Follow-up outside this repository: `serviceradar-control` supplies the
+  inventory and the signing Secret for hosted tenants, as it already supplies
+  the certificate Secret, and sets the one value. Until it does, hosted
+  tenants are unchanged.
+- Not in scope: Docker Compose and packaged hubs, a dedicated edge account for
+  leaf subject isolation, and opening the leaf port to the outside, which
+  stays an operator or control-plane action.
