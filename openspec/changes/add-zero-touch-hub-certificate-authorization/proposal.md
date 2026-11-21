@@ -45,12 +45,11 @@ The hand steps are removed rather than wrapped in CLI commands. A CLI command
 that extracts certificates from the cluster would need Kubernetes access to
 the Secret that holds the CA keys, which is the opposite of secure.
 
-- **The chart publishes a public inventory of its own NATS client
-  certificates.** The certificate generator already holds every certificate.
-  It writes a ConfigMap with the public certificate of each chart identity and
-  no key material, as it already publishes public certificates in
-  `runtime-cert-rotation.json`. Core mounts it next to the static users file it
-  already reads. A chart identity is a subject for which the generator issues
+- **Core is given the public certificates of the chart's NATS clients.** They
+  are already in the runtime certificate Secret. Core mounts the public
+  certificate file of each chart identity from that Secret by explicit list,
+  with no key, the way it already mounts `runtime-cert-rotation.json`. No new
+  object is created and the certificate generator's permissions do not change. A chart identity is a subject for which the generator issues
   a distinct NATS client certificate. The alias users `serviceradar-flowgger`,
   `serviceradar-otel` and `serviceradar-netflow-collector`, whose certificate
   files are copies of another identity's certificate, and the `O=ServiceRadar`

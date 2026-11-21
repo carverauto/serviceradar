@@ -55,14 +55,26 @@ coverage and never block the leaf install gate.
 
 ### Decision 1: The chart publishes its public certificates; core adopts them
 
-The generator writes a ConfigMap, `serviceradar-nats-infrastructure-certs`,
-holding one PEM certificate per chart identity. It contains no private key and
-not the CA key. Core mounts it read-only, like the static users ConfigMap. It
-is a separate ConfigMap and not another key in the runtime Secret, from which
-core mounts only its own items. The precedent for the generator publishing
-public certificates is `runtime-cert-rotation.json`, a JSON document inside
-the runtime Secret that holds public certificates and the fingerprints they
-replaced, with no key material.
+The inventory is a read-only projection, into core, of the public certificate
+file of each chart identity from the runtime certificate Secret. Every
+workload already mounts that Secret through an explicit item list
+(`serviceradar.runtimeCertItems`), so a pod sees only the files named for it;
+core's list gains the public `.pem` of each chart identity and no `-key.pem`.
+The precedent is `runtime-cert-rotation.json`, a key of the same Secret that
+core already mounts this way. No ConfigMap is created, the generator job is
+not changed for this, and its Role is unchanged.
+
+This was chosen over a separate ConfigMap written by the generator, which an
+earlier draft proposed: that needed new write permissions for the job, a new
+step on the path where the generator finds existing certificates and exits
+early, and a second object the hosted control plane would have to supply.
+
+A Secret volume fails to mount when a listed key is missing, and a pod with a
+failed mount does not start. On a chart install the generator always creates
+every chart identity's certificate. A Secret supplied by the hosted control
+plane may not carry the same files, so in hosted mode the list of projected
+files is a chart value the control plane sets to what it supplies (task 2.7),
+and nothing is projected by default there.
 
 Core reconciles on the authorizer's existing tick. Each certificate in the
 inventory is checked first:
@@ -129,8 +141,9 @@ users file, and a missing or unread static file still refuses it.
 
 Why this adds no trust: a certificate that chains to the root and carries a
 chart subject is already accepted by the broker today through
-`verify_and_map`. Writing the ConfigMap needs the same Kubernetes rights as
-changing the chart's static users. Revocation still wins.
+`verify_and_map`. Changing the files core reads needs write access to the
+runtime certificate Secret, which already holds the CA key. Revocation still
+wins.
 
 This provides the first adoption of chart certificates, which the existing
 rotation record cannot: it only records successors of certificates already
@@ -155,10 +168,23 @@ Alternatives considered:
 ### Decision 2: The chart owns the signing keys
 
 The generator creates the issuer, auth and system nkeys once and never
-replaces existing ones. Seeds go into a Secret, `serviceradar-nats-callout`,
-mounted only into core. The public keys go into a broker configuration
-fragment in a ConfigMap, which the NATS pod mounts and the server
-configuration includes.
+replaces existing ones. They are stored as additional keys of the runtime
+certificate Secret: the three seeds, and two broker configuration fragments
+that contain only public keys. Core's item list gains the seeds; the NATS
+pod's item list gains the fragments, which the server configuration includes;
+no other workload's list names either. This is the isolation every private
+key in the chart already relies on.
+
+A broker experiment confirmed that nats-server accepts the callout
+authorization from an included file at the top level and the two extra
+accounts from a file included inside the accounts block, and that empty
+fragments leave the static configuration as it is today. With enforcement off
+the NATS pod includes nothing.
+
+On an install that already has certificates the generator finds them and
+exits before generating anything, so it gains one step on that path: add the
+signing keys and fragments when they are absent, and change nothing when they
+are present.
 
 Core reads the seeds from the mounted files when they are present. The
 database record and `POST /nats/certificate-authorization/bootstrap` remain
@@ -169,8 +195,8 @@ Why not keep the keys in the database and copy public keys into values: that
 copy is the hand step being removed, and Helm cannot read the database at
 render time.
 
-Hosted tenants: the control plane creates the Secret and the fragment, as it
-already creates the certificate Secret. That is a change in
+Hosted tenants: the control plane adds the same keys to the certificate
+Secret it already creates. That is a change in
 `serviceradar-control`, tracked there.
 
 ### Decision 3: One value, and the unverifiable promise is removed
