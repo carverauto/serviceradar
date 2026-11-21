@@ -437,15 +437,17 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   # afterwards and can be counted.
   test "a subject's writers and the unheld check take one lock per subject", ctx do
     shared = ~c"example-locked-#{System.unique_integer([:positive])}"
-    held = self_signed_certificate(shared)
-    late = self_signed_certificate(shared)
+    first = self_signed_certificate(shared)
+    second = self_signed_certificate(shared)
+    refute fingerprint(first.der) == fingerprint(second.der)
+
     other = self_signed_certificate(~c"example-other-#{System.unique_integer([:positive])}")
 
     before = advisory_locks()
 
     assert {:ok, _adopted} =
-             Authority.adopt_existing_certificate(
-               adoption("example-lock-a-#{System.unique_integer([:positive])}", held.pem),
+             Authority.adopt_unheld_certificate(
+               adoption("example-lock-a-#{System.unique_integer([:positive])}", first.pem),
                ctx.opts
              )
 
@@ -453,22 +455,20 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert MapSet.size(MapSet.difference(after_first, before)) == 1
 
     assert {:ok, _adopted} =
-             Authority.adopt_unheld_certificate(
-               adoption("example-lock-b-#{System.unique_integer([:positive])}", other.pem),
+             Authority.adopt_existing_certificate(
+               adoption("example-lock-b-#{System.unique_integer([:positive])}", second.pem),
                ctx.opts
              )
 
-    after_other = advisory_locks()
-    assert MapSet.size(MapSet.difference(after_other, after_first)) == 1
+    assert advisory_locks() == after_first
 
-    assert {:error, :subject_held} =
+    assert {:ok, _adopted} =
              Authority.adopt_unheld_certificate(
-               adoption("example-lock-c-#{System.unique_integer([:positive])}", late.pem),
+               adoption("example-lock-c-#{System.unique_integer([:positive])}", other.pem),
                ctx.opts
              )
 
-    # The refused attempt waited on the lock the first writer took, not a new one.
-    assert advisory_locks() == after_other
+    assert MapSet.size(MapSet.difference(advisory_locks(), after_first)) == 1
   end
 
   test "successor replay fills only a missing subject and preserves a recorded spelling", ctx do

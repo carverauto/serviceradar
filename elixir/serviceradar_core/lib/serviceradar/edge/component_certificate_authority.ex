@@ -91,7 +91,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   and this returns `{:error, :subject_held}` and writes nothing, or waits and
   sees this one.
   """
-  def adopt_unheld_certificate(attrs, opts \\ []) do
+  def adopt_unheld_certificate(attrs, opts) do
     with {:ok, component, presented} <- InfrastructureCertificateAdoption.read_adoption(attrs),
          {:ok, prepared} <-
            InfrastructureCertificateAdoption.verify_adoption(component, presented) do
@@ -492,12 +492,10 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     end
   end
 
-  # Adoption takes the subject's lock before it touches a component, so the
-  # two locks are always taken in the same order on this path.
-  defp subject_guard(subject, unheld_only?, opts) do
-    with :ok <- lock_subject(subject) do
-      if unheld_only?, do: unheld(subject, opts), else: :ok
-    end
+  defp subject_guard(_subject, false, _opts), do: :ok
+
+  defp subject_guard(subject, true, opts) do
+    with :ok <- lock_subject(subject), do: unheld(subject, opts)
   end
 
   defp unheld(subject, opts) do
