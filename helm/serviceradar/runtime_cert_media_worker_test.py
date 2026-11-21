@@ -152,10 +152,13 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         ("invalid", files); anything else, a crash included, fails the test."""
         work = Path(tempfile.mkdtemp(dir=self.tmp.name))
         if secret_json is None:
-            data = {
-                path.name: base64.b64encode(path.read_bytes()).decode("ascii")
-                for path in secret_files.rglob("*") if path.is_file()
-            }
+            data = {}
+            for path in secret_files.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.name in data:
+                    raise AssertionError(f"duplicate Secret key {path.name!r} under {secret_files}")
+                data[path.name] = base64.b64encode(path.read_bytes()).decode("ascii")
             secret_json = json.dumps({"data": data})
         (work / "secret.json").write_text(secret_json)
         sa = work / "sa"
@@ -254,11 +257,13 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
             "-in", str(ca_work / "agent.csr"),
             "-out", str(ca_work / "expired-leaf.pem"),
         )
-        (secret / chain_name).write_bytes(
+        chain_path = secret / "components" / chain_name
+        self.assertTrue(chain_path.is_file(), f"expected generated chain at {chain_path}")
+        chain_path.write_bytes(
             (ca_work / "expired-leaf.pem").read_bytes() + (secret / "root.pem").read_bytes()
         )
         time_checked = subprocess.run(
-            ["openssl", "verify", "-CAfile", str(secret / "root.pem"), str(secret / chain_name)],
+            ["openssl", "verify", "-CAfile", str(secret / "root.pem"), str(chain_path)],
             capture_output=True, text=True,
         )
         self.assertNotEqual(time_checked.returncode, 0, "test chain must actually be expired")
