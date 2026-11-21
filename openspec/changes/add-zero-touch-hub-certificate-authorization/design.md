@@ -73,10 +73,15 @@ inventory is checked first:
 - its fingerprint is not revoked.
 
 A certificate that fails a check is reported with the reason and nothing is
-written. For a certificate that passes, the inventory performs first adoption
-only: when the subject is not held, core creates the component with the
-static grant for that subject and records the certificate. When the subject is
-held, the inventory writes nothing.
+written. Adoption is one ordered rule:
+
+1. If any infrastructure certificate row lacks a stored subject (see below),
+   the inventory adopts nothing and reports that state with the remedy.
+2. Otherwise, for each qualifying certificate whose subject is not held, core
+   creates the component, with a component id derived from the subject only
+   and that subject's static grant as its stored permissions, and records the
+   certificate with its subject. When the subject is held, the inventory
+   writes nothing.
 
 "Held" must be computable from stored rows, and today it is not: a recorded
 certificate stores fingerprint, issuer, serial, generation, role and validity,
@@ -205,7 +210,11 @@ then everything else connects or retries.
 
 `GET /api/admin/managed-components/bootstrap` gains a `hub` object:
 
-- `enforcement`: whether the authorizer is answering the broker;
+- `enforcement_configured`: whether the install was rendered with
+  `nats.certificateAuthorization.enabled`. Core cannot inspect the chart, so
+  the chart tells it through a rendered setting, like the leaf listener;
+- `authorizer_answering`: whether core's authorizer is connected and
+  answering the broker, with the readiness reason when it is not;
 - `chart_identities`: total, adopted, and the subjects not adopted with the
   reason for each;
 - `leaf_listener`: whether the hub broker is configured with the leafnodes
@@ -219,9 +228,10 @@ then everything else connects or retries.
   non-empty. The hard-coded hosted fallback used when it is unset is not
   treated as configured.
 
-`enforcement`, `chart_identities` and `leaf_listener` are decided on core. The
-bootstrap route is served by web-ng, which assembles the `hub` object from
-core's three fields and its own `leaf_upstream_url`.
+`enforcement_configured`, `authorizer_answering`, `chart_identities` and
+`leaf_listener` are decided on core. The bootstrap route is served by web-ng,
+which assembles the `hub` object from core's fields and its own
+`leaf_upstream_url`.
 
 `serviceradar-cli edge hub status` prints it. The route is already inside the
 CLI's `edge.manage` scope; no scope is widened.
@@ -230,15 +240,19 @@ CLI's `edge.manage` scope; no scope is widened.
 the first cause that applies, checked in this order, naming the cause and its
 resolver:
 
-1. enforcement off: `nats.certificateAuthorization.enabled`;
-2. leaf listener not configured while enforcement is on:
-   `nats.leafnodes.enabled`;
-3. no leaf upstream URL: the install's leaf host setting
+1. hub status missing or unreadable: no setting to change; wait and retry,
+   and check core's health;
+2. enforcement not configured: set `nats.certificateAuthorization.enabled`;
+3. enforcement configured but the authorizer not answering: no setting to
+   change; wait and retry, and check core's health, with the readiness reason
+   shown;
+4. leaf listener not configured: `nats.leafnodes.enabled`;
+5. no leaf upstream URL: the install's leaf host setting
    (`hostedRuntime.publicEndpoints.natsLeafHost` today);
-4. a chart identity not adopted: the per-subject reason from
+6. a chart identity not adopted: the per-subject reason from
    `chart_identities`; there is no Helm setting for this cause.
 
-It no longer
+In every case it changes nothing on the host. It no longer
 continues with "hub enforcement stays unconfirmed" for a leaf. Collector
 installs keep today's behaviour.
 

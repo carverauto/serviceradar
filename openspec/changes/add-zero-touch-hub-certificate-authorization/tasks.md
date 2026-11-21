@@ -10,19 +10,19 @@
 - [ ] 2.3 NATS pod includes the fragment; core mounts the inventory and the seeds; no other pod mounts the seeds.
 - [ ] 2.4 Remove `infrastructureAdopted` and the three key values; update chart tests and the values comments. Keep the failure when enforcement is combined with `certs.regenerator.enabled`.
 - [ ] 2.5 Broker test: nats-server boots from the rendered configuration with enforcement on, and each chart identity connects through a callout answered by a test authorizer.
-- [ ] 2.6 Render a setting for core, from `nats.leafnodes.enabled` together with enforcement, that says the hub broker has the leafnodes listener; a chart test covers each combination.
+- [ ] 2.6 Render settings for core: one from `nats.certificateAuthorization.enabled` saying enforcement is configured, and one from `nats.leafnodes.enabled` together with enforcement saying the hub broker has the leafnodes listener; a chart test covers each combination.
 
 ## 3. Core
 - [ ] 3.1 Migration: add a subject to the certificate record; write it from the PEM whenever a certificate is recorded (inventory adoption, hand adoption, successor and rotation recording). Existing rows stay without a subject.
-- [ ] 3.2 First adoption from the inventory: verify chain, validity, chart-identity subject present in the static users file, and revocation; a failed check is reported and nothing is written; while any infrastructure certificate row lacks a subject, adopt nothing and report the remedy; for a qualifying certificate whose subject is not held (no recorded certificate carries it, revoked or not), create the component with a component id derived from the subject and the static grant, and record the certificate; when the subject is held, write nothing (replacement stays with `RuntimeCertificateRotation`, unchanged). Report coverage: adopted when the inventory's certificate is recorded and not revoked, otherwise the reason.
+- [ ] 3.2 First adoption from the inventory, one ordered rule: step 1, while any infrastructure certificate row lacks a subject, adopt nothing and report the remedy; step 2, otherwise verify chain, validity, chart-identity subject present in the static users file, and revocation (a failed check is reported and nothing is written), and for a qualifying certificate whose subject is not held (no recorded certificate carries it, revoked or not), create the component with a component id derived from the subject only and that subject's static grant as its stored permissions, and record the certificate; when the subject is held, write nothing (replacement stays with `RuntimeCertificateRotation`, unchanged). Report coverage: adopted when the inventory's certificate is recorded and not revoked, otherwise the reason.
 - [ ] 3.3 Tests: a revoked then regenerated chart identity is recorded by neither path, no second component exists, and the subject is reported with the reason; a rotation naming an unrecorded predecessor leaves the identity reported unadopted; a legacy row without a subject blocks adoption.
 - [ ] 3.4 Read signing keys from mounted files; report a conflict with a stored record and refuse to answer.
-- [ ] 3.5 Report hub readiness from core (enforcement, chart identity coverage, leaf listener).
+- [ ] 3.5 Report hub readiness from core (enforcement configured, authorizer answering with reason, chart identity coverage, leaf listener).
 - [ ] 3.6 In web-ng, decide `leaf_upstream_url` from the application env read without a default (the hosted fallback is not configured) and assemble the `hub` object on the bootstrap route from core's fields and that one.
 
 ## 4. CLI
 - [ ] 4.1 `edge hub status`.
-- [ ] 4.2 `edge install leaf` stops before any host change when the hub cannot accept the leaf.
+- [ ] 4.2 `edge install leaf` stops before any host change when the hub status is missing or unreadable or the hub cannot accept the leaf, in the design's check order with each cause's resolver; collector installs keep today's behaviour.
 - [ ] 4.3 Publish the CLI release that carries both.
 
 ## 5. Verify on the demo deployment

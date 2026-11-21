@@ -59,8 +59,12 @@ the Secret that holds the CA keys, which is the opposite of secure.
 - **Core adopts chart identities from that inventory by itself.** A
   certificate qualifies when it chains to the deployment root, is valid, is
   not revoked, and its subject is a chart identity present in the static
-  users file. When that subject is not held (no recorded certificate on any
-  component carries it, revoked or not), core adopts it; this is the first
+  users file. Adoption is one ordered rule: first, if any infrastructure
+  certificate row lacks a stored subject, the inventory adopts nothing and
+  reports that state with the remedy; otherwise, for each qualifying
+  certificate whose subject is not held (no recorded certificate on any
+  component carries it, revoked or not), core creates the component and
+  records the certificate. This is the first
   adoption the existing rotation record lacks, and it complements that record
   rather than replacing it. To make that check possible, recorded
   certificates gain a stored subject. When the subject is held, the inventory
@@ -76,14 +80,16 @@ the Secret that holds the CA keys, which is the opposite of secure.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
   them; none is known to.
-- **The hub reports whether it can accept a leaf**: core reports how many chart
+- **The hub reports whether it can accept a leaf**: core reports whether
+  enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the
   leaf listener; web-ng reports whether the leaf upstream URL is configured;
   the CLI shows both: `serviceradar-cli edge hub status`.
 - **`edge install leaf` stops before changing the host when the hub cannot
   accept the leaf**, naming the cause and what resolves it: the enforcement
-  value, `nats.leafnodes.enabled`, the leaf host setting, or the per-subject
-  reason a chart identity is not adopted. Today it
+  value, waiting for core's authorizer, `nats.leafnodes.enabled`, the leaf
+  host setting, or the per-subject reason a chart identity is not adopted. It
+  also stops when the hub status is missing or unreadable. Today it
   continues and the leaf never connects.
 
 ## Decision needed from the owner

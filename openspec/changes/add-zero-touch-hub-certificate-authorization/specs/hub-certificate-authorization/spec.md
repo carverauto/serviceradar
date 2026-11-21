@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Chart identities are adopted without operator action
-On a chart install, core SHALL adopt a chart identity's NATS client certificate from a public certificate inventory the chart publishes when the subject is not held and the certificate qualifies, SHALL report every chart identity that is not adopted with the reason, and SHALL NOT require an operator to submit those certificates. A subject is held when any recorded certificate, on any component and whether or not it is revoked or superseded, carries that subject; recorded certificates SHALL store their subject whenever they are recorded. A chart identity is a subject for which the chart's certificate generator issues a distinct NATS client certificate. A static user whose certificate file is a copy of another identity's certificate (`serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector`) and the `O=ServiceRadar` static user are not chart identities: they SHALL NOT be counted in adoption coverage and SHALL NOT block a leaf install.
+On a chart install, core SHALL adopt chart identities' NATS client certificates from a public certificate inventory the chart publishes by one ordered rule: first, while any infrastructure certificate row lacks a stored subject, core SHALL adopt nothing and SHALL report that state with the remedy; otherwise, for each qualifying certificate whose subject is not held, core SHALL create the component and record the certificate. Core SHALL report every chart identity that is not adopted with the reason, and SHALL NOT require an operator to submit those certificates. A subject is held when any recorded certificate, on any component and whether or not it is revoked or superseded, carries that subject; recorded certificates SHALL store their subject whenever they are recorded. A chart identity is a subject for which the chart's certificate generator issues a distinct NATS client certificate. A static user whose certificate file is a copy of another identity's certificate (`serviceradar-flowgger`, `serviceradar-otel`, `serviceradar-netflow-collector`) and the `O=ServiceRadar` static user are not chart identities: they SHALL NOT be counted in adoption coverage and SHALL NOT block a leaf install.
 
 #### Scenario: Alias and organization users are not chart identities
 - **WHEN** core reports adoption coverage on a chart install
@@ -9,8 +9,8 @@ On a chart install, core SHALL adopt a chart identity's NATS client certificate 
 - **AND** a leaf install is not stopped on their account
 
 #### Scenario: An install is upgraded to a release with the inventory
-- **WHEN** core starts with the chart's public certificate inventory mounted, a chart identity's subject is not held, and the inventory holds a certificate for it that chains to the deployment root, is valid, is not revoked, and whose subject is present in the static users file
-- **THEN** core creates the component, with a component id derived from the subject and the static grant for that subject, and records the certificate with its subject
+- **WHEN** core starts with the chart's public certificate inventory mounted, no infrastructure certificate row lacks a stored subject, a chart identity's subject is not held, and the inventory holds a certificate for it that chains to the deployment root, is valid, is not revoked, and whose subject is present in the static users file
+- **THEN** core creates the component, with a component id derived from the subject only and that subject's static grant as its stored permissions, and records the certificate with its subject
 - **AND** no administrator API call was made
 
 #### Scenario: An adopted certificate is regenerated
@@ -27,7 +27,7 @@ On a chart install, core SHALL adopt a chart identity's NATS client certificate 
 - **AND** the client presenting the replacement stays refused until an operator acts
 
 #### Scenario: A regenerated certificate's subject is not held
-- **WHEN** the chart regenerates its certificates and a chart identity's subject is not held
+- **WHEN** the chart regenerates its certificates, no infrastructure certificate row lacks a stored subject, and a chart identity's subject is not held
 - **THEN** core adopts the inventory certificate for that subject only if it chains to the deployment root, is valid, is not revoked, and its subject is a chart identity present in the static users file
 - **AND** a certificate that fails any of these checks is reported with the reason and nothing is written
 
@@ -65,17 +65,17 @@ On a chart install, the callout signing keys SHALL be generated once by the char
 - **THEN** core reports the conflict and answers no authorization request
 
 ### Requirement: Hub readiness is reported before a leaf is installed
-The system SHALL report whether the hub can accept a leaf, and the CLI SHALL show it and SHALL NOT change an edge host when the hub cannot.
+The system SHALL report whether the hub can accept a leaf, and the CLI SHALL show it. The leaf install command SHALL NOT change an edge host when the hub cannot accept a leaf or its status cannot be read; collector installs keep their current behaviour.
 
 #### Scenario: An operator checks the hub
 - **WHEN** an operator runs the hub status command with the CLI's edge scope
-- **THEN** it shows whether enforcement is active, how many chart identities are adopted and which are not, whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
+- **THEN** it shows whether enforcement is configured, whether core's authorizer is answering, how many chart identities are adopted and which are not, whether the hub broker's leaf listener is configured, and whether the leaf upstream URL for this install is configured
 
 #### Scenario: A leaf install is attempted against a hub that cannot accept it
-- **WHEN** the hub reports enforcement off, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
+- **WHEN** the hub status is missing or unreadable, or reports enforcement not configured, the authorizer not answering, no leaf listener, no configured leaf upstream URL, or an unadopted chart identity
 - **THEN** the leaf install command stops before installing a package or writing a file
-- **AND** it names the first cause that applies, checked in the order enforcement, leaf listener, leaf upstream URL, chart identity adoption
-- **AND** it names the resolver for that cause: `nats.certificateAuthorization.enabled` for enforcement off, `nats.leafnodes.enabled` for a missing leaf listener while enforcement is on, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
+- **AND** it names the first cause that applies, checked in the order status readable, enforcement configured, authorizer answering, leaf listener, leaf upstream URL, chart identity adoption
+- **AND** it names the resolver for that cause: wait and retry and check core's health for a missing or unreadable status, `nats.certificateAuthorization.enabled` for enforcement not configured, wait and retry and check core's health (with the readiness reason) for an authorizer not answering, `nats.leafnodes.enabled` for a missing leaf listener, the install's leaf host setting for a missing leaf upstream URL, and the per-subject reason for an unadopted chart identity
 
 #### Scenario: The leaf upstream URL is unset
 - **WHEN** no leaf upstream URL is configured for the install and only the built-in hosted fallback address is available
