@@ -86,13 +86,17 @@ for that one site:
 
 The token is bound to a host on first use, not spent on first use. Until
 step 2 succeeds a failed attempt (hub not ready, host not enrolled) can be
-retried with the same token. The first successful registration binds the
-token to the enrolled host agent that presented it. Until the token expires
-or is revoked, that same agent may present it again to resume an interrupted
-install: registration is idempotent for the same site and agent, and the
-token authorizes requesting issuance for, and reading the status of, the
-component it registered. A presentation naming any other agent after binding
-is refused and recorded as a security event. When the leaf is reported
+retried with the same token. Before any registration has succeeded there is
+no bound identity, and the named agent only has to be enrolled with a live
+gateway session. When a registration first succeeds, core stores on the
+onboarding package the agent id it registered the leaf on; that stored value
+is the bound identity. Every later presentation is compared with the stored
+value. The same agent id may resume an interrupted install until the token
+expires or is revoked: registration is idempotent for the same site and agent
+id, and the token authorizes requesting issuance for, and reading the status
+of, the component it registered. Any other agent id is refused and recorded
+as a security event, including a host whose agent identity changed after a
+reinstall, which needs a new token. When the leaf is reported
 active the package takes the consume transition, and the token authorizes
 nothing further.
 
@@ -109,11 +113,13 @@ The token does not name a host, because the operator issuing it usually does
 not know the agent's identifier. The CLI reads the host's enrolled agent
 identity as it does today and sends it; core accepts the registration only if
 that agent exists, is enrolled and has a live authenticated gateway session.
-The first successful registration binds the token to that agent (Decision 2).
-The CLI's issuance request, authorized by the token, makes that agent generate
-the keys on the host and send the signing requests over its session. A token
-replayed from a machine with no enrolled agent can register nothing, and one
-replayed from another enrolled host after binding is refused.
+When the first registration succeeds, core stores that agent id on the
+onboarding package as the bound identity (Decision 2), and every later
+presentation must name the stored agent id. The CLI's issuance request,
+authorized by the token, makes that agent generate the keys on the host and
+send the signing requests over its session. A token replayed from a machine
+with no enrolled agent can register nothing, and one naming any agent id
+other than the stored one is refused.
 
 ### Decision 4: Status comes from the hub
 
@@ -128,9 +134,11 @@ The existing state machines cannot carry this as they stand, so they change:
   only from `:provisioned` or `:disconnected`
   (`edge/nats_leaf_server.ex:62`). The only way out of `:pending` is
   `:provision`, performed by the `ProvisionLeafWorker` this change removes.
-  `:connect` becomes legal from `:pending`, and the `:provisioned` state and
-  the `:provision` and `:reprovision` transitions are dropped with server-side
-  key issuance.
+  The `:provisioned` state is dropped from the state machine, with the
+  `:provision` and `:reprovision` transitions: the states are `:pending`,
+  `:connected` and `:disconnected`, and the first hub session moves
+  `:pending` to `:connected`. Existing rows in `:provisioned` are migrated to
+  `:pending`.
 - `EdgeSite`: `update_edge_site_status` always calls `:activate` for a live
   leaf (`edge/nats_leaf_server.ex:424-428`), and `:activate` runs only from
   `:pending` (`edge/edge_site.ex:60`). A connect for a site in `:pending`
@@ -173,6 +181,11 @@ grant in the existing account closes the exposure now.
 - **The narrow grant can be too narrow.** Mitigated by building it from
   observed subjects and by the broker test; a refused subject is visible in
   the broker log and in the connection's status.
+- **The bound agent id is named, not proven.** The agent id is named by the
+  CLI, not proven by it, so a token holder can direct the first install at
+  any enrolled host with a live gateway session. That host's own agent
+  performs the install and no key is returned to the presenter, and the token
+  still deploys at most one leaf for one site.
 - **Status depends on core's authorizer being connected.** When it is not,
   the page shows status as unknown, not as disconnected.
 

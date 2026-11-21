@@ -5,9 +5,9 @@
 
 ## 2. Core
 - [ ] 2.1 Onboarding package: `nats_leaf` component type with an edge site reference.
-- [ ] 2.2 Leaf token redemption: authorize site read, managed component registration, and issuance and status for the registered component, for one site; bind the token to the presenting host agent on first successful registration; make registration idempotent for the same site and agent; refuse and record as a security event any presentation naming another agent after binding; consume when the leaf is reported active; record package and security events.
+- [ ] 2.2 Leaf token redemption: authorize site read, managed component registration, and issuance and status for the registered component, for one site; on first successful registration store the registered agent id on the onboarding package as the bound identity; make registration idempotent for the same site and stored agent id; refuse and record as a security event any presentation naming another agent id; consume when the leaf is reported active; record package and security events.
 - [ ] 2.3 Registration accepts only an enrolled agent with a live gateway session.
-- [ ] 2.4 Authorizer marks leaf servers connected and disconnected from the hub connection scan; allow `NatsLeafServer :connect` from `:pending` and drop `:provisioned`, `:provision` and `:reprovision`; site status takes `:activate` from `:pending`, `:come_online` from `:offline` and `:go_offline` from `:active`.
+- [ ] 2.4 Authorizer marks leaf servers connected and disconnected from the hub connection scan; drop `:provisioned`, `:provision` and `:reprovision` from `NatsLeafServer` so its states are `:pending`, `:connected` and `:disconnected` and the first hub session moves `:pending` to `:connected`; migrate existing `:provisioned` rows to `:pending`; site status takes `:activate` from `:pending`, `:come_online` from `:offline` and `:go_offline` from `:active`.
 - [ ] 2.5 Remove the hard-coded hub address; refuse site creation and token issue without a configured address; refresh a site's address at token issue.
 - [ ] 2.6 Replace the leaf's `>` grant with the list from 1.3; broker test proves an edge collector's traffic passes and an outside subject is refused.
 - [ ] 2.7 Remove server-side leaf key issuance, credential minting, the provisioning worker and the bundle modules; drop unused attributes by migration.

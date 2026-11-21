@@ -9,11 +9,11 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **AND** no operator credential was entered on the host
 
 #### Scenario: The token is presented from another host after binding
-- **WHEN** a leaf token that has already registered a leaf is presented naming a different host agent
+- **WHEN** a leaf token that has already registered a leaf is presented naming an agent id other than the one stored on its onboarding package at the first successful registration, including the same host after its agent identity changed in a reinstall
 - **THEN** it is refused and the attempt is recorded as a security event
 
 #### Scenario: The same host resumes an interrupted install
-- **WHEN** a leaf token that has already registered a leaf is presented again by the same host agent for the same site, before it expires or is revoked and before the leaf is reported active
+- **WHEN** a leaf token that has already registered a leaf is presented again naming the agent id stored on its onboarding package at the first successful registration, for the same site, before it expires or is revoked and before the leaf is reported active
 - **THEN** registration succeeds without creating a second leaf, and the token authorizes requesting issuance for, and reading the status of, that leaf
 
 #### Scenario: The leaf is active
@@ -30,7 +30,7 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **AND** the same token can be used again once the cause is resolved
 
 ### Requirement: A leaf token grants no more than one leaf install
-A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the host agent of its first successful registration, and SHALL NOT carry or return private key material.
+A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the agent id stored on its onboarding package at its first successful registration, and SHALL NOT carry or return private key material.
 
 #### Scenario: The token is used against another site
 - **WHEN** a leaf token for one site is presented for a different site or any other edge resource
@@ -60,8 +60,9 @@ The system SHALL deploy leaves only through agent-managed registration and SHALL
 The system SHALL report a leaf as connected only while its recorded certificate has a live session on the hub, and SHALL derive the site's active or offline state from it.
 
 #### Scenario: A leaf connects
-- **WHEN** a deployed leaf establishes its hub session
-- **THEN** the leaf is shown as connected and its site as active
+- **WHEN** a deployed leaf establishes its first hub session
+- **THEN** the leaf server moves from pending to connected, with no provisioned state between them
+- **AND** the leaf is shown as connected and its site as active
 
 #### Scenario: A leaf stops
 - **WHEN** a leaf's hub session has been absent for a full scan interval
