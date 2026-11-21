@@ -69,6 +69,8 @@ ALL_GATED_OVERRIDES = {
     "mediaStorage.providerEgress.cidrs": ["192.0.2.17/32"],
     "mediaWorker.enabled": True,
     "mediaWorker.runtimeClassName": "nvidia",
+    "mediaWorker.image.repository": "registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda",
+    "mediaWorker.image.tag": "sha-0123456789abcdef0123456789abcdef01234567",
     "mediaWorker.models.existingClaim": "synthetic-media-worker-models",
     "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
     "mediaWorker.auth.deploymentRef": "11111111-2222-4333-8444-555555555555",

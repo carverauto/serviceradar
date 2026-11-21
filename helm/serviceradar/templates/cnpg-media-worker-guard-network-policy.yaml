@@ -1,0 +1,62 @@
+{{- /* Keeps the media worker off the database when the namespace-wide policy is off.
+
+     The worker has no database access by design. With networkPolicy.enabled, the
+     serviceradar-egress copies for the CNPG instances and the pooler admit no ingress
+     from it, and the CNPG application policy admits the primary to every pod but the
+     worker. Without the namespace-wide policy, replicas and the pooler (and the
+     primary, when cnpg.applicationAccess is off) are selected by no ingress policy,
+     and a pod no policy selects accepts traffic from anywhere, the worker included.
+     This policy selects exactly those pods and admits everything they admitted
+     before except the worker: every other pod in the namespace and every pod in
+     other namespaces, on any port. It applies whenever the worker is enabled,
+     whatever mediaWorker.networkPolicy.enabled says. */ -}}
+{{- $np := default (dict) .Values.networkPolicy -}}
+{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
+{{- $cnpgEnabled := include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true" -}}
+{{- if and $cnpgEnabled (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (not $np.enabled) }}
+{{- $applicationAccess := default (dict) $cnpg.applicationAccess -}}
+{{- $applicationAccessEnabled := true -}}
+{{- if hasKey $applicationAccess "enabled" -}}
+{{- $applicationAccessEnabled = $applicationAccess.enabled -}}
+{{- end -}}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $pooler := default (dict) $cnpg.pooler -}}
+{{- $instanceSelector := dict "cnpg.io/cluster" $clusterName "cnpg.io/podRole" "instance" -}}
+{{- if $applicationAccessEnabled -}}
+{{- /* The primary is already covered by the CNPG application policy. */ -}}
+{{- $_ := set $instanceSelector "cnpg.io/instanceRole" "replica" -}}
+{{- end -}}
+{{- $selectors := list (dict "suffix" "instances" "labels" $instanceSelector) -}}
+{{- if default false $pooler.enabled -}}
+{{- $selectors = append $selectors (dict "suffix" "pooler" "labels" (dict "cnpg.io/poolerName" (include "serviceradar.cnpgPoolerName" .))) -}}
+{{- end -}}
+{{- range $target := $selectors }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" $ }}-cnpg-{{ $target.suffix }}-no-media-worker
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $target.labels | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: NotIn
+                values: [serviceradar-media-worker]
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values: [{{ $.Release.Namespace | quote }}]
+{{- end }}
+{{- end }}

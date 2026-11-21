@@ -208,12 +208,13 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
         cls.enabled = by_name(render_static_users({"mediaWorker.enabled": True}))
         cls.disabled = by_name(render_static_users())
 
-    def test_the_worker_can_run_its_job_loop_and_answer_searches(self):
+    def test_the_worker_can_run_its_job_loop_and_answer_searches_only_while_enabled(self):
         # What rust/media-worker/src/worker.rs sends through async-nats: stream
         # get-or-create, durable consumer get-or-create (named, with its filter),
         # pulls, acks, result and metrics publishes, and replies to requesters.
-        worker = self.enabled[MEDIA_WORKER]
-        for subject in (
+        # Disabled, the same identity (say, a certificate left from an earlier
+        # enablement) is refused every one of them.
+        publish = (
             f"$JS.API.STREAM.INFO.{JOBS_STREAM}",
             f"$JS.API.STREAM.CREATE.{JOBS_STREAM}",
             "$JS.API.STREAM.INFO.CAMERA_MEDIA_RESULTS",
@@ -230,12 +231,19 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             "telemetry.media_worker.metrics.v1",
             # The embedding reply goes to web-ng's reply subject.
             OTHER_INBOX,
+        )
+        subscribe = (TEXT_EMBED_REQUEST, WORKER_INBOX)
+        for rendering, users, expected in (
+            ("enabled", self.enabled, True),
+            ("disabled", self.disabled, False),
         ):
-            with self.subTest(subject=subject):
-                self.assertTrue(may_publish(worker, subject))
-        for subject in (TEXT_EMBED_REQUEST, WORKER_INBOX):
-            with self.subTest(subscribe=subject):
-                self.assertTrue(may(worker, "subscribe", subject))
+            worker = users[MEDIA_WORKER]
+            for subject in publish:
+                with self.subTest(rendering=rendering, publish=subject):
+                    self.assertEqual(may_publish(worker, subject), expected)
+            for subject in subscribe:
+                with self.subTest(rendering=rendering, subscribe=subject):
+                    self.assertEqual(may(worker, "subscribe", subject), expected)
 
     def test_the_worker_reaches_no_other_stream_and_dispatches_nothing(self):
         worker = self.enabled[MEDIA_WORKER]

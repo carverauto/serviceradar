@@ -35,3 +35,21 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.networkPolicy.enabled must be a boolean \\(true or false\\), got string \"false\""
+
+  # Validated before the worker gate, so a bad value stored while the worker is
+  # off fails now rather than when it is switched on.
+  - it: refuses a string allowNvrRead while the worker is off
+    template: templates/media-worker.yaml
+    values:
+      - values/media_worker_allow_nvr_read_string.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.allowNvrRead must be a boolean"
+
+  - it: refuses a string networkPolicy.enabled while the worker is off
+    template: templates/media-worker.yaml
+    values:
+      - values/media_worker_network_policy_string.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.enabled must be a boolean"
