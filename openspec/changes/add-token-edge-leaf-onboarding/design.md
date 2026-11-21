@@ -68,10 +68,32 @@ task 1.2.
 ### Decision 2: A leaf onboarding token on the existing package machinery
 
 A leaf token is an onboarding package of a new component type, `nats_leaf`,
-with a reference to the edge site. Everything else is reused unchanged: the
-`edgepkg-v3` envelope and signing key, the hashed secret, expiry (24 hours by
-default), the consume transition, revoke, the package events and the security
-events.
+with a reference to the edge site. Reused from the agent onboarding package:
+the `edgepkg-v3` envelope and signing key, the hashed secret with its expiry
+(24 hours by default) on the package row, revoke, the package events and the
+security events.
+
+Not reused: the `:deliver` transition and its single-use consume
+(`edge/onboarding_packages.ex:217-232`), the join token and certificate
+bundle, the existing token-gated download and bundle routes
+(`POST /api/admin/edge-packages/:id/download` and
+`POST /api/edge-packages/:id/bundle`), and the operator-role token actor
+those routes mint (`controllers/api/edge_controller.ex:522-530`). Left as they
+are, those routes would spend a leaf token on first call and turn it into an
+operator for every site. So:
+
+- the existing download and bundle routes refuse a package whose component
+  type is `nats_leaf` and record a security event;
+- leaf redemption has its own route and its own actor, scoped to one site and
+  one registered component, able to do only the calls listed below;
+- a leaf package has its own transitions: `:bind` moves `:issued` to `:bound`
+  and stores the agent id at the first successful registration, and
+  `:complete` moves `:bound` to `:completed` when the leaf is reported
+  active. `:revoke` and `:expire` apply from `:issued` or `:bound`. A leaf
+  package never enters `:delivered`, so the `:active` read
+  (`edge/onboarding_package.ex:120-122`) never treats a completed one as
+  usable;
+- a leaf package stores no join token and no bundle.
 
 What differs is what redemption does. An agent package delivers a join token
 and a certificate bundle. A leaf package delivers no key material. Redeeming
@@ -96,9 +118,9 @@ expires or is revoked: registration is idempotent for the same site and agent
 id, and the token authorizes requesting issuance for, and reading the status
 of, the component it registered. Any other agent id is refused and recorded
 as a security event, including a host whose agent identity changed after a
-reinstall, which needs a new token. When the leaf is reported
-active the package takes the consume transition, and the token authorizes
-nothing further.
+reinstall, which needs a new token. When the leaf is reported active the
+package takes the `:complete` transition, and the token authorizes nothing
+further.
 
 Alternatives considered:
 - A short-lived operator bearer token scoped to the edge routes. Rejected: it
@@ -136,9 +158,10 @@ The existing state machines cannot carry this as they stand, so they change:
   `:provision`, performed by the `ProvisionLeafWorker` this change removes.
   The `:provisioned` state is dropped from the state machine, with the
   `:provision` and `:reprovision` transitions: the states are `:pending`,
-  `:connected` and `:disconnected`, and the first hub session moves
-  `:pending` to `:connected`. Existing rows in `:provisioned` are migrated to
-  `:pending`.
+  `:connected` and `:disconnected`. `:connect` is legal from `:pending` and
+  from `:disconnected`: the first hub session moves `:pending` to
+  `:connected`, and a returning session moves `:disconnected` back to
+  `:connected`. Existing rows in `:provisioned` are migrated to `:pending`.
 - `EdgeSite`: `update_edge_site_status` always calls `:activate` for a live
   leaf (`edge/nats_leaf_server.ex:424-428`), and `:activate` runs only from
   `:pending` (`edge/edge_site.ex:60`). A connect for a site in `:pending`

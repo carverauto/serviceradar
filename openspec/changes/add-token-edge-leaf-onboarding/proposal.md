@@ -46,9 +46,14 @@ as a token the CLI consumes, the way agent onboarding works.
   host-bound, expiring leaf onboarding token and shows one command:
   `serviceradar-cli edge install leaf --token <token>`. The CLI needs no login
   for it. The token reuses the agent onboarding token's envelope, signing key,
-  hashed secret, expiry, consume, revoke and audit events. The token is bound
-  to the host agent that first registers the leaf with it; that host may
-  resume an interrupted install with it, any other host is refused, and it
+  hashed secret with expiry, revoke, package events and security events. It
+  does not reuse the agent package's single-use deliver transition, its join
+  token or bundle, the existing download and bundle routes (which refuse a
+  leaf package) or the operator-role actor they mint; leaf redemption has its
+  own route and an actor scoped to one site and one component. The token is
+  bound to the agent id it first registers the leaf on; that agent id may
+  resume an interrupted install with it, a different agent id is refused,
+  including the same host after its agent identity changed, and it
   authorizes nothing once the leaf is active.
 - **The token carries no key and yields none.** It authorizes registering the
   leaf for one site on one enrolled host and starting certificate issuance.

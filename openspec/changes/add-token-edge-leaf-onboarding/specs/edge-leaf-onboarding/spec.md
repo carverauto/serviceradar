@@ -32,6 +32,16 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 ### Requirement: A leaf token grants no more than one leaf install
 A leaf onboarding token SHALL authorize only reading its edge site and hub readiness, registering one leaf for that site on an enrolled host agent, and requesting that leaf's certificates and reading its status, SHALL be bound to the agent id stored on its onboarding package at its first successful registration, and SHALL NOT carry or return private key material.
 
+#### Scenario: A leaf token is presented to the agent package download or bundle route
+- **WHEN** a leaf token is presented to the existing onboarding package download or bundle route
+- **THEN** the request is refused and recorded as a security event
+- **AND** the leaf package is not spent, no join token or bundle is returned, and no operator actor is created
+
+#### Scenario: A leaf token is redeemed
+- **WHEN** a leaf token is redeemed on the leaf redemption route
+- **THEN** the actor it yields is scoped to its one site and the one component it registers
+- **AND** the package moves only through bind and complete, never to delivered
+
 #### Scenario: The token is used against another site
 - **WHEN** a leaf token for one site is presented for a different site or any other edge resource
 - **THEN** the request is refused
@@ -67,6 +77,11 @@ The system SHALL report a leaf as connected only while its recorded certificate 
 #### Scenario: A leaf stops
 - **WHEN** a leaf's hub session has been absent for a full scan interval
 - **THEN** the leaf is shown as disconnected and its site as offline
+
+#### Scenario: A leaf reconnects
+- **WHEN** a leaf that was connected has been marked disconnected and its site offline, and its hub session returns
+- **THEN** the leaf server moves from disconnected to connected
+- **AND** the site returns to active through the come_online transition
 
 #### Scenario: The hub cannot be observed
 - **WHEN** core's hub authorizer is not connected
