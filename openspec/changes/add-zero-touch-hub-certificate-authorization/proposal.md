@@ -16,7 +16,7 @@ Enabling the callout today is a hand procedure with three parts
    component's public certificate and a copy of its static permissions. There
    is no bulk call and no list call. Neither core nor web-ng can read another
    component's certificate, so the operator has to extract each one from the
-   runtime Secret, which also holds the CA keys.
+   runtime Secret, which also holds the CA keys by default on self-managed installs.
 2. **Create the signing keys.** `POST
    /api/admin/nats/certificate-authorization/bootstrap` returns three public
    nkeys.
@@ -43,7 +43,7 @@ chart install. The owner asked for one-touch provisioning that is secure.
 
 The hand steps are removed rather than wrapped in CLI commands. A CLI command
 that extracts certificates from the cluster would need Kubernetes access to
-the Secret that holds the CA keys, which is the opposite of secure.
+the runtime Secret, exposing every component's private key to the caller.
 
 - **Core is given the public certificates of the chart's NATS clients.** They
   are already in the runtime certificate Secret. Core mounts the public
@@ -71,8 +71,10 @@ the Secret that holds the CA keys, which is the opposite of secure.
   existing rotation record, unchanged, so revocation is unchanged. Hand
   adoption remains, unchanged, for clients the chart does not define.
 - **The chart owns the callout signing keys.** The generator creates the three
-  nkeys once, stores the seeds in a Secret mounted only into core, and writes
-  the public half into a configuration fragment the broker includes. Nothing
+  nkeys once and stores their seeds in the existing issuer Secret. Only core
+  projects those seeds. The generator stores two public broker fragments in
+  the runtime certificate Secret. Only the NATS pod projects and includes
+  those fragments when enforcement is enabled. Nothing
   is pasted into values. The existing API bootstrap stays for installs that
   have no chart.
 - **One value turns enforcement on:** `nats.certificateAuthorization.enabled`.
@@ -115,9 +117,9 @@ connection depends on core and its database being up.
   certificate authorization modules, the web-ng managed component controller,
   `js/cli` edge commands, `docs/managed-component-certificates.md`.
 - Follow-up outside this repository: `serviceradar-control` supplies the
-  inventory and the signing Secret for hosted tenants, as it already supplies
-  the certificate Secret, and sets the one value. Until it does, hosted
-  tenants are unchanged.
+  public inventory certificates and both broker fragments in the hosted runtime
+  certificate Secret and the three seeds in the hosted issuer Secret. It
+  configures the projections for the keys it supplies before enabling enforcement.
 - Not in scope: Docker Compose and packaged hubs, a dedicated edge account for
   leaf subject isolation, and opening the leaf port to the outside, which
   stays an operator or control-plane action.

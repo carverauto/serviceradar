@@ -5,13 +5,13 @@
 - [ ] 1.4 Check live deployments for infrastructure components with recorded certificates (none is known); any found will need re-recording after the subject migration. The demo deployment has none (checked 2026-11-20); others are not checked yet.
 
 ## 2. Chart
-- [ ] 2.1 Core's runtime certificate projection gains the public certificate of each chart identity; a chart test proves the list names no private key and that no other workload's list changes.
-- [ ] 2.2 Generator creates the callout nkeys once and stores the seeds and the two public broker fragments as keys of the runtime certificate Secret, including on the path where certificates already exist; rerunning it changes nothing.
-- [ ] 2.3 With enforcement on, the NATS pod projects and includes the fragments and core projects the seeds; a chart test proves no other workload's projection names the seeds.
+- [ ] 2.1 Add each chart identity's public certificate to core's runtime certificate projection. A chart render test checks the additions across workloads. Only core gains inventory files, all public certificates, and callout seeds. Only the NATS pod gains the two broker fragments.
+- [ ] 2.2 Generate the three callout nkeys once. Store the seeds in the issuer Secret resolved by `serviceradar.runtimeIssuerSecretName` and both public broker fragments in the runtime certificate Secret. Add missing entries before the existing-certificates early exit and preserve existing keys on reruns.
+- [ ] 2.3 With enforcement on, project the three issuer Secret seeds into core and the two runtime certificate Secret fragments into the NATS pod. Include the authorization fragment at the top level and the account definitions inside the accounts block.
 - [ ] 2.4 Remove `infrastructureAdopted` and the three key values; update chart tests and the values comments. Keep the failure when enforcement is combined with `certs.regenerator.enabled`.
 - [ ] 2.5 Broker test: nats-server boots from the rendered configuration with enforcement on, and each chart identity connects through a callout answered by a test authorizer.
 - [ ] 2.6 Render settings for core: one from `nats.certificateAuthorization.enabled` saying enforcement is configured, and one from `nats.leafnodes.enabled` together with enforcement saying the hub broker has the leafnodes listener; a chart test covers each combination.
-- [ ] 2.7 Hosted mode: the projected certificate files and the callout keys come from a chart value the control plane sets to what its Secret carries; by default nothing is projected there, so a missing key cannot stop core or NATS from starting. Check the control plane's Secret before enabling it for a tenant.
+- [ ] 2.7 In hosted mode, default the additional projection lists to empty. A listed key missing from its Secret prevents the pod from starting. Before enabling enforcement, the control plane checks the inventory certificates and both fragments in its runtime certificate Secret and the three seeds in its distinct issuer Secret, then sets the chart value to project the supplied files.
 
 ## 3. Core
 - [ ] 3.1 Migration: add a subject to the certificate record; write it from the PEM whenever a certificate is recorded (inventory adoption, hand adoption, successor and rotation recording). Existing rows stay without a subject.

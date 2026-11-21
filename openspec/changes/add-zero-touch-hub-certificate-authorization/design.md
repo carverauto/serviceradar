@@ -139,11 +139,10 @@ The stored grant is the static block for that subject. It is only the
 per-fingerprint record: admission of a chart identity still uses the static
 users file, and a missing or unread static file still refuses it.
 
-Why this adds no trust: a certificate that chains to the root and carries a
+A certificate that chains to the root and carries a
 chart subject is already accepted by the broker today through
 `verify_and_map`. Changing the files core reads needs write access to the
-runtime certificate Secret, which already holds the CA key. Revocation still
-wins.
+runtime certificate Secret. Revoked certificates remain ineligible for adoption.
 
 This provides the first adoption of chart certificates, which the existing
 rotation record cannot: it only records successors of certificates already
@@ -157,7 +156,7 @@ the chart does not define.
 
 Alternatives considered:
 - A CLI command that reads the runtime Secret and calls adopt per certificate.
-  Rejected: it needs Kubernetes access to the Secret holding the CA keys, it
+  Rejected: it needs Kubernetes access to every component's private key, it
   is not available to a hosted tenant, and it does not survive regeneration.
 - Give core RBAC to read the Secret. Rejected: core would hold every
   component's private key.
@@ -168,12 +167,18 @@ Alternatives considered:
 ### Decision 2: The chart owns the signing keys
 
 The generator creates the issuer, auth and system nkeys once and never
-replaces existing ones. They are stored as additional keys of the runtime
-certificate Secret: the three seeds, and two broker configuration fragments
-that contain only public keys. Core's item list gains the seeds; the NATS
-pod's item list gains the fragments, which the server configuration includes;
-no other workload's list names either. This is the isolation every private
-key in the chart already relies on.
+replaces existing ones. It stores all three seeds in the issuer Secret
+selected by `certs.issuerSecretName` and resolved by
+`serviceradar.runtimeIssuerSecretName`. Only core projects the seeds from
+that Secret. The two broker fragments contain only public keys and live
+alongside the public inventory certificates in the runtime certificate
+Secret. Only the NATS pod projects and includes the fragments.
+
+On self-managed installs the issuer Secret defaults to the runtime certificate
+Secret, which already holds the CA key. Hosted installs use a distinct issuer
+Secret so the CA key and callout seeds stay there. Pod projections limit the
+files mounted into workloads. In either mode, Kubernetes principals with read
+access to the issuer Secret can read the seeds and use the signing keys.
 
 A broker experiment confirmed that nats-server accepts the callout
 authorization from an included file at the top level and the two extra
@@ -195,9 +200,10 @@ Why not keep the keys in the database and copy public keys into values: that
 copy is the hand step being removed, and Helm cannot read the database at
 render time.
 
-Hosted tenants: the control plane adds the same keys to the certificate
-Secret it already creates. That is a change in
-`serviceradar-control`, tracked there.
+For hosted tenants the control plane adds the seeds to its existing issuer
+Secret and the fragments to its existing runtime certificate Secret. It
+configures the projection lists for the files it supplies. This is tracked in
+`serviceradar-control`.
 
 ### Decision 3: One value, and the unverifiable promise is removed
 
