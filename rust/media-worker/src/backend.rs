@@ -35,6 +35,11 @@ impl InferenceBackendKind {
                 "MEDIA_WORKER_BACKEND=stub requires execution_provider=cpu_explicit",
             ));
         }
+        if self == Self::Candle && provider == ExecutionProvider::Tensorrt {
+            return Err(CapabilityError::gpu_unavailable(
+                "Candle does not support the tensorrt execution provider",
+            ));
+        }
         Ok(())
     }
 

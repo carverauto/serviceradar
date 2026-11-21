@@ -101,6 +101,8 @@ def verify(bundle, sums_sha256, commit):
     if present != set(listed):
         raise BundleError(f"bundle files differ from SHA256SUMS: {sorted(present ^ set(listed))}")
     for name in listed:
+        if name.startswith(("lib/libcuda.so", "lib/libnvidia-")):
+            raise BundleError(f"unexpected host driver library: {name}")
         if name.startswith("lib/libnvrtc-builtins.so.") and name != "lib/libnvrtc-builtins.so.13.0":
             raise BundleError(f"unexpected NVRTC builtins library: {name}")
         if name not in (BINARY, "manifest.json") and name not in NOTICE_FILES and not LIBRARY_NAME.fullmatch(name):

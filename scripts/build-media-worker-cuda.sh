@@ -150,13 +150,14 @@ vendor_crates() {
 }
 
 collect_cuda_libraries() {
-  local binary="$1" libdir="$2" line name path missing=()
+  local binary="$1" libdir="$2" toolkit="$3" dependencies line name path missing=()
   local -A wanted=()
+  dependencies="$(ldd "${binary}")" || die "ldd failed to inspect ${binary}"
   for name in "${CUDA_RUNTIME_LIBRARIES[@]}"; do wanted["${name}"]=1; done
   while read -r line; do
     if [[ "${line}" =~ ^([^[:space:]]+)\ =\>\ not\ found ]]; then
       [[ "${BASH_REMATCH[1]}" == "libcuda.so.1" ]] || missing+=("${BASH_REMATCH[1]}")
-    elif [[ "${line}" =~ ^([^[:space:]]+)\ =\>\ (/usr/local/cuda[^[:space:]]*) ]]; then
+    elif [[ "${line}" =~ ^([^[:space:]]+)\ =\>\ "${toolkit}"(/|-[0-9]) ]]; then
       # Never ship a driver library (e.g. a cuda-compat libcuda): it must come from the
       # host through the NVIDIA container runtime, matching the host kernel module.
       [[ "${BASH_REMATCH[1]}" == libcuda.so* || "${BASH_REMATCH[1]}" == libnvidia-* ]] && continue
@@ -166,11 +167,11 @@ collect_cuda_libraries() {
       fi
       wanted["${name}"]=1
     fi
-  done < <(ldd "${binary}" || true)
+  done <<<"${dependencies}"
   ((${#missing[@]} == 0)) || die "unresolved shared libraries: ${missing[*]}"
   mkdir -p "${libdir}"
   for name in "${!wanted[@]}"; do
-    path="/usr/local/cuda/lib64/${name}"
+    path="${toolkit}/lib64/${name}"
     [[ -e "${path}" ]] || die "CUDA runtime library not found in the builder image: ${path}"
     cp -L "${path}" "${libdir}/${name}"
     chmod 0644 "${libdir}/${name}"
@@ -247,7 +248,7 @@ build() (
   )
 
   install -m 0755 "${CARGO_TARGET_DIR}/release/${BINARY_NAME}" "${out}/${BINARY_NAME}"
-  collect_cuda_libraries "${out}/${BINARY_NAME}" "${out}/lib"
+  collect_cuda_libraries "${out}/${BINARY_NAME}" "${out}/lib" /usr/local/cuda
   local package notice
   mkdir "${out}/third-party"
   for package in libcublas-13-0 libcurand-13-0 cuda-nvrtc-13-0 cuda-cudart-13-0; do
@@ -269,6 +270,7 @@ usage() {
   exit 2
 }
 
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 case "${1:-}" in
   fetch-toolchain) [[ $# -eq 2 ]] || usage; fetch_toolchain "$2" ;;
   build) [[ $# -eq 3 ]] || usage; build "$2" "$3" ;;

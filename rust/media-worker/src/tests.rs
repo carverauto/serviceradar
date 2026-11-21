@@ -123,8 +123,14 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(20_480),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, true),
     );
-    let mig_manifest = admit_cuda_backend(&trt_cfg, mig_obs)
-        .expect("verified TensorRT MIG capability should succeed");
+    let trt_err = admit_cuda_backend(&trt_cfg, mig_obs.clone())
+        .expect_err("an installed TensorRT EP cannot execute a Candle forward pass");
+    assert!(
+        matches!(trt_err.kind(), CapabilityErrorKind::GpuUnavailable(reason)
+        if reason.contains("tensorrt") && reason.contains("Candle"))
+    );
+    let mig_manifest = admit_cuda_backend(&cuda_cfg, mig_obs)
+        .expect("verified CUDA MIG capability should succeed");
     assert_eq!(mig_manifest.gpu_sharing_mode(), GpuSharingMode::Mig);
 
     let ts_obs = GpuEnvironmentObservation::new(

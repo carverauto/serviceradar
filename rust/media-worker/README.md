@@ -84,12 +84,13 @@ For tests, explicitly select `MEDIA_WORKER_BACKEND=stub` with
 
 | Setting | Values |
 | --- | --- |
-| `SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER` | `cuda` (default), `tensorrt`, `cpu_explicit` |
+| `SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER` | `cuda` (default), `cpu_explicit` |
 | `MEDIA_WORKER_DEVICE` / `--device` | `auto` (default), `cuda`, `cpu` |
 
-The worker never falls back silently:
+Candle refuses startup with the `tensorrt` provider, including on hosts with
+TensorRT installed. For its supported providers, device selection follows this table.
 
-| device | `cuda` / `tensorrt` provider | `cpu_explicit` |
+| device | `cuda` provider | `cpu_explicit` |
 | --- | --- | --- |
 | `auto` | CUDA, or exit with an error | CPU |
 | `cuda` | CUDA, or exit with an error | refused |

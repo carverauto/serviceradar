@@ -119,8 +119,9 @@ listed in `docker/images/image_inventory.bzl`:
 
 The Dockerfile workflow resolves the published tag. The native workflow passes
 the verified build digest directly through signing and promotion. Both use the same
-`sign-oci-publish.sh` path, OpenBao role and ref allowlist as `publish-oci.yml`,
-and are promoted like any other image.
+`sign-oci-publish.sh` path and OpenBao role as `publish-oci.yml`, and are
+promoted like any other image. The Dockerfile workflow publishes only from
+`staging`. The CUDA workflow also admits branches matching `test/demo-test-<digits>`.
 
 ### Publishing the promotion tool
 

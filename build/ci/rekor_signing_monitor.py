@@ -30,6 +30,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -342,6 +343,11 @@ def signing_runs(github, since):
     runs = []
     for workflow in SIGNING_WORKFLOWS:
         for run in github.runs(workflow, since):
+            if workflow == "publish-media-worker-cuda.yml":
+                branch = run.get("head_branch") or ""
+                if (not re.fullmatch(r"staging|test/demo-test-[0-9]+", branch)
+                        or run.get("display_title") != f"refs/heads/{branch}"):
+                    continue
             # created_at, not run_started_at: a re-run attempt restarts the latter, and an earlier
             # attempt's entries must still fall inside the run's window.
             started = parse_time(run["created_at"])

@@ -421,6 +421,17 @@ fn write_tiny_siglip_fixture(dir: &Path) {
         (vec![1], const_f32_bytes(1, -10.0)),
     );
 
+    for (head, first, second) in [
+        ("vision_model.head.attention.out_proj", 1.0_f32, 1.0_f32),
+        ("vision_model.head.mlp.fc2", 0.0, 1.0 / 4096.0),
+        ("text_model.head", 1.0, 1.0 + 1.0 / 4096.0),
+    ] {
+        let (shape, weights) = t.get_mut(&format!("{head}.weight")).expect("head weights");
+        weights[..2 * shape[1] * size_of::<f32>()].fill(0);
+        let (_, bias) = t.get_mut(&format!("{head}.bias")).expect("head bias");
+        bias[..4].copy_from_slice(&first.to_le_bytes());
+        bias[4..8].copy_from_slice(&second.to_le_bytes());
+    }
     write_safetensors_file(&dir.join("model.safetensors"), &t);
 }
 
@@ -1060,6 +1071,9 @@ fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
     for (full, half) in &pairs {
         assert_eq!(full.len(), 32);
         assert_eq!(half.len(), 32);
+        assert!(half[0] > 0.0);
+        assert_eq!(half[0], half[1], "binary16 rounds 1 + 2^-12 to 1");
+        assert!((full[1] / full[0] - (1.0 + 1.0 / 4096.0)).abs() < 1e-6);
         let norm: f32 = half.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!(
             (norm - 1.0).abs() < 1e-4,

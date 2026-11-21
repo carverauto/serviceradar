@@ -132,6 +132,44 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
                 self.assertIn("output directory must be empty", result.stderr)
                 self.assertEqual(sentinel.read_bytes(), b"previous artifact")
 
+    def test_collection_requires_successful_ldd_and_excludes_host_drivers(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            toolkit = root / "cuda"
+            lib = toolkit / "lib64"
+            lib.mkdir(parents=True)
+            drivers = ("libcuda.so.1", "libnvidia-ptxjitcompiler.so.1")
+            extra = "libextra.so.1"
+            for name in (*LIBRARIES, *drivers, extra):
+                (lib / name).write_text(name)
+            binary = root / "worker"
+            binary.touch()
+            ldd = root / "ldd"
+            ldd.write_text('#!/bin/sh\ntest -f "$1" || exit 1\nprintf "%s\\n" "$DEPS"\nexit "$STATUS"\n')
+            ldd.chmod(0o755)
+            resolved = "\n".join(f"\t{name} => {lib / name} (0x1)" for name in (extra, *drivers))
+            for case, deps, status, error in [
+                ("resolved", resolved, 0, None),
+                ("host-absent", f"{extra} => {lib / extra}\nlibcuda.so.1 => not found", 0, None),
+                ("partial", resolved, 1, "ldd failed"),
+                ("unresolved", "libextra.so.1 => not found", 0, "unresolved shared libraries"),
+            ]:
+                with self.subTest(case=case):
+                    out = root / case / "lib"
+                    result = subprocess.run(
+                        ["bash", "-c", 'source "$1"; collect_cuda_libraries "$2" "$3" "$4"',
+                         "collect", BUILD_SCRIPT, binary, out, toolkit],
+                        env=os.environ | {"PATH": work + os.pathsep + os.environ["PATH"],
+                                          "DEPS": deps, "STATUS": str(status)},
+                        text=True, capture_output=True)
+                    if error:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(error, result.stderr)
+                        self.assertFalse(out.exists())
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual({p.name for p in out.iterdir()}, {*LIBRARIES, extra})
+
     def test_downloads_follow_the_uploads_across_attempts(self):
         for producer, consumer in [("toolchain", "build"), ("build", "publish")]:
             job = self.jobs[producer]
@@ -145,6 +183,7 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
     def test_dispatch_admission_controls_the_entire_privileged_job(self):
         triggers = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(set(triggers), {"workflow_dispatch"})
+        self.assertEqual(self.workflow["run-name"], "${{ github.ref }}")
         preflight = self.jobs["preflight"]
         self.assertEqual(preflight["runs-on"], "ubuntu-24.04")
         self.assertEqual(self.jobs["toolchain"]["runs-on"], "ubuntu-24.04")
@@ -379,6 +418,8 @@ class MediaWorkerCudaBundleTest(unittest.TestCase):
 
     def test_verify_rejects_unlisted_unexpected_or_missing_files(self):
         cases = {
+            "driver": lambda: ((self.bundle / "lib/libcuda.so.1").write_bytes(b"driver"), self.write_sums()),
+            "driver component": lambda: ((self.bundle / "lib/libnvidia-ptxjitcompiler.so.1").write_bytes(b"driver"), self.write_sums()),
             "missing builtins": lambda: ((self.bundle / "lib/libnvrtc-builtins.so.13.0").unlink(), self.write_sums()),
             "duplicate builtins": lambda: (shutil.copyfile(self.bundle / "lib/libnvrtc-builtins.so.13.0",
                                                          self.bundle / "lib/libnvrtc-builtins.so.13.0.88"), self.write_sums()),

@@ -106,11 +106,12 @@ class World:
     def uuid(self, index):
         return "0000000000000001" + hashlib.sha256(b"\x00" + self.bodies[index][0]).hexdigest()
 
-    def add_run(self, workflow, run_id, start, end, ledger=None):
+    def add_run(self, workflow, run_id, start, end, ledger=None, ref="refs/heads/staging"):
         runs = self.runs.setdefault(workflow, [])
         runs.insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
                         "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
                         "status": "completed" if end else "in_progress",
+                        "head_branch": ref.split("/", 2)[2], "display_title": ref,
                         "html_url": f"https://github.example/run/{run_id}"})
         if ledger is not None:
             self.ledgers[run_id] = ledger
@@ -382,11 +383,13 @@ class MonitorTest(unittest.TestCase):
 
     def test_entry_in_a_finished_runs_ledger_is_explained(self):
         entries = {}
-        for run_id, workflow in [(7, "release.yml"), (8, "publish-media-worker-cuda.yml")]:
+        for run_id, workflow, ref in [(7, "release.yml", "refs/tags/v1"),
+                                      (8, "publish-media-worker-cuda.yml", "refs/heads/staging"),
+                                      (9, "publish-media-worker-cuda.yml", "refs/heads/test/demo-test-12")]:
             entry = self.world.add_entry(f"synthetic payload {run_id}".encode())
             entries[entry["uuid"]] = run_id
             self.world.add_run(workflow, run_id, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
-                               [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
+                               [{"event": "sign", "payload_sha256": entry["payload_sha256"]}], ref=ref)
         self.assertEqual(self.run_monitor(), 0)
         state = json.loads(self.state.read_text())
         for uuid, run_id in entries.items():
@@ -394,6 +397,20 @@ class MonitorTest(unittest.TestCase):
             self.assertIn(str(run_id), state["canary_checked"])
         self.assertEqual(self.world.issues, [])
         self.assertEqual(self.world.blob_requests_with_auth, 0, "the GitHub token followed the artifact redirect")
+
+    def test_build_only_cuda_runs_cannot_explain_or_defer_an_alert(self):
+        entry = self.world.add_entry(b"unexplained during CUDA builds")
+        workflow = "publish-media-worker-cuda.yml"
+        start = NOW - timedelta(hours=4)
+        for run_id, ref in enumerate(("refs/heads/feature", "refs/heads/test/demo-test-x",
+                                      "refs/tags/staging", "refs/tags/test/demo-test-7"), start=10):
+            self.world.add_run(workflow, run_id, start, None, ref=ref)
+        self.world.add_run(workflow, 14, start, NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/heads/feature")
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
+        self.assertNotIn("14", json.loads(self.state.read_text())["canary_checked"])
 
     def test_an_explained_entry_stays_explained_after_its_run_ages_out(self):
         entry = self.world.add_entry(b"release payload")

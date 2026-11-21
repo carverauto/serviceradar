@@ -49,5 +49,9 @@ The worker SHALL run a warm-up image and text inference on the selected device b
 - **THEN** the worker SHALL log a warning and continue starting
 
 #### Scenario: CUDA requested but unavailable
-- **WHEN** the execution provider is `cuda` or `tensorrt` and CUDA device initialisation fails
+- **WHEN** the execution provider is `cuda` and CUDA device initialisation fails
 - **THEN** the worker SHALL exit with an error and SHALL NOT fall back to the CPU
+
+#### Scenario: TensorRT requested for Candle
+- **WHEN** the execution provider is `tensorrt` and the backend is Candle
+- **THEN** the worker SHALL refuse startup before warm-up, even when TensorRT is installed

@@ -248,9 +248,7 @@ impl CapabilityManifest {
 /// Verifies pinned model SHA-256 digests, execution provider hardware/runtime
 /// availability, GPU sharing classification, and synthetic forward-pass warmup.
 ///
-/// Fails closed (`Err(CapabilityError::GpuUnavailable)`) with ZERO silent CPU
-/// fallback whenever `execution_provider` is `cuda` or `tensorrt` and GPU or
-/// ONNX Runtime acceleration is unavailable.
+/// GPU admission requires a supported execution provider and a CUDA backend device.
 pub fn verify_startup_capabilities<P: GpuEnvironmentProbe>(
     config: &WorkerConfig,
     probe: &P,
@@ -428,57 +426,46 @@ fn verify_provider_and_classify_sharing(
     obs: &GpuEnvironmentObservation,
     backend_info: &crate::backend::InferenceBackendInfo,
 ) -> Result<GpuSharingMode, CapabilityError> {
-    match config.execution_provider() {
-        ExecutionProvider::CpuExplicit => {
-            if backend_info.device() != "cpu" {
-                return Err(CapabilityError::invalid_configuration(format!(
-                    "cpu_explicit execution_provider requires a CPU backend, got '{}'",
-                    backend_info.device()
-                )));
-            }
-            if let Some(declared) = config.declared_gpu_sharing_mode()
-                && declared != GpuSharingMode::CpuExplicit
-            {
-                return Err(CapabilityError::invalid_configuration(format!(
-                    "cpu_explicit execution_provider cannot declare gpu_sharing_mode '{declared}'"
-                )));
-            }
-            Ok(GpuSharingMode::CpuExplicit)
+    if config.execution_provider() == ExecutionProvider::CpuExplicit {
+        if backend_info.device() != "cpu" {
+            return Err(CapabilityError::invalid_configuration(format!(
+                "cpu_explicit execution_provider requires a CPU backend, got '{}'",
+                backend_info.device()
+            )));
         }
-        provider @ (ExecutionProvider::Cuda | ExecutionProvider::Tensorrt) => {
-            verify_nvidia_hardware_present(config, obs, provider.as_str())?;
-            if !backend_info.device().starts_with("cuda") {
-                return Err(CapabilityError::gpu_unavailable(format!(
-                    "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
-                    backend_info.device()
-                )));
-            }
-            if provider == ExecutionProvider::Tensorrt
-                && (!obs.ort_probe().loaded() || !obs.ort_probe().tensorrt_ep_available())
-            {
-                return Err(CapabilityError::gpu_unavailable(
-                    "ONNX Runtime TensorRTExecutionProvider unavailable; refusing silent CPU fallback",
-                ));
-            }
-            classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
+        if let Some(declared) = config.declared_gpu_sharing_mode()
+            && declared != GpuSharingMode::CpuExplicit
+        {
+            return Err(CapabilityError::invalid_configuration(format!(
+                "cpu_explicit execution_provider cannot declare gpu_sharing_mode '{declared}'"
+            )));
         }
+        return Ok(GpuSharingMode::CpuExplicit);
     }
+
+    verify_nvidia_hardware_present(config, obs)?;
+    if !backend_info.device().starts_with("cuda") {
+        return Err(CapabilityError::gpu_unavailable(format!(
+            "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
+            backend_info.device()
+        )));
+    }
+    classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
 }
 
 fn verify_nvidia_hardware_present(
     config: &WorkerConfig,
     obs: &GpuEnvironmentObservation,
-    provider_name: &str,
 ) -> Result<(), CapabilityError> {
     if obs.nvidia_device_count() == 0 {
-        return Err(CapabilityError::gpu_unavailable(format!(
-            "execution_provider='{provider_name}' requires at least 1 NVIDIA GPU device, found 0; refusing silent CPU fallback"
-        )));
+        return Err(CapabilityError::gpu_unavailable(
+            "execution_provider='cuda' requires at least 1 NVIDIA GPU device, found 0; refusing silent CPU fallback",
+        ));
     }
     let observed_vram = obs.available_vram_mb().unwrap_or(0);
     if observed_vram < config.min_gpu_vram_mb() {
         return Err(CapabilityError::gpu_unavailable(format!(
-            "execution_provider='{provider_name}' requires >= {} MiB VRAM, observed {} MiB; refusing silent CPU fallback",
+            "execution_provider='cuda' requires >= {} MiB VRAM, observed {} MiB; refusing silent CPU fallback",
             config.min_gpu_vram_mb(),
             observed_vram
         )));

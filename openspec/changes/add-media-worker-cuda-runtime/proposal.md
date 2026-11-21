@@ -33,8 +33,8 @@ multi-arch image, and Bazel RBE (amd64-only, no CUDA toolkit) cannot build it.
   `/healthz` keeps answering; `/readyz` reports `warmup_ms`. The worker logs
   whether `CUDA_CACHE_PATH` is writable and continues when it is not.
 - **Device rules.** `MEDIA_WORKER_DEVICE=auto` follows the execution provider:
-  CUDA (or a hard failure) for `cuda`/`tensorrt`, the CPU for `cpu_explicit`;
-  `cuda` with `cpu_explicit` is refused.
+  CUDA (or a hard failure) for `cuda`, the CPU for `cpu_explicit`.
+  Candle refuses `tensorrt` and rejects the CUDA device with `cpu_explicit`.
 - **Parallel preprocessing.** Frame preprocessing for one batch is split across
   at most `cores / index_concurrency` scoped threads with identical output.
 - **CUDA image.** `serviceradar-media-worker-cuda` (linux/arm64): the pinned

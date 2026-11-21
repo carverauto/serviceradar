@@ -39,7 +39,7 @@ pub struct CandleBackendOptions {
 }
 
 impl CandleBackendOptions {
-    /// `require_gpu` is true for the `cuda`/`tensorrt` execution providers and false
+    /// `require_gpu` is true for the `cuda` execution provider and false
     /// only for `cpu_explicit`. `embedding_dim` is the configured index width
     /// (`SERVICERADAR_MEDIA_WORKER_EMBEDDING_DIM`) the checkpoint must produce.
     pub fn new(device: InferenceDevicePreference, require_gpu: bool, embedding_dim: usize) -> Self {
@@ -70,7 +70,7 @@ impl CandleBackendOptions {
     }
 
     /// Upper bound on threads used to preprocess one image batch (minimum 1).
-    pub fn with_preprocess_threads(mut self, threads: usize) -> Self {
+    pub(crate) fn with_preprocess_threads(mut self, threads: usize) -> Self {
         self.preprocess_threads = threads.max(1);
         self
     }
@@ -323,7 +323,7 @@ impl InferenceBackend for CandleBackend {
 
 /// Resolves the Candle `Device` according to `MEDIA_WORKER_DEVICE` and the execution provider.
 ///
-/// `require_gpu` is true for the `cuda`/`tensorrt` providers. The rules match startup
+/// `require_gpu` is true for the `cuda` provider. The rules match startup
 /// capability admission: a GPU provider never falls back to the CPU, and
 /// `cpu_explicit` never silently picks up a GPU.
 ///

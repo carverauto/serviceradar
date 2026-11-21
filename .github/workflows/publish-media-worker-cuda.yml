@@ -1,4 +1,5 @@
 name: Publish CUDA Media Worker
+run-name: ${{ github.ref }}
 
 # Builds serviceradar-media-worker with `--features cuda` and publishes the separate arm64
 # CUDA image, registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda:sha-<commit>.
