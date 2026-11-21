@@ -1,0 +1,17 @@
+# A media worker that renders; the string-valued files below are layered on top.
+mediaWorker:
+  enabled: true
+  runtimeClassName: nvidia
+  models:
+    existingClaim: example-media-models-pvc
+  auth:
+    existingSecret: example-media-worker-auth
+    deploymentRef: "00000000-0000-4000-8000-000000000005"
+    generation: "1"
+webNg:
+  controlPlaneRuntime:
+    mediaWorker:
+      enabled: true
+      existingSecret: example-media-worker-auth
+      deploymentRef: "00000000-0000-4000-8000-000000000005"
+      generation: "1"

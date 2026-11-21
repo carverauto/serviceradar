@@ -132,8 +132,16 @@
 {{- if ne $cpPort (toString $controlPlanePort) -}}
 {{- fail (printf "mediaWorker.controlPlaneUrl %s must use webNg.controlPlaneRuntime.port %d, where web-ng serves the read-grant endpoint" $controlPlaneUrl $controlPlanePort) -}}
 {{- end -}}
-{{- if not (has $cpParsed.path (list "" "/")) -}}
-{{- fail (printf "mediaWorker.controlPlaneUrl %s must have no path: the worker appends /v1/media/workers/read-grants to it" $controlPlaneUrl) -}}
+{{- if or (not (has $cpParsed.path (list "" "/"))) $cpParsed.query $cpParsed.fragment (contains "?" $controlPlaneUrl) (contains "#" $controlPlaneUrl) -}}
+{{- fail (printf "mediaWorker.controlPlaneUrl %s must have no path, query or fragment: the worker appends /v1/media/workers/read-grants to it" $controlPlaneUrl) -}}
+{{- end -}}
+{{- /* One token source: web-ng checks the token it reads against the one the worker
+     presents, so both name the same Secret and key. Two Secrets holding the same
+     bytes are not supported; a rotation would update one and not the other. */ -}}
+{{- $cpSecret := coalesce $cpWorker.existingSecret $cpWorker.existingSecretName "" -}}
+{{- $cpKey := coalesce $cpWorker.secretKey $cpWorker.tokenSecretKey "media-worker-token" -}}
+{{- if or (ne $cpSecret $authSecret) (ne $cpKey $tokenKey) -}}
+{{- fail (printf "mediaWorker.auth (Secret %q, key %q) and webNg.controlPlaneRuntime.mediaWorker (Secret %q, key %q) must reference the same Secret and key: web-ng checks the worker's token against the one it reads" $authSecret $tokenKey $cpSecret $cpKey) -}}
 {{- end -}}
 {{- if ne (toString $cpWorker.deploymentRef) (toString $auth.deploymentRef) -}}
 {{- fail "mediaWorker.auth.deploymentRef must equal webNg.controlPlaneRuntime.mediaWorker.deploymentRef" -}}
@@ -154,7 +162,8 @@
 {{- $natsUrl := default (printf "nats://serviceradar-nats.%s.svc.cluster.local:4222" .Release.Namespace) $mw.natsUrl -}}
 {{- $otelEndpoint := default (printf "http://serviceradar-log-collector.%s.svc.cluster.local:4317" .Release.Namespace) $mw.otelEndpoint -}}
 {{- $np := default (dict) $mw.networkPolicy -}}
-{{- $npEnabled := include "serviceradar.boolDefaultTrue" (list $np "enabled") | eq "true" -}}
+{{- $npEnabled := eq (include "serviceradar.mediaWorkerNetworkPolicyEnabled" .) "true" -}}
+{{- $allowNvrRead := eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true" -}}
 {{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
 {{- $s3Cidrs := list "0.0.0.0/0" -}}
 {{- if hasKey $np "s3EgressCidrs" -}}
@@ -167,19 +176,10 @@
 {{- $baseResources := deepCopy (default (dict) $mw.resources) -}}
 {{- $requests := deepCopy (default (dict) $baseResources.requests) -}}
 {{- $limits := deepCopy (default (dict) $baseResources.limits) -}}
-{{- /* Explicit zero is honoured, so absent and zero are told apart with kindIs, not
-     default (which treats 0 as empty). */ -}}
-{{- $replicas := 1 -}}
-{{- if not (kindIs "invalid" $mw.replicas) -}}
-{{- $replicas = int $mw.replicas -}}
-{{- end -}}
-{{- if lt $replicas 0 -}}
-{{- fail "mediaWorker.replicas must be >= 0" -}}
-{{- end -}}
-{{- $gpuCount := 1 -}}
-{{- if not (kindIs "invalid" $mw.gpuCount) -}}
-{{- $gpuCount = int $mw.gpuCount -}}
-{{- end -}}
+{{- /* Explicit zero is honoured: absent and zero are told apart, and a fraction fails
+     rather than being truncated. */ -}}
+{{- $replicas := int (include "serviceradar.wholeCount" (dict "name" "mediaWorker.replicas" "value" $mw.replicas "default" 1)) -}}
+{{- $gpuCount := int (include "serviceradar.wholeCount" (dict "name" "mediaWorker.gpuCount" "value" $mw.gpuCount "default" 1)) -}}
 {{- $gpu := ne $executionProvider "cpu_explicit" -}}
 {{- if $gpu -}}
 {{- $gpuResourceName := default "nvidia.com/gpu" $mw.gpuResourceName -}}
@@ -195,7 +195,7 @@
 {{- $gpuResourceName := default "nvidia.com/gpu" $mw.gpuResourceName -}}
 {{- range $section, $entries := dict "requests" $requests "limits" $limits -}}
 {{- range $name, $_ := $entries -}}
-{{- if or (eq $name $gpuResourceName) (regexMatch `(?i)gpu` $name) -}}
+{{- if or (eq $name $gpuResourceName) (hasPrefix "nvidia.com/" $name) (regexMatch `(?i)gpu` $name) -}}
 {{- fail (printf "mediaWorker.resources.%s.%s requests a GPU under mediaWorker.executionProvider cpu_explicit, which runs without one: remove it, or use a GPU execution provider" $section $name) -}}
 {{- end -}}
 {{- end -}}
@@ -485,7 +485,7 @@ spec:
       ports:
         - protocol: TCP
           port: 4317
-    {{- if $np.allowNvrRead }}
+    {{- if $allowNvrRead }}
     - to:
         - podSelector:
             matchLabels:

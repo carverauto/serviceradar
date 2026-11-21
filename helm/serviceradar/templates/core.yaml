@@ -3,6 +3,14 @@
      renders exactly as before, and only an explicit `core.enabled: false` removes
      this component. `default true` cannot be used here -- Helm treats false as empty,
      so it would resurrect anything explicitly disabled. */ -}}
+{{- /* Core dispatches visual-index jobs exactly while the chart deploys the media worker,
+     so the flag is derived from mediaWorker.enabled and cannot be overridden. Checked
+     before the core gate so stored values are refused while core is disabled too. */ -}}
+{{- range $source := list "extraEnv" "extraEnvValueFrom" -}}
+{{- if hasKey (default (dict) (get (default (dict) $.Values.core) $source)) "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" -}}
+{{- fail (printf "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.%s: the chart derives it from mediaWorker.enabled" $source) -}}
+{{- end -}}
+{{- end -}}
 {{- $gate4 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
 {{- $nats := default (dict) .Values.nats -}}
@@ -14,13 +22,6 @@
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
 {{- $coreVals := default (dict) .Values.core -}}
-{{- /* Core dispatches visual-index jobs exactly while the chart deploys the media worker,
-     so the flag is derived from mediaWorker.enabled and cannot be overridden. */ -}}
-{{- range $source := list "extraEnv" "extraEnvValueFrom" -}}
-{{- if hasKey (default (dict) (get $coreVals $source)) "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED" -}}
-{{- fail (printf "SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED cannot be set through core.%s: the chart derives it from mediaWorker.enabled" $source) -}}
-{{- end -}}
-{{- end -}}
 {{- $coreObanShutdownGrace := int (default 60 $coreVals.obanShutdownGracePeriodSeconds) -}}
 {{- $coreTerminationGrace := int (default 90 $coreVals.terminationGracePeriodSeconds) -}}
 {{- if lt $coreTerminationGrace (add $coreObanShutdownGrace 15) -}}
