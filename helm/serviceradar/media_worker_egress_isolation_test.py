@@ -8,18 +8,18 @@ exactly when the only egress-governing policy selecting it is its own, and that
 policy allows no PostgreSQL traffic to the namespace.
 
 For the default, demo, tenant and HA values with the worker enabled, this test
-renders every template (nested ones included), takes the worker pod's labels
-from the rendered Deployment, evaluates every Kubernetes and Calico policy's
-selector against them (matchLabels, matchExpressions, an empty selector, and
-Calico selector expressions), and checks both properties; the policy's rule to
-public object storage must open HTTPS only.
+renders the complete release (root, nested and enabled subchart templates),
+takes the worker pod's labels from the rendered Deployment, evaluates every
+Kubernetes and Calico policy's selector against them (matchLabels,
+matchExpressions, an empty selector, and Calico selector expressions), and
+checks both properties; the policy's rule to public object storage must open
+HTTPS only.
 """
 
-from pathlib import Path
 import re
 import unittest
 
-from chart_render import CHART_DIR, render_templates
+from chart_render import CHART_DIR, render_release
 
 NAMESPACE = "sr-iso"
 WORKER_POLICY = "serviceradar-media-worker"
@@ -230,21 +230,16 @@ def rule_allows_postgres_in_namespace(rule):
 class MediaWorkerEgressIsolationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        templates = sorted(
-            str(path.relative_to(CHART_DIR))
-            for path in (CHART_DIR / "templates").rglob("*.yaml")
-        )
+        cls.docs = {}
         cls.policies = {}
         cls.worker_labels = {}
         for overlay, (files, extra) in OVERLAYS.items():
-            rendered = render_templates(
-                templates,
+            docs = render_release(
                 {**ENABLED_WORKER, **extra},
                 namespace=NAMESPACE,
                 values_files=[CHART_DIR / name for name in files],
-                combined=True,
             )
-            docs = [doc for docs in rendered.values() for doc in docs]
+            cls.docs[overlay] = docs
             cls.policies[overlay] = [
                 doc for doc in docs if is_kubernetes_policy(doc) or is_calico_policy(doc)
             ]
@@ -292,6 +287,15 @@ class MediaWorkerEgressIsolationTest(unittest.TestCase):
         names = {doc["metadata"]["name"] for doc in self.policies["demo"]}
         self.assertIn("serviceradar-egress", names)
         self.assertIn("serviceradar-egress-log-deny", names)
+
+    def test_the_rendered_release_includes_enabled_subcharts(self):
+        # The default overlay enables the vendored dgraph subchart under charts/;
+        # verifying one of its manifests ensures subchart templates are not filtered out.
+        default_resources = {
+            (doc.get("kind"), (doc.get("metadata") or {}).get("name"))
+            for doc in self.docs["default"]
+        }
+        self.assertIn(("StatefulSet", "serviceradar-dgraph-alpha"), default_resources)
 
 
 class SelectorEvaluationTest(unittest.TestCase):

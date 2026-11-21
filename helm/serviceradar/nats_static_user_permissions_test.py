@@ -85,12 +85,26 @@ OPEN = {
     ("CN=serviceradar-agent-gateway", "subscribe"),
 }
 
+def chart_subject(cn: str) -> str:
+    return f"CN={cn},OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+
+
+def index_users_by_subject(users: list[dict]) -> dict[str, dict]:
+    indexed: dict[str, dict] = {}
+    for user in users:
+        subject = user["user"]
+        if subject in indexed:
+            raise AssertionError(f"duplicate static NATS user subject: {subject}")
+        indexed[subject] = user
+    return indexed
+
+
 # Identities that exist only for a feature the default rendering leaves off.
 DISABLED_BY_DEFAULT = (
-    "CN=serviceradar-flow-collector",
-    "CN=serviceradar-netflow-collector",
-    "CN=serviceradar-k8s-inventory",
-    "CN=serviceradar-media-worker",
+    chart_subject("serviceradar-flow-collector"),
+    chart_subject("serviceradar-netflow-collector"),
+    chart_subject("serviceradar-k8s-inventory"),
+    chart_subject("serviceradar-media-worker"),
 )
 
 
@@ -122,15 +136,15 @@ class OpenIdentityTest(unittest.TestCase):
                 self.assertEqual(reached, OPEN)
 
     def test_an_identity_whose_feature_is_off_is_refused_everything(self):
-        users = {user["user"].split(",")[0]: user for user in render_static_users()}
-        for name in DISABLED_BY_DEFAULT:
+        users = index_users_by_subject(render_static_users())
+        for subject_dn in DISABLED_BY_DEFAULT:
             for direction in ("publish", "subscribe"):
                 for subject in (
                     UNLISTED_SUBJECT, "flows.raw.netflow", "inventory.k8s.nodes",
                     "_INBOX.reply", "$JS.API.INFO", "$SYS.REQ.SERVER.PING",
                 ):
-                    with self.subTest(user=name, direction=direction, subject=subject):
-                        self.assertFalse(may(users[name], direction, subject))
+                    with self.subTest(user=subject_dn, direction=direction, subject=subject):
+                        self.assertFalse(may(users[subject_dn], direction, subject))
 
 
 class NormalizedLogSubjectTest(unittest.TestCase):
@@ -185,7 +199,9 @@ class RumBeaconAndPolicyPermissionsTest(unittest.TestCase):
                 self.assertFalse(may_publish(users[identity], "metrics.rum.prop-01"))
 
 
-MEDIA_WORKER = "CN=serviceradar-media-worker"
+MEDIA_WORKER = chart_subject("serviceradar-media-worker")
+CORE = chart_subject("serviceradar-core")
+WEB_NG = chart_subject("serviceradar-web-ng")
 JOBS_STREAM = "CAMERA_MEDIA_JOBS"
 LIVE_CONSUMER = "camera_visual_index_worker_v1_live"
 BACKFILL_CONSUMER = "camera_visual_index_worker_v1_backfill"
@@ -202,11 +218,19 @@ OTHER_INBOX = "_INBOX.Qa71c.4"
 class MediaWorkerPermissionsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        def by_name(users):
-            return {user["user"].split(",")[0]: user for user in users}
+        cls.enabled_cm = render_static_users_configmap({"mediaWorker.enabled": True})
+        cls.disabled_cm = render_static_users_configmap()
+        cls.enabled = index_users_by_subject(yaml.safe_load(cls.enabled_cm["static-users.yaml"]))
+        cls.disabled = index_users_by_subject(yaml.safe_load(cls.disabled_cm["static-users.yaml"]))
 
-        cls.enabled = by_name(render_static_users({"mediaWorker.enabled": True}))
-        cls.disabled = by_name(render_static_users())
+    def test_static_user_subjects_match_full_certificate_subjects(self):
+        enabled_identities = yaml.safe_load(self.enabled_cm["chart-identities.yaml"])
+        disabled_identities = yaml.safe_load(self.disabled_cm["chart-identities.yaml"])
+        for subject in (MEDIA_WORKER, CORE, WEB_NG):
+            self.assertIn(subject, self.enabled)
+            self.assertIn(subject, self.disabled)
+            self.assertIn(subject, enabled_identities)
+        self.assertNotIn(MEDIA_WORKER, disabled_identities)
 
     def test_the_worker_can_run_its_job_loop_and_answer_searches_only_while_enabled(self):
         # What rust/media-worker/src/worker.rs sends through async-nats: stream
@@ -272,14 +296,14 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             ("enabled", self.enabled, True),
             ("disabled", self.disabled, False),
         ):
-            core = users["CN=serviceradar-core"]
-            web = users["CN=serviceradar-web-ng"]
+            core = users[CORE]
+            web = users[WEB_NG]
             for subject in (LIVE_JOBS, BACKFILL_JOBS):
                 with self.subTest(rendering=rendering, core=subject):
                     self.assertEqual(may_publish(core, subject), expected)
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
                 self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
-        self.assertFalse(may_publish(self.enabled["CN=serviceradar-web-ng"], LIVE_JOBS))
+        self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))
 
 
 if __name__ == "__main__":

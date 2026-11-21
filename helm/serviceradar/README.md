@@ -570,16 +570,16 @@ access.
 
 | Value | Purpose | Default |
 | --- | --- | --- |
-| `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly | `candle` |
-| `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` at its root. Only those three files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`; restart the worker after replacing them. Nothing is downloaded or bundled | `""` |
-| `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and the CUDA image (below); the chart refuses a GPU provider on the release's CPU image. `tensorrt` additionally needs a loadable ONNX Runtime that provides the TensorRT execution provider (`ortDylibPath`), which the CUDA image does not include; inference itself still runs on candle's CUDA device | `cuda` |
-| `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16`. `cpu_explicit` accepts only `auto` or `f32` | `auto` |
-| `mediaWorker.cudaCache.sizeLimit`, `existingClaim` | Under a GPU provider, a writable compiled-kernel cache (about 350 MB) is mounted at `/var/cache/serviceradar-media-worker/cuda` and passed as `CUDA_CACHE_PATH`, since the root filesystem is read-only and `/tmp` is small: an `emptyDir` of `sizeLimit`, or `existingClaim` to keep it across restarts. The image's other CUDA settings (`LD_LIBRARY_PATH`, `CUDA_CACHE_MAXSIZE`, `NVIDIA_DRIVER_CAPABILITIES`) are left as built | `1Gi`, `""` |
+| `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly. For a weights-free test run on the release images, pair `stub` with `executionProvider: cpu_explicit` (GPU `stub` additionally needs ONNX Runtime, below) | `candle` |
+| `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` at its root. Only those three files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`; restart the worker after replacing them. Nothing is downloaded or bundled. Running `replicas > 1` across multiple nodes requires a multi-node read access mode (`ReadOnlyMany` or `ReadWriteMany`); a `ReadWriteOnce` volume cannot attach to two nodes at once even when mounted read-only | `""` |
+| `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and the CUDA image (below); the chart refuses a GPU provider on the release's CPU image. Running `backend: stub` under `cuda` additionally needs a loadable ONNX Runtime with `CUDAExecutionProvider` (`ortDylibPath`), which the published Candle CUDA image does not include; use `backend: stub` with `executionProvider: cpu_explicit` for a weights-free test worker. `tensorrt` additionally needs a loadable ONNX Runtime that provides the TensorRT execution provider (`ortDylibPath`), which the CUDA image does not include; inference itself still runs on candle's CUDA device | `cuda` |
+| `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16`. `cpu_explicit` accepts only `auto` or `f32`. Half precision (`f16` and automatic half precision under `auto` on CUDA) requires an image containing the dtype-aware GPU runtime; a CUDA image built from this revision ignores `MEDIA_WORKER_DTYPE` and loads `f32` weights | `auto` |
+| `mediaWorker.cudaCache.sizeLimit`, `existingClaim` | Under a GPU provider, a writable compiled-kernel cache (about 350 MB) is mounted at `/var/cache/serviceradar-media-worker/cuda` and passed as `CUDA_CACHE_PATH`, since the root filesystem is read-only and `/tmp` is small: an `emptyDir` of `sizeLimit`, or `existingClaim` to keep it across restarts. When running `replicas > 1` across multiple nodes, a shared persistent `existingClaim` must support `ReadWriteMany` (a `ReadWriteOnce` volume cannot attach to two nodes at once), or leave `existingClaim` empty to use the default per-pod `emptyDir` cache. The image's other CUDA settings (`LD_LIBRARY_PATH`, `CUDA_CACHE_MAXSIZE`, `NVIDIA_DRIVER_CAPABILITIES`) are left as built | `1Gi`, `""` |
 | `mediaWorker.device` | Candle device. Empty derives `cuda` for the GPU providers and `cpu` for `cpu_explicit`. GPU providers accept `cuda` or `auto`; `cpu_explicit` accepts only `cpu` | `""` |
 | `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider needs a runtime class and requests `gpuCount` (at least 1) of `gpuResourceName`; `cpu_explicit` requests no GPU | `""`, `nvidia.com/gpu`, `1` |
-| `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate` | `1` |
+| `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate`. Placing multiple replicas on separate GPU nodes requires multi-node read access (`ReadOnlyMany` or `ReadWriteMany`) for `models.existingClaim` and either `ReadWriteMany` for `cudaCache.existingClaim` or the default per-pod `emptyDir` cache | `1` |
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
-| `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. The image must include the worker's dedicated NATS inbox support (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`, added with this chart change): an older build ignores it, uses the account-wide `_INBOX`, and the broker denies its JetStream replies and pull deliveries. Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
+| `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. The image must include the worker's dedicated NATS inbox support (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`, added with this chart change): an older build ignores it, uses the account-wide `_INBOX`, and the broker denies its JetStream replies and pull deliveries. To use `mediaWorker.dtype: f16` or automatic half precision under `auto`, the image must also include the dtype-aware GPU runtime (a site-built CUDA image from this revision supports the dedicated inbox but still loads `f32` weights). Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
@@ -645,7 +645,16 @@ The retired keys (`models.embedderModelId`, `embedderModelVersion`,
 forward and is therefore refused too: upgrade with the new chart's defaults and
 reapply your own overrides, without those keys (for example
 `helm upgrade ... -f my-values.yaml` instead of `--reuse-values`, including when
-following `docs/nats-jetstream-profile-runbook.md`).
+following `docs/nats-jetstream-profile-runbook.md`). If your existing overrides
+also set `mediaWorker.models.embedderPath`, `embedderSha256`, `textPath`, or
+`textSha256`, verify them before upgrading: because the chart now projects only
+`config.json`, `model.safetensors`, and `tokenizer.json` from the root of
+`models.existingClaim` into `models.mountPath` (instead of mounting the whole
+PVC), any `embedderPath` or `textPath` pointing to another filename or
+subdirectory on the PVC is no longer visible in the container and fails startup
+digest verification. Update those overrides to point at the projected files
+under `models.mountPath` with matching `embedderSha256` / `textSha256` digests,
+or remove them.
 
 **JetStream.** The worker creates `CAMERA_MEDIA_JOBS` (512 MiB) and
 `CAMERA_MEDIA_RESULTS` (2 GiB), one replica each, at sizes the chart cannot
@@ -737,7 +746,12 @@ the worker to web-ng on that port, or every recording read grant times out.
 neither:
 
 1. The weights PVC named by `mediaWorker.models.existingClaim`, with the SigLIP
-   files above at its root.
+   files above at its root. If you run `mediaWorker.replicas > 1` across
+   multiple nodes, provision `models.existingClaim` with `ReadOnlyMany` or
+   `ReadWriteMany` (not `ReadWriteOnce`, which cannot attach to two nodes even
+   for a read-only mount), and for `mediaWorker.cudaCache.existingClaim` either
+   use `ReadWriteMany` or leave it unset to keep the default per-pod `emptyDir`
+   cache.
 2. The token Secret named by both `mediaWorker.auth.existingSecret` and
    `webNg.controlPlaneRuntime.mediaWorker.existingSecret`. Generate the token on
    stdin so it never appears in a process argument or the terminal:
@@ -770,8 +784,15 @@ The worker's certificate is one of the chart's NATS client identities
 (`serviceradar.natsChartIdentities`) while the worker is enabled, so the
 generator requires it and core adopts it from the chart's certificate inventory
 on first sight, as it does the chart's other clients; with
-`nats.certificateAuthorization.enabled` no manual adoption step is needed. Its
-static NATS user supplies the permissions once it is admitted.
+`nats.certificateAuthorization.enabled` no manual adoption step is needed,
+provided every previously recorded infrastructure certificate already has a
+stored subject. If an existing infrastructure certificate on an upgraded
+deployment lacks a stored subject, core pauses all first adoptions (including
+`media-worker.pem`) and the worker cannot connect until you backfill each
+missing subject by re-submitting that certificate's original PEM via
+`POST /api/admin/managed-components/adopt` (see
+`docs/managed-component-certificates.md`). Its static NATS user supplies the
+permissions once it is admitted.
 
 **Hosted tenants.** A hosted tenant's chart is rendered by the control plane,
 so each setting above needs a control-plane counterpart before the worker can
@@ -781,22 +802,35 @@ run there:
   `media-worker.pem` and `media-worker-key.pem` with the exact subject
   `CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US`,
   and list `media-worker.pem` in `certs.inventoryCertificates` so core adopts
-  it;
+  it (first adoption still requires every previously recorded infrastructure
+  certificate to have a stored subject; if any lacks one, backfill it with the
+  original-PEM procedure in `docs/managed-component-certificates.md` first).
+  When disabling `mediaWorker.enabled` later, the hosted control plane must
+  remove `media-worker.pem` from `certs.inventoryCertificates` in the same
+  upgrade, even if it retains the certificate in the Secret, or template
+  rendering fails because `media-worker.pem` is only an allowed inventory name
+  while the worker is enabled;
 - `mediaWorker.enabled` together with `webNg.controlPlaneRuntime.mediaWorker.enabled`;
 - `mediaWorker.backend` and `device`;
-- the weights PVC: provisioning it with the SigLIP files and setting
+- the weights PVC: provisioning it with the SigLIP files (with `ReadOnlyMany`
+  or `ReadWriteMany` when running multiple replicas across nodes) and setting
   `models.existingClaim` (and `models.mountPath` if changed);
 - image selection and pulling: `mediaWorker.image.repository`, `tag`, `digest`
   and `pullPolicy` (for GPU, the CUDA repository and the `sha-<commit>` tag its
   publish workflow produced), and
-  `ortDylibPath` for `tensorrt`;
-- `mediaWorker.dtype` and `cudaCache.sizeLimit` or `cudaCache.existingClaim`;
+  `ortDylibPath` for `tensorrt` (or `stub` under `cuda`);
+- `mediaWorker.dtype` and `cudaCache.sizeLimit` or `cudaCache.existingClaim`
+  (`ReadWriteMany` when shared across multiple nodes, or unset for the per-pod
+  `emptyDir` cache);
 - GPU placement and size: `executionProvider`, `runtimeClassName`,
   `gpuResourceName`, `gpuCount`, `nodeSelector`, `tolerations`, `affinity` and
   `resources`;
 - `replicas`, `port` and the two `concurrency` settings;
 - the optional artifact pins `models.embedderPath`, `embedderSha256`,
-  `textPath` and `textSha256`;
+  `textPath` and `textSha256` (because only `config.json`, `model.safetensors`
+  and `tokenizer.json` are projected into `models.mountPath`, any configured
+  `embedderPath` or `textPath` must point to one of those mounted paths with a
+  matching digest, or be removed when migrating from a whole-PVC mount);
 - the endpoints: `controlPlaneUrl` (empty selects the tenant's own web-ng; a
   hosted deployment that serves read grants elsewhere sets it to that remote
   endpoint, which must also be reachable under the worker's network policy),

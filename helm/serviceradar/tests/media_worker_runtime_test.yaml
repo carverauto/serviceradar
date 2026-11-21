@@ -81,7 +81,7 @@ tests:
       mediaWorker.models.existingClaim: ""
     asserts:
       - failedTemplate:
-          errorPattern: "^mediaWorker.backend candle loads SigLIP weights .* set mediaWorker.models.existingClaim"
+          errorPattern: "^mediaWorker.backend candle loads SigLIP weights .* set mediaWorker.models.existingClaim .* mediaWorker.backend to stub with mediaWorker.executionProvider cpu_explicit"
 
   - it: refuses CUDA execution without the NVIDIA runtime class
     template: templates/media-worker.yaml
@@ -540,6 +540,30 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.gpuCount must be a whole number >= 0"
+
+  - it: refuses a quoted string replica count
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: "1"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.replicas must be a whole number >= 0, got string \"1\""
+
+  - it: refuses a quoted string GPU count
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.gpuCount: "1"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.gpuCount must be a whole number >= 0, got string \"1\""
+
+  - it: refuses a negative replica count
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.replicas: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.replicas must be a whole number >= 0"
 
   - it: refuses the dispatch flag in core.extraEnv while core itself is disabled
     template: templates/core.yaml

@@ -175,10 +175,10 @@ Takes (dict "name" <value path> "value" <value> "default" <int>). Renders the nu
 {{- define "serviceradar.wholeCount" -}}
 {{- if kindIs "invalid" .value -}}
 {{- .default -}}
-{{- else if and (or (kindIs "int" .value) (kindIs "int64" .value) (kindIs "float64" .value)) (regexMatch `^[0-9]+$` (toString .value)) -}}
+{{- else if and (or (kindIs "int" .value) (kindIs "int64" .value) (kindIs "float64" .value) (typeIs "json.Number" .value)) (regexMatch `^[0-9]+$` (toString .value)) -}}
 {{- toString .value -}}
 {{- else -}}
-{{- fail (printf "%s must be a whole number >= 0, got %s %q" .name (kindOf .value) (toString .value)) -}}
+{{- fail (printf "%s must be a whole number >= 0, got %s %q" .name (typeOf .value) (toString .value)) -}}
 {{- end -}}
 {{- end -}}
 
