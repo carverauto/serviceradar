@@ -2375,8 +2375,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     owner = owner(ctx, 30_000)
     nvr = setup_nvr_release(ctx.tmp_dir)
     _daemon = start_nvr_daemon(nvr)
-    :ok = Supervisor.terminate_child(RecordingSupervisor, DynamicSupervisor)
-    Process.register(self(), ServiceRadarCoreElx.CameraRecording.Workers)
+    workers = ServiceRadarCoreElx.CameraRecording.Workers
+    :ok = Supervisor.terminate_child(RecordingSupervisor, workers)
+    Process.register(self(), workers)
 
     task =
       Task.async(fn ->
