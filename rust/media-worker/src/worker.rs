@@ -908,8 +908,10 @@ where
         job: &VisualIndexJobEnvelope,
         verified_block: &VerifiedKeyframeBlock,
     ) -> Result<JobExecution, MediaWorkerError> {
-        let mut codec = None;
-        let init_seg = parse_init_segment_with_codec(verified_block.init_bytes(), &mut codec);
+        let (codec, init_seg) = parse_init_segment_with_codec(
+            verified_block.init_bytes(),
+            self.keyframe_decoder.as_ref(),
+        );
         let codec = codec.map_or("unknown", VideoCodec::as_str);
         let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
             Vec::with_capacity(verified_block.fragments().len());

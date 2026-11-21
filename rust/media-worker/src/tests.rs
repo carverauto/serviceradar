@@ -1427,11 +1427,25 @@ async fn index_test_block(
 
 #[tokio::test]
 async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() {
+    let stream = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(16, 16),
+        &pattern(16, 16),
+    );
+    let nals = annex_b_nals(&stream);
+    let (sps, pps) = (nals_of_type(&nals, 7)[0], nals_of_type(&nals, 8)[0]);
     let mut short_sps = avcc_box(&[&[0x67]], &[]);
     short_sps[14..16].copy_from_slice(&32u16.to_be_bytes());
     let mut missing_pps = avcc_box(&[], &[]);
     *missing_pps.last_mut().unwrap() = 1;
     for (init, codec) in [
+        (
+            build_init_mp4(16, 16, 90_000, b"avc1", &avcc_box(&[&sps[..5]], &[pps])),
+            "h264",
+        ),
+        (
+            build_init_mp4(16, 16, 90_000, b"avc3", &avcc_box(&[sps], &[&pps[..2]])),
+            "h264",
+        ),
         (build_init_mp4(16, 16, 90_000, b"avc1", &short_sps), "h264"),
         (
             build_init_mp4(16, 16, 90_000, b"avc3", &missing_pps),
@@ -1466,13 +1480,18 @@ async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() 
 
 #[tokio::test]
 async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
+    let stream = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(16, 16),
+        &pattern(16, 16),
+    );
+    let nals = annex_b_nals(&stream);
     for (width, height) in [(4097, 64), (64, 4097)] {
         let init = build_init_mp4(
             width,
             height,
             90_000,
             b"avc1",
-            &avcc_box(&[&[0x67]], &[&[0x68]]),
+            &avcc_box(&nals_of_type(&nals, 7), &nals_of_type(&nals, 8)),
         );
         let fragments =
             (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));

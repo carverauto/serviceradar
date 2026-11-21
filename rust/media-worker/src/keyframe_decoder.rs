@@ -82,6 +82,10 @@ impl std::error::Error for KeyframeDecodeError {}
 
 /// Decodes the IDR keyframe of one parsed CMAF fragment into an RGB8 frame.
 pub trait KeyframeDecoder: Send + Sync {
+    fn validate_init(&self, _init: &ParsedInitSegment) -> Result<(), crate::MediaWorkerError> {
+        Ok(())
+    }
+
     fn decode_keyframe(
         &self,
         init: &ParsedInitSegment,
@@ -101,6 +105,13 @@ impl DefaultKeyframeDecoder {
 }
 
 impl KeyframeDecoder for DefaultKeyframeDecoder {
+    fn validate_init(&self, init: &ParsedInitSegment) -> Result<(), crate::MediaWorkerError> {
+        if init.codec() == VideoCodec::H264 {
+            h264::validate_init_sets(init)?;
+        }
+        Ok(())
+    }
+
     fn decode_keyframe(
         &self,
         init: &ParsedInitSegment,

@@ -183,25 +183,53 @@ fn scan_boxes(mut buf: &[u8]) -> (Vec<BoxView<'_>>, Result<(), MediaWorkerError>
     (boxes, Ok(()))
 }
 
-fn iter_boxes(buf: &[u8]) -> Result<Vec<BoxView<'_>>, MediaWorkerError> {
-    let (boxes, status) = scan_boxes(buf);
-    status.map(|()| boxes)
+struct InitScan {
+    codec: Option<VideoCodec>,
+    status: Result<(), MediaWorkerError>,
+}
+
+impl InitScan {
+    fn boxes<'a>(&mut self, bytes: &'a [u8]) -> Vec<BoxView<'a>> {
+        let (boxes, status) = scan_boxes(bytes);
+        if self.status.is_ok() {
+            self.status = status;
+        }
+        boxes
+    }
 }
 
 /// Parses an ISO-BMFF / CMAF `init.mp4` segment (`ftyp` + `moov`).
 pub fn parse_init_segment(init_bytes: &[u8]) -> Result<ParsedInitSegment, MediaWorkerError> {
-    parse_init_segment_with_codec(init_bytes, &mut None)
+    parse_init_segment_with_codec(init_bytes, &crate::keyframe_decoder::DefaultKeyframeDecoder).1
 }
 
 pub(crate) fn parse_init_segment_with_codec(
     init_bytes: &[u8],
-    identified_codec: &mut Option<VideoCodec>,
+    decoder: &dyn crate::keyframe_decoder::KeyframeDecoder,
+) -> (
+    Option<VideoCodec>,
+    Result<ParsedInitSegment, MediaWorkerError>,
+) {
+    let mut scan = InitScan {
+        codec: None,
+        status: Ok(()),
+    };
+    let init = parse_movie(init_bytes, &mut scan);
+    let admitted = scan.status.and(init).and_then(|init| {
+        decoder.validate_init(&init)?;
+        Ok(init)
+    });
+    (scan.codec, admitted)
+}
+
+fn parse_movie(
+    init_bytes: &[u8],
+    scan: &mut InitScan,
 ) -> Result<ParsedInitSegment, MediaWorkerError> {
-    *identified_codec = None;
-    let top_boxes = iter_boxes(init_bytes)?;
+    let top_boxes = scan.boxes(init_bytes);
     let has_ftyp = top_boxes.iter().any(|b| &b.box_type == b"ftyp");
     if !has_ftyp {
-        return Err(MediaWorkerError::invalid_container(
+        scan.status = Err(MediaWorkerError::invalid_container(
             "init.mp4 missing required 'ftyp' box",
         ));
     }
@@ -212,7 +240,7 @@ pub(crate) fn parse_init_segment_with_codec(
             MediaWorkerError::invalid_container("init.mp4 missing required 'moov' box")
         })?;
 
-    let moov_children = iter_boxes(moov.payload)?;
+    let moov_children = scan.boxes(moov.payload);
     let mut movie_timescale = 90_000u32;
     if let Some(mvhd) = moov_children.iter().find(|b| &b.box_type == b"mvhd")
         && let Some(ts) = parse_mvhd_or_mdhd_timescale(mvhd.payload)
@@ -221,7 +249,7 @@ pub(crate) fn parse_init_segment_with_codec(
     }
 
     for trak in moov_children.iter().filter(|b| &b.box_type == b"trak") {
-        if let Some(parsed) = parse_video_trak(trak.payload, movie_timescale, identified_codec)? {
+        if let Some(parsed) = parse_video_trak(trak.payload, movie_timescale, scan)? {
             return Ok(parsed);
         }
     }
@@ -287,9 +315,9 @@ fn parse_tkhd_dimensions(payload: &[u8]) -> Option<(u32, u32)> {
 fn parse_video_trak(
     trak_payload: &[u8],
     default_timescale: u32,
-    identified_codec: &mut Option<VideoCodec>,
+    scan: &mut InitScan,
 ) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
-    let trak_children = iter_boxes(trak_payload)?;
+    let trak_children = scan.boxes(trak_payload);
     let tkhd_dims = trak_children
         .iter()
         .find(|b| &b.box_type == b"tkhd")
@@ -298,7 +326,7 @@ fn parse_video_trak(
     let Some(mdia) = trak_children.iter().find(|b| &b.box_type == b"mdia") else {
         return Ok(None);
     };
-    let mdia_children = iter_boxes(mdia.payload)?;
+    let mdia_children = scan.boxes(mdia.payload);
 
     let mut timescale = default_timescale;
     if let Some(mdhd) = mdia_children.iter().find(|b| &b.box_type == b"mdhd")
@@ -317,23 +345,23 @@ fn parse_video_trak(
     let Some(minf) = mdia_children.iter().find(|b| &b.box_type == b"minf") else {
         return Ok(None);
     };
-    let minf_children = iter_boxes(minf.payload)?;
+    let minf_children = scan.boxes(minf.payload);
     let Some(stbl) = minf_children.iter().find(|b| &b.box_type == b"stbl") else {
         return Ok(None);
     };
-    let stbl_children = iter_boxes(stbl.payload)?;
+    let stbl_children = scan.boxes(stbl.payload);
     let Some(stsd) = stbl_children.iter().find(|b| &b.box_type == b"stsd") else {
         return Ok(None);
     };
 
-    parse_stsd(stsd.payload, timescale, tkhd_dims, identified_codec)
+    parse_stsd(stsd.payload, timescale, tkhd_dims, scan)
 }
 
 fn parse_stsd(
     stsd_payload: &[u8],
     timescale: u32,
     tkhd_dims: Option<(u32, u32)>,
-    identified_codec: &mut Option<VideoCodec>,
+    scan: &mut InitScan,
 ) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
     if stsd_payload.len() < 8 {
         return Err(MediaWorkerError::invalid_container("truncated 'stsd' box"));
@@ -348,14 +376,14 @@ fn parse_stsd(
         return Ok(None);
     }
 
-    let entries = iter_boxes(&stsd_payload[8..])?;
+    let entries = scan.boxes(&stsd_payload[8..]);
     for entry in entries {
         let codec = match &entry.box_type {
             b"avc1" | b"avc3" => VideoCodec::H264,
             b"hvc1" | b"hev1" => VideoCodec::Hevc,
             _ => continue,
         };
-        *identified_codec = Some(codec);
+        scan.codec = Some(codec);
 
         // VisualSampleEntry fixed fields span 78 bytes before nested configuration boxes:
         // reserved(6) + data_ref_idx(2) + pre_defined/reserved(16) + width(2) + height(2) +
@@ -378,7 +406,7 @@ fn parse_stsd(
             )));
         }
 
-        let config_boxes = iter_boxes(&entry.payload[78..])?;
+        let config_boxes = scan.boxes(&entry.payload[78..]);
         match codec {
             VideoCodec::H264 => {
                 let avcc = config_boxes
@@ -1704,4 +1732,55 @@ pub(crate) fn build_fragment_m4s(
     frag.extend_from_slice(&moof);
     frag.extend_from_slice(&mdat);
     frag
+}
+
+#[cfg(test)]
+mod init_tests {
+    use super::*;
+    use crate::DefaultKeyframeDecoder;
+
+    #[test]
+    fn trailing_box_errors_preserve_the_codec_of_a_complete_sample_entry() {
+        for (entry, codec) in [
+            (b"avc1", VideoCodec::H264),
+            (b"avc3", VideoCodec::H264),
+            (b"hvc1", VideoCodec::Hevc),
+            (b"hev1", VideoCodec::Hevc),
+        ] {
+            let mut sample = vec![0; 78];
+            sample[24..28].copy_from_slice(&[0, 16, 0, 16]);
+            match codec {
+                VideoCodec::H264 => sample.extend(avcc_box(&[], &[])),
+                VideoCodec::Hevc => {
+                    let mut hvcc = [0; 23];
+                    hvcc[0] = 1;
+                    hvcc[21] = 3;
+                    sample.extend(mp4_box(b"hvcC", &hvcc));
+                }
+            }
+            let levels = [b"stsd", b"stbl", b"minf", b"mdia", b"trak", b"moov"];
+            for damaged in 0..=levels.len() {
+                let mut child = mp4_box(entry, &sample);
+                for (depth, tag) in levels.iter().enumerate() {
+                    if damaged == depth {
+                        child.push(0);
+                    }
+                    child = if *tag == b"stsd" {
+                        mp4_full_box(tag, 0, 0, &[&1u32.to_be_bytes()[..], &child].concat())
+                    } else {
+                        mp4_box(tag, &child)
+                    };
+                }
+                let mut bytes = mp4_box(b"ftyp", b"iso6\0\0\0\0iso6");
+                bytes.extend(child);
+                if damaged == levels.len() {
+                    bytes.push(0);
+                }
+                let (identified, result) =
+                    parse_init_segment_with_codec(&bytes, &DefaultKeyframeDecoder);
+                assert_eq!(identified, Some(codec));
+                assert_eq!(result.unwrap_err().error_class(), "invalid_container");
+            }
+        }
+    }
 }

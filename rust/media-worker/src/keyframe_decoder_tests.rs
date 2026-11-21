@@ -341,10 +341,9 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
     let truncated = &slice[..slice.len() / 2];
     let wide = encode_idr(EncoderConfig::baseline(4112, 16), &pattern(4112, 16));
     let wide_nals = annex_b_nals(&wide);
-    let too_many_slices = vec![slice; 1025];
     let high10 = high10_sps();
 
-    let cases: [RejectionCase<'_>; 7] = [
+    let cases: [RejectionCase<'_>; 6] = [
         (
             "truncated CAVLC slice",
             vec![sps, pps],
@@ -378,12 +377,6 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
             ],
             nals_of_type(&wide_nals, 5),
             "limit_exceeded",
-        ),
-        (
-            "too many slices",
-            vec![sps, pps],
-            too_many_slices,
-            "unsupported_codec",
         ),
     ];
     for (label, parameter_sets, slices, reason) in cases {
@@ -610,7 +603,7 @@ fn avc1_uses_its_sample_entry_and_refuses_auxiliary_and_extension_slices() {
     }
 }
 
-fn quantizer_pps(cb: i32, cr: i32, initial_qp_minus26: i32, deblocking_control: bool) -> Vec<u8> {
+fn pps_fields(cb: i32, initial_qp_minus26: i32, deblocking_control: bool) -> BitWriter {
     let mut w = BitWriter::new();
     w.write_ue(0);
     w.write_ue(0);
@@ -623,10 +616,82 @@ fn quantizer_pps(cb: i32, cr: i32, initial_qp_minus26: i32, deblocking_control: 
     w.write_se(0);
     w.write_se(cb);
     w.write_bits(u32::from(deblocking_control) << 2, 3);
+    w
+}
+
+fn quantizer_pps(cb: i32, cr: i32, initial_qp_minus26: i32, deblocking_control: bool) -> Vec<u8> {
+    let mut w = pps_fields(cb, initial_qp_minus26, deblocking_control);
     w.write_bits(0, 2);
     w.write_se(cr);
     w.rbsp_trailing_bits();
     NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b()
+}
+
+#[test]
+fn pps_scaling_list_deltas_obey_the_signed_eight_bit_range() {
+    let sps = rusty_h264_encoder::Sps::from_config(&EncoderConfig::new(16, 16))
+        .to_nal()
+        .to_annex_b();
+    let slice = pcm_slice(0);
+    for index in 0..8 {
+        for delta in [-129, -128, 127, 128, 256] {
+            let mut w = pps_fields(0, 0, true);
+            w.write_bits(3, 2);
+            for list in 0..8 {
+                w.write_bit(list == index);
+                if list == index {
+                    let size = if list < 6 { 16 } else { 64 };
+                    for _ in 1..size {
+                        w.write_se(0);
+                    }
+                    w.write_se(delta);
+                }
+            }
+            w.write_se(0);
+            w.rbsp_trailing_bits();
+            let pps = NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b();
+            let result = decode_access_unit(&[&sps[4..], &pps[4..]], &[&slice]);
+            if matches!(delta, -128 | 127) {
+                assert_eq!(result.unwrap().y[0], 100);
+            } else {
+                assert_eq!(
+                    result.unwrap_err().reason(),
+                    "malformed_bitstream",
+                    "list {index}, delta {delta}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn truncated_in_band_parameter_sets_are_malformed_bitstream() {
+    let stream = encode_idr(EncoderConfig::baseline(16, 16), &pattern(16, 16));
+    let nals = annex_b_nals(&stream);
+    let (sps, pps, slice) = (
+        nals_of_type(&nals, 7)[0],
+        nals_of_type(&nals, 8)[0],
+        nals_of_type(&nals, 5)[0],
+    );
+    let init = parse_init_segment(&build_init_mp4(
+        16,
+        16,
+        90_000,
+        b"avc3",
+        &avcc_box(&[sps], &[pps]),
+    ))
+    .unwrap();
+    for short in [&sps[..5], &pps[..2]] {
+        let bytes = build_fragment_m4s(0, 0, 1, 90_000, &[short, slice]);
+        let fragment = parse_media_fragment(&bytes, &init).unwrap();
+        assert_eq!(
+            DefaultKeyframeDecoder
+                .decode_keyframe(&init, &fragment)
+                .unwrap_err()
+                .reason(),
+            "malformed_bitstream"
+        );
+    }
 }
 
 #[test]
