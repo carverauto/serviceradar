@@ -549,9 +549,12 @@ access.
 
 **Current limits.**
 
-- The worker does not yet decode real H.264 or HEVC keyframes: for a real
-  camera stream it embeds a placeholder frame, so search results over real
-  recordings are not meaningful until its decoder lands (separate change).
+- The worker decodes H.264 single-slice IDR keyframes (Constrained Baseline,
+  Main and High profile, 8-bit 4:2:0, progressive; see
+  `rust/media-worker/README.md`). HEVC, multi-slice pictures and a few other
+  stream variants are not decoded: each such keyframe is recorded as
+  undecodable with its reason (`unsupported_codec` and so on, counted in
+  `serviceradar_media_worker_keyframes_undecodable_total`) and is not indexed.
 - Indexing is whole-scene only. The chart mounts only the three SigLIP files
   into the model directory, so a detector file on the PVC is never visible to
   the worker. A permissively licensed subject detector will be added later, and
@@ -752,11 +755,11 @@ advance `mediaWorker.auth.generation` and
 which rolls both Deployments, and expect grants to succeed once both rollouts
 finish.
 
-With `nats.certificateAuthorization.enabled`, the broker admits only adopted
-certificates, so the newly issued worker certificate also has to be adopted as
-a `nats-client` component before the worker can connect: follow the
-public-certificate adoption procedure in `docs/managed-component-certificates.md`
-with the public `media-worker.pem` from the runtime certificate Secret. Its
+The worker's certificate is one of the chart's NATS client identities
+(`serviceradar.natsChartIdentities`) while the worker is enabled, so the
+generator requires it and core adopts it from the chart's certificate inventory
+on first sight, as it does the chart's other clients; with
+`nats.certificateAuthorization.enabled` no manual adoption step is needed. Its
 static NATS user supplies the permissions once it is admitted.
 
 **Hosted tenants.** A hosted tenant's chart is rendered by the control plane,
@@ -766,8 +769,8 @@ run there:
 - the runtime certificate Secret, which the control plane writes, must include
   `media-worker.pem` and `media-worker-key.pem` with the exact subject
   `CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US`,
-  and with certificate authorization that certificate must be adopted as a
-  `nats-client` component;
+  and list `media-worker.pem` in `certs.inventoryCertificates` so core adopts
+  it;
 - `mediaWorker.enabled` together with `webNg.controlPlaneRuntime.mediaWorker.enabled`;
 - `mediaWorker.backend` and `device`;
 - the weights PVC: provisioning it with the SigLIP files and setting

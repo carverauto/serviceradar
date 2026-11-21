@@ -14,8 +14,15 @@ def main():
         print(f"Secret {secret} exists but is missing runtime cert files: {', '.join(missing)}")
         return 1
 
+    # Every required leaf certificate must verify against the current root. A leaf
+    # kept from before a root rotation -- say, an identity whose workload was off
+    # while the root was rotated -- would otherwise be preserved and fail mTLS.
+    leaves = [
+        name for name in required
+        if name.endswith(".pem") and name != "root.pem" and not name.endswith("-key.pem")
+    ]
     invalid = []
-    for name in ("trivy-sidecar.pem", "k8s-inventory.pem"):
+    for name in leaves:
         result = subprocess.run(
             ["openssl", "verify", "-CAfile", cert_dir / "root.pem", cert_dir / name],
             stdout=subprocess.DEVNULL,
