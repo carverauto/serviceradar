@@ -1,16 +1,8 @@
 """Provisions the NATS authorization callout signing set in a certificate directory.
 
-The set is five files: three nkey seeds (the issuer account key and the two
-user keys core's authorizer connects with) and two broker configuration
-fragments that carry only their public keys. The broker includes the
-fragments; core mounts the seeds.
-
-  - None of the five present: generate the three seeds and both fragments.
-  - All three seeds present: keep them, and write a fragment only when it is
-    missing or does not match the seeds.
-  - Anything else: change nothing and fail, naming each missing seed. A new
-    seed would not match a surviving fragment, and replacing the fragment
-    would rotate an identity the broker already trusts.
+The issuer account seed and both user seeds define the signing identities.
+When any entry survives, replacing a missing or unreadable seed would rotate
+an identity. Only the public broker fragments can be rebuilt from the seeds.
 
 Exit status: 0 when nothing was written, 10 when files were written, 1 on
 failure. Keys are never rotated here.
