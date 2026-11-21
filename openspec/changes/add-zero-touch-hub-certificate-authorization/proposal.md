@@ -24,10 +24,8 @@ Enabling the callout today is a hand procedure with three parts
    `certificateAuthorization.enabled`, and set `infrastructureAdopted: true`,
    which is a promise the chart cannot check.
 
-A client missed in step 1 is refused by the broker as soon as step 3 rolls
-out. On regeneration, the core migrations hook uses
-`runtime-cert-rotation.json` to record a successor before workloads roll
-when the manifest identifies an eligible adopted predecessor.
+Replacements are recorded by the existing rotation path from
+`runtime-cert-rotation.json` as before.
 What is missing is the first adoption of the chart's certificates.
 No CLI command covers steps 1 and 2; their routes are outside the CLI's edge
 scope on purpose. The hosted control plane enables the leaf port for tenants
@@ -48,9 +46,7 @@ the runtime Secret, exposing every component's private key to the caller.
   certificate from the runtime Secret. The pre-upgrade hook requires those
   files before preserving the Secret. A missing file can trigger one reissue
   of all runtime certificates with the existing rotation manifest before core
-  rolls. For the missing file there is no previous fingerprint to link. If a
-  record holds the subject, hub status warns about the unrecorded replacement
-  and the operator records its successor relationship through the existing API.
+  rolls.
   For hosted installs or a disabled generator, the supplier lists only
   the public certificates it supplies. The default empty list lets core start
   and report each identity as not adopted because no inventory certificate is
@@ -102,14 +98,9 @@ the runtime Secret, exposing every component's private key to the caller.
   `infrastructureAdopted`, `issuerPublicKey`, `authUserPublicKey` and
   `systemUserPublicKey` are removed. **BREAKING** for a values file that sets
   them; none is known to. Full coverage completes the pre-enforcement inventory check.
-  With the signing seeds present, the static users file read, a serving broker
-  and core's authorizer connected, a chart client is admitted when its
-  presented fingerprint is recorded, unrevoked and has a grant.
-  Hub status warns about each uncovered identity and gives the reason for
-  review before enforcement. A previously hand-adopted client can still
-  present its recorded, unrevoked fingerprint and use its grant when omitted
-  from the inventory. A client presenting an unrecorded or revoked fingerprint
-  is refused.
+  Admission remains with `ServiceRadar.NATS.ManagedCertificateAuthorization` and
+  `ComponentCertificateAuthority.authorize`, unchanged by this change.
+  Hub status warns about uncovered identities before enforcement.
 - **The hub reports whether it can accept a leaf**: core reports whether
   enforcement is configured and whether its authorizer is answering, how many chart
   identities are adopted and which are not and whether the hub broker has the

@@ -10,9 +10,9 @@ Facts this design rests on, from the tree at the time of writing:
   opens (`AUTH` and `SYS`).
 - Core's authorizer (`ServiceRadar.NATS.ManagedCertificateAuthorization`)
   connects with those nkey users, so it does not itself pass through the
-  callout. It admits a certificate when the fingerprint is adopted, unrevoked
-  and has a stored grant; for a chart identity it then applies the chart's
-  static permission block from the static users file, not the stored grant.
+  callout.
+  Admission remains with `ServiceRadar.NATS.ManagedCertificateAuthorization` and
+  `ComponentCertificateAuthority.authorize`, unchanged by this change.
 - The certificate generator job creates every certificate into one Secret and
   regenerates all of them when the layout version changes or a required file
   is missing. Each pod mounts only its own certificate and `root.pem`. Core's
@@ -20,10 +20,7 @@ Facts this design rests on, from the tree at the time of writing:
 - When the generator reissues certificates it writes
   `runtime-cert-rotation.json` (public certificates and the fingerprints they
   replace, no key material) into the runtime Secret.
-  `ServiceRadar.Edge.RuntimeCertificateRotation` records a reissued
-  certificate when the manifest identifies its eligible adopted predecessor, from the core
-  migrations hook before workloads roll and again on a 30 second reconcile. A
-  certificate whose predecessor was never adopted is skipped.
+  `ServiceRadar.Edge.RuntimeCertificateRotation` processes this manifest as before.
 - Three static users (`serviceradar-flowgger`, `serviceradar-otel`,
   `serviceradar-netflow-collector`) have no certificate of their own; their
   files are copies of another identity's certificate. One static user,
@@ -67,9 +64,7 @@ includes every projected file in its required-files check before preserving an
 existing Secret. An older Secret missing even one inventory certificate takes
 the existing regeneration path in the pre-upgrade hook. This can reissue all
 runtime certificates once on upgrade and write the rotation manifest before
-core rolls. The missing file has no previous fingerprint in the manifest. If
-an existing record holds its subject, neither rotation nor inventory records
-its replacement (see the recovery procedure below). A complete, otherwise valid Secret follows the usual preserve path.
+core rolls. A complete, otherwise valid Secret follows the usual preserve path.
 
 For hosted installs and self-managed installs with the generator disabled, the
 supplier sets a chart value listing the public inventory certificates its
@@ -122,36 +117,15 @@ the existing adoption API, or remove the component. No install is known to
 have adopted infrastructure, so this set is expected to be empty in practice;
 task 1.4 checks live deployments.
 
-Replacement of an adopted certificate stays solely with the existing
-`ServiceRadar.Edge.RuntimeCertificateRotation` path driven by
-`runtime-cert-rotation.json`, unchanged by this change, including its refusal
-when the predecessor is revoked, superseded or from another issuer. A client presenting the revoked fingerprint is refused. Rotation skips a replacement if the old file was missing (no manifest entry)
-or the manifest names an unrecorded intermediate predecessor. If an existing
-record holds the subject, inventory also skips the replacement. Hub status
-warns that the current fingerprint is unrecorded and the subject is held.
-The operator records the successor through the existing API.
+Replacements remain with `ServiceRadar.Edge.RuntimeCertificateRotation`,
+which processes `runtime-cert-rotation.json` as before. If a subject is held
+and rotation has not recorded the current inventory certificate, hub status
+reports it as not adopted with the rotation path's reason and the operator
+uses the existing successor API.
 
-Coverage: a chart identity counts as adopted when the inventory's certificate
-for that subject is recorded and not revoked. Otherwise it is reported with
-the reason: no inventory certificate supplied, a failed check, legacy rows without a subject, or a held subject
-whose recorded certificates do not include the inventory's certificate (for
-example after a refused rotation, a revocation, or a missing or unrecorded predecessor).
-
-The stored grant is the static block for that subject. It is only the
-per-fingerprint record: admission of a chart identity still uses the static
-users file, and a missing or unread static file still refuses it.
-
-A certificate that chains to the root and carries a
-chart subject is already accepted by the broker today through
-`verify_and_map`. Changing the files core reads needs write access to the
-runtime certificate Secret. Revoked certificates remain ineligible for adoption.
-
-This provides the first adoption of chart certificates, which the existing
-rotation record cannot: it only records successors of certificates already
-adopted, and skips the rest. The inventory complements that record and does
-not replace it. The rotation record keeps handling replacements of
-already-adopted certificates before workloads roll; the inventory performs
-first adoption only.
+Coverage counts the inventory certificate for a subject when it is recorded
+and unrevoked. Hub status warns about each uncovered identity with its reason.
+Changing the inventory files requires write access to the runtime Secret.
 
 Hand adoption (`POST /managed-components/adopt`) stays, unchanged, for clients
 the chart does not define.
@@ -244,19 +218,12 @@ This is a chart value, and the control plane renders the same value for
 tenants, so it is not a Helm-only switch.
 
 The chart keeps refusing `nats.certificateAuthorization.enabled` together
-with `certs.regenerator.enabled`. The regenerator mints a new root and writes
-no rotation manifest, so its certificates could be neither rotated onto nor
-first-adopted (their subjects are held). Only `infrastructureAdopted` and the
-three key values are removed; that exclusion stays. Adoption under a new root
+with `certs.regenerator.enabled`. Adoption under a new root
 is out of scope.
 
 ### Decision 4: Default (owner decision)
 
-With enforcement on, a new NATS connection is admitted only if core's
-authorizer answers, which needs core and its database. Established sessions
-continue until their grant expires. The authorizer's own connections do not
-depend on the callout, so the system can start from cold: NATS, then core,
-then everything else connects or retries.
+Enforcement introduces an availability dependency on core and its database.
 
 - **Off by default for this release (proposed).** Self-managed installs that
   do not use leaves keep today's behaviour. The hosted control plane turns it
@@ -323,7 +290,6 @@ installs keep today's behaviour.
 
 ### Decision 6: Turning it on is safe by construction
 
-Admission and reconnection in this rollout apply while at least one broker is serving and core's authorizer is connected.
 Upgrade with enforcement off. For a generated runtime Secret, the pre-upgrade
 hook checks the fixed inventory before core rolls. For a supplied Secret, core
 uses only the supplier's inventory list, which may be empty. Review
@@ -334,35 +300,14 @@ signing material is provisioned, turn enforcement on.
 Full coverage completes the pre-enforcement inventory check. It compares
 each inventory certificate with the unrevoked records. An
 omitted chart identity produces a warning even if its client was previously
-hand-adopted. At connection time the broker uses the presented fingerprint.
-With signing seeds present, the static users file read and a grant for the
-presented fingerprint, a recorded,
-unrevoked fingerprint is admitted whether or not it appears in the inventory.
-A presented certificate with no matching unrevoked record is refused. Legacy
-rows without subjects block new inventory adoption only.
-
-On regeneration the core migrations hook records a replacement before rollout
-when the rotation manifest identifies an eligible recorded predecessor. If
-the old file was missing, its replacement follows the ordinary inventory
-rule: core can first-adopt a qualifying certificate with an unheld subject.
-For a held subject the operator must record the successor through the existing
-API. Check hub status for the affected subject's warning. Inventory adoption
-runs on the authorizer's 10 second tick. The rotation reconciler separately
-runs every 30 seconds.
+hand-adopted. Legacy rows without subjects
+block only new inventory adoption.
 
 ## Risks / Trade-offs
 
 - **Availability dependency on core** when enforcement is on. Stated in
   Decision 4. Established sessions are not affected by a core restart;
   connections and reconnections made during it wait.
-- **Regeneration does not undo a revocation.** If a chart identity's
-  certificate was revoked, its regenerated replacement is not recorded by the
-  rotation record, the inventory writes nothing because the subject is held,
-  and the subject is reported with the revocation reason. A client presenting the unrecorded replacement is refused.
-- **Residual unrecorded rotation.** If the old file is missing or the manifest names
-  an unrecorded predecessor, and an older record holds the subject, neither path records the current certificate. The
-  identity is reported unadopted with that reason and an operator records the
-  successor through the existing API.
 - **Legacy certificate rows without a subject** block all inventory adoption
   until they are recorded again or their component is removed. Expected to be
   empty; task 1.4 checks.
@@ -371,9 +316,7 @@ runs every 30 seconds.
   chart-generated certificate carries that subject. A broker experiment on the
   chart configuration showed that only a certificate whose whole subject is
   exactly `O=ServiceRadar` maps to it; other unlisted subjects are refused.
-  Under enforcement an unrecorded fingerprint is refused. A certificate
-  recorded through the existing adoption API is admitted under the same
-  fingerprint, grant and runtime checks as other recorded certificates. Task 1.2 checks live deployments for a holder before any
+  Task 1.2 checks live deployments for a holder before any
   behaviour changes, then removes the user or documents it.
 - **Included broker configuration** is a new shape for the NATS pod. Covered
   by a broker test that boots nats-server from the rendered files, as the
