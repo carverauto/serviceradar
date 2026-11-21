@@ -1343,6 +1343,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
   attr :sources, :list, required: true
   attr :sources_forbidden?, :boolean, required: true
   attr :policies, :list, required: true
+  attr :recording_now, :any, default: MapSet.new()
   attr :policy_profiles, :list, required: true
   attr :policy_form, :map, required: true
   attr :policy_editing_revision, :any, default: nil
@@ -1370,6 +1371,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.Components do
 
         <PolicyComponents.policies_table_card
           policies={@policies}
+          recording_now={@recording_now}
           sources={@sources}
           entitlement={@entitlement}
           can_manage?={@can_manage?}

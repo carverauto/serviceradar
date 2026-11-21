@@ -149,9 +149,12 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     local_html = render(view)
     assert local_html =~ "source=local"
 
+    # Forcing the archive copy builds no playlist while no archive reader is
+    # installed (D.2); the page says so instead of offering footage that cannot play.
     view |> element("#camera-timeline-source-archive") |> render_click()
     archive_html = render(view)
-    assert archive_html =~ "source=archive"
+    refute archive_html =~ "source=archive"
+    assert has_element?(view, "#camera-timeline-archive-only")
 
     view |> element("#camera-timeline-source-auto") |> render_click()
 

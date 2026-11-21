@@ -119,7 +119,10 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     File.write!(Path.join(directory, "bootstrap-result.json"), Jason.encode!(result))
 
-  "delivery_certificates" ->
+  mode when mode in ["delivery_certificates", "read_certificates"] ->
+    # The read listener gets its own server and client chains, so its pin
+    # differs from the ingest client's.
+    prefix = if mode == "read_certificates", do: "read-", else: ""
     algorithm = [digest: :sha256, key: {:namedCurve, :secp256r1}]
     san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
 
@@ -129,7 +132,10 @@ case System.fetch_env!("NVR_TEST_MODE") do
         client_chain: %{root: algorithm, intermediates: [], peer: algorithm}
       })
 
-    for {name, tls} <- [{"server", certificates.server_config}, {"client", certificates.client_config}] do
+    for {name, tls} <- [
+          {prefix <> "server", certificates.server_config},
+          {prefix <> "client", certificates.client_config}
+        ] do
       {type, key} = tls[:key]
       directory = System.fetch_env!("TMPDIR")
 

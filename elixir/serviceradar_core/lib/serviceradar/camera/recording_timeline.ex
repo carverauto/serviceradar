@@ -16,6 +16,7 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.LocalStorageBinding
   alias ServiceRadar.Camera.NVRArchiveReceipt
+  alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingAccessAudit
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
@@ -138,11 +139,21 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
          {:ok, gaps} <- load_window_gaps(camera_uuid, profile_uuid, from_us, to_us, loaders),
          {:ok, holds} <- load_camera_holds(camera_uuid, profile_uuid, from_us, to_us, loaders),
          {:ok, policies} <- load_camera_policies(camera_uuid, profile_uuid, loaders),
+         {:ok, recording_now} <- load_recording_now(camera_uuid, loaders),
          entries =
            filter_non_quarantined_sealed(raw_entries, camera_uuid, profile_uuid, from_us, to_us),
          {:ok, registered_sids} <- load_registered_storage_ids(entries, loaders) do
       accepted_holds = Enum.filter(holds, &(normalize_atom(fetch_val(&1, :state)) == :accepted))
       scheduled_continuous? = Enum.any?(policies, &continuous_policy?/1)
+
+      continuous_recording_active? =
+        Enum.any?(policies, fn policy ->
+          continuous_policy?(policy) and
+            MapSet.member?(
+              recording_now,
+              {fetch_val(policy, :camera_source_id), fetch_val(policy, :stream_profile_id)}
+            )
+        end)
 
       {blocks, reanchors} =
         project_coverage_blocks_and_reanchors(entries, gaps, accepted_holds, registered_sids)
@@ -171,6 +182,7 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
          to_us: to_us,
          bucket_count: bucket_count,
          scheduled_continuous?: scheduled_continuous?,
+         continuous_recording_active?: continuous_recording_active?,
          time_basis: time_basis,
          time_uncertainty: time_uncertainty,
          buckets: buckets,
@@ -584,6 +596,21 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
         query
         |> Ash.Query.sort(start_us: :asc, id: :asc)
         |> Ash.read(actor: @system_actor)
+    end
+  end
+
+  # A continuous policy only says recording is wanted; a live recorder claim is
+  # what says it is happening.
+  defp load_recording_now(camera_uuid, loaders) do
+    cond do
+      is_function(Map.get(loaders, :recording_now_loader), 1) ->
+        loaders.recording_now_loader.(camera_uuid)
+
+      map_size(loaders) > 0 ->
+        {:ok, MapSet.new()}
+
+      true ->
+        RecorderOwnership.recording_now(camera_uuid)
     end
   end
 

@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.CameraArchiveWindow
   alias ServiceRadarWebNG.CameraRecordingSettings
+  alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
@@ -162,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
         timeline_coverage={@timeline_coverage}
+        archive_playback_available={CameraTimelineReader.archive_reader_installed?()}
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
@@ -967,9 +969,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp block_playable_for_source?(block, "local"), do: block.local_state == :present
-  defp block_playable_for_source?(block, "archive"), do: block.archive_state == :verified
+  defp block_playable_for_source?(block, "archive"), do: archive_playable?(block)
+  defp block_playable_for_source?(block, _auto), do: block.local_state == :present or archive_playable?(block)
 
-  defp block_playable_for_source?(block, _auto), do: block.local_state == :present or block.archive_state == :verified
+  # A verified archive copy plays only through an installed archive reader (D.2).
+  defp archive_playable?(block), do: block.archive_state == :verified and CameraTimelineReader.archive_reader_installed?()
 
   defp adjacent_window_available?(play_to_us, cov_to_us) do
     now_us = System.system_time(:microsecond)

@@ -27,6 +27,7 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.NVRStorageSettings
+  alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingHold
@@ -62,6 +63,17 @@ defmodule ServiceRadar.Camera.CameraRecordingPolicies do
 
     with :ok <- RecordingArchiveSettings.authorize_recording_read(opts) do
       load_policies(loaders)
+    end
+  end
+
+  @doc """
+  The `{camera_source_id, stream_profile_id}` pairs a recorder is recording now
+  (`RecorderOwnership.recording_now/1`), under `settings.recording.view | manage | operate`.
+  """
+  @spec recording_now(keyword()) :: {:ok, MapSet.t()} | {:error, term()}
+  def recording_now(opts \\ []) when is_list(opts) do
+    with :ok <- RecordingArchiveSettings.authorize_recording_read(opts) do
+      RecorderOwnership.recording_now()
     end
   end
 

@@ -37,6 +37,11 @@ descriptor bytes of one verified sealed block, read in the shared read pool.
 Core freezes those bytes when it catalogs the block. See
 [block descriptor](../../docs/nvr-ingest.md#block-descriptor).
 
+An optional separate read listener, with its own port, pin and read-purpose
+token, serves a sealed block's init segment and fragments to web-ng for
+playback, bound to the cataloged descriptor digest. See
+[playback read listener](../../docs/nvr-ingest.md#playback-read-listener).
+
 ## Deployment recovery admission
 
 Runtime admission requires an external boot-pinned recovery generation and a

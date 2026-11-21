@@ -3380,6 +3380,27 @@ nvr:
       configSecretName: ""
       tokenSecretName: ""
       tlsSecretName: ""
+  read:
+    # Private HTTPS read listener per NVR replica for timeline playback of
+    # local copies, and the matching web-ng client mounts. It has its own port,
+    # client certificate pin and read-purpose token: Secrets distinct from the
+    # ingest ones, which infrastructure custody provisions before enabling.
+    # Keys: config Secret config.json (port, ca_file, cert_file, key_file,
+    # client_sha256), token Secret read-token, TLS Secret tls.crt/tls.key/ca.crt;
+    # the client config Secret holds the member map (see docs/nvr-ingest.md).
+    # Only web-ng pods may reach the read port.
+    enabled: false
+    port: 8444
+    # Concurrent playback reads per replica, 1 through 64, separate from the
+    # four slots that inventory, archive and descriptor reads share.
+    playbackReadSlots: 8
+    configSecretName: ""
+    tokenSecretName: ""
+    tlsSecretName: ""
+    client:
+      configSecretName: ""
+      tokenSecretName: ""
+      tlsSecretName: ""
   archive:
     # Lets Core ask an NVR replica to copy a sealed block to an S3-compatible
     # bucket through Longshore (io_uring) and verify it by readback. Requires

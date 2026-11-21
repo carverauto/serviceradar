@@ -767,6 +767,18 @@ for what it is, without touching the block's immutable clock identity:
   already supports (`descriptor.ex:108-125`). Blocks reserved earlier stay
   `received`. A basis is never upgraded after the fact.
 
+**Run and anchor identity (convention).** A run is one recorder claim epoch, so
+`run_id` is the run's clock epoch, `relay_session_id:recorder_epoch`, and
+`anchor_id` is `<run_id>:<block_sequence>` of the block at which the run
+anchored, or re-anchored after a drift beyond the tolerance above. The bounded
+`NVRWorker` capture is a one-block run anchored at its first admitted unit, so
+its block's window starts at that unit's receipt time and spans the
+descriptor's media duration. The continuous coordinator (A3) reuses this
+convention, so entries from both writers group and align the same way. Until
+it is verified that each block's fMP4 timestamps keep the input PTS origin (A4),
+the anchoring block starts at its anchor's receipt time, not at an offset
+computed from its descriptor timestamps.
+
 Timeline queries and cross-camera alignment use the stored basis and say which
 one they used. Investigators see "aligned by receipt time" when cameras are
 compared.

@@ -4,6 +4,7 @@ templates:
   - templates/core.yaml
   - templates/network-policy.yaml
   - templates/calico-network-policy.yaml
+  - templates/web.yaml
 tests:
   - it: creates no NVR resources by default
     template: templates/nvr.yaml
@@ -264,3 +265,166 @@ tests:
             destination:
               selector: "app == 'serviceradar-nvr'"
               ports: [8443]
+  - it: refuses a read listener that reuses the ingest port or token
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.port: 8443
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-server-tls
+      nvr.ingest.client.configSecretName: example-nvr-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-client-tls
+      nvr.read.enabled: true
+      nvr.read.port: 8443
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.read.port must be in 1..65535 and distinct from the health (8095) and ingest ports
+  - it: refuses a read token Secret shared with ingest
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-server-tls
+      nvr.ingest.client.configSecretName: example-nvr-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-client-tls
+      nvr.read.enabled: true
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-ingest-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-ingest-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.read must use a read token Secret distinct from the ingest token
+  - it: opens the read listener to web-ng only and mounts the read client on web-ng
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      nvr.read.playbackReadSlots: 12
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+      networkPolicy.calicoLogDenied.enabled: true
+    asserts:
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: Service
+        contains:
+          path: spec.ports
+          content: {name: read-https, port: 8444, targetPort: read-https}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_READ_TOKEN_FILE, value: /etc/serviceradar/nvr-read/auth/read-token}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_PLAYBACK_READ_SLOTS, value: "12"}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_INGEST_TOKEN_FILE, value: /etc/serviceradar/nvr-ingest/auth/ingest-token}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+        equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-web-ng
+              ports:
+                - {protocol: TCP, port: 8444}
+      - template: templates/network-policy.yaml
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-egress
+        contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app: serviceradar-nvr
+            ports:
+              - {protocol: TCP, port: 8444}
+      - template: templates/calico-network-policy.yaml
+        documentSelector:
+          path: kind
+          value: NetworkPolicy
+        contains:
+          path: spec.egress
+          content:
+            action: Allow
+            protocol: TCP
+            source:
+              selector: "app == 'serviceradar-web-ng'"
+            destination:
+              selector: "app == 'serviceradar-nvr'"
+              ports: [8444]
+      - template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE, value: /etc/serviceradar/nvr-read-client/auth/read-token}
+      - template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.volumes
+          content:
+            name: nvr-read-client-auth
+            secret:
+              secretName: example-nvr-read-token
+              defaultMode: 0440
+              items:
+                - {key: read-token, path: read-token}

@@ -1,8 +1,9 @@
 defmodule ServiceRadarNVRClient do
   @moduledoc """
   Sends one finite, already-authorized H264 capture to one installed NVR endpoint,
-  asks that endpoint to archive one sealed local block, or reads one sealed
-  block's canonical descriptor.
+  asks that endpoint to archive one sealed local block, reads one sealed
+  block's canonical descriptor, or reads one sealed block's initialization bytes
+  or a fragment for playback.
 
   The lazy enumerable yields maps containing `payload`, `sequence`, `pts` and
   `dts`. It runs in a separate, bounded process: do not pass a caller-owned socket
@@ -26,8 +27,10 @@ defmodule ServiceRadarNVRClient do
   `archive_block/4` sends one small JSON request that carries a bucket
   credential. No returned error contains that credential.
 
-  `block_descriptor/3` is a read with no effect on the NVR, so it can be
-  repeated freely.
+  `block_descriptor/3` and `read_block/6` are reads with no effect on the NVR,
+  so they can be repeated freely. `read_block/6` talks to the NVR's separate
+  read listener, so its configuration carries the read-purpose token and
+  client certificate rather than the ingest ones.
   """
 
   alias ServiceRadarNVRClient.Config
@@ -94,6 +97,43 @@ defmodule ServiceRadarNVRClient do
   end
 
   def block_descriptor(_, _, _), do: {:error, :invalid_descriptor_request}
+
+  @doc """
+  Reads the initialization bytes (`:init`) or one fragment (`{:fragment, sequence}`)
+  of sealed block `block_id` from an NVR read listener, for playback.
+
+  `descriptor_sha256` is the SHA-256 of the block's frozen canonical descriptor:
+  the NVR refuses to answer unless its block has exactly that descriptor.
+  `expected` is `%{length: bytes, sha256: hex}` for the selected object, from the
+  same descriptor; at most 1 MiB for init and 4 MiB for a fragment.
+  `{:ok, bytes}` is returned only when the body's length and SHA-256 equal
+  `expected`; a body longer than `expected` (or 32 KiB, whichever is larger) is
+  not read to the end and counts as unavailable.
+
+  Errors are typed for the caller's copy resolution:
+  `{:error, :not_found}` (404: no such block or fragment),
+  `{:error, :integrity_mismatch}` (409: the local copy is not the cataloged
+  block or its bytes fail their digest, or the answer differs from `expected`),
+  `{:error, :unavailable}` (503, transport failure, or no complete answer by the
+  deadline), `{:error, {:read_status, status, error}}` for any other answer, and
+  `{:error, :invalid_read_request}` before connecting for invalid arguments.
+  The default total timeout is 10000 ms (1 through 300000). The read changes
+  nothing on the NVR.
+  """
+  def read_block(config, block_id, descriptor_sha256, selector, expected, timeout_ms \\ 10_000)
+
+  def read_block(%Config{} = config, block_id, descriptor_sha256, selector, expected, timeout_ms)
+      when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config),
+         {:ok, path} <- Wire.read_request(block_id, descriptor_sha256, selector, expected) do
+      case bounded(timeout_ms, &HTTP.read_media(config, path, expected, &1, &2)) do
+        {:error, :outcome_unknown} -> {:error, :unavailable}
+        result -> result
+      end
+    end
+  end
+
+  def read_block(_, _, _, _, _, _), do: {:error, :invalid_read_request}
 
   defp bounded(timeout_ms, operation) do
     caller = self()

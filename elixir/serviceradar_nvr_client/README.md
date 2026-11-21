@@ -98,6 +98,26 @@ is `{:error, :descriptor_unavailable}`. A malformed block id is refused before
 connecting with `{:error, :invalid_descriptor_request}`. The read changes
 nothing, so it can be repeated.
 
+## Reading media for playback
+
+`ServiceRadarNVRClient.read_block/6` reads a sealed block's initialization bytes
+(`:init`) or one fragment (`{:fragment, sequence}`) from an NVR's separate read
+listener, so its configuration holds the read-purpose token and client
+certificate, never the ingest ones. The caller passes the frozen descriptor's
+SHA-256, which the NVR must match, and the expected `%{length:, sha256:}` of the
+selected object (at most 1 MiB for init, 4 MiB for a fragment). `{:ok, bytes}`
+is returned only when the body has exactly that length and digest. Errors are
+typed for copy resolution: `:not_found` (404), `:integrity_mismatch` (409, or
+bytes that differ from `expected`: the local copy is not the cataloged block),
+`:unavailable` (503, transport failure or deadline), `{:read_status, status,
+error}` for anything else, and `:invalid_read_request` before connecting. The
+default timeout is 10000 milliseconds.
+
+`ServiceRadarNVRClient.Members` loads an installed member map (`version`, `port`,
+`ca_file`, `cert_file`, `key_file`, `members` of `host`, `storage_id` and an
+optional `port`) with its token file, and finds the member that stores a given
+storage UUID.
+
 ## Test ownership
 
 The receiver's `//elixir/serviceradar_nvr:release_test` owns end-to-end transport
@@ -110,5 +130,6 @@ reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
 with the request file's `block_id` and `archive_request`; its `descriptor` mode
-calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `paced` mode
+calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `read` mode calls
+`read_block/6` and reports the length and SHA-256 of what it returned; its `paced` mode
 sleeps `pace_ms` before each unit and reports how many units were pulled.
