@@ -8,8 +8,11 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexJob
+  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.Camera.VisualWorkerReadGrants
   alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+  alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.EventWriter.TransientMessageError
   alias ServiceRadar.Storage.StorageEntitlement
   alias ServiceRadar.Storage.StorageEntitlements
@@ -288,6 +291,33 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       refute Map.has_key?(decoded, "secret_access_key")
       refute Map.has_key?(decoded, "access_key_id")
       refute Map.has_key?(decoded, "media_bytes")
+    end
+
+    test "a catalog lookup failure prevents live and backfill publication on initial dispatch and retry" do
+      now = ~U[2026-01-05 00:00:00Z]
+      expired = ~U[2026-01-01 00:00:00Z]
+      publisher = fn _, _, _ -> flunk("published without checking the catalog entry") end
+      loaders = %{entry_loader: fn @catalog_id -> {:error, :catalog_unavailable} end}
+
+      for kind <- [:live, :backfill], state <- [:pending, :dispatched] do
+        job = %VisualIndexJob{
+          id: @job_id,
+          catalog_entry_id: @catalog_id,
+          job_kind: kind,
+          state: state,
+          attempt_count: 1,
+          max_attempts: 5,
+          deadline_at: expired,
+          dispatched_at: expired
+        }
+
+        assert {:error, :catalog_unavailable} =
+                 VisualIndexDispatcher.dispatch_job(job,
+                   loaders: loaders,
+                   publisher: publisher,
+                   now: now
+                 )
+      end
     end
 
     test "RecordingHealth.summary/1 aggregates visual_indexing queue states and active model" do
@@ -819,7 +849,58 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
   # ---------------------------------------------------------------------------
 
-  describe "visual index result consumer transient failures" do
+  describe "visual index result consumer failures" do
+    test "numeric values outside the storage contract terminate the delivery and fail the named job" do
+      embedding = %{"region_kind" => "crop", "region_index" => 1, "embedding" => unit_vec(512)}
+      frame = %{"fragment_sequence" => 1, "media_pts_ns" => 1, "embeddings" => [embedding]}
+
+      envelope = %{
+        "catalog_entry_id" => @catalog_id,
+        "job_id" => @job_id,
+        "descriptor_sha256" => @desc_sha,
+        "detector_model_id" => "synthetic-detector",
+        "embedder_model_id" => "synthetic-embedder",
+        "embedder_model_version" => "1",
+        "embedding_dim" => 512,
+        "frames" => [frame]
+      }
+
+      wire = Jason.encode!(envelope)
+      assert {:ok, ^envelope} = VisualIndexResultProjector.decode_result(wire)
+
+      bigint_overflow = 9_223_372_036_854_775_808
+      first_frame = ["frames", Access.at(0)]
+      first_embedding = first_frame ++ ["embeddings", Access.at(0)]
+      component = first_embedding ++ ["embedding", Access.at(0)]
+
+      for {path, token, reason} <- [
+            {first_frame ++ ["fragment_sequence"], bigint_overflow, :invalid_result_envelope},
+            {first_frame ++ ["media_pts_ns"], bigint_overflow, :invalid_result_envelope},
+            {first_embedding ++ ["region_index"], bigint_overflow, :invalid_result_envelope},
+            {component, "1e308", :invalid_embedding_vector},
+            {component, "-1e308", :invalid_embedding_vector},
+            {component, "1e309", :invalid_result_envelope}
+          ] do
+        message =
+          envelope
+          |> put_in(path, "synthetic-number")
+          |> Jason.encode!()
+          |> String.replace(~s("synthetic-number"), to_string(token))
+          |> result_message()
+
+        fail_job = fn id, class ->
+          send(self(), {:failed_job, id, class})
+          {:ok, %{}}
+        end
+
+        assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: ^reason}}]} =
+                 CameraVisualIndexResults.process_batch([message], fail_job: fail_job)
+
+        class = Atom.to_string(reason)
+        assert_received {:failed_job, @job_id, ^class}
+      end
+    end
+
     test "a failed or raising result is redelivered without failing the rest of its batch" do
       stored = result_message(~s({"case":"stored"}))
       failed = result_message(~s({"case":"failed"}))

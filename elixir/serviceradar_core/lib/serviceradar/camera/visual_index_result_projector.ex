@@ -31,6 +31,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   @max_frames_per_result 512
   @max_embeddings_per_frame 16
   @max_colors_per_embedding 16
+  @max_bigint 9_223_372_036_854_775_807
+  @norm_tolerance 0.05
   @allowed_dims [512, 768]
 
   @system_actor SystemActor.system(:camera_visual_index_result_projector)
@@ -77,18 +79,36 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   def ingest_result(_, _), do: {:error, :invalid_result_envelope}
 
   @doc false
-  def decode_result(raw_json) do
-    case JSONDocument.decode_ordered_object(raw_json, @max_envelope_bytes) do
-      {:ok, object} ->
+  def decode_result(raw_json)
+      when is_binary(raw_json) and byte_size(raw_json) <= @max_envelope_bytes do
+    decoders = [
+      object_finish: fn pairs, acc -> {Jason.OrderedObject.new(Enum.reverse(pairs)), acc} end,
+      float: &decode_float/1,
+      integer: &decode_integer/1
+    ]
+
+    case JSON.decode(raw_json, nil, decoders) do
+      {%Jason.OrderedObject{} = object, nil, ""} ->
         case JSONDocument.to_map(object, arrays: true) do
           {:ok, _envelope} = result -> result
           {:error, :invalid_request} -> {:error, :invalid_result_envelope, unique_job_id(object)}
         end
 
-      {:error, :invalid_request} ->
+      _ ->
         {:error, :invalid_result_envelope, nil}
     end
   end
+
+  def decode_result(_), do: {:error, :invalid_result_envelope, nil}
+
+  defp decode_float(token) do
+    String.to_float(token)
+  rescue
+    ArgumentError -> :out_of_range
+  end
+
+  defp decode_integer(token) when byte_size(token) <= 20, do: String.to_integer(token)
+  defp decode_integer(_), do: :out_of_range
 
   defp unique_job_id(%Jason.OrderedObject{values: pairs}) do
     case for({"job_id", id} <- pairs, do: id) do
@@ -174,8 +194,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     raw_detections = fetch_val(frame, :detections) || []
     raw_embeddings = fetch_val(frame, :embeddings) || []
 
-    with true <- is_integer(seq) and seq >= 0,
-         true <- is_integer(pts_ns) and pts_ns >= 0,
+    with true <- seq in 0..@max_bigint,
+         true <- pts_ns in 0..@max_bigint,
          {:ok, detections} <- parse_detections(raw_detections),
          {:ok, embeddings} <- parse_embeddings(raw_embeddings, dim) do
       {:ok,
@@ -267,7 +287,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
     raw_vec = fetch_val(emb, :embedding) || fetch_val(emb, :vector)
 
     with {:ok, kind} <- parse_region_kind(raw_kind),
-         true <- is_integer(raw_idx) and raw_idx >= 0,
+         true <- raw_idx in 0..@max_bigint,
          {:ok, obj_class} <- parse_optional_class(kind, raw_cls),
          {:ok, conf} <- parse_optional_confidence(kind, raw_conf),
          {:ok, bbox} <- parse_region_bbox(kind, raw_bbox),
@@ -368,7 +388,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
        when is_list(values) and length(values) == expected_dim do
     sum_sq =
       Enum.reduce_while(values, 0.0, fn
-        v, acc when is_number(v) -> {:cont, acc + v * v}
+        v, acc when is_number(v) and abs(v) <= 1.0 + @norm_tolerance -> {:cont, acc + v * v}
         _, _ -> {:halt, :invalid}
       end)
 
@@ -379,7 +399,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
       sq when is_float(sq) and sq > 1.0e-12 ->
         norm = :math.sqrt(sq)
 
-        if abs(norm - 1.0) <= 0.05 do
+        if abs(norm - 1.0) <= @norm_tolerance do
           normalized = Enum.map(values, &(&1 / norm))
           Ash.Vector.new(normalized)
         else

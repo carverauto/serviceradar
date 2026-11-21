@@ -13,7 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.CameraVisualIndexResults do
       acknowledged. The projector stores nothing and cancels the entry's jobs.
     * a result that can never be stored
       (`VisualIndexResultProjector.terminal_drop?/1`): the job it names is
-      marked `:failed_terminal` with the failure class (and a `TripwireHealth`
+      marked `:failed_terminal` with the failure class (and a best-effort `TripwireHealth`
       record), then the message fails with
       `ServiceRadar.EventWriter.TerminalMessageError`, which terminates it as a
       dead letter. If that job update fails, the message fails transiently so a

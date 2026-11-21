@@ -209,7 +209,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              VisualIndexDispatcher.dispatch_job(job,
                publisher: fn subject, payload, opts ->
                  send(test_pid, {:published_visual_job, subject, payload, opts})
-                 :ok
+                 {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
                end
              )
 
@@ -234,10 +234,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
     assert failed_job.state == :failed_terminal
     assert failed_job.last_error_class == "max_deliver_exhausted"
 
-    assert_received {:tripwire, "camera.visual_index.failed_terminal", false,
-                     %{"job_id" => job_id_str}}
+    assert failed_job.id == job.id
+    assert_received {:tripwire, "camera.visual_index.failed_terminal", false, metadata}
 
-    assert job_id_str == to_string(job.id)
+    assert metadata == %{
+             "embedder_model_id" => job.embedder_model_id,
+             "embedder_model_version" => job.embedder_model_version,
+             "last_error_class" => "max_deliver_exhausted"
+           }
   end
 
   test "VisualWorkerReadGrants issues CNPG SecretBroker reader-only archive grants with zero leaked secrets and 410s deleted/quarantined blocks (1.6)",
@@ -852,14 +856,43 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       assert_received :publish_attempted
       refute_received :publish_attempted
 
-      wrong_stream = fn _, _, _ -> {:ok, %{stream: "SYNTHETIC_OTHER", seq: 1}} end
-
-      for job <- jobs do
+      for job <- jobs,
+          receipt <- [
+            :ok,
+            {:ok, %{stream: "SYNTHETIC_OTHER", seq: 1}},
+            {:ok, %{stream: "CAMERA_MEDIA_JOBS"}},
+            {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 0}}
+          ] do
         assert {:error, {:publish_failed, _}} =
-                 VisualIndexDispatcher.dispatch_job(job, publisher: wrong_stream)
+                 VisualIndexDispatcher.dispatch_job(job, publisher: fn _, _, _ -> receipt end)
 
         assert %{state: :pending, attempt_count: 0} = reload(job, actor)
       end
+    end
+
+    test "immediate backfill returns a failed catalog lookup and keeps the admitted job pending",
+         %{tmp_dir: tmp_dir} do
+      _gate = Fixtures.recording_recovery_gate(tmp_dir)
+      actor = SystemActor.system(:catalog_lookup_test)
+      {cam, prof} = create_camera_and_profile(actor, "Catalog Lookup Camera")
+      entry = create_indexed_playable_entry(cam, prof, 1_750_003_050_000_000, actor)
+      entry_id = entry.id
+
+      assert {:error, :catalog_unavailable} =
+               VisualIndexBackfill.enqueue_model_backfill(
+                 %{
+                   camera_source_id: cam.id,
+                   embedder_model_version: "lookup-test",
+                   dispatch_immediately?: true
+                 },
+                 loaders: %{entry_loader: fn ^entry_id -> {:error, :catalog_unavailable} end},
+                 publisher: fn _, _, _ -> flunk("published after catalog lookup failed") end
+               )
+
+      assert [%{state: :pending, attempt_count: 0}] =
+               VisualIndexJob
+               |> Ash.Query.filter(catalog_entry_id == ^entry_id and job_kind == :backfill)
+               |> Ash.read!(actor: actor)
     end
 
     test "an acknowledged publish with a refused write is counted in either phase",
@@ -878,7 +911,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       publisher = fn _, payload, _ ->
         send(self(), {:acknowledged, Jason.decode!(payload)["job_id"]})
-        :ok
+        {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
       end
 
       for state <- ["pending", "dispatched"] do
@@ -946,7 +979,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                VisualIndexDispatcher.relay(
                  limit: 250,
                  max_batches: 100,
-                 publisher: fn _, _, _ -> :ok end
+                 publisher: fn _, _, _ -> {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}} end
                )
 
       assert VisualIndexJob
@@ -965,7 +998,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       publisher = fn _subject, _payload, opts ->
         send(test_pid, {:msg_id, opts[:msg_id]})
-        :ok
+        {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
       end
 
       assert {:ok, %{state: :dispatched, attempt_count: 1}} =
@@ -977,7 +1010,21 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       expected = "visual-index:#{read_by_both.id}"
       assert_received {:msg_id, ^expected}
       assert_received {:msg_id, ^expected}
-      assert %{state: :dispatched, attempt_count: 1} = reload(read_by_both, actor)
+      dispatched = reload(read_by_both, actor)
+      assert %{state: :dispatched, attempt_count: 1} = dispatched
+
+      retry_opts = [publisher: publisher, now: DateTime.shift(dispatched.dispatched_at, hour: 73)]
+
+      assert {:ok, %{state: :dispatched, attempt_count: 2}} =
+               VisualIndexDispatcher.dispatch_job(dispatched, retry_opts)
+
+      assert {:error, :dispatch_superseded} =
+               VisualIndexDispatcher.dispatch_job(dispatched, retry_opts)
+
+      retry_id = "visual-index:#{dispatched.id}:2"
+      assert_received {:msg_id, ^retry_id}
+      assert_received {:msg_id, ^retry_id}
+      assert %{state: :dispatched, attempt_count: 2} = reload(dispatched, actor)
     end
 
     test "a dispatched job is re-published only once the jobs stream can no longer hold it",
@@ -997,7 +1044,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
           send(test_pid, {:published, opts[:msg_id]})
         end
 
-        :ok
+        {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
       end
 
       assert {:ok, %{state: :dispatched, dispatched_at: dispatched_at}} =
@@ -1052,7 +1099,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
         assert subject == "media.jobs.visual_index.backfill.v1"
         assert {"Nats-Expected-Stream", "CAMERA_MEDIA_JOBS"} in opts[:headers]
         send(self(), :backfill_published)
-        :ok
+        {:ok, %{stream: "CAMERA_MEDIA_JOBS", seq: 1}}
       end
 
       for budget <- [1, 2],
@@ -1187,6 +1234,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       entry = create_indexed_playable_entry(cam, prof, 1_750_007_300_000_000, actor)
       job = job_for(entry, actor)
 
+      {other_cam, other_prof} = create_camera_and_profile(actor, "Second Decode Camera")
+
+      other_entry =
+        create_indexed_playable_entry(other_cam, other_prof, 1_750_007_400_000_000, actor)
+
+      other_job = job_for(other_entry, actor)
+      assert other_job.id != job.id
+
       envelope =
         entry
         |> build_single_crop_envelope(basis_vector(768, 3))
@@ -1196,7 +1251,8 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
       for bytes <- [
             Jason.encode!(Map.put(envelope, "padding", String.duplicate("x", 4_194_304))),
-            String.replace_prefix(valid.data, "{", ~s({"job_id":"#{Ecto.UUID.generate()}",))
+            String.replace_prefix(valid.data, "{", ~s({"job_id":"#{other_job.id}",)),
+            String.replace_suffix(valid.data, "}", ~s(,"job_id":"#{other_job.id}"}))
           ] do
         message = %{valid | data: bytes}
 
@@ -1205,6 +1261,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
                  CameraVisualIndexResults.process_batch([message])
 
         assert reload(job, actor).state == :pending
+        assert reload(other_job, actor).state == :pending
         assert projection_counts(entry, actor) == {0, 0}
       end
 

@@ -319,11 +319,8 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
           job.attempt_count >= job.max_attempts ->
             reconcile_exhausted_job(job, "max_deliver_exhausted", opts)
 
-          catalog_entry_gone_or_quarantined?(job.catalog_entry_id, opts) ->
-            cancel_job(job, "source_deleted_or_quarantined")
-
           true ->
-            publish_and_mark_dispatched(job, now, opts)
+            dispatch_for_catalog_entry(job, now, opts)
         end
 
       superseded_when_stale(result)
@@ -688,8 +685,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
     headers = [{"Nats-Expected-Stream", @jobs_stream}]
 
     case publisher.(subject, encoded, msg_id: msg_id, headers: headers) do
-      :ok -> :ok
-      {:ok, %{stream: @jobs_stream}} -> :ok
+      {:ok, %{stream: @jobs_stream, seq: seq}} when is_integer(seq) and seq > 0 -> :ok
       {:error, reason} -> {:error, {:publish_failed, reason}}
       other -> {:error, {:publish_failed, {:invalid_puback, other}}}
     end
@@ -735,41 +731,31 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   defp load_job(_, _opts), do: {:error, :invalid_job_id}
 
-  defp catalog_entry_gone_or_quarantined?(catalog_entry_id, opts) do
-    loaders = Keyword.get(opts, :loaders, %{})
-
-    entry_res =
-      case Map.get(loaders, :entry_loader) do
-        loader when is_function(loader, 1) ->
-          loader.(catalog_entry_id)
-
-        _ when map_size(loaders) > 0 ->
-          {:ok, :skip_check}
-
-        _ ->
-          Ash.get(RecordingCatalogEntry, catalog_entry_id,
-            actor: @system_actor,
-            not_found_error?: false
-          )
+  defp dispatch_for_catalog_entry(job, now, opts) do
+    with {:ok, entry} <- load_catalog_entry(job.catalog_entry_id, opts) do
+      if gone_or_quarantined?(entry) do
+        cancel_job(job, "source_deleted_or_quarantined")
+      else
+        publish_and_mark_dispatched(job, now, opts)
       end
-
-    case entry_res do
-      {:ok, :skip_check} ->
-        false
-
-      {:ok, nil} ->
-        true
-
-      {:ok, entry} ->
-        local_state = fetch_val(entry, :local_state)
-        archive_state = fetch_val(entry, :archive_state)
-
-        local_state == :quarantined or
-          (local_state == :reclaimed and archive_state in [:deleted, :not_required])
-
-      _ ->
-        false
     end
+  end
+
+  defp load_catalog_entry(id, opts) do
+    case opts[:loaders][:entry_loader] do
+      nil -> Ash.get(RecordingCatalogEntry, id, actor: @system_actor, not_found_error?: false)
+      loader -> loader.(id)
+    end
+  end
+
+  defp gone_or_quarantined?(nil), do: true
+
+  defp gone_or_quarantined?(entry) do
+    local_state = fetch_val(entry, :local_state)
+    archive_state = fetch_val(entry, :archive_state)
+
+    local_state == :quarantined or
+      (local_state == :reclaimed and archive_state in [:deleted, :not_required])
   end
 
   defp cancel_job(job, reason_class) do
@@ -781,14 +767,9 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   defp record_tripwire_failure(job, error_class, opts) do
     metadata = %{
-      "job_id" => to_string(fetch_val(job, :id)),
-      "catalog_entry_id" => to_string(fetch_val(job, :catalog_entry_id)),
-      "camera_source_id" => to_string(fetch_val(job, :camera_source_id)),
-      "stream_profile_id" => to_string(fetch_val(job, :stream_profile_id)),
       "embedder_model_id" => fetch_val(job, :embedder_model_id),
       "embedder_model_version" => fetch_val(job, :embedder_model_version),
-      "last_error_class" => error_class,
-      "attempt_count" => fetch_val(job, :attempt_count)
+      "last_error_class" => error_class
     }
 
     case Keyword.get(opts, :tripwire_recorder) do

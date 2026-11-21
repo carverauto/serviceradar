@@ -5,19 +5,15 @@ defmodule ServiceRadar.JSONDocument do
   Rejects duplicate keys before their ordering is discarded. Arrays require explicit opt-in.
   """
 
-  def decode_object(bytes, limit) do
-    with {:ok, object} <- decode_ordered_object(bytes, limit), do: to_map(object)
-  end
-
-  def decode_ordered_object(bytes, limit)
+  def decode_object(bytes, limit)
       when is_binary(bytes) and is_integer(limit) and limit > 0 and byte_size(bytes) <= limit do
     case Jason.decode(bytes, objects: :ordered_objects) do
-      {:ok, %Jason.OrderedObject{}} = result -> result
+      {:ok, %Jason.OrderedObject{} = object} -> to_map(object)
       _ -> {:error, :invalid_request}
     end
   end
 
-  def decode_ordered_object(_, _), do: {:error, :invalid_request}
+  def decode_object(_, _), do: {:error, :invalid_request}
 
   def to_map(%Jason.OrderedObject{} = object, opts \\ []) do
     plain_value(object, Keyword.get(opts, :arrays, false))
@@ -48,6 +44,7 @@ defmodule ServiceRadar.JSONDocument do
     end
   end
 
+  defp plain_value(:out_of_range, _arrays?), do: {:error, :invalid_request}
   defp plain_value(value, _arrays?) when is_list(value), do: {:error, :invalid_request}
   defp plain_value(value, _arrays?), do: {:ok, value}
 end

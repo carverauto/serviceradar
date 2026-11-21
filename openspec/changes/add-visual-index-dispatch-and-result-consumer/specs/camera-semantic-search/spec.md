@@ -21,7 +21,7 @@ When the deployment enables camera recording and visual indexing, Core SHALL rel
 
 #### Scenario: Dispatched job whose message can no longer be queued
 - **WHEN** a dispatched job has reached both its stored deadline and 72 hours from dispatch without a result
-- **THEN** the relay SHALL re-publish it under the next attempt, or mark it `failed_terminal` with a `TripwireHealth` record once its attempt budget is spent
+- **THEN** the relay SHALL re-publish it under the next attempt, or mark it `failed_terminal` once its attempt budget is spent and attempt a best-effort `TripwireHealth` record
 
 #### Scenario: Visual indexing disabled for the deployment
 - **WHEN** camera recording or visual indexing is not enabled for the deployment
@@ -48,4 +48,4 @@ When the deployment enables camera recording and visual indexing, Core SHALL con
 
 #### Scenario: Result that can never be stored
 - **WHEN** a result fails validation, such as a malformed envelope, an invalid vector or bounding box, or a descriptor digest that does not match the catalog entry
-- **THEN** Core SHALL mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, record the dead letter, and terminate the message without redelivery
+- **THEN** Core SHALL mark a job unambiguously named by the decoded envelope `failed_terminal` with the failure class, attempt a best-effort `TripwireHealth` record for that failure, record the dead letter, and terminate the message without redelivery

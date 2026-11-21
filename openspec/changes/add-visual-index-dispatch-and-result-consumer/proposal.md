@@ -51,6 +51,8 @@ attempt it read, so two concurrent relays could both advance one job.
 - Core's NATS identity may publish `media.jobs.visual_index.v1` and
   `media.jobs.visual_index.backfill.v1`.
 
+Setting a camera policy's `visual_index_mode` to `:off` stops new live job admission. Previously admitted jobs can still be dispatched or retried, receive read grants, and produce indexed results. Revoking those jobs is a follow-up.
+
 ## Impact
 
 - Affected specs: `camera-semantic-search`
