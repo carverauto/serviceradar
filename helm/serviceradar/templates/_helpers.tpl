@@ -249,6 +249,17 @@ Secret: every chart identity's certificate is then guaranteed to be in it.
 {{- end -}}
 
 {{/*
+"true" when the chart's generator provisions the NATS authorization callout
+signing set: it owns the runtime certificate Secret, and that is also the
+issuer Secret the seeds belong in. With a distinct issuer Secret, a hosted
+install or a disabled generator, whoever supplies the Secrets supplies the
+three seeds and both broker fragments.
+*/}}
+{{- define "serviceradar.natsCalloutSigningGeneratorOwned" -}}
+{{- ternary "true" "false" (and (eq "true" (include "serviceradar.runtimeCertGeneratorOwned" .)) (eq (include "serviceradar.runtimeIssuerSecretName" .) (include "serviceradar.runtimeCertsSecretName" .))) -}}
+{{- end -}}
+
+{{/*
 The public certificate files core is given for first adoption of the chart's
 NATS client identities (ServiceRadar.Edge.ChartIdentityInventory), as a JSON
 list. When the generator owns the Secret it is every chart identity. Otherwise

@@ -27,11 +27,12 @@ For deployment-specific TLS setup, see:
 The Helm chart does **not** require SPIRE. By default it ships an in-chart
 certificate generator that issues the runtime mTLS certificates for you:
 
-- `cert-generator-job` runs as a `pre-install` / `pre-upgrade` Helm hook. It
-  generates a CA and per-service certificates and stores them in the
-  `serviceradar-runtime-certs` secret (`certs.runtimeSecretName`). If the secret
-  already exists with the expected layout, it is preserved rather than
-  regenerated.
+- The `pre-install` and `pre-upgrade` certificate hook reads the runtime Secret
+  (`certs.runtimeSecretName`, default `serviceradar-runtime-certs`). An HTTP
+  404 starts generation of a CA and per-service certificates. Any other read
+  failure stops the hook before generation or upload so the Job can retry.
+  When the existing certificates pass the layout and certificate checks, the
+  hook keeps them.
 - `certs.runtimeLayoutVersion` tracks the certificate layout. When it changes,
   the generator re-issues the runtime certificates.
 - `cert-regenerator-job` provides an explicit rotation path. It is gated by
@@ -40,6 +41,22 @@ certificate generator that issues the runtime mTLS certificates for you:
   upgrade when you intend to rotate the runtime certificates, then set it back.
   The regenerator also issues a new root CA, so the chart refuses it while
   `nats.certificateAuthorization.enabled` is `true`.
+
+By default, `certs.issuerSecretName` resolves to the runtime Secret. When the
+two names match on a non-hosted install with `certs.generator.enabled=true`,
+the hook also provisions the NATS authorization callout signing set. The first
+upgrade of a Secret with valid certificates and no signing entries adds the
+three seeds and two public configuration fragments in one write, even with
+enforcement disabled. In other configurations, the issuer Secret's supplier
+owns the seeds and the runtime Secret's supplier owns the fragments. Core and
+NATS do not yet use these entries.
+
+The hook reuses all three seeds and rebuilds any missing or stale fragment
+from them. If both certificates and signing entries are current, it skips the
+Secret write. If a seed is missing from an existing set or is unreadable, the
+hook reports the affected file and fails before updating the Secret. Restore
+the named seeds to keep the same identities. To deliberately provision new
+identities, remove every remaining `nats-callout-*` entry before retrying.
 
 ### Dgraph server TLS (separate path)
 
