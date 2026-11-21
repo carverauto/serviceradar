@@ -1,7 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificate
+  alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.InfrastructureCertificateAdoption
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
   alias ServiceRadarWebNG.Accounts.Scope
@@ -47,6 +50,31 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
     assert {:ok, stored} = Ash.get(ManagedComponent, id, scope: operator_scope())
     assert stored.generation_started_by == "example-operator"
     assert stored.nats_permissions["subscribe"] == [">"]
+  end
+
+  test "an operator scope fills the stored subject when replaying a legacy certificate", %{conn: conn} do
+    id = "example-gateway-#{System.unique_integer([:positive])}"
+    enroll_gateway(id)
+    %{cert: der} = :public_key.pkix_test_root_cert(~c"example-legacy", [])
+    pem = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+    input = %{certificate_pem: pem}
+    assert {:ok, issuance} = InfrastructureCertificateAdoption.prepare_certificate(input)
+    metadata = issuance |> Map.delete(:subject) |> Map.put(:expected_generation, 1)
+
+    assert {:ok, %{subject: nil}} =
+             Authority.record_issuance(id, metadata, actor: SystemActor.system(:component_certificate_test))
+
+    assert {:error, :forbidden} = Authority.record_infrastructure_successor(id, input, scope: denied_scope())
+    assert {:ok, %{subject: nil}} = Ash.get(ComponentCertificate, fingerprint(der), scope: operator_scope())
+
+    replay =
+      conn
+      |> assign(:current_scope, operator_scope())
+      |> Controller.record_successor(%{"id" => id, "certificate_pem" => pem})
+
+    assert json_response(replay, 201)["data"]["certificate"]["fingerprint"] == fingerprint(der)
+    assert {:ok, stored} = Ash.get(ComponentCertificate, fingerprint(der), scope: operator_scope())
+    assert "CN=example-legacy" in String.split(stored.subject, ",")
   end
 
   test "records a successor without changing the grant or retiring the predecessor", %{conn: conn} do

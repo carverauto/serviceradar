@@ -102,6 +102,46 @@ defmodule ServiceRadar.NATS.StaticIdentityGrants do
 
   def presented_grant(_grants, _component_type, _subject), do: nil
 
+  @doc """
+  A certificate's subject in one canonical spelling: its attributes as
+  `TYPE=value`, sorted and joined by `,`, with `\\` and `,` in a value escaped
+  by a backslash. A leading '#' is also escaped. Values containing invalid
+  UTF-8, U+0000 through U+001F, or U+007F are written as '#' followed by
+  the lowercase hexadecimal encoding of their bytes. Two certificates carry
+  the same identity exactly when this string is equal, whatever order their
+  attributes are encoded in.
+  """
+  @spec certificate_subject(binary()) :: {:ok, String.t()} | :error
+  def certificate_subject(certificate_der) when is_binary(certificate_der) do
+    with {:ok, key} <- certificate_subject_key(certificate_der) do
+      {:ok, canonical(key)}
+    end
+  end
+
+  @doc "The canonical spelling of a subject as the static users file writes it."
+  @spec configured_subject(String.t()) :: {:ok, String.t()} | :error
+  def configured_subject(subject) when is_binary(subject) do
+    with {:ok, key} <- subject_key(subject) do
+      {:ok, canonical(key)}
+    end
+  end
+
+  defp canonical(key) do
+    Enum.map_join(key, ",", fn {type, value} ->
+      type <> "=" <> canonical_value(value)
+    end)
+  end
+
+  defp canonical_value(value) do
+    if String.valid?(value) and not String.match?(value, ~r/[\x00-\x1f\x7f]/) do
+      value
+      |> String.replace(["\\", ","], &("\\" <> &1))
+      |> String.replace_prefix("#", "\\#")
+    else
+      "#" <> Base.encode16(value, case: :lower)
+    end
+  end
+
   defp lookup(grants, component_type, subject_key) do
     if is_binary(component_type) and ManagedComponent.infrastructure_type?(component_type) do
       case subject_key.() do

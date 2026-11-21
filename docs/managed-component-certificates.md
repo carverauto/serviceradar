@@ -181,15 +181,27 @@ disconnected for its grant; host-enrolled components are unaffected.
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
 `component_type`, `partition_id`, optional `server_hosts`, `certificate_pem`,
-and a static NATS `permissions` block. `publish` and `subscribe` are objects
-with optional `allow` and `deny` arrays. An empty or omitted allow is stored
-as `[">"]` and the deny list is kept. A non-empty allow is copied unchanged.
+and a static NATS `permissions` block. Each supplied host must contain a
+non-whitespace character and must be free of NUL bytes. `publish` and
+`subscribe` are objects with optional `allow` and `deny` arrays. On first
+adoption, an empty or omitted allow is stored as `[">"]` and the deny list is
+kept. A non-empty allow is copied unchanged. Repeating adoption for the same
+component and fingerprint preserves the component's current grant.
 The PEM may contain only certificates. A private key is refused and nothing
 is written. The response returns the component, the stored grant, and the
 certificate fingerprint. It does not return the PEM. The route does not enable
 broker authorization callout. The service-certificates inventory shows that
 stored grant for an infrastructure component. An empty allow there is no
 permission. A host service does not show this grant.
+
+Hand adoption, successor recording and chart rotation store the subject from
+the public certificate. For an infrastructure certificate recorded before
+subjects were stored, submit its original PEM again for the same component.
+Once the caller is authorized and the fingerprint matches, core fills the
+missing subject before checking admission. A revoked, expired or superseded
+certificate can therefore gain a subject even when the request returns an
+error. This update grants no access. Host-enrolled issuance leaves the
+subject null.
 
 `POST /api/admin/managed-components/:id/certificates` records a successor
 public certificate for that component. The JSON body carries `certificate_pem`

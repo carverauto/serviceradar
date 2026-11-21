@@ -67,6 +67,73 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
     end
   end
 
+  # A recorded certificate stores this string, and a chart identity is
+  # named by the subject in the static users file. They must agree for the same
+  # identity whatever order a certificate encodes its attributes in, and must
+  # not agree for a different one.
+  test "a certificate's canonical subject is the configured subject's, in any attribute order" do
+    listed = "CN=example-core,OU=Kubernetes,O=ExampleOrg,L=Example City,ST=EX,C=US"
+    expected = "C=US,CN=example-core,L=Example City,O=ExampleOrg,OU=Kubernetes,ST=EX"
+    assert StaticIdentityGrants.configured_subject(listed) == {:ok, expected}
+
+    for attributes <- [
+          [
+            c: "US",
+            st: "EX",
+            l: "Example City",
+            o: "ExampleOrg",
+            ou: "Kubernetes",
+            cn: "example-core"
+          ],
+          [
+            cn: "example-core",
+            ou: "Kubernetes",
+            o: "ExampleOrg",
+            l: "Example City",
+            st: "EX",
+            c: "US"
+          ]
+        ] do
+      assert StaticIdentityGrants.certificate_subject(subject_certificate(attributes)) ==
+               {:ok, expected}
+    end
+
+    assert {:ok, other} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(o: "ExampleOrg", cn: "example-web")
+             )
+
+    refute other == expected
+  end
+
+  # One attribute whose value contains a comma is not two attributes.
+  test "a comma inside a value does not read as a second attribute" do
+    assert {:ok, one} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(cn: "example\\name,O=ExampleOrg")
+             )
+
+    assert one == ~S(CN=example\\name\,O=ExampleOrg)
+
+    assert {:ok, two} =
+             StaticIdentityGrants.certificate_subject(
+               subject_certificate(cn: "example\\name", o: "ExampleOrg")
+             )
+
+    refute one == two
+  end
+
+  test "a zero byte is preserved in hex and cannot collide with text" do
+    for {value, expected} <- [
+          {<<0, ?Z>>, "CN=#005a"},
+          {"Z", "CN=Z"},
+          {"#005a", ~S(CN=\#005a)}
+        ] do
+      assert StaticIdentityGrants.certificate_subject(subject_certificate(cn: value)) ==
+               {:ok, expected}
+    end
+  end
+
   @oids %{
     c: {2, 5, 4, 6},
     st: {2, 5, 4, 8},

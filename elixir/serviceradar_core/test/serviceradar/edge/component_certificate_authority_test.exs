@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedComponentNatsPermissions
   alias ServiceRadar.NATS.CertificateAuthorizationToken
@@ -32,6 +33,19 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
     }
 
     %{snapshot: snapshot, component: component, certificate: certificate}
+  end
+
+  test "issuance preserves trailing spaces and the empty subject", ctx do
+    for subject <- ["CN=example ", ""] do
+      attrs =
+        ctx.certificate
+        |> Map.delete(:generation)
+        |> Map.merge(%{expected_generation: 1, role: "client", subject: subject})
+
+      changeset = Ash.Changeset.for_create(ComponentCertificate, :record_issuance, attrs)
+      assert changeset.valid?
+      assert Ash.Changeset.get_attribute(changeset, :subject) == subject
+    end
   end
 
   test "revocation selects full fingerprint even when issuer and serial coincide", ctx do
