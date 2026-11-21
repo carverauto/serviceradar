@@ -8,6 +8,11 @@ The system SHALL let an operator issue a leaf onboarding token for an edge site 
 - **THEN** the leaf is registered for that site, its certificates are issued through the host's agent, and the leaf service is started
 - **AND** no operator credential was entered on the host
 
+#### Scenario: The shown command needs only the token
+- **WHEN** `serviceradar-cli edge install leaf --token <token>` is run with no `--instance` and no `--site`
+- **THEN** the CLI takes the instance from the URL signed into the token and the site from the install context
+- **AND** if `--instance` is given and its host does not match the token's URL host, the command stops
+
 #### Scenario: The token is presented from another host after binding
 - **WHEN** a leaf token that has already registered a leaf is presented naming an agent id other than the one stored on its onboarding package at the first successful registration, including the same host after its agent identity changed in a reinstall
 - **THEN** it is refused and the attempt is recorded as a security event
@@ -42,9 +47,13 @@ A leaf onboarding token SHALL authorize only reading its edge site and hub readi
 - **AND** the leaf package is not spent, no join token or bundle is returned, and no operator actor is created
 
 #### Scenario: A leaf token is redeemed
-- **WHEN** a leaf token is redeemed on the leaf redemption route
-- **THEN** the actor it yields is scoped to its one site and the one component it registers
-- **AND** the package moves only through bind and complete, never to delivered
+- **WHEN** a leaf token is presented to the leaf redemption endpoints
+- **THEN** each request is authorized by the verified token and its package row and acts only on its one site and the one component it registers
+- **AND** no RBAC permission is granted to it and the package moves only through bind and complete, never to delivered
+
+#### Scenario: A leaf token is presented to an admin edge route
+- **WHEN** a leaf token is presented to any admin edge site, managed component, edge package or collector route
+- **THEN** the request is refused
 
 #### Scenario: The token is used against another site
 - **WHEN** a leaf token for one site is presented for a different site or any other edge resource
@@ -79,8 +88,12 @@ The system SHALL report a leaf as connected only while its recorded certificate 
 - **AND** the leaf is shown as connected and its site as active
 
 #### Scenario: A leaf stops
-- **WHEN** a successful, complete pass over every hub server's connection pages shows a leaf's certificate absent
+- **WHEN** a leaf whose last status is connected has its certificate absent from a successful, complete pass over every hub server's connection pages
 - **THEN** the leaf is shown as disconnected and its site as offline
+
+#### Scenario: A leaf has not connected yet
+- **WHEN** a pending leaf that has never had a hub session is absent from a complete connection pass
+- **THEN** it stays pending and its site is not marked offline
 
 #### Scenario: The connection listing fails or is partial
 - **WHEN** a hub connection read fails or only part of the connection pages has been read

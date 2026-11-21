@@ -24,7 +24,8 @@ From the tree at the time of writing (nothing here was run):
   activation. Registration still reads the leaf server row for the hub
   address.
 - The agent onboarding token (`edgepkg-v3`) is an Ed25519-signed envelope
-  around a package id, a download secret and a partition; the package row
+  around a package id, a download secret, a partition and an optional core
+  API base URL (`api`); the package row
   holds the secret's hash, an expiry and a single-use consume transition, and
   every redemption attempt is written as a security event
   (`edge/onboarding_token.ex`, `edge/onboarding_packages.ex:208-251`,
@@ -84,16 +85,41 @@ operator for every site. So:
 
 - the existing download and bundle routes refuse a package whose component
   type is `nats_leaf` and record a security event;
-- leaf redemption has its own route and its own actor, scoped to one site and
-  one registered component, able to do only the calls listed below;
+- leaf redemption is a small dedicated set of token-gated endpoints,
+  authorized only by the verified leaf token and its package row, checked on
+  every presentation, that perform exactly the operations listed below for
+  the package's own site and its own registered component. Internally they
+  call the same core functions the admin routes call, with a system actor
+  scoped by the handler to that site and component. The leaf token is never
+  exchanged for a bearer and its actor is never given `settings.edge.manage`
+  or any other RBAC permission;
+- the admin edge routes (edge sites, managed components, edge packages,
+  collectors), which treat `settings.edge.manage` as sufficient
+  (`controllers/api/edge_site_controller.ex:23`,
+  `controllers/api/managed_component_controller.ex:168-169`), and their
+  permission checks are unchanged, and a leaf token presented to any of them
+  is refused. The CLI's `--token` form uses the leaf endpoints; the
+  operator-login form keeps using the admin routes;
 - a leaf package has its own transitions: `:bind` moves `:issued` to `:bound`
   and stores the agent id at the first successful registration, and
   `:complete` moves `:bound` to the existing `:activated` status when the leaf
-  is reported active. `:revoke` and `:expire` apply from `:issued` or
-  `:bound`. The only status added is `:bound`, which joins the status
-  constraint (`edge/onboarding_package.ex:336`). A leaf package never enters
+  is reported active. `:revoke` and `:expire` keep their existing from-states
+  (`:issued`, `:delivered`; `edge/onboarding_package.ex:77-78`) and add
+  `:bound` beside them; `:delivered` stays for agent packages. The only
+  status added is `:bound`, which joins the status constraint
+  (`edge/onboarding_package.ex:336`). A leaf package never enters
   `:delivered`;
-- a leaf package stores no join token and no bundle.
+- a leaf package stores no join token and no bundle;
+- a leaf token always carries the instance URL in the envelope's `api` field,
+  signed with the rest of the payload, and the package references the site.
+  `serviceradar-cli edge install leaf --token <token>` therefore needs no
+  `--instance` and no `--site`: the CLI takes the instance from the token
+  (https only, except loopback, as it already requires) and the site from the
+  install context. `--instance` remains an optional override that must match
+  the token's URL host or the command stops; `--site` is required only for
+  the operator-login form.
+
+Agent onboarding behaviour is unchanged.
 
 Expiry is enforced at redemption. Every presentation of a leaf token compares
 the package's token expiry timestamp (`download_token_expires_at`) with the
@@ -103,20 +129,22 @@ gated on the `:active` read or `is_usable`
 (`edge/onboarding_package.ex:120-122`, `:503`), which check status only. The
 hourly expiry job is bookkeeping: its `:needs_expiration` selection
 (`edge/onboarding_package.ex:143-146`) requires `:issued` and an expired join
-token, so it is extended to also select `nats_leaf` packages in `:issued` or
-`:bound` by the token expiry timestamp alone, since a leaf package has no join
-token. Their stored status then becomes `:expired`.
+token. A second case is added beside that agent clause, not in place of it:
+`nats_leaf` packages in `:issued` or `:bound` are selected by the token expiry
+timestamp alone, since a leaf package has no join token. Their stored status
+then becomes `:expired`.
 
 What differs is what redemption does. An agent package delivers a join token
 and a certificate bundle. A leaf package delivers no key material. Redeeming
 it authorizes exactly the calls the CLI makes today with an operator login,
 for that one site:
 
-1. read the site and hub readiness;
+1. read the install context: the site, hub readiness and the policy public
+   key;
 2. register the leaf as a managed component on the enrolled host agent the
-   CLI names;
-3. request certificate issuance and read that component's status until it is
-   active.
+   CLI names (binding);
+3. request certificate issuance for that component;
+4. read that component's status until it is active.
 
 The token is bound to a host on first use, not spent on first use. Until
 step 2 succeeds a failed attempt (hub not ready, host not enrolled) can be
@@ -162,9 +190,11 @@ sessions. It marks the leaf server connected when its recorded certificate is
 present. A scan tick does not yield a complete listing: connection reads are
 paged with offsets carried across ticks, and a failed read returns an empty
 list (`nats/managed_certificate_authorization.ex:508-531`, `:599-612`). A leaf
-is therefore marked disconnected only after a successful, complete pass over
-every server's connection pages shows its certificate absent; a failed or
-partial read leaves the last known status in place. The page stops inferring
+is therefore marked disconnected only when its last status is `:connected`
+and a successful, complete pass over every server's connection pages shows
+its certificate absent. A `:pending` leaf that has never had a session stays
+`:pending`, and a failed or partial read leaves the last known status in
+place. The page stops inferring
 status from provisioning state.
 
 The existing state machines cannot carry this as they stand, so they change:
