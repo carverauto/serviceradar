@@ -72,7 +72,7 @@
 {{- fail (printf "mediaWorker.backend must be candle or stub, got %q" (toString $backend)) -}}
 {{- end -}}
 {{- if and (eq $backend "candle") (not $models.existingClaim) -}}
-{{- fail "mediaWorker.backend candle loads SigLIP weights (config.json, model.safetensors, tokenizer.json) from local disk only: set mediaWorker.models.existingClaim to a PVC holding them, or set mediaWorker.backend to stub for the deterministic test backend" -}}
+{{- fail "mediaWorker.backend candle loads SigLIP weights (config.json, model.safetensors, tokenizer.json) from local disk only: set mediaWorker.models.existingClaim to a PVC holding them, or set mediaWorker.backend to stub with mediaWorker.executionProvider cpu_explicit for the weights-free deterministic test backend" -}}
 {{- end -}}
 {{- $device := default (ternary "cpu" "cuda" (eq $executionProvider "cpu_explicit")) $mw.device -}}
 {{- if not (has $device (list "auto" "cuda" "cpu")) -}}

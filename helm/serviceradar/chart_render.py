@@ -30,7 +30,7 @@ CHART_DIR = repo_root() / "helm" / "serviceradar"
 
 
 def render_templates(
-    templates: list[str],
+    templates: list[str] | None,
     overrides: dict,
     *,
     release: str = "serviceradar",
@@ -40,7 +40,11 @@ def render_templates(
     combined: bool = False,
 ) -> dict[str, list[dict]]:
     """Render each template with `values_files` (in order) then `overrides`, and
-    return {template: [documents]}, or {"all": [documents]} when `combined`."""
+    return {template: [documents]}, or {"all": [documents]} when `combined`.
+    Pass `templates=None` with `combined=True` to render the entire release,
+    including nested templates and enabled subcharts under `charts/`."""
+    if templates is None and not combined:
+        raise ValueError("templates must be provided unless combined=True")
     binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
     results: dict[str, list[dict]] = {}
     with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
@@ -82,10 +86,11 @@ def render_templates(
         }]
         suite = {
             "suite": "render templates",
-            "templates": templates,
             "release": {"name": release, "namespace": namespace},
             "tests": tests,
         }
+        if templates is not None:
+            suite["templates"] = templates
         (tests_dir / "render_test.yaml").write_text(json.dumps(suite), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_")}
         proc = subprocess.run(
@@ -110,6 +115,26 @@ def render_templates(
                     docs.append(parsed)
             results[tpl] = docs
     return results
+
+
+def render_release(
+    overrides: dict,
+    *,
+    release: str = "serviceradar",
+    namespace: str,
+    source_chart: Path = CHART_DIR,
+    values_files: list[Path] = (),
+) -> list[dict]:
+    """Render every manifest in the release, including nested and subchart templates."""
+    return render_templates(
+        None,
+        overrides,
+        release=release,
+        namespace=namespace,
+        source_chart=source_chart,
+        values_files=values_files,
+        combined=True,
+    )["all"]
 
 
 def render_document(template: str, overrides: dict, *, namespace: str, kind: str, name: str | None = None) -> dict:
