@@ -216,6 +216,19 @@ nats_certificate_grant_ttl =
 config :serviceradar, :nats_account_name, nats_account_name
 config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
 
+# Chart certificate inventory inputs are documented in docs/managed-component-certificates.md.
+config :serviceradar,
+       :nats_chart_identities_file,
+       System.get_env("SERVICERADAR_NATS_CHART_IDENTITIES_FILE")
+
+config :serviceradar,
+       :nats_infrastructure_certs_dir,
+       System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR")
+
+config :serviceradar,
+       :nats_infrastructure_root_file,
+       System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE")
+
 # The chart's built-in NATS identities (serviceradar-nats-static-users ConfigMap).
 # Unset, or a missing file, leaves every adopted component on its stored grant.
 config :serviceradar,

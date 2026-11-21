@@ -392,6 +392,85 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert stored.component_id == id
   end
 
+  # First adoption of a chart identity must not add a second certificate for a
+  # subject another caller has already recorded.
+  test "adopt_unheld_certificate writes nothing when a recorded certificate holds the subject",
+       ctx do
+    shared = ~c"example-shared-#{System.unique_integer([:positive])}"
+    held = self_signed_certificate(shared)
+    late = self_signed_certificate(shared)
+    refute fingerprint(held.der) == fingerprint(late.der)
+
+    holder_id = "example-holder-#{System.unique_integer([:positive])}"
+    late_id = "example-late-#{System.unique_integer([:positive])}"
+
+    assert {:ok, %{certificate: first}} =
+             Authority.adopt_existing_certificate(adoption(holder_id, held.pem), ctx.opts)
+
+    assert {:error, :subject_held} =
+             Authority.adopt_unheld_certificate(adoption(late_id, late.pem), ctx.opts)
+
+    assert {:ok, []} =
+             ManagedComponent |> Ash.Query.filter(component_id == ^late_id) |> Ash.read(ctx.opts)
+
+    assert {:ok, [only]} =
+             ComponentCertificate
+             |> Ash.Query.filter(subject == ^first.subject)
+             |> Ash.read(ctx.opts)
+
+    assert only.fingerprint == first.fingerprint
+
+    # A subject nobody holds is adopted through the same entry point.
+    free = self_signed_certificate(~c"example-free-#{System.unique_integer([:positive])}")
+    free_id = "example-free-#{System.unique_integer([:positive])}"
+
+    assert {:ok, %{certificate: adopted}} =
+             Authority.adopt_unheld_certificate(adoption(free_id, free.pem), ctx.opts)
+
+    assert adopted.fingerprint == fingerprint(free.der)
+    assert adopted.component_id == free_id
+  end
+
+  # The check above is only safe if every writer of a subject and the unheld
+  # check wait on the same lock. The sandbox holds one transaction for the
+  # whole test, so a transaction-scoped lock taken by a call is still held
+  # afterwards and can be counted.
+  test "a subject's writers and the unheld check take one lock per subject", ctx do
+    shared = ~c"example-locked-#{System.unique_integer([:positive])}"
+    first = self_signed_certificate(shared)
+    second = self_signed_certificate(shared)
+    refute fingerprint(first.der) == fingerprint(second.der)
+
+    other = self_signed_certificate(~c"example-other-#{System.unique_integer([:positive])}")
+
+    before = advisory_locks()
+
+    assert {:ok, _adopted} =
+             Authority.adopt_unheld_certificate(
+               adoption("example-lock-a-#{System.unique_integer([:positive])}", first.pem),
+               ctx.opts
+             )
+
+    after_first = advisory_locks()
+    assert MapSet.size(MapSet.difference(after_first, before)) == 1
+
+    assert {:ok, _adopted} =
+             Authority.adopt_existing_certificate(
+               adoption("example-lock-b-#{System.unique_integer([:positive])}", second.pem),
+               ctx.opts
+             )
+
+    assert advisory_locks() == after_first
+
+    assert {:ok, _adopted} =
+             Authority.adopt_existing_certificate(
+               adoption("example-lock-c-#{System.unique_integer([:positive])}", other.pem),
+               ctx.opts
+             )
+
+    assert MapSet.size(MapSet.difference(advisory_locks(), after_first)) == 1
+  end
+
   test "successor replay fills only a missing subject and preserves a recorded spelling", ctx do
     id = ctx.component.component_id
     fields = ComponentCertificate.__schema__(:fields)
@@ -739,6 +818,29 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   defp private_key_pem do
     key = :public_key.generate_key({:namedCurve, :secp256r1})
     :public_key.pem_encode([:public_key.pem_entry_encode(:ECPrivateKey, key)])
+  end
+
+  defp adoption(component_id, pem) do
+    %{
+      component_id: component_id,
+      component_type: "nats-client",
+      partition_id: "example-partition",
+      certificate_pem: pem,
+      permissions: %{
+        "publish" => %{"allow" => ["metrics.example.>"], "deny" => []},
+        "subscribe" => %{"allow" => ["_INBOX.>"], "deny" => []}
+      }
+    }
+  end
+
+  defp advisory_locks do
+    {:ok, %{rows: rows}} =
+      ServiceRadar.Repo.query("""
+      SELECT classid, objid, objsubid FROM pg_locks
+      WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND granted
+      """)
+
+    MapSet.new(rows)
   end
 
   defp self_signed_certificate(name \\ ~c"example-gateway") do

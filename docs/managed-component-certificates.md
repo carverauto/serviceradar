@@ -178,6 +178,42 @@ adopted infrastructure certificates are refused (`static identity grants
 unavailable`) rather than granted their stored grant, and no session is
 disconnected for its grant; host-enrolled components are unaffected.
 
+Core can adopt the chart's NATS clients from a public certificate inventory.
+The shipped chart does not mount this inventory. To configure it on core, supply
+all three paths along with the static users file described above.
+
+| Core environment variable | Contents |
+| --- | --- |
+| `SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR` | Directory of public PEM files, each containing the client certificate followed by any intermediate issuers in order. |
+| `SERVICERADAR_NATS_CHART_IDENTITIES_FILE` | YAML list of chart client certificate subjects. Static users outside this list are excluded from coverage. |
+| `SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE` | Deployment root CA certificate in PEM format. |
+
+If any of the three paths is unset or empty, reconciliation returns empty
+coverage without accessing the database. With all three set, an unreadable or
+invalid subject list, static users file, or root certificate stops the pass
+before any writes.
+Core matches each client by its certificate subject. For a listed subject with
+a static grant and a valid chain to the deployment root, core records the first
+certificate as a `nats-client` with that grant. Its component ID depends only on
+the subject. The partition defaults to `default` and can be set with the
+`:serviceradar` application key `:nats_chart_identity_partition_id`.
+
+First adoption pauses while any recorded infrastructure certificate lacks a
+stored subject. Use the original-PEM procedure below to fill it. A recorded
+certificate continues to hold its subject after revocation. The existing
+rotation procedure handles replacements for held subjects.
+
+Core logs changes in coverage for each listed subject. An identity counts as
+adopted when the authority snapshot allows its inventory fingerprint.
+`recorded_not_authorized` means the fingerprint is on record but the snapshot
+excludes it. `held_unrecorded` means another recorded certificate holds the
+subject and the inventory fingerprint is absent from the record. Copies of the
+same certificate count once. If several distinct fingerprints name one subject,
+core skips first adoption for that subject and reports it as adopted only when
+the snapshot allows them all. Files with an unlisted subject or an undecodable
+certificate appear under `unlisted` in the reconciliation report.
+Coverage is advisory and is not exposed by the readiness API.
+
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
 `component_type`, `partition_id`, optional `server_hosts`, `certificate_pem`,
@@ -194,8 +230,8 @@ broker authorization callout. The service-certificates inventory shows that
 stored grant for an infrastructure component. An empty allow there is no
 permission. A host service does not show this grant.
 
-Hand adoption, successor recording and chart rotation store the subject from
-the public certificate. For an infrastructure certificate recorded before
+Core stores the subject from the public certificate when it records an
+infrastructure certificate. For an infrastructure certificate recorded before
 subjects were stored, submit its original PEM again for the same component.
 Once the caller is authorized and the fingerprint matches, core fills the
 missing subject before checking admission. A revoked, expired or superseded

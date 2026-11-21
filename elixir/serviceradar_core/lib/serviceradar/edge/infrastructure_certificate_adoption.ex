@@ -228,8 +228,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   end
 
   defp bind_issuer(leaf, fields, [issuer | _] = chain) do
-    anchor = List.last(chain)
-    path = [leaf | Enum.drop(chain, -1)]
+    [anchor | path] = Enum.reverse([leaf | chain])
 
     if path_valid?(anchor, path) do
       {:ok, issuance(fields, fingerprint(issuer))}

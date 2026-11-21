@@ -12,6 +12,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/integration/camera_local_storage_history_genesis_integration_test.exs",
     "test/integration/camera_local_storage_qualification_report_integration_test.exs",
     "test/integration/camera_relay_session_reaper_integration_test.exs",
+    "test/integration/chart_identity_inventory_integration_test.exs",
     "test/integration/component_certificate_authority_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/device_upsert_bind_parameter_limit_integration_test.exs",
