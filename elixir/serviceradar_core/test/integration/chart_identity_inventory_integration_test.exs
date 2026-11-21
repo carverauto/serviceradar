@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
   alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedComponent
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -113,6 +114,34 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
 
     File.write!(ctx.inputs.static_users_file, "[]")
     assert {:ok, ^report} = Inventory.reconcile(ctx.inputs)
+  end
+
+  test "independent first adoptions bind the same canonical subject to the same component", ctx do
+    first = leaf(ctx.root, cn: "example-core", ou: "Kubernetes", o: "ExampleOrg")
+    put_certificate(ctx, "first.crt", first)
+
+    assert {:error, {:first_binding, component_id}} =
+             Repo.transaction(fn ->
+               assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+               assert identity(report, @core_subject).status == :adopted
+               assert {:ok, [record]} = certificates(@core_subject, ctx.opts)
+               assert record.fingerprint == fingerprint(first)
+               Repo.rollback({:first_binding, record.component_id})
+             end)
+
+    assert {:ok, []} = certificates(@core_subject, ctx.opts)
+    File.rm!(Path.join(ctx.inputs.certificates_dir, "first.crt"))
+
+    root = :public_key.pkix_test_root_cert(~c"example-second-root", [])
+    second = leaf(root, [o: "ExampleOrg", cn: "example-core", ou: "Kubernetes"], 102)
+    File.write!(ctx.inputs.root_file, pem(root.cert))
+    put_certificate(ctx, "second.pem", second)
+
+    assert {:ok, report} = Inventory.reconcile(%{ctx.inputs | partition_id: "example-second"})
+    assert identity(report, @core_subject).status == :adopted
+    assert {:ok, [record]} = certificates(@core_subject, ctx.opts)
+    assert record.fingerprint == fingerprint(second)
+    assert record.component_id == component_id
   end
 
   test "distinct certificates for one subject require every fingerprint to be authorized", ctx do
@@ -227,7 +256,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     legacy_id = "example-legacy-#{System.unique_integer([:positive])}"
 
     assert {:ok, %{num_rows: 1}} =
-             ServiceRadar.Repo.query(
+             Repo.query(
                """
                INSERT INTO platform.managed_components
                  (component_id, component_type, partition_id, generation_started_by)
@@ -239,7 +268,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     now = DateTime.utc_now()
 
     assert {:ok, %{num_rows: 1}} =
-             ServiceRadar.Repo.query(
+             Repo.query(
                """
                INSERT INTO platform.component_certificates
                  (fingerprint, issuer_fingerprint, serial_number, generation, role,
@@ -257,10 +286,21 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     core = leaf(ctx.root, cn: "example-core", ou: "Kubernetes", o: "ExampleOrg")
     put_certificate(ctx, "core.pem", core)
 
+    other_root = :public_key.pkix_test_root_cert(~c"example-foreign-root", [])
+    web = leaf(other_root, cn: "example-web", ou: "Kubernetes", o: "ExampleOrg")
+    put_certificate(ctx, "web.pem", web)
+
     assert {:ok, report} = Inventory.reconcile(ctx.inputs)
     assert report.legacy_certificates == baseline.legacy_certificates + 1
     assert identity(report, @core_subject).status == :not_adopted
     assert identity(report, @core_subject).reason == :legacy_certificates_without_subject
+    assert identity(report, @web_subject).reason == :untrusted_issuer
+    assert {:ok, []} = certificates(@web_subject, ctx.opts)
+    assert {:ok, []} = certificates(@core_subject, ctx.opts)
+
+    File.write!(ctx.inputs.static_users_file, "[]")
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject).reason == :no_static_user
     assert {:ok, []} = certificates(@core_subject, ctx.opts)
   end
 

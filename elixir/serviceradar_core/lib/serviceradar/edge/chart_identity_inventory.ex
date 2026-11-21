@@ -78,14 +78,6 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc "The last coverage report, or nil before the first reconciliation."
-  @spec coverage() :: report() | nil
-  def coverage do
-    GenServer.call(__MODULE__, :coverage)
-  catch
-    :exit, _reason -> nil
-  end
-
   @doc "The configured inputs, or nil when the chart mounts no inventory."
   def configured do
     with dir when is_binary(dir) and dir != "" <-
@@ -130,7 +122,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
           attempt(subject, Map.get(listed, subject, []), grants, legacy, inputs.partition_id)
         end)
 
-      with {:ok, authorized} <- authorized_fingerprints() do
+      with {:ok, authorized} <- authorized_fingerprints(listed) do
         identities = Enum.map(attempts, &cover(&1, authorized))
         {:ok, %{identities: identities, unlisted: unlisted, legacy_certificates: legacy}}
       end
@@ -142,9 +134,6 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     send(self(), :tick)
     {:ok, %{report: nil}}
   end
-
-  @impl true
-  def handle_call(:coverage, _from, state), do: {:reply, state.report, state}
 
   @impl true
   def handle_info(:tick, state) do
@@ -312,13 +301,10 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     end
   end
 
-  defp first_adoption(_certificate, _grants, legacy, _partition_id) when legacy > 0,
-    do: :legacy_certificates_without_subject
-
   defp first_adoption(%{verification: {:error, reason}}, _grants, _legacy, _partition_id),
     do: reason
 
-  defp first_adoption(certificate, grants, _legacy, partition_id) do
+  defp first_adoption(certificate, grants, legacy, partition_id) do
     grant = StaticIdentityGrants.grant(grants, @component_type, certificate.leaf)
 
     cond do
@@ -330,6 +316,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
       held?(certificate.subject) ->
         :held
+
+      legacy > 0 ->
+        :legacy_certificates_without_subject
 
       true ->
         adopt(certificate, grant, partition_id)
@@ -418,7 +407,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     |> Ash.exists?(system())
   end
 
-  defp authorized_fingerprints do
+  defp authorized_fingerprints(listed) when map_size(listed) == 0, do: {:ok, MapSet.new()}
+
+  defp authorized_fingerprints(_listed) do
     with {:ok, snapshot} <- Authority.snapshot() do
       {:ok, MapSet.new(snapshot.allowed_fingerprints)}
     end
