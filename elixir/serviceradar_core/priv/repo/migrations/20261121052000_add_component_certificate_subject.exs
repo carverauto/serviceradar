@@ -13,7 +13,9 @@ defmodule ServiceRadar.Repo.Migrations.AddComponentCertificateSubject do
       add(:subject, :text)
     end
 
-    create(index(:component_certificates, [:subject], prefix: "platform"))
+    # A hash index: lookups are by equality, and a B-tree entry cannot hold a
+    # very long subject.
+    create(index(:component_certificates, [:subject], prefix: "platform", using: "hash"))
   end
 
   def down do

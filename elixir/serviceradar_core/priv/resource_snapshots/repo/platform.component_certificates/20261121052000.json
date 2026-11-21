@@ -199,7 +199,7 @@
       "prefix": null,
       "table": null,
       "unique": false,
-      "using": null,
+      "using": "hash",
       "where": null
     }
   ],

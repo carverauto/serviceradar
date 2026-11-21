@@ -67,7 +67,7 @@ defmodule ServiceRadar.NATS.StaticIdentityGrantsTest do
     end
   end
 
-  # A recorded certificate is looked up by this string, and a chart identity is
+  # A recorded certificate stores this string, and a chart identity is
   # named by the subject in the static users file. They must agree for the same
   # identity whatever order a certificate encodes its attributes in, and must
   # not agree for a different one.

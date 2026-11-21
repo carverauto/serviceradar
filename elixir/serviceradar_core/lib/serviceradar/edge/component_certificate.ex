@@ -20,7 +20,7 @@ defmodule ServiceRadar.Edge.ComponentCertificate do
 
     custom_indexes do
       index [:component_id, :generation, :not_after]
-      index [:subject]
+      index [:subject], using: "hash"
     end
   end
 
