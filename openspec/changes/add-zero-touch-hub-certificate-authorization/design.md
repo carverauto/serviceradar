@@ -168,10 +168,19 @@ Alternatives considered:
 
 Compare the Secret names resolved by `serviceradar.runtimeIssuerSecretName`
 and `serviceradar.runtimeCertsSecretName`. When they match (the self-managed
-default), the generator creates the issuer, auth and system nkeys once and
-stores their three seeds and two matching public broker fragments in the
-runtime Secret, which already holds the CA key. Before the existing-certificate
-early exit it backfills missing entries and preserves existing keys on reruns.
+default), the runtime Secret already holds the CA key. On every run,
+including before the existing-certificate early exit, the generator inspects
+the three signing seeds and two public broker fragments in that Secret.
+
+- If all five entries are absent, generate the issuer, auth and system seeds
+  and publish them together with both fragments derived from their public keys.
+- If all three seeds are present, preserve them and rebuild only missing or
+  stale fragments from those seeds. A matching set needs no write.
+- If any signing entry remains but a seed is missing, fail the job without
+  writing. Name each missing seed and direct the operator to restore it or
+  deliberately remove all remaining signing entries to provision a new set.
+
+Signing key rotation is outside this change.
 
 When `certs.issuerSecretName` resolves to a distinct Secret, its owner
 provisions the three seeds there and both matching fragments in the runtime

@@ -50,16 +50,26 @@ On a chart install, core SHALL adopt chart identities' NATS client certificates 
 - **THEN** it contains public certificates only and no private key or CA key
 
 ### Requirement: Signing keys are created by the install, not pasted by an operator
-When the issuer and runtime Secret names match, the chart generator SHALL create the callout signing keys once and backfill missing entries. When the names differ, the issuer Secret owner SHALL provision the three seeds in the issuer Secret and both matching public fragments in the runtime Secret. In that configuration the generator SHALL leave all five entries untouched. The chart SHALL project the seeds only into core and the fragments only into the broker, and only when enforcement is enabled.
+When the issuer and runtime Secret names match, the chart generator SHALL provision the three seeds and both matching public fragments together only if all five entries are absent. With all three seeds present it SHALL preserve them and rebuild only missing or stale fragments from them. For any other nonempty signing set it SHALL fail without writing. When the names differ, the issuer Secret owner SHALL provision the three seeds in the issuer Secret and both matching public fragments in the runtime Secret. In that configuration the generator SHALL leave all five entries untouched. The chart SHALL project the seeds only into core and the fragments only into the broker, and only when enforcement is enabled.
 
 #### Scenario: Enforcement is turned on
 - **WHEN** an operator sets the enforcement value on an install with the signing seeds present
 - **THEN** the chart configures the broker to include the public key fragments
 - **AND** while at least one broker is serving and core's authorizer is connected, the authorizer authenticates with the mounted seeds
 
-#### Scenario: The generator runs again
-- **WHEN** the generator runs on an install that already has signing keys
-- **THEN** the keys are unchanged
+#### Scenario: First provisioning in the shared issuer and runtime Secret
+- **WHEN** the generator finds none of the five signing entries, including on an upgrade with existing certificates
+- **THEN** it writes three new seeds and both matching fragments together before exiting
+
+#### Scenario: The generator reruns with all three seeds in the shared Secret
+- **WHEN** all three seeds are present
+- **THEN** the generator preserves every seed and derives each missing or stale fragment from their public keys
+- **AND** it writes nothing when both fragments already match
+
+#### Scenario: The shared Secret has lost signing seeds
+- **WHEN** any signing entry remains and one or more seeds are missing, including when only fragments remain
+- **THEN** the job fails without writing and names each missing seed
+- **AND** the error directs the operator to restore the missing seeds or deliberately remove all remaining signing entries to provision a new set
 
 #### Scenario: A previously bootstrapped install upgrades to the chart
 - **WHEN** the bootstrap API created a signing record before upgrade and enforcement is enabled with the three chart seeds mounted
