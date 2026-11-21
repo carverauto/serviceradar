@@ -23,6 +23,10 @@
 {{- $ingestEnabled := default false $ingest.enabled -}}
 {{- $ingestPort := int (default 8443 $ingest.port) -}}
 {{- $archive := default (dict) $nvr.archive -}}
+{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
+{{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
+{{- $mediaWorkerRead := and $mediaWorker.enabled (default false $mediaWorkerPolicy.allowNvrRead) -}}
+{{- $mediaWorkerReadPort := int (default 8444 $mediaWorkerPolicy.nvrReadPort) -}}
 {{- $archiveEnabled := default false $archive.enabled -}}
 {{- $podSecurity := include "serviceradar.elixirReleasePodSecurityContext" . -}}
 {{- $nodeSelector := deepCopy (default (dict) $nvr.nodeSelector) -}}
@@ -282,8 +286,9 @@ spec:
     matchLabels:
       app: serviceradar-nvr
   policyTypes: [Ingress, Egress]
-  {{- if $ingestEnabled }}
+  {{- if or $ingestEnabled $mediaWorkerRead }}
   ingress:
+    {{- if $ingestEnabled }}
     - from:
         - podSelector:
             matchLabels:
@@ -291,6 +296,18 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $ingestPort }}
+    {{- end }}
+    {{- if $mediaWorkerRead }}
+    {{- /* Pairs with the media worker's egress rule (mediaWorker.networkPolicy.allowNvrRead)
+         for local-recording analysis reads. */}}
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      ports:
+        - protocol: TCP
+          port: {{ $mediaWorkerReadPort }}
+    {{- end }}
   {{- else }}
   ingress: []
   {{- end }}

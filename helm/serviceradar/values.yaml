@@ -485,6 +485,14 @@ archiveReader:
 # Runs completely outside the BEAM ERTS cluster with zero CNPG or StarRocks
 # connectivity; all jobs/results traverse NATS JetStream and media access uses
 # short-lived execution-time read grants from web-ng.
+#
+# Enabling it also needs webNg.controlPlaneRuntime.mediaWorker enabled with the
+# same deploymentRef and generation (the chart refuses a mismatch), a PVC holding
+# the model weights for the candle backend, and, for GPU execution, a GPU node,
+# its runtime class and an image built with CUDA. The chart then issues the
+# worker's NATS client certificate (CN=serviceradar-media-worker) and grants it,
+# core and web-ng the camera media subjects. See README.md, Camera semantic
+# search worker.
 mediaWorker:
   enabled: false
   replicas: 1
@@ -493,13 +501,27 @@ mediaWorker:
     # serviceradar.imageRef (image.registry/serviceradar-media-worker).
     repository: ""
     tag: ""
+    # Appended to the tag in use (mediaWorker.image.tag or the release tag), so
+    # "-cuda" selects <tag>-cuda for a CUDA build. Not combinable with a digest
+    # pinned in image.digests.mediaWorker; pin the variant's digest there instead.
+    tagSuffix: ""
     pullPolicy: ""
   port: 8096
+  # "candle" runs SigLIP from the weights in models.existingClaim (required).
+  # "stub" emits deterministic fake embeddings for pipeline tests and never
+  # produces useful search results; choose it explicitly or not at all.
+  backend: "candle"
   # "cuda" | "tensorrt" | "cpu_explicit" (fails closed if GPU runtime is
-  # unavailable unless explicitly set to "cpu_explicit").
+  # unavailable unless explicitly set to "cpu_explicit"). cuda and tensorrt need
+  # runtimeClassName and an image built with CUDA; the default image is CPU-only.
   executionProvider: "cuda"
+  # Inference device for the candle backend: "auto" | "cuda" | "cpu". Empty
+  # derives cuda for the GPU providers and cpu for cpu_explicit.
+  device: ""
   gpuResourceName: "nvidia.com/gpu"
   gpuCount: 1
+  # Required for cuda and tensorrt, e.g. "nvidia" on clusters running the
+  # NVIDIA container toolkit or GPU operator.
   runtimeClassName: ""
   ortDylibPath: ""
   nodeSelector: {}
@@ -515,16 +537,16 @@ mediaWorker:
   concurrency:
     indexJobs: 2
     textEmbeds: 4
+  # The model identity (embedder siglip-b16-384 2026.1, detector rtdetr-r18
+  # 2026.1, 768 dimensions) is fixed to core's and has no keys here.
   models:
+    # PVC holding config.json, model.safetensors and tokenizer.json (optional
+    # detector.safetensors) at its root, mounted read-only at mountPath and
+    # passed to the worker as MEDIA_WORKER_MODEL_DIR. Nothing is downloaded.
     existingClaim: ""
     mountPath: "/var/lib/serviceradar-media-worker/models"
-    detectorModelId: "rtdetr-v2-s"
-    detectorModelVersion: "1"
     detectorPath: ""
     detectorSha256: ""
-    embedderModelId: "siglip-base-patch16-384"
-    embedderModelVersion: "1"
-    embeddingDim: 768
     embedderPath: ""
     embedderSha256: ""
     textPath: ""
@@ -543,6 +565,8 @@ mediaWorker:
   otelEndpoint: ""
   networkPolicy:
     enabled: true
+    # Lets the worker read local (not yet archived) NVR recordings, and the NVR
+    # pods accept it, on nvrReadPort.
     allowNvrRead: false
     nvrReadPort: 8444
     s3EgressCidrs:

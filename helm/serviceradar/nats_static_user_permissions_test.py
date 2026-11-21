@@ -44,6 +44,7 @@ RENDERINGS = {
         "flowCollector.enabled": True,
         "k8sInventory.enabled": True,
     },
+    "media worker enabled": {"mediaWorker.enabled": True},
 }
 
 
@@ -150,6 +151,7 @@ DISABLED_BY_DEFAULT = (
     "CN=serviceradar-flow-collector",
     "CN=serviceradar-netflow-collector",
     "CN=serviceradar-k8s-inventory",
+    "CN=serviceradar-media-worker",
 )
 
 
@@ -242,6 +244,88 @@ class RumBeaconAndPolicyPermissionsTest(unittest.TestCase):
             with self.subTest(identity=identity):
                 self.assertFalse(may_publish(users[identity], "rum.beacons.prop-01"))
                 self.assertFalse(may_publish(users[identity], "metrics.rum.prop-01"))
+
+
+MEDIA_WORKER = "CN=serviceradar-media-worker"
+JOBS_STREAM = "CAMERA_MEDIA_JOBS"
+LIVE_CONSUMER = "camera_visual_index_worker_v1_live"
+BACKFILL_CONSUMER = "camera_visual_index_worker_v1_backfill"
+LIVE_JOBS = "media.jobs.visual_index.v1"
+BACKFILL_JOBS = "media.jobs.visual_index.backfill.v1"
+# Camera.SemanticSearch requests on the embedder's id and version.
+TEXT_EMBED_REQUEST = "media.rpc.visual_text_embed.v1.siglip-b16-384.2026.1"
+
+
+class MediaWorkerPermissionsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        def by_name(users):
+            return {user["user"].split(",")[0]: user for user in users}
+
+        cls.enabled = by_name(render_static_users({"mediaWorker.enabled": True}))
+        cls.disabled = by_name(render_static_users())
+
+    def test_the_worker_can_run_its_job_loop_and_answer_searches(self):
+        # What rust/media-worker/src/worker.rs sends through async-nats: stream
+        # get-or-create, durable consumer get-or-create (named, with its filter),
+        # pulls, acks, result and metrics publishes, and replies to requesters.
+        worker = self.enabled[MEDIA_WORKER]
+        for subject in (
+            f"$JS.API.STREAM.INFO.{JOBS_STREAM}",
+            f"$JS.API.STREAM.CREATE.{JOBS_STREAM}",
+            "$JS.API.STREAM.INFO.CAMERA_MEDIA_RESULTS",
+            "$JS.API.STREAM.CREATE.CAMERA_MEDIA_RESULTS",
+            f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{LIVE_CONSUMER}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{LIVE_CONSUMER}.{LIVE_JOBS}",
+            f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{LIVE_CONSUMER}",
+            f"$JS.ACK.{JOBS_STREAM}.{LIVE_CONSUMER}.1.17.9.1700000000000000000.0",
+            f"$JS.API.CONSUMER.INFO.{JOBS_STREAM}.{BACKFILL_CONSUMER}",
+            f"$JS.API.CONSUMER.CREATE.{JOBS_STREAM}.{BACKFILL_CONSUMER}.{BACKFILL_JOBS}",
+            f"$JS.API.CONSUMER.MSG.NEXT.{JOBS_STREAM}.{BACKFILL_CONSUMER}",
+            f"$JS.ACK.{JOBS_STREAM}.{BACKFILL_CONSUMER}.1.3.3.1700000000000000000.0",
+            "media.results.visual_index.v1",
+            "telemetry.media_worker.metrics.v1",
+            "_INBOX.synthetic.reply",
+        ):
+            with self.subTest(subject=subject):
+                self.assertTrue(may_publish(worker, subject))
+        for subject in (TEXT_EMBED_REQUEST, "_INBOX.synthetic.reply"):
+            with self.subTest(subscribe=subject):
+                self.assertTrue(may(worker, "subscribe", subject))
+
+    def test_the_worker_reaches_no_other_stream_and_dispatches_nothing(self):
+        worker = self.enabled[MEDIA_WORKER]
+        for subject in (
+            LIVE_JOBS,
+            f"$JS.API.STREAM.DELETE.{JOBS_STREAM}",
+            "$JS.API.STREAM.PURGE.CAMERA_MEDIA_RESULTS",
+            "$JS.API.CONSUMER.CREATE.CAMERA_MEDIA_RESULTS.synthetic_projector.media.results.visual_index.v1",
+            f"$JS.API.CONSUMER.DELETE.{JOBS_STREAM}.{LIVE_CONSUMER}",
+            "$JS.API.CONSUMER.MSG.NEXT.events.synthetic_consumer",
+            "$JS.ACK.events.synthetic_consumer.1.1.1.1.0",
+            "$KV.serviceradar-datasvc.synthetic-key",
+            "events.synthetic",
+            "logs.internal.synthetic",
+        ):
+            with self.subTest(publish=subject):
+                self.assertFalse(may_publish(worker, subject))
+        for subject in (LIVE_JOBS, "media.results.visual_index.v1", "events.synthetic"):
+            with self.subTest(subscribe=subject):
+                self.assertFalse(may(worker, "subscribe", subject))
+
+    def test_core_dispatches_and_web_ng_searches_only_while_the_worker_is_on(self):
+        for rendering, users, expected in (
+            ("enabled", self.enabled, True),
+            ("disabled", self.disabled, False),
+        ):
+            core = users["CN=serviceradar-core"]
+            web = users["CN=serviceradar-web-ng"]
+            for subject in (LIVE_JOBS, BACKFILL_JOBS):
+                with self.subTest(rendering=rendering, core=subject):
+                    self.assertEqual(may_publish(core, subject), expected)
+            with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
+                self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
+        self.assertFalse(may_publish(self.enabled["CN=serviceradar-web-ng"], LIVE_JOBS))
 
 
 if __name__ == "__main__":

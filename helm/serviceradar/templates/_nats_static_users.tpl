@@ -50,6 +50,13 @@ Add or change a built-in identity's subjects only here.
      is honored as a fallback for releases that only set it under .agent. It
      MUST match SERVICERADAR_OTX_PARTITION on the core-elx runtime config. */ -}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" }}
+{{- /* Camera semantic search (serviceradar-media-worker). The stream and durable
+     consumer names are fixed in the worker binary (rust/media-worker/src/config.rs). */}}
+{{- $mediaWorkerEnabled := default false (default (dict) .Values.mediaWorker).enabled }}
+{{- $mediaJobsStream := "CAMERA_MEDIA_JOBS" }}
+{{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
+{{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}
+{{- $mediaBackfillConsumer := "camera_visual_index_worker_v1_backfill" }}
 {{- /* logs.normalized.> carries log batches the log collector has already
      normalized, which EventWriter stores without running Zen rules. Only the
      log collector may publish there, so every identity whose allow list would
@@ -97,6 +104,12 @@ Add or change a built-in identity's subjects only here.
              sweeps (Edge.SweepHostMetrics), whose retries reach this queue. */}}
       - "availability.transitions.device"
       - "metrics.sweep.>"
+      {{- if $mediaWorkerEnabled }}
+      {{- /* Camera semantic search (Camera.SemanticSearch) asks the media worker
+           for a query embedding with a request on this subject; the reply comes
+           back on _INBOX. */}}
+      - "media.rpc.visual_text_embed.v1.>"
+      {{- end }}
       {{- /* Zen rule bundles (Zen.RuleBucket). Saving a rule in web-ng writes
            its subject's bundle from web-ng, as core's reconcile does. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -220,6 +233,15 @@ Add or change a built-in identity's subjects only here.
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
+      {{- if $mediaWorkerEnabled }}
+      {{- /* Visual-index jobs for the media worker (Camera.VisualIndexDispatcher),
+           live and backfill, onto the worker's CAMERA_MEDIA_JOBS stream. The
+           results the worker returns on media.results.visual_index.v1 are read
+           through a JetStream consumer, which the API, ACK and inbox grants
+           below already cover. */}}
+      - "media.jobs.visual_index.v1"
+      - "media.jobs.visual_index.backfill.v1"
+      {{- end }}
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -443,6 +465,43 @@ Add or change a built-in identity's subjects only here.
   subscribe:
     {{- if $k8sInventoryNatsEnabled }}
     allow: ["_INBOX.>"]
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+{{- /* The media worker (rust/media-worker/src/worker.rs) creates its jobs and
+     results streams if they are missing, creates and pulls its two durable job
+     consumers, acknowledges their deliveries, publishes results and its own
+     metrics snapshot, and answers query-embedding requests from web-ng. Every
+     JetStream API grant names its own stream or consumer, so it cannot read,
+     purge or delete anything else. Replies to its own requests and publishes
+     arrive on _INBOX; its embedding replies go to the requester's _INBOX. */}}
+- user: "CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+  publish:
+    {{- if $mediaWorkerEnabled }}
+    allow:
+      - "media.results.visual_index.v1"
+      - "telemetry.media_worker.metrics.v1"
+      - "$JS.API.STREAM.INFO.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.CREATE.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.INFO.{{ $mediaResultsStream }}"
+      - "$JS.API.STREAM.CREATE.{{ $mediaResultsStream }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.media.jobs.visual_index.v1"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.media.jobs.visual_index.backfill.v1"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.>"
+      - "_INBOX.>"
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+  subscribe:
+    {{- if $mediaWorkerEnabled }}
+    allow: ["media.rpc.visual_text_embed.v1.>", "_INBOX.>"]
     {{- else }}
     allow: []
     deny: [">"]

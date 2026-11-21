@@ -243,6 +243,13 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
 {{- end -}}
+{{- /* The media worker carries its own policy, which keeps it off CNPG and StarRocks.
+     A match-all selector here would add same-namespace egress back. */ -}}
+{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
+{{- if and $mediaWorker.enabled (include "serviceradar.boolDefaultTrue" (list (default (dict) $mediaWorker.networkPolicy) "enabled") | eq "true") -}}
+{{- $podSelector = deepCopy $podSelector -}}
+{{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
+{{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

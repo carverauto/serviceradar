@@ -36,6 +36,10 @@ tests:
       mediaWorker.auth.tokenKey: media-worker-token
       mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
       mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
     asserts:
       - hasDocuments:
           count: 3
@@ -316,13 +320,17 @@ tests:
       mediaWorker.enabled: true
       mediaWorker.executionProvider: tensorrt
       mediaWorker.gpuCount: 2
+      mediaWorker.runtimeClassName: nvidia
       mediaWorker.nodeSelector:
         kubernetes.io/arch: arm64
-      mediaWorker.models.embeddingDim: 512
-      mediaWorker.models.embedderModelId: mobileclip-s2
+      mediaWorker.models.existingClaim: example-media-models-pvc
       mediaWorker.auth.existingSecret: example-media-worker-auth
       mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
       mediaWorker.auth.generation: "5"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "5"
       mediaWorker.networkPolicy.allowNvrRead: true
       mediaWorker.networkPolicy.nvrReadPort: 8444
     asserts:
@@ -354,14 +362,6 @@ tests:
           path: kind
           value: Deployment
       - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: SERVICERADAR_MEDIA_WORKER_EMBEDDING_DIM
-            value: "512"
-        documentSelector:
-          path: kind
-          value: Deployment
-      - contains:
           path: spec.egress
           content:
             to:
@@ -380,9 +380,14 @@ tests:
     set:
       mediaWorker.enabled: true
       mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.models.existingClaim: example-media-models-pvc
       mediaWorker.auth.existingSecret: example-media-worker-auth
       mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
       mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
     documentSelector:
       path: kind
       value: Deployment

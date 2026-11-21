@@ -101,6 +101,23 @@ py_test(
     deps = ["@pyyaml//:yaml"],
 )
 
+# Core stamps a compiled model identity on every camera visual-index job and search
+# request and has no setting for it; a chart worker announcing another indexes nothing
+# and answers no search while staying healthy.
+py_test(
+    name = "media_worker_model_identity_test",
+    srcs = ["media_worker_model_identity_test.py"],
+    data = [
+        ":chart_files",
+        ":helm_unittest_binary",
+        "//elixir/serviceradar_core:camera_model_identity_src",
+    ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = ["@pyyaml//:yaml"],
+)
+
 py_test(
     name = "pod_dns_and_fqdn_test",
     srcs = ["pod_dns_and_fqdn_test.py"],
