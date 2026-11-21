@@ -20,6 +20,10 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
        not held, that is, when no recorded certificate carries that subject,
        revoked or not.
 
+  Copies of the same certificate count once. Multiple distinct certificates for
+  one subject prevent first adoption. Coverage then lists their fingerprints and
+  reports the identity as adopted only when the snapshot authorizes all of them.
+
   When the subject is held this module writes nothing. Replacing a recorded
   certificate stays with `ServiceRadar.Edge.RuntimeCertificateRotation`, and a
   revoked identity stays revoked.
@@ -49,6 +53,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   @type reason ::
           :no_inventory_certificate
+          | :ambiguous_inventory_certificates
           | :untrusted_issuer
           | :certificate_not_valid
           | :no_static_user
@@ -58,6 +63,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
           | {:adoption_failed, term()}
 
   @type identity :: %{
+          optional(:fingerprints) => [String.t()],
           subject: String.t(),
           status: :adopted | :not_adopted,
           fingerprint: String.t() | nil,
@@ -121,14 +127,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
       attempts =
         Enum.map(subjects, fn subject ->
-          case Map.fetch(listed, subject) do
-            :error ->
-              {subject, nil, :no_inventory_certificate}
-
-            {:ok, certificate} ->
-              outcome = first_adoption(certificate, grants, legacy, inputs.partition_id)
-              {subject, certificate.fingerprint, outcome}
-          end
+          attempt(subject, Map.get(listed, subject, []), grants, legacy, inputs.partition_id)
         end)
 
       with {:ok, authorized} <- authorized_fingerprints() do
@@ -186,8 +185,12 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
     end)
   end
 
-  defp log_identity(%{status: :adopted, subject: subject, fingerprint: fingerprint}) do
-    Logger.info("Chart identity #{subject} is adopted with certificate #{fingerprint}")
+  defp log_identity(%{status: :adopted, subject: subject} = identity) do
+    fingerprints = Map.get(identity, :fingerprints, [identity.fingerprint])
+
+    Logger.info(
+      "Chart identity #{subject} is adopted with certificates #{Enum.join(fingerprints, ", ")}"
+    )
   end
 
   defp log_identity(%{status: :not_adopted, subject: subject, reason: reason}) do
@@ -234,9 +237,13 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   end
 
   defp read_certificate_file(path) do
-    with {:ok, pem} <- File.read(path) do
-      Adoption.read_certificate(%{certificate_pem: pem})
+    with {:ok, pem} <- File.read(path),
+         {:ok, presented} <- Adoption.read_certificate(%{certificate_pem: pem}) do
+      Enum.each([presented.leaf | presented.chain], &:public_key.pkix_decode_cert(&1, :otp))
+      {:ok, presented}
     end
+  rescue
+    _ -> {:error, :invalid_certificate}
   end
 
   # The inventory's certificates by chart subject, and the files that name no
@@ -251,7 +258,8 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
       case read_inventory_certificate(path, root) do
         {:ok, certificate} ->
           if certificate.subject in subjects do
-            {Map.put_new(listed, certificate.subject, certificate), unlisted}
+            {Map.update(listed, certificate.subject, [certificate], &[certificate | &1]),
+             unlisted}
           else
             {listed, unlisted ++ [%{file: Path.basename(path), reason: :not_a_chart_identity}]}
           end
@@ -264,7 +272,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   defp read_inventory_certificate(path, root) do
     with {:ok, presented} <- read_certificate_file(path) do
-      chain = presented.chain ++ [root]
+      path = [presented.leaf | presented.chain]
 
       {:ok,
        %{
@@ -272,13 +280,35 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
          fingerprint: presented.fields.fingerprint,
          leaf: presented.leaf,
          pem:
-           :public_key.pem_encode(
-             Enum.map([presented.leaf | chain], &{:Certificate, &1, :not_encrypted})
-           ),
-         verification: Adoption.verify_certificate(%{presented | chain: chain})
+           :public_key.pem_encode(Enum.map(path ++ [root], &{:Certificate, &1, :not_encrypted})),
+         verification: verify_path(root, Enum.reverse(path))
        }}
     else
       _ -> :error
+    end
+  end
+
+  defp verify_path(root, path) do
+    case :public_key.pkix_path_validation(root, path, []) do
+      {:ok, _} -> :ok
+      {:error, {:bad_cert, :cert_expired}} -> {:error, :certificate_not_valid}
+      {:error, _reason} -> {:error, :untrusted_issuer}
+    end
+  rescue
+    _ -> {:error, :untrusted_issuer}
+  end
+
+  defp attempt(subject, [], _grants, _legacy, _partition_id),
+    do: {subject, nil, :no_inventory_certificate}
+
+  defp attempt(subject, certificates, grants, legacy, partition_id) do
+    case Enum.uniq(Enum.map(certificates, & &1.fingerprint)) do
+      [fingerprint] ->
+        certificate = Enum.min_by(certificates, &{&1.verification != :ok, &1.pem})
+        {subject, fingerprint, first_adoption(certificate, grants, legacy, partition_id)}
+
+      fingerprints ->
+        {subject, Enum.sort(fingerprints), :ambiguous_inventory_certificates}
     end
   end
 
@@ -325,6 +355,17 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   end
 
   defp cover({subject, nil, reason}, _authorized), do: not_adopted(subject, nil, reason)
+
+  defp cover({subject, fingerprints, :ambiguous_inventory_certificates}, authorized) do
+    identity =
+      if Enum.all?(fingerprints, &MapSet.member?(authorized, &1)) do
+        adopted(subject, nil)
+      else
+        not_adopted(subject, nil, :ambiguous_inventory_certificates)
+      end
+
+    Map.put(identity, :fingerprints, fingerprints)
+  end
 
   defp cover({subject, fingerprint, outcome}, authorized) do
     cond do

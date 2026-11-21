@@ -39,6 +39,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     - user: "#{@web}"
       publish: {allow: ["metrics.web.>"]}
       subscribe: {allow: ["_INBOX.>"]}
+    - user: "CN=example-stranger,OU=Kubernetes,O=ExampleOrg"
+      publish: {allow: ["metrics.stranger.>"]}
+      subscribe: {allow: ["_INBOX.>"]}
     """)
 
     inputs = %{
@@ -60,6 +63,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
   test "adopts distinct chart identities once with their static grants", ctx do
     core = leaf(ctx.root, cn: "example-core", ou: "Kubernetes", o: "ExampleOrg")
     put_certificate(ctx, "core.pem", core)
+    put_certificate(ctx, "core-copy.crt", core)
 
     web = leaf(ctx.root, [cn: "example-web", ou: "Kubernetes", o: "ExampleOrg"], 101)
     put_certificate(ctx, "web.crt", web)
@@ -95,7 +99,6 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     assert fingerprint(core) in snapshot.allowed_fingerprints
     assert fingerprint(web) in snapshot.allowed_fingerprints
 
-    File.write!(ctx.inputs.static_users_file, "[]")
     assert {:ok, ^report} = Inventory.reconcile(ctx.inputs)
 
     for {subject, previous} <- [
@@ -107,6 +110,49 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
       assert {current.fingerprint, current.component_id} ==
                {previous.fingerprint, previous.component_id}
     end
+
+    File.write!(ctx.inputs.static_users_file, "[]")
+    assert {:ok, ^report} = Inventory.reconcile(ctx.inputs)
+  end
+
+  test "distinct certificates for one subject require every fingerprint to be authorized", ctx do
+    attributes = [cn: "example-core", ou: "Kubernetes", o: "ExampleOrg"]
+    first = leaf(ctx.root, attributes, 111)
+    second = leaf(ctx.root, attributes, 112)
+    put_certificate(ctx, "core.pem", first)
+    put_certificate(ctx, "renewal.crt", second)
+    fingerprints = Enum.sort([fingerprint(first), fingerprint(second)])
+
+    ambiguous = %{
+      subject: @core_subject,
+      fingerprint: nil,
+      fingerprints: fingerprints,
+      status: :not_adopted,
+      reason: :ambiguous_inventory_certificates
+    }
+
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject) == ambiguous
+    assert {:ok, []} = certificates(@core_subject, ctx.opts)
+
+    File.rm!(Path.join(ctx.inputs.certificates_dir, "renewal.crt"))
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject).status == :adopted
+    assert {:ok, [recorded]} = certificates(@core_subject, ctx.opts)
+
+    put_certificate(ctx, "renewal.crt", second)
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject) == ambiguous
+
+    assert {:ok, _successor} =
+             Authority.record_infrastructure_successor(
+               recorded.component_id,
+               %{certificate_pem: pem(second) <> pem(ctx.root.cert)},
+               ctx.opts
+             )
+
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject) == %{ambiguous | status: :adopted, reason: nil}
   end
 
   test "records the direct issuer when the inventory includes an intermediate", ctx do
@@ -116,6 +162,8 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
 
     core =
       sign_leaf(chain[:cert], key, [cn: "example-core", ou: "Kubernetes", o: "ExampleOrg"], 103)
+
+    put_certificate(ctx, "bare.crt", core)
 
     File.write!(
       Path.join(ctx.inputs.certificates_dir, "core.pem"),
@@ -175,6 +223,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
   end
 
   test "adopts nothing while an infrastructure certificate has no stored subject", ctx do
+    assert {:ok, baseline} = Inventory.reconcile(ctx.inputs)
     legacy_id = "example-legacy-#{System.unique_integer([:positive])}"
 
     assert {:ok, %{num_rows: 1}} =
@@ -209,9 +258,41 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     put_certificate(ctx, "core.pem", core)
 
     assert {:ok, report} = Inventory.reconcile(ctx.inputs)
-    assert report.legacy_certificates == 1
+    assert report.legacy_certificates == baseline.legacy_certificates + 1
     assert identity(report, @core_subject).status == :not_adopted
     assert identity(report, @core_subject).reason == :legacy_certificates_without_subject
+    assert {:ok, []} = certificates(@core_subject, ctx.opts)
+  end
+
+  test "an expired CA retains the adoption error and reports inventory expiry", ctx do
+    core = leaf(ctx.root, cn: "example-core", ou: "Kubernetes", o: "ExampleOrg")
+
+    expired =
+      :public_key.pkix_test_root_cert(~c"example-root",
+        key: ctx.root.key,
+        validity: {{2020, 1, 1}, {2020, 6, 1}}
+      )
+
+    File.write!(ctx.inputs.root_file, pem(expired.cert))
+    put_certificate(ctx, "core.pem", core)
+
+    assert {:error, :untrusted_issuer} =
+             Authority.adopt_existing_certificate(
+               %{
+                 component_id: "example-expired-issuer",
+                 component_type: "nats-client",
+                 partition_id: ctx.inputs.partition_id,
+                 certificate_pem: pem(core) <> pem(expired.cert),
+                 permissions: %{
+                   publish: %{allow: ["metrics.core.>"]},
+                   subscribe: %{allow: ["_INBOX.>"]}
+                 }
+               },
+               ctx.opts
+             )
+
+    assert {:ok, report} = Inventory.reconcile(ctx.inputs)
+    assert identity(report, @core_subject).reason == :certificate_not_valid
     assert {:ok, []} = certificates(@core_subject, ctx.opts)
   end
 
@@ -246,6 +327,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     File.write!(Path.join(dir, "notes.txt"), "not a certificate")
     File.write!(Path.join(dir, "broken.pem"), "-----BEGIN CERTIFICATE-----\nAQID\n")
     File.write!(Path.join(dir, "invalid-chain.crt"), pem(core) <> pem(<<1, 2, 3>>))
+    bad_key = malformed_public_key(core)
+    put_certificate(ctx, "bad-key.crt", bad_key)
+    File.write!(Path.join(dir, "bad-issuer.crt"), pem(core) <> pem(bad_key))
     File.write!(Path.join(dir, ".hidden"), "ignored")
     File.mkdir!(Path.join(dir, "nested"))
     File.write!(Path.join(dir, "nested/notes.txt"), "ignored")
@@ -253,6 +337,8 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     assert {:ok, report} = Inventory.reconcile(ctx.inputs)
 
     assert report.unlisted == [
+             %{file: "bad-issuer.crt", reason: :invalid_certificate},
+             %{file: "bad-key.crt", reason: :invalid_certificate},
              %{file: "broken.pem", reason: :invalid_certificate},
              %{file: "invalid-chain.crt", reason: :invalid_certificate},
              %{file: "notes.txt", reason: :invalid_certificate},
@@ -261,7 +347,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
 
     assert identity(report, @core_subject).status == :adopted
     assert identity(report, @web_subject).reason == :no_inventory_certificate
-    assert {:ok, []} = certificates("CN=example-stranger,O=ExampleOrg,OU=Kubernetes", ctx.opts)
+    stranger_subject = "CN=example-stranger,O=ExampleOrg,OU=Kubernetes"
+    refute identity(report, stranger_subject)
+    assert {:ok, []} = certificates(stranger_subject, ctx.opts)
   end
 
   test "an unreadable or malformed identities file stops all adoption", ctx do
@@ -281,7 +369,11 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     core = leaf(ctx.root, cn: "example-core", ou: "Kubernetes", o: "ExampleOrg")
     put_certificate(ctx, "core.pem", core)
 
-    for malformed <- ["-----BEGIN CERTIFICATE-----\nAQID\n", pem(<<1, 2, 3>>)] do
+    for malformed <- [
+          "-----BEGIN CERTIFICATE-----\nAQID\n",
+          pem(<<1, 2, 3>>),
+          pem(malformed_public_key(ctx.root.cert))
+        ] do
       File.write!(ctx.inputs.root_file, malformed)
       assert Inventory.reconcile(ctx.inputs) == {:error, :invalid_root_certificate}
       assert {:ok, []} = certificates(@core_subject, ctx.opts)
@@ -312,6 +404,17 @@ defmodule ServiceRadar.Edge.ChartIdentityInventoryIntegrationTest do
     do: File.write!(Path.join(ctx.inputs.certificates_dir, name), pem(der))
 
   defp pem(der), do: :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+
+  defp malformed_public_key(der) do
+    {:Certificate, tbs, algorithm, signature} = :public_key.pkix_decode_cert(der, :plain)
+    rsa = {:AlgorithmIdentifier, {1, 2, 840, 113_549, 1, 1, 1}, <<5, 0>>}
+    spki = {:SubjectPublicKeyInfo, rsa, <<1, 2, 3>>}
+
+    :public_key.der_encode(
+      :Certificate,
+      {:Certificate, put_elem(tbs, 7, spki), algorithm, signature}
+    )
+  end
 
   # A certificate for `attributes`, signed by `root`.
   defp leaf(root, attributes, serial \\ 100) do
