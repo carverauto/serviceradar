@@ -1880,12 +1880,9 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
             {[], "embedder_model_id", "model_id", invalid},
             {[], "embedder_model_version", "model_version", invalid},
             {detection, "object_class", "object_class", invalid},
-            {detection, "object_class", "class", invalid},
-            {detection, "object_class", "label", invalid},
             {embedding, "object_class", "object_class", invalid},
             {detection, "dominant_colors", "dominant_colors", [invalid]},
-            {embedding, "dominant_colors", "dominant_colors", [invalid]},
-            {embedding, "dominant_colors", "attributes", %{"dominant_colors" => [invalid]}}
+            {embedding, "dominant_colors", "dominant_colors", [invalid]}
           ] do
         rewrite = fn map -> map |> Map.delete(canonical) |> Map.put(field, value) end
 

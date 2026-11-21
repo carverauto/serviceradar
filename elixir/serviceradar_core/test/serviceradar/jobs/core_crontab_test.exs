@@ -68,6 +68,12 @@ defmodule ServiceRadar.Jobs.CoreCrontabTest do
       assert relay in entries(fetch) == scheduled?,
              "recording=#{inspect(recording)} indexing=#{inspect(indexing)}"
     end
+
+    {_expr, worker, opts} = relay
+    unique = %{} |> worker.new(opts) |> Ecto.Changeset.get_change(:unique)
+    assert unique.period == :infinity
+    assert Enum.sort(unique.states) == [:available, :scheduled]
+    refute :executing in unique.states
   end
 
   defp entries(fetch \\ fn _name, default -> default end) do

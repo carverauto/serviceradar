@@ -4,9 +4,10 @@ defmodule ServiceRadar.Camera.VisualIndexDispatchWorker do
   NATS JetStream once per cron tick (`ServiceRadar.Jobs.CoreCrontab`).
 
   Each run is one bounded `ServiceRadar.Camera.VisualIndexDispatcher.relay/1`.
-  The Cron plugin inserts ticks only on the Oban leader, and the uniqueness
-  below covers a running tick, so replicas never relay concurrently; a relay
-  that overlaps one anyway is still safe (see `relay/1`).
+  The Cron plugin inserts ticks only on the Oban leader, and uniqueness over
+  `:available` and `:scheduled` coalesces pending ticks without stalling the
+  relay if a running tick is orphaned by a hard kill; an overlapping relay is
+  safe (see `relay/1`).
 
   The `:maintenance` queue runs only in core, whose NATS identity may publish
   the job subjects.
@@ -16,7 +17,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatchWorker do
     queue: :maintenance,
     # A failed tick is not retried: the next tick relays the same outbox rows.
     max_attempts: 1,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing]]
+    unique: [period: :infinity, states: [:available, :scheduled]]
 
   alias ServiceRadar.Camera.VisualIndexDispatcher
 

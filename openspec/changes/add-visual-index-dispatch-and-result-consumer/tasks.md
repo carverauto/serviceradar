@@ -4,7 +4,7 @@
 - [x] 1.1 Add `VisualIndexDispatcher.relay/1`: reconcile expired dispatched jobs, then publish pending jobs (live first), in bounded batches, stopping at the first failed publish.
 - [x] 1.2 Mark a job `dispatched` with a compare-and-set on the state and attempt it was read with.
 - [x] 1.3 Set the re-dispatch deadline to the `CAMERA_MEDIA_JOBS` retention (72 hours).
-- [x] 1.4 Add `VisualIndexDispatchWorker` (Oban, `:maintenance`, no overlapping runs) and its once-a-minute `CoreCrontab` entry, gated on camera recording and visual indexing.
+- [x] 1.4 Add `VisualIndexDispatchWorker` (Oban, `:maintenance`, unique over `:available` and `:scheduled`) and its once-a-minute `CoreCrontab` entry, gated on camera recording and visual indexing.
 
 ## 2. Result consumer
 - [x] 2.1 Add the `CAMERA_VISUAL_INDEX_RESULTS` EventWriter stream (`media.results.visual_index.v1` on the worker-owned `CAMERA_MEDIA_RESULTS`, `ensure_stream: false`) to both core runtime stream lists under the same gate.

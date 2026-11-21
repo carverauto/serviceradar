@@ -8,6 +8,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Camera.VisualIndexResultEnvelope
   alias ServiceRadar.Camera.VisualWorkerReadGrants
@@ -403,6 +404,17 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       assert vi.worker_health_status == :healthy
       assert vi.active_model.embedder_model_id == "siglip-b16-384"
       assert vi.active_model.embedding_dim == 768
+    end
+
+    test "VisualIndexDispatchWorker coalesces pending ticks without blocking on executing jobs" do
+      changeset = VisualIndexDispatchWorker.new(%{})
+      unique = Ecto.Changeset.get_change(changeset, :unique)
+
+      assert Ecto.Changeset.get_field(changeset, :queue) == "maintenance"
+      assert Ecto.Changeset.get_field(changeset, :max_attempts) == 1
+      assert unique.period == :infinity
+      assert Enum.sort(unique.states) == [:available, :scheduled]
+      refute :executing in unique.states
     end
   end
 
@@ -982,7 +994,6 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
           {crop ++ [:track_id], "1"},
           {crop ++ [:embedding], unit_vec(768)},
           {crop ++ [:embedding, Access.at(0)], 1},
-          {crop ++ [:attributes], false},
           {track ++ [:track_id], -1},
           {track ++ [:object_class], ""},
           {track ++ [:first_seen_offset_ms], "0"},
@@ -1044,6 +1055,41 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
                VisualIndexResultEnvelope.validate(omitted),
              "accepted omitted required field #{inspect(parent ++ [key])}"
     end
+
+    for {parent, canonical, alias_key, alias_value} <- [
+          {frame, :fragment_sequence, :fragment_index, 1},
+          {frame, :media_pts_ns, :media_offset_ns, 0},
+          {detection, :object_class, :class, "parcel"},
+          {detection, :object_class, :label, "parcel"},
+          {detection, :confidence, :score, 0.75},
+          {detection, :bbox, :bbox_norm, [0.0, 0.1, 0.5, 0.9]},
+          {crop, :region_kind, :embedding_kind, "crop"},
+          {crop, :region_index, :crop_index, 1},
+          {crop, :dominant_colors, :attributes, %{dominant_colors: ["blue"]}},
+          {crop, :embedding, :vector, unit_vec(512)}
+        ] do
+      aliased =
+        update_in(envelope, parent, fn map ->
+          map |> Map.delete(canonical) |> Map.put(alias_key, alias_value)
+        end)
+
+      assert {:ok, _, {:error, :invalid_result_envelope}} =
+               VisualIndexResultEnvelope.validate(aliased),
+             "accepted legacy alias #{inspect(alias_key)} for #{inspect(parent ++ [canonical])}"
+    end
+
+    aliased_optional =
+      update_in(envelope, crop, fn map ->
+        map
+        |> Map.drop([:confidence, :bbox])
+        |> Map.merge(%{detector_confidence: 0.75, bbox_norm: [0.0, 0.1, 0.5, 0.9]})
+      end)
+
+    assert {:ok, _, {:ok, %{frames: [%{embeddings: [parsed_crop]}]}}} =
+             VisualIndexResultEnvelope.validate(aliased_optional)
+
+    assert parsed_crop.confidence == nil
+    assert parsed_crop.bbox == nil
   end
 
   test "a bare job ID cannot authorize a terminal job update" do

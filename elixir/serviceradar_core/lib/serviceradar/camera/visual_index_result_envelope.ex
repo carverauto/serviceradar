@@ -11,8 +11,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
   | Embedding | Region kind, region index, dominant colors, vector | Nullable class, confidence, box and track ID |
   | Track | Track ID, object class, first and last offsets, dwell, frame count and peak confidence | None |
 
-  Scene embeddings use index zero and carry no class, confidence or box. Aliases must agree
-  when supplied together. Unknown fields are ignored.
+  Scene embeddings use index zero and carry no class, confidence or box. Embedder model ID/version
+  and `model_id`/`model_version` must agree when supplied together. Unknown fields are ignored.
   """
 
   @max_bigint 9_223_372_036_854_775_807
@@ -62,8 +62,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
 
   defp frame(value, dim) do
     object(value, [
-      {[:fragment_sequence, :fragment_index], &uint(&1, @max_u32)},
-      {[:media_pts_ns, :media_offset_ns], &uint(&1, @max_bigint)},
+      {:fragment_sequence, &uint(&1, @max_u32)},
+      {:media_pts_ns, &uint(&1, @max_bigint)},
       {:scene_suppressed, &boolean/1},
       {:detections, fn items -> array(items, 64, &detection/1) end},
       {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end)}
@@ -73,9 +73,9 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
   defp detection(value) do
     with {:ok, parsed} <-
            object(value, [
-             {[:object_class, :class, :label], &string(&1, 64)},
-             {[:confidence, :score], &confidence/1},
-             {[:bbox, :bbox_norm], &bbox/1},
+             {:object_class, &string(&1, 64)},
+             {:confidence, &confidence/1},
+             {:bbox, &bbox/1},
              {:dominant_colors, &colors/1},
              {:track_id, &nullable(&1, fn id -> uint(id, @max_bigint) end), nil}
            ]) do
@@ -89,31 +89,19 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
   defp embedding(value, dim) do
     with {:ok, parsed} <-
            object(value, [
-             {[:region_kind, :embedding_kind], &region_kind/1},
-             {[:region_index, :crop_index], &uint(&1, @max_u32)},
+             {:region_kind, &region_kind/1},
+             {:region_index, &uint(&1, @max_u32)},
              {:object_class, &nullable(&1, fn s -> string(s, 64) end), nil},
-             {[:confidence, :detector_confidence], fn value -> nullable(value, &confidence/1) end,
-              nil},
-             {[:bbox, :bbox_norm], fn value -> nullable(value, &bbox/1) end, nil},
+             {:confidence, fn value -> nullable(value, &confidence/1) end, nil},
+             {:bbox, fn value -> nullable(value, &bbox/1) end, nil},
              {:track_id, &nullable(&1, fn id -> uint(id, @max_bigint) end), nil},
-             {:attributes, &attributes/1, %{dominant_colors: nil}},
-             {:dominant_colors, &colors/1, nil},
-             {[:embedding, :vector], &vector(&1, dim)}
+             {:dominant_colors, &colors/1},
+             {:embedding, &vector(&1, dim)}
            ]),
-         :ok <- check_region(parsed),
-         {:ok, colors} <-
-           embedding_colors(parsed.dominant_colors, parsed.attributes.dominant_colors) do
-      {:ok, %{parsed | dominant_colors: colors}}
+         :ok <- check_region(parsed) do
+      {:ok, parsed}
     end
   end
-
-  defp attributes(value), do: object(value, [{:dominant_colors, &colors/1, nil}])
-
-  defp embedding_colors(nil, nil), do: @invalid
-  defp embedding_colors(nil, colors), do: {:ok, colors}
-  defp embedding_colors(colors, nil), do: {:ok, colors}
-  defp embedding_colors(colors, colors), do: {:ok, colors}
-  defp embedding_colors(_, _), do: @invalid
 
   defp check_region(%{region_kind: :crop}), do: :ok
   defp check_region(%{region_index: 0, object_class: nil, confidence: nil, bbox: nil}), do: :ok
