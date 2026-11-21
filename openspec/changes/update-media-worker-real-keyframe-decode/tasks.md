@@ -7,7 +7,7 @@
   injected.
 - [x] 1.4 Record undecodable keyframes per keyframe in the result envelope and metrics;
   keep indexing the rest of the block.
-- [x] 1.5 Enforce dimension, access-unit, slice-count, parameter-set and NAL-count limits.
+- [x] 1.5 Enforce dimension, access-unit, parameter-set and NAL-count limits.
 
 ## 2. Validation
 
@@ -26,11 +26,11 @@
 - [ ] 3.2 HEVC decode (libavcodec or hardware).
 - [ ] 3.3 Hardware decode (NVDEC) for fleet-scale throughput.
 - [ ] 3.4 Detect truncated CABAC slices (upstream overread check).
-- [ ] 3.5 Request upstream continuity checks at CAVLC and CABAC slice boundaries.
+- [ ] 3.5 Restore multi-slice admission after adopting the fork's fixes for slice coverage,
+  per-slice deblocking and I_8x8 prediction across slice boundaries.
 - [ ] 3.6 Request upstream support for separate Cb and Cr quantization offsets.
 - [ ] 3.7 Extend read grants to identify an oversized sampled fragment while granting
   its eligible siblings, so the worker can publish a partial result.
-- [ ] 3.8 Request upstream per-slice deblocking mode and offset handling when finishing
-  a macroblock row shared by multiple slices.
+- [ ] 3.8 Request upstream validation of the CAVLC trailing-bits byte after the last macroblock.
 - [ ] 3.9 Request upstream deblocking QP zero for I_PCM macroblocks in decoder 0.17.3
   at `src/mb16.rs:3974` (CABAC) and `src/mb16.rs:5319` (CAVLC).

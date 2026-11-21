@@ -28,21 +28,19 @@ a heavy hermetic build; it is the candidate for HEVC together with hardware deco
 
 `rusty_h264-decoder` zero-fills past the end of a CABAC slice. A CABAC slice truncated
 inside its macroblock data decodes to a full-size picture whose tail is wrong instead of
-an error. CAVLC truncation is detected. Fragment bytes are SHA-256 verified against the
+an error. CAVLC truncation that removes coded samples is detected. If all macroblock
+data is present, the decoder can accept a missing trailing-bits byte. Fragment bytes are SHA-256 verified against the
 frozen descriptor, so this needs a recorder or camera that writes short NAL units. Tracked
 as a follow-up (an upstream overread check).
 
-An IDR picture must start at macroblock zero and have strictly increasing slice starts
-inside the coded picture. For CAVLC and CABAC, the end of each slice is private to the
-decoder. A missing middle slice or an overlap with increasing starts can therefore pass
-admission. Request an upstream check for contiguous decoded macroblock coverage.
+Only single-slice IDR pictures are admitted. With multiple slices, the decoder can use
+the last slice's deblocking parameters for a shared row, use an unavailable upper-left
+corner for I_8x8 prediction across a slice boundary, or return a picture with a missing
+slice. Admission can lift this restriction once the worker adopts the fixes from the
+[decoder fork](https://github.com/carverauto/rusty_h264).
 
 The pinned decoder reconstructs both chroma planes with the Cb quantization offset.
 An active PPS with unequal Cb and Cr offsets produces `unsupported_codec`.
-
-The decoder can finish filtering a macroblock row with the last slice's deblocking
-settings. Admission returns `unsupported_codec` if slices differ in deblocking mode,
-alpha offset or beta offset.
 
 The owner accepts approximate decoding for I_PCM macroblocks, which camera encoders
 rarely emit. In both CAVLC and CABAC, decoder 0.17.3 uses the running slice QP to
@@ -53,9 +51,9 @@ I_PCM macroblock edges.
 
 Decoding is a synchronous call that cannot be interrupted, so there is no wall-clock
 timeout. Work is bounded by the input instead: the coded picture size is checked from the
-SPS before the decoder allocates, and the access unit size and slice count are capped.
-All slices must refer to one picture and its admitted PPS and SPS. Only those sets reach
-the fresh decoder and count toward the access-unit byte limit along with the slices and
+SPS before the decoder allocates, and only one slice is admitted.
+Only the active SPS and PPS reach the fresh decoder. They count toward the access-unit
+byte limit along with the slice and
 Annex B start codes. The worker runs decode on the blocking pool under the index permit.
 
 ## Colour

@@ -8,8 +8,7 @@
 
 use crate::cmaf::{MAX_FRAME_DIMENSION, ParsedInitSegment, ParsedMediaFragment};
 use crate::keyframe_decoder::{
-    KeyframeDecodeError, MAX_KEYFRAME_ACCESS_UNIT_BYTES, MAX_KEYFRAME_SLICES,
-    MAX_PARAMETER_SET_BYTES,
+    KeyframeDecodeError, MAX_KEYFRAME_ACCESS_UNIT_BYTES, MAX_PARAMETER_SET_BYTES,
 };
 use crate::vision::RgbFrame;
 use std::collections::HashMap;
@@ -46,8 +45,6 @@ struct SpsInfo {
     delta_poc_present: bool,
     crop_left: u32,
     crop_top: u32,
-    coded_width: u32,
-    coded_height: u32,
     display_width: u32,
     display_height: u32,
     /// `video_full_range_flag`, when the VUI carries a video signal type.
@@ -90,17 +87,19 @@ pub(crate) fn decode_access_unit(
     parameter_sets: &[&[u8]],
     slices: &[&[u8]],
 ) -> Result<DecodedPicture, KeyframeDecodeError> {
-    if slices.is_empty() {
-        return Err(KeyframeDecodeError::malformed_bitstream(
-            "keyframe sample carries no IDR slice",
-        ));
-    }
-    if slices.len() > MAX_KEYFRAME_SLICES {
-        return Err(KeyframeDecodeError::limit_exceeded(format!(
-            "{} IDR slices exceed the limit of {MAX_KEYFRAME_SLICES}",
-            slices.len()
-        )));
-    }
+    let slice = match *slices {
+        [slice] => slice,
+        [] => {
+            return Err(KeyframeDecodeError::malformed_bitstream(
+                "keyframe sample carries no IDR slice",
+            ));
+        }
+        _ => {
+            return Err(KeyframeDecodeError::unsupported_codec(
+                "multi-slice pictures not yet supported",
+            ));
+        }
+    };
 
     let mut sps_by_id = HashMap::new();
     let mut pps_by_id = HashMap::new();
@@ -125,18 +124,18 @@ pub(crate) fn decode_access_unit(
             _ => continue,
         }
     }
-    let slice_bytes: usize = slices.iter().map(|slice| slice.len() + 4).sum();
+    let slice_bytes = slice.len() + 4;
     if slice_bytes > MAX_KEYFRAME_ACCESS_UNIT_BYTES {
         return Err(KeyframeDecodeError::limit_exceeded(
             "keyframe access unit exceeds byte limit",
         ));
     }
 
-    let headers: Vec<_> = slices
-        .iter()
-        .map(|slice| slice_header_prefix(slice))
-        .collect::<Result<_, _>>()?;
-    let (_, _, pps_id) = slice_start(&mut BitReader::new(&headers[0]))?;
+    let header = slice_header_prefix(slice)?;
+    let mut slice_reader = BitReader::new(&header);
+    let first_mb = slice_reader.read_ue()?;
+    let slice_type = slice_reader.read_ue_max(9, "slice_type")?;
+    let pps_id = slice_reader.read_ue_max(255, "pic_parameter_set_id")?;
     let pps = *pps_by_id.get(&pps_id).ok_or_else(|| {
         KeyframeDecodeError::malformed_bitstream("IDR slice references missing PPS")
     })?;
@@ -148,7 +147,26 @@ pub(crate) fn decode_access_unit(
         .get(&sps_id)
         .ok_or_else(|| KeyframeDecodeError::malformed_bitstream("PPS references missing SPS"))?;
     let sps = parse_sps(sps_nal)?;
+    r.read_bits(2)?;
+    if r.read_ue()? != 0 {
+        return Err(KeyframeDecodeError::unsupported_codec("slice groups (FMO)"));
+    }
+    r.read_ue_max(31, "num_ref_idx_l0_default_active_minus1")?;
+    r.read_ue_max(31, "num_ref_idx_l1_default_active_minus1")?;
+    r.read_bits(3)?;
+    if !(-26..=25).contains(&r.read_se()?) {
+        return Err(KeyframeDecodeError::malformed_bitstream(
+            "invalid initial QP",
+        ));
+    }
     let active_pps = rusty_h264_decoder::Pps::parse(&pps_rbsp).map_err(classify_decode_error)?;
+    if !(-12..=12).contains(&active_pps.chroma_qp_index_offset)
+        || !(-12..=12).contains(&active_pps.second_chroma_qp_index_offset)
+    {
+        return Err(KeyframeDecodeError::malformed_bitstream(
+            "invalid chroma QP offset",
+        ));
+    }
     if active_pps.chroma_qp_index_offset != active_pps.second_chroma_qp_index_offset {
         return Err(KeyframeDecodeError::unsupported_codec(
             "unequal Cb and Cr QP offsets",
@@ -162,10 +180,10 @@ pub(crate) fn decode_access_unit(
             "keyframe access unit exceeds byte limit",
         ));
     }
-    validate_picture_slices(&headers, pps_id, &sps, &active_pps)?;
+    validate_idr_slice(&mut slice_reader, first_mb, slice_type, &sps, &active_pps)?;
 
     let mut annex_b = Vec::with_capacity(total_bytes);
-    for nal in [sps_nal, pps].into_iter().chain(slices.iter().copied()) {
+    for nal in [sps_nal, pps, slice] {
         annex_b.extend_from_slice(&[0, 0, 0, 1]);
         annex_b.extend_from_slice(nal);
     }
@@ -219,97 +237,66 @@ pub(crate) fn decode_access_unit(
 fn classify_decode_error(err: rusty_h264_decoder::DecodeError) -> KeyframeDecodeError {
     match err {
         rusty_h264_decoder::DecodeError::Unsupported(
-            tool @ ("slice groups (FMO)" | "transform-bypass (lossless) macroblock"),
+            tool @ "transform-bypass (lossless) macroblock",
         ) => KeyframeDecodeError::unsupported_codec(tool),
         _ => KeyframeDecodeError::malformed_bitstream(err.to_string()),
     }
 }
 
-fn validate_picture_slices(
-    headers: &[Vec<u8>],
-    pps_id: u32,
+fn validate_idr_slice(
+    r: &mut BitReader<'_>,
+    first_mb: u32,
+    slice_type: u32,
     sps: &SpsInfo,
     pps: &rusty_h264_decoder::Pps,
 ) -> Result<(), KeyframeDecodeError> {
-    let mut previous_mb = None;
-    let mut picture_id = None;
-    let mut deblocking = None;
-    let mb_count = (sps.coded_width / 16) * (sps.coded_height / 16);
-    for header in headers {
-        let mut r = BitReader::new(header);
-        let (mb, slice_type, slice_pps) = slice_start(&mut r)?;
-        if slice_pps != pps_id {
+    match slice_type {
+        2 | 7 => {}
+        4 | 9 => return Err(KeyframeDecodeError::unsupported_codec("SI slice")),
+        _ => {
             return Err(KeyframeDecodeError::malformed_bitstream(
-                "inconsistent IDR slice PPS",
+                "non-intra slice in IDR",
             ));
         }
-        match slice_type {
-            2 | 7 => {}
-            4 | 9 => return Err(KeyframeDecodeError::unsupported_codec("SI slice")),
-            _ => {
-                return Err(KeyframeDecodeError::malformed_bitstream(
-                    "non-intra slice in IDR",
-                ));
-            }
-        }
-        let frame_num = r.read_bits(sps.frame_num_bits)?;
-        if !sps.frame_mbs_only && r.read_flag()? {
-            return Err(KeyframeDecodeError::unsupported_codec("field picture"));
-        }
-        if mb >= mb_count || previous_mb.map_or(mb != 0, |prev| mb <= prev) {
-            return Err(KeyframeDecodeError::malformed_bitstream(
-                "inconsistent IDR slice order",
-            ));
-        }
-        let idr_pic_id = r.read_ue_max(65_535, "idr_pic_id")?;
-        let poc_lsb = sps.poc_lsb_bits.map(|bits| r.read_bits(bits)).transpose()?;
-        let delta = if sps.delta_poc_present {
-            r.read_se()?
-        } else {
-            0
-        };
-        let bottom =
-            if pps.bottom_field_pic_order_present && (poc_lsb.is_some() || sps.delta_poc_present) {
-                r.read_se()?
-            } else {
-                0
-            };
-        let id = (frame_num, idr_pic_id, poc_lsb, delta, bottom);
-        if picture_id.replace(id).is_some_and(|first| first != id) {
-            return Err(KeyframeDecodeError::malformed_bitstream(
-                "IDR slices belong to different pictures",
-            ));
-        }
-        if pps.deblocking_filter_control_present_flag {
-            if pps.redundant_pic_cnt_present_flag {
-                r.read_ue_max(127, "redundant_pic_cnt")?;
-            }
-            r.read_bits(2)?;
-            r.read_se()?;
-            let mode = r.read_ue_max(2, "disable_deblocking_filter_idc")?;
-            let (alpha, beta) = if mode == 1 {
-                (0, 0)
-            } else {
-                (r.read_se()?, r.read_se()?)
-            };
-            if !(-6..=6).contains(&alpha) || !(-6..=6).contains(&beta) {
-                return Err(KeyframeDecodeError::malformed_bitstream(
-                    "invalid deblocking offset",
-                ));
-            }
-            let settings = (mode, alpha, beta);
-            if deblocking
-                .replace(settings)
-                .is_some_and(|previous| previous != settings)
-            {
-                return Err(KeyframeDecodeError::unsupported_codec(
-                    "mixed slice deblocking settings",
-                ));
-            }
-        }
-        previous_mb = Some(mb);
     }
-
+    r.read_bits(sps.frame_num_bits)?;
+    if !sps.frame_mbs_only && r.read_flag()? {
+        return Err(KeyframeDecodeError::unsupported_codec("field picture"));
+    }
+    if first_mb != 0 {
+        return Err(KeyframeDecodeError::malformed_bitstream(
+            "single slice must start at macroblock zero",
+        ));
+    }
+    r.read_ue_max(65_535, "idr_pic_id")?;
+    if let Some(bits) = sps.poc_lsb_bits {
+        r.read_bits(bits)?;
+    }
+    if sps.delta_poc_present {
+        r.read_se()?;
+    }
+    if pps.bottom_field_pic_order_present && (sps.poc_lsb_bits.is_some() || sps.delta_poc_present) {
+        r.read_se()?;
+    }
+    if pps.redundant_pic_cnt_present_flag {
+        r.read_ue_max(127, "redundant_pic_cnt")?;
+    }
+    r.read_bits(2)?;
+    let slice_qp = i64::from(pps.pic_init_qp) + r.read_se()?;
+    if !(0..=51).contains(&slice_qp) {
+        return Err(KeyframeDecodeError::malformed_bitstream("invalid slice QP"));
+    }
+    if pps.deblocking_filter_control_present_flag
+        && r.read_ue_max(2, "disable_deblocking_filter_idc")? != 1
+    {
+        let alpha = r.read_se()?;
+        let beta = r.read_se()?;
+        if !(-6..=6).contains(&alpha) || !(-6..=6).contains(&beta) {
+            return Err(KeyframeDecodeError::malformed_bitstream(
+                "invalid deblocking offset",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -652,8 +639,6 @@ fn parse_sps(nal: &[u8]) -> Result<SpsInfo, KeyframeDecodeError> {
         delta_poc_present,
         crop_left,
         crop_top,
-        coded_width,
-        coded_height,
         display_width: coded_width - crop_x,
         display_height: coded_height - crop_y,
         full_range,
@@ -717,12 +702,4 @@ fn slice_header_prefix(nal: &[u8]) -> Result<Vec<u8>, KeyframeDecodeError> {
         ));
     }
     nal_rbsp(nal, 64)
-}
-
-fn slice_start(r: &mut BitReader<'_>) -> Result<(u32, u32, u32), KeyframeDecodeError> {
-    Ok((
-        r.read_ue()?,
-        r.read_ue_max(9, "slice_type")?,
-        r.read_ue_max(255, "pic_parameter_set_id")?,
-    ))
 }

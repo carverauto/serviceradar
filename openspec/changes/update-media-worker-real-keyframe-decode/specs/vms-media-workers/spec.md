@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Real keyframe decoding with recorded undecodable outcomes
-The media worker SHALL decode each granted, verified sampled IDR keyframe from its real coded bitstream and SHALL NOT produce a frame it did not decode. It SHALL decode H.264 Constrained Baseline, Main and High profile keyframes that are 8-bit 4:2:0 and frame coded with equal Cb and Cr quantization offsets, with CAVLC or CABAC entropy coding, the 8x8 transform, scaling matrices and multiple slices sharing one deblocking mode and both filter offsets, apply SPS cropping, and convert to RGB using the VUI matrix and range (defaulting to limited range, and to BT.709 above 576 lines or BT.601 otherwise). A granted, verified keyframe it cannot decode SHALL be recorded in the result envelope's `undecodable_keyframes` with its fragment sequence, codec and a bounded reason (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded` or `invalid_container`), and the remaining keyframes of the block SHALL still be indexed.
+The media worker SHALL decode each granted, verified sampled IDR keyframe from its real coded bitstream and SHALL NOT produce a frame it did not decode. It SHALL decode H.264 Constrained Baseline, Main and High profile keyframes that are single-slice, 8-bit 4:2:0 and frame coded with equal Cb and Cr quantization offsets, with CAVLC or CABAC entropy coding, the 8x8 transform and scaling matrices, apply SPS cropping, and convert to RGB using the VUI matrix and range (defaulting to limited range, and to BT.709 above 576 lines or BT.601 otherwise). A granted, verified keyframe it cannot decode SHALL be recorded in the result envelope's `undecodable_keyframes` with its fragment sequence, codec and a bounded reason (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded` or `invalid_container`), and the remaining keyframes of the block SHALL still be indexed.
 
 #### Scenario: Main or High profile CABAC keyframe decodes to its real pixels
-- **WHEN** a sampled fragment holds a High profile CABAC IDR keyframe using the 8x8 transform, equal Cb and Cr quantization offsets, uniform slice deblocking settings and no I_PCM macroblocks
+- **WHEN** a sampled fragment holds a High profile CABAC IDR keyframe using the 8x8 transform, equal Cb and Cr quantization offsets, one coded slice and no I_PCM macroblocks
 - **THEN** the worker SHALL decode the keyframe to the picture the bitstream encodes, at the SPS cropped size and in the VUI colour space
 
 #### Scenario: Unsupported codec is recorded, never fabricated
-- **WHEN** a sampled fragment holds an HEVC keyframe, or an H.264 keyframe outside the supported profiles, chroma format, bit depth or frame coding, or whose active PPS specifies unequal Cb and Cr offsets, or whose slices differ in deblocking mode or either filter offset
+- **WHEN** a sampled fragment holds an HEVC keyframe, or an H.264 keyframe outside the supported profiles, chroma format, bit depth or frame coding, or whose active PPS specifies unequal Cb and Cr offsets, or which contains more than one coded slice
 - **THEN** the worker SHALL record the keyframe in `undecodable_keyframes` with reason `unsupported_codec`
 - **AND** the worker SHALL NOT emit a frame, detections or embeddings for that keyframe
 
@@ -20,8 +20,13 @@ The media worker SHALL decode each granted, verified sampled IDR keyframe from i
 - **WHEN** one sampled keyframe in a granted, verified block is malformed and the others decode
 - **THEN** the worker SHALL publish the decoded keyframes' results, record the malformed keyframe with reason `malformed_bitstream`, and acknowledge the job
 
+#### Scenario: Verified track init cannot be parsed
+- **WHEN** the worker receives a verified block whose track init segment cannot be parsed
+- **THEN** it SHALL record and count `invalid_container` for every sampled sequence, using the identified codec or `unknown` if unavailable
+- **AND** it SHALL publish the result before acknowledging the job
+
 #### Scenario: Oversized or excessive input is refused before decoding
-- **WHEN** a granted, verified fragment exceeds a decoder limit because either the sample entry or the active SPS exceeds 4096 pixels in width or height, the access unit exceeds 4 MiB, the sample exceeds 4096 NAL units, the picture exceeds 1024 IDR slices, or a parameter set exceeds 4096 bytes
+- **WHEN** a granted, verified fragment exceeds a decoder limit because either the sample entry or the active SPS exceeds 4096 pixels in width or height, the access unit exceeds 4 MiB, the sample exceeds 4096 NAL units, or a parameter set exceeds 4096 bytes
 - **THEN** the worker SHALL record the keyframe with reason `limit_exceeded` without passing it to the decoder
 
 #### Scenario: Sampled fragment exceeds the read-grant limit

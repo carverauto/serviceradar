@@ -59,7 +59,7 @@ pub use grants::{
 pub use http_server::{ReadinessState, build_http_router, serve_http_probes};
 pub use keyframe_decoder::{
     DefaultKeyframeDecoder, KeyframeDecodeError, KeyframeDecodeErrorKind, KeyframeDecoder,
-    MAX_KEYFRAME_ACCESS_UNIT_BYTES, MAX_KEYFRAME_SLICES, MAX_PARAMETER_SET_BYTES,
+    MAX_KEYFRAME_ACCESS_UNIT_BYTES, MAX_PARAMETER_SET_BYTES,
 };
 pub use metrics::{
     InflightGuard, MEDIA_WORKER_TELEMETRY_SUBJECT, TelemetrySnapshot, WorkerMetrics,

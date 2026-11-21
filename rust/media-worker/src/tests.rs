@@ -1426,6 +1426,45 @@ async fn index_test_block(
 }
 
 #[tokio::test]
+async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() {
+    let mut short_sps = avcc_box(&[&[0x67]], &[]);
+    short_sps[14..16].copy_from_slice(&32u16.to_be_bytes());
+    let mut missing_pps = avcc_box(&[], &[]);
+    *missing_pps.last_mut().unwrap() = 1;
+    for (init, codec) in [
+        (build_init_mp4(16, 16, 90_000, b"avc1", &short_sps), "h264"),
+        (
+            build_init_mp4(16, 16, 90_000, b"avc3", &missing_pps),
+            "h264",
+        ),
+        (build_init_mp4(16, 16, 90_000, b"hvc1", &[]), "hevc"),
+        (vec![0; 3], "unknown"),
+    ] {
+        let fragments =
+            (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));
+        let block = assemble_cmaf_block(16, 16, 90_000, init, fragments).unwrap();
+        let (result, metrics, events) =
+            index_test_block(block, Arc::new(crate::DefaultKeyframeDecoder::new())).await;
+        let refusals: Vec<_> = result
+            .undecodable_keyframes()
+            .iter()
+            .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
+            .collect();
+        assert_eq!(
+            refusals,
+            [
+                (0, "invalid_container", codec),
+                (1, "invalid_container", codec)
+            ]
+        );
+        assert!(result.frames().is_empty());
+        assert!(result.tracks().is_empty());
+        assert_exported_refusals(&metrics, "invalid_container", 2);
+        assert_eq!(events.lock().as_slice(), ["publish_result", "ack"]);
+    }
+}
+
+#[tokio::test]
 async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
     for (width, height) in [(4097, 64), (64, 4097)] {
         let init = build_init_mp4(

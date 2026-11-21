@@ -17,10 +17,6 @@ use core::fmt::{self, Display, Formatter};
 /// Largest serialized keyframe access unit handed to a decoder.
 pub const MAX_KEYFRAME_ACCESS_UNIT_BYTES: usize = 4 * 1024 * 1024;
 
-/// Most IDR slice NAL units accepted for one picture. One slice per macroblock row of a
-/// 4096-line picture is 256; cameras use far fewer.
-pub const MAX_KEYFRAME_SLICES: usize = 1024;
-
 /// Largest single SPS/PPS NAL unit accepted (in-band or from the init segment).
 pub const MAX_PARAMETER_SET_BYTES: usize = 4096;
 
@@ -33,7 +29,7 @@ pub enum KeyframeDecodeErrorKind {
     UnsupportedCodec(String),
     /// The bitstream is invalid, incomplete or inconsistent.
     MalformedBitstream(String),
-    /// The keyframe exceeds a hard resource limit (dimensions, bytes, slice count).
+    /// The keyframe exceeds a hard resource limit (dimensions or bytes).
     LimitExceeded(String),
 }
 

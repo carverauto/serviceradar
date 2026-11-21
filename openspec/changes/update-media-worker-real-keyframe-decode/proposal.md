@@ -14,7 +14,7 @@ recordings would therefore index fabricated pictures.
   touching callers.
 - Supported: Constrained Baseline, Main and High profile; 8-bit 4:2:0; progressive (frame)
   coding; equal Cb and Cr quantization offsets; CAVLC and CABAC; 8x8 transform; scaling matrices;
-  multiple slices with uniform deblocking mode and offsets; SPS cropping;
+  single-slice IDR pictures; SPS cropping;
   VUI colour description (matrix and range).
 - Remove the solid-colour fallback. A keyframe that cannot be decoded produces a typed
   outcome (`unsupported_codec`, `malformed_bitstream`, `limit_exceeded`,
@@ -28,8 +28,7 @@ recordings would therefore index fabricated pictures.
   decoding if any sampled fragment exceeds 4 MiB.
 - The synthetic `SRIDR1` raster decoder becomes test-only and is selected by injection,
   never by sniffing bitstream bytes.
-- Hard limits ahead of the decoder: 4096x4096 coded picture, 4 MiB access unit, 1024 IDR
-  slices, 4096-byte parameter sets, 4096 NAL units per sample.
+- Hard limits ahead of the decoder: 4096x4096 coded picture, 4 MiB access unit, 4096-byte parameter sets, 4096 NAL units per sample.
 
 ## Impact
 

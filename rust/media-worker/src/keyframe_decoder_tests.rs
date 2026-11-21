@@ -4,9 +4,7 @@
 
 use crate::cmaf::{avcc_box, build_fragment_m4s, build_init_mp4};
 use crate::h264::decode_access_unit;
-use crate::keyframe_decoder::{
-    DefaultKeyframeDecoder, KeyframeDecodeErrorKind, KeyframeDecoder, MAX_KEYFRAME_SLICES,
-};
+use crate::keyframe_decoder::{DefaultKeyframeDecoder, KeyframeDecodeErrorKind, KeyframeDecoder};
 use crate::{
     ParsedInitSegment, ParsedMediaFragment, RgbFrame, parse_init_segment, parse_media_fragment,
 };
@@ -343,7 +341,7 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
     let truncated = &slice[..slice.len() / 2];
     let wide = encode_idr(EncoderConfig::baseline(4112, 16), &pattern(4112, 16));
     let wide_nals = annex_b_nals(&wide);
-    let too_many_slices = vec![slice; MAX_KEYFRAME_SLICES + 1];
+    let too_many_slices = vec![slice; 1025];
     let high10 = high10_sps();
 
     let cases: [RejectionCase<'_>; 7] = [
@@ -385,7 +383,7 @@ fn malformed_unsupported_and_oversized_keyframes_return_typed_errors_without_pan
             "too many slices",
             vec![sps, pps],
             too_many_slices,
-            "limit_exceeded",
+            "unsupported_codec",
         ),
     ];
     for (label, parameter_sets, slices, reason) in cases {
@@ -472,36 +470,36 @@ fn baseline_sps(mbs: [u32; 2], crop: [u32; 4], matrix: u8, full: bool) -> Vec<u8
     NalUnit::new(3, NalUnitType::Sps, w.into_bytes()).to_annex_b()[4..].to_vec()
 }
 
-fn idr_header(mb: u32, pps: u32, picture: u32, (mode, alpha, beta): (u32, i32, i32)) -> BitWriter {
+fn idr_header(mb: u32, qp_delta: i32, deblocking_control: bool) -> BitWriter {
     let mut w = BitWriter::new();
-    for value in [mb, 7, pps] {
+    for value in [mb, 7, 0] {
         w.write_ue(value);
     }
     w.write_bits(0, 4);
-    w.write_ue(picture);
+    w.write_ue(0);
     w.write_bits(0, 8);
     w.write_bits(0, 2);
-    w.write_se(0);
-    w.write_ue(mode);
-    if mode != 1 {
-        w.write_se(alpha);
-        w.write_se(beta);
+    w.write_se(qp_delta);
+    if deblocking_control {
+        // Disable filtering for exact PCM samples until the decoder uses deblocking QP zero.
+        w.write_ue(1);
     }
     w
 }
 
-fn pcm_slice(mb: u32, pps: u32, picture: u32) -> Vec<u8> {
-    // Disable filtering for exact PCM samples until the decoder uses deblocking QP zero.
-    pcm_slice_with_header(mb, idr_header(mb, pps, picture, (1, 0, 0)))
+fn pcm_slice(mb: u32) -> Vec<u8> {
+    pcm_slice_with_header(mb..mb + 1, idr_header(mb, 0, true))
 }
 
-fn pcm_slice_with_header(mb: u32, mut w: BitWriter) -> Vec<u8> {
-    w.write_ue(25);
-    w.align_zero();
-    for (size, base) in [(16, 100), (8, 90), (8, 180)] {
-        for y in 0..size {
-            for x in 0..size {
-                w.write_bits(base + mb % 2 * size + x + mb / 2 * size + y, 8);
+fn pcm_slice_with_header(macroblocks: std::ops::Range<u32>, mut w: BitWriter) -> Vec<u8> {
+    for mb in macroblocks {
+        w.write_ue(25);
+        w.align_zero();
+        for (size, base) in [(16, 100), (8, 90), (8, 180)] {
+            for y in 0..size {
+                for x in 0..size {
+                    w.write_bits(base + mb % 2 * size + x + mb / 2 * size + y, 8);
+                }
             }
         }
     }
@@ -510,40 +508,25 @@ fn pcm_slice_with_header(mb: u32, mut w: BitWriter) -> Vec<u8> {
 }
 
 #[test]
-fn multislice_admission_requires_uniform_deblocking_mode_and_offsets() {
+fn complete_two_slice_idr_is_refused() {
     let stream = encode_idr(EncoderConfig::baseline(32, 16), &pattern(32, 16));
     let nals = annex_b_nals(&stream);
     let pps = nals_of_type(&nals, 8)[0];
     let sps = baseline_sps([2, 1], [0; 4], 2, false);
-    let settings = [(1, 0, 0), (0, 0, 0), (2, 0, 0), (0, -1, 0), (0, 0, 1)];
-    for first in settings {
-        let left = pcm_slice_with_header(0, idr_header(0, 0, 0, first));
-        for second in settings {
-            let right = pcm_slice_with_header(1, idr_header(1, 0, 0, second));
-            let result = decode_access_unit(&[&sps, pps], &[&left, &right]);
-            if first == second {
-                let frame = result.unwrap();
-                assert_eq!((frame.width, frame.height), (32, 16));
-            } else {
-                assert_eq!(
-                    result.unwrap_err().reason(),
-                    "unsupported_codec",
-                    "{first:?}, {second:?}"
-                );
-            }
-        }
-    }
+    let err = decode_access_unit(&[&sps, pps], &[&pcm_slice(0), &pcm_slice(1)]).unwrap_err();
+    assert_eq!(err.reason(), "unsupported_codec");
+    assert_eq!(err.detail(), "multi-slice pictures not yet supported");
 }
 
 #[test]
-fn four_sided_crop_preserves_luma_and_chroma_coordinates_across_slices() {
+fn single_slice_four_sided_crop_preserves_luma_and_chroma_coordinates() {
     let stream = encode_idr(EncoderConfig::baseline(32, 32), &pattern(32, 32));
     let nals = annex_b_nals(&stream);
     let pps = nals_of_type(&nals, 8)[0];
     let sps = baseline_sps([2, 2], [2, 1, 3, 2], 2, false);
-    let slices: Vec<_> = (0..4).map(|mb| pcm_slice(mb, 0, 0)).collect();
-    let slices: Vec<_> = slices.iter().map(Vec::as_slice).collect();
-    let picture = decode_access_unit(&[pps, &sps], &slices).expect("cropped multi-slice picture");
+    let slice = pcm_slice_with_header(0..4, idr_header(0, 0, true));
+    let picture =
+        decode_access_unit(&[pps, &sps], &[&slice]).expect("cropped single-slice picture");
     assert_eq!((picture.width, picture.height), (26, 22));
     for (plane, width, height, first) in [
         (&picture.y, 26, 22, 100 + 4 + 6),
@@ -627,6 +610,62 @@ fn avc1_uses_its_sample_entry_and_refuses_auxiliary_and_extension_slices() {
     }
 }
 
+fn quantizer_pps(cb: i32, cr: i32, initial_qp_minus26: i32, deblocking_control: bool) -> Vec<u8> {
+    let mut w = BitWriter::new();
+    w.write_ue(0);
+    w.write_ue(0);
+    w.write_bits(0, 2);
+    for _ in 0..3 {
+        w.write_ue(0);
+    }
+    w.write_bits(0, 3);
+    w.write_se(initial_qp_minus26);
+    w.write_se(0);
+    w.write_se(cb);
+    w.write_bits(u32::from(deblocking_control) << 2, 3);
+    w.write_bits(0, 2);
+    w.write_se(cr);
+    w.rbsp_trailing_bits();
+    NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b()
+}
+
+#[test]
+fn invalid_chroma_initial_and_slice_quantizers_are_malformed() {
+    let sps = baseline_sps([1, 1], [0; 4], 2, false);
+    for control in [false, true] {
+        for (cb, cr, initial, delta) in [
+            (-13, -13, 0, 0),
+            (13, 13, 0, 0),
+            (0, -13, 0, 0),
+            (13, 0, 0, 0),
+            (0, 0, -27, 1),
+            (0, 0, 26, -1),
+            (0, 0, -26, -1),
+            (0, 0, 25, 1),
+            (0, 0, i32::MAX - 1, 0),
+        ] {
+            let pps = quantizer_pps(cb, cr, initial, control);
+            let slice = pcm_slice_with_header(0..1, idr_header(0, delta, control));
+            assert_eq!(
+                decode_access_unit(&[&sps, &pps[4..]], &[&slice])
+                    .unwrap_err()
+                    .reason(),
+                "malformed_bitstream"
+            );
+        }
+        for (chroma, initial, delta) in [(-12, -26, 51), (12, 25, -51)] {
+            let pps = quantizer_pps(chroma, chroma, initial, control);
+            let slice = pcm_slice_with_header(0..1, idr_header(0, delta, control));
+            assert_eq!(
+                decode_access_unit(&[&sps, &pps[4..]], &[&slice])
+                    .unwrap()
+                    .width,
+                16
+            );
+        }
+    }
+}
+
 #[test]
 fn active_pps_requires_equal_chroma_qp_offsets_and_raster_slice_groups() {
     let cfg = EncoderConfig::new(16, 16);
@@ -634,23 +673,8 @@ fn active_pps_requires_equal_chroma_qp_offsets_and_raster_slice_groups() {
         .to_nal()
         .to_annex_b();
     for (cb, cr) in [(0, 6), (-2, -2)] {
-        let mut w = BitWriter::new();
-        w.write_ue(0);
-        w.write_ue(0);
-        w.write_bits(0, 2);
-        for _ in 0..3 {
-            w.write_ue(0);
-        }
-        w.write_bits(0, 3);
-        w.write_se(0);
-        w.write_se(0);
-        w.write_se(cb);
-        w.write_bits(4, 3);
-        w.write_bits(0, 2);
-        w.write_se(cr);
-        w.rbsp_trailing_bits();
-        let pps = NalUnit::new(3, NalUnitType::Pps, w.into_bytes()).to_annex_b();
-        let picture = decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0, 0, 0)]);
+        let pps = quantizer_pps(cb, cr, 0, true);
+        let picture = decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0)]);
         if cb == cr {
             assert_eq!(picture.unwrap().y[0], 100);
         } else {
@@ -677,7 +701,7 @@ fn active_pps_requires_equal_chroma_qp_offsets_and_raster_slice_groups() {
     assert_eq!(
         decode_access_unit(
             &[&baseline_sps([2, 1], [0; 4], 2, false), &fmo[4..]],
-            &[&pcm_slice(1, 0, 0), &pcm_slice(0, 0, 0)]
+            &[&pcm_slice(1)]
         )
         .unwrap_err()
         .reason(),
@@ -712,7 +736,7 @@ fn unsupported_chroma_format_is_classified_before_420_cropping() {
         .to_nal()
         .to_annex_b();
     assert_eq!(
-        decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0, 0, 0)])
+        decode_access_unit(&[&sps[4..], &pps[4..]], &[&pcm_slice(0)])
             .unwrap_err()
             .reason(),
         "unsupported_codec"
@@ -726,7 +750,7 @@ fn slice_escape_validation_includes_the_byte_beyond_the_header_prefix() {
         .to_nal()
         .to_annex_b();
     for start in [62, 130] {
-        let mut slice = pcm_slice(0, 0, 0);
+        let mut slice = pcm_slice(0);
         slice[start..start + 3].copy_from_slice(&[0, 0, 1]);
         slice.insert(start + 2, 3);
         let good = decode_access_unit(&[&sps, &pps[4..]], &[&slice]).unwrap();
@@ -771,38 +795,22 @@ fn access_unit_limit_counts_only_the_serialized_active_sets_and_slices() {
 }
 
 #[test]
-fn idr_admission_rejects_inconsistent_slice_headers_and_embedded_delimiters() {
+fn idr_admission_rejects_invalid_single_slice_headers_and_embedded_delimiters() {
     let stream = encode_idr(EncoderConfig::baseline(32, 32), &pattern(32, 32));
     let nals = annex_b_nals(&stream);
     let pps = nals_of_type(&nals, 8)[0];
     let sps = baseline_sps([2, 2], [0; 4], 2, false);
-    let slices: Vec<_> = (0..4).map(|mb| pcm_slice(mb, 0, 0)).collect();
-    let [a, b, c, d] = slices.as_slice() else {
-        unreachable!()
-    };
-    let changed_pps = pcm_slice(1, 1, 0);
-    let changed_picture = pcm_slice(1, 0, 1);
-    let outside = pcm_slice(4, 0, 0);
-    let embedded = [a.as_slice(), &[0, 0, 1], b.as_slice()].concat();
-    for units in [
-        vec![b, c, d],
-        vec![a, b, b, c, d],
-        vec![a, c, b, d],
-        vec![a, a, b, c, d],
-        vec![a, &outside],
-        vec![a, &changed_pps, c, d],
-        vec![a, &changed_picture, c, d],
-        vec![&embedded, c, d],
-    ] {
-        let units: Vec<_> = units.into_iter().map(Vec::as_slice).collect();
+    let a = pcm_slice(0);
+    let embedded = [a.as_slice(), &[0, 0, 1], a.as_slice()].concat();
+    for slice in [pcm_slice(1), embedded] {
         assert_eq!(
-            decode_access_unit(&[&sps, pps], &units)
+            decode_access_unit(&[&sps, pps], &[&slice])
                 .unwrap_err()
                 .reason(),
             "malformed_bitstream"
         );
     }
-    let mut invalid = idr_header(0, 0, 0, (1, 0, 0));
+    let mut invalid = idr_header(0, 0, true);
     invalid.write_ue(1);
     invalid.write_ue(4);
     invalid.rbsp_trailing_bits();
@@ -816,7 +824,7 @@ fn idr_admission_rejects_inconsistent_slice_headers_and_embedded_delimiters() {
     for dims in [[1025, 1], [1, 1025]] {
         let oversized = baseline_sps(dims, [0; 4], 2, false);
         assert_eq!(
-            decode_access_unit(&[&oversized, pps], &[a])
+            decode_access_unit(&[&oversized, pps], &[&a])
                 .unwrap_err()
                 .reason(),
             "limit_exceeded"
@@ -829,7 +837,7 @@ fn signalled_matrix_and_range_select_the_specified_rgb_transform() {
     let stream = encode_idr(EncoderConfig::baseline(16, 16), &pattern(16, 16));
     let nals = annex_b_nals(&stream);
     let pps = nals_of_type(&nals, 8)[0];
-    let slice = pcm_slice(0, 0, 0);
+    let slice = pcm_slice(0);
     for code in 0..=u8::MAX {
         for full in [false, true] {
             let sps = baseline_sps([1, 1], [0; 4], code, full);

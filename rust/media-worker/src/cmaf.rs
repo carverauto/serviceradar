@@ -190,6 +190,14 @@ fn iter_boxes(buf: &[u8]) -> Result<Vec<BoxView<'_>>, MediaWorkerError> {
 
 /// Parses an ISO-BMFF / CMAF `init.mp4` segment (`ftyp` + `moov`).
 pub fn parse_init_segment(init_bytes: &[u8]) -> Result<ParsedInitSegment, MediaWorkerError> {
+    parse_init_segment_with_codec(init_bytes, &mut None)
+}
+
+pub(crate) fn parse_init_segment_with_codec(
+    init_bytes: &[u8],
+    identified_codec: &mut Option<VideoCodec>,
+) -> Result<ParsedInitSegment, MediaWorkerError> {
+    *identified_codec = None;
     let top_boxes = iter_boxes(init_bytes)?;
     let has_ftyp = top_boxes.iter().any(|b| &b.box_type == b"ftyp");
     if !has_ftyp {
@@ -213,7 +221,7 @@ pub fn parse_init_segment(init_bytes: &[u8]) -> Result<ParsedInitSegment, MediaW
     }
 
     for trak in moov_children.iter().filter(|b| &b.box_type == b"trak") {
-        if let Some(parsed) = parse_video_trak(trak.payload, movie_timescale)? {
+        if let Some(parsed) = parse_video_trak(trak.payload, movie_timescale, identified_codec)? {
             return Ok(parsed);
         }
     }
@@ -279,6 +287,7 @@ fn parse_tkhd_dimensions(payload: &[u8]) -> Option<(u32, u32)> {
 fn parse_video_trak(
     trak_payload: &[u8],
     default_timescale: u32,
+    identified_codec: &mut Option<VideoCodec>,
 ) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
     let trak_children = iter_boxes(trak_payload)?;
     let tkhd_dims = trak_children
@@ -317,13 +326,14 @@ fn parse_video_trak(
         return Ok(None);
     };
 
-    parse_stsd(stsd.payload, timescale, tkhd_dims)
+    parse_stsd(stsd.payload, timescale, tkhd_dims, identified_codec)
 }
 
 fn parse_stsd(
     stsd_payload: &[u8],
     timescale: u32,
     tkhd_dims: Option<(u32, u32)>,
+    identified_codec: &mut Option<VideoCodec>,
 ) -> Result<Option<ParsedInitSegment>, MediaWorkerError> {
     if stsd_payload.len() < 8 {
         return Err(MediaWorkerError::invalid_container("truncated 'stsd' box"));
@@ -345,6 +355,7 @@ fn parse_stsd(
             b"hvc1" | b"hev1" => VideoCodec::Hevc,
             _ => continue,
         };
+        *identified_codec = Some(codec);
 
         // VisualSampleEntry fixed fields span 78 bytes before nested configuration boxes:
         // reserved(6) + data_ref_idx(2) + pre_defined/reserved(16) + width(2) + height(2) +

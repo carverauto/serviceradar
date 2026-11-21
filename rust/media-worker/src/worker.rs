@@ -2,7 +2,7 @@
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
 use crate::backend::{DeterministicStubBackend, InferenceBackend, build_inference_backend};
-use crate::cmaf::{parse_init_segment, parse_timed_fragment};
+use crate::cmaf::{VideoCodec, parse_init_segment_with_codec, parse_timed_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
@@ -908,15 +908,28 @@ where
         job: &VisualIndexJobEnvelope,
         verified_block: &VerifiedKeyframeBlock,
     ) -> Result<JobExecution, MediaWorkerError> {
-        let init_seg = parse_init_segment(verified_block.init_bytes())?;
-
-        let codec = init_seg.codec().as_str();
+        let mut codec = None;
+        let init_seg = parse_init_segment_with_codec(verified_block.init_bytes(), &mut codec);
+        let codec = codec.map_or("unknown", VideoCodec::as_str);
         let mut decoded_frames: Vec<(u32, u64, RgbFrame)> =
             Vec::with_capacity(verified_block.fragments().len());
         let mut undecodable_keyframes = Vec::new();
         let mut base_pts_ns = 0;
         for (index, frag) in verified_block.fragments().iter().enumerate() {
-            let (container_pts_ns, sample) = parse_timed_fragment(frag.bytes(), &init_seg);
+            let (container_pts_ns, decoded) = match &init_seg {
+                Ok(init) => {
+                    let (pts, sample) = parse_timed_fragment(frag.bytes(), init);
+                    (
+                        pts,
+                        sample.map_err(|err| err.error_class()).and_then(|parsed| {
+                            self.keyframe_decoder
+                                .decode_keyframe(init, &parsed)
+                                .map_err(|err| err.reason())
+                        }),
+                    )
+                }
+                Err(error) => (0, Err(error.error_class())),
+            };
             let media_pts_ns = if frag.start_ns() == 0 {
                 container_pts_ns
             } else {
@@ -925,18 +938,12 @@ where
             if index == 0 {
                 base_pts_ns = media_pts_ns;
             }
-            let decoded = sample.and_then(|parsed| {
-                self.keyframe_decoder
-                    .decode_keyframe(&init_seg, &parsed)
-                    .map_err(MediaWorkerError::from)
-            });
             match decoded {
                 Ok(frame) => {
                     self.metrics.inc_keyframes_decoded(1);
                     decoded_frames.push((frag.sequence(), media_pts_ns, frame));
                 }
-                Err(err) => {
-                    let reason = err.error_class();
+                Err(reason) => {
                     self.metrics.inc_keyframes_undecodable(reason);
                     undecodable_keyframes.push(UndecodableKeyframePayload::new(
                         frag.sequence(),
