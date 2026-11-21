@@ -1487,7 +1487,7 @@ async fn connect_nats_and_jetstream(
     MediaWorkerError,
 > {
     ensure_rustls_provider();
-    let mut options = ConnectOptions::new();
+    let mut options = ConnectOptions::new().custom_inbox_prefix(config.nats_inbox_prefix());
 
     if let Some(creds_file) = config.nats_creds_file() {
         options = options.credentials_file(creds_file).await.map_err(|err| {
