@@ -245,79 +245,75 @@
 {{- end -}}
 {{- /* The media worker carries its own policy, which keeps it off CNPG and StarRocks.
      A match-all selector here would add same-namespace egress back, so the worker is
-     left out whenever it is enabled, even with its own policy turned off: the
-     operator then supplies its policy, and it never gains database access by
-     default. */ -}}
+     left out whenever it is enabled, even with its own policy turned off. */ -}}
 {{- $mediaWorkerOn := eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
 {{- if $mediaWorkerOn -}}
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
 {{- end -}}
+{{- /* With the media worker enabled, the database pods this policy selects (CNPG
+     instances and the PgBouncer pooler) get their own copy of it, identical except
+     that no ingress peer admits the worker. Every rule that could otherwise admit the
+     worker -- the same-namespace rule, an allowed namespace that is the release's
+     own, the ERTS rule -- then excludes it at the database, whatever its ports
+     (ranges, named ports, none). The main copy leaves those pods out and is
+     otherwise unchanged. */ -}}
+{{- $policyVariants := list (dict "suffix" "egress" "selector" $podSelector "guardDatabase" false) -}}
+{{- if $mediaWorkerOn -}}
+{{- $mainSelector := deepCopy $podSelector -}}
+{{- $_ := set $mainSelector "matchExpressions" (concat (default (list) $mainSelector.matchExpressions) (list (dict "key" "cnpg.io/podRole" "operator" "NotIn" "values" (list "instance")) (dict "key" "cnpg.io/poolerName" "operator" "NotIn" "values" (list $cnpgPoolerName)))) -}}
+{{- $instanceSelector := deepCopy $podSelector -}}
+{{- $_ := set $instanceSelector "matchExpressions" (concat (default (list) $instanceSelector.matchExpressions) (list (dict "key" "cnpg.io/cluster" "operator" "In" "values" (list $cnpgClusterName)) (dict "key" "cnpg.io/podRole" "operator" "In" "values" (list "instance")))) -}}
+{{- $poolerSelector := deepCopy $podSelector -}}
+{{- $_ := set $poolerSelector "matchExpressions" (concat (default (list) $poolerSelector.matchExpressions) (list (dict "key" "cnpg.io/poolerName" "operator" "In" "values" (list $cnpgPoolerName)))) -}}
+{{- $policyVariants = list (dict "suffix" "egress" "selector" $mainSelector "guardDatabase" false) (dict "suffix" "egress-cnpg-instances" "selector" $instanceSelector "guardDatabase" true) (dict "suffix" "egress-cnpg-pooler" "selector" $poolerSelector "guardDatabase" true) -}}
+{{- end -}}
+{{- $notMediaWorker := dict "matchExpressions" (list (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
+{{- $ertsSelector := $ingressErlangDistSelector -}}
+{{- range $variant := $policyVariants }}
+{{- $ertsSelector = $ingressErlangDistSelector -}}
+{{- if $variant.guardDatabase -}}
+{{- $ertsSelector = deepCopy $ingressErlangDistSelector -}}
+{{- $_ := set $ertsSelector "matchExpressions" (concat (default (list) $ertsSelector.matchExpressions) $notMediaWorker.matchExpressions) -}}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "serviceradar.fullname" . }}-egress
+  name: {{ include "serviceradar.fullname" $ }}-{{ $variant.suffix }}
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
   podSelector:
-{{- toYaml $podSelector | nindent 4 }}
+{{- toYaml $variant.selector | nindent 4 }}
   policyTypes:
     - Ingress
     - Egress
   ingress:
 {{- if or $allowIngressSameNs $hasIngressNamespaces $hasIngressCIDRs (and $ingressErlangDistEnabled $hasIngressErlangDistPorts) }}
 {{- if $allowIngressSameNs }}
-{{- if and $mediaWorkerOn $hasIngressPorts }}
-    {{- /* The media worker reaches NATS and the collectors through this rule but must
-         never reach PostgreSQL, also when its own policy is off and nothing limits its
-         egress, so it gets the same ports without 5432. */}}
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+              kubernetes.io/metadata.name: {{ $.Release.Namespace | quote }}
+          {{- if $variant.guardDatabase }}
           podSelector:
-            matchExpressions:
-              - key: app
-                operator: NotIn
-                values: [serviceradar-media-worker]
-      ports:
-{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
-    {{- $mediaWorkerPorts := list }}
-    {{- range $port := $ingressAllowedPorts }}
-    {{- if not (and (eq (default "TCP" $port.protocol) "TCP") (eq (int $port.port) 5432)) }}
-    {{- $mediaWorkerPorts = append $mediaWorkerPorts $port }}
-    {{- end }}
-    {{- end }}
-    {{- /* An empty port list would mean every port, 5432 included. */}}
-    {{- if $mediaWorkerPorts }}
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
-          podSelector:
-            matchLabels:
-              app: serviceradar-media-worker
-      ports:
-{{- include "serviceradar.networkPolicyPorts" $mediaWorkerPorts | trim | nindent 8 }}
-    {{- end }}
-{{- else }}
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+{{- toYaml $notMediaWorker | nindent 12 }}
+          {{- end }}
       {{- if $hasIngressPorts }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
       {{- end }}
-{{- end }}
 {{- end }}
 {{- range $namespace := $ingressAllowedNamespaces }}
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ $namespace | quote }}
+          {{- if $variant.guardDatabase }}
+          podSelector:
+{{- toYaml $notMediaWorker | nindent 12 }}
+          {{- end }}
       {{- if $hasIngressPorts }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
@@ -336,9 +332,9 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+              kubernetes.io/metadata.name: {{ $.Release.Namespace | quote }}
           podSelector:
-{{- toYaml $ingressErlangDistSelector | nindent 12 }}
+{{- toYaml $ertsSelector | nindent 12 }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $ingressErlangDistPorts | trim | nindent 8 }}
 {{- end }}
@@ -393,7 +389,7 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+              kubernetes.io/metadata.name: {{ $.Release.Namespace | quote }}
 {{- end }}
 {{- range $namespace := $egressAllowedNamespaces }}
     - to:
@@ -408,6 +404,7 @@ spec:
 {{- end }}
 {{- else }}
     []
+{{- end }}
 {{- end }}
 {{- if and $agentGatewayEnabled $agentGatewayExternalEnabled $hasAgentGatewayExternalCIDRs }}
 ---

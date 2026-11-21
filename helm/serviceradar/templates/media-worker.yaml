@@ -22,6 +22,10 @@
 {{- fail (printf "mediaWorker.models.%s is not supported: the worker indexes whole scenes only until a detector whose identity matches core's is added. Remove the key." $key) -}}
 {{- end -}}
 {{- end -}}
+{{- /* Every worker boolean is validated before the gate, so a bad value stored while
+     the worker is off fails now rather than when it is enabled. */ -}}
+{{- $_ := include "serviceradar.mediaWorkerNetworkPolicyEnabled" . -}}
+{{- $_ := include "serviceradar.mediaWorkerAllowNvrRead" . -}}
 {{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- $web := default (dict) .Values.webNg -}}
 {{- $controlPlaneRuntime := default (dict) $web.controlPlaneRuntime -}}
@@ -79,18 +83,35 @@
 {{- fail (printf "mediaWorker.executionProvider %s needs the NVIDIA container runtime: set mediaWorker.runtimeClassName (for example nvidia), or use executionProvider cpu_explicit" $executionProvider) -}}
 {{- end -}}
 {{- $modelsMountPath := default "/var/lib/serviceradar-media-worker/models" $models.mountPath -}}
-{{- $mwImage := default (dict) $mw.image -}}
-{{- $tagSuffix := default "" $mwImage.tagSuffix -}}
-{{- $mwDigest := index (default (dict) (default (dict) .Values.image).digests) "mediaWorker" | default "" -}}
-{{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker")) $mwImage.repository -}}
-{{- if and $tagSuffix $mwDigest -}}
-{{- fail "mediaWorker.image.tagSuffix cannot be combined with the digest pinned in image.digests.mediaWorker: pin the variant's own digest there and leave tagSuffix empty" -}}
+{{- $dtype := default "auto" $mw.dtype -}}
+{{- if not (has $dtype (list "auto" "f32" "f16")) -}}
+{{- fail (printf "mediaWorker.dtype must be auto, f32, or f16, got %q" (toString $dtype)) -}}
 {{- end -}}
-{{- /* An explicit worker tag replaces the release tag or digest; tagSuffix extends
-     either tag (a digest with a suffix was refused above). */ -}}
-{{- $imageSuffix := printf "%s%s" (include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker")) $tagSuffix -}}
+{{- /* The CUDA image keeps its compiled-kernel cache (about 350 MB) here; the root
+     filesystem is read-only and /tmp is too small. */ -}}
+{{- $cudaCache := default (dict) $mw.cudaCache -}}
+{{- $cudaCachePath := "/var/cache/serviceradar-media-worker/cuda" -}}
+{{- $mwImage := default (dict) $mw.image -}}
+{{- $mwDigest := index (default (dict) (default (dict) .Values.image).digests) "mediaWorker" | default "" -}}
+{{- $cpuRepo := include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker") -}}
+{{- $cudaRepo := include "serviceradar.imageRepository" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-media-worker-cuda") -}}
+{{- $imageRepo := default $cpuRepo $mwImage.repository -}}
+{{- /* The release image is a CPU build and cannot start under a GPU provider. The CUDA
+     build is its own repository, published only under sha-<commit> tags (arm64) by a
+     manually dispatched workflow, so it is selected with image.repository plus an
+     explicit image.tag or digest. */ -}}
+{{- if and (ne $executionProvider "cpu_explicit") (eq $imageRepo $cpuRepo) -}}
+{{- fail (printf "mediaWorker.executionProvider %s cannot start on %s, which is a CPU build: set mediaWorker.image.repository to %s and mediaWorker.image.tag to the sha-<commit> tag its publish workflow produced (or pin image.digests.mediaWorker)" $executionProvider $cpuRepo $cudaRepo) -}}
+{{- end -}}
+{{- /* Only the chart's own repository follows the release tag; any other repository
+     names its tag or digest explicitly. */ -}}
+{{- if and (ne $imageRepo $cpuRepo) (not $mwImage.tag) (not $mwDigest) -}}
+{{- fail (printf "mediaWorker.image.repository %s needs mediaWorker.image.tag (for the CUDA build, the sha-<commit> tag its publish workflow produced) or a digest in image.digests.mediaWorker" $imageRepo) -}}
+{{- end -}}
+{{- /* An explicit worker tag replaces the release tag or digest. */ -}}
+{{- $imageSuffix := include "serviceradar.imageRefSuffix" (dict "Values" .Values "Chart" .Chart "service" "mediaWorker") -}}
 {{- if $mwImage.tag -}}
-{{- $imageSuffix = printf ":%s%s" $mwImage.tag $tagSuffix -}}
+{{- $imageSuffix = printf ":%s" $mwImage.tag -}}
 {{- end -}}
 {{- $imageRef := printf "%s%s" $imageRepo $imageSuffix -}}
 {{- /* web-ng omits the private control-runtime listener (4001) from its ClusterIP Service;
@@ -309,6 +330,12 @@ spec:
               value: {{ $backend | quote }}
             - name: MEDIA_WORKER_DEVICE
               value: {{ $device | quote }}
+            - name: MEDIA_WORKER_DTYPE
+              value: {{ $dtype | quote }}
+            {{- if $gpu }}
+            - name: CUDA_CACHE_PATH
+              value: {{ $cudaCachePath | quote }}
+            {{- end }}
             {{- if $models.existingClaim }}
             - name: MEDIA_WORKER_MODEL_DIR
               value: {{ $modelsMountPath | quote }}
@@ -403,6 +430,10 @@ spec:
             - name: cert-data
               mountPath: /etc/serviceradar/certs
               readOnly: true
+            {{- if $gpu }}
+            - name: cuda-cache
+              mountPath: {{ $cudaCachePath | quote }}
+            {{- end }}
             {{- if $models.existingClaim }}
             {{- /* Only the three SigLIP files are mounted. Candle also loads any
                  detector.safetensors or yolov8.safetensors it finds in the model
@@ -419,6 +450,16 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
+        {{- if $gpu }}
+        - name: cuda-cache
+          {{- if $cudaCache.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $cudaCache.existingClaim | quote }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ default "1Gi" $cudaCache.sizeLimit | quote }}
+          {{- end }}
+        {{- end }}
         - name: cert-data
           secret:
             secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}

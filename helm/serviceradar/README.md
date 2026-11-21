@@ -569,12 +569,14 @@ access.
 | --- | --- | --- |
 | `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly | `candle` |
 | `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` at its root. Only those three files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`; restart the worker after replacing them. Nothing is downloaded or bundled | `""` |
-| `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and a CUDA build of the image. `tensorrt` additionally needs a loadable ONNX Runtime that provides the TensorRT execution provider (`ortDylibPath`), which the CUDA image does not include; inference itself still runs on candle's CUDA device | `cuda` |
+| `mediaWorker.executionProvider` | `cuda`, `tensorrt` or `cpu_explicit`. The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and the CUDA image (below); the chart refuses a GPU provider on the release's CPU image. `tensorrt` additionally needs a loadable ONNX Runtime that provides the TensorRT execution provider (`ortDylibPath`), which the CUDA image does not include; inference itself still runs on candle's CUDA device | `cuda` |
+| `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16` | `auto` |
+| `mediaWorker.cudaCache.sizeLimit`, `existingClaim` | Under a GPU provider, a writable compiled-kernel cache (about 350 MB) is mounted at `/var/cache/serviceradar-media-worker/cuda` and passed as `CUDA_CACHE_PATH`, since the root filesystem is read-only and `/tmp` is small: an `emptyDir` of `sizeLimit`, or `existingClaim` to keep it across restarts. The image's other CUDA settings (`LD_LIBRARY_PATH`, `CUDA_CACHE_MAXSIZE`, `NVIDIA_DRIVER_CAPABILITIES`) are left as built | `1Gi`, `""` |
 | `mediaWorker.device` | Candle device. Empty derives `cuda` for the GPU providers and `cpu` for `cpu_explicit`. GPU providers accept `cuda` or `auto`; `cpu_explicit` accepts only `cpu` | `""` |
 | `mediaWorker.runtimeClassName`, `gpuResourceName`, `gpuCount` | GPU scheduling. A GPU provider needs a runtime class and requests `gpuCount` (at least 1) of `gpuResourceName`; `cpu_explicit` requests no GPU | `""`, `nvidia.com/gpu`, `1` |
 | `mediaWorker.replicas` | Worker pods; `0` is honoured. A GPU worker is replaced with the `Recreate` strategy, because a pool without a spare GPU cannot schedule a rolling update's extra pod: an upgrade stops the old pod first and leaves a short gap, during which unacknowledged jobs wait and are redelivered. A `cpu_explicit` worker uses `RollingUpdate` | `1` |
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
-| `mediaWorker.image.repository`, `tag`, `tagSuffix` | Image overrides. `tagSuffix` is appended to the tag in use, so `-cuda` selects `<tag>-cuda`. It cannot be combined with a digest pinned in `image.digests.mediaWorker`; pin the variant's digest there instead. The default image is a CPU build | `""` |
+| `mediaWorker.image.repository`, `tag` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or pin a digest. Any repository other than the release's needs an explicit tag or digest | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. Must name the same deployment and generation as `webNg.controlPlaneRuntime.mediaWorker` | `""`, `media-worker-token`, `""`, `"1"` |
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
 
@@ -617,7 +619,12 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   Two Secrets holding identical bytes are deliberately not supported: a
   rotation would update one and leave the other behind. Any other host is
   treated as a remote control plane and left to the operator;
-- `image.tagSuffix` is combined with a pinned digest;
+- a GPU provider uses the release's CPU image, or a non-release repository has
+  neither a tag nor a digest;
+- `webNg.controlPlaneRuntime.port` collides with web-ng's public listener
+  (4000) or its metrics port, or `SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT` is
+  set through `webNg.extraEnv` or `extraEnvValueFrom` (the port the worker and
+  both policy directions use has one source);
 - the worker's streams do not fit JetStream (below).
 
 The retired keys (`models.embedderModelId`, `embedderModelVersion`,
@@ -686,19 +693,35 @@ everything and core and web-ng get neither grant.
 **Network.** The worker's own policy allows DNS, NATS, web-ng's private
 control-plane port, the OTLP collector, the NVR read port when
 `allowNvrRead` is set, and HTTPS to public object storage
-(`mediaWorker.networkPolicy.s3EgressCidrs` minus `s3ExceptCidrs`). The
-namespace-wide policies leave the worker out so that none of them reopens
-same-namespace egress: the `serviceradar-egress` NetworkPolicy (including with
+(`mediaWorker.networkPolicy.s3EgressCidrs` minus `s3ExceptCidrs`). Whenever
+the worker is enabled, whatever `mediaWorker.networkPolicy.enabled` says, the
+namespace-wide `serviceradar-egress` NetworkPolicy (including with
 `networkPolicy.podSelectorMatchAll`) and the Calico
-`networkPolicy.calicoLogDenied` policy exclude it from their selectors, and
-CNPG's application ingress admits every pod in the namespace except the
-worker. These exclusions apply whenever the worker is enabled, including with
-`mediaWorker.networkPolicy.enabled: false`. Turning the worker's own policy off
-therefore leaves it selected by no chart policy at all, so the operator must
-supply its policy (an unselected pod is not isolated by Kubernetes). It still
-never gains database access by default: CNPG's application ingress excludes it,
-and the `serviceradar-egress` same-namespace ingress rule admits it on every
-listed port except PostgreSQL's 5432.
+`networkPolicy.calicoLogDenied` policy leave it out of their selectors, so
+neither reopens same-namespace egress to it. With its own policy off it is
+therefore selected by no chart policy, and the operator supplies its policy.
+
+**Database isolation.** The chart keeps the worker off PostgreSQL at the
+database pods themselves, so it does not depend on the worker's own policy:
+
+- With `networkPolicy.enabled`, the CNPG instances (primary and replicas) and
+  the PgBouncer pooler are left out of `serviceradar-egress` and get their own
+  copies of it (`serviceradar-egress-cnpg-instances`,
+  `serviceradar-egress-cnpg-pooler`) with the same rules, except that every
+  pod-based ingress peer excludes the worker. That holds for any port form
+  (ranges, named ports, none) and for the release namespace listed under
+  `networkPolicy.ingress.allowedNamespaces`.
+- Without it, the CNPG application policy admits the primary to every pod but
+  the worker, and `serviceradar-cnpg-*-no-media-worker` policies select the
+  replicas and the pooler (and the primary, when `cnpg.applicationAccess` is
+  off) and admit every source except the worker: all other pods in the
+  namespace and all pods in other namespaces.
+
+What the chart enforces is that no policy it renders admits the worker to the
+CNPG instances or the pooler. It cannot enforce that on a cluster whose CNI
+does not implement NetworkPolicy, against policies an operator adds, or
+against `networkPolicy.ingress.allowedCIDRs` entries that cover the pod network
+(an IP block cannot exclude one pod).
 
 **Enabling it.** Create these in the release namespace first; Helm creates
 neither:
@@ -715,9 +738,20 @@ neither:
    ```
 
 Then set `mediaWorker.enabled` and `webNg.controlPlaneRuntime.mediaWorker.enabled`
-together, select a CUDA build of the image for a GPU provider (plus the
-TensorRT runtime for `tensorrt`), and make sure the JetStream budget has room
-for the worker's streams.
+together, select the CUDA image for a GPU provider (plus the TensorRT runtime
+for `tensorrt`), and make sure the JetStream budget has room for the worker's
+streams. The worker reports ready only after loading the model and warming up,
+which on a first CUDA start takes about ten seconds plus the model load;
+`/readyz` answers 503 until then while `/healthz` (liveness) stays healthy, so
+the pod simply stays unready meanwhile.
+
+**Rotating the read-grant token.** Both workloads read it from their
+environment, so a new token reaches a pod only when it restarts, and a worker
+holding a different token than web-ng gets no grants. Update the Secret, then
+advance `mediaWorker.auth.generation` and
+`webNg.controlPlaneRuntime.mediaWorker.generation` together in one upgrade,
+which rolls both Deployments, and expect grants to succeed once both rollouts
+finish.
 
 With `nats.certificateAuthorization.enabled`, the broker admits only adopted
 certificates, so the newly issued worker certificate also has to be adopted as
@@ -739,9 +773,11 @@ run there:
 - `mediaWorker.backend` and `device`;
 - the weights PVC: provisioning it with the SigLIP files and setting
   `models.existingClaim` (and `models.mountPath` if changed);
-- image selection and pulling: `mediaWorker.image.tagSuffix`, `tag`,
-  `repository` and `pullPolicy`, or a digest in `image.digests.mediaWorker`, and
+- image selection and pulling: `mediaWorker.image.repository`, `tag` and
+  `pullPolicy`, or a digest in `image.digests.mediaWorker` (for GPU, the CUDA
+  repository and the `sha-<commit>` tag its publish workflow produced), and
   `ortDylibPath` for `tensorrt`;
+- `mediaWorker.dtype` and `cudaCache.sizeLimit` or `cudaCache.existingClaim`;
 - GPU placement and size: `executionProvider`, `runtimeClassName`,
   `gpuResourceName`, `gpuCount`, `nodeSelector`, `tolerations`, `affinity` and
   `resources`;

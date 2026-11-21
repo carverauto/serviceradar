@@ -2,6 +2,9 @@
 mediaWorker:
   enabled: true
   runtimeClassName: nvidia
+  image:
+    repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+    tag: sha-0123456789abcdef0123456789abcdef01234567
   models:
     existingClaim: example-media-models-pvc
   auth:

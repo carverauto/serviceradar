@@ -37,6 +37,8 @@ IDENTITY = {
 ENABLED_WORKER = {
     "mediaWorker.enabled": True,
     "mediaWorker.runtimeClassName": "nvidia",
+    "mediaWorker.image.repository": "registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda",
+    "mediaWorker.image.tag": "sha-0123456789abcdef0123456789abcdef01234567",
     "mediaWorker.models.existingClaim": "synthetic-models",
     "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
     "mediaWorker.auth.deploymentRef": "00000000-0000-4000-8000-000000000004",

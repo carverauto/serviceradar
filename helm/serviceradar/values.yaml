@@ -501,14 +501,16 @@ mediaWorker:
   # strategy, since a pool without a spare GPU cannot surge; cpu_explicit rolls.
   replicas: 1
   image:
-    # Optional repository/tag overrides; when blank, resolved via
-    # serviceradar.imageRef (image.registry/serviceradar-media-worker).
+    # Empty selects the release's CPU build, image.registry/serviceradar-media-worker
+    # at the release tag (or image.digests.mediaWorker), which only runs
+    # cpu_explicit. The GPU build is a separate repository,
+    # image.registry/serviceradar-media-worker-cuda (arm64), published only under
+    # sha-<commit> tags by a manually dispatched workflow: set repository to it and
+    # tag to the sha-<commit> tag that workflow produced (or pin
+    # image.digests.mediaWorker). A repository other than the release's needs an
+    # explicit tag or digest.
     repository: ""
     tag: ""
-    # Appended to the tag in use (mediaWorker.image.tag or the release tag), so
-    # "-cuda" selects <tag>-cuda for a CUDA build. Not combinable with a digest
-    # pinned in image.digests.mediaWorker; pin the variant's digest there instead.
-    tagSuffix: ""
     pullPolicy: ""
   port: 8096
   # "candle" runs SigLIP from the weights in models.existingClaim (required).
@@ -517,10 +519,21 @@ mediaWorker:
   backend: "candle"
   # "cuda" | "tensorrt" | "cpu_explicit" (fails closed if GPU runtime is
   # unavailable unless explicitly set to "cpu_explicit"). cuda and tensorrt need
-  # runtimeClassName and an image built with CUDA; the default image is CPU-only.
+  # runtimeClassName and the CUDA image (see image); the release image is CPU-only
+  # and the chart refuses a GPU provider on it.
   # tensorrt additionally needs a loadable ONNX Runtime with the TensorRT
   # execution provider (ortDylibPath), which the CUDA image does not include.
   executionProvider: "cuda"
+  # Model weight precision (MEDIA_WORKER_DTYPE): "auto" (f16 on CUDA, f32 on
+  # CPU), "f32" or "f16".
+  dtype: "auto"
+  # Writable compiled-kernel cache for GPU providers, mounted at
+  # /var/cache/serviceradar-media-worker/cuda as CUDA_CACHE_PATH (about 350 MB;
+  # the root filesystem is read-only). An emptyDir of sizeLimit, or existingClaim
+  # to keep the cache across pod restarts.
+  cudaCache:
+    sizeLimit: 1Gi
+    existingClaim: ""
   # Inference device for the candle backend. Empty derives cuda for the GPU
   # providers and cpu for cpu_explicit. GPU providers accept "cuda" or "auto";
   # cpu_explicit accepts only "cpu", since it requests no GPU.

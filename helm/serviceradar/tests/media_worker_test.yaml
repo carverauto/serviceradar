@@ -18,6 +18,8 @@ tests:
       mediaWorker.enabled: true
       mediaWorker.replicas: 2
       mediaWorker.executionProvider: cuda
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: sha-0123456789abcdef0123456789abcdef01234567
       mediaWorker.gpuResourceName: nvidia.com/gpu
       mediaWorker.gpuCount: 1
       mediaWorker.runtimeClassName: nvidia
@@ -318,6 +320,8 @@ tests:
     set:
       mediaWorker.enabled: true
       mediaWorker.executionProvider: tensorrt
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: sha-0123456789abcdef0123456789abcdef01234567
       mediaWorker.gpuCount: 2
       mediaWorker.runtimeClassName: nvidia
       mediaWorker.nodeSelector:
@@ -522,3 +526,44 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN must be configured through webNg.controlPlaneRuntime.mediaWorker
+
+  - it: takes web-ng's control-plane port only from webNg.controlPlaneRuntime.port
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT: "4401"
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT must be configured through webNg.controlPlaneRuntime.port
+
+  - it: refuses the control-plane port through extraEnvValueFrom as well
+    template: templates/web.yaml
+    set:
+      webNg.extraEnvValueFrom.SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT:
+        configMapKeyRef: {name: synthetic-ports, key: control-plane}
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT must be configured through webNg.controlPlaneRuntime.port
+
+  - it: refuses a control-plane port that collides with web-ng's public listener
+    template: templates/web.yaml
+    set:
+      webNg.controlPlaneRuntime.port: 4000
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.port 4000 collides with web-ng's public listener (4000) or its metrics port (9090)
+
+  - it: refuses a control-plane port that collides with web-ng's metrics port
+    template: templates/web.yaml
+    set:
+      webNg.controlPlaneRuntime.port: 9090
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.port 9090 collides with web-ng's public listener (4000) or its metrics port (9090)
