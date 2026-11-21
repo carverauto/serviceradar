@@ -71,7 +71,7 @@ if allow_db_free_tests? and not db_required? do
 end
 
 if db_required? do
-  unless Code.ensure_loaded?(ServiceRadar.Test.CameraRelayFixtures) do
+  if !Code.ensure_loaded?(ServiceRadar.Test.CameraRelayFixtures) do
     Code.require_file("../../serviceradar_core/test/support/camera_relay_fixtures.ex", __DIR__)
   end
 

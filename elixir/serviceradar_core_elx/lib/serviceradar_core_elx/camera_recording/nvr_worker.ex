@@ -645,14 +645,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp finalize_send_result(state, send_result) do
     if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
     state = cancel_lease_timer(%{state | sender_pid: nil, sender_monitor: nil})
-    expected_key = state.block.block_key
-    expected_storage = state.storage_id
+    block_key = state.block.block_key
+    storage_id = state.storage_id
 
     refusal_reason = state.abort_reason || capture_error(check_capture(state.capture))
     eof_replied? = state.eof_replied?
 
     case {send_result, refusal_reason, check_recovery_gate()} do
-      {{:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}, reason, gate_status} ->
+      {{:ok, %{status: :sealed_local, storage_id: ^storage_id, block_ids: [^block_key]}}, reason, gate_status} ->
         catalog = register_sealed_block(state, reason, gate_status)
         release = release_clean_consumer(state)
         payload = Map.merge(correlation_fields(state), %{status: :sealed_local, catalog: catalog, release: release})
@@ -710,10 +710,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         {:unregistered, :registration_deadline}
 
       true ->
-        case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
-          {:ok, result} -> result
-          {:exit, reason} -> {:unconfirmed, reason}
-        end
+        catalog_before_deadline(state, deadline)
+    end
+  end
+
+  defp catalog_before_deadline(state, deadline) do
+    case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:unconfirmed, reason}
     end
   end
 

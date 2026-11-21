@@ -24,6 +24,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadarCoreElx.CameraRecording.NVRWorker
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
+  alias ServiceRadarCoreElx.CameraRecording.Workers
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
@@ -272,7 +273,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   test "one-shot deadline includes a stalled start and survives loss of its caller", ctx do
     owner = owner(ctx, 90_000)
     tasks = start_supervised!(Task.Supervisor)
-    workers = ServiceRadarCoreElx.CameraRecording.Workers
+    workers = Workers
     :ok = :sys.suspend(workers)
 
     try do
@@ -888,7 +889,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       if Process.alive?(once), do: Agent.stop(once)
     end)
 
-    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
 
     :ok =
       :telemetry.attach(
@@ -916,7 +917,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       if Process.alive?(once), do: Agent.stop(once)
     end)
 
-    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
 
     :ok =
       :telemetry.attach(
@@ -1394,7 +1395,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     try do
       send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
-      await_worker_message(capture.worker, &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1))
+
+      await_worker_message(
+        capture.worker,
+        &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1)
+      )
+
       Process.sleep(max(0, deadline - System.monotonic_time(:millisecond) + 1))
     after
       :ok = :sys.resume(capture.worker)
@@ -1411,7 +1417,11 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     try do
       GenServer.cast(capture.worker, {:interrupt, :capture_timeout})
       send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
-      await_worker_message(capture.worker, &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1))
+
+      await_worker_message(
+        capture.worker,
+        &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1)
+      )
     after
       :ok = :sys.resume(capture.worker)
     end
@@ -1419,7 +1429,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_registration_refused(ctx, capture, :capture_timeout)
   end
 
-  test "NVRCapture delivers the seal when renewal observed recovery closure before the reply", ctx do
+  test "NVRCapture delivers the seal when renewal observed recovery closure before the reply",
+       ctx do
     capture = capture_waiting_for_seal(ctx)
     gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
     ready = File.read!(gate.path)
@@ -2030,7 +2041,14 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   test "NVRCapture refuses the freeze when recovery closes during the policy read", ctx do
     capture = sealing_capture(ctx)
     assert_receive {:nvr_descriptor_read, _}, 5_000
-    fault_on_action(capture.worker, CameraRecordingPolicy, :by_camera_profile, &close_recovery_gate/0)
+
+    fault_on_action(
+      capture.worker,
+      CameraRecordingPolicy,
+      :by_camera_profile,
+      &close_recovery_gate/0
+    )
+
     {_descriptor, bytes} = capture.descriptor
     send(capture.nvr.peer, {:descriptor, 200, bytes})
     assert_registration_refused(ctx, capture)
@@ -2040,7 +2058,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   test "NVRCapture withholds registration success when recovery closes during freeze", ctx do
     capture = sealing_capture(ctx)
     assert_receive {:nvr_descriptor_read, _}, 5_000
-    fault_on_action(capture.worker, RecordingCatalogEntry, :register_sealed, &close_recovery_gate/0)
+
+    fault_on_action(
+      capture.worker,
+      RecordingCatalogEntry,
+      :register_sealed,
+      &close_recovery_gate/0
+    )
 
     %{receipt: receipt} = registering_capture(capture, fn bytes -> {200, bytes} end)
     assert receipt.status == :sealed_local
@@ -2361,7 +2385,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert receipt.status == :sealed_local
     assert {:unregistered, {:descriptor_status, 503, _}} = receipt.catalog
     assert {:release_pending_lease_expiry, reason} = receipt.release
-    refute is_nil(reason)
+    assert reason
     relay_id = ctx.relay.id
 
     assert_receive {:trace, _pid, :call,
@@ -2491,7 +2515,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     owner = owner(ctx, 30_000)
     nvr = setup_nvr_release(ctx.tmp_dir)
     _daemon = start_nvr_daemon(nvr)
-    workers = ServiceRadarCoreElx.CameraRecording.Workers
+    workers = Workers
     :ok = Supervisor.terminate_child(RecordingSupervisor, workers)
     Process.register(self(), workers)
 
@@ -2534,14 +2558,21 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                    5_000
 
     parent = self()
-    worker = start_supervised!({Task, fn -> run_worker_with_exit_barrier(owner, opts, parent) end})
+
+    worker =
+      start_supervised!({Task, fn -> run_worker_with_exit_barrier(owner, opts, parent) end})
+
     GenServer.reply(from, {:ok, worker})
     worker
   end
 
   defp run_worker_with_exit_barrier(owner, opts, parent) do
     {:ok, _} =
-      Registry.register(ServiceRadarCoreElx.CameraRecording.Registry, {owner.id, owner.epoch}, nil)
+      Registry.register(
+        ServiceRadarCoreElx.CameraRecording.Registry,
+        {owner.id, owner.epoch},
+        nil
+      )
 
     {:ok, state, continuation} = NVRWorker.init(opts)
 
