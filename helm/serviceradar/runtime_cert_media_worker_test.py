@@ -159,7 +159,12 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
                 if path.name in data:
                     raise AssertionError(f"duplicate Secret key {path.name!r} under {secret_files}")
                 data[path.name] = base64.b64encode(path.read_bytes()).decode("ascii")
-            secret_json = json.dumps({"data": data})
+            secret_json = json.dumps({
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": self.enabled_env["SECRET_NAME"]},
+                "data": data,
+            })
         (work / "secret.json").write_text(secret_json)
         sa = work / "sa"
         sa.mkdir()
@@ -175,10 +180,9 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
             os.environ,
             PYTHONPATH=str(site),
             FAKE_SECRET_JSON=str(work / "secret.json"),
-            SECRET_NAME="serviceradar-runtime-certs",
             CERT_DIR=str(work / "certs"),
             **{k: self.enabled_env[k] for k in (
-                "DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID", "RUNTIME_CERT_LAYOUT_VERSION",
+                "SECRET_NAME", "DEFAULT_PARTITION_ID", "DEFAULT_AGENT_COMPONENT_ID", "RUNTIME_CERT_LAYOUT_VERSION",
             )},
         )
         result = subprocess.run(
