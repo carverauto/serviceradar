@@ -1163,6 +1163,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     {:error, :nvr_read_capacity} = ServiceRadarNVR.publication_page()
     {:error, :nvr_read_capacity} = ServiceRadarNVR.sealed_block(digest)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.block_descriptor(digest)
+    {:error, :invalid_block_id} = ServiceRadarNVR.block_descriptor("not-a-block-id")
     {:error, :nvr_read_capacity} = ServiceRadarNVR.read_block(digest, digest, :init)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.read_block(digest, digest, {:fragment, 0})
     {:error, :invalid_descriptor_digest} = ServiceRadarNVR.read_block(digest, nil, :init)

@@ -16,6 +16,8 @@ defmodule ServiceRadarRecordingMetadata.Descriptor do
   @profiles [66, 77, 100]
   @fragment_keys ~w(sequence offset length start_ns duration_ns sha256 tail_duration_source motion)
 
+  def max_json_bytes, do: @max_json_bytes
+
   def from_snapshot(%{sealed?: true, identity: identity, init: init, entries: entries, high_water: size, sha256: sha}, %{
         sha256: init_sha,
         timescale: timescale,

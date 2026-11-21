@@ -24,19 +24,22 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarRecordingMetadata.Descriptor
   alias ServiceRadarWebNG.CameraTimelineAdmission
 
   require Ash.Query
 
   @moduletag :web_ng_shared_fixture_db
+  @moduletag :tmp_dir
 
   @registered_storage_id "00000000-0000-4000-8000-000000000051"
   @provisional_storage_id "00000000-0000-4000-8000-000000000052"
   @base_dt ~U[2026-11-16 14:00:00.000000Z]
   @base_us DateTime.to_unix(@base_dt, :microsecond)
 
-  setup %{conn: conn} do
+  setup %{conn: conn, tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     actor = system_actor()
     insert_local_storage_binding(@registered_storage_id)
 

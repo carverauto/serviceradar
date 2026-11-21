@@ -82,6 +82,22 @@ The credential is held only for the request. No returned error, and nothing this
 library logs, contains it. It is a bucket credential resolved by Core for this
 one request, never a camera credential or an installed workload credential.
 
+## Reading a sealed block's descriptor
+
+`ServiceRadarNVRClient.block_descriptor/3` reads the canonical descriptor of one
+sealed block (`GET /v1/blocks/<block_id>/descriptor`) over the same mutual TLS
+and bearer token. The default total timeout is 15000 milliseconds (1 through
+300000). The result is `{:ok, descriptor}`, the decoded string-keyed descriptor,
+only when the 200 body is a valid descriptor, its canonical encoding is exactly
+the bytes received, and its identity derives the requested block id; so a
+caller that re-encodes it gets the NVR's bytes and digest. Any other 200 body is
+`{:error, :invalid_descriptor_response}`. A non-200 answer is
+`{:error, {:descriptor_status, status, error}}`, decoded as for archiving. A
+lost, truncated or late answer, or one larger than the descriptor's 2 MiB bound,
+is `{:error, :descriptor_unavailable}`. A malformed block id is refused before
+connecting with `{:error, :invalid_descriptor_request}`. The read changes
+nothing, so it can be repeated.
+
 ## Test ownership
 
 The receiver's `//elixir/serviceradar_nvr:release_test` owns end-to-end transport
@@ -93,5 +109,6 @@ deadline cleanup. A real NVR refusing a stream mid-body checks that the client
 reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
-with the request file's `block_id` and `archive_request`; its `paced` mode
+with the request file's `block_id` and `archive_request`; its `descriptor` mode
+calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `paced` mode
 sleeps `pace_ms` before each unit and reports how many units were pulled.

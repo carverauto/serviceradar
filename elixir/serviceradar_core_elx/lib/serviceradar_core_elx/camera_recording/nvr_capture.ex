@@ -17,19 +17,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRCapture do
   the unfinished stream (400, 401, 422 or 503 before the end marker) has sealed
   nothing it had open, so that capture returns
   `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the worker's
-  correlation fields, after the worker has released the recorder claim. A
+  correlation fields. The worker attempts to release the recorder claim. A
   capture Core itself stops before the worker hands its sender `:eof`, such as
   on a unit with a backwards timestamp, cannot have sent the end marker either,
   so it returns `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` the
-  same way; a Core abort after `:eof`, a capture timeout and caller loss stay
-  uncertain. Like any other failure, a refused or aborted capture closes the
-  relay when this call opened it.
+  same way. Without a verified seal receipt, a Core abort after `:eof`, a
+  capture timeout and caller loss stay uncertain. A definite refusal or abort
+  closes the relay when this call opened it.
 
   `:timeout_ms` (default 30,000, at most 300,000) bounds the whole call, and
   `:bounds` sets the worker's frame, byte and media-duration bounds (see
   `ServiceRadarCoreElx.CameraRecording.NVRWorker`). The timeout must cover the
-  capture plus relay start-up and the NVR seal: a 270 s capture, the duration
-  ceiling, needs about 295,000 ms.
+  capture plus relay start-up, the NVR seal and the block's registration: a
+  270 s capture, the duration ceiling, needs about 295,000 ms.
+
+  A sealed capture returns `{:ok, receipt}` with `status: :sealed_local`. Its
+  `catalog` field is `{:registered, entry_id}` when the worker froze the block's
+  descriptor and created its catalog entry. A refusal returns
+  `{:unregistered, reason}`. An ambiguous result returns `{:unconfirmed, reason}`.
+  An unconfirmed freeze may already have committed. The
+  `release` field is `:released` or
+  `{:release_pending_lease_expiry, reason}` when release could not be confirmed.
+  The latter permits takeover after the lease expires.
   """
 
   alias ServiceRadar.Actors.SystemActor

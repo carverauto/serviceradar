@@ -23,12 +23,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Repo
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarRecordingMetadata.Descriptor
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
 
   require Ash.Query
 
   @moduletag :web_ng_shared_fixture_db
+  @moduletag :tmp_dir
 
   @account_token "synthetic-worker-grants-account-token-more-than-32b"
   @media_token "synthetic-worker-grants-media-token-more-than-32bytes"
@@ -40,7 +42,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneMediaWorkerGrantsDBTest do
   @storage_id "00000000-0000-4000-8000-000000000601"
   @base_dt ~U[2026-11-17 10:00:00.000000Z]
 
-  setup do
+  setup %{tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     previous_runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
     previous_issuer = Application.get_env(:serviceradar_web_ng, :control_plane_media_worker_grants_issuer)
     deployment_ref = Ecto.UUID.generate()

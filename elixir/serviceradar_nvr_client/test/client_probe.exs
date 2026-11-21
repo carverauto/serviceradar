@@ -60,6 +60,9 @@ result =
           request["timeout_ms"]
         )
 
+      "descriptor" ->
+        ServiceRadarNVRClient.block_descriptor(config, request["block_id"], request["timeout_ms"])
+
       "caller_loss" ->
         {caller, caller_monitor} =
           spawn_monitor(fn ->
@@ -97,6 +100,7 @@ result =
   case result do
     {:ok, receipt} -> %{ok: receipt}
     {:error, {:archive_status, status, error}} -> %{error: "archive_status", status: status, body: error}
+    {:error, {:descriptor_status, status, error}} -> %{error: "descriptor_status", status: status, body: error}
     {:error, reason} -> %{error: inspect(reason)}
   end
 

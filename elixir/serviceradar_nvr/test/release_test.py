@@ -1813,6 +1813,138 @@ class NVRReleaseTest(unittest.TestCase):
                 self.assertIn(error, result.stdout + result.stderr)
                 self.assertEqual(list(self.spool.iterdir()), [])
 
+    def sealed_network_block(self):
+        self.ingest_installation()
+        self.make_media()
+        proc = self.start_ingest_release()
+        status, receipt = self.ingest_request(self.ingest_header() + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(len(receipt["block_ids"]), 1)
+        return proc, receipt["block_ids"][0]
+
+    def descriptor_request(self, block_id, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
+        try:
+            connection.request("GET", f"/v1/blocks/{block_id}/descriptor",
+                               headers={"Authorization": "Bearer " + (token or self.ingest_token)})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def descriptor_peer(self, status, body):
+        """An independent TLS peer that answers every descriptor read with `body`."""
+        requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                requests.append((self.path, self.headers.get("Authorization")))
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(str(self.root / "server.pem"), str(self.root / "server-key.pem"))
+        tls.load_verify_locations(str(self.root / "server-ca.pem"))
+        tls.verify_mode = ssl.CERT_REQUIRED
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return requests, server.server_address[1]
+
+    def test_descriptor_returns_the_canonical_bytes_of_a_verified_sealed_block(self):
+        _proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        status, body = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, body)
+        descriptor = json.loads(body)
+        self.assertEqual(canonical(descriptor), body)
+        identity = descriptor["identity"]
+        key = [identity["source_id"], identity["profile"], identity["recorder_epoch"], identity["block_sequence"]]
+        self.assertEqual(hashlib.sha256(json.dumps(key, separators=(",", ":")).encode()).hexdigest(), block_id)
+        self.assertEqual(identity["clock"]["clock_epoch"], "synthetic-network-clock")
+        for name, field in (("init.mp4", "init"), ("media.m4s", "media")):
+            data = (block / name).read_bytes()
+            self.assertEqual(descriptor[field], {"length": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        self.assertEqual(sum(fragment["length"] for fragment in descriptor["fragments"]), descriptor["media"]["length"])
+        # The packaged client returns exactly the descriptor those bytes encode.
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000}),
+                         {"ok": descriptor})
+
+        self.assertEqual(self.descriptor_request(block_id, token="incorrect-token")[0], 401)
+        for unknown in ("0" * 64, "not-a-block-id"):
+            self.assertEqual(self.descriptor_request(unknown), (404, b'{"error":"block_not_found"}'))
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": "0" * 64, "timeout_ms": 15000}),
+                         {"error": "descriptor_status", "status": 404, "body": {"error": "block_not_found"}})
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": "not-a-block-id", "timeout_ms": 15000}),
+                         {"error": ":invalid_descriptor_request"})
+
+        # Removing the seal record leaves an open block, which has no descriptor.
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        self.assertEqual(self.descriptor_request(block_id), (200, body))
+
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        for name in ("journal", "init.mp4", "media.m4s"):
+            with self.subTest(missing=name):
+                path = block / name
+                retained = path.read_bytes()
+                path.unlink()
+                self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+                path.write_bytes(retained)
+
+        unavailable = self.spool.with_name("offline-spool")
+        self.spool.rename(unavailable)
+        try:
+            self.assertEqual(self.descriptor_request("not-a-block-id"), (404, b'{"error":"block_not_found"}'))
+            self.assertEqual(self.descriptor_request("not-a-block-id", token="incorrect-token")[0], 401)
+            self.assertEqual(self.descriptor_request(block_id), (503, b'{"error":"descriptor_unavailable"}'))
+        finally:
+            unavailable.rename(self.spool)
+        self.assertEqual(self.descriptor_request(block_id), (200, body))
+
+        fragment = descriptor["fragments"][0]
+        fragments = [{**fragment, "sequence": n, "offset": n * fragment["length"],
+                      "start_ns": fragment["start_ns"] + n * fragment["duration_ns"]} for n in range(256)]
+        large = {**descriptor, "fragments": fragments,
+                 "media": {**descriptor["media"], "length": len(fragments) * fragment["length"]}}
+        encoded = canonical(large)
+        self.assertGreater(len(encoded), 32 * 1024)
+        self.assertLess(len(encoded), 2 * 1024 * 1024)
+        requests, port = self.descriptor_peer(200, encoded)
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000},
+                                         config_changes={"port": port}), {"ok": large})
+        self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
+
+        # The client accepts only canonical bytes whose identity derives the block it asked for.
+        other = {**identity, "block_sequence": identity["block_sequence"] + 1}
+        refused = (json.dumps(descriptor, indent=1).encode(), canonical({**descriptor, "identity": other}),
+                   canonical({**descriptor, "version": 2}), b"x" * 2097153)
+        for answer in refused:
+            with self.subTest(answer=answer[:40]):
+                requests, port = self.descriptor_peer(200, answer)
+                self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000},
+                                                 config_changes={"port": port}),
+                                 {"error": ":invalid_descriptor_response"} if len(answer) <= 2097152
+                                 else {"error": ":descriptor_unavailable"})
+                self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
 
 
 def canonical(value):
@@ -1928,15 +2060,6 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
             return response.status, response.read()
         finally:
             connection.close()
-
-    def sealed_network_block(self):
-        self.ingest_installation()
-        self.make_media()
-        proc = self.start_ingest_release()
-        status, receipt = self.ingest_request(self.ingest_header() + b"".join(self.ingest_units()) + struct.pack("!I", 0))
-        self.assertEqual(status, 200, receipt)
-        self.assertEqual(len(receipt["block_ids"]), 1)
-        return proc, receipt["block_ids"][0]
 
     def object_prefix(self, block_id):
         return f"recordings/v1/{self.env['NVR_TEST_EXPECTED_STORAGE_ID']}/{block_id}/"
@@ -2054,6 +2177,10 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
             offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
         (block / "journal").write_bytes(journal[:last])
         self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_unavailable"}'))
+        (block / "journal").unlink()
+        self.assertEqual(self.archive_request(block_id, document), (404, b'{"error":"block_not_found"}'))
         (block / "journal").write_bytes(journal)
         self.assertEqual(store["requests"], [])
         self.assertFalse((block / "archive-receipt.json").exists())

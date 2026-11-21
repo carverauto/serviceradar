@@ -282,8 +282,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert %DateTime{} = persisted.object_capacity_policy_confirmed_at
   end
 
+  @tag :tmp_dir
   test "freeze_and_catalog and RecordingHolds surface real catalog copy states, PD5 hold-pin badges, and held/non-reapable bytes across ?tab=cameras and ?tab=retention",
-       %{conn: conn, scope: scope, actor: actor} do
+       %{conn: conn, scope: scope, actor: actor, tmp_dir: tmp_dir} do
+    open_synthetic_recovery_gate!(tmp_dir)
     opts = [actor: actor]
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Writer")
     retention_secret = create_synthetic_s3_secret(actor, "Synthetic Stage B Retention")
@@ -708,8 +710,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(policy_view, "#recording-policy-row-#{updated_policy.id}", "rev 2")
   end
 
+  @tag :tmp_dir
   test "recorders tab enforces NVRStorageSettings pinned-bytes floor and persists desired budget and reserve",
-       %{conn: conn, actor: actor} do
+       %{conn: conn, actor: actor, tmp_dir: tmp_dir} do
+    open_synthetic_recovery_gate!(tmp_dir)
     opts = [actor: actor]
     writer_secret = create_synthetic_s3_secret(actor, "Synthetic Storage Floor Writer")
 
@@ -818,8 +822,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveDBTest do
     assert has_element?(rec_view, "#storage-settings-row-#{@storage_id}", "pending")
   end
 
+  @tag :tmp_dir
   test "health tab renders real CNPG archive backlog, per-storage capacity, quarantine, dispositions, and 24h gaps",
-       %{conn: conn, scope: scope, actor: actor} do
+       %{conn: conn, scope: scope, actor: actor, tmp_dir: tmp_dir} do
+    open_synthetic_recovery_gate!(tmp_dir)
     seed_health_tab_records(actor, scope)
 
     {:ok, health_view, health_html} = live(conn, ~p"/settings/recording?tab=health")

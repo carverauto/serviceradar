@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRecordingConfigurationDBTest do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
 
   @moduletag :web_ng_shared_fixture_db
@@ -356,8 +357,10 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRecordingConfigurationDBTest do
     refute status_conn.resp_body =~ secret_marker_v4
   end
 
+  @tag :tmp_dir
   test "held-object manifest HTTP pages held archive objects deterministically",
-       %{installation: installation} do
+       %{installation: installation, tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     sys_actor = SystemActor.system(:cp_holds_manifest_test)
     storage_id = Ecto.UUID.generate()
 

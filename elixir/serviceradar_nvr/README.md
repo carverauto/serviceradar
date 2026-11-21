@@ -32,6 +32,11 @@ sealed block's init, media and descriptor through Longshore, reads every object
 back and only then retains `archive-receipt.json` beside the block. The local
 block is kept. See [archive upload](../../docs/nvr-ingest.md#archive-upload).
 
+It also answers `GET /v1/blocks/<block_id>/descriptor` with the canonical
+descriptor bytes of one verified sealed block, read in the shared read pool.
+Core freezes those bytes when it catalogs the block. See
+[block descriptor](../../docs/nvr-ingest.md#block-descriptor).
+
 ## Deployment recovery admission
 
 Runtime admission requires an external boot-pinned recovery generation and a
@@ -122,9 +127,8 @@ requires expected identity and exclusive ownership before repairing tails.
 `ServiceRadarNVR.block_descriptor/1` performs the same read-only verification
 and returns canonical v1 JSON for the sealed block: identity, clock, native format,
 initialization/media digests and fragment ranges. It uses the same descriptor
-validator as Core's frozen blocks and archive manifests. The bytes contain no
-local paths or storage receipts; the API is trusted same-VM only, with no HTTP
-endpoint. Descriptor inspection itself does not persist a sidecar.
+validator as Core's frozen blocks and archive manifests. The descriptor omits
+local paths and storage receipts. Inspection does not persist a sidecar.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not
@@ -294,7 +298,8 @@ Concurrent publication may change previously read entries, and new blocks that
 sort before the cursor appear only on a new scan from nil. Preserve unresolved
 work and rescan; advancing a cursor acknowledges nothing. A trusted coordinator
 may explicitly deliver a pending intent with `deliver_publication/1`, or enable
-the scheduler above. Core catalog completion remains separate work.
+the scheduler above. For Core catalog registration during capture, see the
+[bounded relay coordinator](../../docs/nvr-ingest.md#bounded-relay-coordinator).
 
 ## Descriptor-bound local media reads
 

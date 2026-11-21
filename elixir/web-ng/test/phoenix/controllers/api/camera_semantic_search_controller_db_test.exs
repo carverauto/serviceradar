@@ -19,17 +19,20 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
   @moduletag :web_ng_shared_fixture_db
+  @moduletag :tmp_dir
 
   @storage_id "00000000-0000-4000-8000-000000000611"
   @base_dt ~U[2026-11-17 12:00:00.000000Z]
   @base_us DateTime.to_unix(@base_dt, :microsecond)
 
-  setup %{conn: conn} do
+  setup %{conn: conn, tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     previous_embedder = Application.get_env(:serviceradar_core, :camera_semantic_text_embedder)
     previous_web_opts = Application.get_env(:serviceradar_web_ng, :camera_semantic_search_opts)
 

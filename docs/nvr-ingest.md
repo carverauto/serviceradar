@@ -9,7 +9,7 @@ S3 remains optional.
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
 | Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
-| Footage catalog | Durable publication intents and Core acceptance | Current-history completion and qualified local-copy registration |
+| Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
 | Playback | Archive player and authorized S3 reads | Owner-routed authorized local reads and player discovery |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
 
@@ -77,9 +77,27 @@ sending media over NATS/JetStream or ERTS distribution:
    control processes, and streams contiguous 90000 Hz H264 AnnexB access units
    through `ServiceRadarNVRClient.send_recording/4`.
 4. A verified `sealed_local` receipt returns the correlated `recording_block_id`
-   and `block_key` while keeping the `RecordingBlock` in `:open_local` (never
-   published or playable by local seal alone). Any `:outcome_unknown`, timeout
-   or caller loss aborts without sending the stream-end marker, never retries
+   and `block_key`. While it holds its recorder claim, the worker reads the
+   block's canonical descriptor (`GET /v1/blocks/<block_id>/descriptor`) and,
+   under that still-live claim, freezes it on the `RecordingBlock` and creates
+   the block's `RecordingCatalogEntry` in one transaction
+   (`RecordingBlocks.freeze_and_catalog/6`). The entry's archive state follows
+   the camera's `CameraRecordingPolicy` storage mode and the archive settings.
+   A capture without a policy has no archive obligation. The timeline uses the
+   [received time basis](docs/camera-recording.md#coverage-bar-time-basis-and-playback-controls).
+   The receipt reports `catalog: {:registered, entry_id}` when the freeze returns
+   success and `{:unregistered, reason}` for a definite refusal. An expired
+   capture deadline or a recovery closure observed during renewal skips
+   registration. Each step needs at least 250 ms within both the capture
+   deadline and the lease time left after reserving cleanup time.
+   If the registration task times out
+   or Core cannot confirm the freeze, the receipt reports `{:unconfirmed, reason}`.
+   The transaction may have committed. The NVR seal remains durable in every case.
+   Core attempts claim release and relay close, then returns `{:ok, receipt}`
+   with `release: :released` or
+   `release: {:release_pending_lease_expiry, reason}`. A failed release logs
+   a warning, and lease expiry permits takeover. Without a verified seal, an
+   unknown transport outcome, timeout or caller loss stops the stream, never retries
    or fails over to another replica, and leaves the reserved block and epoch
    intact for inspection or recovery. The recorder lease keeps renewing until
    the NVR answers. These uncertain outcomes return
@@ -89,10 +107,9 @@ sending media over NATS/JetStream or ERTS distribution:
    refused the unfinished stream and sealed nothing it had open. That is a
    definite failure, not an unknown outcome: the capture returns
    `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the same
-   correlation fields and releases its recorder claim, so the next capture of
-   the source can start at once instead of failing with
-   `:recorder_already_owned` until the 30-second lease lapses. Its reserved
-   `RecordingBlock` stays `:open_local`, as after any other failure. A non-200
+   correlation fields and attempts to release its recorder claim. Successful
+   release lets the next capture of the source start immediately. Its reserved
+   `RecordingBlock` stays `:open_local`. A non-200
    answer read after the end marker stays uncertain, because the NVR can
    answer 422 or 503 after it has sealed.
 6. Core can stop a stream itself: a unit that fails order validation (for
@@ -102,23 +119,24 @@ sending media over NATS/JetStream or ERTS distribution:
    its sender `:eof`, so a Core abort before that point cannot have requested
    a seal. It is a definite failure: the capture returns
    `{:error, {:nvr_ingest_aborted, %{reason: reason, ...}}}` with the same
-   correlation fields and releases its recorder claim, exactly as for a
-   refusal. A Core abort after the worker handed out `:eof` stays uncertain,
-   because the end marker may have gone out. A capture timeout or caller loss
-   stays uncertain even when Core stops the stream before `:eof`.
+   correlation fields and attempts to release its recorder claim, as for a
+   refusal. Without a verified receipt, a Core abort after the worker handed out
+   `:eof` stays uncertain because the end marker may have gone out. A capture
+   timeout or caller loss also stays uncertain in the absence of a verified receipt,
+   even when Core stops the stream before `:eof`.
    `frames_sent` and `bytes_sent` count units handed to the NVR client, so
    after a failure they bound from above what reached the NVR.
 7. A capture `timeout_ms` outside 1 through 300000 is refused before any
    recorder claim is taken. A capture with less than 250 ms left before its NVR
-   stream opens stops with `:capture_timeout` (not uncertain) and releases its
+   stream opens stops with `:capture_timeout` (not uncertain) and attempts to release its
    recorder claim. A verified receipt is returned even if worker cleanup
    outlasts the drain window.
 
 A capture ends at the first of its frame, byte and media-duration bounds
 (defaults 240 frames, 8 MiB and 6 seconds; ceilings 8,100 frames, 12 MiB and
 270 seconds, about 4.5 minutes at 30 fps). The call's `timeout_ms` must cover
-the capture, relay start-up and the NVR seal: about 295,000 ms for a 270-second
-capture. The NVR side must allow the same: `nvr.maxDurationMs` defaults to
+the capture, relay start-up, the NVR seal and the block's registration: about
+295,000 ms for a 270-second capture. The NVR side must allow the same: `nvr.maxDurationMs` defaults to
 300000 in the Helm chart for this reason.
 
 One capture is one NVR block, `block_sequence: 0`, and the worker accepts only
@@ -225,36 +243,36 @@ An answered refusal is not an unknown outcome. The NVR seals the final block
 only after it reads the end marker and HTTP body completion, so any of these
 statuses received before the end marker was sent means the block it had open
 was not sealed; its journal is kept unsealed. The coordinator treats that as a
-definite failure and releases its recorder claim. The same statuses can arrive
+definite failure and attempts to release its recorder claim. The same statuses can arrive
 after the end marker following a seal: a 503 when recovery closes after
 sealing, or a 422 when sealing outlasts the deadline. Those stay unknown.
 
 A stream the coordinator stops before it releases the end marker is not an
 unknown outcome either: without the marker the NVR seals nothing it had open,
 whatever the transport reports. The coordinator treats that as a definite
-failure and releases its recorder claim. Once the end marker may have gone out,
-a coordinator-side stop stays unknown. A capture timeout or caller loss stays
-unknown at any point in the stream.
+failure and attempts to release its recorder claim. Once the end marker may have gone out,
+a coordinator-side stop, timeout or caller loss leaves the outcome unknown until
+Core receives a verified seal receipt for its reserved block. A verified receipt
+completes the capture and Core attempts claim release even if registration is
+refused.
 
 | When the stream ended | What Core knows | Capture result | Recorder claim |
 | --- | --- | --- | --- |
-| Verified `sealed_local` receipt naming the reserved block | Sealed | `{:ok, receipt}` | Released |
-| NVR answered 400, 401, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Released |
-| Core stopped the stream before handing out the end marker | Open block not sealed | `{:error, {:nvr_ingest_aborted, details}}` | Released |
-| Core stopped the stream after handing out the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
-| Capture timeout, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
-| Caller loss, also before the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Verified `sealed_local` receipt naming the reserved block | Sealed | `{:ok, receipt}` | Release outcome on receipt |
+| NVR answered 400, 401, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Release attempted, expiry on failure |
+| Core stopped the stream before handing out the end marker | Open block not sealed | `{:error, {:nvr_ingest_aborted, details}}` | Release attempted, expiry on failure |
+| Core stopped after the end marker, without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Capture timeout without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
+| Caller loss without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 | Answer lost, cut short, malformed, or non-200 after the end marker | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 
 A refused or aborted capture with the recovery gate closed is reported as
 uncertain and keeps its claim.
 
 Incomplete work retains its journal and completed blocks. A stream longer than
-one block seals each full block as it goes. A capture at the default
-`nvr.maxBlockFragments` of 150 fits one block and cannot rotate, but on a
-deployment configured with a small fragment limit a capture can still rotate,
-and a later refusal or Core abort then leaves the earlier block sealed while
-Core releases the recorder claim. The NVR reports blocks sealed mid-stream only
+one block seals each full block as it goes. If a capture rotates before a
+later refusal or Core abort, the NVR leaves the earlier block sealed while
+Core attempts to release the recorder claim. The NVR reports blocks sealed mid-stream only
 in a 200 receipt, so Core does not learn that block's ID; find it with block
 discovery at that NVR. The request never repairs, deletes or adopts retained
 storage. It cannot bypass current recovery state, the bootstrap/history
@@ -262,6 +280,21 @@ barrier, source/profile exclusion, capacity checks or write-time disk guards.
 Closing recovery during work withholds success even if some bytes have already
 been written. Inspection and explicit recovery remain separate operations under
 their existing authority requirements.
+
+## Block descriptor
+
+The same authenticated listener answers `GET /v1/blocks/<block_id>/descriptor`
+with the canonical v1 descriptor JSON of one sealed block: its identity and
+clock, codec, initialization and media lengths and SHA-256, and every fragment's
+offset, length, timing and SHA-256. Core freezes exactly these bytes when it
+catalogs the block. The read runs in the NVR's shared read pool (four slots, no
+queue, ten seconds per read), verifies the whole sealed block before answering
+and changes nothing on disk. Answers: 200 with the descriptor bytes, 401 for a
+client that fails the certificate pin or token, 404 `block_not_found` for an ID
+that names no retained block (including a malformed ID), 409 `block_not_sealed`
+for a block with no seal that verifies, and 503 `descriptor_unavailable` when
+the read pool is full, the read times out, recovery is closed or storage is
+unavailable. The request deadline is 15 seconds.
 
 ## Archive upload
 
@@ -352,6 +385,10 @@ neither deployed-camera behavior nor physical Longhorn node-loss durability.
 The same target runs the packaged client against the packaged NVR and an
 independent TLS peer to check wire bytes, receipt binding, server identity,
 byte limits, no retries and bounded cleanup after producer or caller failure.
+The same target reads a network-ingested block's descriptor over mutual TLS,
+checks it against the block's files and the packaged client, and checks the
+401, 404 and 409 answers and that the client refuses non-canonical bytes and
+descriptors for another block.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every
