@@ -91,11 +91,13 @@ async function installAgent(options: Record<string, any>): Promise<void> {
   const tokenPublicKey = String(options.tokenPublicKey || process.env[TOKEN_PUBLIC_KEY_ENV] || "").trim()
   if (!tokenPublicKey) {
     throw new Error(
-      "--token-public-key is required (the deployment's onboarding token public key; `edge package create` prints it with the install command).\n" +
+      "--token-public-key is required (the deployment's onboarding token public key, from `edge package create` on supported instances or the web UI's enroll command under Settings -> Edge onboarding).\n" +
         `  ${TOKEN_PUBLIC_KEY_ENV} in the environment is also accepted.`,
     )
   }
-  if (!/^[A-Za-z0-9+/_-]{43}=?$/.test(tokenPublicKey)) throw new Error("--token-public-key must be a base64 Ed25519 public key")
+  if (!isValidTokenPublicKey(tokenPublicKey)) {
+    throw new Error("--token-public-key must be a 32-byte Ed25519 public key (base64, base64url, or 64-character hex)")
+  }
 
   const ctx = installContext(options)
   const file = packageFileName("serviceradar-agent", ctx)
@@ -112,6 +114,22 @@ async function installAgent(options: Record<string, any>): Promise<void> {
   if (!ctx.dryRun) {
     console.log(`✓ Agent installed and enrolled. Check it with: systemctl status serviceradar-agent; serviceradar-cli agent list --instance ${instance}`)
   }
+}
+
+/** Validate a 32-byte Ed25519 public key in base64, base64url, or 64-character hex. */
+function isValidTokenPublicKey(key: string): boolean {
+  if (/^[0-9A-Fa-f]{64}$/.test(key)) return true
+  if (/^[A-Za-z0-9+/]{43}=?$/.test(key)) {
+    const bytes = Buffer.from(key, "base64")
+    const canonical = bytes.toString("base64")
+    return bytes.length === 32 && (key === canonical || key === canonical.slice(0, -1))
+  }
+  if (/^[A-Za-z0-9_-]{43}=?$/.test(key)) {
+    const bytes = Buffer.from(key, "base64url")
+    const canonical = bytes.toString("base64url")
+    return bytes.length === 32 && (key === canonical || key === `${canonical}=`)
+  }
+  return false
 }
 
 /** Package id inside an `edgepkg-v2:`/`edgepkg-v3:` token, without verifying its signature. */

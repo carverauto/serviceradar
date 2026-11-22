@@ -228,12 +228,14 @@ test("agent list prints a table from the admin route", async () => {
 
 test("edge package create sends the UI-equivalent payload and prints the onboarding token", async () => {
   const token = edgepkgToken("pkg-1")
+  const publicKey = Buffer.alloc(32, 5).toString("base64")
   await withServer(
     (req, res) => json(res, 201, {
       package: {package_id: "pkg-1", label: "Branch Office 1", component_id: "agent-branch-office-1", component_type: "agent", status: "issued", site: "branch"},
       join_token: "join",
       download_token: "dl",
       onboarding_token: token,
+      onboarding_token_public_key: publicKey,
       bundle_pem: "",
     }),
     async (instance, requests) => {
@@ -257,12 +259,40 @@ test("edge package create sends the UI-equivalent payload and prints the onboard
       })
       assert.match(stdout, /Created agent package pkg-1/)
       assert.ok(stdout.includes(token))
-      assert.match(stdout, /edge install agent --instance .* --package pkg-1/)
+      assert.ok(stdout.includes(`--token-public-key ${publicKey}`))
+      assert.doesNotMatch(stdout, /did not return its onboarding token public key/)
 
       const asJson = await runCli(["edge", "package", "create", "--instance", instance, "--label", "x", "--json"], {env: TOKEN_ENV})
       const parsed = JSON.parse(asJson.stdout)
       assert.equal(parsed.package.package_id, "pkg-1")
       assert.equal(parsed.onboarding_token, token)
+      assert.equal(parsed.onboarding_token_public_key, publicKey)
+    },
+  )
+})
+
+test("edge package create omits --token-public-key and explains where to get it when the instance omits the key", async () => {
+  const token = edgepkgToken("pkg-older")
+  await withServer(
+    (req, res) => json(res, 201, {
+      package: {package_id: "pkg-older", label: "Branch Older", component_id: "agent-branch-older", component_type: "agent", status: "issued"},
+      join_token: "join",
+      download_token: "dl",
+      onboarding_token: token,
+    }),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(
+        ["edge", "package", "create", "--instance", instance, "--label", "Branch Older", "--component-type", "agent"],
+        {env: TOKEN_ENV},
+      )
+      assert.equal(code, 0, stderr)
+      assert.match(stdout, /edge install agent --instance .* --package pkg-older --token '<onboarding token>' --version <release>/)
+      assert.doesNotMatch(stdout, /--token-public-key <token public key>/)
+      assert.match(stdout, /did not return its onboarding token public key.*Settings -> Edge onboarding.*--token-public-key/)
+
+      const asJson = await runCli(["edge", "package", "create", "--instance", instance, "--label", "Branch Older", "--json"], {env: TOKEN_ENV})
+      const parsed = JSON.parse(asJson.stdout)
+      assert.equal(parsed.onboarding_token_public_key, null)
     },
   )
 })
@@ -537,25 +567,51 @@ test("edge install agent --dry-run plans the release RPM, dnf, and srctl enroll 
 test("edge install agent hands the token public key to srctl and refuses to run without one", async () => {
   const token = edgepkgToken("pkg-1")
   const base = ["--instance", "https://tenant.example", "--package", "pkg-1", "--token", token, "--version", "1.4.81", ...DRY]
+  // Bytes whose base64 uses '+' and '/' and whose base64url uses '-' and '_' in both halves.
+  const rawKey = Buffer.from([0xfb, 0xff, 0xbf, 0xef, ...Array(24).fill(0x5a), 0xfb, 0xff, 0xbf, 0xef])
+  const validKeys = [
+    rawKey.toString("base64"),
+    rawKey.toString("base64").replace(/=+$/, ""),
+    rawKey.toString("base64url"),
+    `${rawKey.toString("base64url")}=`,
+    rawKey.toString("hex"),
+    rawKey.toString("hex").toUpperCase(),
+  ]
 
-  const planned = await runCli(["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, ...base])
-  assert.equal(planned.code, 0, planned.stderr)
-  assert.ok(
-    planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=${TOKEN_PUBLIC_KEY} /usr/local/bin/srctl enroll`) ||
-      planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY='${TOKEN_PUBLIC_KEY}' /usr/local/bin/srctl enroll`),
-    planned.stdout,
-  )
+  for (const key of validKeys) {
+    const planned = await runCli(["edge", "install", "agent", "--token-public-key", key, ...base])
+    assert.equal(planned.code, 0, `${key}: ${planned.stderr}`)
+    assert.ok(
+      planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=${key} /usr/local/bin/srctl enroll`) ||
+        planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY='${key}' /usr/local/bin/srctl enroll`),
+      planned.stdout,
+    )
+  }
 
   const missing = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: ""}})
   assert.notEqual(missing.code, 0)
   assert.match(missing.stderr, /--token-public-key is required/)
+  assert.match(missing.stderr, /Settings -> Edge onboarding/)
+  assert.doesNotMatch(missing.stderr, /`edge package create` prints it with the install command/)
 
-  const fromEnvironment = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: TOKEN_PUBLIC_KEY}})
-  assert.equal(fromEnvironment.code, 0, fromEnvironment.stderr)
+  for (const key of [TOKEN_PUBLIC_KEY, rawKey.toString("hex")]) {
+    const fromEnvironment = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: key}})
+    assert.equal(fromEnvironment.code, 0, `${key}: ${fromEnvironment.stderr}`)
+  }
 
-  const malformed = await runCli(["edge", "install", "agent", "--token-public-key", "not-a-key", ...base])
-  assert.notEqual(malformed.code, 0)
-  assert.match(malformed.stderr, /must be a base64 Ed25519 public key/)
+  const malformedKeys = [
+    "not-a-key",
+    rawKey.toString("hex").slice(0, 62),
+    `${rawKey.toString("hex")}00`,
+    Buffer.alloc(31, 9).toString("base64"),
+    `${"A".repeat(42)}B=`,
+    `${rawKey.toString("base64").slice(0, 20)}${rawKey.toString("base64url").slice(20)}`,
+  ]
+  for (const badKey of malformedKeys) {
+    const malformed = await runCli(["edge", "install", "agent", "--token-public-key", badKey, ...base])
+    assert.notEqual(malformed.code, 0, `expected ${badKey} to be rejected`)
+    assert.match(malformed.stderr, /must be a 32-byte Ed25519 public key/)
+  }
 })
 
 test("edge install agent maps deb hosts and arm64 to the matching release asset", async () => {

@@ -10,9 +10,17 @@
   `match.recovery` uses a key the alert engine does not read
   (`unknown_match_key`).
 - Added the `serviceradar` bin alias alongside `serviceradar-cli` and `srcloud`.
+- `edge package create` prints the deployment's `onboarding_token_public_key`
+  in the suggested install command (and includes it in `--json`) when returned
+  by the instance, or points to `Settings -> Edge onboarding` when an older
+  instance omits it.
+- `edge install agent` requires `--token-public-key` (or
+  `SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY`) in base64, base64url, or
+  64-character hex and passes it to `srctl enroll` in the child environment.
 - `edge install leaf` and `edge install collector` require an enrolled host
   agent. They register a managed component and wait for agent certificate
-  installation and service activation. They no longer apply a leaf `setup.sh`
+  installation and service activation, then confirm the managed unit stays
+  active across three checks. They no longer apply a leaf `setup.sh`
   or collector `update.sh` bundle, and they do not wait for `serviceradar-nats`
   before configuring a site-assigned collector.
 - `dashboard build` inlines imported `.css` into the single `renderer.js`.

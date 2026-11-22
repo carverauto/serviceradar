@@ -837,13 +837,6 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   # The signed edgepkg token the CLI hands to the agent enroll and bundle
   # download flows, the same one the edge-package LiveView shows after create.
   # nil when this deployment has no onboarding signing key configured.
-  defp onboarding_token_public_key do
-    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
-      key when is_binary(key) and key != "" -> key
-      _ -> nil
-    end
-  end
-
   defp signed_onboarding_token(package, download_token) do
     case ServiceRadarWebNG.Edge.encode_onboarding_token(
            package.id,
@@ -851,6 +844,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
            ServiceRadarWebNGWeb.Endpoint.url()
          ) do
       {:ok, token} -> token
+      _ -> nil
+    end
+  end
+
+  # The deployment's onboarding token public key, or nil when unset.
+  defp onboarding_token_public_key do
+    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
+      key when is_binary(key) and key != "" -> key
       _ -> nil
     end
   end
