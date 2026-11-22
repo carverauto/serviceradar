@@ -153,7 +153,7 @@ defmodule ServiceRadarNVR.Ingest do
     with true <- Map.keys(params) -- ["after", "limit"] == [],
          {:ok, limit} <- page_limit(Map.get(params, "limit", "100")),
          after_id = Map.get(params, "after"),
-         true <- is_nil(after_id) or (is_binary(after_id) and Regex.match?(~r/\A[0-9a-f]{64}\z/, after_id)) do
+         true <- is_nil(after_id) or is_binary(after_id) do
       {:ok, after_id, limit}
     else
       _ -> :invalid

@@ -1162,6 +1162,14 @@ class NVRReleaseTest(unittest.TestCase):
         self.run_probe("discovery_limit")
         self.assertEqual(len(list(self.spool.iterdir())), 4098)
 
+    def test_multipage_rebuild_reports_later_failure_settles_exits_and_rejects_invalid_ids(self):
+        marker = self.spool / ".storage-id"
+        marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        marker.chmod(0o600)
+        for index in range(2100):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+        self.run_probe("multipage_rebuild")
+
     def ingest_installation(self):
         self.run_probe("delivery_certificates")
         self.run_probe("recovery_ready")
@@ -2154,7 +2162,7 @@ class NVRReleaseTest(unittest.TestCase):
             with self.subTest(ids=len(ids)):
                 self.assertEqual(self.lookup(ids), (400, b'{"error":"invalid_lookup_request"}'))
         self.assertEqual(self.lookup([block_id], content_type="application/json")[0], 400)
-        for query in ("?limit=0", "?limit=101", "?limit=01", "?after=XYZ", "?limit=1&extra=1"):
+        for query in ("?limit=0", "?limit=101", "?limit=01", "?after=XYZ", "?after[a]=1", "?limit=1&extra=1"):
             with self.subTest(query=query):
                 self.assertEqual(self.member_request("GET", "/v1/blocks" + query),
                                  (400, b'{"error":"invalid_inventory_request"}'))

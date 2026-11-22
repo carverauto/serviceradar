@@ -1273,6 +1273,104 @@ case System.fetch_env!("NVR_TEST_MODE") do
     {:ok, blocks} = ServiceRadarNVR.list_blocks()
     ^expected = length(blocks)
 
+  "multipage_rebuild" ->
+    wait_rebuild = fn wait, attempts ->
+      case ServiceRadarNVR.capacity() do
+        {:error, :nvr_inventory_rebuilding} when attempts > 0 ->
+          Process.sleep(20)
+          wait.(wait, attempts - 1)
+
+        result ->
+          result
+      end
+    end
+
+    entries = root |> File.ls!() |> List.delete(".storage-id")
+    2100 = length(entries)
+
+    bad_file = Path.join([root, Enum.at(entries, 1024), "unexpected.txt"])
+    File.write!(bad_file, "stray")
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+    {:error, :nvr_inventory_unavailable} = wait_rebuild.(wait_rebuild, 200)
+
+    File.rm!(bad_file)
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+    {:ok, %{blocks: 2100, used_bytes: 0, reserved_bytes: 0}} = wait_rebuild.(wait_rebuild, 200)
+
+    capacity_pid = Process.whereis(Capacity)
+    expected = Map.put(identity, :clock, clock)
+
+    for bad_id <- [".", ".storage-id", "../outside", :not_a_binary, 123] do
+      {:error, :invalid_block_id} = ServiceRadarNVR.recover_block(bad_id, expected)
+      {:error, :invalid_block_id} = ServiceRadarNVR.prepare_publication(bad_id, %{})
+      {:error, :invalid_block_id} = ServiceRadarNVR.acknowledge_publication(bad_id, "{}")
+      {:error, :invalid_block_id} = Capacity.record_archive_receipt(bad_id, "{}")
+    end
+
+    ^capacity_pid = Process.whereis(Capacity)
+    {:ok, %{blocks: 2100, used_bytes: 0}} = ServiceRadarNVR.capacity()
+
+    settled_block = hd(entries)
+    trigger_block = Enum.at(entries, 1000)
+    parent = self()
+
+    writer =
+      spawn(fn ->
+        {:ok, _token, _, _} = Capacity.reserve(settled_block)
+        send(parent, :writer_reserved)
+
+        receive do
+          :exit -> :ok
+        end
+      end)
+
+    receive do
+      :writer_reserved -> :ok
+    after
+      5_000 -> raise "writer failed to reserve block"
+    end
+
+    trigger_file = Path.join([root, trigger_block, "unexpected.txt"])
+    File.write!(trigger_file, "stray")
+    {:error, _} = ServiceRadarNVR.prepare_publication(trigger_block, %{})
+    File.rm!(trigger_file)
+
+    hook = fn
+      :waiting, {:in, :rebuild_page}, _ ->
+        send(parent, :rebuild_paused)
+
+        receive do
+          :resume_rebuild -> :done
+        after
+          10_000 -> raise "rebuild pause handshake failed"
+        end
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(Capacity, {hook, :waiting})
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+
+    receive do
+      :rebuild_paused -> :ok
+    after
+      5_000 -> raise "rebuild did not reach second page"
+    end
+
+    File.write!(Path.join([root, settled_block, "journal"]), :binary.copy(<<0>>, 128))
+    writer_monitor = Process.monitor(writer)
+    send(writer, :exit)
+
+    receive do
+      {:DOWN, ^writer_monitor, :process, ^writer, :normal} -> :ok
+    after
+      5_000 -> raise "writer did not exit"
+    end
+
+    send(Capacity, :resume_rebuild)
+    {:ok, %{blocks: 2100, used_bytes: 128, reservations: 0}} = wait_rebuild.(wait_rebuild, 200)
+
   "archive_retained" ->
     # Restarted inventory accepts the receipt, charges its actual bytes and
     # releases only its allowance; the publication allowances remain.

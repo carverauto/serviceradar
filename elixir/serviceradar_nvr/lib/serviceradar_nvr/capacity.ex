@@ -24,6 +24,7 @@ defmodule ServiceRadarNVR.Capacity do
   """
   use GenServer
 
+  alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.Config
   alias ServiceRadarNVR.Disk
   alias ServiceRadarNVR.Publication
@@ -103,7 +104,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   @impl true
   def handle_call({:reserve, block_id}, {owner, _}, state) do
-    with {:ok, block_id} <- valid_block_id(block_id),
+    with :ok <- valid_block_id(block_id),
          {:ok, storage} <- storage(state),
          {:ok, usage, state} <- measure(storage, state),
          :ok <- consistent(state),
@@ -137,7 +138,7 @@ defmodule ServiceRadarNVR.Capacity do
     # Replace this worker's reservation atomically; the sealed block and its
     # missing publication records stay charged at their measured size.
     with true <- Map.get(state.reservations, token) == owner || {:error, :nvr_reservation_lost},
-         {:ok, next_block_id} <- valid_block_id(next_block_id),
+         :ok <- valid_block_id(next_block_id),
          {:ok, storage} <- storage(state),
          {:ok, usage, state} <- measure(storage, state),
          :ok <- consistent(state),
@@ -212,6 +213,7 @@ defmodule ServiceRadarNVR.Capacity do
     # Keep admission serialized through the repair and seal. There are no local
     # writers, so verification cannot stall an admitted recording's write guard.
     with {:ok, storage} <- storage(state),
+         :ok <- valid_block_id(block_id),
          {:ok, state} <- ensure_ledger(%{state | storage: storage}),
          {:ok, free} <- Disk.available_bytes(storage.root),
          :ok <- writable(free, state.config.reserve_bytes) do
@@ -230,6 +232,7 @@ defmodule ServiceRadarNVR.Capacity do
 
   def handle_call({:publication, block_id, kind, payload}, from, state) do
     with {:ok, storage} <- storage(state),
+         :ok <- valid_block_id(block_id),
          {:ok, publication} <- start_publication(storage, block_id, kind, payload, state.read_limits, from) do
       {:noreply, %{state | storage: storage, publication: publication}}
     else
@@ -413,13 +416,19 @@ defmodule ServiceRadarNVR.Capacity do
 
   # Re-measure one block after a change this process saw; a block that cannot
   # be measured drops the ledger so the next call rebuilds and reports it.
-  defp settle(state, nil), do: state
-
   defp settle(state, block_id) do
-    case remeasure(state, block_id) do
-      {:ok, state} -> state
-      {:error, _reason} -> drop_ledger(state)
+    if Blocks.valid_id?(block_id) do
+      case remeasure(state, block_id) do
+        {:ok, state} -> state
+        {:error, _reason} -> drop_ledger(state)
+      end
+    else
+      state
     end
+  end
+
+  defp remeasure(%{ledger: nil, rebuild: %{names: names} = rebuild} = state, block_id) do
+    {:ok, %{state | rebuild: %{rebuild | names: names ++ [block_id]}}}
   end
 
   defp remeasure(%{ledger: nil} = state, _block_id), do: {:ok, state}
@@ -436,14 +445,11 @@ defmodule ServiceRadarNVR.Capacity do
 
   defp ensure_ledger(%{ledger: %{}} = state), do: {:ok, state}
   defp ensure_ledger(%{rebuild: %{}} = state), do: {:error, :nvr_inventory_rebuilding, state}
+  defp ensure_ledger(%{rebuild: {:failed, reason}} = state), do: {:error, reason, %{state | rebuild: nil}}
 
   defp ensure_ledger(state) do
     with {:ok, names} <- Disk.block_names(state.storage) do
-      case rebuild_step(%{state | rebuild: %{names: names, ledger: empty_ledger()}}) do
-        %{ledger: %{}} = state -> {:ok, state}
-        %{rebuild: %{}} = state -> {:error, :nvr_inventory_rebuilding, state}
-        %{rebuild: {:failed, reason}} = state -> {:error, reason, %{state | rebuild: nil}}
-      end
+      ensure_ledger(rebuild_step(%{state | rebuild: %{names: names, ledger: empty_ledger()}}))
     end
   end
 
@@ -456,7 +462,7 @@ defmodule ServiceRadarNVR.Capacity do
       Enum.reduce_while(page, {:ok, ledger}, fn name, {:ok, ledger} ->
         case Disk.block_usage(state.storage.root, name) do
           {:ok, bytes, pending} -> {:cont, {:ok, ledger_put(ledger, name, {bytes, pending})}}
-          {:error, :enoent} -> {:cont, {:ok, ledger}}
+          {:error, :enoent} -> {:cont, {:ok, ledger_delete(ledger, name)}}
           {:error, _} -> {:halt, {:error, :nvr_inventory_unavailable}}
         end
       end)
@@ -569,9 +575,7 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   defp valid_block_id(block_id) do
-    if is_binary(block_id) and Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id),
-      do: {:ok, block_id},
-      else: {:error, :invalid_block_id}
+    if Blocks.valid_id?(block_id), do: :ok, else: {:error, :invalid_block_id}
   end
 
   defp publication_write_bytes(%{publication: nil}), do: 0

@@ -90,7 +90,7 @@ defmodule ServiceRadarNVR do
   disk changes.
   """
   def block_states(block_ids) when is_list(block_ids) and length(block_ids) in 1..50 do
-    if Enum.all?(block_ids, &block_id?/1) and length(Enum.uniq(block_ids)) == length(block_ids),
+    if Enum.all?(block_ids, &Blocks.valid_id?/1) and length(Enum.uniq(block_ids)) == length(block_ids),
       do: Reads.run(fn -> inspect_states(block_ids) end),
       else: {:error, :invalid_block_id}
   end
@@ -103,7 +103,7 @@ defmodule ServiceRadarNVR do
   `{:error, :nvr_inventory_rebuilding}` while the ledger is being built.
   """
   def block_page(after_id, limit) when limit in 1..100 and (is_nil(after_id) or is_binary(after_id)) do
-    with true <- (is_nil(after_id) or block_id?(after_id)) || {:error, :invalid_block_id},
+    with true <- (is_nil(after_id) or Blocks.valid_id?(after_id)) || {:error, :invalid_block_id},
          {:ok, ids} <- ServiceRadarNVR.Capacity.ledger_page(after_id, limit) do
       page_states(ids)
     end
@@ -120,8 +120,6 @@ defmodule ServiceRadarNVR do
       {:ok, Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1)))}
     end
   end
-
-  defp block_id?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp inspect_inventory do
     with {:ok, storage, _limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
@@ -257,7 +255,8 @@ defmodule ServiceRadarNVR do
   it is nil. The cursor binds the storage UUID and last block ID. The default
   page contains one entry; the limit must be 1..16. Pages share the four read
   slots and ten-second task deadline. A timeout returns no page; retry the same
-  cursor with a smaller limit. Inventory is bounded to 4,096 retained blocks.
+  cursor with a smaller limit. The scan covers every block directory on the
+  volume.
 
   `:pending` includes a verified intent for exact redelivery. `:intent_accepted`
   includes that intent and its matching retained acknowledgement. `:unprepared`
