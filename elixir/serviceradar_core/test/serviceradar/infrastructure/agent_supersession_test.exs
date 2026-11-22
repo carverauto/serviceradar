@@ -11,6 +11,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
+  alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Observability.SRQLRunner
@@ -185,10 +186,82 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [old_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == old_uid
 
-      assert {:ok, %{superseded: 0}} = AgentSupersession.sweep(actor: actor)
+      assert {:ok, _} = AgentSupersession.sweep(actor: actor)
 
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "reconciles lingering assignments across a multi-hop supersession chain",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      host_mac = mac(uniq, 0)
+      old_uid = "agent-chain-a-#{uniq}"
+      mid_uid = "agent-chain-b-#{uniq}"
+      new_uid = "agent-chain-c-#{uniq}"
+
+      device_uid = enroll!(old_uid, ip, "chain-#{uniq}", host_mac)
+      assert ^device_uid = enroll!(mid_uid, ip, "chain-#{uniq}", host_mac)
+      assert ^device_uid = enroll!(new_uid, ip, "chain-#{uniq}", host_mac)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      {:ok, _} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: mid_uid})
+        |> Ash.update(actor: actor)
+
+      {:ok, _} =
+        mid_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: new_uid})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, _} = AgentSupersession.sweep(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+  end
+
+  describe "StateMonitor.check_agents/1" do
+    test "supersedes a timed-out identity and transfers its assignments when a live replacement exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      old = agent!(old_uid, actor)
+      assert old.status == :superseded
+      assert old.superseded_by == new_uid
+      assert %DateTime{} = old.superseded_at
+      assert agent!(new_uid, actor).status == :connected
+      assert decision?(device_uid, "older_identity_on_device", old_uid, actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "transitions a timed-out solo identity to disconnected without superseding it",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      uid = "agent-monitor-solo-#{uniq}"
+      _device_uid = enroll!(uid, ip, "monitor-solo-#{uniq}", mac(uniq, 0))
+
+      went_quiet!(uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      agent = agent!(uid, actor)
+      assert agent.status == :disconnected
+      assert is_nil(agent.superseded_by)
     end
   end
 

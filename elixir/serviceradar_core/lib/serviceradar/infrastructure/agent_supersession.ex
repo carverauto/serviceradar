@@ -96,16 +96,13 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   disconnected identity immediately and hand off its active assignments instead
   of waiting for the hourly `sweep/1` pass.
   """
-  @spec on_agent_disconnected(Agent.t(), map(), keyword()) :: {:ok, Agent.t()} | :noop
-  def on_agent_disconnected(agent, actor, opts \\ [])
-
+  @spec on_agent_disconnected(Agent.t(), map()) :: {:ok, Agent.t()} | :noop
   def on_agent_disconnected(
         %Agent{uid: uid, device_uid: device_uid, superseded_at: nil} = agent,
-        actor,
-        opts
+        actor
       )
       when is_binary(device_uid) do
-    now = Keyword.get(opts, :now, DateTime.utc_now())
+    now = DateTime.utc_now()
 
     case siblings(device_uid, uid, actor) do
       {:ok, sibling_agents} ->
@@ -131,7 +128,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     end
   end
 
-  def on_agent_disconnected(_agent, _actor, _opts), do: :noop
+  def on_agent_disconnected(_agent, _actor), do: :noop
 
   @doc """
   Returns a superseded identity to `:connected` and records the revival.
@@ -212,21 +209,24 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   end
 
   defp reconcile_superseded_assignments(actor) do
-    case load_superseded_agents(actor) do
-      {:ok, []} ->
+    release_targets = load_active_release_targets(actor)
+    mapper_jobs = load_assigned_mapper_jobs(actor)
+    sweep_groups = load_assigned_sweep_groups(actor)
+    referenced_uids = collect_referenced_agent_ids(release_targets, mapper_jobs, sweep_groups)
+
+    with [_ | _] <- referenced_uids,
+         {:ok, superseded_by_map} when map_size(superseded_by_map) > 0 <-
+           load_superseded_map(referenced_uids, actor) do
+      reconcile_release_targets(release_targets, superseded_by_map, actor)
+      reconcile_mapper_jobs(mapper_jobs, superseded_by_map, actor)
+      reconcile_sweep_groups(sweep_groups, superseded_by_map, actor)
+      :ok
+    else
+      [] ->
         :ok
 
-      {:ok, agents} ->
-        superseded_by_map = Map.new(agents, &{&1.uid, &1.superseded_by})
-
-        Enum.each(agents, fn agent ->
-          replacement_uid = resolve_replacement_uid(agent.uid, superseded_by_map)
-
-          if is_binary(replacement_uid) and replacement_uid != agent.uid do
-            cancel_superseded_release_targets(agent.uid, replacement_uid, actor)
-            transfer_superseded_assignments(agent.uid, replacement_uid, actor)
-          end
-        end)
+      {:ok, _empty} ->
+        :ok
 
       {:error, reason} ->
         Logger.warning(
@@ -237,62 +237,196 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     end
   end
 
-  defp resolve_replacement_uid(uid, superseded_by_map),
-    do: resolve_replacement_uid(uid, superseded_by_map, MapSet.new())
+  defp load_active_release_targets(actor) do
+    AgentReleaseTarget
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(status not in ^@terminal_release_target_statuses))
+    |> read_reconciliation_records("active release targets", actor)
+  end
 
-  defp resolve_replacement_uid(uid, superseded_by_map, visited) do
-    case Map.get(superseded_by_map, uid) do
-      next when is_binary(next) and next != "" ->
-        if MapSet.member?(visited, next) do
-          uid
-        else
-          resolve_replacement_uid(next, superseded_by_map, MapSet.put(visited, uid))
-        end
+  defp load_assigned_mapper_jobs(actor) do
+    MapperJob
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(not is_nil(agent_id) and agent_id != ""))
+    |> read_reconciliation_records("mapper jobs", actor)
+  end
 
-      _ ->
-        uid
+  defp load_assigned_sweep_groups(actor) do
+    SweepGroup
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(agent_ids != []))
+    |> read_reconciliation_records("sweep groups", actor)
+  end
+
+  defp read_reconciliation_records(query, label, actor) do
+    case Ash.read(query, actor: actor) do
+      {:ok, records} ->
+        records
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load #{label} for supersession reconciliation: #{inspect(reason)}"
+        )
+
+        []
     end
   end
 
-  defp load_superseded_agents(actor), do: load_superseded_agents(actor, nil, [])
+  defp collect_referenced_agent_ids(release_targets, mapper_jobs, sweep_groups) do
+    release_ids = Enum.map(release_targets, & &1.agent_id)
+    mapper_ids = Enum.map(mapper_jobs, & &1.agent_id)
+    sweep_ids = Enum.flat_map(sweep_groups, &AgentAssignment.normalize(&1.agent_ids))
 
-  defp load_superseded_agents(actor, after_uid, acc) do
-    case Ash.read(superseded_agent_query(actor, after_uid), actor: actor) do
-      {:ok, %Keyset{results: results}} ->
-        continue_superseded_agents(actor, results, acc)
+    (release_ids ++ mapper_ids ++ sweep_ids)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
 
-      {:ok, results} when is_list(results) ->
-        continue_superseded_agents(actor, results, acc)
+  defp load_superseded_map(uids, actor) do
+    load_superseded_frontier(uids, MapSet.new(), %{}, actor)
+  end
+
+  defp load_superseded_frontier([], _queried, superseded_by_map, _actor),
+    do: {:ok, superseded_by_map}
+
+  defp load_superseded_frontier(uids, queried, superseded_by_map, actor) do
+    case Enum.reject(uids, &MapSet.member?(queried, &1)) do
+      [] ->
+        {:ok, superseded_by_map}
+
+      pending ->
+        advance_superseded_frontier(pending, queried, superseded_by_map, actor)
+    end
+  end
+
+  defp advance_superseded_frontier(pending, queried, superseded_by_map, actor) do
+    case read_superseded_agents_by_uids(pending, actor) do
+      {:ok, agents} ->
+        next_queried = MapSet.union(queried, MapSet.new(pending))
+        next_map = Map.merge(superseded_by_map, Map.new(agents, &{&1.uid, &1.superseded_by}))
+
+        next_uids =
+          agents
+          |> Enum.map(& &1.superseded_by)
+          |> Enum.filter(&(is_binary(&1) and &1 != ""))
+          |> Enum.uniq()
+
+        load_superseded_frontier(next_uids, next_queried, next_map, actor)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp continue_superseded_agents(_actor, [], acc), do: {:ok, acc}
+  defp read_superseded_agents_by_uids(uids, actor) do
+    uids
+    |> Enum.chunk_every(@sweep_page)
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, acc} ->
+      case read_superseded_agent_batch(batch, actor) do
+        {:ok, results} -> {:cont, {:ok, results ++ acc}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
-  defp continue_superseded_agents(actor, results, acc) do
-    acc = acc ++ results
+  defp read_superseded_agent_batch(batch, actor) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(
+      expr(uid in ^batch and status == :superseded and not is_nil(superseded_by))
+    )
+    |> Ash.Query.select([:uid, :superseded_by])
+    |> Ash.read(actor: actor, page: false)
+  end
 
-    if length(results) < @sweep_page do
-      {:ok, acc}
-    else
-      load_superseded_agents(actor, List.last(results).uid, acc)
+  defp reconcile_release_targets(targets, superseded_by_map, actor) do
+    Enum.each(targets, fn target ->
+      case replacement_for_superseded(target.agent_id, superseded_by_map) do
+        {:ok, replacement_uid} -> cancel_release_target(target, replacement_uid, actor)
+        :noop -> :ok
+      end
+    end)
+  end
+
+  defp reconcile_mapper_jobs(jobs, superseded_by_map, actor) do
+    jobs
+    |> Enum.reduce(%{}, fn job, acc ->
+      case replacement_for_superseded(job.agent_id, superseded_by_map) do
+        {:ok, replacement_uid} ->
+          Map.update(acc, {job.agent_id, replacement_uid}, [job], &[job | &1])
+
+        :noop ->
+          acc
+      end
+    end)
+    |> Enum.each(fn {{agent_id, replacement_uid}, grouped_jobs} ->
+      result = update_agent_assignments(grouped_jobs, replacement_uid, actor)
+      log_assignment_transfer({:mapper_jobs, result}, agent_id, replacement_uid)
+    end)
+  end
+
+  defp reconcile_sweep_groups(groups, superseded_by_map, actor) do
+    Enum.each(groups, &reconcile_sweep_group(&1, superseded_by_map, actor))
+  end
+
+  defp reconcile_sweep_group(group, superseded_by_map, actor) do
+    current_agent_ids = AgentAssignment.normalize(group.agent_ids)
+
+    updated_agent_ids =
+      current_agent_ids
+      |> Enum.map(&replace_if_superseded(&1, superseded_by_map))
+      |> AgentAssignment.normalize()
+
+    if updated_agent_ids != current_agent_ids do
+      case update_sweep_group_assignments([{group, updated_agent_ids}], actor) do
+        {:ok, count} ->
+          Logger.info(
+            "Reassigned #{count} sweep_groups for superseded agents in group #{group.id}"
+          )
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to reassign sweep_groups for group #{group.id}: #{inspect(reason)}"
+          )
+      end
     end
   end
 
-  defp superseded_agent_query(actor, after_uid) do
-    query =
-      Agent
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(expr(status == :superseded and not is_nil(superseded_by)))
-      |> Ash.Query.sort(uid: :asc)
-      |> Ash.Query.limit(@sweep_page)
+  defp replace_if_superseded(agent_id, superseded_by_map) do
+    case replacement_for_superseded(agent_id, superseded_by_map) do
+      {:ok, replacement_uid} -> replacement_uid
+      :noop -> agent_id
+    end
+  end
 
-    if is_binary(after_uid) do
-      Ash.Query.filter(query, expr(uid > ^after_uid))
+  defp replacement_for_superseded(agent_id, superseded_by_map) do
+    if Map.has_key?(superseded_by_map, agent_id) do
+      case resolve_replacement_uid(agent_id, superseded_by_map) do
+        replacement_uid when is_binary(replacement_uid) and replacement_uid != agent_id ->
+          {:ok, replacement_uid}
+
+        _ ->
+          :noop
+      end
     else
-      query
+      :noop
+    end
+  end
+
+  defp resolve_replacement_uid(uid, superseded_by_map),
+    do: resolve_replacement_uid(uid, superseded_by_map, MapSet.new([uid]))
+
+  defp resolve_replacement_uid(uid, superseded_by_map, visited) do
+    case Map.get(superseded_by_map, uid) do
+      next when is_binary(next) and next != "" ->
+        if MapSet.member?(visited, next) do
+          nil
+        else
+          resolve_replacement_uid(next, superseded_by_map, MapSet.put(visited, next))
+        end
+
+      _ ->
+        uid
     end
   end
 
@@ -318,25 +452,29 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, targets} ->
-        Enum.each(targets, fn target ->
-          _ =
-            AgentReleaseTarget.set_status(
-              target,
-              %{
-                status: :canceled,
-                last_status_message: "superseded by #{replacement_agent_id}",
-                last_error: "agent_superseded",
-                completed_at: DateTime.utc_now()
-              },
-              actor: actor
-            )
-        end)
+        Enum.each(targets, &cancel_release_target(&1, replacement_agent_id, actor))
 
       {:error, reason} ->
         Logger.warning(
           "Failed to cancel release targets for superseded agent #{agent_id}: #{inspect(reason)}"
         )
     end
+  end
+
+  defp cancel_release_target(target, replacement_agent_id, actor) do
+    _ =
+      AgentReleaseTarget.set_status(
+        target,
+        %{
+          status: :canceled,
+          last_status_message: "superseded by #{replacement_agent_id}",
+          last_error: "agent_superseded",
+          completed_at: DateTime.utc_now()
+        },
+        actor: actor
+      )
+
+    :ok
   end
 
   defp transfer_superseded_assignments(agent_id, replacement_agent_id, actor) do

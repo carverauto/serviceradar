@@ -186,7 +186,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     # Run checks in parallel
     tasks = [
       Task.async(fn -> check_gateways(state, actor) end),
-      Task.async(fn -> check_agents(state, actor) end),
+      Task.async(fn -> check_agents(actor: actor, agent_timeout: state.agent_timeout) end),
       Task.async(fn -> check_checkers(state, actor) end),
       Task.async(fn -> check_agent_config_health(state, actor) end)
     ]
@@ -248,8 +248,17 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     )
   end
 
-  defp check_agents(state, actor) do
-    timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
+  @doc """
+  Checks for connected or degraded agents whose heartbeat is older than the
+  configured `agent_timeout`, transitions them to `:disconnected`, and triggers
+  supersession handoff when a live sibling exists on the same device.
+  Public for tests and on-demand tooling; the periodic check calls it directly.
+  """
+  @spec check_agents(keyword()) :: non_neg_integer()
+  def check_agents(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:state_monitor))
+    timeout_ms = Keyword.get(opts, :agent_timeout, agent_timeout())
+    timeout_threshold = DateTime.add(DateTime.utc_now(), -timeout_ms, :millisecond)
 
     run_check(
       fn -> list_stale_agents(timeout_threshold, actor) end,
