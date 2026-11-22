@@ -11,8 +11,8 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   non-terminal release targets, sets its `release_rollout_state` to `:canceled`,
   and transfers its `SweepGroup`, `MapperJob`, agent-scoped
   `NetworkCredentialRule`, enabled manual `PluginAssignment`,
-  `Camera.Source`, `SNMPProfile`, `IntegrationSource`, and `ServiceCheck`
-  assignments to the replacement:
+  `Camera.Source`, `SNMPProfile`, `IntegrationSource`, `ServiceCheck`, and
+  `MtrPolicy` assignments to the replacement:
 
   - `on_check_in/3` runs at enrollment/check-in and supersedes quiet siblings
     immediately while keeping live ones.
@@ -37,6 +37,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SweepJobs.AgentAssignment
@@ -239,7 +240,8 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       integration_sources:
         load_field_assigned_records(IntegrationSource, :agent_id, "integration sources", actor),
       service_checks:
-        load_field_assigned_records(ServiceCheck, :agent_uid, "service checks", actor)
+        load_field_assigned_records(ServiceCheck, :agent_uid, "service checks", actor),
+      mtr_policies: load_agent_mtr_policies(actor)
     }
 
     referenced_uids = collect_referenced_agent_ids(snapshot)
@@ -319,6 +321,14 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
         &update_field_assignments(&1, :agent_uid, &2, actor, label: "service check")
       )
 
+      reconcile_grouped_records(
+        snapshot.mtr_policies,
+        &mtr_policy_agent_id/1,
+        superseded_by_map,
+        :mtr_policies,
+        &update_mtr_policy_assignments(&1, &2, actor)
+      )
+
       :ok
     else
       [] ->
@@ -373,6 +383,13 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     |> read_reconciliation_records("manual plugin assignments", actor)
   end
 
+  defp load_agent_mtr_policies(actor) do
+    MtrPolicy
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> read_reconciliation_records("mtr policies", actor)
+    |> Enum.filter(&is_binary(mtr_policy_agent_id(&1)))
+  end
+
   defp read_reconciliation_records(query, label, actor) do
     case Ash.read(query, actor: actor) do
       {:ok, records} ->
@@ -397,7 +414,8 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       Enum.map(snapshot.camera_sources, & &1.assigned_agent_id),
       Enum.flat_map(snapshot.snmp_profiles, &AgentAssignment.normalize(&1.agent_ids)),
       Enum.map(snapshot.integration_sources, & &1.agent_id),
-      Enum.map(snapshot.service_checks, & &1.agent_uid)
+      Enum.map(snapshot.service_checks, & &1.agent_uid),
+      Enum.map(snapshot.mtr_policies, &mtr_policy_agent_id/1)
     ]
     |> List.flatten()
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
@@ -660,7 +678,8 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
            replacement_agent_id,
            actor,
            label: "service check"
-         )}
+         )},
+        {:mtr_policies, transfer_mtr_policies(agent_id, replacement_agent_id, actor)}
       ],
       &log_assignment_transfer(&1, agent_id, replacement_agent_id)
     )
@@ -795,6 +814,51 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp transfer_mtr_policies(agent_id, replacement_agent_id, actor) do
+    MtrPolicy
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, policies} ->
+        matching = Enum.filter(policies, &(mtr_policy_agent_id(&1) == agent_id))
+
+        case matching do
+          [] -> {:ok, 0}
+          records -> update_mtr_policy_assignments(records, replacement_agent_id, actor)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_mtr_policy_assignments(policies, replacement_agent_id, actor) do
+    update_records_best_effort(policies, "mtr policy", replacement_agent_id, fn policy ->
+      updated_selector = replace_mtr_policy_agent_id(policy.target_selector, replacement_agent_id)
+
+      MtrPolicy.update_policy(policy, %{target_selector: updated_selector}, actor: actor)
+    end)
+  end
+
+  defp mtr_policy_agent_id(%{target_selector: selector}) when is_map(selector) do
+    case Map.get(selector, "agent_id") || Map.get(selector, :agent_id) do
+      agent_id when is_binary(agent_id) ->
+        trimmed = String.trim(agent_id)
+        if trimmed == "", do: nil, else: trimmed
+
+      _ ->
+        nil
+    end
+  end
+
+  defp mtr_policy_agent_id(_policy), do: nil
+
+  defp replace_mtr_policy_agent_id(selector, replacement_agent_id) when is_map(selector) do
+    selector
+    |> Map.delete(:agent_id)
+    |> Map.put("agent_id", replacement_agent_id)
   end
 
   defp update_field_assignments(records, field, replacement_agent_id, actor, opts) do
