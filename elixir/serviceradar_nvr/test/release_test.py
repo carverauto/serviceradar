@@ -1744,6 +1744,129 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertEqual((status, result), (422, {"error": "ingest_incomplete"}))
         self.assertEqual(before, {str(p.relative_to(self.spool)): p.read_bytes() for p in self.spool.rglob("*") if p.is_file()})
 
+    def test_network_ingest_survives_wan_frame_jitter_over_one_second_and_seals(self):
+        self.ingest_installation()
+        source = self.make_media(150)
+        units = self.ingest_units()
+        proc = self.start_ingest_release()
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=25)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+
+        def send_chunk(data):
+            connection.send(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+
+        send_chunk(self.ingest_header() + b"".join(units[:75]))
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")):
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("stream did not persist a fragment before jitter pause")
+        # Pause >1s between frames (exceeding the previous 1_000 ms read_timeout)
+        # and >1s mid-frame across HTTP chunks to exercise IngestStream.take/2.
+        time.sleep(2.5)
+        send_chunk(units[75][:11])
+        time.sleep(1.5)
+        send_chunk(units[75][11:] + b"".join(units[76:]) + struct.pack("!I", 0))
+        connection.send(b"0\r\n\r\n")
+
+        response = connection.getresponse()
+        receipt = json.loads(response.read())
+        self.assertEqual(response.status, 200, receipt)
+        self.assertEqual(receipt["status"], "sealed_local")
+        self.assertEqual(receipt["storage_id"], self.env["NVR_TEST_EXPECTED_STORAGE_ID"])
+        self.assertGreaterEqual(len(receipt["block_ids"]), 1)
+
+        lookup_status, lookup_body = self.lookup(receipt["block_ids"])
+        self.assertEqual(lookup_status, 200, lookup_body)
+        for entry in json.loads(lookup_body)["blocks"]:
+            self.assertEqual(entry["state"], "sealed", entry)
+
+        proc.send_signal(signal.SIGTERM)
+        log = proc.communicate(timeout=15)[0].decode(errors="replace")
+        self.assertNotIn("Read timeout", log)
+        self.assertNotIn("Bandit.HTTPError", log)
+        self.assertNotIn("NVR ingest incomplete:", log)
+
+        self.start_ingest_release()
+        decoded = bytearray()
+        for block_id in receipt["block_ids"]:
+            block = self.spool / block_id
+            output = self.root / (block_id + ".mp4")
+            output.write_bytes((block / "init.mp4").read_bytes() + (block / "media.m4s").read_bytes())
+            decoded.extend(self.decode(str(output)))
+        self.assertEqual(bytes(decoded), self.decode(source))
+
+    def test_network_ingest_read_timeout_aborts_stalled_stream_after_fifteen_seconds(self):
+        self.ingest_installation()
+        self.make_media(75)
+        units = self.ingest_units()
+        # Keep the absolute recording budget well above the 15s read_timeout so
+        # only IngestStream's idle read timeout can retire the stalled stream.
+        self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "60000"
+        proc = self.start_ingest_release()
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=25)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+        first = self.ingest_header() + b"".join(units)
+        connection.send(f"{len(first):x}\r\n".encode() + first + b"\r\n")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")):
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("stream did not persist a fragment before stall")
+
+        stalled_at = time.monotonic()
+        status = None
+        try:
+            response = connection.getresponse()
+            status = response.status
+            response.read()
+        except (OSError, http.client.HTTPException):
+            pass
+        elapsed = time.monotonic() - stalled_at
+
+        self.assertGreaterEqual(elapsed, 14.0, f"stalled stream aborted too early ({elapsed:.2f}s, status={status})")
+        self.assertLess(elapsed, 22.0, f"stalled stream outlived 15s read_timeout ({elapsed:.2f}s, status={status})")
+        if status is not None:
+            self.assertIn(status, (408, 422))
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            retry_status, retry_result = self.ingest_request(self.ingest_header() + struct.pack("!I", 0))
+            if retry_status == 422:
+                break
+            self.assertEqual(retry_status, 503)
+            time.sleep(0.05)
+        else:
+            self.fail("timed-out producer retained source admission")
+        self.assertEqual(retry_result, {"error": "ingest_incomplete"})
+        self.assert_ingest_unsealed()
+
+        block_dirs = [p.name for p in self.spool.iterdir() if p.is_dir()]
+        self.assertEqual(len(block_dirs), 1)
+        lookup_status, lookup_body = self.lookup(block_dirs)
+        self.assertEqual(lookup_status, 200, lookup_body)
+        entry = json.loads(lookup_body)["blocks"][0]
+        self.assertEqual(entry["state"], "incomplete", entry)
+        self.assertFalse(entry["writing"], entry)
+
+        proc.send_signal(signal.SIGTERM)
+        log = proc.communicate(timeout=15)[0].decode(errors="replace")
+        self.assertIn("Read timeout", log)
+
     def test_foreground_release_probes_refuse_uninitialized_storage(self):
         proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:

@@ -210,7 +210,7 @@ the finite operation before sending it. This transport does not enroll a pool,
 issue leases, resolve an uncertain earlier writer or authorize takeover.
 
 One request admits at most 64 MiB of application body and reports at most 256
-sealed blocks. Reads have a one-second timeout. The existing configured session
+sealed blocks. Reads have a 15-second timeout. The existing configured session
 duration also bounds the entire request handler, including body reads and
 sealing; the service default is 30 seconds, the Helm chart sets five minutes
 (`nvr.maxDurationMs: 300000`) and the ceiling is five minutes. The timer
