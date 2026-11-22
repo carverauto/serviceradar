@@ -168,6 +168,67 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
   })
 }
 
+const HUB_REQUIRED_BOOLEANS = [
+  "enforcement_configured",
+  "authorizer_answering",
+  "leaf_listener",
+  "leaf_upstream_url",
+] as const
+
+export function assertHubReadyForLeaf(hub: any): void {
+  if (
+    !hub ||
+    typeof hub !== "object" ||
+    Array.isArray(hub) ||
+    HUB_REQUIRED_BOOLEANS.some((field) => typeof hub[field] !== "boolean") ||
+    (hub.signing_keys_provisioned !== undefined && typeof hub.signing_keys_provisioned !== "boolean")
+  ) {
+    throw new Error(
+      "hub status is missing or unreadable (core may be unavailable or this instance does not report hub readiness)\n" +
+        "→ wait and retry, and check core's health",
+    )
+  }
+
+  if (hub.enforcement_configured !== true) {
+    throw new Error(
+      "hub certificate authorization enforcement is not configured\n" +
+        "→ enable nats.certificateAuthorization.enabled on the hub and retry",
+    )
+  }
+
+  if (hub.signing_keys_provisioned === false || hub.authorizer_reason === "signing_keys_not_provisioned") {
+    throw new Error(
+      "signing keys not provisioned (signing_keys_not_provisioned)\n" +
+        "→ provision the missing signing seeds in the issuer Secret (or remove remaining nats-callout-* entries for generator-owned provisioning)",
+    )
+  }
+
+  if (hub.authorizer_answering !== true) {
+    const reason =
+      typeof hub.authorizer_reason === "string" && hub.authorizer_reason.trim()
+        ? hub.authorizer_reason.trim()
+        : "authorizer_unavailable"
+    throw new Error(
+      `hub authorizer is not answering (${reason})\n` +
+        "→ check NATS and core health, then retry",
+    )
+  }
+
+  if (hub.leaf_listener !== true) {
+    throw new Error(
+      "hub broker leaf listener is not configured\n" +
+        "→ enable nats.leafnodes.enabled on the hub and retry",
+    )
+  }
+
+  if (hub.leaf_upstream_url !== true) {
+    throw new Error(
+      "leaf upstream URL is not configured\n" +
+        "→ set the install's leaf host setting (hostedRuntime.publicEndpoints.natsLeafHost) and retry",
+    )
+  }
+}
+
 const HUB_AUTHORIZER_DISCONNECTED = new Set([
   "connecting",
   "auth_connection_unavailable",
@@ -234,6 +295,17 @@ async function installManaged(
   const agent = await readEnrolledAgent(ctx.dryRun)
   const payload = await edgeRequest(session, "GET", "/api/admin/managed-components/bootstrap")
   const bootstrap = payload?.data || payload
+  if (target.service === "nats-leaf") {
+    assertHubReadyForLeaf(bootstrap?.hub)
+    const uncovered = Array.isArray(bootstrap?.hub?.chart_identities?.not_adopted)
+      ? bootstrap.hub.chart_identities.not_adopted.length
+      : 0
+    if (uncovered > 0) {
+      console.log(
+        `Note: ${uncovered} chart identit${uncovered === 1 ? "y is" : "ies are"} not adopted yet (advisory; run \`serviceradar-cli edge hub status\` for details)`,
+      )
+    }
+  }
   const publicKey = decodePolicyPublicKey(bootstrap?.policy_public_key)
   acceptLocalOnboarding(bootstrap?.nats)
   const asset = await resolvePackage(ctx, target.packageName)

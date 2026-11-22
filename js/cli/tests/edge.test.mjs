@@ -594,9 +594,31 @@ test("nats account status renders the deployment's NATS account", async () => {
 
 // ------------------------------------------------------------------ install helpers
 
+const READY_HUB = {
+  enforcement_configured: true,
+  authorizer_answering: true,
+  authorizer_reason: null,
+  signing_keys_provisioned: true,
+  leaf_listener: true,
+  leaf_upstream_url: true,
+  chart_identities: {
+    total: 13,
+    adopted: 13,
+    legacy_certificates: 0,
+    not_adopted: [],
+    unlisted: [],
+  },
+}
+
 function managedBootstrap(req, res) {
   if (req.path !== "/api/admin/managed-components/bootstrap") return false
-  json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"}}})
+  json(res, 200, {
+    data: {
+      policy_public_key: Buffer.alloc(32, 7).toString("base64"),
+      nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"},
+      hub: READY_HUB,
+    },
+  })
   return true
 }
 
@@ -813,11 +835,92 @@ test("edge install collector without --version uses the latest package and confi
   )
 })
 
+test("edge hub status prints readiness, identity coverage, and uncovered warnings", async () => {
+  await withServer(
+    (req, res) => {
+      if (req.path === "/api/admin/managed-components/bootstrap") {
+        return json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true}, hub: READY_HUB}})
+      }
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const human = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(human.code, 0, human.stderr)
+      assert.match(human.stdout, /enforcement:\s+configured/)
+      assert.match(human.stdout, /signing keys:\s+provisioned/)
+      assert.match(human.stdout, /authorizer:\s+answering/)
+      assert.match(human.stdout, /leaf listener:\s+configured/)
+      assert.match(human.stdout, /leaf upstream url:\s+configured/)
+      assert.match(human.stdout, /chart identities:\s+13\/13 adopted/)
+      assert.doesNotMatch(human.stdout, /WARNING:/)
+
+      const asJson = await runCli(["edge", "hub", "status", "--instance", instance, "--json"], {env: TOKEN_ENV})
+      assert.equal(asJson.code, 0, asJson.stderr)
+      assert.deepEqual(JSON.parse(asJson.stdout), READY_HUB)
+    },
+  )
+
+  const partialHub = {
+    enforcement_configured: true,
+    authorizer_answering: false,
+    authorizer_reason: "signing_keys_not_provisioned",
+    signing_keys_provisioned: false,
+    leaf_listener: true,
+    leaf_upstream_url: false,
+    chart_identities: {
+      total: 13,
+      adopted: 10,
+      legacy_certificates: 2,
+      not_adopted: [
+        {
+          subject: "CN=agent-gateway",
+          reason: "no_inventory_certificate",
+        },
+        {
+          subject: "CN=core-elx",
+          reason: "held_unrecorded",
+          rotation_reason: "manifest_missing",
+          remedy: "Subject is held and the current inventory certificate is unrecorded; record it through the successor API (POST /api/admin/managed-components/<id>/certificates).",
+        },
+      ],
+      unlisted: [
+        {file: "extra.pem", reason: "untrusted_issuer"},
+      ],
+    },
+  }
+  await withServer(
+    (req, res) => json(res, 200, {data: {hub: partialHub}}),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(code, 0, stderr)
+      assert.match(stdout, /signing keys:\s+signing keys not provisioned/)
+      assert.match(stdout, /authorizer:\s+not answering \(signing_keys_not_provisioned\)/)
+      assert.match(stdout, /leaf upstream url:\s+not configured/)
+      assert.match(stdout, /chart identities:\s+10\/13 adopted \(2 legacy without subject\)/)
+      assert.match(stdout, /WARNING: CN=agent-gateway .*no inventory certificate supplied \(no_inventory_certificate\)/)
+      assert.match(stdout, /WARNING: CN=core-elx .*held_unrecorded/)
+      assert.match(stdout, /rotation reason: manifest_missing/)
+      assert.match(stdout, /remedy: Subject is held.*POST \/api\/admin\/managed-components\/<id>\/certificates/)
+      assert.match(stdout, /WARNING: unlisted inventory file extra\.pem .*untrusted_issuer/)
+    },
+  )
+
+  await withServer(
+    (req, res) => json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), hub: null}}),
+    async (instance) => {
+      const {code, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.notEqual(code, 0)
+      assert.match(stderr, /hub status is missing or unreadable/)
+      assert.match(stderr, /wait and retry, and check core's health/)
+    },
+  )
+})
+
 test("edge install leaf stops before packaging unless static mTLS names the deployment account", async () => {
   const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
-  const bootstrap = (nats) => (req, res) => {
+  const bootstrap = (nats, hub = READY_HUB) => (req, res) => {
     if (req.path === "/api/admin/managed-components/bootstrap") {
-      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, hub}})
       return
     }
     if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
@@ -850,47 +953,217 @@ test("edge install leaf stops before packaging unless static mTLS names the depl
   })
 })
 
-test("edge install leaf onboards locally while the hub authorizer is disconnected", async () => {
-  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
-  const bootstrap = (nats) => (req, res) => {
+test("edge install leaf enforces the 6 ordered hub readiness preflight checks before any GitHub or host step", async () => {
+  const bootstrap = (hub, nats = {ready: true, auth_mode: "static_mtls", account_name: "EDGE"}) => (req, res) => {
     if (req.path === "/api/admin/managed-components/bootstrap") {
-      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, hub}})
+      return
+    }
+    if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+    if (req.path === "/github/releases/latest") return json(res, 200, latestRelease(LATEST_PACKAGES))
+    return json(res, 404, {})
+  }
+  const calls = ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"]
+
+  const cases = [
+    {
+      name: "1a. missing hub",
+      hub: undefined,
+      nats: {ready: false, reason: "not_configured"},
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "1b. null hub",
+      hub: null,
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "1c. unreadable hub (missing/non-boolean fields)",
+      hub: {enforcement_configured: "yes", authorizer_answering: false},
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "2. enforcement not configured (takes precedence over signing keys/authorizer/listener/upstream)",
+      hub: {
+        enforcement_configured: false,
+        signing_keys_provisioned: false,
+        authorizer_answering: false,
+        authorizer_reason: "signing_keys_not_provisioned",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /hub certificate authorization enforcement is not configured/,
+      action: /nats\.certificateAuthorization\.enabled/,
+    },
+    {
+      name: "3a. signing keys not provisioned via boolean (takes precedence over authorizer/listener/upstream)",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: false,
+        authorizer_answering: false,
+        authorizer_reason: "auth_connection_unavailable",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /signing keys not provisioned/,
+      action: /provision the missing signing seeds in the issuer Secret/,
+    },
+    {
+      name: "3b. signing keys not provisioned via authorizer_reason",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: true,
+        authorizer_answering: false,
+        authorizer_reason: "signing_keys_not_provisioned",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /signing keys not provisioned/,
+      action: /issuer Secret/,
+    },
+    {
+      name: "4. authorizer otherwise not answering (takes precedence over listener/upstream)",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: true,
+        authorizer_answering: false,
+        authorizer_reason: "connecting",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      nats: {ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"},
+      cause: /hub authorizer is not answering \(connecting\)/,
+      action: /check NATS and core health/,
+    },
+    {
+      name: "5. leaf listener not configured (takes precedence over upstream)",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: true,
+        authorizer_answering: true,
+        authorizer_reason: null,
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /hub broker leaf listener is not configured/,
+      action: /nats\.leafnodes\.enabled/,
+    },
+    {
+      name: "6. no leaf upstream URL",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: true,
+        authorizer_answering: true,
+        authorizer_reason: null,
+        leaf_listener: true,
+        leaf_upstream_url: false,
+      },
+      cause: /leaf upstream URL is not configured/,
+      action: /hostedRuntime\.publicEndpoints\.natsLeafHost/,
+    },
+  ]
+
+  for (const tc of cases) {
+    await withServer(bootstrap(tc.hub, tc.nats), async (instance, requests) => {
+      const refused = await runCli(
+        ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, "--instance", instance, ...DRY],
+        {env: TOKEN_ENV},
+      )
+      assert.notEqual(refused.code, 0, tc.name)
+      assert.match(refused.stderr, tc.cause, tc.name)
+      assert.match(refused.stderr, tc.action, tc.name)
+      assert.equal(refused.stdout.includes("serviceradar-nats"), false, tc.name)
+      assert.deepEqual(requests.map((request) => `${request.method} ${request.path}`), calls, tc.name)
+    })
+  }
+})
+
+test("edge install leaf proceeds when all 6 checks pass even with empty or partial chart_identities", async () => {
+  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (chartIdentities) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {
+        data: {
+          policy_public_key: Buffer.alloc(32, 7).toString("base64"),
+          nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"},
+          hub: {...READY_HUB, chart_identities: chartIdentities},
+        },
+      })
       return
     }
     if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
     return json(res, 404, {})
   }
 
-  await withServer(bootstrap({ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"}), async (instance) => {
-    const pending = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({total: 0, adopted: 0, legacy_certificates: 0, not_adopted: [], unlisted: []}), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(
+    bootstrap({total: 13, adopted: 11, legacy_certificates: 0, not_adopted: [{subject: "CN=agent-gateway", reason: "no_inventory_certificate"}], unlisted: []}),
+    async (instance) => {
+      const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(ok.code, 0, ok.stderr)
+      assert.match(ok.stdout, /1 chart identity is not adopted yet \(advisory/)
+      assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    },
+  )
+})
+
+test("edge install collector keeps local onboarding behavior when hub is absent or disconnected", async () => {
+  const collector = ["edge", "install", "collector", "--id", "col-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (nats, hub) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, ...(hub !== undefined ? {hub} : {})}})
+      return
+    }
+    if (req.path === "/api/admin/collectors/col-1") return json(res, 200, {id: "col-1", collector_type: "sflow", status: "ready"})
+    return json(res, 404, {})
+  }
+
+  await withServer(bootstrap({ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"}, undefined), async (instance) => {
+    const pending = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.equal(pending.code, 0, pending.stderr)
     assert.match(pending.stdout, /hub enforcement is not connected \(connecting\)/)
     assert.match(pending.stdout, /local onboarding continues/)
-    assert.equal(pending.stdout.includes("static mTLS account EDGE"), false)
-    assert.match(pending.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    assert.match(pending.stdout, /serviceradar-flow-collector-1\.4\.81-1\.x86_64\.rpm/)
   })
 
-  await withServer(bootstrap({ready: false, reason: "not_configured"}), async (instance) => {
-    const unconfigured = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "not_configured"}, null), async (instance) => {
+    const unconfigured = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.equal(unconfigured.code, 0, unconfigured.stderr)
     assert.match(unconfigured.stdout, /hub enforcement is not configured/)
-    assert.equal(unconfigured.stdout.includes("static mTLS account"), false)
-    assert.match(unconfigured.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    assert.match(unconfigured.stdout, /serviceradar-flow-collector-1\.4\.81-1\.x86_64\.rpm/)
   })
 
-  await withServer(bootstrap({ready: false, reason: "unsupported_auth_mode:token"}), async (instance) => {
-    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "unsupported_auth_mode:token"}, undefined), async (instance) => {
+    const refused = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.notEqual(refused.code, 0)
     assert.match(refused.stderr, /requires static mTLS; got unsupported_auth_mode:token/)
-    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.equal(refused.stdout.includes("serviceradar-flow-collector"), false)
   })
 
-  await withServer(bootstrap({ready: false, reason: "jwt_account_signer_unconfigured", auth_mode: "operator_jwt", account_name: "EDGE"}), async (instance) => {
-    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "jwt_account_signer_unconfigured", auth_mode: "operator_jwt", account_name: "EDGE"}, undefined), async (instance) => {
+    const refused = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.notEqual(refused.code, 0)
     assert.match(refused.stderr, /requires static mTLS; got operator_jwt/)
-    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.equal(refused.stdout.includes("serviceradar-flow-collector"), false)
   })
+})
+
+test("help output documents edge hub status", async () => {
+  const topHelp = await runCli(["--help"])
+  assert.equal(topHelp.code, 0, topHelp.stderr)
+  assert.match(topHelp.stdout, /serviceradar-cli edge hub status/)
+
+  const edgeHelp = await runCli(["edge", "help"])
+  assert.equal(edgeHelp.code, 0, edgeHelp.stderr)
+  assert.match(edgeHelp.stdout, /serviceradar-cli edge hub status/)
 })
 
 test("edge install leaf --dry-run checks the site exists and plans managed NATS onboarding", async () => {
