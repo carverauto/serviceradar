@@ -146,7 +146,9 @@ tests:
           value: 0
       - equal:
           path: spec.strategy
-          value: {type: Recreate}
+          value:
+            type: Recreate
+            rollingUpdate: null
 
   - it: rolls a cpu_explicit worker and requests no GPU even with gpuCount 0
     template: templates/media-worker.yaml
