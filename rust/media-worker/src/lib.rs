@@ -90,11 +90,11 @@ pub use vision::{
 };
 pub use worker::{
     AdmittedWorker, DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,
-    JetStreamResultPublisher, JobDelivery, JobOutcome, ResultPublisher, TextEmbedRpcRequest,
-    TextEmbedRpcResponse, TrackSummaryPayload, UndecodableKeyframePayload,
-    VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT, VISUAL_INDEX_RESULTS_SUBJECT,
-    VISUAL_TEXT_EMBED_QUEUE_GROUP, VISUAL_TEXT_EMBED_RPC_PREFIX, VisualIndexJobEnvelope,
-    VisualIndexProcessor, VisualIndexResultEnvelope, load_and_admit_worker,
+    JetStreamResultPublisher, JobDelivery, JobOutcome, MAX_RESULT_ENVELOPE_JSON_BYTES,
+    ResultPublisher, TextEmbedRpcRequest, TextEmbedRpcResponse, TrackSummaryPayload,
+    UndecodableKeyframePayload, VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT,
+    VISUAL_INDEX_RESULTS_SUBJECT, VISUAL_TEXT_EMBED_QUEUE_GROUP, VISUAL_TEXT_EMBED_RPC_PREFIX,
+    VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, load_and_admit_worker,
     run_admitted_nats_worker, run_nats_worker_loops, run_nats_worker_loops_with_backend,
     text_embed_rpc_subject,
 };

@@ -809,18 +809,19 @@ fn production_vision_pipeline_uses_media_core_motion_gate_and_emits_bounded_jfif
     );
     assert!(f3.detections()[0].track_id().is_some());
 
-    let f3_b64 = f3
-        .thumbnail_jpeg_b64()
-        .expect("detected frame must emit thumbnail_jpeg_b64");
-    let f3_jpeg = base64::engine::general_purpose::STANDARD
-        .decode(f3_b64)
-        .expect("decode frame 3 JPEG");
-    assert!(f3_jpeg.starts_with(&[0xFF, 0xD8]));
-    assert!(f3_jpeg.ends_with(&[0xFF, 0xD9]));
-    assert!(f3_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+    let block_b64 = clip
+        .block_thumbnail_jpeg_b64()
+        .expect("detected block must emit block_thumbnail_jpeg_b64");
+    let block_jpeg = base64::engine::general_purpose::STANDARD
+        .decode(block_b64)
+        .expect("decode block thumbnail JPEG");
+    assert!(block_jpeg.starts_with(&[0xFF, 0xD8]));
+    assert!(block_jpeg.ends_with(&[0xFF, 0xD9]));
+    assert!(block_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
 
-    // Block-level thumbnail prefers the detected keyframe (frame 3) over the empty anchor (frame 0).
-    assert_eq!(clip.block_thumbnail_jpeg_b64(), Some(f3_b64));
+    // Frame 3 is already emitted as block_thumbnail_jpeg_b64 and is not duplicated on the frame.
+    assert!(f3.thumbnail_jpeg_b64().is_none());
+    assert_ne!(clip.frames()[0].thumbnail_jpeg_b64(), Some(block_b64));
 
     // Track summary points to its best keyframe (frame 3) without duplicating thumbnail bytes.
     assert_eq!(clip.tracks().len(), 1);

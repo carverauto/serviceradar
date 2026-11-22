@@ -42,6 +42,9 @@ pub const VISUAL_INDEX_RESULTS_SUBJECT: &str = "media.results.visual_index.v1";
 pub const VISUAL_TEXT_EMBED_RPC_PREFIX: &str = "media.rpc.visual_text_embed.v1";
 /// Queue group shared by compatible `serviceradar-media-worker` replicas on text-embed RPCs.
 pub const VISUAL_TEXT_EMBED_QUEUE_GROUP: &str = "serviceradar_media_worker_text_embed_v1";
+/// Safe serialized JSON byte ceiling (960 KiB) for `VisualIndexResultEnvelope`, keeping
+/// headroom below NATS's 1 MiB `max_payload`.
+pub const MAX_RESULT_ENVELOPE_JSON_BYTES: usize = 960 * 1024;
 
 fn default_schema_v1() -> u32 {
     1
@@ -933,9 +936,11 @@ where
             self.metrics.observe_stage2_latency(secs);
         }
 
-        let block_thumbnail_jpeg_b64 = clip_analysis.block_thumbnail_jpeg_b64().map(str::to_string);
+        let block_thumbnail = clip_analysis.block_thumbnail_jpeg_b64().map(str::to_string);
+        let thumbnail_frame_order = clip_analysis.thumbnail_frame_order().to_vec();
         let (frame_analyses, track_summaries) = clip_analysis.into_parts();
         let mut frame_payloads = Vec::with_capacity(frame_analyses.len());
+        let mut frame_thumbnails = Vec::with_capacity(frame_analyses.len());
         for ((sequence, media_pts_ns, _), analysis) in sampled_frames
             .into_iter()
             .filter(|(_, _, frame)| frame.is_some())
@@ -968,13 +973,14 @@ where
                 })
                 .collect();
 
+            frame_thumbnails.push(analysis.thumbnail_jpeg_b64().map(str::to_string));
             frame_payloads.push(FrameResultPayload {
                 fragment_sequence: sequence,
                 media_pts_ns,
                 scene_suppressed: analysis.scene_suppressed(),
                 detections: det_payloads,
                 embeddings: emb_payloads,
-                thumbnail_jpeg_b64: analysis.thumbnail_jpeg_b64().map(str::to_string),
+                thumbnail_jpeg_b64: None,
             });
         }
 
@@ -1000,26 +1006,33 @@ where
         let emb_id = self.models.embedder_model_id().to_string();
         let emb_ver = self.models.embedder_model_version().to_string();
 
-        Ok(JobExecution::ReadyResult(Box::new(
-            VisualIndexResultEnvelope {
-                schema: VISUAL_INDEX_RESULTS_SUBJECT.to_string(),
-                schema_version: 1,
-                job_id: job.job_id().to_string(),
-                catalog_entry_id: job.catalog_entry_id().to_string(),
-                descriptor_sha256: job.descriptor_sha256().to_string(),
-                detector_model_id: det_id,
-                detector_model_version: det_ver,
-                embedder_model_id: emb_id.clone(),
-                embedder_model_version: emb_ver.clone(),
-                model_id: emb_id,
-                model_version: emb_ver,
-                embedding_dim: self.models.embedding_dim(),
-                frames: frame_payloads,
-                tracks: track_payloads,
-                undecodable_keyframes,
-                block_thumbnail_jpeg_b64,
-            },
-        )))
+        let mut envelope = VisualIndexResultEnvelope {
+            schema: VISUAL_INDEX_RESULTS_SUBJECT.to_string(),
+            schema_version: 1,
+            job_id: job.job_id().to_string(),
+            catalog_entry_id: job.catalog_entry_id().to_string(),
+            descriptor_sha256: job.descriptor_sha256().to_string(),
+            detector_model_id: det_id,
+            detector_model_version: det_ver,
+            embedder_model_id: emb_id.clone(),
+            embedder_model_version: emb_ver.clone(),
+            model_id: emb_id,
+            model_version: emb_ver,
+            embedding_dim: self.models.embedding_dim(),
+            frames: frame_payloads,
+            tracks: track_payloads,
+            undecodable_keyframes,
+            block_thumbnail_jpeg_b64: None,
+        };
+        attach_envelope_thumbnails_within_ceiling(
+            &mut envelope,
+            block_thumbnail,
+            frame_thumbnails,
+            &thumbnail_frame_order,
+            MAX_RESULT_ENVELOPE_JSON_BYTES,
+        )?;
+
+        Ok(JobExecution::ReadyResult(Box::new(envelope)))
     }
 
     fn validate_job_compatibility(
@@ -1068,6 +1081,67 @@ where
             let _ = self.publisher.publish_telemetry_snapshot(&encoded).await;
         }
     }
+}
+
+struct CountingWriter(usize);
+
+impl std::io::Write for CountingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn serialized_json_len<T: Serialize>(value: &T) -> Result<usize, MediaWorkerError> {
+    let mut counter = CountingWriter(0);
+    serde_json::to_writer(&mut counter, value).map_err(|err| {
+        MediaWorkerError::nats_error(format!("failed measuring visual result JSON size: {err}"))
+    })?;
+    Ok(counter.0)
+}
+
+fn attach_envelope_thumbnails_within_ceiling(
+    envelope: &mut VisualIndexResultEnvelope,
+    block_thumbnail: Option<String>,
+    mut frame_thumbnails: Vec<Option<String>>,
+    thumbnail_frame_order: &[usize],
+    max_envelope_json_bytes: usize,
+) -> Result<(), MediaWorkerError> {
+    const BLOCK_THUMB_JSON_OVERHEAD: usize = r#","block_thumbnail_jpeg_b64":"""#.len();
+    const FRAME_THUMB_JSON_OVERHEAD: usize = r#","thumbnail_jpeg_b64":"""#.len();
+
+    let base_len = serialized_json_len(envelope)?;
+    let mut headroom = max_envelope_json_bytes.saturating_sub(base_len);
+
+    if let Some(block_b64) = block_thumbnail {
+        let block_cost = BLOCK_THUMB_JSON_OVERHEAD.saturating_add(block_b64.len());
+        if block_cost <= headroom {
+            headroom -= block_cost;
+            envelope.block_thumbnail_jpeg_b64 = Some(block_b64);
+        } else {
+            return Ok(());
+        }
+    }
+
+    for &frame_idx in thumbnail_frame_order {
+        let Some(frame_b64) = frame_thumbnails.get_mut(frame_idx).and_then(Option::take) else {
+            continue;
+        };
+        let frame_cost = FRAME_THUMB_JSON_OVERHEAD.saturating_add(frame_b64.len());
+        if frame_cost > headroom {
+            break;
+        }
+        headroom -= frame_cost;
+        if let Some(frame_payload) = envelope.frames.get_mut(frame_idx) {
+            frame_payload.thumbnail_jpeg_b64 = Some(frame_b64);
+        }
+    }
+
+    Ok(())
 }
 
 enum JobExecution {

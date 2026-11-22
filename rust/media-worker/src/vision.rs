@@ -309,6 +309,7 @@ pub struct ClipAnalysis {
     frames: Vec<KeyframeAnalysis>,
     tracks: Vec<TrackSummary>,
     block_thumbnail_jpeg_b64: Option<String>,
+    thumbnail_frame_order: Vec<usize>,
     stage1_latencies_secs: Vec<f64>,
     stage2_latencies_secs: Vec<f64>,
 }
@@ -328,6 +329,10 @@ impl ClipAnalysis {
 
     pub fn into_parts(self) -> (Vec<KeyframeAnalysis>, Vec<TrackSummary>) {
         (self.frames, self.tracks)
+    }
+
+    pub(crate) fn thumbnail_frame_order(&self) -> &[usize] {
+        &self.thumbnail_frame_order
     }
 
     pub(crate) fn stage1_latencies_secs(&self) -> &[f64] {
@@ -574,7 +579,7 @@ impl VisionPipeline {
                 .collect();
 
             let tracks = tracker.summaries();
-            let block_thumbnail_jpeg_b64 = attach_budgeted_thumbnails(
+            let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
                 &mut frames,
                 &frame_refs,
                 &tracks,
@@ -585,6 +590,7 @@ impl VisionPipeline {
                 frames,
                 tracks,
                 block_thumbnail_jpeg_b64,
+                thumbnail_frame_order,
                 stage1_latencies_secs,
                 stage2_latencies_secs,
             });
@@ -669,7 +675,7 @@ impl VisionPipeline {
         }
 
         let tracks = tracker.summaries();
-        let block_thumbnail_jpeg_b64 = attach_budgeted_thumbnails(
+        let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
             &mut frames,
             &frame_refs,
             &tracks,
@@ -680,6 +686,7 @@ impl VisionPipeline {
             frames,
             tracks,
             block_thumbnail_jpeg_b64,
+            thumbnail_frame_order,
             stage1_latencies_secs,
             stage2_latencies_secs,
         })
@@ -1175,7 +1182,7 @@ fn attach_budgeted_thumbnails(
     frame_refs: &[(u64, &RgbFrame)],
     tracks: &[TrackSummary],
     max_total_b64_bytes: usize,
-) -> Result<Option<String>, MediaWorkerError> {
+) -> Result<(Option<String>, Vec<usize>), MediaWorkerError> {
     let track_best_indices = resolve_track_best_frame_indices(frames, frame_refs, tracks);
 
     let mut candidates: Vec<(u8, f32, usize)> = frames
@@ -1207,7 +1214,7 @@ fn attach_budgeted_thumbnails(
     });
 
     let Some(&(_, _, block_idx)) = candidates.first() else {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     };
 
     let mut remaining_budget = max_total_b64_bytes;
@@ -1216,30 +1223,24 @@ fn attach_budgeted_thumbnails(
         remaining_budget -= block_encoded.len();
         Some(block_encoded)
     } else {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     };
 
-    for &(_, _, idx) in &candidates {
+    let mut attached_order = Vec::new();
+    for &(_, _, idx) in candidates.iter().skip(1) {
         if remaining_budget == 0 {
             break;
         }
-        let b64 = if idx == block_idx {
-            match block_thumbnail_jpeg_b64.as_ref() {
-                Some(existing) if existing.len() <= remaining_budget => existing.clone(),
-                _ => break,
-            }
-        } else {
-            let encoded = encode_frame_thumbnail_b64(frame_refs[idx].1.as_media_core_frame())?;
-            if encoded.len() > remaining_budget {
-                break;
-            }
-            encoded
-        };
-        remaining_budget -= b64.len();
-        frames[idx].thumbnail_jpeg_b64 = Some(b64);
+        let encoded = encode_frame_thumbnail_b64(frame_refs[idx].1.as_media_core_frame())?;
+        if encoded.len() > remaining_budget {
+            break;
+        }
+        remaining_budget -= encoded.len();
+        frames[idx].thumbnail_jpeg_b64 = Some(encoded);
+        attached_order.push(idx);
     }
 
-    Ok(block_thumbnail_jpeg_b64)
+    Ok((block_thumbnail_jpeg_b64, attached_order))
 }
 
 fn clamp_unit_bbox(bbox: [f32; 4]) -> [f32; 4] {
