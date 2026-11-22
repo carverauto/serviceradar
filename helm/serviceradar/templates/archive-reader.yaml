@@ -3,9 +3,28 @@
 {{- if eq (toString (default (dict) .Values.webNg).enabled) "false" -}}
 {{- fail "archiveReader requires webNg.enabled" -}}
 {{- end -}}
+{{- $mode := default "fixed" $archiveReader.mode -}}
+{{- if and (ne $mode "fixed") (ne $mode "perRequest") -}}
+{{- fail "archiveReader.mode must be \"fixed\" or \"perRequest\"" -}}
+{{- end -}}
 {{- $revision := required "archiveReader.revision is required" $archiveReader.revision -}}
 {{- $configSecret := required "archiveReader.configSecretName is required" $archiveReader.configSecretName -}}
-{{- $providerSecret := required "archiveReader.providerSecretName is required" $archiveReader.providerSecretName -}}
+{{- $providerSecret := "" -}}
+{{- if eq $mode "fixed" -}}
+{{- $providerSecret = required "archiveReader.providerSecretName is required" $archiveReader.providerSecretName -}}
+{{- else -}}
+{{- if $archiveReader.providerSecretName -}}
+{{- fail "archiveReader.providerSecretName must be empty in perRequest mode" -}}
+{{- end -}}
+{{- $transport := default "http" $archiveReader.providerTransport -}}
+{{- if and (ne $transport "http") (ne $transport "longshore") -}}
+{{- fail "archiveReader.providerTransport must be \"http\" or \"longshore\"" -}}
+{{- end -}}
+{{- $maxConcurrency := int (default 8 $archiveReader.maxConcurrency) -}}
+{{- if or (lt $maxConcurrency 1) (gt $maxConcurrency 64) -}}
+{{- fail "archiveReader.maxConcurrency must be between 1 and 64" -}}
+{{- end -}}
+{{- end -}}
 {{- $authSecret := required "archiveReader.authSecretName is required" $archiveReader.authSecretName -}}
 {{- $tlsSecret := required "archiveReader.tlsSecretName is required" $archiveReader.tlsSecretName -}}
 {{- $client := default (dict) $archiveReader.client -}}
@@ -15,7 +34,11 @@
 {{- fail "archiveReader server and client TLS Secrets must be distinct" -}}
 {{- end -}}
 {{- $writer := default (dict) .Values.mediaStorage -}}
-{{- range $key := list "providerSecretName" "authSecretName" "tlsSecretName" -}}
+{{- $distinctKeys := list "authSecretName" "tlsSecretName" -}}
+{{- if eq $mode "fixed" -}}
+{{- $distinctKeys = prepend $distinctKeys "providerSecretName" -}}
+{{- end -}}
+{{- range $key := $distinctKeys -}}
 {{- if eq (get $archiveReader $key) (get $writer $key) -}}
 {{- fail (printf "archiveReader.%s must be distinct from mediaStorage.%s" $key $key) -}}
 {{- end -}}
@@ -93,6 +116,16 @@ spec:
               value: "+S 2:2 +fnu"
             - name: TMPDIR
               value: /tmp
+            {{- if eq $mode "perRequest" }}
+            - name: SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY
+              value: {{ int (default 8 $archiveReader.maxConcurrency) | quote }}
+            - name: SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT
+              value: {{ default "http" $archiveReader.providerTransport | quote }}
+            {{- if $archiveReader.portable }}
+            - name: SERVICERADAR_ARCHIVE_READER_PORTABLE
+              value: "true"
+            {{- end }}
+            {{- end }}
             {{- with $archiveReader.egressProxy }}
             - name: SERVICERADAR_EGRESS_PROXY
               value: {{ . | quote }}
@@ -113,9 +146,11 @@ spec:
             - name: config
               mountPath: /etc/serviceradar/archive-read-storage/config
               readOnly: true
+            {{- if eq $mode "fixed" }}
             - name: provider
               mountPath: /etc/serviceradar/archive-read-storage/provider
               readOnly: true
+            {{- end }}
             - name: auth
               mountPath: /etc/serviceradar/archive-read-storage/auth
               readOnly: true
@@ -134,11 +169,13 @@ spec:
             secretName: {{ $configSecret | quote }}
             defaultMode: 0440
             items: [{key: config.json, path: config.json}]
+        {{- if eq $mode "fixed" }}
         - name: provider
           secret:
             secretName: {{ $providerSecret | quote }}
             defaultMode: 0440
             items: [{key: credentials.json, path: credentials.json}]
+        {{- end }}
         - name: auth
           secret:
             secretName: {{ $authSecret | quote }}

@@ -228,6 +228,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
       {:error, :archive_reader_not_installed} ->
         {:error, :archive_reader_not_installed}
 
+      {:error, :integrity_mismatch} ->
+        {:error, :recording_integrity_failed}
+
       _ ->
         {:error, :reader_unavailable}
     end

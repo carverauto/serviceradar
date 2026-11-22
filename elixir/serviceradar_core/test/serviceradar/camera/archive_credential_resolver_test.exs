@@ -233,6 +233,68 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
     assert {:error, :invalid_storage_configuration} = ArchiveStorageConfig.load(extra_key)
   end
 
+  @tag :tmp_dir
+  test "ArchiveStorageConfig supports per-request read storage and timeline reader client configs",
+       %{tmp_dir: tmp_dir} do
+    fixture = write_storage_config_fixture(tmp_dir)
+
+    per_req_doc = %{
+      "schema_version" => 1,
+      "mode" => "per_request",
+      "listener" => fixture.reader_doc["listener"]
+    }
+
+    per_req_path = write_json(tmp_dir, "per-request-reader.json", per_req_doc)
+    assert {:ok, loaded} = ArchiveStorageConfig.load_read_storage(per_req_path)
+    assert loaded.mode == :per_request
+    assert loaded.max_concurrency == 8
+    assert loaded.provider.transport == :http
+    assert loaded.provider.portable == false
+    assert {:ok, ^loaded} = ArchiveStorageConfig.load_timeline_read_storage(per_req_path)
+
+    # Fixed mode config is refused by load_timeline_read_storage/1
+    assert {:error, :invalid_archive_read_storage_configuration} =
+             ArchiveStorageConfig.load_timeline_read_storage(fixture.reader_path)
+
+    longshore_portable_path =
+      write_json(
+        tmp_dir,
+        "per-request-longshore.json",
+        Map.merge(per_req_doc, %{
+          "max_concurrency" => 12,
+          "provider_transport" => "longshore",
+          "portable" => true
+        })
+      )
+
+    with_egress_proxy(nil, fn ->
+      assert {:ok, ls_cfg} =
+               ArchiveStorageConfig.load_timeline_read_storage(longshore_portable_path)
+
+      assert ls_cfg.max_concurrency == 12
+      assert ls_cfg.provider.transport == :longshore
+      assert ls_cfg.provider.portable == true
+    end)
+
+    client_doc = %{
+      "schema_version" => 1,
+      "storage" => fixture.writer_doc["runtime"]
+    }
+
+    client_path = write_json(tmp_dir, "timeline-client.json", client_doc)
+    assert {:ok, %{client: client}} = ArchiveStorageConfig.load_timeline_reader(client_path)
+    assert client.base_url == fixture.writer_doc["runtime"]["base_url"]
+
+    assert {:error, :invalid_timeline_archive_reader_configuration} =
+             ArchiveStorageConfig.load_timeline_reader(
+               write_json(
+                 tmp_dir,
+                 "bad-timeline-client.json",
+                 Map.put(client_doc, "binding_id", @binding_id)
+               )
+             )
+  end
+
   defp binding_fixture do
     destination = Fixtures.archive_destination("allocation-example")
     {:ok, parsed} = ArchiveDestination.attributes(destination)

@@ -405,3 +405,79 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader
+
+  - it: rejects bypassing the timeline archive reader gate through generic environment values
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG: /example/config.json
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG must be configured through archiveReader
+
+  - it: deploys perRequest mode without static provider credentials and wires concurrency and transport
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+      archiveReader.maxConcurrency: 12
+      archiveReader.providerTransport: longshore
+      archiveReader.portable: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY, value: "12"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT, value: longshore}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_READER_PORTABLE, value: "true"}
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: provider}
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: provider}
+          any: true
+
+  - it: wires SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG into web-ng in perRequest mode
+    template: templates/web.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG, value: /etc/serviceradar/archive-reader/config/config.json}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: VMS_ARCHIVE_READER_CONFIG}
+          any: true
+
+  - it: rejects static providerSecretName in perRequest mode
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: example-archive-read-credentials
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.providerSecretName must be empty in perRequest mode
+
+  - it: rejects invalid archiveReader mode and transport values
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: invalidMode
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.mode must be "fixed" or "perRequest"

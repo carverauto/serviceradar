@@ -453,6 +453,12 @@ mediaStorage:
 # must contain the fixed binding/destination and separate read credentials.
 archiveReader:
   enabled: false
+  # "fixed" mounts static providerSecretName; "perRequest" accepts per-request
+  # CNPG credentials over mTLS + bearer auth (no static provider secret).
+  mode: "fixed"
+  maxConcurrency: 8
+  providerTransport: "http"
+  portable: false
   # Bump when changing any mounted configuration, token or certificate.
   revision: ""
   port: 4444

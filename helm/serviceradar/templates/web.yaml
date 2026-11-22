@@ -35,6 +35,9 @@
 {{- if or (hasKey (default (dict) $webNg.extraEnv) "VMS_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "VMS_ARCHIVE_READER_CONFIG") -}}
 {{- fail "VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader" -}}
 {{- end -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG") -}}
+{{- fail "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG must be configured through archiveReader" -}}
+{{- end -}}
 {{- range $key := list "SERVICERADAR_ARCHIVE_STORAGE_ENABLED" "SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE" "SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE" "SERVICERADAR_ARCHIVE_STORAGE_PORT" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through webNg.archiveStorage" $key) -}}
@@ -375,8 +378,13 @@ spec:
         - name: PORT
           value: "4000"
         {{- if $archiveReader.enabled }}
+        {{- if eq (default "fixed" $archiveReader.mode) "perRequest" }}
+        - name: SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG
+          value: /etc/serviceradar/archive-reader/config/config.json
+        {{- else }}
         - name: VMS_ARCHIVE_READER_CONFIG
           value: /etc/serviceradar/archive-reader/config/config.json
+        {{- end }}
         {{- end }}
         {{- if $archiveStorage.enabled }}
         - name: SERVICERADAR_ARCHIVE_STORAGE_ENABLED
