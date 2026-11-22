@@ -143,6 +143,18 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       validate AssignmentParams
     end
 
+    # Moves a manual enabled assignment from a superseded agent identity to its
+    # replacement. Keeps the existing partition_id and row id so references such
+    # as camera_sources.discovery_assignment_id remain intact.
+    update :reassign_agent do
+      require_atomic? false
+      accept [:agent_uid]
+
+      change RejectLegacyUnboundAssignmentMutation
+      change SerializeEnabledAssignment
+      validate NoDuplicateEnabledAssignment
+    end
+
     # Disables an assignment because its owner no longer covers it, and records
     # why and on whose action. It deliberately skips the package and parameter
     # validations of `:update`: a retraction must succeed even when the package

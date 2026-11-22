@@ -8,6 +8,8 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
@@ -20,8 +22,12 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.Plugins.AddonRolloutTarget
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   require Ash.Query
 
@@ -171,10 +177,16 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
     test "reconciles lingering assignments left on an already-superseded identity",
          %{uniq: uniq, actor: actor} do
-      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
 
       sweep_group = create_sweep_group!(uniq, old_uid, actor)
       mapper_job = create_mapper_job!(uniq, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+      enabled_package = create_approved_plugin_package!(uniq, actor)
+      disabled_package = create_approved_plugin_package!("#{uniq}-disabled", actor)
+      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, enabled_package, true)
+      disabled_assignment_id = insert_manual_plugin_assignment!(old_uid, disabled_package, false)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
 
       # Simulate an agent that was marked superseded before assignment handoff ran.
       {:ok, _} =
@@ -186,10 +198,24 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [old_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == old_uid
 
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               old_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(PluginAssignment, disabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == old_uid
+
       assert {:ok, _} = AgentSupersession.sweep(actor: actor)
 
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == new_uid
+      assert Ash.get!(PluginAssignment, disabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
     end
 
     test "reconciles lingering assignments across a multi-hop supersession chain",
@@ -233,6 +259,10 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       sweep_group = create_sweep_group!(uniq, old_uid, actor)
       mapper_job = create_mapper_job!(uniq, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+      plugin_package = create_approved_plugin_package!(uniq, actor)
+      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, true)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
 
       went_quiet!(old_uid)
 
@@ -247,6 +277,34 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == new_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
+    end
+
+    test "skips conflicting manual plugin assignment without blocking other handoffs",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      plugin_package = create_approved_plugin_package!(uniq, actor)
+      old_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, true)
+      _existing_new_id = insert_manual_plugin_assignment!(new_uid, plugin_package, true)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      assert agent!(old_uid, actor).status == :superseded
+      assert Ash.get!(PluginAssignment, old_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
     end
 
     test "transitions a timed-out solo identity to disconnected without superseding it",
@@ -502,6 +560,108 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       |> Ash.create(actor: actor)
 
     job
+  end
+
+  defp create_agent_credential_rule!(uniq, agent_uid, actor) do
+    secret = CredentialIntegrationFixtures.secret!(actor: actor)
+
+    {:ok, rule} =
+      NetworkCredentialRule.create_rule(
+        %{
+          name: "supersession-rule-#{uniq}",
+          provider: "example-network",
+          auth_method: "api_token",
+          purpose: "inventory",
+          target_query: "in:devices",
+          scope_type: :agent,
+          scope_value: agent_uid,
+          secret_id: secret.id
+        },
+        actor: actor
+      )
+
+    rule
+  end
+
+  defp create_approved_plugin_package!(uniq, actor) do
+    plugin_id = "supersession-plugin-#{uniq}"
+
+    Plugin
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Supersession Plugin #{uniq}",
+        description: "Synthetic plugin for agent supersession handoff tests"
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    PluginPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Supersession Plugin #{uniq}",
+        version: "1.0.0",
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: %{
+          "id" => plugin_id,
+          "name" => "Supersession Plugin #{uniq}",
+          "version" => "1.0.0",
+          "entrypoint" => "run_check",
+          "runtime" => "wasi-preview1",
+          "outputs" => "serviceradar.plugin_result.v1",
+          "capabilities" => ["submit_result"],
+          "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100}
+        },
+        config_schema: %{},
+        display_contract: %{},
+        content_hash: "sha256:#{plugin_id}:1.0.0",
+        signature: %{},
+        source_type: :upload
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+    |> Ash.Changeset.for_update(:approve, %{approved_by: "system:agent_supersession_test"},
+      actor: actor
+    )
+    |> Ash.update!()
+  end
+
+  defp insert_manual_plugin_assignment!(agent_uid, plugin_package, enabled) do
+    id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_assignments
+        (id, agent_uid, partition_id, plugin_package_id, plugin_id, source, enabled)
+      VALUES ($1::text::uuid, $2, 'default', $3::text::uuid, $4, 'manual', $5)
+      """,
+      [id, agent_uid, to_string(plugin_package.id), plugin_package.plugin_id, enabled]
+    )
+
+    id
+  end
+
+  defp create_camera_source!(uniq, device_uid, agent_uid, actor) do
+    {:ok, source} =
+      CameraSource.create_source(
+        %{
+          device_uid: device_uid,
+          vendor: "example-camera",
+          vendor_camera_id: "cam-#{uniq}",
+          display_name: "Example Camera #{uniq}",
+          assigned_agent_id: agent_uid
+        },
+        actor: actor
+      )
+
+    source
   end
 
   # 198.18.0.0/15 (benchmarking range), unique per test run.
