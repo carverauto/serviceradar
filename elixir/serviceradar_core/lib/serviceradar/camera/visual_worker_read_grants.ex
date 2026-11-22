@@ -872,34 +872,29 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   end
 
   defp cancel_matching_job(job, req, loaders) do
-    cond do
-      is_function(Map.get(loaders, :cancel_job), 1) ->
-        loaders.cancel_job.(job)
+    if map_size(loaders) > 0 do
+      :ok
+    else
+      job_id = fetch_val(job, :id)
 
-      map_size(loaders) > 0 ->
-        :ok
-
-      true ->
-        job_id = fetch_val(job, :id)
-
-        VisualIndexJob
-        |> Ash.Query.filter(
-          id == ^job_id and
-            catalog_entry_id == ^req.catalog_entry_id and
-            descriptor_sha256 == ^req.descriptor_sha256 and
-            state in [:pending, :dispatched]
-        )
-        |> Ash.bulk_update(
-          :mark_cancelled,
-          %{last_error_class: "source_deleted_or_quarantined"},
-          actor: @system_actor,
-          strategy: [:atomic],
-          return_errors?: true
-        )
-        |> case do
-          %Ash.BulkResult{status: :success} -> :ok
-          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-        end
+      VisualIndexJob
+      |> Ash.Query.filter(
+        id == ^job_id and
+          catalog_entry_id == ^req.catalog_entry_id and
+          descriptor_sha256 == ^req.descriptor_sha256 and
+          state in [:pending, :dispatched]
+      )
+      |> Ash.bulk_update(
+        :mark_cancelled,
+        %{last_error_class: "source_deleted_or_quarantined"},
+        actor: @system_actor,
+        strategy: [:atomic],
+        return_errors?: true
+      )
+      |> case do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+      end
     end
   end
 
