@@ -34,10 +34,10 @@ and health probes. A separately installed private listener accepts authenticated
 media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator),
 which registers sealed blocks in Core, and an opt-in
 [playback read listener](nvr-ingest.md#playback-read-listener) serves verified
-local copies to web-ng. Continuous recorder scheduling and pool
-assignment, automatic archive scheduling and reclamation, and automated restart
-reconciliation remain pending. For an explicit, verified copy to a bucket, see
-[Archive upload](#archive-upload). Do not enable recording policies through this
+local copies to web-ng. `core-elx` schedules archive uploads for `:pending`
+cataloged blocks via `ArchiveBlockJob`; continuous recorder scheduling and pool
+assignment, reclamation, and automated restart reconciliation remain pending.
+See [Archive upload](#archive-upload). Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
 recording, archive playback and deployed storage acceptance boundaries.
@@ -420,13 +420,15 @@ implied. Publication acceptance is still not playable local-copy availability.
 
 ## Archive upload
 
-With `nvr.archive.enabled`, Core can ask an NVR replica to copy one sealed block
-to an S3-compatible bucket. The replica uploads the block's files through
-Longshore, verifies each by reading it back, and writes an `archive-receipt.json`
-beside the block. The local copy is kept and nothing is deleted. The request uses
-the ingest listener and token, so the chart refuses `nvr.archive.enabled` without
-`nvr.ingest.enabled`. Archive playback, reclamation and a Core record of the
-archive are not part of this.
+With `nvr.archive.enabled`, Core asks an NVR replica to copy each sealed block
+to an S3-compatible bucket via `ArchiveBlockJob` on the dedicated `nvr_archive`
+Oban queue (`OBAN_QUEUE_NVR_ARCHIVE`, default `2`). The replica uploads the
+block's files through Longshore, verifies each by reading it back, and writes an
+`archive-receipt.json` beside the block; Core then records `NVRArchiveReceipt`
+and transitions `RecordingCatalogEntry` to `:verified` in one transaction. The
+local copy is kept and nothing is deleted. The request uses the ingest listener
+and token, so the chart refuses `nvr.archive.enabled` without
+`nvr.ingest.enabled`. Archive playback and reclamation remain pending.
 
 The bucket credential is stored in Core's CNPG credential store and travels inside
 each request. The NVR holds it in memory for that request only. The chart adds no

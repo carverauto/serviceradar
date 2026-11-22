@@ -102,7 +102,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
       binding = archive_binding()
 
       opts =
-        base_opts(entry(),
+        entry()
+        |> base_opts(
           binding: binding,
           archive_opts: archive_opts,
           archive_fn: &NVRArchive.archive_block/5,
@@ -111,6 +112,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
             {:ok, :verified}
           end
         )
+        |> Keyword.delete(:member_resolver)
 
       {result, log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, opts) end)
 
@@ -128,6 +130,105 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
 
       refute log =~ @access_key_id
       refute log =~ @secret_access_key
+    end
+
+    # credo:disable-for-next-line Jump.CredoChecks.TooManyAssertions
+    test "classifies mTLS NVR wire refusals, tampered receipts, busy 503, and closed gate", ctx do
+      {:ok, _} = Application.ensure_all_started(:ssl)
+      prev_enabled = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled)
+      prev_gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, prev_enabled)
+        Application.put_env(:serviceradar_core, :nvr_recovery_gate, prev_gate)
+      end)
+
+      dir = Path.expand(ctx.tmp_dir)
+      gate_path = Path.join(dir, "recovery-state.json")
+      File.write!(gate_path, ~s({"generation":"#{@recovery_generation}","state":"ready"}))
+      Application.put_env(:serviceradar_core, :nvr_recovery_gate, %{generation: @recovery_generation, path: gate_path})
+      Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
+
+      certs = generate_certs()
+      parent = self()
+      {:ok, reply_agent} = Agent.start_link(fn -> nil end)
+
+      port =
+        Fixture.start(certs.server_config, fn request ->
+          send(parent, {:nvr_request, request.target})
+          Agent.get(reply_agent, & &1)
+        end)
+
+      archive_opts = nvr_opts(dir, certs, port, secret())
+      binding = archive_binding()
+
+      transition_fn = fn _entry, attrs ->
+        send(parent, {:transitioned, attrs})
+        {:ok, entry(attrs)}
+      end
+
+      wire_opts = fn ->
+        entry()
+        |> base_opts(
+          binding: binding,
+          archive_opts: archive_opts,
+          archive_fn: &NVRArchive.archive_block/5,
+          transition_entry_fn: transition_fn,
+          rand_fn: fn -> 0.0 end
+        )
+        |> Keyword.delete(:member_resolver)
+      end
+
+      json_headers = %{"content-type" => "application/json"}
+
+      # 503 archive_busy over mTLS snoozes without mutating catalog state.
+      Agent.update(reply_agent, fn _ -> {503, json_headers, Jason.encode!(%{"error" => "archive_busy"})} end)
+      {busy_res, busy_log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, wire_opts.()) end)
+      assert {:snooze, busy_seconds} = busy_res
+      assert busy_seconds in 10..15
+      assert_receive {:nvr_request, "/v1/blocks/" <> _}
+      refute_received {:transitioned, _}
+      refute busy_log =~ @access_key_id
+      refute busy_log =~ @secret_access_key
+
+      # 409 archive_receipt_conflict and 422 over mTLS transition to failed_terminal and discard.
+      for {status, err} <- [{409, "archive_receipt_conflict"}, {422, "block_too_large"}] do
+        Agent.update(reply_agent, fn _ -> {status, json_headers, Jason.encode!(%{"error" => err})} end)
+        {res, log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, wire_opts.()) end)
+        assert {:discard, ^err} = res
+        assert_receive {:nvr_request, "/v1/blocks/" <> _}
+        assert_receive {:transitioned, %{archive_state: :failed_terminal, archive_last_error_class: ^err}}
+        refute log =~ @access_key_id
+        refute log =~ @secret_access_key
+      end
+
+      # 502 archive_failed over mTLS transitions to failed_retryable and snoozes.
+      Agent.update(reply_agent, fn _ -> {502, json_headers, Jason.encode!(%{"error" => "archive_failed"})} end)
+      {err_res, err_log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, wire_opts.()) end)
+      assert {:snooze, 30} = err_res
+      assert_receive {:nvr_request, "/v1/blocks/" <> _}
+      assert_receive {:transitioned, %{archive_state: :failed_retryable, archive_last_error_class: "archive_failed"}}
+      refute err_log =~ @access_key_id
+      refute err_log =~ @secret_access_key
+
+      # 200 with mismatched block_id is rejected by ServiceRadarNVRClient.Wire as :outcome_unknown.
+      tampered = Map.put(receipt(), "block_id", String.duplicate("fedcba9876543210", 4))
+      Agent.update(reply_agent, fn _ -> {200, json_headers, Jason.encode!(tampered)} end)
+      {tampered_res, tampered_log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, wire_opts.()) end)
+      assert {:snooze, 30} = tampered_res
+      assert_receive {:nvr_request, "/v1/blocks/" <> _}
+      assert_receive {:transitioned, %{archive_state: :failed_retryable, archive_last_error_class: "outcome_unknown"}}
+      refute tampered_log =~ @access_key_id
+      refute tampered_log =~ @secret_access_key
+
+      # Closed recovery gate snoozes 60s without contacting NVR or mutating catalog state.
+      File.write!(gate_path, ~s({"generation":"#{@recovery_generation}","state":"closed"}))
+      {closed_res, closed_log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, wire_opts.()) end)
+      assert {:snooze, 60} = closed_res
+      refute_received {:nvr_request, _}
+      refute_received {:transitioned, _}
+      refute closed_log =~ @access_key_id
+      refute closed_log =~ @secret_access_key
     end
   end
 

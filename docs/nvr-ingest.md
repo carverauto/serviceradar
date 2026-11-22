@@ -83,7 +83,9 @@ sending media over NATS/JetStream or ERTS distribution:
    the block's `RecordingCatalogEntry` in one transaction
    (`RecordingBlocks.freeze_and_catalog/6`). The entry's archive state follows
    the camera's `CameraRecordingPolicy` storage mode and the archive settings.
-   A capture without a policy has no archive obligation. The timeline uses the
+   A capture without a policy has no archive obligation. When the resulting
+   entry has `archive_state: :pending`, `NVRWorker` best-effort enqueues
+   `ArchiveBlockJob` on the `nvr_archive` queue. The timeline uses the
    [received time basis](docs/camera-recording.md#coverage-bar-time-basis-and-playback-controls).
    The receipt reports `catalog: {:registered, entry_id}` when the freeze returns
    success and `{:unregistered, reason}` for a definite refusal. An expired
