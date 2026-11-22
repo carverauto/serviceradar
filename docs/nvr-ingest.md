@@ -8,7 +8,7 @@ S3 remains optional.
 
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
-| Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
+| Camera to NVR | Bounded relay-to-NVR coordinator and [continuous recorder](#continuous-recording) stream a shared relay session into a configured NVR replica over mTLS | Automatic pool assignment across NVR replicas and real-camera acceptance |
 | Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
 | Playback | [Playback read listener](#playback-read-listener), owner-routed local timeline playback in web-ng, and [per-request isolated archive reader](archive-init-storage.md#separate-archive-reader-installation) (D.2) | End-to-end local-to-archive playback verification |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
@@ -244,8 +244,9 @@ returns `{:error, {:ingest_status, status}}` instead, because it does not rule
 out a seal. A 200 before the end marker, or an answer that is lost, cut short or
 malformed, is `:outcome_unknown`. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
 This is a library for the media bridge; installing it enables no consumer. The
-[bounded relay coordinator](#bounded-relay-coordinator) is its only caller and
-performs source ownership and recorder admission before sending.
+[bounded relay coordinator](#bounded-relay-coordinator) and
+[continuous recorder](#continuous-recording) are its callers and perform source
+ownership and recorder admission before sending.
 
 ## Outcomes and preservation
 

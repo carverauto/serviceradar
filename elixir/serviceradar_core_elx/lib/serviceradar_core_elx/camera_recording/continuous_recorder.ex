@@ -33,7 +33,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
      (`anchor_utc + (pts - anchor_pts) / 90_000`, design `T`) on each block and
      re-anchors (`reanchored: true`, new `anchor_id`) when drift exceeds 2 s or
      after a timestamp discontinuity.
-  6. Best-effort enqueues `ArchiveBlockJob.enqueue_for_entry/2` after every
+  6. Best-effort enqueues `ArchiveBlockJob.enqueue_for_entry/1` after every
      sealed and cataloged block.
   """
 

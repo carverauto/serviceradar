@@ -688,7 +688,8 @@ nvr:
     tokenSecretName: serviceradar-nvr-ingest-token
     tlsSecretName: serviceradar-nvr-ingest-server-tls
     client:
-      # Permits explicit one-shot capture only; it starts no recorders.
+      # Permits explicit one-shot capture and enables policy-driven continuous
+      # recording for cameras with mode == :continuous (see docs/nvr-ingest.md).
       cameraRecordingEnabled: true
       configSecretName: serviceradar-nvr-client-config
       tokenSecretName: serviceradar-nvr-ingest-token

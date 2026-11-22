@@ -31,16 +31,20 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
 and health probes. A separately installed private listener accepts authenticated
-media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator),
-which registers sealed blocks in Core, and an opt-in
+media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator)
+and [continuous recorder](nvr-ingest.md#continuous-recording), which register
+sealed blocks in Core, and an opt-in
 [playback read listener](nvr-ingest.md#playback-read-listener) serves verified
-local copies to web-ng. `core-elx` schedules archive uploads for `:pending`
-cataloged blocks via `ArchiveBlockJob`; continuous recorder scheduling and pool
+local copies to web-ng. `core-elx` runs policy-driven continuous recording when
+`nvr.ingest.client.cameraRecordingEnabled` is set (see
+[Continuous recording](nvr-ingest.md#continuous-recording)) and schedules archive
+uploads for `:pending` cataloged blocks via `ArchiveBlockJob`; automatic pool
 assignment, reclamation, and automated restart reconciliation remain pending.
-See [Archive upload](#archive-upload). Do not enable recording policies through this
-runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
-implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
-recording, archive playback and deployed storage acceptance boundaries.
+See [Archive upload](#archive-upload). Do not enable production recording policies
+through this runtime until reclamation and automated reconciliation are in place.
+Workload updates use `OnDelete` until coordinated drain/fencing is implemented.
+The [first-camera milestone](nvr-ingest.md) tracks the remaining recording, archive
+playback and deployed storage acceptance boundaries.
 
 The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. Capture admission also reserves 64 KiB for each missing
