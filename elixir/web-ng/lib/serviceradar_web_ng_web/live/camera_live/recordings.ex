@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_anchor_to_us: custom_to_us,
         timeline_seek_us: seek_us,
         timeline_highlight_frame_id: highlight_frame_id,
+        timeline_selected_clip_id: nil,
         timeline_search_query:
           if(Map.has_key?(params, "q"), do: search_query, else: socket.assigns.timeline_search_query),
         timeline_search_object_class:
@@ -437,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
        assign(socket,
          current_scope: scope,
          source: source,
+         timeline_selected_clip_id: nil,
          timeline_play_from_us: play_from_us,
          timeline_play_to_us: play_to_us,
          timeline_playlist_origin_us: playlist_origin_us,
@@ -525,6 +527,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         assign(socket,
           current_scope: scope,
           source: source,
+          timeline_selected_clip_id: nil,
           timeline_seek_us: seek_us,
           timeline_highlight_frame_id: highlight_frame_id,
           error: nil
@@ -821,8 +824,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         )
 
       selected_clip_id =
-        if Enum.any?(event_clips, &(&1.id == socket.assigns.timeline_selected_clip_id)) do
-          socket.assigns.timeline_selected_clip_id
+        case find_event_clip(event_clips, socket.assigns.timeline_selected_clip_id) do
+          %{} = clip ->
+            if clip_in_play_window?(clip, play_from_us, play_to_us), do: clip.id
+
+          nil ->
+            nil
         end
 
       assign(socket,
@@ -913,6 +920,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       )
 
     assign(socket,
+      timeline_selected_clip_id: nil,
       timeline_play_from_us: next_from,
       timeline_play_to_us: next_to,
       timeline_playlist_origin_us: playlist_origin_us,
@@ -1489,6 +1497,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       )
 
     assign(socket,
+      timeline_selected_clip_id: nil,
       timeline_play_from_us: play_from_us,
       timeline_play_to_us: play_to_us,
       timeline_playlist_origin_us: playlist_origin_us,
@@ -1690,6 +1699,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp find_event_clip(_, _), do: nil
+
+  defp clip_in_play_window?(clip, play_from_us, play_to_us)
+       when is_map(clip) and is_integer(play_from_us) and is_integer(play_to_us) do
+    is_integer(clip[:start_us]) and is_integer(clip[:end_us]) and
+      play_from_us <= clip.start_us and play_to_us >= clip.end_us
+  end
+
+  defp clip_in_play_window?(_, _, _), do: false
 
   defp focus_playback_on_event_clip(socket, scope, source, cov, clip) do
     tz = user_timezone(scope)

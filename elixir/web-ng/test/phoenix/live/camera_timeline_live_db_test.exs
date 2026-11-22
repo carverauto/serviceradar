@@ -543,6 +543,10 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
     assert is_binary(player_playlist_path(view))
+
+    # Selecting a different coverage bucket clears the previously selected clip highlight
+    view |> element("#camera-timeline-bucket-119") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='false']")
   end
 
   defp player_playlist_path(view) do

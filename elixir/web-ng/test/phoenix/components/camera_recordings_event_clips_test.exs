@@ -170,6 +170,24 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(person_doc, "#camera-clip-card-evt-old-person")
   end
 
+  test "clears clip card highlight when selected clip id is cleared and playback window moves elsewhere" do
+    clips = sample_clips()
+
+    moved_doc =
+      %{
+        timeline_event_clips: clips,
+        timeline_selected_clip_id: nil,
+        timeline_play_from_us: @base_us + 1_800_000_000,
+        timeline_play_to_us: @base_us + 3_600_000_000
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert attr_of(moved_doc, "#camera-clip-card-evt-person-1", "aria-pressed") == ["false"]
+    assert attr_of(moved_doc, "#camera-clip-card-evt-vehicle-1", "aria-pressed") == ["false"]
+    assert attr_of(moved_doc, "#camera-clip-card-rec-seg-1", "aria-pressed") == ["false"]
+  end
+
   defp render_recordings_doc(assigns) do
     (&RecordingsComponents.recordings/1)
     |> render_component(assigns)
