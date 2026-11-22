@@ -16,3 +16,7 @@ helm:
   - name: certs.runtimeLayoutVersion
     value: "7"
     forcestring: true
+  # NATS certificate authorization: the broker admits a client only when core
+  # has recorded its certificate. This is what opens the leaf listener.
+  - name: nats.certificateAuthorization.enabled
+    value: "true"
