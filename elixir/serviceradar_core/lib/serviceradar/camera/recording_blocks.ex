@@ -31,6 +31,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -123,9 +124,20 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
         end
       end
 
-      with_recovery(:nvr_recovery_closed_after_freeze, fn ->
-        RecorderOwnership.with_current(ingest, claim, freeze, opts)
-      end)
+      result =
+        with_recovery(:nvr_recovery_closed_after_freeze, fn ->
+          RecorderOwnership.with_current(ingest, claim, freeze, opts)
+        end)
+
+      case result do
+        {:ok, %RecordingCatalogEntry{camera_source_id: camera_source_id}} ->
+          RecordingPubSub.broadcast_updated(camera_source_id, :block_cataloged)
+
+        _ ->
+          :ok
+      end
+
+      result
     end
   end
 

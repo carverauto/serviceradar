@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
   alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.Camera.NVRArchiveReceipt
+  alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.NVRArchive
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Fixture
@@ -706,6 +707,44 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
         end)
 
       assert {:error, {:oban_unavailable, "boom"}} = result
+    end
+  end
+
+  describe "PubSub timeline update broadcasts" do
+    test "broadcasts archive_verified and archive_failed_terminal on ServiceRadar.PubSub when running" do
+      if Process.whereis(ServiceRadar.PubSub) == nil do
+        start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      end
+
+      assert :ok = RecordingPubSub.subscribe(@camera_id)
+
+      on_exit(fn ->
+        RecordingPubSub.unsubscribe(@camera_id)
+      end)
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 @entry_id,
+                 base_opts(entry(),
+                   archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt()} end,
+                   commit_verified_fn: fn _entry, _binding, _bytes, _now -> {:ok, :verified} end
+                 )
+               )
+
+      assert_receive {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :archive_verified}}
+
+      assert {:discard, "archive_receipt_conflict"} =
+               ArchiveBlockJob.run(
+                 @entry_id,
+                 base_opts(entry(),
+                   archive_fn: fn _m, _k, _b, _s, _o ->
+                     {:error, {:archive_status, 409, %{"error" => "archive_receipt_conflict"}}}
+                   end,
+                   transition_entry_fn: fn _entry, attrs -> {:ok, entry(attrs)} end
+                 )
+               )
+
+      assert_receive {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :archive_failed_terminal}}
     end
   end
 

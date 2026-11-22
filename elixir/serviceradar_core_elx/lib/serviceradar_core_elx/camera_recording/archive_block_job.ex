@@ -55,6 +55,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadar.Repo
   alias ServiceRadar.Storage.StorageEntitlements
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -294,6 +295,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
     case commit_fn.(entry, binding, receipt_bytes, now) do
       {:ok, :verified} ->
         emit_outcome(:completed, entry.id, nil)
+        RecordingPubSub.broadcast_updated(Map.get(entry, :camera_source_id), :archive_verified)
         :ok
 
       {:ok, :skipped} ->
@@ -521,6 +523,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
         )
 
         emit_outcome(:failed_terminal, entry.id, error_class)
+        RecordingPubSub.broadcast_updated(Map.get(entry, :camera_source_id), :archive_failed_terminal)
         {:discard, error_class}
 
       {:error, reason} ->
