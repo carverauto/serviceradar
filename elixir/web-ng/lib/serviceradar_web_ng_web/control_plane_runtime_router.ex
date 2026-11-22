@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
 
   use Plug.Router
 
+  alias ServiceRadarWebNG.Edge.HubReadiness
   alias ServiceRadarWebNGWeb.Auth.PasswordResetDelivery
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveBindings
@@ -57,6 +58,22 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
     |> put_resp_header("x-content-type-options", "nosniff")
     |> put_resp_content_type("application/json")
     |> send_resp(200, body)
+  end
+
+  get "/v1/hub/readiness" do
+    case HubReadiness.fetch() do
+      {:ok, hub} ->
+        body = Jason.encode!(%{schema_version: 1, hub: hub})
+
+        conn
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("x-content-type-options", "nosniff")
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, body)
+
+      {:error, :core_unavailable} ->
+        respond(conn, 503, "core_unavailable")
+    end
   end
 
   post "/v1/password-reset" do

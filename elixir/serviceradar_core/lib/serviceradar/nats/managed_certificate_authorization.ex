@@ -88,7 +88,12 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   @impl true
   def handle_call(:readiness, _from, state) do
     account_name = stored_account_name(state)
-    reason = readiness_reason(state.reason, account_name)
+
+    reason =
+      case Configuration.mounted_seeds_status() do
+        {:error, :signing_keys_not_provisioned} -> "signing_keys_not_provisioned"
+        _ -> readiness_reason(state.reason, account_name)
+      end
 
     status = %{
       auth_mode: state.config && state.config.auth_mode,

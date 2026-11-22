@@ -49,6 +49,14 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc "Returns the latest coverage report, or nil before the first reconciliation."
+  @spec report() :: report() | nil
+  def report do
+    GenServer.call(__MODULE__, :report)
+  catch
+    :exit, _ -> nil
+  end
+
   @doc "Returns the inventory inputs, or nil if any of its three paths is unset or empty."
   def configured do
     with dir when is_binary(dir) and dir != "" <-
@@ -107,6 +115,11 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   def init(_opts) do
     send(self(), :tick)
     {:ok, %{report: nil}}
+  end
+
+  @impl true
+  def handle_call(:report, _from, state) do
+    {:reply, state.report, state}
   end
 
   @impl true

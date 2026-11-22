@@ -35,6 +35,14 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc "Returns the latest refusal reason per certificate fingerprint from the rotation manifest."
+  @spec refusals() :: %{optional(String.t()) => String.t()}
+  def refusals do
+    GenServer.call(__MODULE__, :refusals)
+  catch
+    :exit, _ -> %{}
+  end
+
   @doc "The configured manifest path, or nil when none is mounted."
   def configured_path, do: Application.get_env(:serviceradar, :runtime_cert_rotation_file)
 
@@ -84,7 +92,12 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
   @impl true
   def init(_opts) do
     send(self(), :tick)
-    {:ok, %{digest: nil}}
+    {:ok, %{digest: nil, refusals: %{}}}
+  end
+
+  @impl true
+  def handle_call(:refusals, _from, state) do
+    {:reply, state.refusals, state}
   end
 
   # An unchanged file is not read into the database again once every entry is
@@ -99,15 +112,25 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp tick(state, path) when path in [nil, ""], do: state
+  defp tick(state, path) when path in [nil, ""], do: %{state | digest: nil, refusals: %{}}
 
   defp tick(state, path) do
-    with {:ok, contents} <- File.read(path),
-         digest = :crypto.hash(:sha256, contents),
-         false <- digest == state.digest do
-      %{state | digest: if(settle(contents), do: digest)}
-    else
-      _ -> state
+    case File.read(path) do
+      {:ok, contents} ->
+        digest = :crypto.hash(:sha256, contents)
+
+        if digest == state.digest do
+          state
+        else
+          {settled?, refusals} = settle(contents)
+          %{state | digest: if(settled?, do: digest), refusals: refusals}
+        end
+
+      {:error, :enoent} ->
+        %{state | digest: nil, refusals: %{}}
+
+      {:error, _reason} ->
+        state
     end
   rescue
     exception ->
@@ -124,13 +147,27 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
     case contents |> decode() |> record() do
       {:ok, outcomes} ->
         log(outcomes)
-        not Enum.any?(outcomes, &transient?/1)
+        {not Enum.any?(outcomes, &transient?/1), extract_refusals(outcomes)}
 
       {:error, reason} ->
         Logger.warning("Runtime certificate rotation file is unreadable: #{inspect(reason)}")
-        true
+        {true, %{}}
     end
   end
+
+  defp extract_refusals(outcomes) do
+    Enum.reduce(outcomes, %{}, fn
+      {:refused, fingerprint, reason}, acc when is_binary(fingerprint) ->
+        Map.put(acc, String.downcase(fingerprint), format_refusal_reason(reason))
+
+      _other, acc ->
+        acc
+    end)
+  end
+
+  defp format_refusal_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_refusal_reason(reason) when is_binary(reason), do: reason
+  defp format_refusal_reason(reason), do: inspect(reason)
 
   defp transient?({:refused, _fingerprint, reason}), do: not is_atom(reason)
   defp transient?(_outcome), do: false

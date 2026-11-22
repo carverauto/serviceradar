@@ -1262,6 +1262,116 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     |> ControlPlaneRuntimeRouter.call([])
   end
 
+  test "hub readiness route requires the account control-plane credential and rejects other purposes" do
+    for header_val <- [nil, "Bearer " <> @media_token, "Bearer " <> @entitlement_token] do
+      conn = conn(:get, "/v1/hub/readiness")
+
+      conn =
+        if header_val,
+          do: put_req_header(conn, @authorization_header, header_val),
+          else: conn
+
+      conn = ControlPlaneRuntimeRouter.call(conn, [])
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+  end
+
+  test "hub readiness route returns core readiness merged with leaf_upstream_url" do
+    previous_fetcher = Application.get_env(:serviceradar_web_ng, :hub_readiness_fetcher)
+    previous_leaf_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url)
+
+    on_exit(fn ->
+      restore_env(:hub_readiness_fetcher, previous_fetcher)
+
+      if is_nil(previous_leaf_url),
+        do: Application.delete_env(:serviceradar, :nats_leaf_upstream_url),
+        else: Application.put_env(:serviceradar, :nats_leaf_upstream_url, previous_leaf_url)
+    end)
+
+    Application.put_env(:serviceradar_web_ng, :hub_readiness_fetcher, fn ->
+      {:ok,
+       %{
+         enforcement_configured: false,
+         authorizer_answering: false,
+         authorizer_reason: "not_configured",
+         signing_keys_provisioned: false,
+         leaf_listener: false,
+         chart_identities: %{
+           total: 13,
+           adopted: 13,
+           legacy_certificates: 0,
+           not_adopted: [],
+           unlisted: []
+         }
+       }}
+    end)
+
+    Application.delete_env(:serviceradar, :nats_leaf_upstream_url)
+
+    conn =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+    assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+
+    assert json_response(conn) == %{
+             "schema_version" => 1,
+             "hub" => %{
+               "enforcement_configured" => false,
+               "authorizer_answering" => false,
+               "authorizer_reason" => "not_configured",
+               "signing_keys_provisioned" => false,
+               "leaf_listener" => false,
+               "leaf_upstream_url" => false,
+               "chart_identities" => %{
+                 "total" => 13,
+                 "adopted" => 13,
+                 "legacy_certificates" => 0,
+                 "not_adopted" => [],
+                 "unlisted" => []
+               }
+             }
+           }
+
+    Application.put_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats-leaf.example.com:7422")
+
+    conn_with_url =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn_with_url.status == 200
+    assert json_response(conn_with_url)["hub"]["leaf_upstream_url"] == true
+  end
+
+  test "hub readiness route returns 503 when core is unavailable" do
+    previous_fetcher = Application.get_env(:serviceradar_web_ng, :hub_readiness_fetcher)
+
+    on_exit(fn ->
+      restore_env(:hub_readiness_fetcher, previous_fetcher)
+    end)
+
+    Application.put_env(:serviceradar_web_ng, :hub_readiness_fetcher, fn ->
+      {:error, :core_unavailable}
+    end)
+
+    conn =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn.status == 503
+    assert json_response(conn) == %{"status" => "core_unavailable"}
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+  end
+
   defp binding_request(body, path \\ "/v1/media/archive-bindings", content_type \\ "application/json") do
     :post
     |> conn(path, body)
