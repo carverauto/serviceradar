@@ -49,7 +49,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc "Returns the latest coverage report, or nil before the first reconciliation."
+  @doc "Returns the latest coverage report, or nil when unreconciled, failed, or unavailable."
   @spec report() :: report() | nil
   def report do
     GenServer.call(__MODULE__, :report)

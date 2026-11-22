@@ -4,9 +4,12 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentBootstrapTest do
   import Phoenix.ConnTest
   import Plug.Conn
 
+  alias ServiceRadar.NATS.ManagedCertificateAuthorization
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.HubReadiness
   alias ServiceRadarWebNGWeb.Api.ManagedComponentController, as: Controller
+  alias ServiceRadarWebNGWeb.Auth.NarrowScopes
+  alias ServiceRadarWebNGWeb.Router
 
   @moduletag :db_free
 
@@ -71,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentBootstrapTest do
     start_supervised!(
       Supervisor.child_spec(
         {FakeCoreProcess,
-         name: ServiceRadar.NATS.ManagedCertificateAuthorization,
+         name: ManagedCertificateAuthorization,
          reply: %{auth_mode: "static_mtls", account_name: "SERVICERADAR", ready: true, reason: nil}},
         id: :fake_authorizer
       )
@@ -124,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentBootstrapTest do
   end
 
   test "HubReadiness.fetch/0 returns core_unavailable when no core authorizer is reachable" do
-    assert Process.whereis(ServiceRadar.NATS.ManagedCertificateAuthorization) == nil
+    assert Process.whereis(ManagedCertificateAuthorization) == nil
     assert HubReadiness.fetch() == {:error, :core_unavailable}
   end
 
@@ -132,6 +135,17 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentBootstrapTest do
     denied = assign(conn, :current_scope, %Scope{user: %{id: "example-viewer"}, permissions: MapSet.new()})
 
     assert {:error, :forbidden} = Controller.bootstrap(denied, %{})
+  end
+
+  test "bootstrap route stays on api_key_auth pipeline and within the narrow edge.manage scope" do
+    info =
+      Phoenix.Router.route_info(Router, "GET", "/api/admin/managed-components/bootstrap", "localhost")
+
+    assert info.plug == Controller
+    assert info.plug_opts == :bootstrap
+    assert info.pipe_through == [:api_key_auth]
+    assert NarrowScopes.allowed?(["edge.manage"], "GET", "/api/admin/managed-components/bootstrap")
+    refute NarrowScopes.allowed?(["plugin.publish"], "GET", "/api/admin/managed-components/bootstrap")
   end
 
   defp restore_env(app, key, nil), do: Application.delete_env(app, key)

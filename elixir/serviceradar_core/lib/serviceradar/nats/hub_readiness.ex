@@ -181,7 +181,10 @@ defmodule ServiceRadar.NATS.HubReadiness do
   defp maybe_put_rotation_reason(entry, _identity, _rotation_refusals), do: entry
 
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_reason({:adoption_failed, inner}) when is_atom(inner), do: "adoption_failed:#{inner}"
+
+  defp format_reason({:adoption_failed, inner}) when is_atom(inner),
+    do: "adoption_failed:#{inner}"
+
   defp format_reason({:adoption_failed, _inner}), do: "adoption_failed"
   defp format_reason(_other), do: "unknown_error"
 end

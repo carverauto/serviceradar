@@ -9,6 +9,7 @@ defmodule ServiceRadar.NATS.HubReadinessTest do
   alias ServiceRadar.Edge.RuntimeCertificateRotation
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.HubReadiness
+  alias ServiceRadar.NATS.ManagedCertificateAuthorization, as: Authorization
   alias ServiceRadar.NATS.ManagedCertificateConfiguration, as: Configuration
 
   @moduletag :tmp_dir
@@ -371,6 +372,47 @@ defmodule ServiceRadar.NATS.HubReadinessTest do
 
     File.rm!(Path.join(dir, "nats-callout-auth.seed"))
     assert Configuration.mounted_seeds_status() == {:error, :signing_keys_not_provisioned}
+  end
+
+  test "authorizer readiness reports signing_keys_not_provisioned whenever mounted seeds are incomplete",
+       %{tmp_dir: dir} do
+    previous_dir = Application.get_env(:serviceradar, :nats_callout_seeds_dir)
+    previous_account = Application.get_env(:serviceradar, :nats_account_name)
+
+    on_exit(fn ->
+      restore_env(:nats_callout_seeds_dir, previous_dir)
+      restore_env(:nats_account_name, previous_account)
+    end)
+
+    Application.put_env(:serviceradar, :nats_callout_seeds_dir, dir)
+    Application.put_env(:serviceradar, :nats_account_name, "SERVICERADAR")
+
+    File.write!(Path.join(dir, "nats-callout-issuer.seed"), Token.new_key(:account).seed <> "\n")
+    File.write!(Path.join(dir, "nats-callout-system.seed"), Token.new_key(:user).seed <> "\n")
+
+    disconnected_state = %{
+      config: %{auth_mode: "static_mtls", account_name: "SERVICERADAR"},
+      reason: "auth_connection_unavailable"
+    }
+
+    ready_state = %{
+      config: %{auth_mode: "static_mtls", account_name: "SERVICERADAR"},
+      reason: nil
+    }
+
+    assert {:reply, %{ready: false, reason: "signing_keys_not_provisioned"}, ^disconnected_state} =
+             Authorization.handle_call(:readiness, {self(), make_ref()}, disconnected_state)
+
+    assert {:reply, %{ready: false, reason: "signing_keys_not_provisioned"}, ^ready_state} =
+             Authorization.handle_call(:readiness, {self(), make_ref()}, ready_state)
+
+    File.write!(Path.join(dir, "nats-callout-auth.seed"), Token.new_key(:user).seed <> "\n")
+
+    assert {:reply, %{ready: false, reason: "auth_connection_unavailable"}, ^disconnected_state} =
+             Authorization.handle_call(:readiness, {self(), make_ref()}, disconnected_state)
+
+    assert {:reply, %{ready: true, reason: nil}, ^ready_state} =
+             Authorization.handle_call(:readiness, {self(), make_ref()}, ready_state)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar, key)
