@@ -332,6 +332,31 @@ Secret: every chart identity's certificate is then guaranteed to be in it.
 {{- end -}}
 
 {{/*
+"true" when the hub broker renders its leafnodes listener: the chart NATS
+broker, nats.leafnodes.enabled, and nats.certificateAuthorization.enabled must
+all be on, matching templates/nats.yaml.
+*/}}
+{{- define "serviceradar.natsLeafListenerConfigured" -}}
+{{- $nats := default dict .Values.nats -}}
+{{- $natsEnabled := or (not (hasKey $nats "enabled")) $nats.enabled -}}
+{{- $leafnodes := default dict (get $nats "leafnodes") -}}
+{{- $leafnodesEnabled := eq (toString (default false (get $leafnodes "enabled"))) "true" -}}
+{{- $certAuthEnabled := eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) -}}
+{{- ternary "true" "false" (and $natsEnabled $leafnodesEnabled $certAuthEnabled) -}}
+{{- end -}}
+
+{{/*
+Settings telling core what the chart rendered for the NATS hub so it can report
+hub readiness without inspecting the broker configuration.
+*/}}
+{{- define "serviceradar.natsHubReadinessEnv" -}}
+- name: SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED
+  value: {{ include "serviceradar.natsCertificateAuthorizationEnabled" . | quote }}
+- name: SERVICERADAR_NATS_LEAF_LISTENER_ENABLED
+  value: {{ include "serviceradar.natsLeafListenerConfigured" . | quote }}
+{{- end -}}
+
+{{/*
 The callout signing seeds, for core only, from the issuer Secret: with
 certificate authorization on, core signs every grant with them. Optional, so
 core starts without them and reports that they are not provisioned.
