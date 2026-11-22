@@ -42,16 +42,6 @@ defmodule ServiceRadarWebNG.Edge.HubReadiness do
   end
 
   defp fetch_core do
-    case Application.get_env(:serviceradar_web_ng, :hub_readiness_fetcher) do
-      fetcher when is_function(fetcher, 0) ->
-        fetcher.()
-
-      _ ->
-        fetch_from_core_rpc()
-    end
-  end
-
-  defp fetch_from_core_rpc do
     manager = ServiceRadar.NATS.ManagedCertificateAuthorization
 
     nodes = fn ->

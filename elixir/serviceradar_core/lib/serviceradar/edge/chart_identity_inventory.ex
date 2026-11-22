@@ -139,7 +139,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
       {:error, reason} ->
         Logger.warning("Chart identity inventory was not reconciled: #{inspect(reason)}")
-        state
+        %{state | report: nil}
     end
   rescue
     exception ->
@@ -147,9 +147,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
         "Chart identity inventory was not reconciled: #{Exception.message(exception)}"
       )
 
-      state
+      %{state | report: nil}
   catch
-    :exit, _reason -> state
+    :exit, _reason -> %{state | report: nil}
   end
 
   # One line per identity whose state changed, so an unchanged install is quiet.

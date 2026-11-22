@@ -19,7 +19,6 @@ defmodule ServiceRadar.NATS.HubReadiness do
           required(:reason) => String.t(),
           required(:fingerprint) => String.t() | nil,
           optional(:fingerprints) => [String.t()],
-          optional(:remedy) => String.t(),
           optional(:rotation_reason) => String.t()
         }
 
@@ -37,7 +36,7 @@ defmodule ServiceRadar.NATS.HubReadiness do
           authorizer_reason: String.t() | nil,
           signing_keys_provisioned: boolean(),
           leaf_listener: boolean(),
-          chart_identities: chart_identities()
+          chart_identities: chart_identities() | nil
         }
 
   @doc """
@@ -112,15 +111,7 @@ defmodule ServiceRadar.NATS.HubReadiness do
     {false, readiness[:reason] || "authorizer_unavailable"}
   end
 
-  defp format_chart_identities(nil, _rotation_refusals) do
-    %{
-      total: 0,
-      adopted: 0,
-      legacy_certificates: 0,
-      not_adopted: [],
-      unlisted: []
-    }
-  end
+  defp format_chart_identities(nil, _rotation_refusals), do: nil
 
   defp format_chart_identities(report, rotation_refusals) do
     identities = Map.get(report, :identities, [])
@@ -160,13 +151,16 @@ defmodule ServiceRadar.NATS.HubReadiness do
         _ -> entry
       end
 
-    entry =
-      case remedy_for(identity.reason) do
-        nil -> entry
-        remedy -> Map.put(entry, :remedy, remedy)
-      end
-
     maybe_put_rotation_reason(entry, identity, rotation_refusals)
+  end
+
+  defp maybe_put_rotation_reason(
+         entry,
+         %{reason: :held_unrecorded, fingerprint: fingerprint},
+         nil
+       )
+       when is_binary(fingerprint) do
+    Map.put(entry, :rotation_reason, "rotation_unavailable")
   end
 
   defp maybe_put_rotation_reason(
@@ -186,18 +180,8 @@ defmodule ServiceRadar.NATS.HubReadiness do
 
   defp maybe_put_rotation_reason(entry, _identity, _rotation_refusals), do: entry
 
-  defp remedy_for(:held_unrecorded) do
-    "Subject is held and the current inventory certificate is unrecorded; record it through the successor API (POST /api/admin/managed-components/<id>/certificates)."
-  end
-
-  defp remedy_for(:legacy_certificates_without_subject) do
-    "An infrastructure component has a recorded certificate without a stored subject; record those certificates again through POST /api/admin/managed-components/adopt or remove the component."
-  end
-
-  defp remedy_for(_reason), do: nil
-
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_reason(reason) when is_binary(reason), do: reason
-  defp format_reason({:adoption_failed, inner}), do: "adoption_failed:#{format_reason(inner)}"
-  defp format_reason(other), do: inspect(other)
+  defp format_reason({:adoption_failed, inner}) when is_atom(inner), do: "adoption_failed:#{inner}"
+  defp format_reason({:adoption_failed, _inner}), do: "adoption_failed"
+  defp format_reason(_other), do: "unknown_error"
 end

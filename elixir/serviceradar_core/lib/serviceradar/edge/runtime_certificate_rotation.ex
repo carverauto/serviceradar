@@ -35,12 +35,15 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc "Returns the latest refusal reason per certificate fingerprint from the rotation manifest."
-  @spec refusals() :: %{optional(String.t()) => String.t()}
+  @doc """
+  Returns the latest refusal reason per certificate fingerprint from the
+  rotation manifest, or nil when unavailable or unreconciled.
+  """
+  @spec refusals() :: %{optional(String.t()) => String.t()} | nil
   def refusals do
     GenServer.call(__MODULE__, :refusals)
   catch
-    :exit, _ -> %{}
+    :exit, _ -> nil
   end
 
   @doc "The configured manifest path, or nil when none is mounted."
@@ -92,7 +95,7 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
   @impl true
   def init(_opts) do
     send(self(), :tick)
-    {:ok, %{digest: nil, refusals: %{}}}
+    {:ok, %{digest: nil, refusals: nil}}
   end
 
   @impl true
@@ -130,7 +133,7 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
         %{state | digest: nil, refusals: %{}}
 
       {:error, _reason} ->
-        state
+        %{state | digest: nil, refusals: nil}
     end
   rescue
     exception ->
@@ -138,24 +141,26 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
         "Runtime certificate rotation was not recorded: #{Exception.message(exception)}"
       )
 
-      state
+      %{state | digest: nil, refusals: nil}
   catch
-    :exit, _reason -> state
+    :exit, _reason -> %{state | digest: nil, refusals: nil}
   end
 
   defp settle(contents) do
     case contents |> decode() |> record() do
       {:ok, outcomes} ->
         log(outcomes)
-        {not Enum.any?(outcomes, &transient?/1), extract_refusals(outcomes)}
+        {not Enum.any?(outcomes, &transient?/1), refusals_from_outcomes(outcomes)}
 
       {:error, reason} ->
         Logger.warning("Runtime certificate rotation file is unreadable: #{inspect(reason)}")
-        {true, %{}}
+        {true, nil}
     end
   end
 
-  defp extract_refusals(outcomes) do
+  @doc false
+  @spec refusals_from_outcomes([outcome()]) :: %{optional(String.t()) => String.t()}
+  def refusals_from_outcomes(outcomes) do
     Enum.reduce(outcomes, %{}, fn
       {:refused, fingerprint, reason}, acc when is_binary(fingerprint) ->
         Map.put(acc, String.downcase(fingerprint), format_refusal_reason(reason))
@@ -166,8 +171,7 @@ defmodule ServiceRadar.Edge.RuntimeCertificateRotation do
   end
 
   defp format_refusal_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp format_refusal_reason(reason) when is_binary(reason), do: reason
-  defp format_refusal_reason(reason), do: inspect(reason)
+  defp format_refusal_reason(_reason), do: "transient_error"
 
   defp transient?({:refused, _fingerprint, reason}), do: not is_atom(reason)
   defp transient?(_outcome), do: false

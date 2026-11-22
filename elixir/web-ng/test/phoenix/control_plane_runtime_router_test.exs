@@ -21,6 +21,23 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   @entitlement_generation_header "x-serviceradar-entitlement-generation"
   @media_worker_generation_header "x-serviceradar-media-worker-generation"
 
+  defmodule FakeCoreProcess do
+    @moduledoc false
+    use GenServer
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      reply = Keyword.fetch!(opts, :reply)
+      GenServer.start_link(__MODULE__, reply, name: name)
+    end
+
+    @impl true
+    def init(reply), do: {:ok, reply}
+
+    @impl true
+    def handle_call(_request, _from, reply), do: {:reply, reply, reply}
+  end
+
   defmodule FakeMediaWorkerGrantsIssuer do
     @moduledoc false
     def issue_read_grant(installation, document, opts) do
@@ -1278,36 +1295,58 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   end
 
   test "hub readiness route returns core readiness merged with leaf_upstream_url" do
-    previous_fetcher = Application.get_env(:serviceradar_web_ng, :hub_readiness_fetcher)
+    previous_auth = Application.get_env(:serviceradar, :nats_certificate_authorization_enabled)
+    previous_leaf = Application.get_env(:serviceradar, :nats_leaf_listener_enabled)
+    previous_seeds = Application.get_env(:serviceradar, :nats_callout_seeds_dir)
     previous_leaf_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url)
 
     on_exit(fn ->
-      restore_env(:hub_readiness_fetcher, previous_fetcher)
-
-      if is_nil(previous_leaf_url),
-        do: Application.delete_env(:serviceradar, :nats_leaf_upstream_url),
-        else: Application.put_env(:serviceradar, :nats_leaf_upstream_url, previous_leaf_url)
+      restore_core_env(:nats_certificate_authorization_enabled, previous_auth)
+      restore_core_env(:nats_leaf_listener_enabled, previous_leaf)
+      restore_core_env(:nats_callout_seeds_dir, previous_seeds)
+      restore_core_env(:nats_leaf_upstream_url, previous_leaf_url)
     end)
 
-    Application.put_env(:serviceradar_web_ng, :hub_readiness_fetcher, fn ->
-      {:ok,
-       %{
-         enforcement_configured: false,
-         authorizer_answering: false,
-         authorizer_reason: "not_configured",
-         signing_keys_provisioned: false,
-         leaf_listener: false,
-         chart_identities: %{
-           total: 13,
-           adopted: 13,
-           legacy_certificates: 0,
-           not_adopted: [],
-           unlisted: []
-         }
-       }}
-    end)
-
+    Application.put_env(:serviceradar, :nats_certificate_authorization_enabled, false)
+    Application.put_env(:serviceradar, :nats_leaf_listener_enabled, false)
+    Application.delete_env(:serviceradar, :nats_callout_seeds_dir)
     Application.delete_env(:serviceradar, :nats_leaf_upstream_url)
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess,
+         name: ServiceRadar.NATS.ManagedCertificateAuthorization,
+         reply: %{auth_mode: nil, account_name: nil, ready: false, reason: "not_configured"}},
+        id: :fake_authorizer
+      )
+    )
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess,
+         name: ServiceRadar.Edge.ChartIdentityInventory,
+         reply: %{
+           identities: [
+             %{
+               subject: "CN=serviceradar-core,O=ServiceRadar",
+               status: :adopted,
+               fingerprint: "aaa",
+               reason: nil
+             }
+           ],
+           unlisted: [],
+           legacy_certificates: 0
+         }},
+        id: :fake_inventory
+      )
+    )
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess, name: ServiceRadar.Edge.RuntimeCertificateRotation, reply: %{}},
+        id: :fake_rotation
+      )
+    )
 
     conn =
       :get
@@ -1329,8 +1368,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
                "leaf_listener" => false,
                "leaf_upstream_url" => false,
                "chart_identities" => %{
-                 "total" => 13,
-                 "adopted" => 13,
+                 "total" => 1,
+                 "adopted" => 1,
                  "legacy_certificates" => 0,
                  "not_adopted" => [],
                  "unlisted" => []
@@ -1351,15 +1390,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   end
 
   test "hub readiness route returns 503 when core is unavailable" do
-    previous_fetcher = Application.get_env(:serviceradar_web_ng, :hub_readiness_fetcher)
-
-    on_exit(fn ->
-      restore_env(:hub_readiness_fetcher, previous_fetcher)
-    end)
-
-    Application.put_env(:serviceradar_web_ng, :hub_readiness_fetcher, fn ->
-      {:error, :core_unavailable}
-    end)
+    assert Process.whereis(ServiceRadar.NATS.ManagedCertificateAuthorization) == nil
 
     conn =
       :get
@@ -1431,4 +1462,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:serviceradar, key)
+  defp restore_core_env(key, value), do: Application.put_env(:serviceradar, key, value)
 end
