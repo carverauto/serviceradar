@@ -182,9 +182,10 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       sweep_group = create_sweep_group!(uniq, old_uid, actor)
       mapper_job = create_mapper_job!(uniq, old_uid, actor)
       credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
-      plugin_package = create_approved_plugin_package!(uniq, actor)
-      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, true)
-      disabled_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, false)
+      enabled_package = create_approved_plugin_package!(uniq, actor)
+      disabled_package = create_approved_plugin_package!("#{uniq}-disabled", actor)
+      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, enabled_package, true)
+      disabled_assignment_id = insert_manual_plugin_assignment!(old_uid, disabled_package, false)
       camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
 
       # Simulate an agent that was marked superseded before assignment handoff ran.
