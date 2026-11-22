@@ -221,6 +221,27 @@ tests:
             name: SERVICERADAR_NATS_LEAF_LISTENER_ENABLED
             value: "true"
 
+  - it: omits hub readiness settings on core when the chart NATS broker is disabled
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      nats.enabled: false
+      nats.certificateAuthorization.enabled: true
+      nats.leafnodes.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATS_LEAF_LISTENER_ENABLED
+          any: true
+
   - it: does not render hub readiness settings on other workloads
     template: templates/web.yaml
     documentSelector:

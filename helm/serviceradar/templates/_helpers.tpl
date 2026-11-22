@@ -332,16 +332,17 @@ Secret: every chart identity's certificate is then guaranteed to be in it.
 {{- end -}}
 
 {{/*
-"true" when the hub broker renders its leafnodes listener: both
-nats.leafnodes.enabled and nats.certificateAuthorization.enabled must be on,
-matching templates/nats.yaml.
+"true" when the hub broker renders its leafnodes listener: the chart NATS
+broker, nats.leafnodes.enabled, and nats.certificateAuthorization.enabled must
+all be on, matching templates/nats.yaml.
 */}}
 {{- define "serviceradar.natsLeafListenerConfigured" -}}
 {{- $nats := default dict .Values.nats -}}
+{{- $natsEnabled := or (not (hasKey $nats "enabled")) $nats.enabled -}}
 {{- $leafnodes := default dict (get $nats "leafnodes") -}}
 {{- $leafnodesEnabled := eq (toString (default false (get $leafnodes "enabled"))) "true" -}}
 {{- $certAuthEnabled := eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) -}}
-{{- ternary "true" "false" (and $leafnodesEnabled $certAuthEnabled) -}}
+{{- ternary "true" "false" (and $natsEnabled $leafnodesEnabled $certAuthEnabled) -}}
 {{- end -}}
 
 {{/*

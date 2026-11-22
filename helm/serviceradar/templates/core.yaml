@@ -746,8 +746,8 @@ spec:
           value: "/etc/serviceradar/nats-static-users/static-users.yaml"
         {{- include "serviceradar.runtimeCertRotationEnv" . | nindent 8 }}
         {{- include "serviceradar.natsCalloutSeedsEnv" . | nindent 8 }}
-        {{- include "serviceradar.natsHubReadinessEnv" . | nindent 8 }}
         {{- if $natsEnabled }}
+        {{- include "serviceradar.natsHubReadinessEnv" . | nindent 8 }}
         {{- include "serviceradar.natsInventoryEnv" . | nindent 8 }}
         {{- end }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
