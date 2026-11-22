@@ -1,4 +1,10 @@
 {{- $mw := default (dict) .Values.mediaWorker -}}
+{{- /* Every worker boolean is validated before the gate, so a bad value stored while
+     the worker is off fails now rather than when it is enabled. */ -}}
+{{- $_ := include "serviceradar.mediaWorkerNetworkPolicyEnabled" . -}}
+{{- $_ := include "serviceradar.mediaWorkerAllowNvrRead" . -}}
+{{- $operatorManaged := eq (include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.operatorManaged" "value" (default (dict) $mw.networkPolicy).operatorManaged "default" false)) "true" -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- $models := default (dict) $mw.models -}}
 {{- /* Model identity. Core has no setting for it: ServiceRadar.Camera.VisualIndexDispatcher
      stamps these compiled defaults on every job, and ServiceRadar.Camera.SemanticSearch
@@ -6,7 +12,7 @@
      A worker announcing anything else rejects every job (embedder id and dimension are
      checked per job) and subscribes to an RPC subject nobody requests, so the chart pins
      the worker to core's values instead of exposing them, and refuses the removed keys
-     whether or not the worker is enabled.
+     when the worker is enabled.
      media_worker_model_identity_test.py fails when the two drift apart. */ -}}
 {{- $identity := dict "detectorModelId" "rtdetr-r18" "detectorModelVersion" "2026.1" "embedderModelId" "siglip-b16-384" "embedderModelVersion" "2026.1" "embeddingDim" "768" -}}
 {{- range $key, $_ := $identity -}}
@@ -22,12 +28,6 @@
 {{- fail (printf "mediaWorker.models.%s is not supported: the worker indexes whole scenes only until a detector whose identity matches core's is added. Remove the key." $key) -}}
 {{- end -}}
 {{- end -}}
-{{- /* Every worker boolean is validated before the gate, so a bad value stored while
-     the worker is off fails now rather than when it is enabled. */ -}}
-{{- $_ := include "serviceradar.mediaWorkerNetworkPolicyEnabled" . -}}
-{{- $_ := include "serviceradar.mediaWorkerAllowNvrRead" . -}}
-{{- $operatorManaged := eq (include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.operatorManaged" "value" (default (dict) $mw.networkPolicy).operatorManaged "default" false)) "true" -}}
-{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
 {{- /* The worker's own policy is its only egress grant from this chart (every broad
      chart policy leaves it out), so it is required unless the operator explicitly
      takes over the worker's isolation. */ -}}
@@ -39,8 +39,8 @@
 {{- $controlPlanePort := int (default 4001 $controlPlaneRuntime.port) -}}
 {{- $port := int (default 8096 $mw.port) -}}
 {{- $executionProvider := default "cuda" $mw.executionProvider -}}
-{{- if not (has $executionProvider (list "cuda" "tensorrt" "cpu_explicit")) -}}
-{{- fail (printf "mediaWorker.executionProvider must be cuda, tensorrt, or cpu_explicit, got %q" (toString $executionProvider)) -}}
+{{- if not (has $executionProvider (list "cuda" "cpu_explicit")) -}}
+{{- fail (printf "mediaWorker.executionProvider must be cuda or cpu_explicit, got %q" (toString $executionProvider)) -}}
 {{- end -}}
 {{- $auth := default (dict) $mw.auth -}}
 {{- $authSecret := "" -}}
@@ -71,6 +71,9 @@
 {{- if not (has $backend (list "candle" "stub")) -}}
 {{- fail (printf "mediaWorker.backend must be candle or stub, got %q" (toString $backend)) -}}
 {{- end -}}
+{{- if and (eq $backend "stub") (ne $executionProvider "cpu_explicit") -}}
+{{- fail (printf "mediaWorker.backend stub requires mediaWorker.executionProvider cpu_explicit, got %q" (toString $executionProvider)) -}}
+{{- end -}}
 {{- if and (eq $backend "candle") (not $models.existingClaim) -}}
 {{- fail "mediaWorker.backend candle loads SigLIP weights (config.json, model.safetensors, tokenizer.json) from local disk only: set mediaWorker.models.existingClaim to a PVC holding them, or set mediaWorker.backend to stub with mediaWorker.executionProvider cpu_explicit for the weights-free deterministic test backend" -}}
 {{- end -}}
@@ -95,7 +98,7 @@
 {{- fail (printf "mediaWorker.dtype must be auto, f32, or f16, got %q" (toString $dtype)) -}}
 {{- end -}}
 {{- if and (eq $executionProvider "cpu_explicit") (eq $dtype "f16") -}}
-{{- fail "mediaWorker.dtype f16 is not supported under cpu_explicit: half precision brings no benefit on CPU and the release CPU image loads f32 weights regardless. Use auto or f32" -}}
+{{- fail "mediaWorker.dtype f16 is not supported under cpu_explicit: chart policy refuses half precision on CPU because it is slower than f32 and brings no benefit. Use auto or f32" -}}
 {{- end -}}
 {{- /* The CUDA image keeps its compiled-kernel cache (about 350 MB) here; the root
      filesystem is read-only and /tmp is too small. */ -}}

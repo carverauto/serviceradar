@@ -193,8 +193,9 @@ running and serving, and the PVCs are untouched.
 
 Set both values together in the values files your install uses (Git for an
 Argo CD install), or pass them on the command line alongside the complete
-deployment overrides. When upgrading from a chart with retired media worker
-keys, follow the [worker migration instructions](../helm/serviceradar/README.md#camera-semantic-search-worker)
+deployment overrides. When upgrading with the media worker enabled from a chart
+with retired media worker keys, follow the
+[worker migration instructions](../helm/serviceradar/README.md#camera-semantic-search-worker)
 before reapplying those overrides.
 
 ```

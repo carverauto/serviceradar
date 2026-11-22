@@ -99,14 +99,28 @@ tests:
       - failedTemplate:
           errorPattern: "^mediaWorker.device cpu contradicts mediaWorker.executionProvider cuda"
 
-  - it: refuses a model identity that differs from core's, even while the worker is off
+  - it: refuses a model identity that differs from core's when the worker is enabled
     template: templates/media-worker.yaml
     set:
-      mediaWorker.enabled: false
       mediaWorker.models.embedderModelId: siglip-base-patch16-384
     asserts:
       - failedTemplate:
           errorPattern: "^mediaWorker.models.embedderModelId is not configurable: core dispatches jobs and semantic-search requests with its built-in model identity \\(embedder siglip-b16-384 2026.1"
+
+  - it: ignores retired mediaWorker.models keys while the worker is disabled
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: false
+      mediaWorker.models.detectorModelId: rtdetr-v2-s
+      mediaWorker.models.detectorModelVersion: "2026.1"
+      mediaWorker.models.embedderModelId: siglip-b16-384
+      mediaWorker.models.embedderModelVersion: "2026.1"
+      mediaWorker.models.embeddingDim: 768
+      mediaWorker.models.detectorPath: ""
+      mediaWorker.models.detectorSha256: ""
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: refuses detector weights whose detections the pinned identity would mislabel
     template: templates/media-worker.yaml

@@ -316,15 +316,13 @@ tests:
           path: kind
           value: NetworkPolicy
 
-  - it: renders arm64 TensorRT GPU profile and optional NVR analysis read egress
+  - it: renders arm64 multi-GPU CUDA profile and optional NVR analysis read egress
     template: templates/media-worker.yaml
     set:
       mediaWorker.enabled: true
-      mediaWorker.executionProvider: tensorrt
-      # The published CUDA image has no TensorRT runtime; a site build adds it.
-      mediaWorker.image.repository: registry.example.com/site/media-worker-tensorrt
-      mediaWorker.image.tag: "2026.11.1"
-      mediaWorker.ortDylibPath: /opt/onnxruntime/lib/libonnxruntime.so
+      mediaWorker.executionProvider: cuda
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: "sha-0123456789abcdef0123456789abcdef01234567"
       mediaWorker.gpuCount: 2
       mediaWorker.runtimeClassName: nvidia
       mediaWorker.nodeSelector:
@@ -363,7 +361,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER
-            value: tensorrt
+            value: cuda
         documentSelector:
           path: kind
           value: Deployment
@@ -380,6 +378,46 @@ tests:
         documentSelector:
           path: kind
           value: NetworkPolicy
+
+  - it: fails rendering when executionProvider is tensorrt
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: tensorrt
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: "sha-0123456789abcdef0123456789abcdef01234567"
+      mediaWorker.runtimeClassName: nvidia
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: 'mediaWorker.executionProvider must be cuda or cpu_explicit, got "tensorrt"'
+
+  - it: fails rendering when backend is stub with cuda executionProvider
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.backend: stub
+      mediaWorker.executionProvider: cuda
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: "sha-0123456789abcdef0123456789abcdef01234567"
+      mediaWorker.runtimeClassName: nvidia
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: 'mediaWorker.backend stub requires mediaWorker.executionProvider cpu_explicit, got "cuda"'
 
   - it: omits GPU resource requests and limits when executionProvider is cpu_explicit
     template: templates/media-worker.yaml

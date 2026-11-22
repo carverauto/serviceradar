@@ -654,7 +654,7 @@ webNg:
     mediaWorker:
       enabled: false
       existingSecret: serviceradar-media-worker-auth
-      deploymentRef: "d105174f-b3fc-4b45-afae-8048dacb38cb"
+      deploymentRef: "00000000-0000-4000-8000-000000000001"
       generation: "1"
 
 # NVR recorder with its private ingest listener, for testing one-shot capture
@@ -754,7 +754,7 @@ mediaWorker:
   auth:
     existingSecret: serviceradar-media-worker-auth
     tokenKey: media-worker-token
-    deploymentRef: "d105174f-b3fc-4b45-afae-8048dacb38cb"
+    deploymentRef: "00000000-0000-4000-8000-000000000001"
     generation: "1"
   networkPolicy:
     allowNvrRead: true
