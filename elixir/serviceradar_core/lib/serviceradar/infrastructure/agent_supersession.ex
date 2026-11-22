@@ -10,8 +10,9 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   Every supersession path marks the replaced row `:superseded`, cancels its
   non-terminal release targets, sets its `release_rollout_state` to `:canceled`,
   and transfers its `SweepGroup`, `MapperJob`, agent-scoped
-  `NetworkCredentialRule`, enabled manual `PluginAssignment`, and
-  `Camera.Source` assignments to the replacement:
+  `NetworkCredentialRule`, enabled manual `PluginAssignment`,
+  `Camera.Source`, `SNMPProfile`, `IntegrationSource`, and `ServiceCheck`
+  assignments to the replacement:
 
   - `on_check_in/3` runs at enrollment/check-in and supersedes quiet siblings
     immediately while keeping live ones.
@@ -32,9 +33,12 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.StateMonitor
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -229,7 +233,10 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       sweep_groups: load_assigned_sweep_groups(actor),
       credential_rules: load_agent_credential_rules(actor),
       plugin_assignments: load_enabled_manual_plugin_assignments(actor),
-      camera_sources: load_assigned_camera_sources(actor)
+      camera_sources: load_assigned_camera_sources(actor),
+      snmp_profiles: load_assigned_snmp_profiles(actor),
+      integration_sources: load_assigned_integration_sources(actor),
+      service_checks: load_assigned_service_checks(actor)
     }
 
     referenced_uids = collect_referenced_agent_ids(snapshot)
@@ -243,6 +250,9 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       reconcile_credential_rules(snapshot.credential_rules, superseded_by_map, actor)
       reconcile_plugin_assignments(snapshot.plugin_assignments, superseded_by_map, actor)
       reconcile_camera_sources(snapshot.camera_sources, superseded_by_map, actor)
+      reconcile_snmp_profiles(snapshot.snmp_profiles, superseded_by_map, actor)
+      reconcile_integration_sources(snapshot.integration_sources, superseded_by_map, actor)
+      reconcile_service_checks(snapshot.service_checks, superseded_by_map, actor)
       :ok
     else
       [] ->
@@ -304,6 +314,27 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     |> read_reconciliation_records("camera sources", actor)
   end
 
+  defp load_assigned_snmp_profiles(actor) do
+    SNMPProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(agent_ids != []))
+    |> read_reconciliation_records("snmp profiles", actor)
+  end
+
+  defp load_assigned_integration_sources(actor) do
+    IntegrationSource
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(not is_nil(agent_id) and agent_id != ""))
+    |> read_reconciliation_records("integration sources", actor)
+  end
+
+  defp load_assigned_service_checks(actor) do
+    ServiceCheck
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(not is_nil(agent_uid) and agent_uid != ""))
+    |> read_reconciliation_records("service checks", actor)
+  end
+
   defp read_reconciliation_records(query, label, actor) do
     case Ash.read(query, actor: actor) do
       {:ok, records} ->
@@ -325,7 +356,10 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       Enum.flat_map(snapshot.sweep_groups, &AgentAssignment.normalize(&1.agent_ids)),
       Enum.map(snapshot.credential_rules, & &1.scope_value),
       Enum.map(snapshot.plugin_assignments, & &1.agent_uid),
-      Enum.map(snapshot.camera_sources, & &1.assigned_agent_id)
+      Enum.map(snapshot.camera_sources, & &1.assigned_agent_id),
+      Enum.flat_map(snapshot.snmp_profiles, &AgentAssignment.normalize(&1.agent_ids)),
+      Enum.map(snapshot.integration_sources, & &1.agent_id),
+      Enum.map(snapshot.service_checks, & &1.agent_uid)
     ]
     |> List.flatten()
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
@@ -439,6 +473,53 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       superseded_by_map,
       :camera_sources,
       &update_camera_sources(&1, &2, actor)
+    )
+  end
+
+  defp reconcile_snmp_profiles(profiles, superseded_by_map, actor) do
+    Enum.each(profiles, &reconcile_snmp_profile(&1, superseded_by_map, actor))
+  end
+
+  defp reconcile_snmp_profile(profile, superseded_by_map, actor) do
+    current_agent_ids = AgentAssignment.normalize(profile.agent_ids)
+
+    updated_agent_ids =
+      current_agent_ids
+      |> Enum.map(&replace_if_superseded(&1, superseded_by_map))
+      |> AgentAssignment.normalize()
+
+    if updated_agent_ids != current_agent_ids do
+      case update_snmp_profile_assignments([{profile, updated_agent_ids}], actor) do
+        {:ok, count} ->
+          Logger.info(
+            "Reassigned #{count} snmp_profiles for superseded agents in profile #{profile.id}"
+          )
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to reassign snmp_profiles for profile #{profile.id}: #{inspect(reason)}"
+          )
+      end
+    end
+  end
+
+  defp reconcile_integration_sources(sources, superseded_by_map, actor) do
+    reconcile_grouped_records(
+      sources,
+      & &1.agent_id,
+      superseded_by_map,
+      :integration_sources,
+      &update_integration_sources(&1, &2, actor)
+    )
+  end
+
+  defp reconcile_service_checks(checks, superseded_by_map, actor) do
+    reconcile_grouped_records(
+      checks,
+      & &1.agent_uid,
+      superseded_by_map,
+      :service_checks,
+      &update_service_checks(&1, &2, actor)
     )
   end
 
@@ -578,7 +659,12 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
         {:network_credential_rules,
          transfer_credential_rules(agent_id, replacement_agent_id, actor)},
         {:plugin_assignments, transfer_plugin_assignments(agent_id, replacement_agent_id, actor)},
-        {:camera_sources, transfer_camera_sources(agent_id, replacement_agent_id, actor)}
+        {:camera_sources, transfer_camera_sources(agent_id, replacement_agent_id, actor)},
+        {:snmp_profiles,
+         transfer_snmp_profile_assignments(agent_id, replacement_agent_id, actor)},
+        {:integration_sources,
+         transfer_integration_sources(agent_id, replacement_agent_id, actor)},
+        {:service_checks, transfer_service_checks(agent_id, replacement_agent_id, actor)}
       ],
       &log_assignment_transfer(&1, agent_id, replacement_agent_id)
     )
@@ -753,6 +839,82 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       |> Ash.Changeset.for_update(:update, %{assigned_agent_id: replacement_agent_id},
         actor: actor
       )
+      |> Ash.update()
+    end)
+  end
+
+  defp transfer_snmp_profile_assignments(agent_id, replacement_agent_id, actor) do
+    query =
+      SNMPProfile
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(^agent_id in agent_ids)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, records} ->
+        records
+        |> Enum.map(&replace_sweep_group_assignment(&1, agent_id, replacement_agent_id))
+        |> update_snmp_profile_assignments(actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_snmp_profile_assignments(assignments, actor) do
+    assignments
+    |> Enum.reduce_while(0, fn {profile, agent_ids}, count ->
+      profile
+      |> Ash.Changeset.for_update(:update, %{agent_ids: agent_ids}, actor: actor)
+      |> Ash.update()
+      |> case do
+        {:ok, _profile} -> {:cont, count + 1}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      count -> {:ok, count}
+    end
+  end
+
+  defp transfer_integration_sources(agent_id, replacement_agent_id, actor) do
+    query =
+      IntegrationSource
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id))
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} -> {:ok, 0}
+      {:ok, sources} -> update_integration_sources(sources, replacement_agent_id, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_integration_sources(sources, replacement_agent_id, actor) do
+    update_records_best_effort(sources, "integration source", replacement_agent_id, fn source ->
+      source
+      |> Ash.Changeset.for_update(:update, %{agent_id: replacement_agent_id}, actor: actor)
+      |> Ash.update()
+    end)
+  end
+
+  defp transfer_service_checks(agent_id, replacement_agent_id, actor) do
+    query =
+      ServiceCheck
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_uid == ^agent_id))
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} -> {:ok, 0}
+      {:ok, checks} -> update_service_checks(checks, replacement_agent_id, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_service_checks(checks, replacement_agent_id, actor) do
+    update_records_best_effort(checks, "service check", replacement_agent_id, fn check ->
+      check
+      |> Ash.Changeset.for_update(:update, %{agent_uid: replacement_agent_id}, actor: actor)
       |> Ash.update()
     end)
   end
