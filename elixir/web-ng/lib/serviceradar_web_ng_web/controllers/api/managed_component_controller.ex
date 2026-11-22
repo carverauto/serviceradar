@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedCertificateLifecycle, as: Lifecycle
   alias ServiceRadar.Edge.ManagedComponentRegistration
+  alias ServiceRadarWebNG.Edge.HubReadiness
   alias ServiceRadarWebNG.Edge.ManagedComponentConfiguration
   alias ServiceRadarWebNG.RBAC
 
@@ -21,7 +22,13 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
             %{auth_mode: nil, account_name: nil, ready: false, reason: "core_unavailable"}
         end
 
-      json(conn, %{data: %{policy_public_key: key, nats: readiness}})
+      hub =
+        case HubReadiness.fetch() do
+          {:ok, status} -> status
+          {:error, :core_unavailable} -> nil
+        end
+
+      json(conn, %{data: %{policy_public_key: key, nats: readiness, hub: hub}})
     end
   end
 

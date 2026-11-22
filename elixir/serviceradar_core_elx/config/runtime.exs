@@ -234,6 +234,13 @@ config :serviceradar,
        :nats_callout_seeds_dir,
        System.get_env("SERVICERADAR_NATS_CALLOUT_SEEDS_DIR")
 
+# Rendered by the chart from nats.certificateAuthorization.enabled and
+# (nats.leafnodes.enabled and nats.certificateAuthorization.enabled) so core
+# can report hub readiness without inspecting the broker configuration.
+config :serviceradar,
+       :nats_certificate_authorization_enabled,
+       System.get_env("SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED") == "true"
+
 config :serviceradar,
        :nats_infrastructure_certs_dir,
        System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR")
@@ -241,6 +248,10 @@ config :serviceradar,
 config :serviceradar,
        :nats_infrastructure_root_file,
        System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE")
+
+config :serviceradar,
+       :nats_leaf_listener_enabled,
+       System.get_env("SERVICERADAR_NATS_LEAF_LISTENER_ENABLED") == "true"
 
 # The chart's built-in NATS identities (serviceradar-nats-static-users ConfigMap).
 # Unset, or a missing file, leaves every adopted component on its stored grant.

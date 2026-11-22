@@ -49,6 +49,14 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc "Returns the latest coverage report, or nil when unreconciled, failed, or unavailable."
+  @spec report() :: report() | nil
+  def report do
+    GenServer.call(__MODULE__, :report)
+  catch
+    :exit, _ -> nil
+  end
+
   @doc "Returns the inventory inputs, or nil if any of its three paths is unset or empty."
   def configured do
     with dir when is_binary(dir) and dir != "" <-
@@ -110,6 +118,11 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
   end
 
   @impl true
+  def handle_call(:report, _from, state) do
+    {:reply, state.report, state}
+  end
+
+  @impl true
   def handle_info(:tick, state) do
     state = tick(state)
     Process.send_after(self(), :tick, @interval_ms)
@@ -126,7 +139,7 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
 
       {:error, reason} ->
         Logger.warning("Chart identity inventory was not reconciled: #{inspect(reason)}")
-        state
+        %{state | report: nil}
     end
   rescue
     exception ->
@@ -134,9 +147,9 @@ defmodule ServiceRadar.Edge.ChartIdentityInventory do
         "Chart identity inventory was not reconciled: #{Exception.message(exception)}"
       )
 
-      state
+      %{state | report: nil}
   catch
-    :exit, _reason -> state
+    :exit, _reason -> %{state | report: nil}
   end
 
   # One line per identity whose state changed, so an unchanged install is quiet.

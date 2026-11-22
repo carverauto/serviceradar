@@ -4,6 +4,10 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ServiceRadar.Edge.ChartIdentityInventory
+  alias ServiceRadar.Edge.RuntimeCertificateRotation
+  alias ServiceRadar.NATS.CertificateAuthorizationToken
+  alias ServiceRadar.NATS.ManagedCertificateAuthorization
   alias ServiceRadarWebNG.ControlPlaneRuntimeAccess
   alias ServiceRadarWebNGWeb.ControlPlanePasswordResetDeliveryFake
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
@@ -20,6 +24,23 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   @generation_header "x-serviceradar-media-generation"
   @entitlement_generation_header "x-serviceradar-entitlement-generation"
   @media_worker_generation_header "x-serviceradar-media-worker-generation"
+
+  defmodule FakeCoreProcess do
+    @moduledoc false
+    use GenServer
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      reply = Keyword.fetch!(opts, :reply)
+      GenServer.start_link(__MODULE__, reply, name: name)
+    end
+
+    @impl true
+    def init(reply), do: {:ok, reply}
+
+    @impl true
+    def handle_call(_request, _from, reply), do: {:reply, reply, reply}
+  end
 
   defmodule FakeMediaWorkerGrantsIssuer do
     @moduledoc false
@@ -1262,6 +1283,305 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     |> ControlPlaneRuntimeRouter.call([])
   end
 
+  test "hub readiness route requires the account control-plane credential and rejects other purposes" do
+    for header_val <- [nil, "Bearer " <> @media_token, "Bearer " <> @entitlement_token] do
+      conn = conn(:get, "/v1/hub/readiness")
+
+      conn =
+        if header_val,
+          do: put_req_header(conn, @authorization_header, header_val),
+          else: conn
+
+      conn = ControlPlaneRuntimeRouter.call(conn, [])
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+  end
+
+  test "hub readiness route returns core readiness merged with leaf_upstream_url" do
+    previous_auth = Application.get_env(:serviceradar, :nats_certificate_authorization_enabled)
+    previous_leaf = Application.get_env(:serviceradar, :nats_leaf_listener_enabled)
+    previous_seeds = Application.get_env(:serviceradar, :nats_callout_seeds_dir)
+    previous_leaf_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url)
+
+    on_exit(fn ->
+      restore_core_env(:nats_certificate_authorization_enabled, previous_auth)
+      restore_core_env(:nats_leaf_listener_enabled, previous_leaf)
+      restore_core_env(:nats_callout_seeds_dir, previous_seeds)
+      restore_core_env(:nats_leaf_upstream_url, previous_leaf_url)
+    end)
+
+    Application.put_env(:serviceradar, :nats_certificate_authorization_enabled, false)
+    Application.put_env(:serviceradar, :nats_leaf_listener_enabled, false)
+    Application.delete_env(:serviceradar, :nats_callout_seeds_dir)
+    Application.delete_env(:serviceradar, :nats_leaf_upstream_url)
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess,
+         name: ManagedCertificateAuthorization,
+         reply: %{auth_mode: nil, account_name: nil, ready: false, reason: "not_configured"}},
+        id: :fake_authorizer
+      )
+    )
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess,
+         name: ChartIdentityInventory,
+         reply: %{
+           identities: [
+             %{
+               subject: "CN=serviceradar-core,O=ServiceRadar",
+               status: :adopted,
+               fingerprint: "aaa",
+               reason: nil
+             }
+           ],
+           unlisted: [],
+           legacy_certificates: 0
+         }},
+        id: :fake_inventory
+      )
+    )
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {FakeCoreProcess, name: RuntimeCertificateRotation, reply: %{}},
+        id: :fake_rotation
+      )
+    )
+
+    conn =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+    assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+
+    assert json_response(conn) == %{
+             "schema_version" => 1,
+             "hub" => %{
+               "enforcement_configured" => false,
+               "authorizer_answering" => false,
+               "authorizer_reason" => "not_configured",
+               "signing_keys_provisioned" => false,
+               "leaf_listener" => false,
+               "leaf_upstream_url" => false,
+               "chart_identities" => %{
+                 "total" => 1,
+                 "adopted" => 1,
+                 "legacy_certificates" => 0,
+                 "not_adopted" => [],
+                 "unlisted" => []
+               }
+             }
+           }
+
+    Application.put_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats-leaf.example.com:7422")
+
+    conn_with_url =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn_with_url.status == 200
+    assert json_response(conn_with_url)["hub"]["leaf_upstream_url"] == true
+  end
+
+  test "hub readiness route returns 503 when core is unavailable" do
+    assert Process.whereis(ManagedCertificateAuthorization) == nil
+
+    conn =
+      :get
+      |> conn("/v1/hub/readiness")
+      |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn.status == 503
+    assert json_response(conn) == %{"status" => "core_unavailable"}
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+  end
+
+  @tag :tmp_dir
+  test "live Bandit /v1/hub/readiness serves real core processes over HTTP", %{tmp_dir: dir} do
+    keys = [
+      :nats_certificate_authorization_enabled,
+      :nats_leaf_listener_enabled,
+      :nats_callout_seeds_dir,
+      :nats_leaf_upstream_url,
+      :nats_account_name,
+      :nats_infrastructure_certs_dir,
+      :nats_chart_identities_file,
+      :nats_infrastructure_root_file,
+      :runtime_cert_rotation_file
+    ]
+
+    previous = Map.new(keys, &{&1, Application.get_env(:serviceradar, &1)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} -> restore_core_env(key, value) end)
+    end)
+
+    {:ok, _} = Application.ensure_all_started(:inets)
+
+    listener =
+      start_supervised!(
+        {Bandit, plug: ControlPlaneRuntimeRouter, scheme: :http, ip: {127, 0, 0, 1}, port: 0, startup_log: false}
+      )
+
+    {:ok, {_address, port}} = ThousandIsland.listener_info(listener)
+
+    # 1. Auth enforcement over real TCP (missing, wrong purpose, standard Authorization, encoded path)
+    for {path, headers} <- [
+          {"/v1/hub/readiness", []},
+          {"/v1/hub/readiness", [{~c"authorization", String.to_charlist("Bearer " <> @runtime_token)}]},
+          {"/v1/hub/readiness",
+           [{String.to_charlist(@authorization_header), String.to_charlist("Bearer " <> @media_token)}]},
+          {"/v1/%68ub/readiness",
+           [{String.to_charlist(@authorization_header), String.to_charlist("Bearer " <> @entitlement_token)}]}
+        ] do
+      assert {:ok, 401, _resp_headers, %{"status" => "unauthorized"}} =
+               live_http_get(port, path, headers)
+    end
+
+    auth_headers = [
+      {String.to_charlist(@authorization_header), String.to_charlist("Bearer " <> @runtime_token)}
+    ]
+
+    # 2. Core unavailable -> HTTP 503 with cache-control and nosniff headers
+    assert Process.whereis(ManagedCertificateAuthorization) == nil
+
+    assert {:ok, 503, headers_503, %{"status" => "core_unavailable"}} =
+             live_http_get(port, "/v1/hub/readiness", auth_headers)
+
+    assert header_value(headers_503, "cache-control") == "no-store"
+    assert header_value(headers_503, "x-content-type-options") == "nosniff"
+
+    # 3. Start real core processes with incomplete mounted signing seeds and unset inventory
+    seeds_dir = Path.join(dir, "seeds")
+    File.mkdir_p!(seeds_dir)
+
+    File.write!(
+      Path.join(seeds_dir, "nats-callout-issuer.seed"),
+      CertificateAuthorizationToken.new_key(:account).seed <> "\n"
+    )
+
+    File.write!(
+      Path.join(seeds_dir, "nats-callout-system.seed"),
+      CertificateAuthorizationToken.new_key(:user).seed <> "\n"
+    )
+
+    Application.put_env(:serviceradar, :nats_certificate_authorization_enabled, true)
+    Application.put_env(:serviceradar, :nats_leaf_listener_enabled, true)
+    Application.put_env(:serviceradar, :nats_callout_seeds_dir, seeds_dir)
+    Application.put_env(:serviceradar, :nats_account_name, "SERVICERADAR")
+    Application.delete_env(:serviceradar, :nats_leaf_upstream_url)
+    Application.delete_env(:serviceradar, :nats_infrastructure_certs_dir)
+    Application.delete_env(:serviceradar, :nats_chart_identities_file)
+    Application.delete_env(:serviceradar, :nats_infrastructure_root_file)
+    Application.delete_env(:serviceradar, :runtime_cert_rotation_file)
+
+    if is_nil(Process.whereis(ServiceRadar.PubSub)) do
+      start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    end
+
+    start_supervised!(ManagedCertificateAuthorization)
+    start_supervised!(ChartIdentityInventory)
+    start_supervised!(RuntimeCertificateRotation)
+
+    _ = :sys.get_state(ManagedCertificateAuthorization)
+    _ = :sys.get_state(ChartIdentityInventory)
+    _ = :sys.get_state(RuntimeCertificateRotation)
+
+    assert {:ok, 200, headers_200, body_missing_seed} =
+             live_http_get(port, "/v1/hub/readiness", auth_headers)
+
+    assert header_value(headers_200, "cache-control") == "no-store"
+    assert header_value(headers_200, "x-content-type-options") == "nosniff"
+
+    assert body_missing_seed == %{
+             "schema_version" => 1,
+             "hub" => %{
+               "enforcement_configured" => true,
+               "authorizer_answering" => false,
+               "authorizer_reason" => "signing_keys_not_provisioned",
+               "signing_keys_provisioned" => false,
+               "leaf_listener" => true,
+               "leaf_upstream_url" => false,
+               "chart_identities" => %{
+                 "total" => 0,
+                 "adopted" => 0,
+                 "legacy_certificates" => 0,
+                 "not_adopted" => [],
+                 "unlisted" => []
+               }
+             }
+           }
+
+    # 4. Provision the 3rd seed, set leaf upstream URL, and inject a malformed inventory file:
+    #    signing_keys_provisioned flips true, authorizer_reason reflects broker/policy state,
+    #    leaf_upstream_url flips true, and chart_identities becomes nil (never 0/0).
+    File.write!(
+      Path.join(seeds_dir, "nats-callout-auth.seed"),
+      CertificateAuthorizationToken.new_key(:user).seed <> "\n"
+    )
+
+    certs_dir = Path.join(dir, "certs")
+    File.mkdir_p!(certs_dir)
+    identities_file = Path.join(dir, "identities.yaml")
+    root_file = Path.join(dir, "root.pem")
+    File.write!(identities_file, "not: a list\n")
+    File.write!(root_file, "not a certificate\n")
+
+    Application.put_env(:serviceradar, :nats_infrastructure_certs_dir, certs_dir)
+    Application.put_env(:serviceradar, :nats_chart_identities_file, identities_file)
+    Application.put_env(:serviceradar, :nats_infrastructure_root_file, root_file)
+    Application.put_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats-leaf.example.com:7422")
+
+    send(ManagedCertificateAuthorization, :tick)
+    send(ChartIdentityInventory, :tick)
+    _ = :sys.get_state(ManagedCertificateAuthorization)
+    _ = :sys.get_state(ChartIdentityInventory)
+
+    assert {:ok, 200, _headers, body_after} =
+             live_http_get(port, "/v1/hub/readiness", auth_headers)
+
+    assert body_after["schema_version"] == 1
+    assert body_after["hub"]["enforcement_configured"] == true
+    assert body_after["hub"]["signing_keys_provisioned"] == true
+    assert body_after["hub"]["authorizer_answering"] == false
+    assert is_binary(body_after["hub"]["authorizer_reason"])
+    refute body_after["hub"]["authorizer_reason"] == "signing_keys_not_provisioned"
+    assert body_after["hub"]["leaf_listener"] == true
+    assert body_after["hub"]["leaf_upstream_url"] == true
+    assert body_after["hub"]["chart_identities"] == nil
+  end
+
+  defp live_http_get(port, path, headers) do
+    url = String.to_charlist("http://127.0.0.1:#{port}#{path}")
+
+    case :httpc.request(:get, {url, headers}, [], body_format: :binary) do
+      {:ok, {{_version, status, _reason}, resp_headers, body}} ->
+        {:ok, status, resp_headers, Jason.decode!(body)}
+
+      other ->
+        other
+    end
+  end
+
+  defp header_value(headers, name) do
+    downcased = String.downcase(name)
+
+    Enum.find_value(headers, fn {key, value} ->
+      if String.downcase(List.to_string(key)) == downcased, do: List.to_string(value)
+    end)
+  end
+
   defp binding_request(body, path \\ "/v1/media/archive-bindings", content_type \\ "application/json") do
     :post
     |> conn(path, body)
@@ -1321,4 +1641,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:serviceradar, key)
+  defp restore_core_env(key, value), do: Application.put_env(:serviceradar, key, value)
 end

@@ -1107,4 +1107,28 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     queues_override = read_prod_config()[:serviceradar_core][Oban][:queues]
     assert queues_override[:nvr_archive] == 4
   end
+
+  test "both core and core_elx runtime configs parse hub certificate-authorization and leaf listener flags" do
+    for {auth_env, leaf_env, expected_auth, expected_leaf} <- [
+          {nil, nil, false, false},
+          {"false", "false", false, false},
+          {"1", "yes", false, false},
+          {"true", "false", true, false},
+          {"false", "true", false, true},
+          {"true", "true", true, true}
+        ] do
+      with_env("SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED", auth_env)
+      with_env("SERVICERADAR_NATS_LEAF_LISTENER_ENABLED", leaf_env)
+
+      for path <- [@core_runtime_config, @runtime_config] do
+        serviceradar_cfg = Config.Reader.read!(path, env: :prod)[:serviceradar]
+
+        assert serviceradar_cfg[:nats_certificate_authorization_enabled] == expected_auth,
+               "expected nats_certificate_authorization_enabled=#{expected_auth} in #{path} for #{inspect(auth_env)}"
+
+        assert serviceradar_cfg[:nats_leaf_listener_enabled] == expected_leaf,
+               "expected nats_leaf_listener_enabled=#{expected_leaf} in #{path} for #{inspect(leaf_env)}"
+      end
+    end
+  end
 end

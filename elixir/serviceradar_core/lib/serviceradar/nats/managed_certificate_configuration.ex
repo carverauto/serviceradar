@@ -80,6 +80,30 @@ defmodule ServiceRadar.NATS.ManagedCertificateConfiguration do
     end
   end
 
+  @doc """
+  Checks whether the three chart-mounted signing seeds are present and valid.
+
+  Returns `:not_configured` when `:nats_callout_seeds_dir` is unset, `:ok` when
+  all three seeds parse, or `{:error, :signing_keys_not_provisioned}` when any
+  seed is missing or unreadable. Does not touch the database or NATS.
+  """
+  @spec mounted_seeds_status() :: :not_configured | :ok | {:error, :signing_keys_not_provisioned}
+  def mounted_seeds_status do
+    case mounted_seeds_dir() do
+      nil ->
+        :not_configured
+
+      dir ->
+        with {:ok, _} <- mounted_key(dir, :issuer),
+             {:ok, _} <- mounted_key(dir, :auth),
+             {:ok, _} <- mounted_key(dir, :system) do
+          :ok
+        else
+          _ -> {:error, :signing_keys_not_provisioned}
+        end
+    end
+  end
+
   def credentials do
     case mounted_seeds_dir() do
       nil -> stored_credentials()
