@@ -2,9 +2,11 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   @moduledoc """
   Loads one infrastructure-installed storage configuration and its secret files.
 
-  Write credentials are checked against the desired authority; read credentials
-  are fixed by the installation. No request selects a credential file, provider
-  endpoint or installed identity.
+  Write credentials are checked against the desired authority. Read storage runs
+  either in fixed-binding mode (credentials fixed by installation, single-slot)
+  or per-request mode (credentials supplied per request over mTLS + bearer auth).
+  `provider_transport` selects `:http` (default) or `:longshore` (opt-in); HTTP
+  is a selectable transport, not an automatic runtime fallback from Longshore.
   """
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveDestination
@@ -16,6 +18,7 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   @listener_fields ~w(port certfile keyfile cacertfile recorder_certificate_sha256 token_file)
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
+  @max_read_concurrency 64
 
   @doc "Loads a reader's fixed binding and private connection, never provider credentials."
   def load_reader(path) do
@@ -34,16 +37,44 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
     _ -> {:error, :invalid_archive_reader_configuration}
   end
 
-  @doc "Loads a read-only isolated listener; it has no write authority or runtime callback."
+  @doc "Loads a timeline archive reader's private mTLS/bearer connection without a static binding."
+  def load_timeline_reader(path) do
+    with {:ok, document} <- read_json(path, 4096),
+         true <-
+           exact?(document, ~w(schema_version storage)) and
+             document["schema_version"] === 1,
+         {:ok, client} <- runtime(document["storage"]) do
+      {:ok, %{client: client}}
+    else
+      _ -> {:error, :invalid_timeline_archive_reader_configuration}
+    end
+  rescue
+    _ -> {:error, :invalid_timeline_archive_reader_configuration}
+  end
+
+  @doc "Loads a read-only isolated listener in fixed-binding or per-request mode."
   def load_read_storage(path) do
     with {:ok, document} <- read_json(path, 8192),
-         true <-
+         true <- document["schema_version"] === 1 do
+      case Map.fetch(document, "mode") do
+        :error -> load_fixed_read_storage(document)
+        {:ok, "per_request"} -> load_per_request_read_storage(document)
+        _ -> {:error, :invalid_archive_read_storage_configuration}
+      end
+    else
+      _ -> {:error, :invalid_archive_read_storage_configuration}
+    end
+  rescue
+    _ -> {:error, :invalid_archive_read_storage_configuration}
+  end
+
+  defp load_fixed_read_storage(document) do
+    with true <-
            exact_with_optional?(
              document,
              ~w(schema_version binding_id destination provider_credentials_file listener),
              @optional_storage_fields
-           ) and
-             document["schema_version"] === 1,
+           ),
          {:ok, transport} <- provider_transport(document),
          {:ok, proxy} <- provider_proxy(transport),
          {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
@@ -53,6 +84,8 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
          true <- read_credential?(credential) do
       {:ok,
        %{
+         mode: :fixed,
+         max_concurrency: 1,
          binding_id: id,
          destination_sha256: destination.destination_sha256,
          listener: listener,
@@ -67,8 +100,30 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
     else
       _ -> {:error, :invalid_archive_read_storage_configuration}
     end
-  rescue
-    _ -> {:error, :invalid_archive_read_storage_configuration}
+  end
+
+  defp load_per_request_read_storage(document) do
+    with true <- exact?(document, ~w(schema_version mode listener)),
+         {:ok, transport} <- per_request_provider_transport(),
+         {:ok, portable} <- per_request_provider_portable(),
+         {:ok, max_concurrency} <- per_request_max_concurrency(8),
+         {:ok, proxy} <- provider_proxy(transport),
+         {:ok, listener} <- listener(document["listener"], "reader_certificate_sha256") do
+      {:ok,
+       %{
+         mode: :per_request,
+         max_concurrency: max_concurrency,
+         listener: listener,
+         provider: %{
+           transport: transport,
+           portable: portable,
+           proxy: proxy,
+           cacerts: :public_key.cacerts_get()
+         }
+       }}
+    else
+      _ -> {:error, :invalid_archive_read_storage_configuration}
+    end
   end
 
   @doc "Loads only the recorder's installed spool/binding and private service connection."
@@ -293,6 +348,42 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
       {:ok, "http"} -> {:ok, :http}
       {:ok, "longshore"} -> {:ok, :longshore}
       {:ok, _} -> {:error, :invalid_provider_transport}
+    end
+  end
+
+  defp per_request_provider_transport do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT") do
+      nil -> {:ok, :http}
+      "" -> {:ok, :http}
+      "http" -> {:ok, :http}
+      "longshore" -> {:ok, :longshore}
+      _ -> {:error, :invalid_provider_transport}
+    end
+  end
+
+  defp per_request_provider_portable do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_PORTABLE") do
+      nil -> {:ok, false}
+      "" -> {:ok, false}
+      "false" -> {:ok, false}
+      "true" -> {:ok, true}
+      _ -> {:error, :invalid_portable_flag}
+    end
+  end
+
+  defp per_request_max_concurrency(default) do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY") do
+      nil ->
+        {:ok, default}
+
+      "" ->
+        {:ok, default}
+
+      raw ->
+        case Integer.parse(raw) do
+          {value, ""} when value in 1..@max_read_concurrency -> {:ok, value}
+          _ -> {:error, :invalid_max_concurrency}
+        end
     end
   end
 

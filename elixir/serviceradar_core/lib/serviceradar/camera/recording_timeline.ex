@@ -1279,13 +1279,17 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
            bucket: fetch_val(binding, :bucket),
            namespace: fetch_val(binding, :namespace),
            destination: %{
+             "schema_version" => fetch_val(binding, :schema_version) || 1,
+             "provisioning_ref" => fetch_val(binding, :provisioning_ref),
+             "generation" => fetch_val(binding, :generation),
+             "purpose" => fetch_val(binding, :purpose) || "recording",
              "provider" => fetch_val(binding, :provider),
              "endpoint" => fetch_val(binding, :endpoint),
              "region" => fetch_val(binding, :region),
              "bucket" => fetch_val(binding, :bucket),
              "namespace" => fetch_val(binding, :namespace),
-             "required_encryption" => fetch_val(binding, :required_encryption),
-             "destination_sha256" => fetch_val(binding, :destination_sha256)
+             "archive_format_version" => fetch_val(binding, :archive_format_version) || 1,
+             "required_encryption" => fetch_val(binding, :required_encryption)
            },
            object_name: slice.object_name,
            key: object["key"],

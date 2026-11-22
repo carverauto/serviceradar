@@ -12,7 +12,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
     `conn.private[:camera_timeline_readers]`), accepting `%{local: fun_or_mod, archive: fun_or_mod}`
     or a module implementing `@behaviour ServiceRadarWebNG.CameraTimelineReader`;
   - application configuration (`Application.get_env(:serviceradar_web_ng, :camera_timeline_readers, [])`),
-    which installs `ServiceRadarWebNG.CameraTimelineReader.NVRLocal` as the local reader;
+    which installs `ServiceRadarWebNG.CameraTimelineReader.NVRLocal` as the local reader and,
+    when `SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG` is set, installs
+    `ServiceRadarWebNG.CameraTimelineReader.Archive` as the archive reader;
   - default implementations: `fetch_local/2` returns `{:error, :reader_unavailable}`,
     and `fetch_archive/2` returns `{:error, :archive_reader_not_installed}`, which
     `execute_plans/3` passes through so archive-only footage is reported as not
@@ -52,7 +54,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
 
   @doc """
   True when application configuration installs an archive reader, so verified
-  archive copies can be played. Until then (D.2) only local copies play.
+  archive copies can be played. When unset, only local copies play.
   """
   @spec archive_reader_installed?() :: boolean()
   def archive_reader_installed?, do: resolve_archive_reader([]) != __MODULE__
@@ -227,6 +229,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
 
       {:error, :archive_reader_not_installed} ->
         {:error, :archive_reader_not_installed}
+
+      {:error, :integrity_mismatch} ->
+        {:error, :recording_integrity_failed}
 
       _ ->
         {:error, :reader_unavailable}
