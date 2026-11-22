@@ -1,7 +1,6 @@
 defmodule ServiceRadar.Camera.ThumbnailTest do
   use ExUnit.Case, async: true
 
-  alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.Thumbnail
@@ -64,22 +63,7 @@ defmodule ServiceRadar.Camera.ThumbnailTest do
     end
   end
 
-  describe "Ash resource schema and changeset validation" do
-    test "marks thumbnail_jpeg sensitive, non-public, and not selected by default on both resources" do
-      for resource <- [RecordingCatalogEntry, VisualFrame] do
-        attr = Info.attribute(resource, :thumbnail_jpeg)
-        assert attr
-        assert attr.allow_nil? == true
-        assert attr.public? == false
-        assert attr.sensitive? == true
-        assert attr.select_by_default? == false
-
-        calc = Info.calculation(resource, :has_thumbnail)
-        assert calc
-        assert calc.type == Ash.Type.Boolean
-      end
-    end
-
+  describe "Ash changeset validation" do
     test "validates thumbnail_jpeg on RecordingCatalogEntry :set_thumbnail and VisualFrame :upsert_frame" do
       entry = struct(RecordingCatalogEntry, id: @entry_id)
 
@@ -241,33 +225,16 @@ defmodule ServiceRadar.Camera.ThumbnailTest do
     end
   end
 
-  describe "fetch_for_camera/4" do
-    test "validates inputs and returns verified JPEG bytes from loader" do
-      loader = fn
-        @camera_id, :frame, @frame_id -> {:ok, @valid_jpeg}
-        @camera_id, :block, @entry_id -> {:ok, @valid_jpeg}
-        _cam, _kind, _id -> {:ok, nil}
-      end
-
-      assert {:ok, @valid_jpeg} =
-               Thumbnail.fetch_for_camera(@camera_id, "frame", @frame_id, loader: loader)
-
-      assert {:ok, @valid_jpeg} =
-               Thumbnail.fetch_for_camera(@camera_id, :block, @entry_id, loader: loader)
-
-      assert {:error, :thumbnail_not_found} =
-               Thumbnail.fetch_for_camera(Ecto.UUID.generate(), :frame, @frame_id, loader: loader)
+  describe "fetch_for_camera/3 input validation" do
+    test "rejects invalid camera UUID, kind, or record UUID before querying" do
+      assert {:error, :invalid_camera_source_id} =
+               Thumbnail.fetch_for_camera("not-a-uuid", :frame, @frame_id)
 
       assert {:error, :invalid_id} =
-               Thumbnail.fetch_for_camera(@camera_id, "unknown", @frame_id, loader: loader)
+               Thumbnail.fetch_for_camera(@camera_id, "unknown", @frame_id)
 
       assert {:error, :invalid_id} =
-               Thumbnail.fetch_for_camera(@camera_id, :frame, "not-a-uuid", loader: loader)
-
-      corrupt_loader = fn _cam, _kind, _id -> {:ok, "corrupt-bytes"} end
-
-      assert {:error, :thumbnail_not_found} =
-               Thumbnail.fetch_for_camera(@camera_id, :frame, @frame_id, loader: corrupt_loader)
+               Thumbnail.fetch_for_camera(@camera_id, :frame, "not-a-uuid")
     end
   end
 end

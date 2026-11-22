@@ -32,9 +32,42 @@ defmodule ServiceRadar.Repo.Migrations.AddCameraClipThumbnails do
         prefix: "platform"
       )
     )
+
+    execute("""
+    -- serviceradar:allow-startup-maintenance: PL/pgSQL trigger function DDL only; executes zero startup table scans or row mutations.
+    CREATE OR REPLACE FUNCTION platform.camera_recording_catalog_purge_thumbnail()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.local_state = 'quarantined' OR
+         (NEW.local_state = 'reclaimed' AND NEW.archive_state IN ('deleted', 'not_required')) THEN
+        NEW.thumbnail_jpeg := NULL;
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$;
+    """)
+
+    execute("""
+    CREATE TRIGGER trg_camera_recording_catalog_purge_thumbnail
+    BEFORE UPDATE ON platform.camera_recording_catalog
+    FOR EACH ROW
+    EXECUTE FUNCTION platform.camera_recording_catalog_purge_thumbnail();
+    """)
   end
 
   def down do
+    execute("""
+    DROP TRIGGER IF EXISTS trg_camera_recording_catalog_purge_thumbnail
+    ON platform.camera_recording_catalog;
+    """)
+
+    execute("""
+    DROP FUNCTION IF EXISTS platform.camera_recording_catalog_purge_thumbnail();
+    """)
+
     drop_if_exists(
       constraint(
         :camera_visual_frames,

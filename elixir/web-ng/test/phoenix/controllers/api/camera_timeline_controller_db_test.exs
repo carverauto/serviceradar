@@ -491,14 +491,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
     frame_resp = get(conn, frame_path)
     assert frame_resp.status == 200
     assert get_resp_header(frame_resp, "content-type") == ["image/jpeg"]
-    assert get_resp_header(frame_resp, "cache-control") == ["private, max-age=3600"]
+    assert get_resp_header(frame_resp, "cache-control") == ["private, max-age=300"]
     assert get_resp_header(frame_resp, "x-content-type-options") == ["nosniff"]
     assert frame_resp.resp_body == frame_jpeg
 
     block_resp = get(conn, block_path)
     assert block_resp.status == 200
     assert get_resp_header(block_resp, "content-type") == ["image/jpeg"]
-    assert get_resp_header(block_resp, "cache-control") == ["private, max-age=3600"]
+    assert get_resp_header(block_resp, "cache-control") == ["private, max-age=300"]
     assert get_resp_header(block_resp, "x-content-type-options") == ["nosniff"]
     assert block_resp.resp_body == block_jpeg
 
@@ -509,14 +509,68 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
     assert json_response(missing_resp, 404) == %{"error" => "thumbnail_not_found"}
     assert get_resp_header(missing_resp, "cache-control") == ["private, no-store"]
 
-    # 4. Quarantined entry -> 404 (never served)
-    quarantined_resp =
+    # 4. Quarantined entry -> 404 (non-vacuous: attach a real JPEG frame on the quarantined entry
+    #    AND verify the BEFORE UPDATE trigger purges thumbnail_jpeg when a playable entry is quarantined)
+    {:ok, quarantined_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: ctx.quarantined_entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.local_entry.stream_profile_id,
+          fragment_sequence: 0,
+          media_pts_ns: 0,
+          timeline_ts_us: ctx.local_entry.timeline_start_us + 900_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "rtdetr-r18",
+          detector_model_version: "2026.1",
+          detections: [],
+          thumbnail_jpeg: frame_jpeg
+        },
+        opts
+      )
+      |> Ash.create(opts)
+
+    quarantined_frame_resp =
       get(
         conn,
-        "/api/cameras/#{ctx.source.id}/timeline/thumbnails/block/#{ctx.quarantined_entry.id}.jpg"
+        "/api/cameras/#{ctx.source.id}/timeline/thumbnails/frame/#{quarantined_frame.id}.jpg"
       )
 
-    assert json_response(quarantined_resp, 404) == %{"error" => "thumbnail_not_found"}
+    assert json_response(quarantined_frame_resp, 404) == %{"error" => "thumbnail_not_found"}
+
+    {:ok, _prov_with_thumb} =
+      ctx.provisional_entry
+      |> Ash.Changeset.for_update(:set_thumbnail, %{thumbnail_jpeg: block_jpeg}, opts)
+      |> Ash.update(opts)
+
+    prov_block_path =
+      "/api/cameras/#{ctx.source.id}/timeline/thumbnails/block/#{ctx.provisional_entry.id}.jpg"
+
+    assert get(conn, prov_block_path).status == 200
+
+    {:ok, _quarantined_prov} =
+      RecordingCatalogEntry.quarantine_in_place(
+        ctx.provisional_entry,
+        %{
+          quarantine_reason: :binding_compromised,
+          quarantine_receipt: %{"reason" => "synthetic-test"},
+          quarantined_bytes: ctx.provisional_entry.media_bytes
+        },
+        opts
+      )
+
+    purged_entry =
+      RecordingCatalogEntry
+      |> Ash.Query.for_read(:read, %{}, opts)
+      |> Ash.Query.filter(id == ^ctx.provisional_entry.id)
+      |> Ash.Query.select([:id, :thumbnail_jpeg])
+      |> Ash.read_one!(opts)
+
+    assert purged_entry.thumbnail_jpeg == nil
+    assert json_response(get(conn, prov_block_path), 404) == %{"error" => "thumbnail_not_found"}
 
     # 5. Cross-camera IDOR refusal -> 404 when requesting camera A's frame/block under camera B
     other_key = Ecto.UUID.generate()

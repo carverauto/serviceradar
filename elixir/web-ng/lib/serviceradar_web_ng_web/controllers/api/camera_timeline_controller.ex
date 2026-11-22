@@ -86,16 +86,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   end
 
   def thumbnail(conn, %{"camera_source_id" => source_id, "kind" => kind, "id" => raw_id}) do
-    extra_opts = Map.get(conn.private, :camera_thumbnail_opts, [])
-
     with {:ok, _scope, source} <-
            CameraArchiveAccess.source(conn.assigns[:current_scope], source_id),
          {:ok, normalized_kind} <- parse_thumbnail_kind(kind),
          {:ok, record_id} <- parse_thumbnail_id(raw_id),
          {:ok, jpeg_bytes} <-
-           Thumbnail.fetch_for_camera(source.id, normalized_kind, record_id, extra_opts) do
+           Thumbnail.fetch_for_camera(source.id, normalized_kind, record_id) do
       conn
-      |> put_resp_header("cache-control", "private, max-age=3600")
+      |> put_resp_header("cache-control", "private, max-age=300")
       |> put_resp_header("x-content-type-options", "nosniff")
       |> put_resp_content_type("image/jpeg", nil)
       |> send_resp(200, jpeg_bytes)

@@ -91,34 +91,22 @@ defmodule ServiceRadar.Camera.Thumbnail do
 
   @doc """
   Fetches a validated JPEG thumbnail scoped strictly to `(camera_source_id, kind, id)`,
-  excluding quarantined or unfrozen catalog entries.
+  excluding quarantined, unfrozen, or non-playable catalog entries.
 
-  Only the `thumbnail_jpeg` column is selected from PostgreSQL. Supports a `:loader`
-  option (`(camera_uuid, kind, record_uuid) -> {:ok, binary() | nil} | {:error, term()}`)
-  for database-free unit tests.
+  Only the `thumbnail_jpeg` column is selected from PostgreSQL.
   """
-  @spec fetch_for_camera(String.t(), kind() | String.t(), String.t(), keyword()) ::
+  @spec fetch_for_camera(String.t(), kind() | String.t(), String.t()) ::
           {:ok, binary()} | {:error, term()}
-  def fetch_for_camera(camera_source_id, kind, id, opts \\ []) when is_list(opts) do
+  def fetch_for_camera(camera_source_id, kind, id) do
     with {:ok, camera_uuid} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
          {:ok, normalized_kind} <- normalize_kind(kind),
          {:ok, record_uuid} <- cast_uuid(id, :invalid_id),
-         {:ok, bytes} <- load_bytes(camera_uuid, normalized_kind, record_uuid, opts) do
+         {:ok, bytes} <- load_from_repo(camera_uuid, normalized_kind, record_uuid) do
       if valid_jpeg?(bytes) do
         {:ok, bytes}
       else
         {:error, :thumbnail_not_found}
       end
-    end
-  end
-
-  defp load_bytes(camera_uuid, kind, record_uuid, opts) do
-    case Keyword.get(opts, :loader) do
-      loader when is_function(loader, 3) ->
-        loader.(camera_uuid, kind, record_uuid)
-
-      nil ->
-        load_from_repo(camera_uuid, kind, record_uuid)
     end
   end
 
@@ -130,7 +118,8 @@ defmodule ServiceRadar.Camera.Thumbnail do
         camera_source_id == ^camera_uuid and
         catalog_entry.local_state != :quarantined and
         is_nil(catalog_entry.quarantine_reason) and
-        not is_nil(catalog_entry.recording_block_id)
+        not is_nil(catalog_entry.recording_block_id) and
+        (catalog_entry.local_state == :present or catalog_entry.archive_state == :verified)
     )
     |> Ash.Query.select([:id, :thumbnail_jpeg])
     |> Ash.read_one(actor: @system_actor)
@@ -145,7 +134,8 @@ defmodule ServiceRadar.Camera.Thumbnail do
         camera_source_id == ^camera_uuid and
         local_state != :quarantined and
         is_nil(quarantine_reason) and
-        not is_nil(recording_block_id)
+        not is_nil(recording_block_id) and
+        (local_state == :present or archive_state == :verified)
     )
     |> Ash.Query.select([:id, :thumbnail_jpeg])
     |> Ash.read_one(actor: @system_actor)

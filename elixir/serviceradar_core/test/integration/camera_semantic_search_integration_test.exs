@@ -617,17 +617,44 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              |> Ash.Query.filter(catalog_entry_id == ^entry_auth.id)
              |> Ash.count!(actor: actor)
 
-    forb_result_envelope = %{
-      auth_result_envelope
-      | "job_id" => to_string(job_forb.id),
-        "catalog_entry_id" => to_string(entry_forb.id),
-        "camera_source_id" => to_string(cam_forbidden.id),
-        "stream_profile_id" => to_string(prof_forbidden.id),
-        "descriptor_sha256" => entry_forb.descriptor_sha256
-    }
+    frame_jpeg =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x0A, 0xFF, 0xD9>>
+
+    forb_result_envelope =
+      update_in(
+        %{
+          auth_result_envelope
+          | "job_id" => to_string(job_forb.id),
+            "catalog_entry_id" => to_string(entry_forb.id),
+            "camera_source_id" => to_string(cam_forbidden.id),
+            "stream_profile_id" => to_string(prof_forbidden.id),
+            "descriptor_sha256" => entry_forb.descriptor_sha256
+        },
+        ["frames", Access.at(0)],
+        &Map.put(&1, "thumbnail_jpeg_b64", Base.encode64(frame_jpeg))
+      )
 
     assert {:ok, %{frame_count: 2, embedding_count: 3}} =
              VisualIndexResultProjector.ingest_result(forb_result_envelope)
+
+    forb_frame =
+      VisualFrame
+      |> Ash.Query.filter(catalog_entry_id == ^entry_forb.id and fragment_sequence == 0)
+      |> Ash.read_one!(actor: actor)
+
+    assert {:ok, ^frame_jpeg} =
+             Thumbnail.fetch_for_camera(
+               to_string(cam_forbidden.id),
+               :frame,
+               to_string(forb_frame.id)
+             )
+
+    assert {:error, :thumbnail_not_found} =
+             Thumbnail.fetch_for_camera(
+               to_string(cam_allowed.id),
+               :frame,
+               to_string(forb_frame.id)
+             )
 
     assert {:error, :thumbnail_not_found} =
              Thumbnail.fetch_for_camera(
