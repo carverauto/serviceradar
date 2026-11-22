@@ -9,7 +9,9 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
 
   Every supersession path marks the replaced row `:superseded`, cancels its
   non-terminal release targets, sets its `release_rollout_state` to `:canceled`,
-  and transfers its `SweepGroup` and `MapperJob` assignments to the replacement:
+  and transfers its `SweepGroup`, `MapperJob`, agent-scoped
+  `NetworkCredentialRule`, enabled manual `PluginAssignment`, and
+  `Camera.Source` assignments to the replacement:
 
   - `on_check_in/3` runs at enrollment/check-in and supersedes quiet siblings
     immediately while keeping live ones.
@@ -25,11 +27,14 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -218,17 +223,26 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   end
 
   defp reconcile_superseded_assignments(actor) do
-    release_targets = load_active_release_targets(actor)
-    mapper_jobs = load_assigned_mapper_jobs(actor)
-    sweep_groups = load_assigned_sweep_groups(actor)
-    referenced_uids = collect_referenced_agent_ids(release_targets, mapper_jobs, sweep_groups)
+    snapshot = %{
+      release_targets: load_active_release_targets(actor),
+      mapper_jobs: load_assigned_mapper_jobs(actor),
+      sweep_groups: load_assigned_sweep_groups(actor),
+      credential_rules: load_agent_credential_rules(actor),
+      plugin_assignments: load_enabled_manual_plugin_assignments(actor),
+      camera_sources: load_assigned_camera_sources(actor)
+    }
+
+    referenced_uids = collect_referenced_agent_ids(snapshot)
 
     with [_ | _] <- referenced_uids,
          {:ok, superseded_by_map} when map_size(superseded_by_map) > 0 <-
            load_superseded_map(referenced_uids, actor) do
-      reconcile_release_targets(release_targets, superseded_by_map, actor)
-      reconcile_mapper_jobs(mapper_jobs, superseded_by_map, actor)
-      reconcile_sweep_groups(sweep_groups, superseded_by_map, actor)
+      reconcile_release_targets(snapshot.release_targets, superseded_by_map, actor)
+      reconcile_mapper_jobs(snapshot.mapper_jobs, superseded_by_map, actor)
+      reconcile_sweep_groups(snapshot.sweep_groups, superseded_by_map, actor)
+      reconcile_credential_rules(snapshot.credential_rules, superseded_by_map, actor)
+      reconcile_plugin_assignments(snapshot.plugin_assignments, superseded_by_map, actor)
+      reconcile_camera_sources(snapshot.camera_sources, superseded_by_map, actor)
       :ok
     else
       [] ->
@@ -267,6 +281,29 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     |> read_reconciliation_records("sweep groups", actor)
   end
 
+  defp load_agent_credential_rules(actor) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(scope_type == :agent and scope_value != ""))
+    |> read_reconciliation_records("credential rules", actor)
+  end
+
+  defp load_enabled_manual_plugin_assignments(actor) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(
+      expr(source == :manual and enabled == true and partition_id != "" and agent_uid != "")
+    )
+    |> read_reconciliation_records("manual plugin assignments", actor)
+  end
+
+  defp load_assigned_camera_sources(actor) do
+    CameraSource
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(expr(not is_nil(assigned_agent_id) and assigned_agent_id != ""))
+    |> read_reconciliation_records("camera sources", actor)
+  end
+
   defp read_reconciliation_records(query, label, actor) do
     case Ash.read(query, actor: actor) do
       {:ok, records} ->
@@ -281,12 +318,16 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
     end
   end
 
-  defp collect_referenced_agent_ids(release_targets, mapper_jobs, sweep_groups) do
-    release_ids = Enum.map(release_targets, & &1.agent_id)
-    mapper_ids = Enum.map(mapper_jobs, & &1.agent_id)
-    sweep_ids = Enum.flat_map(sweep_groups, &AgentAssignment.normalize(&1.agent_ids))
-
-    (release_ids ++ mapper_ids ++ sweep_ids)
+  defp collect_referenced_agent_ids(snapshot) do
+    [
+      Enum.map(snapshot.release_targets, & &1.agent_id),
+      Enum.map(snapshot.mapper_jobs, & &1.agent_id),
+      Enum.flat_map(snapshot.sweep_groups, &AgentAssignment.normalize(&1.agent_ids)),
+      Enum.map(snapshot.credential_rules, & &1.scope_value),
+      Enum.map(snapshot.plugin_assignments, & &1.agent_uid),
+      Enum.map(snapshot.camera_sources, & &1.assigned_agent_id)
+    ]
+    |> List.flatten()
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
     |> Enum.uniq()
   end
@@ -376,6 +417,55 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
 
   defp reconcile_sweep_groups(groups, superseded_by_map, actor) do
     Enum.each(groups, &reconcile_sweep_group(&1, superseded_by_map, actor))
+  end
+
+  defp reconcile_credential_rules(rules, superseded_by_map, actor) do
+    reconcile_grouped_records(
+      rules,
+      & &1.scope_value,
+      superseded_by_map,
+      :network_credential_rules,
+      &update_credential_rules(&1, &2, actor)
+    )
+  end
+
+  defp reconcile_plugin_assignments(assignments, superseded_by_map, actor) do
+    reconcile_grouped_records(
+      assignments,
+      & &1.agent_uid,
+      superseded_by_map,
+      :plugin_assignments,
+      &reassign_plugin_assignments(&1, &2, actor)
+    )
+  end
+
+  defp reconcile_camera_sources(sources, superseded_by_map, actor) do
+    reconcile_grouped_records(
+      sources,
+      & &1.assigned_agent_id,
+      superseded_by_map,
+      :camera_sources,
+      &update_camera_sources(&1, &2, actor)
+    )
+  end
+
+  defp reconcile_grouped_records(records, uid_fun, superseded_by_map, label, update_fun) do
+    records
+    |> Enum.reduce(%{}, fn record, acc ->
+      agent_id = uid_fun.(record)
+
+      case replacement_for_superseded(agent_id, superseded_by_map) do
+        {:ok, replacement_uid} ->
+          Map.update(acc, {agent_id, replacement_uid}, [record], &[record | &1])
+
+        :noop ->
+          acc
+      end
+    end)
+    |> Enum.each(fn {{agent_id, replacement_uid}, grouped_records} ->
+      result = update_fun.(grouped_records, replacement_uid)
+      log_assignment_transfer({label, result}, agent_id, replacement_uid)
+    end)
   end
 
   defp reconcile_sweep_group(group, superseded_by_map, actor) do
@@ -491,7 +581,11 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       [
         {:mapper_jobs,
          transfer_agent_assignment(MapperJob, agent_id, replacement_agent_id, actor)},
-        {:sweep_groups, transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor)}
+        {:sweep_groups, transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor)},
+        {:network_credential_rules,
+         transfer_credential_rules(agent_id, replacement_agent_id, actor)},
+        {:plugin_assignments, transfer_plugin_assignments(agent_id, replacement_agent_id, actor)},
+        {:camera_sources, transfer_camera_sources(agent_id, replacement_agent_id, actor)}
       ],
       &log_assignment_transfer(&1, agent_id, replacement_agent_id)
     )
@@ -590,6 +684,103 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
       {:error, reason} -> {:error, reason}
       count -> {:ok, count}
     end
+  end
+
+  defp transfer_credential_rules(agent_id, replacement_agent_id, actor) do
+    query =
+      NetworkCredentialRule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(scope_type == :agent and scope_value == ^agent_id))
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} -> {:ok, 0}
+      {:ok, rules} -> update_credential_rules(rules, replacement_agent_id, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp transfer_plugin_assignments(agent_id, replacement_agent_id, actor) do
+    query =
+      PluginAssignment
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(
+        expr(
+          agent_uid == ^agent_id and source == :manual and enabled == true and partition_id != ""
+        )
+      )
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} -> {:ok, 0}
+      {:ok, assignments} -> reassign_plugin_assignments(assignments, replacement_agent_id, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp transfer_camera_sources(agent_id, replacement_agent_id, actor) do
+    query =
+      CameraSource
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(assigned_agent_id == ^agent_id))
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} -> {:ok, 0}
+      {:ok, sources} -> update_camera_sources(sources, replacement_agent_id, actor)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_credential_rules(rules, replacement_agent_id, actor) do
+    update_records_best_effort(rules, "credential rule", replacement_agent_id, fn rule ->
+      rule
+      |> Ash.Changeset.for_update(:update, %{scope_value: replacement_agent_id}, actor: actor)
+      |> Ash.update()
+    end)
+  end
+
+  defp reassign_plugin_assignments(assignments, replacement_agent_id, actor) do
+    update_records_best_effort(
+      assignments,
+      "plugin assignment",
+      replacement_agent_id,
+      fn assignment ->
+        assignment
+        |> Ash.Changeset.for_update(
+          :reassign_agent,
+          %{agent_uid: replacement_agent_id},
+          actor: actor
+        )
+        |> Ash.update()
+      end
+    )
+  end
+
+  defp update_camera_sources(sources, replacement_agent_id, actor) do
+    update_records_best_effort(sources, "camera source", replacement_agent_id, fn source ->
+      source
+      |> Ash.Changeset.for_update(:update, %{assigned_agent_id: replacement_agent_id},
+        actor: actor
+      )
+      |> Ash.update()
+    end)
+  end
+
+  defp update_records_best_effort(records, label, replacement_agent_id, update_fun) do
+    count =
+      Enum.reduce(records, 0, fn record, acc ->
+        case update_fun.(record) do
+          {:ok, _updated} ->
+            acc + 1
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to reassign #{label} #{record.id} to #{replacement_agent_id}: #{inspect(reason)}"
+            )
+
+            acc
+        end
+      end)
+
+    {:ok, count}
   end
 
   # Connected or degraded and seen inside the StateMonitor window. A nil
