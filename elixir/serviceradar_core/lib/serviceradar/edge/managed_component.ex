@@ -22,7 +22,6 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     "web-ng",
     "nats-server",
     "nats-client",
-    "rperf-client",
     "datasvc",
     "zen"
   ]
@@ -37,6 +36,7 @@ defmodule ServiceRadar.Edge.ManagedComponent do
              "addon"
            ]
 
+  def infrastructure_types, do: @infrastructure_types
   def infrastructure_type?(type), do: type in @infrastructure_types
 
   postgres do

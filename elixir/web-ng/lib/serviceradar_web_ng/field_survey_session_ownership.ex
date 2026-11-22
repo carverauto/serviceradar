@@ -18,6 +18,9 @@ defmodule ServiceRadarWebNG.FieldSurveySessionOwnership do
           | {:error, :invalid_session_id | :forbidden | :too_many_sessions | term()}
   def claim_or_verify(session_id, user_id, opts \\ [])
 
+  # Both statements are constant strings with bound parameters. The `:query`
+  # option is a function, not SQL text.
+  # sobelow_skip ["SQL.Query"]
   def claim_or_verify(session_id, user_id, opts) when is_binary(session_id) and is_binary(user_id) and is_list(opts) do
     query = Keyword.get(opts, :query, &Repo.query/2)
 

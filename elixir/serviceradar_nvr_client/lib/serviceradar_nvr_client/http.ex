@@ -2,10 +2,13 @@ defmodule ServiceRadarNVRClient.HTTP do
   @moduledoc false
   alias ServiceRadarNVRClient.Config
   alias ServiceRadarNVRClient.Wire
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   @max_body 67_108_864
   @max_response 32_768
-  @empty_response %{status: nil, body: "", done: false}
+  # A ledger page of 100 blocks or a 50-block lookup, with room to spare.
+  @max_member_response 262_144
+  @empty_response %{status: nil, body: "", done: false, limit: @max_response}
 
   def send_recording(config, header, bytes, units, deadline, owner) do
     connect(config, deadline, owner, &transmit(&1, config.token, header, bytes, units, deadline, owner))
@@ -13,6 +16,28 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   def archive_block(config, block_id, request, body, deadline, owner) do
     connect(config, deadline, owner, &request_archive(&1, config.token, block_id, request, body, deadline, owner))
+  end
+
+  def block_descriptor(config, block_id, deadline, owner) do
+    path = "/v1/blocks/" <> block_id <> "/descriptor"
+    finish = &descriptor_result(&1, &2, block_id)
+    connect(config, deadline, owner, &get(&1, config.token, path, Descriptor.max_json_bytes(), finish, deadline, owner))
+  end
+
+  # Bounded JSON exchanges on the ingest listener: member status, block lookup
+  # and ledger pages. `finish` decodes and checks a 200 body.
+  def get_json(config, path, finish, deadline, owner) do
+    connect(config, deadline, owner, &get(&1, config.token, path, @max_member_response, finish, deadline, owner))
+  end
+
+  def post_json(config, path, content_type, body, finish, deadline, owner) do
+    connect(config, deadline, owner, &post(&1, config.token, path, content_type, body, finish, deadline, owner))
+  end
+
+  # The body may be at most `expected.length` bytes; `Wire.media` checks it exactly.
+  def read_media(config, path, expected, deadline, owner) do
+    finish = &media_result(&1, &2, expected)
+    connect(config, deadline, owner, &get(&1, config.token, path, expected.length, finish, deadline, owner))
   end
 
   defp connect(config, deadline, owner, exchange) do
@@ -125,9 +150,46 @@ defmodule ServiceRadarNVRClient.HTTP do
   defp archive_result(200, body, block_id, request), do: Wire.archive_receipt(body, block_id, request)
 
   defp archive_result(status, body, _block_id, _request) when is_integer(status),
-    do: {:error, {:archive_status, status, Wire.archive_error(body)}}
+    do: {:error, {:archive_status, status, Wire.error_body(body)}}
 
   defp archive_result(_status, _body, _block_id, _request), do: {:error, :outcome_unknown}
+
+  defp post(connection, token, path, content_type, body, finish, deadline, owner) do
+    headers = [
+      {"authorization", "Bearer " <> token},
+      {"content-type", content_type},
+      {"content-length", Integer.to_string(byte_size(body))}
+    ]
+
+    with :ok <- current(deadline, owner),
+         {:ok, connection, ref} <- Mint.HTTP1.request(connection, "POST", path, headers, body) do
+      response(connection, ref, deadline, owner, finish, %{@empty_response | limit: @max_member_response})
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp get(connection, token, path, limit, finish, deadline, owner) do
+    headers = [{"authorization", "Bearer " <> token}]
+
+    with :ok <- current(deadline, owner),
+         {:ok, connection, ref} <- Mint.HTTP1.request(connection, "GET", path, headers, nil) do
+      response(connection, ref, deadline, owner, finish, %{@empty_response | limit: max(limit, @max_response)})
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
+  defp descriptor_result(200, body, block_id), do: Wire.descriptor(body, block_id)
+
+  defp descriptor_result(status, body, _block_id) when is_integer(status),
+    do: {:error, {:descriptor_status, status, Wire.error_body(body)}}
+
+  defp descriptor_result(_status, _body, _block_id), do: {:error, :outcome_unknown}
+
+  defp media_result(200, body, expected), do: Wire.media(body, expected)
+  defp media_result(status, body, _expected) when is_integer(status), do: Wire.read_refusal(status, body)
+  defp media_result(_status, _body, _expected), do: {:error, :outcome_unknown}
 
   defp stream(units, connection, ref, size, deadline, owner) do
     Enum.reduce_while(units, {:ok, connection, size}, fn unit, {:ok, connection, size} ->
@@ -169,7 +231,7 @@ defmodule ServiceRadarNVRClient.HTTP do
         {:headers, ^ref, _} ->
           {:cont, {:ok, acc}}
 
-        {:data, ^ref, bytes} when byte_size(acc.body) + byte_size(bytes) <= @max_response ->
+        {:data, ^ref, bytes} when byte_size(acc.body) + byte_size(bytes) <= acc.limit ->
           {:cont, {:ok, %{acc | body: acc.body <> bytes}}}
 
         {:done, ^ref} ->

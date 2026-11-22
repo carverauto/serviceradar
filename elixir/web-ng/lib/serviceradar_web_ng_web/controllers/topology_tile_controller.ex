@@ -216,6 +216,9 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
     |> conditional_payload(payload, etag, "application/json")
   end
 
+  # The content type is one of three constants and the payload is a tile this
+  # server built.
+  # sobelow_skip ["XSS.ContentType", "XSS.SendResp"]
   defp conditional_payload(conn, payload, etag, content_type) do
     conn =
       conn

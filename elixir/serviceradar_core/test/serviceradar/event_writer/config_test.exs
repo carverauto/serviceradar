@@ -1091,6 +1091,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       arancini = Enum.find(default_sized_streams(), &(&1.name == "ARANCINI_CAUSAL"))
 
       assert arancini.stream_max_bytes == @gib
+      assert arancini.stream_max_age == 86_400_000_000_000
       assert arancini.stream_replicas == 1
       assert arancini.stream_discard == "old"
       assert arancini.stream_owner_claim == "event-writer"

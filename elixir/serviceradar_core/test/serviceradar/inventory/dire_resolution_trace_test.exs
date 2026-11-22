@@ -70,10 +70,11 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # Alias rows are per device, so an address two devices held in turn carries a confirmed alias
   # row of each. Steps: A (m1) is seen at p1 three times (alias confirmed) and releases p1; B (m2)
-  # does the same; Armis device C (a3, m3) leases p1 and is synced. Expected: no merge; C takes
-  # p1 from B, and the sync's alias pass invalidates both A's and B's aliases of p1, recording
-  # each, as the model's alias step does for every other live holder. The pass used to take only
-  # the first holder, leaving the other's alias confirmed.
+  # does the same, and B's confirmation expires A's alias (one live holder per address); Armis
+  # device C (a3, m3) leases p1 and is synced. Expected: no merge; C takes p1 from B, and the
+  # sync's alias pass invalidates B's alias of p1 and records it, as the model's alias step does
+  # for every other live holder. The pass used to take only the first holder, leaving the
+  # other's alias confirmed.
   test "armis_dhcp_two_holders", %{actor: actor} do
     world = %{
       phys: ["h1", "h2", "h3"],
@@ -278,8 +279,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # Armis re-keys A (m1) from a1 to a2 and reports a first-seen time of a2's own, later than A's
   # last sighting under a1. Steps as in src_rekey_succession. Expected: the first-seen times
-  # differ, but the hostnames agree and a2 was first seen no earlier than a1 was last seen, so
-  # the succession pass merges the two (D3); a1's record survives.
+  # differ, and a hostname never corroborates (stop-name-as-identity-evidence), whatever the
+  # source times: the succession pass merges nothing and records the pair for review
+  # (succession_review, overlapping_hostname).
   test "src_rekey_new_first_seen", %{actor: actor} do
     world = Map.put(rekey_world(), :new_first_seen_ids, ["a2"])
 
@@ -491,9 +493,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # the polled address itself. Steps: A (m1) is seen at p1 three times (alias confirmed) and
   # releases p1; B (m2) leases p1 and is seen there four times, which confirms its own row and
   # makes it the most sighted, so it is the address's first holder even when both rows were last
-  # seen in the same second; the mapper polls B at p1. Expected: AliasGuard skips B's own row and
-  # invalidates A's alias of p1, recording it. Reading only the first holder, it found B's own
-  # row and left A's alias confirmed.
+  # seen in the same second; B's confirmation expires A's alias of p1; the mapper polls B at p1.
+  # Expected: AliasGuard skips B's own row and finds no other live holder to invalidate. Reading
+  # only the first holder, it used to find B's own row and leave A's alias confirmed.
   test "mapper_prior_alias_holder", %{actor: actor} do
     world = two_devices(%{ips: ["p1"], observers: ["Discovery", "Arp"]})
 
@@ -516,10 +518,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #6042: two same-named hypervisor nodes in different clusters collide on an address under one
   # integration provider (`proxmox:v3:...`) with no MAC, serial or source-authoritative id.
   # Steps: node A (`i1`, hostname `n1`) is synced at `p1`; node B (`i2`, hostname `n1`) is
-  # synced at `p1`. Expected: hostname-agreement adoption is refused with
-  # `conflicting_integration_identity`, recording a `policy_block` decision alongside the
-  # `ip_conflict` decision; B gets its own record (`recIp = NoIp`), A keeps `p1`, and the two
-  # physical nodes never fuse onto one record.
+  # synced at `p1`. Expected: a hostname is not identity, so B is not adopted onto A's record;
+  # the agreement is recorded as a `policy_block` decision alongside the `ip_conflict` decision;
+  # B gets its own record (`recIp = NoIp`), A keeps `p1`, and the two physical nodes never fuse
+  # onto one record.
   test "integration_hostname_conflict", %{actor: actor} do
     world = %{
       phys: ["h1", "h2"],
@@ -551,9 +553,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # is synced at `p1` by its hypervisor integration, which reports no MAC; the census sees A's
   # second NIC (`m2`) at `p2`; A's agent (`g1`, FQDN hostname) checks in announcing `p1` and
   # reporting both NICs. Expected: the agent lands on the census record through `m2`, a MAC its
-  # announced interface does not carry, which takes `p1` (the integration record, observed by
-  # no one, releases it and the conflict is recorded). The integration record shares no strong
-  # identifier with the host and stays its own record.
+  # announced interface does not carry. That record keeps `p2`, which the census recorded and
+  # still sights (a check-in does not move another source's equally strong primary), so the
+  # integration record keeps `p1`. The integration record shares no strong identifier with the
+  # host and stays its own record.
   test "agent_known_host_shared_mac", %{actor: actor} do
     world = %{
       phys: ["h1"],

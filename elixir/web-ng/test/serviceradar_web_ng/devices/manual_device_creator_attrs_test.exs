@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorAttrsTest do
   test "additional_update_attrs merges tags and keeps a richer existing type" do
     existing = %{
       hostname: "armis-host",
-      ip: "10.102.61.31",
+      ip: "198.51.100.42",
       type: "server",
       type_id: 1,
       tags: %{"env" => "prod"},
@@ -19,21 +19,21 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorAttrsTest do
 
     update =
       ManualDeviceCreator.additional_update_attrs(existing, %{
-        hostname: "rids-bos-b23",
-        ip: "10.102.61.31",
-        type: "rids",
+        hostname: "host05.example.com",
+        ip: "198.51.100.42",
+        type: "kiosk",
         type_id: 0,
-        tags: %{"rids" => "true", "site" => "BOS"},
+        tags: %{"role" => "kiosk", "site" => "SITE01"},
         discovery_sources: ["manual"],
         last_seen_time: ~U[2026-01-01 00:00:00Z]
       })
 
-    assert update.hostname == "rids-bos-b23"
-    assert update.name == "rids-bos-b23"
+    assert update.hostname == "host05.example.com"
+    assert update.name == "host05.example.com"
     refute Map.has_key?(update, :ip)
     refute Map.has_key?(update, :type)
     refute Map.has_key?(update, :type_id)
-    assert update.tags == %{"env" => "prod", "rids" => "true", "site" => "BOS"}
+    assert update.tags == %{"env" => "prod", "role" => "kiosk", "site" => "SITE01"}
     assert update.discovery_sources == ["armis", "manual"]
     assert update.is_active == true
   end
@@ -50,17 +50,17 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorAttrsTest do
     update =
       ManualDeviceCreator.additional_update_attrs(existing, %{
         hostname: "host-a.example",
-        ip: "198.18.1.2",
-        type: "rids",
+        ip: "203.0.113.62",
+        type: "kiosk",
         type_id: 0,
-        tags: %{"source" => "rids"},
+        tags: %{"floor" => "2"},
         discovery_sources: ["manual"]
       })
 
-    assert update.ip == "198.18.1.2"
-    assert update.type == "rids"
+    assert update.ip == "203.0.113.62"
+    assert update.type == "kiosk"
     assert update.type_id == 0
-    assert update.tags == %{"source" => "rids"}
+    assert update.tags == %{"floor" => "2"}
   end
 
   test "additional_update_attrs applies a known incoming type" do

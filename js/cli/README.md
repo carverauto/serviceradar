@@ -10,11 +10,13 @@ React/JS surface customer dashboards depend on).
 ```text
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import|list|status>
+serviceradar-cli pack      <validate|build|keygen|sign|verify|index>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 serviceradar-cli notifications <ensure-k8s-alerts>
 serviceradar-cli agent     <list>
 serviceradar-cli edge      package <create|list|show|revoke|download>
 serviceradar-cli edge      site <create|list|show|bundle>
+serviceradar-cli edge      hub status
 serviceradar-cli edge      install <agent|leaf|collector>
 serviceradar-cli collector <create|list|show|revoke|download>
 serviceradar-cli nats      account status
@@ -176,9 +178,15 @@ packaged enrollment published host-trust. A host enrolled before that record
 existed needs re-enrollment first
 ([Managed component certificates](../../docs/managed-component-certificates.md)).
 They register one managed component for that host service, pin the deployment
-policy public key, and wait until the agent has installed certificates and
-activated the service. Activation is separate from receiver enforcement.
-Certificate lifecycle and NATS readiness are in
+policy public key, wait until the agent has installed certificates and
+activated the service, and confirm the managed systemd unit stays active across
+three checks. Activation is separate from receiver enforcement.
+`edge hub status` reports hub certificate-authorization readiness and chart
+identity coverage from the bootstrap endpoint, warning on uncovered identities.
+`edge install leaf` checks hub readiness before downloading packages or changing
+the host (treating chart identity coverage as advisory); `edge install
+collector` keeps local onboarding when the hub is disconnected. Certificate
+lifecycle and NATS/hub readiness details are in
 [Managed component certificates](../../docs/managed-component-certificates.md).
 A site-assigned collector requires that site's managed leaf, then stores the
 local leaf binding. Neither command runs a leaf or collector bundle script.
@@ -205,24 +213,28 @@ srcloud nats account status
 srcloud edge site create --name "Branch office 1"
 #    → prints the site id; `srcloud edge site show <site-id>` reports the leaf status
 
-# 3. Create an agent package. This prints the package id and a one-time
-#    edgepkg-v3 onboarding token.
+# 3. Create an agent package. This prints the package id, a one-time
+#    edgepkg-v3 onboarding token, and (when returned by the instance) the
+#    deployment's onboarding token public key.
 srcloud edge package create --label branch-office-1 --component-type agent
 
 # 4. Install and enroll the agent: downloads serviceradar-agent, runs
-#    `dnf install`, runs `srctl enroll --core-url $SERVICERADAR_INSTANCE --token ...`,
-#    then enables and restarts serviceradar-agent.service.
-srcloud edge install agent --package <package-id> --token '<onboarding-token>' --version $SR_VERSION
+#    `dnf install`, runs `srctl enroll --core-url $SERVICERADAR_INSTANCE --token ...`
+#    with SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY set, then enables and
+#    restarts serviceradar-agent.service. Pass --token-public-key or export
+#    SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY.
+srcloud edge install agent --package <package-id> --token '<onboarding-token>' --token-public-key '<token-public-key>' --version $SR_VERSION
 srcloud agent list
 
-# 5. Install the local NATS leaf after the site's leaf server has an upstream
-#    URL. This command does not poll. A leaf_not_ready response means retry
-#    once `edge site show` reports that server. It requires the enrolled
-#    agent, downloads the latest serviceradar-nats release unless --version
-#    is set, registers the managed leaf, and waits for certificate
-#    installation and service activation. Pass
-#    --advertise-url tls://<reachable-host>:4222 when the collector-facing
-#    address is not the unambiguous host address.
+# 5. Check hub readiness (`srcloud edge hub status`), then install the local
+#    NATS leaf after the site's leaf server has an upstream URL. This command
+#    does not poll. A leaf_not_ready response means retry once `edge site show`
+#    reports that server. It requires the enrolled agent and a ready hub,
+#    downloads the latest serviceradar-nats release unless --version is set,
+#    registers the managed leaf, and waits for certificate installation and
+#    service activation. Pass --advertise-url tls://<reachable-host>:4222 when
+#    the collector-facing address is not the unambiguous host address.
+srcloud edge hub status
 srcloud edge install leaf --site <site-id>
 
 # 6. Add collectors on that enrolled host. Install the managed leaf first
@@ -398,8 +410,8 @@ js/cli/
 │   ├── auth/                        # auth/{credentials,login,status,logout,index}.ts
 │   ├── dashboard/                   # dashboard/{init,build,manifest,validate,
 │                                    #            dev,publish,import,list,status,
-│                                    #            resolve,index}.ts
-│   ├── edge/                        # agent, edge package/site/install, collector, nats
+│                                    #            resolve,css,css-plugin,index}.ts
+│   ├── edge/                        # agent, edge package/site/hub/install, collector, nats
 │   ├── notifications/               # notifications/ensure_k8s_alerts.ts
 │   └── plugin/                      # plugin init, validate, publish, apply
 ├── dist/                            # generated by `npm run build` (compiled JS + sourcemaps)
@@ -415,7 +427,8 @@ js/cli/
 ├── templates/                       # scaffolder templates
 │   ├── react-map/
 │   ├── react-table/
-│   └── react-blank/
+│   ├── react-blank/
+│   └── blueprint/
 ├── tests/
 ├── tsconfig.json                    # tsc --noEmit (`npm run typecheck`)
 ├── tsconfig.build.json              # tsc emit to dist/ (`npm run build`)

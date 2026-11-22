@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Components.PackProvenanceComponents
+
   alias Datasvc.KV
   alias ServiceRadar.Cluster.ClusterStatus
   alias ServiceRadar.Logging.SecretRedaction
@@ -40,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         |> assign(:editing_stateful_rule, nil)
         |> assign(:stateful_rule_error, nil)
         |> assign(:stateful_rule_form, default_stateful_rule_form())
+        |> assign(:stateful_rule_fork_prompt_open, false)
+        |> assign(:pending_stateful_rule_attrs, nil)
         |> assign(:show_rule_builder, false)
         |> assign(:editing_rule, nil)
 
@@ -217,7 +221,49 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
      |> assign(:show_stateful_rule_editor, false)
      |> assign(:editing_stateful_rule, nil)
      |> assign(:stateful_rule_error, nil)
+     |> assign(:stateful_rule_fork_prompt_open, false)
+     |> assign(:pending_stateful_rule_attrs, nil)
      |> assign(:stateful_rule_form, default_stateful_rule_form())}
+  end
+
+  def handle_event("cancel_stateful_rule_fork", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:stateful_rule_fork_prompt_open, false)
+     |> assign(:pending_stateful_rule_attrs, nil)}
+  end
+
+  def handle_event("save_stateful_rule_override", _params, socket) do
+    rule = socket.assigns.editing_stateful_rule
+    attrs = socket.assigns.pending_stateful_rule_attrs
+
+    if is_map(rule) and is_map(attrs) do
+      override_attrs =
+        attrs
+        |> Map.put(:group_by, rule.group_by || [])
+        |> Map.put(:managed, true)
+        |> Map.put(:parameter_overrides, build_stateful_rule_overrides(rule, attrs))
+
+      apply_stateful_rule_update(socket, rule, override_attrs, %{})
+    else
+      {:noreply, assign(socket, :stateful_rule_fork_prompt_open, false)}
+    end
+  end
+
+  def handle_event("confirm_stateful_rule_fork", _params, socket) do
+    rule = socket.assigns.editing_stateful_rule
+    attrs = socket.assigns.pending_stateful_rule_attrs
+
+    if is_map(rule) and is_map(attrs) do
+      fork_attrs =
+        attrs
+        |> Map.put(:managed, false)
+        |> Map.put(:parameter_overrides, build_stateful_rule_overrides(rule, attrs))
+
+      apply_stateful_rule_update(socket, rule, fork_attrs, %{})
+    else
+      {:noreply, assign(socket, :stateful_rule_fork_prompt_open, false)}
+    end
   end
 
   def handle_event("change_stateful_rule", %{"stateful_rule" => params}, socket) do
@@ -225,29 +271,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   end
 
   def handle_event("save_stateful_rule", %{"stateful_rule" => params}, socket) do
-    scope = socket.assigns.current_scope
     rule = socket.assigns.editing_stateful_rule
 
     case build_stateful_rule_attrs(params) do
       {:ok, attrs} ->
-        changeset = Ash.Changeset.for_update(rule, :update, attrs, scope: scope)
-
-        case Ash.update(changeset) do
-          {:ok, updated_rule} ->
+        cond do
+          managed_pack_rule?(rule) and stateful_structural_change?(rule, attrs) ->
             {:noreply,
              socket
-             |> assign(:stateful_rules, list_stateful_rules(scope))
-             |> assign(:show_stateful_rule_editor, false)
-             |> assign(:editing_stateful_rule, nil)
-             |> assign(:stateful_rule_error, nil)
-             |> assign(:stateful_rule_form, default_stateful_rule_form())
-             |> put_flash(:info, "Rule \"#{updated_rule.name}\" updated successfully")}
+             |> assign(:stateful_rule_fork_prompt_open, true)
+             |> assign(:pending_stateful_rule_attrs, attrs)}
 
-          {:error, error} ->
-            {:noreply,
-             socket
-             |> assign(:stateful_rule_form, merge_stateful_rule_form(socket, params))
-             |> assign(:stateful_rule_error, format_error(error))}
+          managed_pack_rule?(rule) ->
+            override_attrs =
+              Map.put(attrs, :parameter_overrides, build_stateful_rule_overrides(rule, attrs))
+
+            apply_stateful_rule_update(socket, rule, override_attrs, params)
+
+          true ->
+            apply_stateful_rule_update(socket, rule, attrs, params)
         end
 
       {:error, message, merged_form} ->
@@ -771,6 +813,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             phx-submit="save_stateful_rule"
             class="space-y-6 px-6 py-5"
           >
+            <.pack_provenance_banner
+              :if={@editing_stateful_rule}
+              pack_id={Map.get(@editing_stateful_rule, :pack_id)}
+              pack_version={Map.get(@editing_stateful_rule, :pack_version)}
+              managed={Map.get(@editing_stateful_rule, :managed, false)}
+              resource_kind="alert rule"
+            />
+
             <div :if={@stateful_rule_error} class={ui_alert_class(variant: "error", class: "text-sm")}>
               {@stateful_rule_error}
             </div>
@@ -860,8 +910,66 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         rule={@editing_rule}
         current_scope={@current_scope}
       />
+
+      <.pack_fork_confirmation_modal
+        id="stateful-rule-fork-modal"
+        open={Map.get(assigns, :stateful_rule_fork_prompt_open, false)}
+        resource_label="alert rule"
+        pack_id={@editing_stateful_rule && Map.get(@editing_stateful_rule, :pack_id)}
+        pack_version={@editing_stateful_rule && Map.get(@editing_stateful_rule, :pack_version)}
+        allow_override_save={true}
+        on_save_override="save_stateful_rule_override"
+        on_confirm_fork="confirm_stateful_rule_fork"
+        on_cancel="cancel_stateful_rule_fork"
+      />
     </Layouts.app>
     """
+  end
+
+  defp managed_pack_rule?(rule) when is_map(rule) do
+    Map.get(rule, :managed) == true and is_binary(Map.get(rule, :pack_id)) and
+      Map.get(rule, :pack_id) != ""
+  end
+
+  defp managed_pack_rule?(_), do: false
+
+  defp stateful_structural_change?(rule, attrs) do
+    Enum.sort(rule.group_by || []) != Enum.sort(Map.get(attrs, :group_by, rule.group_by || []))
+  end
+
+  defp build_stateful_rule_overrides(rule, attrs) do
+    existing = Map.get(rule, :parameter_overrides) || %{}
+
+    existing
+    |> Map.put("enabled", Map.get(attrs, :enabled, rule.enabled))
+    |> Map.put("cooldown_seconds", Map.get(attrs, :cooldown_seconds, rule.cooldown_seconds))
+    |> Map.put("renotify_seconds", Map.get(attrs, :renotify_seconds, rule.renotify_seconds))
+  end
+
+  defp apply_stateful_rule_update(socket, rule, attrs, params) do
+    scope = socket.assigns.current_scope
+    changeset = Ash.Changeset.for_update(rule, :update, attrs, scope: scope)
+
+    case Ash.update(changeset) do
+      {:ok, updated_rule} ->
+        {:noreply,
+         socket
+         |> assign(:stateful_rules, list_stateful_rules(scope))
+         |> assign(:show_stateful_rule_editor, false)
+         |> assign(:editing_stateful_rule, nil)
+         |> assign(:stateful_rule_error, nil)
+         |> assign(:stateful_rule_fork_prompt_open, false)
+         |> assign(:pending_stateful_rule_attrs, nil)
+         |> assign(:stateful_rule_form, default_stateful_rule_form())
+         |> put_flash(:info, "Rule \"#{updated_rule.name}\" updated successfully")}
+
+      {:error, error} ->
+        {:noreply,
+         socket
+         |> assign(:stateful_rule_form, merge_stateful_rule_form(socket, params))
+         |> assign(:stateful_rule_fork_prompt_open, false)
+         |> assign(:stateful_rule_error, format_error(error))}
+    end
   end
 
   defp list_zen_rules(scope) do

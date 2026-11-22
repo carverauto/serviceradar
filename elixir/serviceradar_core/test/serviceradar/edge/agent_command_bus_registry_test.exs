@@ -593,7 +593,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
 
     start_session(alma, "default", gateway_node, :alma, ["sweep", "icmp"])
     start_session(k8s, "default", gateway_node, :k8s, ["sweep", "icmp"])
-    start_session(other, "rids", gateway_node, :rids, ["sweep", "icmp"])
+    start_session(other, "lab", gateway_node, :lab, ["sweep", "icmp"])
 
     assert eventually(fn ->
              ids =
@@ -720,6 +720,36 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
                )
 
       refute_received {:dispatch, _, _, _, _}
+    end
+  end
+
+  describe "dispatch_netperf_run/3 authority_epoch validation" do
+    test "rejects <= 0, non-integer, out-of-range, and malformed authority_epoch overrides" do
+      actor = ServiceRadar.Actors.SystemActor.system(:netperf_epoch_unit_test)
+
+      for bad_epoch <- [
+            0,
+            -1,
+            "0",
+            "-2",
+            "abc",
+            "3foo",
+            1.5,
+            true,
+            %{},
+            0xFFFF_FFFF_FFFF_FFFF + 1
+          ] do
+        assert {:error, :invalid_authority_epoch} =
+                 AgentCommandBus.dispatch_netperf_run(
+                   "agent-spoke-1",
+                   %{
+                     responder_agent_id: "agent-hub-1",
+                     target_address: "198.51.100.1",
+                     authority_epoch: bad_epoch
+                   },
+                   actor: actor
+                 )
+      end
     end
   end
 

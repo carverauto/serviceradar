@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Resolver
@@ -53,13 +54,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   ]
 
   # Source-authoritative identifier types, one list shared with resolution and
-  # merging (`SourceAuthorityGuard`). A record or holder carrying one is never
-  # adopted on hostname agreement: that identifier decides its identity.
+  # merging (`SourceAuthorityGuard`). A record carrying one is a source's own
+  # sighting, and a holder whose rows of them are all archived is retired
+  # (`claim_address_from_holder/5`).
   @source_authoritative_types SourceAuthorityGuard.source_identifier_types()
 
-  # Tombstones the upsert never writes to (device_upsert_update_query/0): a merged-away
+  # Tombstones the upsert never writes to (device_upsert_update_query/1): a merged-away
   # device and a retained tombstone (`Device.retained_reasons/0`).
   @unrevivable_reasons ["merged" | Device.retained_reasons()]
+
+  # The `^absent` and `^resighted` arrays and the `^cutoff` pinned into
+  # device_upsert_update_query/1, bound once per use on top of the rows (ParameterChunking).
+  @upsert_extra_parameters 10
 
   # An anchorless sweep seed that releases its only address to an identified
   # device (retire_released_seeds/1).
@@ -94,12 +100,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           {:ok, %{String.t() => String.t()}, [String.t()]} | {:error, term()}
   def bulk_upsert_devices(records, strong_uids, resolved_updates, opts) do
     records = attach_identity_claims(records, resolved_updates)
-    update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
     lock? = Keyword.get(opts, :lock_remap_targets, false)
 
     records
-    |> do_bulk_upsert_devices(update_query, strong_uids, refresh_rollups?, lock?)
+    |> do_bulk_upsert_devices(strong_uids, refresh_rollups?, lock?)
     |> follow_merged_away_uids(records, lock?)
   rescue
     e ->
@@ -107,7 +112,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       {:error, e}
   end
 
-  defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?, lock?) do
+  defp do_bulk_upsert_devices(records, strong_uids, refresh_rollups?, lock?) do
     within_savepoint("device_writes_attempt", fn ->
       # Resolve predictable active-IP collisions up front so the first insert
       # succeeds. Reactive recovery below only covers concurrent writers that
@@ -125,7 +130,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         prepared_records,
         releases,
         stale_releases,
-        update_query,
         refresh_rollups?
       )
 
@@ -136,7 +140,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       if ip_unique_conflict?(e) do
         recover_ip_conflict_and_retry(
           records,
-          update_query,
           strong_uids,
           e,
           refresh_rollups?,
@@ -150,7 +153,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   defp recover_ip_conflict_and_retry(
          records,
-         update_query,
          strong_uids,
          original_error,
          refresh_rollups?,
@@ -185,7 +187,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            recovered_records,
            releases,
            stale_releases,
-           update_query,
            refresh_rollups?
          ) do
       :ok -> {:ok, remap, stale_uids}
@@ -241,18 +242,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Enum.reject(targets, &MapSet.member?(live, &1))
   end
 
-  defp do_bulk_upsert_devices_once(
-         records,
-         releases,
-         stale_releases,
-         update_query,
-         refresh_rollups?
-       ) do
+  defp do_bulk_upsert_devices_once(records, releases, stale_releases, refresh_rollups?) do
     insert_devices_with_releases(
       records,
       releases,
       stale_releases,
-      update_query,
       refresh_rollups?
     )
 
@@ -264,7 +258,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   # A uid merged into another device is never written back to life: the upsert's
-  # on_conflict WHERE leaves its tombstone alone (device_upsert_update_query/0). What
+  # on_conflict WHERE leaves its tombstone alone (device_upsert_update_query/1). What
   # the batch resolved for that uid -- identifiers, interfaces, aliases -- follows the
   # merge instead, through the same remap an active-IP recovery uses, so none of it
   # lands on the tombstone.
@@ -363,20 +357,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # strong-identified record takes from a stale holder
   # (`claim_address_from_holder/5`), whose released seeds retire in the same
   # transaction (`lock_and_clear_for_upsert/3`).
-  defp insert_devices_with_releases(
-         records,
-         releases,
-         stale_releases,
-         update_query,
-         refresh_rollups?
-       ) do
+  defp insert_devices_with_releases(records, releases, stale_releases, refresh_rollups?) do
     with_deadlock_retry(fn ->
       within_savepoint("device_writes_upsert", fn ->
         do_insert_devices_with_releases(
           records,
           releases,
           stale_releases,
-          update_query,
           refresh_rollups?
         )
       end)
@@ -402,26 +389,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end
   end
 
-  defp do_insert_devices_with_releases(records, [], [], update_query, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+  defp do_insert_devices_with_releases(records, [], [], refresh_rollups?) do
+    insert_devices(records, refresh_rollups?)
   end
 
-  defp do_insert_devices_with_releases(records, releases, stale_releases, update_query, true) do
+  defp do_insert_devices_with_releases(records, releases, stale_releases, true) do
     with_inventory_rollup_bypassed(fn ->
       lock_and_clear_for_upsert(records, releases, stale_releases)
-      insert_devices(records, update_query, false)
+      insert_devices(records, false)
     end)
   end
 
-  defp do_insert_devices_with_releases(records, releases, stale_releases, update_query, false) do
+  defp do_insert_devices_with_releases(records, releases, stale_releases, false) do
     within_transaction(fn ->
       lock_and_clear_for_upsert(records, releases, stale_releases)
-      insert_devices(records, update_query, false)
+      insert_devices(records, false)
     end)
   end
 
-  defp insert_devices(records, update_query, true) do
-    with_inventory_rollup_bypassed(fn -> insert_devices(records, update_query, false) end)
+  defp insert_devices(records, true) do
+    with_inventory_rollup_bypassed(fn -> insert_devices(records, false) end)
   end
 
   # One statement per chunk, so a wide batch stays under the bound-parameter
@@ -431,18 +418,49 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # column belongs to the merged resolver, so the records go in with is_available nil
   # (the upsert's COALESCE keeps the stored value) and the values go to the
   # compatibility table instead (LegacyWrites).
-  defp insert_devices(records, update_query, false) do
+  defp insert_devices(records, false) do
     within_transaction(fn ->
       {records, legacy_values} = route_legacy_availability(records)
 
       records
       |> jsonb_safe()
-      |> ParameterChunking.insert_all_chunks()
-      |> Enum.each(fn chunk -> insert_device_chunk(chunk, update_query) end)
+      |> ParameterChunking.insert_all_chunks(extra_parameters: @upsert_extra_parameters)
+      |> Enum.each(&insert_device_chunk/1)
+
+      follow_kept_address_names(records)
 
       _written = LegacyWrites.record(legacy_values)
       :ok
     end)
+  end
+
+  # An address-fallback name (AttributeStrength tier 1: the write had no
+  # hostname) names the device by the address it KEEPS, which only the upsert's
+  # address guard decides -- a fallback built from an address the guard refused
+  # would otherwise rename the device to it. So after the upsert, a recorded
+  # fallback name that differs from the kept primary takes it, unless the kept
+  # primary is link-local or absent (rank below a ULA's 30), in which case the
+  # fallback is unset: a link-local never names a device.
+  defp follow_kept_address_names([]), do: :ok
+
+  defp follow_kept_address_names(records) do
+    uids = records |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices AS d
+      SET name = CASE WHEN platform.sr_address_rank(d.ip) >= 30 THEN d.ip END,
+          attribute_provenance =
+            CASE WHEN platform.sr_address_rank(d.ip) >= 30 THEN d.attribute_provenance
+                 ELSE d.attribute_provenance - 'name' END
+      WHERE d.uid = ANY($1::text[])
+        AND d.attribute_provenance -> 'name' ->> 'strength' = '1'
+        AND d.name IS DISTINCT FROM d.ip
+      """,
+      [uids]
+    )
+
+    :ok
   end
 
   defp route_legacy_availability(records) do
@@ -473,14 +491,228 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     if Repo.in_transaction?(), do: fun.(), else: Repo.transaction(fun, timeout: :infinity)
   end
 
-  defp insert_device_chunk(chunk, update_query) do
+  # The stored primaries a chunk's records may replace at equal strength are read in
+  # the write's transaction, right before the statement (primary_ip_inputs/1); the
+  # upsert compares strengths against the row it updates.
+  defp insert_device_chunk(chunk) do
+    inputs = primary_ip_inputs(chunk)
+
     Repo.insert_all(
       Device,
-      chunk,
-      on_conflict: update_query,
+      Enum.map(chunk, &insert_row/1),
+      on_conflict: device_upsert_update_query(inputs),
       conflict_target: [:uid]
     )
   end
+
+  # Converts :ip_seen_at only where the record carries it: adding the key would bind a
+  # column per row that ParameterChunking did not count, and a missing key inserts NULL
+  # just as nil does.
+  defp insert_row(record) do
+    record
+    |> Map.delete(:ip_sightings)
+    |> convert_ip_seen_at()
+  end
+
+  defp convert_ip_seen_at(%{ip_seen_at: seen_at} = record),
+    do: %{record | ip_seen_at: usec(seen_at)}
+
+  defp convert_ip_seen_at(record), do: record
+
+  # Separates a device uid from its stored address in a primary-ip input key.
+  @primary_key_separator <<31>>
+
+  @doc """
+  The equal-strength inputs to the primary-ip guard for `records`, from the stored rows.
+
+  The upsert keeps a stored primary unless the incoming address is strictly stronger
+  (`platform.sr_address_strength/1`), or the stored address is absent from the
+  sightings of the source that recorded it (`ip_source`). Absence is decided here,
+  never inferred in SQL from the incoming address differing:
+
+    * the recording source reported the device in this write with a complete
+      address set (`ip_sightings`, built by `DeviceRecords`) that no longer contains it; or
+    * the recording source has not sighted it within the primary sighting window
+      (`ip_seen_at`); a row with no recorded source has no sighting to keep it.
+
+  An absence lets an address of the same class or a stronger one replace the stored
+  primary (`Address.class_downgrade?/2`); a weaker class (a usable IPv4 to an IPv6,
+  a routable address to a link-local) replaces it only once the stored address has
+  also left the window. `cutoff` is the window's start, and the upsert applies the
+  same class rule against the row it updates.
+
+  A record whose recording source re-sighted the stored primary refreshes
+  `ip_seen_at` (`resighted`). Another source's update never counts as absence.
+  Keys are `uid <> <<31>> <> stored_ip`, so an input never applies to an address the
+  row no longer holds.
+  """
+  @spec primary_ip_inputs([map()]) :: %{
+          absent: [String.t()],
+          resighted: [String.t()],
+          cutoff: DateTime.t()
+        }
+  def primary_ip_inputs(records) do
+    candidates =
+      for %{uid: uid} = record <- records, present_ip?(Map.get(record, :ip)), do: {uid, record}
+
+    stored = load_stored_primaries(Enum.map(candidates, &elem(&1, 0)))
+    cutoff = DateTime.shift(DateTime.utc_now(), second: -primary_ip_sighting_window_seconds())
+
+    Enum.reduce(candidates, %{absent: [], resighted: [], cutoff: cutoff}, fn {uid, record}, acc ->
+      case Map.get(stored, uid) do
+        %{ip: ip} = row when is_binary(ip) and ip != "" ->
+          key = uid <> @primary_key_separator <> ip
+
+          case stored_primary_sighting(row, Map.get(record, :ip_sightings) || %{}, record, cutoff) do
+            :absent ->
+              if class_held?(row, record.ip, cutoff),
+                do: acc,
+                else: %{acc | absent: [key | acc.absent]}
+
+            :resighted ->
+              %{acc | resighted: [key | acc.resighted]}
+
+            :present ->
+              acc
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp class_held?(%{ip: stored, ip_seen_at: seen_at}, incoming, cutoff),
+    do: Address.class_downgrade?(incoming, stored) and not aged_out?(seen_at, cutoff)
+
+  defp stored_primary_sighting(%{ip: ip, ip_source: nil}, sightings, record, _cutoff) do
+    # No recorded source: the record's own source adopts the address when it sighted
+    # it; otherwise nothing recorded keeps it.
+    if sighted?(Map.get(sightings, Map.get(record, :ip_source)), ip),
+      do: :resighted,
+      else: :absent
+  end
+
+  defp stored_primary_sighting(%{ip: ip, ip_source: source} = row, sightings, _record, cutoff) do
+    entry = Map.get(sightings, source)
+
+    cond do
+      sighted?(entry, ip) -> :resighted
+      entry != nil and entry.complete? -> :absent
+      aged_out?(row.ip_seen_at, cutoff) -> :absent
+      true -> :present
+    end
+  end
+
+  defp sighted?(%{addresses: addresses}, ip), do: MapSet.member?(addresses, ip)
+  defp sighted?(_entry, _ip), do: false
+
+  @doc """
+  Whether a writer that sets one device's `ip` directly, outside the bulk upsert (an agent
+  check-in, a camera inventory update, a mapper address move), replaces the stored primary
+  with `incoming`.
+
+  The same keep decision as the upsert: `incoming` replaces the stored primary when it is
+  strictly stronger (`Address.better?/2`), or when the stored primary is absent from the
+  sightings of the source that recorded it. A direct writer reports one address for the
+  device, which is its whole view of it, so a stored primary it recorded (`source`) and
+  one no source recorded are absent once it reports another; a primary another source
+  recorded is absent only after that source has not sighted it for the window. Another
+  source's equally strong address never displaces it, and an absence lets a weaker class
+  (`Address.class_downgrade?/2`) replace the stored primary only once it has also left
+  the window.
+  """
+  @spec direct_write_takes_primary?(Device.t(), String.t() | nil, String.t() | nil) :: boolean()
+  def direct_write_takes_primary?(%Device{ip: stored} = device, incoming, source)
+      when is_binary(incoming) do
+    cond do
+      not present_ip?(incoming) ->
+        false
+
+      not present_ip?(stored) ->
+        true
+
+      incoming == stored ->
+        false
+
+      Address.better?(incoming, stored) ->
+        true
+
+      Address.strength(incoming) == 0 ->
+        false
+
+      device.ip_source in [nil, source] and not Address.class_downgrade?(incoming, stored) ->
+        true
+
+      true ->
+        primary_ip_aged_out?(device.ip_seen_at)
+    end
+  end
+
+  def direct_write_takes_primary?(_device, _incoming, _source), do: false
+
+  @doc """
+  The primary-ip attributes a direct writer (`direct_write_takes_primary?/3`) sets on
+  `device` when `source` reports it at `incoming`, sighted at `seen_at`: the address with
+  its recording source and sighting time when it takes the primary, a refreshed
+  `ip_seen_at` when `source` re-sighted the primary it recorded, otherwise nothing.
+  """
+  @spec direct_primary_ip_attrs(Device.t(), String.t() | nil, String.t(), DateTime.t()) :: map()
+  def direct_primary_ip_attrs(%Device{} = device, incoming, source, seen_at)
+      when is_binary(source) do
+    cond do
+      direct_write_takes_primary?(device, incoming, source) ->
+        %{ip: incoming, ip_source: source, ip_seen_at: seen_at}
+
+      is_binary(incoming) and incoming == device.ip and device.ip_source == source ->
+        %{ip_seen_at: seen_at}
+
+      true ->
+        %{}
+    end
+  end
+
+  @doc """
+  True when a stored primary's recording source last sighted it (`seen_at`) longer ago
+  than the primary sighting window, or never.
+  """
+  @spec primary_ip_aged_out?(DateTime.t() | NaiveDateTime.t() | nil) :: boolean()
+  def primary_ip_aged_out?(seen_at) do
+    aged_out?(
+      seen_at,
+      DateTime.shift(DateTime.utc_now(), second: -primary_ip_sighting_window_seconds())
+    )
+  end
+
+  defp aged_out?(nil, _cutoff), do: true
+
+  defp aged_out?(%NaiveDateTime{} = at, cutoff),
+    do: aged_out?(DateTime.from_naive!(at, "Etc/UTC"), cutoff)
+
+  defp aged_out?(%DateTime{} = at, cutoff), do: DateTime.before?(at, cutoff)
+
+  defp load_stored_primaries([]), do: %{}
+
+  defp load_stored_primaries(uids) do
+    from(d in Device,
+      where: d.uid in ^Enum.uniq(uids) and is_nil(d.deleted_at),
+      select: {d.uid, %{ip: d.ip, ip_source: d.ip_source, ip_seen_at: d.ip_seen_at}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @default_primary_ip_sighting_window_seconds 86_400
+
+  defp primary_ip_sighting_window_seconds do
+    case Application.get_env(:serviceradar_core, :primary_ip_sighting_window_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> @default_primary_ip_sighting_window_seconds
+    end
+  end
+
+  defp present_ip?(ip) when is_binary(ip), do: String.trim(ip) != ""
+  defp present_ip?(_ip), do: false
 
   # Last line of defence before anything reaches a jsonb column.
   #
@@ -852,37 +1084,23 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
-    # Registration owners, the holders' source-authoritative identifier rows,
-    # and which colliding records already exist, with their last
-    # identity-bearing observation, for the adoption and address rules below.
-    # Loaded once per batch and only when a strong record actually collides
-    # with a different holder; batches without such collisions pay no extra
-    # query.
+    # The retired holders, and which colliding records already exist, with
+    # their last identity-bearing observation, for the adoption and address
+    # rules below. Loaded once per batch and only when a strong record actually
+    # collides with a different holder; batches without such collisions pay no
+    # extra query.
     colliding = Enum.filter(records, &strong_ip_collision?(&1, strong_uids, active_holders))
 
     identity_regs =
       if colliding == [] do
-        %{
-          registrations: %{},
-          source_authoritative: MapSet.new(),
-          retired: MapSet.new(),
-          existing_uids: MapSet.new(),
-          identity_times: %{},
-          agent_bound_holders: MapSet.new(),
-          holder_integration_ids: %{}
-        }
+        %{retired: MapSet.new(), existing_uids: MapSet.new(), identity_times: %{}}
       else
-        {source_authoritative, retired} = load_source_authoritative_holders(existing_by_ip)
         identity_times = load_identity_times(colliding)
 
         %{
-          registrations: load_identity_registrations(records, existing_by_ip),
-          source_authoritative: source_authoritative,
-          retired: retired,
+          retired: load_retired_holders(existing_by_ip),
           existing_uids: identity_times |> Map.keys() |> MapSet.new(),
-          identity_times: identity_times,
-          agent_bound_holders: load_agent_bound_holders(existing_by_ip),
-          holder_integration_ids: load_holder_integration_ids(existing_by_ip)
+          identity_times: identity_times
         }
       end
 
@@ -1032,8 +1250,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          identity_regs,
          {remap, conflicts, anchors, stale_releases}
        ) do
-    ip = Map.get(record, :ip)
-
     case Map.get(active_holders, record_ip_key(record)) do
       nil ->
         {resolved, {remap, conflicts}} =
@@ -1055,23 +1271,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
-            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) do
-              Logger.info(
-                "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
-                  "strong-identified device #{record.uid} (hostname agreement)"
-              )
+            maybe_record_hostname_agreement(record, existing)
 
-              {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
-            else
-              claim_address_from_holder(
-                record,
-                existing,
-                incoming_ip_owners,
-                identity_regs,
-                {remap, conflicts, anchors, stale_releases}
-              )
-            end
+            claim_address_from_holder(
+              record,
+              existing,
+              incoming_ip_owners,
+              identity_regs,
+              {remap, conflicts, anchors, stale_releases}
+            )
           end
         else
           {Map.put(record, :uid, existing_uid),
@@ -1245,7 +1453,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # A record that already carries an observation (a discovery poll of the
   # device itself, MapperResultsIngestor) keeps the later of the two. The
   # upsert keeps the later of the record's and the stored value
-  # (device_upsert_update_query/0).
+  # (device_upsert_update_query/1).
   defp put_identity_observed_at(record, observed_at) do
     case Map.fetch(observed_at, record.uid) do
       {:ok, at} ->
@@ -1278,55 +1486,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       end
   end
 
-  # Owners of every anchor identifier claimed by this batch's records and by
-  # the holders they may collide with, keyed by {type, value, partition}.
-  # One query per batch, only on batches with a strong collision.
-  defp load_identity_registrations(records, existing_by_ip) do
-    record_pairs = Enum.flat_map(records, &record_identity_pairs(&1, record_partition(&1)))
-
-    holder_pairs =
-      Enum.flat_map(existing_by_ip, fn {{partition, _ip}, holder} ->
-        record_identity_pairs(holder, partition)
-      end)
-
-    case Enum.uniq(record_pairs ++ holder_pairs) do
-      [] ->
-        %{}
-
-      pairs ->
-        # Composite `in` over a runtime pair list is not expressible to the
-        # Ecto query planner, so match the triple through unnest arrays, the
-        # same shape the release-clear below uses for (uid, ip).
-        {types, values, partitions} =
-          Enum.reduce(pairs, {[], [], []}, fn {type, value, partition},
-                                              {types, values, partitions} ->
-            {[to_string(type) | types], [value | values], [partition | partitions]}
-          end)
-
-        DeviceIdentifier
-        |> where(
-          [i],
-          fragment(
-            "(?::text, ?::text, ?::text) IN (SELECT * FROM unnest(?::text[], ?::text[], ?::text[]))",
-            i.identifier_type,
-            i.identifier_value,
-            i.partition,
-            ^types,
-            ^values,
-            ^partitions
-          )
-        )
-        |> select([i], {i.identifier_type, i.identifier_value, i.partition, i.device_id})
-        |> Repo.all()
-        |> Enum.group_by(
-          # Raw Ecto select bypasses Ash type casting, so the atom column
-          # arrives as text; key on strings to match the pairs below.
-          fn {type, value, partition, _uid} -> {to_string(type), value, partition} end,
-          fn {_type, _value, _partition, uid} -> uid end
-        )
-    end
-  end
-
   # Anchor identifier claims on a record or holder map, extracted with the
   # same vocabulary registrations are written in (`Ids`). Values the
   # extractor rejects (integration compatibility echoes, placeholder serials,
@@ -1345,82 +1504,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         do: {Atom.to_string(type), value, partition}
   end
 
-  # Hostname-agreement adoption. A hostname is evidence, like the address,
-  # never identity: agreement may only attach a record that is not yet a
-  # device to the holder, and only when neither side carries a
-  # source-authoritative identifier (`@source_authoritative_types`), no
-  # hardware serial or partition disagrees, the two sides do not claim
-  # disjoint integration ids under one provider prefix
-  # (`conflicting_integration_identity?/5`), and no third device claims
-  # either side's strong identity (the over-merge shape -- a collector's
-  # agent_id, a re-pointed integration id -- the fork rule exists to
-  # refuse). Either hostname blank is not agreement: two records that say
-  # nothing about a name are merely silent.
-  #
-  # Agreement never merges two existing devices and never overrides a
-  # source-authoritative identifier. When the hostnames agree but adoption is
-  # refused, the incoming record is written as its own device through
-  # `claim_address_from_holder/5`, and the pair is recorded as a
-  # `:policy_block` decision, which opens a de-duplication task for an
-  # operator to merge, mark distinct or dismiss.
-  defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
+  # Hostname agreement is not identity. A strong record that collides on an
+  # address with a live holder whose hostname agrees is never adopted onto the
+  # holder for it: it is written as its own device, and the address is decided
+  # by `claim_address_from_holder/5` exactly as it would be if the names
+  # differed. Many unrelated hosts share a name (lab nodes, cloned images,
+  # default appliance names), so the pair is recorded as a `:policy_block`
+  # decision, which opens a de-duplication task for an operator to merge, mark
+  # distinct or dismiss, and the record never forks from the holder silently.
+  # Either hostname blank is not agreement: two records that say nothing about
+  # a name are merely silent.
+  defp maybe_record_hostname_agreement(record, holder) do
     if hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) do
-      case hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
-        nil ->
-          true
-
-        refusal ->
-          record_hostname_agreement(record, holder, holder_uid, refusal)
-          false
-      end
-    else
-      false
+      record_hostname_agreement(record, holder)
     end
-  end
 
-  defp hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
-    partition = record_partition(record)
-
-    cond do
-      MapSet.member?(identity_regs.existing_uids, record.uid) ->
-        "existing_device"
-
-      source_authoritative?(record_identity_pairs(record, partition)) or
-        source_authoritative?(record_identity_pairs(holder, partition)) or
-          MapSet.member?(identity_regs.source_authoritative, holder_uid) ->
-        "source_authoritative_identifier"
-
-      MapSet.member?(identity_regs.agent_bound_holders, holder_uid) or
-        Ids.present_id?(Map.get(holder, :agent_id)) or
-          Enum.any?(record_identity_pairs(holder, partition), fn {type, _value, _partition} ->
-            type == "agent_id"
-          end) ->
-        "agent_bound_holder"
-
-      not compatible_identity_claims?(record, holder) ->
-        "incompatible_identity_claims"
-
-      conflicting_integration_identity?(
-        record,
-        holder,
-        holder_uid,
-        partition,
-        identity_regs
-      ) ->
-        "conflicting_integration_identity"
-
-      third_party_identity_claim?(
-        record,
-        holder,
-        holder_uid,
-        partition,
-        identity_regs.registrations
-      ) ->
-        "third_party_identity_claim"
-
-      true ->
-        nil
-    end
+    :ok
   end
 
   # The colliding records whose uid already names a device row (live or
@@ -1441,15 +1540,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Enum.any?(pairs, fn {type, _value, _partition} -> type in types end)
   end
 
-  # Holders with a source-authoritative identifier row, current or archived: a
-  # retired id still decides its record's identity (`SourceAuthorityGuard`). The
-  # holder map's metadata may not carry the identifier the row does.
-  #
-  # Returns that set, and the retired holders among it: those whose
-  # source-authoritative rows are all archived. The source has stopped
-  # reporting a retired holder, so it yields its address to a record the
-  # source still reports (`claim_address_from_holder/5`).
-  defp load_source_authoritative_holders(existing_by_ip) do
+  # The retired holders: those with archived source-authoritative identifier
+  # rows and no live one. The holder map's metadata may not carry the
+  # identifier the row does. The source has stopped reporting a retired holder,
+  # so it yields its address to a record the source still reports
+  # (`claim_address_from_holder/5`).
+  defp load_retired_holders(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
 
     live =
@@ -1468,21 +1564,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       |> archived_identifier_holders(@source_authoritative_types)
       |> MapSet.new()
 
-    {MapSet.union(live, archived), MapSet.difference(archived, live)}
+    MapSet.difference(archived, live)
   end
 
-  defp record_hostname_agreement(record, holder, holder_uid, refusal) do
+  defp record_hostname_agreement(record, %{uid: holder_uid} = holder) do
     ip = Map.get(record, :ip)
 
     Logger.info(
-      "SyncIngestor: not adopting active IP #{ip} holder #{holder_uid} for device " <>
-        "#{record.uid} on hostname agreement (#{refusal}); recording a de-duplication decision"
+      "SyncIngestor: device #{record.uid} agrees on hostname with active IP #{ip} holder " <>
+        "#{holder_uid}; a hostname is not identity, recording a de-duplication decision"
     )
 
     :telemetry.execute(
       [:serviceradar, :identity_reconciler, :hostname_agreement, :refused],
       %{count: 1},
-      %{incoming_device_uid: record.uid, existing_device_uid: holder_uid, refusal: refusal}
+      %{incoming_device_uid: record.uid, existing_device_uid: holder_uid}
     )
 
     DecisionLog.record(:policy_block, "hostname_agreement_not_identity", [record.uid, holder_uid],
@@ -1492,132 +1588,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         "incoming_device_uid" => record.uid,
         "existing_device_uid" => holder_uid,
         "hostname" => Map.get(holder, :hostname),
-        "ip" => ip,
-        "refusal" => refusal
+        "ip" => ip
       }
     )
-  end
-
-  defp compatible_identity_claims?(record, holder) do
-    partition = record_partition(record)
-    incoming = record_identity_pairs(record, partition)
-    existing = record_identity_pairs(holder, partition)
-
-    partitions = Enum.uniq(Enum.map(incoming ++ existing, &elem(&1, 2)))
-    incoming_serials = for {"hardware_serial", value, _} <- incoming, do: value
-    existing_serials = for {"hardware_serial", value, _} <- existing, do: value
-
-    length(partitions) <= 1 and
-      (incoming_serials == [] or existing_serials == [] or
-         Enum.any?(incoming_serials, &(&1 in existing_serials)))
-  end
-
-  # Two same-named hypervisor nodes in different clusters collide on an
-  # address with one integration id each from the same provider (for
-  # example two `proxmox:v3:...` ids) and no MAC, serial or
-  # source-authoritative id to discriminate them. An integration id is
-  # strong identity within its provider's namespace, so when both sides
-  # claim ids under one provider prefix and share none, the name and the
-  # address are the coincidence and the ids are the evidence: refuse the
-  # adoption instead of fusing the nodes. A node genuinely moved between
-  # clusters lands here too and goes to the operator as a de-duplication
-  # task; that is the accepted cost of never auto-merging two nodes.
-  #
-  # The holder's claimed ids are its map claims plus its live registered
-  # `integration_id` rows (`identity_regs.holder_integration_ids`): the
-  # holder map's metadata may not carry the identifier the row does, the
-  # same gap `load_source_authoritative_holders/1` covers.
-  defp conflicting_integration_identity?(record, holder, holder_uid, partition, identity_regs) do
-    incoming =
-      record
-      |> record_identity_pairs(partition)
-      |> integration_id_values()
-
-    registered =
-      identity_regs
-      |> Map.get(:holder_integration_ids, %{})
-      |> Map.get({holder_uid, partition}, [])
-
-    existing =
-      holder
-      |> record_identity_pairs(partition)
-      |> integration_id_values()
-      |> Kernel.++(registered)
-      |> Enum.uniq()
-
-    incoming_by_prefix = integration_ids_by_prefix(incoming)
-    existing_by_prefix = integration_ids_by_prefix(existing)
-
-    Enum.any?(incoming_by_prefix, fn {prefix, incoming_set} ->
-      case Map.fetch(existing_by_prefix, prefix) do
-        {:ok, existing_set} -> MapSet.disjoint?(incoming_set, existing_set)
-        :error -> false
-      end
-    end)
-  end
-
-  defp integration_id_values(pairs) do
-    for {"integration_id", value, _partition} <- pairs, do: value
-  end
-
-  defp integration_ids_by_prefix(ids) do
-    Enum.reduce(ids, %{}, fn id, acc ->
-      case integration_provider_prefix(id) do
-        nil -> acc
-        prefix -> Map.update(acc, prefix, MapSet.new([id]), &MapSet.put(&1, id))
-      end
-    end)
-  end
-
-  # The provider namespace of a minted integration id: the segment before
-  # the first colon (`proxmox:v3:...`, `netbox:...`). Values without a
-  # provider segment claim no namespace and never conflict.
-  defp integration_provider_prefix(value) when is_binary(value) do
-    case String.split(value, ":", parts: 2) do
-      [prefix, _rest] ->
-        case prefix |> String.trim() |> String.downcase() do
-          "" -> nil
-          normalized -> normalized
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp integration_provider_prefix(_value), do: nil
-
-  # Holders' live registered `integration_id` rows, keyed by
-  # `{device_uid, partition}`. Loaded once per colliding batch with the
-  # other identity registrations.
-  defp load_holder_integration_ids(existing_by_ip) do
-    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
-
-    if uids == [] do
-      %{}
-    else
-      DeviceIdentifier
-      |> where(
-        [i],
-        i.device_id in ^uids and i.identifier_type == :integration_id
-      )
-      |> select([i], {i.device_id, i.partition, i.identifier_value})
-      |> Repo.all()
-      |> Enum.group_by(
-        fn {uid, partition, _value} -> {uid, partition} end,
-        fn {_uid, _partition, value} -> value end
-      )
-    end
-  end
-
-  defp load_agent_bound_holders(existing_by_ip) do
-    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
-
-    DeviceIdentifier
-    |> where([i], i.device_id in ^uids and i.identifier_type == :agent_id)
-    |> select([i], i.device_id)
-    |> Repo.all()
-    |> MapSet.new()
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
@@ -1627,19 +1600,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp hostnames_agree?(_, _), do: false
-
-  defp third_party_identity_claim?(record, holder, holder_uid, partition, identity_regs) do
-    allowed = MapSet.new([Map.get(record, :uid), holder_uid])
-
-    [record, holder]
-    |> Enum.flat_map(&record_identity_pairs(&1, partition))
-    |> Enum.any?(fn pair ->
-      case Map.get(identity_regs, pair) do
-        nil -> false
-        uids -> Enum.any?(uids, &(not MapSet.member?(allowed, &1)))
-      end
-    end)
-  end
 
   defp ensure_anchored_uids(:not_loaded, existing_by_ip) do
     set = anchored_device_uids(existing_by_ip)
@@ -1699,9 +1659,14 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   #      was left with `ip: nil`, re-collided on the next sync, and the conflict
   #      was re-detected forever instead of converging.
   #
-  # Case 2 is deliberately narrow: a hostname or MAC is identity evidence;
-  # an IP alone is not, because IPs move. Established holders instead use the
-  # separate hostname-agreement and identifier-ownership guard above.
+  # Case 2 is deliberately narrow. A hostname or MAC on the holder only keeps
+  # it from being adopted here: it then keeps its own record, and the incoming
+  # record takes the address under `claim_address_from_holder/5`. That prevents
+  # a merge and never causes one, so it does not make a hostname identity
+  # (requirement "Hostname Agreement Is Not Identity"). An IP alone is not
+  # identity either, because IPs move; a hostname that agrees with an
+  # established holder's is recorded for review only
+  # (`maybe_record_hostname_agreement/2`).
   #
   # Adoption does not discard the seed. The incoming record takes the *existing*
   # uid, so an operator-added "something is at this IP" row survives and gains
@@ -1932,7 +1897,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # identity transition -- the uid names a live thing again -- so it bumps
   # identity_revision exactly as Device :restore does. The
   # trg_ocsf_devices_revival_audit trigger records the tombstone the revival clears.
-  defp device_upsert_update_query do
+  defp device_upsert_update_query(%{absent: absent, resighted: resighted, cutoff: cutoff}) do
     from(d in Device,
       where:
         is_nil(d.deleted_at) or is_nil(d.deleted_reason) or
@@ -1944,29 +1909,26 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
           #
-          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
-          # An equal-ranked address must still win, because that is a host
-          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
-          # refusing it would freeze every device at its first address. What it
-          # blocks is a WORSE address overwriting a good one: an NDP census
-          # sighting carries a `fe80::` link-local, and before this guard that
-          # silently replaced a routable primary -- 25 of 126 live devices on one
-          # deployment (GitHub #3905).
+          # The stored primary is KEPT unless the incoming address is strictly
+          # stronger (platform.sr_address_strength: a usable IPv4 beats any IPv6,
+          # a routable address of either family beats a link-local of either
+          # family, otherwise the higher rank within the family wins), or the
+          # stored address is absent from the sightings of the source that
+          # recorded it (`absent`, decided by primary_ip_inputs/1 before the
+          # write; never inferred here from EXCLUDED.ip differing). An absence
+          # takes an address of a weaker class (strength / 100) only once the
+          # stored address has also left the sighting window (`cutoff`).
           #
-          # A device whose only known address is link-local keeps it: its current
-          # rank is then equal, not higher, so the incoming value still applies.
+          # Comparing ranks alone tied a global IPv6 (50) with a private IPv4
+          # (40), so the last writer won and a dual-stack device's primary
+          # flipped between families on every census pass. An equal-strength
+          # address replacing on arrival let two addresses of one device take
+          # turns. A real re-IP still lands: the old address leaves its
+          # recording source's sightings.
           #
-          # LEAST(rank, 40) collapses global and private into ONE routable tier
-          # for this comparison. Both are legitimate primary addresses, and a
-          # host re-addressed from a public to an RFC1918 address is a real move,
-          # not noise -- comparing the fine-grained ranks would refuse it and
-          # freeze the device on a stale public address. The finer ranking still
-          # applies where it belongs, in Identity.Address.best/1, which chooses
-          # among addresses known at the SAME time.
-          #
-          # What stays blocked is what this guard is for: ULA (30) and link-local
-          # (20) cannot overwrite anything routable, and nothing can overwrite
-          # with an address that is never a primary (0).
+          # A link-local-only device keeps its link-local: nothing stronger
+          # arrives, and an equal-strength link-local (fe80:: vs 169.254/16)
+          # does not swap.
           #
           # A revival takes only the address the incoming record carries, ahead of
           # both rules above. A tombstone's stored address is history that another
@@ -1982,8 +1944,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
                 WHEN ? IS NULL THEN EXCLUDED.ip
-                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
-                     >= LEAST(platform.sr_address_rank(?), 40)
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
                   THEN EXCLUDED.ip
                 ELSE ?
               END
@@ -1992,11 +1959,145 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.ip,
               d.ip,
               d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
               d.ip
             ),
+          # The source that recorded the primary, and when it last sighted it.
+          # Both follow the ip expression above branch for branch; a stored
+          # primary its recording source re-sighted (`resighted`) refreshes the
+          # sighting time, and a row with no recorded source adopts the source
+          # that re-sighted it.
+          ip_source:
+            fragment(
+              """
+              CASE
+                WHEN ? IS NOT NULL THEN
+                  CASE WHEN NULLIF(btrim(EXCLUDED.ip), '') IS NULL THEN NULL ELSE EXCLUDED.ip_source END
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                WHEN ? IS NULL THEN EXCLUDED.ip_source
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip_source
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
+                  THEN EXCLUDED.ip_source
+                WHEN (? || chr(31) || ?) = ANY(?::text[]) THEN COALESCE(?, EXCLUDED.ip_source)
+                ELSE ?
+              END
+              """,
+              d.deleted_at,
+              d.ip_source,
+              d.ip,
+              d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
+              d.uid,
+              d.ip,
+              ^resighted,
+              d.ip_source,
+              d.ip_source
+            ),
+          ip_seen_at:
+            fragment(
+              """
+              CASE
+                WHEN ? IS NOT NULL THEN
+                  CASE WHEN NULLIF(btrim(EXCLUDED.ip), '') IS NULL THEN NULL ELSE EXCLUDED.ip_seen_at END
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                WHEN ? IS NULL THEN EXCLUDED.ip_seen_at
+                WHEN platform.sr_address_strength(EXCLUDED.ip) > platform.sr_address_strength(?)
+                  THEN EXCLUDED.ip_seen_at
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                     AND platform.sr_address_strength(EXCLUDED.ip) > 0
+                     AND (platform.sr_address_strength(EXCLUDED.ip) / 100 >=
+                            platform.sr_address_strength(?) / 100
+                          OR ? IS NULL OR ? < ?)
+                  THEN EXCLUDED.ip_seen_at
+                WHEN (? || chr(31) || ?) = ANY(?::text[])
+                  THEN GREATEST(?, EXCLUDED.ip_seen_at)
+                ELSE ?
+              END
+              """,
+              d.deleted_at,
+              d.ip_seen_at,
+              d.ip,
+              d.ip,
+              d.uid,
+              d.ip,
+              ^absent,
+              d.ip,
+              d.ip_seen_at,
+              d.ip_seen_at,
+              type(^cutoff, :utc_datetime_usec),
+              d.uid,
+              d.ip,
+              ^resighted,
+              d.ip_seen_at,
+              d.ip_seen_at
+            ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
-          hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
-          name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          # name, hostname, vendor_name, model, type, type_id, metadata
+          # device_role and metadata integration_type are RANKED, not
+          # last-writer-wins: each write carries the source and evidence strength
+          # of the groups it writes in EXCLUDED.attribute_provenance
+          # (DeviceRecords, AttributeStrength), and
+          # platform.sr_attribute_write_accepted/4 decides each group against the
+          # strength the stored row recorded. Before this, a hostname-less passive
+          # census sighting renamed an SNMP-named device to its address and an
+          # OUI vendor replaced the SNMP vendor every two minutes, and the mapper
+          # wrote them back: every flip re-versioned the agent configs compiled
+          # from them. A group is accepted or rejected as one value; a field of
+          # an accepted group the write does not carry stays stored.
+          # DeviceRecords.merge_records_by_uid/1 applies the same rule in-batch,
+          # and an address-fallback name follows the address the device keeps
+          # (follow_kept_address_names/1).
+          hostname:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.hostname, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.hostname,
+              d.hostname
+            ),
+          name:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.name, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.name,
+              d.name
+            ),
           # Classification ownership is separate from discovery provenance:
           # an untyped manual duplicate must not freeze the survivor's inference.
           # An explicit false marker overrides legacy manual-source fallback;
@@ -2012,12 +2113,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
-                ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+                ELSE ?
               END
               """,
               d.metadata,
               d.discovery_sources,
               d.type,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
               d.type,
               d.type
             ),
@@ -2031,6 +2139,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
                 WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0
+                     AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
                   THEN EXCLUDED.type_id
                 ELSE ?
               END
@@ -2039,10 +2149,43 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.discovery_sources,
               d.type,
               d.type_id,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
               d.type_id
             ),
-          vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
-          model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
+          vendor_name:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.vendor_name, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.vendor_name,
+              d.vendor_name
+            ),
+          model:
+            fragment(
+              """
+              CASE
+                WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN COALESCE(NULLIF(EXCLUDED.model, ''), ?)
+                ELSE ?
+              END
+              """,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.model,
+              d.model
+            ),
           os:
             fragment(
               "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.os, '{}'::jsonb)",
@@ -2060,10 +2203,46 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             ),
           is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
+          # The ranked metadata keys follow their group's decision: the OUI
+          # provenance keys follow the kept vendor, device_role the kept type
+          # (manual type ownership included), integration_type its own rank. An
+          # owned key (AttributeStrength.owned_metadata_keys/0) is replaced only
+          # by its owning source; any other writer only fills it when absent.
           metadata:
             fragment(
               """
-              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb) ||
+              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason'
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                     THEN ARRAY['mac_vendor', 'mac_vendor_source', 'mac_vendor_oui_prefix', 'mac_vendor_oui_snapshot_id']
+                     ELSE ARRAY[]::text[] END)
+              || (COALESCE(EXCLUDED.metadata, '{}'::jsonb)
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['mac_vendor', 'mac_vendor_source', 'mac_vendor_oui_prefix', 'mac_vendor_oui_snapshot_id'] END
+                 - CASE WHEN NOT (COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                                    'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                                  AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                                  AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown')
+                         AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                          NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['device_role'] END
+                 - CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'integration_type',
+                          NULLIF(btrim(?->>'integration_type'), '') IS NOT NULL)
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY['integration_type'] END
+                 - CASE WHEN 'hypervisor_enrichment' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY(SELECT k FROM jsonb_object_keys(COALESCE(?, '{}'::jsonb)) AS k
+                                WHERE k IN ('hypervisor_provider_ref', 'proxmox_node', 'proxmox_cluster',
+                                            'hypervisor_guest_type', 'hypervisor_vmid', 'proxmox_base_url')) END
+                 - CASE WHEN 'mapper' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                     THEN ARRAY[]::text[]
+                     ELSE ARRAY(SELECT k FROM jsonb_object_keys(COALESCE(?, '{}'::jsonb)) AS k
+                                WHERE k IN ('proxmox_candidate', 'proxmox_tls_sans_recorded', 'proxmox_tls_san_ips')) END)
+              ||
               jsonb_build_object('type_manually_set',
                 CASE
                   WHEN 'manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
@@ -2074,10 +2253,74 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                        AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                 END)
               """,
+              # stored side: classification strip, vendor decision
               d.metadata,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              # incoming side: vendor decision
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              # incoming side: manual type guard, then type decision
+              d.metadata,
+              d.discovery_sources,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
+              # incoming side: integration_type decision
+              d.attribute_provenance,
+              d.metadata,
+              # incoming side: owned keys
+              d.metadata,
+              d.metadata,
+              # type_manually_set
               d.metadata,
               d.discovery_sources,
               d.type
+            ),
+          attribute_provenance:
+            fragment(
+              """
+              COALESCE(?, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+                'name',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'name',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'name' END,
+                'vendor',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'vendor',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'vendor' END,
+                'type',
+                CASE WHEN NOT (COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                                 'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                               AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                               AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown')
+                      AND platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'type',
+                       NULLIF(btrim(?), '') IS NOT NULL OR NULLIF(btrim(?->>'device_role'), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'type' END,
+                'integration_type',
+                CASE WHEN platform.sr_attribute_write_accepted(?, EXCLUDED.attribute_provenance, 'integration_type',
+                       NULLIF(btrim(?->>'integration_type'), '') IS NOT NULL)
+                  THEN EXCLUDED.attribute_provenance->'integration_type' END
+              ))
+              """,
+              d.attribute_provenance,
+              d.attribute_provenance,
+              d.name,
+              d.hostname,
+              d.attribute_provenance,
+              d.vendor_name,
+              d.model,
+              d.metadata,
+              d.discovery_sources,
+              d.type,
+              d.attribute_provenance,
+              d.type,
+              d.metadata,
+              d.attribute_provenance,
+              d.metadata
             ),
           identity_revision:
             fragment(

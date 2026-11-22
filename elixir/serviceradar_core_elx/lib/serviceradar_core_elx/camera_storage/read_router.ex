@@ -8,6 +8,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
   alias ServiceRadarCoreElx.CameraStorage.RefusedBody
 
   @body_limit 8192
+  @timeline_body_limit 16_384
 
   plug(:authenticate)
   plug(:match)
@@ -26,11 +27,34 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
     end
   end
 
+  post "/v1/timeline-archive-ranges" do
+    deadline = System.monotonic_time(:millisecond) + 10_000
+
+    with [content_type] <- get_req_header(conn, "content-type"),
+         ["application/json" | _] <- String.split(content_type, ";"),
+         {:ok, config} <- ReadSession.reserve(deadline) do
+      receive_timeline_range(conn, config, deadline)
+    else
+      {:error, :archive_read_busy} ->
+        respond(conn, 503, "archive_read_busy")
+
+      {:error, _} ->
+        respond(conn, 503, "archive_read_unavailable")
+
+      _ ->
+        conn
+        |> RefusedBody.discard(@timeline_body_limit, deadline)
+        |> respond(400, "invalid_archive_range")
+    end
+  end
+
   match _ do
     respond(conn, 404, "not_found")
   end
 
   def child_spec(config) do
+    max_concurrency = Map.get(config, :max_concurrency, 1)
+
     Supervisor.child_spec(
       {Bandit,
        plug: {__MODULE__, config},
@@ -41,7 +65,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
        http_2_options: [enabled: false],
        thousand_island_options: [
          num_acceptors: 2,
-         num_connections: 8,
+         num_connections: max(8, max_concurrency * 2),
          transport_options: config.tls ++ [verify: :verify_peer, fail_if_no_peer_cert: true]
        ]},
       id: __MODULE__
@@ -68,15 +92,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
   end
 
   defp receive_range(conn, config, deadline) do
-    with {:ok, body, conn} <- read(conn, "", deadline),
+    with {:ok, body, conn} <- read(conn, "", @body_limit, deadline),
          {:ok, plan} <- JSONDocument.decode_object(body, @body_limit),
          {:ok, bytes} <- Read.run(config, plan, deadline),
          true <- System.monotonic_time(:millisecond) < deadline do
-      conn
-      |> put_resp_header("cache-control", "no-store")
-      |> put_resp_header("x-content-type-options", "nosniff")
-      |> put_resp_content_type("application/octet-stream", nil)
-      |> send_resp(200, bytes)
+      send_bytes(conn, bytes)
     else
       {:error, :request_too_large, conn} -> respond(conn, 413, "request_too_large")
       {:error, :body_timeout, conn} -> respond(conn, 408, "archive_read_unavailable")
@@ -86,17 +106,43 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
     end
   end
 
-  defp read(conn, bytes, deadline) do
+  defp receive_timeline_range(conn, config, deadline) do
+    with {:ok, body, conn} <- read(conn, "", @timeline_body_limit, deadline),
+         {:ok, request} <- JSONDocument.decode_object(body, @timeline_body_limit),
+         {:ok, bytes} <- Read.run_per_request(config, request, deadline),
+         true <- System.monotonic_time(:millisecond) < deadline do
+      send_bytes(conn, bytes)
+    else
+      {:error, :request_too_large, conn} -> respond(conn, 413, "request_too_large")
+      {:error, :body_timeout, conn} -> respond(conn, 408, "archive_read_unavailable")
+      {:error, :invalid_request} -> respond(conn, 400, "invalid_archive_range")
+      {:error, :invalid_archive_range} -> respond(conn, 400, "invalid_archive_range")
+      {:error, :not_found} -> respond(conn, 404, "archive_object_not_found")
+      {:error, :integrity_mismatch} -> respond(conn, 409, "archive_integrity_mismatch")
+      {:error, :archive_read_busy} -> respond(conn, 503, "archive_read_busy")
+      _ -> respond(conn, 503, "archive_read_unavailable")
+    end
+  end
+
+  defp send_bytes(conn, bytes) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> put_resp_content_type("application/octet-stream", nil)
+    |> send_resp(200, bytes)
+  end
+
+  defp read(conn, bytes, limit, deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     if remaining > 0 do
       case read_body(conn,
-             length: @body_limit - byte_size(bytes) + 1,
-             read_length: @body_limit + 1,
+             length: limit - byte_size(bytes) + 1,
+             read_length: limit + 1,
              read_timeout: remaining
            ) do
         {status, part, conn} when status in [:ok, :more] ->
-          receive_body(status, bytes <> part, conn, deadline)
+          receive_body(status, bytes <> part, conn, limit, deadline)
 
         _ ->
           {:error, :body_timeout, conn}
@@ -106,11 +152,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadRouter do
     end
   end
 
-  defp receive_body(status, bytes, conn, deadline) do
+  defp receive_body(status, bytes, conn, limit, deadline) do
     cond do
-      byte_size(bytes) > @body_limit -> {:error, :request_too_large, conn}
+      byte_size(bytes) > limit -> {:error, :request_too_large, conn}
       status == :ok -> {:ok, bytes, conn}
-      true -> read(conn, bytes, deadline)
+      true -> read(conn, bytes, limit, deadline)
     end
   end
 

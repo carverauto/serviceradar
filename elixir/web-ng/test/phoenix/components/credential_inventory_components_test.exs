@@ -86,6 +86,31 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
     assert LazyHTML.attribute(link, "aria-label") == ["Edit discovery job Site 01 core"]
   end
 
+  test "catalog_repository and installed_solution_pack consumers expose deep-links to /catalog" do
+    document =
+      render_inventory(
+        usage_by_id: %{
+          "credential-1" =>
+            usage([
+              consumer(:catalog_repository, "repo-1", "Private GitOps Packs"),
+              consumer(:installed_solution_pack, "pack-1", "Storage & NVR Health (nvr_api)")
+            ])
+        }
+      )
+
+    links = LazyHTML.query(document, "#credential-usage-credential-1 a")
+
+    assert LazyHTML.attribute(links, "href") == [
+             "/catalog?modal=repositories&repo=repo-1",
+             "/catalog?installed=pack-1"
+           ]
+
+    assert LazyHTML.attribute(links, "aria-label") == [
+             "Manage catalog repository Private GitOps Packs",
+             "Inspect solution pack Storage & NVR Health (nvr_api)"
+           ]
+  end
+
   test "zero and unavailable usage remain distinct" do
     zero_document =
       render_inventory(usage_by_id: %{"credential-1" => usage([])})

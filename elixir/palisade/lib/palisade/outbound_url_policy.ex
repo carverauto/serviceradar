@@ -1,12 +1,8 @@
 defmodule Palisade.OutboundURLPolicy do
   @moduledoc """
   HTTPS-only, public-host outbound URL validator. Used wherever
-  app code follows an admin-supplied URL (SAML IdP metadata,
-  OIDC discovery, webhook callbacks).
-
-  Ported from `ServiceRadar.Policies.OutboundURLPolicy` /
-  `Crm.Policies.OutboundURLPolicy`. Palisade is the canonical
-  home.
+  app code follows an admin-supplied URL (OIDC discovery,
+  webhook callbacks).
 
   ## Rules
 

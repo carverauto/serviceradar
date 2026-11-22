@@ -32,7 +32,7 @@ defmodule Palisade.MixProject do
     Shared trust-boundary primitives for CarverAutomation services
     (currently CRM + ServiceRadar). Outbound URL / network address
     policy (SSRF defense), HTTP fetch with resolved-IP binding to
-    defeat DNS rebinding, and — in later versions — OIDC + SAML
+    defeat DNS rebinding, and — in later versions — OIDC
     primitives needed to make federated identity safe.
     """
   end

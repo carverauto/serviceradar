@@ -6,7 +6,7 @@
 `RELEASE_PACKAGES` is the subset published to Forgejo on every tagged release.
 Control-plane services (core-elx, web-ng, agent-gateway, datasvc, faker, etc.)
 are container/Helm only — edge installers that still need packages are the
-agent, NATS, CLI helper, collectors, and rperf (client checker + server).
+agent, NATS, CLI helper, and collectors.
 """
 
 # Packages uploaded by //build/release:publish_packages / the release workflow.
@@ -20,8 +20,6 @@ RELEASE_PACKAGES = [
     "flow-collector",
     "bmp-collector",
     "trapd",
-    "rperf",  # edge bandwidth reflector (server)
-    "rperf-checker",  # edge bandwidth client installed on monitored systems
 ]
 
 PACKAGES = {
@@ -458,72 +456,6 @@ PACKAGES = {
         "conffiles": [
             "/etc/nats/nats-server.conf",
             "/etc/serviceradar/jetstream-sizes.env",
-        ],
-    },
-    "rperf": {
-        "package_name": "serviceradar-rperf",
-        "description": "ServiceRadar RPerf network performance server",
-        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "net",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//rust/rperf-server:rperf",
-            "dest": "/usr/local/bin/serviceradar-rperf",
-        },
-        "files": [
-            {
-                "src": "config/rperf/rperf.conf",
-                "dest": "/etc/serviceradar/rperf/rperf.conf",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-rperf.service",
-            "dest": "/lib/systemd/system/serviceradar-rperf.service",
-        },
-        "directories": [
-            {"path": "/var/log/rperf", "mode": "0755"},
-            {"path": "/etc/serviceradar/rperf", "mode": "0755"},
-        ],
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/rperf/rperf.conf",
-        ],
-    },
-    "rperf-checker": {
-        "package_name": "serviceradar-rperf-checker",
-        "description": "ServiceRadar RPerf network performance checker",
-        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "net",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//rust/rperf-client:rperf_checker",
-            "dest": "/usr/local/bin/serviceradar-rperf-checker",
-        },
-        "files": [
-            {
-                "src": "config/checkers/rperf.json",
-                "dest": "/etc/serviceradar/checkers/rperf.json.example",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-rperf-checker.service",
-            "dest": "/lib/systemd/system/serviceradar-rperf-checker.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/checkers/rperf.json.example",
         ],
     },
     "cli": {

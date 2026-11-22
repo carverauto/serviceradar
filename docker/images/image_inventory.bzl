@@ -13,7 +13,6 @@ PUBLISHABLE_IMAGES = [
     {"image": "dgraph_migrate_image_amd64", "chart_service": "dgraphMigrate", "push_image": "dgraph_migrate_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate"},
     {"image": "flow_collector_image_amd64", "chart_service": "flowCollector", "push_image": "flow_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-flow-collector"},
     {"image": "bmp_collector_image_amd64", "chart_service": "bmpCollector", "push_image": "bmp_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/arancini"},
-    {"image": "rperf_client_image_amd64", "chart_service": "rperfClient", "push_image": "rperf_client_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "chart_service": "agentGateway", "push_image": "agent_gateway_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "chart_service": "faker", "push_image": "faker_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-faker"},
     {"image": "config_updater_image_amd64", "push_image": "config_updater_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-config-updater"},
@@ -33,6 +32,14 @@ PUBLISHABLE_IMAGES = [
 # release, and only an image listed here can be built, signed and promoted that way.
 DOCKERFILE_IMAGES = [
     {"repository": "buildbuddy-workflow-runner", "dockerfile": "docker/images/Dockerfile.workflow-runner", "context": "docker/images"},
+]
+
+# Images assembled with crane around a binary that Bazel cannot build (RBE is amd64-only with
+# no CUDA toolkit): the binary is built natively on a credential-less runner and the image is
+# pushed, signed and promoted by the named workflow. Only an image listed here can be signed
+# that way (SERVICERADAR_NATIVE_IMAGE in //scripts:sign-oci-publish.sh), never by a release.
+NATIVE_BUILD_IMAGES = [
+    {"repository": "serviceradar-media-worker-cuda"},
 ]
 
 def publishable_image_labels():

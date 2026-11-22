@@ -9,11 +9,11 @@ group pair MUST be unique.
 
 #### Scenario: Admin grants a team write access to its devices
 - **GIVEN** an authenticated admin
-- **AND** a user group "RIDS Team" and a device group "RIDS Displays"
+- **AND** a user group "Facilities Team" and a device group "Facilities Devices"
 - **WHEN** the admin creates a grant linking them with permission `devices.update`
 - **THEN** the grant SHALL persist
-- **AND** members of "RIDS Team" SHALL be able to update devices whose `group_id`
-  is "RIDS Displays"
+- **AND** members of "Facilities Team" SHALL be able to update devices whose `group_id`
+  is "Facilities Devices"
 
 #### Scenario: Grant with an unknown permission key is rejected
 - **GIVEN** an authenticated admin
@@ -34,9 +34,9 @@ granted group MUST remain unwritable by a scoped actor. The scoped path SHALL
 only widen access; no actor authorized before this change may lose access.
 
 #### Scenario: Scoped user updates a device inside its grant
-- **GIVEN** a user in "RIDS Team", holding no fleet-wide `devices.update`
-- **AND** a grant of `devices.update` on device group "RIDS Displays"
-- **WHEN** they update a device assigned to "RIDS Displays"
+- **GIVEN** a user in "Facilities Team", holding no fleet-wide `devices.update`
+- **AND** a grant of `devices.update` on device group "Facilities Devices"
+- **WHEN** they update a device assigned to "Facilities Devices"
 - **THEN** the update SHALL succeed
 
 #### Scenario: Scoped user cannot update a device outside its grant
@@ -55,10 +55,10 @@ only widen access; no actor authorized before this change may lose access.
 - **THEN** the update SHALL succeed exactly as before this change
 
 ### Requirement: Grant Revocation Takes Effect Immediately
-Revoking a grant, removing a user from a granted user group, or deleting a
-granted device group SHALL invalidate the affected users' cached authorization
-context so the change applies on the user's next request rather than after a
-cache TTL.
+The system SHALL invalidate the affected users' cached authorization context
+when a grant is revoked, a user is removed from a granted user group, or a
+granted device group is deleted, so the change applies on the user's next
+request rather than after a cache TTL.
 
 #### Scenario: Revoked grant stops authorizing writes
 - **GIVEN** a scoped user who can currently update devices in a granted group
@@ -67,8 +67,8 @@ cache TTL.
   forbidden
 
 #### Scenario: Removing a user from the group revokes their scope
-- **GIVEN** a scoped user authorized through their membership in "RIDS Team"
-- **WHEN** an admin removes them from "RIDS Team"
+- **GIVEN** a scoped user authorized through their membership in "Facilities Team"
+- **WHEN** an admin removes them from "Facilities Team"
 - **THEN** their next update to a device in the granted group SHALL be rejected
   as forbidden
 

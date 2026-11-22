@@ -155,6 +155,29 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
         ) ->
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.1")}}
 
+        Process.get(:first_party_oci) && String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_oci_index())}}
+
+        String.ends_with?(url, "/v2/serviceradar/wasm-plugin-first-party-dedupe/manifests/v1.0.1") ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: Jason.encode!(PackagesTest.first_party_oci_manifest()),
+             headers: %{"docker-content-digest" => [PackagesTest.first_party_oci_digest()]}
+           }}
+
+        String.ends_with?(
+          url,
+          "/v2/serviceradar/wasm-plugin-first-party-dedupe/manifests/sha256-#{String.duplicate("c", 64)}.sig"
+        ) ->
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(%{"schemaVersion" => 2, "layers" => []})}}
+
+        String.ends_with?(url, "/v2/serviceradar/wasm-plugin-first-party-dedupe/blobs/sha256:bundle-layer") ->
+          {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_bundle()}}
+
+        String.ends_with?(url, "/v2/serviceradar/wasm-plugin-first-party-dedupe/blobs/sha256:signature-layer") ->
+          {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_upload_signature())}}
+
         String.contains?(url, "/download/v1.0.2/serviceradar-wasm-plugin-index.json") ->
           index_tag = if Process.get(:first_party_v1_0_2_reuses_bundle), do: "v1.0.1", else: "v1.0.2"
 
@@ -191,6 +214,12 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
           {:ok, %Req.Response{status: 404, body: ""}}
       end
     end
+  end
+
+  defmodule ReceiptCosignVerifier do
+    @moduledoc false
+
+    def verify(%{signature_manifest: %{}}), do: {:ok, Process.get(:first_party_transparency_receipt)}
   end
 
   setup do
@@ -419,6 +448,78 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert {:ok, %{imported: 0, skipped: 1, failed: []}} =
              Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.2"])
+  end
+
+  test "re-importing a stored first-party package records its verified transparency receipt" do
+    original_verifier = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
+    Application.put_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, ReceiptCosignVerifier)
+
+    on_exit(fn ->
+      if is_nil(original_verifier) do
+        Application.delete_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
+      else
+        Application.put_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, original_verifier)
+      end
+    end)
+
+    Process.put(:first_party_oci, true)
+    Process.put(:first_party_transparency_receipt, %{"status" => "absent_allowlisted"})
+    opts = [actor: system_actor(), repo_url: @repo_url, limit: 10]
+
+    assert {:ok, %{imported: 1, failed: []}} =
+             Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.1"])
+
+    assert [%PluginPackage{} = created] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    assert created.source_metadata["transparency_receipt"] == %{"status" => "absent_allowlisted"}
+    pre_receipt_metadata = Map.delete(created.source_metadata, "transparency_receipt")
+
+    strip_receipt = fn package ->
+      package
+      |> Ash.Changeset.for_update(:update, %{source_metadata: pre_receipt_metadata}, actor: system_actor())
+      |> Ash.update!()
+    end
+
+    strip_receipt.(created)
+
+    verified = %{
+      "status" => "verified",
+      "log_id" => "synthetic-log",
+      "log_index" => 7,
+      "integrated_time" => 1_767_225_600
+    }
+
+    Process.put(:first_party_transparency_receipt, verified)
+
+    assert {:ok, %PluginPackage{} = same_tag} =
+             Packages.create(
+               %{
+                 source_type: :first_party,
+                 repo_url: @repo_url,
+                 release_tag: "v1.0.1",
+                 plugin_id: "first-party-dedupe",
+                 version: "1.0.1"
+               },
+               actor: system_actor()
+             )
+
+    assert same_tag.id == created.id
+    assert same_tag.source_release_tag == "v1.0.1"
+    assert same_tag.source_metadata == Map.put(pre_receipt_metadata, "transparency_receipt", verified)
+
+    strip_receipt.(same_tag)
+    Process.put(:first_party_v1_0_2_reuses_bundle, true)
+
+    assert {:ok, %{imported: 1, failed: []}} =
+             Packages.sync_first_party_plugins(opts ++ [release_tag: "v1.0.2"])
+
+    assert [%PluginPackage{} = retagged] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    assert retagged.id == created.id
+    assert retagged.source_release_tag == "v1.0.2"
+    assert retagged.source_metadata == Map.put(pre_receipt_metadata, "transparency_receipt", verified)
   end
 
   test "sync_first_party_plugins replaces an existing package for the same plugin version" do
@@ -961,6 +1062,38 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
             "https://github.com/carverauto/serviceradar/releases/download/#{tag}/first-party-dedupe#{suffix}.upload-signature.json",
           "bundle_digest" => Storage.sha256(first_party_bundle(tag)),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-first-party-dedupe:v1.0.1"
+        }
+      ]
+    }
+  end
+
+  def first_party_oci_digest, do: "sha256:" <> String.duplicate("c", 64)
+
+  def first_party_oci_index do
+    %{
+      "schema_version" => 1,
+      "plugins" => [
+        %{
+          "plugin_id" => "first-party-dedupe",
+          "name" => "First-party Dedupe",
+          "version" => "1.0.1",
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-first-party-dedupe:v1.0.1",
+          "oci_digest" => first_party_oci_digest(),
+          "bundle_digest" => Storage.sha256(first_party_bundle())
+        }
+      ]
+    }
+  end
+
+  def first_party_oci_manifest do
+    %{
+      "schemaVersion" => 2,
+      "mediaType" => "application/vnd.oci.image.manifest.v1+json",
+      "layers" => [
+        %{"mediaType" => "application/zip", "digest" => "sha256:bundle-layer"},
+        %{
+          "mediaType" => "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json",
+          "digest" => "sha256:signature-layer"
         }
       ]
     }

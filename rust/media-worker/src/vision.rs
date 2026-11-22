@@ -8,10 +8,15 @@
 //!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
 //!   `embed_query_text`.
 
+use crate::backend::{InferenceBackend, InferenceBackendInfo, RawDetection};
 use crate::config::ModelPinConfig;
 use crate::errors::MediaWorkerError;
+use crate::tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 const MAX_CROPS_PER_FRAME: usize = 8;
 const CROP_CONTEXT_MARGIN: f32 = 0.10;
@@ -40,6 +45,10 @@ impl ObjectClass {
             Self::Animal => "animal",
             Self::Package => "package",
         }
+    }
+
+    pub fn class_id(self) -> i64 {
+        self.slot_index() as i64
     }
 
     fn slot_index(self) -> usize {
@@ -177,6 +186,7 @@ pub struct DetectedSubject {
     bbox_norm: [f32; 4],
     padded_crop_bbox_norm: [f32; 4],
     dominant_colors: Vec<String>,
+    track_id: Option<u64>,
 }
 
 impl DetectedSubject {
@@ -199,6 +209,14 @@ impl DetectedSubject {
     pub fn dominant_colors(&self) -> &[String] {
         &self.dominant_colors
     }
+
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
+    }
+
+    pub(crate) fn set_track_id(&mut self, track_id: Option<u64>) {
+        self.track_id = track_id;
+    }
 }
 
 /// Stage 2 L2-normalized `:scene` or `:crop` embedding output.
@@ -210,6 +228,7 @@ pub struct GeneratedEmbedding {
     confidence: Option<f32>,
     bbox_norm: Option<[f32; 4]>,
     dominant_colors: Vec<String>,
+    track_id: Option<u64>,
     embedding: Vec<f32>,
 }
 
@@ -236,6 +255,10 @@ impl GeneratedEmbedding {
 
     pub fn dominant_colors(&self) -> &[String] {
         &self.dominant_colors
+    }
+
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
     }
 
     pub fn embedding(&self) -> &[f32] {
@@ -265,20 +288,97 @@ impl KeyframeAnalysis {
     }
 }
 
+/// Input keyframe entry for multi-frame clip analysis (`VisionPipeline::process_clip_keyframes`).
+#[derive(Debug, Clone, Copy)]
+pub struct ClipKeyframe<'a> {
+    pub offset_ms: u64,
+    pub frame: &'a RgbFrame,
+}
+
+impl<'a> ClipKeyframe<'a> {
+    pub fn new(offset_ms: u64, frame: &'a RgbFrame) -> Self {
+        Self { offset_ms, frame }
+    }
+}
+
+/// Multi-keyframe clip analysis output including per-frame results and per-track summaries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipAnalysis {
+    frames: Vec<KeyframeAnalysis>,
+    tracks: Vec<TrackSummary>,
+    stage1_latencies_secs: Vec<f64>,
+    stage2_latencies_secs: Vec<f64>,
+}
+
+impl ClipAnalysis {
+    pub fn frames(&self) -> &[KeyframeAnalysis] {
+        &self.frames
+    }
+
+    pub fn tracks(&self) -> &[TrackSummary] {
+        &self.tracks
+    }
+
+    pub fn into_parts(self) -> (Vec<KeyframeAnalysis>, Vec<TrackSummary>) {
+        (self.frames, self.tracks)
+    }
+
+    pub(crate) fn stage1_latencies_secs(&self) -> &[f64] {
+        &self.stage1_latencies_secs
+    }
+
+    pub(crate) fn stage2_latencies_secs(&self) -> &[f64] {
+        &self.stage2_latencies_secs
+    }
+}
+
 /// Two-stage keyframe vision pipeline (`Stage 1` subject detector + `Stage 2`
-/// batched vision-language image encoder).
-#[derive(Debug, Clone)]
+/// batched vision-language image encoder) backed by a pluggable `InferenceBackend`.
+#[derive(Clone)]
 pub struct VisionPipeline {
     models: ModelPinConfig,
     skip_unchanged_empty_scenes: bool,
+    tracker_mode: TrackerMode,
+    dedup_track_crops: bool,
+    backend: Arc<dyn InferenceBackend>,
+}
+
+impl core::fmt::Debug for VisionPipeline {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VisionPipeline")
+            .field("models", &self.models)
+            .field(
+                "skip_unchanged_empty_scenes",
+                &self.skip_unchanged_empty_scenes,
+            )
+            .field("tracker_mode", &self.tracker_mode)
+            .field("dedup_track_crops", &self.dedup_track_crops)
+            .field("backend_info", &self.backend.info())
+            .finish()
+    }
 }
 
 impl VisionPipeline {
-    pub fn new(models: ModelPinConfig, skip_unchanged_empty_scenes: bool) -> Self {
+    /// Constructs a pipeline backed by an explicit `InferenceBackend` (e.g. `CandleBackend`).
+    pub fn with_backend(
+        models: ModelPinConfig,
+        skip_unchanged_empty_scenes: bool,
+        backend: Arc<dyn InferenceBackend>,
+    ) -> Self {
         Self {
             models,
             skip_unchanged_empty_scenes,
+            tracker_mode: TrackerMode::ByteTrack,
+            dedup_track_crops: true,
+            backend,
         }
+    }
+
+    /// Configures per-clip multi-object tracking mode and best-crop deduplication.
+    pub fn with_tracking(mut self, tracker_mode: TrackerMode, dedup_track_crops: bool) -> Self {
+        self.tracker_mode = tracker_mode;
+        self.dedup_track_crops = dedup_track_crops;
+        self
     }
 
     pub fn models(&self) -> &ModelPinConfig {
@@ -289,87 +389,350 @@ impl VisionPipeline {
         self.skip_unchanged_empty_scenes
     }
 
-    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe.
-    pub fn analyze_keyframe(
+    pub fn tracker_mode(&self) -> TrackerMode {
+        self.tracker_mode
+    }
+
+    pub fn dedup_track_crops(&self) -> bool {
+        self.dedup_track_crops
+    }
+
+    pub fn backend(&self) -> &Arc<dyn InferenceBackend> {
+        &self.backend
+    }
+
+    pub fn backend_info(&self) -> InferenceBackendInfo {
+        self.backend.info()
+    }
+
+    /// Runs Stage 1 detection, per-clip `trackforge` multi-object tracking, optional
+    /// best-crop deduplication, and Stage 2 embedding across sequential keyframes of a clip.
+    ///
+    /// Instantiates a fresh [`ClipTracker`] per call so the pipeline stays 100% stateless
+    /// across clips.
+    pub fn process_clip_keyframes(
+        &self,
+        keyframes: &[ClipKeyframe<'_>],
+    ) -> Result<ClipAnalysis, MediaWorkerError> {
+        self.process_sampled_keyframes(keyframes.iter().map(|kf| (kf.offset_ms, Some(kf.frame))))
+    }
+
+    pub(crate) fn process_sampled_keyframes<'a>(
+        &self,
+        keyframes: impl ExactSizeIterator<Item = (u64, Option<&'a RgbFrame>)>,
+    ) -> Result<ClipAnalysis, MediaWorkerError> {
+        let mut previous_frame = None;
+        let mut tracker = ClipTracker::new(self.tracker_mode);
+        let mut stage1_latencies_secs = Vec::with_capacity(keyframes.len());
+        let mut stage2_latencies_secs = Vec::with_capacity(keyframes.len());
+
+        if self.tracker_mode.uses_appearance() {
+            // Appearance-assisted modes (`botsort`, `deep_ocsort`) need Stage 2 crop embeddings
+            // per frame to associate detections by appearance, then optionally deduplicate the
+            // emitted crop embeddings to keep only the best crop per `track_id`.
+            let mut per_frame_scene_suppressed = Vec::with_capacity(keyframes.len());
+            let mut per_frame_detections: Vec<Vec<DetectedSubject>> =
+                Vec::with_capacity(keyframes.len());
+            let mut per_frame_embeddings: Vec<Vec<GeneratedEmbedding>> =
+                Vec::with_capacity(keyframes.len());
+
+            for (offset_ms, frame) in keyframes {
+                let Some(frame) = frame else {
+                    tracker.update_frame(0, 0, offset_ms, &[], None);
+                    continue;
+                };
+                let t_s1 = Instant::now();
+                let mut detections = self.detect_subjects_checked(frame)?;
+                stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
+
+                let prev_frame = previous_frame.replace(frame);
+                let scene_suppressed = self.skip_unchanged_empty_scenes
+                    && detections.is_empty()
+                    && prev_frame.is_some_and(|prev| {
+                        frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
+                    });
+
+                let t_s2 = Instant::now();
+                let mut embeddings =
+                    self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+                stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
+
+                let crop_vecs: Vec<Vec<f32>> = embeddings
+                    .iter()
+                    .filter(|e| e.region_kind() == "crop")
+                    .map(|e| e.embedding().to_vec())
+                    .collect();
+
+                let assigned = tracker.update_frame(
+                    frame.width(),
+                    frame.height(),
+                    offset_ms,
+                    &detections,
+                    Some(&crop_vecs),
+                );
+
+                for (det, tid) in detections.iter_mut().zip(assigned.iter()) {
+                    det.set_track_id(*tid);
+                }
+
+                let mut crop_idx = 0usize;
+                for emb in &mut embeddings {
+                    if emb.region_kind() == "crop" {
+                        if let Some(&tid) = assigned.get(crop_idx) {
+                            emb.track_id = tid;
+                        }
+                        crop_idx += 1;
+                    }
+                }
+
+                per_frame_scene_suppressed.push(scene_suppressed);
+                per_frame_detections.push(detections);
+                per_frame_embeddings.push(embeddings);
+            }
+
+            if self.dedup_track_crops {
+                let best_by_track = select_best_crop_per_track(&per_frame_detections);
+                for (frame_idx, embeddings) in per_frame_embeddings.iter_mut().enumerate() {
+                    let mut det_idx = 0usize;
+                    let mut next_region_idx = 1u32;
+                    let mut kept = Vec::with_capacity(embeddings.len());
+                    for mut emb in embeddings.drain(..) {
+                        if emb.region_kind() == "scene" {
+                            kept.push(emb);
+                        } else {
+                            let keep = match emb.track_id {
+                                Some(tid) => best_by_track.get(&tid) == Some(&(frame_idx, det_idx)),
+                                None => true,
+                            };
+                            det_idx += 1;
+                            if keep {
+                                emb.region_index = next_region_idx;
+                                next_region_idx += 1;
+                                kept.push(emb);
+                            }
+                        }
+                    }
+                    *embeddings = kept;
+                }
+            }
+
+            let frames = per_frame_scene_suppressed
+                .into_iter()
+                .zip(per_frame_detections)
+                .zip(per_frame_embeddings)
+                .map(
+                    |((scene_suppressed, detections), embeddings)| KeyframeAnalysis {
+                        scene_suppressed,
+                        detections,
+                        embeddings,
+                    },
+                )
+                .collect();
+
+            return Ok(ClipAnalysis {
+                frames,
+                tracks: tracker.summaries(),
+                stage1_latencies_secs,
+                stage2_latencies_secs,
+            });
+        }
+
+        // Motion-only (`bytetrack`) or untracked (`off`) path:
+        // Pass 1 runs Stage 1 + tracking across all clip keyframes so best-crop deduplication
+        // avoids redundant Stage 2 vision-tower crop embedding calls on repeated tracks.
+        let mut staged = Vec::with_capacity(keyframes.len());
+        for (offset_ms, frame) in keyframes {
+            let Some(frame) = frame else {
+                tracker.update_frame(0, 0, offset_ms, &[], None);
+                continue;
+            };
+            let t_s1 = Instant::now();
+            let mut detections = self.detect_subjects_checked(frame)?;
+            stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
+
+            let prev_frame = previous_frame.replace(frame);
+            let scene_suppressed = self.skip_unchanged_empty_scenes
+                && detections.is_empty()
+                && prev_frame.is_some_and(|prev| {
+                    frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
+                });
+
+            let assigned =
+                tracker.update_frame(frame.width(), frame.height(), offset_ms, &detections, None);
+            for (det, tid) in detections.iter_mut().zip(assigned) {
+                det.set_track_id(tid);
+            }
+
+            staged.push((frame, scene_suppressed, detections));
+        }
+
+        let best_by_track = if self.dedup_track_crops && self.tracker_mode.is_enabled() {
+            let det_slices: Vec<Vec<DetectedSubject>> =
+                staged.iter().map(|(_, _, d)| d.clone()).collect();
+            Some(select_best_crop_per_track(&det_slices))
+        } else {
+            None
+        };
+
+        let mut frames = Vec::with_capacity(staged.len());
+        for (frame_idx, (frame, scene_suppressed, detections)) in staged.into_iter().enumerate() {
+            let selected_dets: Vec<DetectedSubject> = match &best_by_track {
+                Some(best_map) => detections
+                    .iter()
+                    .enumerate()
+                    .filter(|(det_idx, det)| match det.track_id() {
+                        Some(tid) => best_map.get(&tid) == Some(&(frame_idx, *det_idx)),
+                        None => true,
+                    })
+                    .map(|(_, det)| det.clone())
+                    .collect(),
+                None => detections.clone(),
+            };
+
+            let t_s2 = Instant::now();
+            let embeddings =
+                self.encode_stage2_batch_checked(frame, &selected_dets, scene_suppressed)?;
+            stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
+
+            frames.push(KeyframeAnalysis {
+                scene_suppressed,
+                detections,
+                embeddings,
+            });
+        }
+
+        Ok(ClipAnalysis {
+            frames,
+            tracks: tracker.summaries(),
+            stage1_latencies_secs,
+            stage2_latencies_secs,
+        })
+    }
+
+    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe,
+    /// propagating any backend inference errors cleanly.
+    pub fn process_keyframe(
         &self,
         frame: &RgbFrame,
         previous_frame: Option<&RgbFrame>,
-    ) -> KeyframeAnalysis {
-        let detections = self.detect_subjects(frame);
+    ) -> Result<KeyframeAnalysis, MediaWorkerError> {
+        let detections = self.detect_subjects_checked(frame)?;
         let scene_suppressed = self.skip_unchanged_empty_scenes
             && detections.is_empty()
             && previous_frame
                 .is_some_and(|prev| frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD);
 
-        let embeddings = self.encode_stage2_batch(frame, &detections, scene_suppressed);
-        KeyframeAnalysis {
+        let embeddings = self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+        Ok(KeyframeAnalysis {
             scene_suppressed,
             detections,
             embeddings,
-        }
+        })
     }
 
-    /// Stage 1: detects foreground subjects, filters noise/low-confidence boxes,
-    /// runs class-aware NMS (`IoU <= 0.50`), and computes `10%` padded crop boxes
-    /// and HSV coarse dominant colors.
-    pub fn detect_subjects(&self, frame: &RgbFrame) -> Vec<DetectedSubject> {
+    /// Runs Stage 1 detection and Stage 2 embedding on one decoded IDR keyframe.
+    ///
+    /// Backwards-compatible infallible wrapper for deterministic/stub callers.
+    pub fn analyze_keyframe(
+        &self,
+        frame: &RgbFrame,
+        previous_frame: Option<&RgbFrame>,
+    ) -> KeyframeAnalysis {
+        self.process_keyframe(frame, previous_frame)
+            .unwrap_or(KeyframeAnalysis {
+                scene_suppressed: false,
+                detections: Vec::new(),
+                embeddings: Vec::new(),
+            })
+    }
+
+    /// Stage 1: detects foreground subjects via the active `InferenceBackend`,
+    /// applies class-aware NMS (`IoU <= 0.50`), computes `10%` padded crop boxes,
+    /// and classifies HSV coarse dominant colors.
+    pub fn detect_subjects_checked(
+        &self,
+        frame: &RgbFrame,
+    ) -> Result<Vec<DetectedSubject>, MediaWorkerError> {
+        let raw_detections = self.backend.detect_objects(frame, DEFAULT_MIN_CONFIDENCE)?;
         let bg = estimate_border_background(frame);
-        let min_box_px = if frame.width() >= 160 && frame.height() >= 120 {
-            24u32
-        } else {
-            8u32
-        };
+        let mut candidates = Vec::with_capacity(raw_detections.len());
 
-        let raw_blobs = extract_foreground_blobs(frame, bg, min_box_px);
-        let mut candidates = Vec::new();
-        let frame_area = (frame.width() as f32) * (frame.height() as f32);
-
-        for blob in raw_blobs {
-            let (class, confidence) = classify_blob_geometry(frame, &blob, bg);
-            if confidence < DEFAULT_MIN_CONFIDENCE {
+        for raw in raw_detections {
+            if raw.confidence() < DEFAULT_MIN_CONFIDENCE {
                 continue;
             }
-            let x1 = (blob.min_x as f32) / (frame.width() as f32);
-            let y1 = (blob.min_y as f32) / (frame.height() as f32);
-            let x2 = ((blob.max_x + 1) as f32) / (frame.width() as f32);
-            let y2 = ((blob.max_y + 1) as f32) / (frame.height() as f32);
-            let bbox_norm = clamp_unit_bbox([x1, y1, x2, y2]);
+            let bbox_norm = clamp_unit_bbox(raw.bbox_norm());
             let padded_crop_bbox_norm = expand_bbox_with_margin(bbox_norm, CROP_CONTEXT_MARGIN);
-
             let inner_crop = frame.crop_normalized(bbox_norm);
             let dominant_colors = classify_dominant_colors(&inner_crop, Some(bg));
-            let area_frac = ((blob.width() * blob.height()) as f32 / frame_area).max(1e-6);
-            let rank_score = confidence * area_frac.sqrt();
+            let area_frac =
+                ((bbox_norm[2] - bbox_norm[0]) * (bbox_norm[3] - bbox_norm[1])).max(1e-6);
+            let rank_score = raw.confidence() * area_frac.sqrt();
 
             candidates.push((
                 rank_score,
                 DetectedSubject {
-                    object_class: class,
-                    confidence,
+                    object_class: raw.object_class(),
+                    confidence: raw.confidence(),
                     bbox_norm,
                     padded_crop_bbox_norm,
                     dominant_colors,
+                    track_id: None,
                 },
             ));
         }
 
-        apply_class_aware_nms(candidates, NMS_IOU_THRESHOLD, MAX_CROPS_PER_FRAME)
+        Ok(apply_class_aware_nms(
+            candidates,
+            NMS_IOU_THRESHOLD,
+            MAX_CROPS_PER_FRAME,
+        ))
     }
 
-    /// Stage 2: encodes `[scene_frame] ++ subject_crops` into L2-normalized
-    /// unit vectors of width `models.embedding_dim()`.
-    pub fn encode_stage2_batch(
+    /// Infallible Stage 1 helper retained for existing callers.
+    pub fn detect_subjects(&self, frame: &RgbFrame) -> Vec<DetectedSubject> {
+        self.detect_subjects_checked(frame).unwrap_or_default()
+    }
+
+    /// Stage 2: encodes `[scene_frame] ++ subject_crops` via the active `InferenceBackend`
+    /// into L2-normalized unit vectors.
+    pub fn encode_stage2_batch_checked(
         &self,
         frame: &RgbFrame,
         detections: &[DetectedSubject],
         scene_suppressed: bool,
-    ) -> Vec<GeneratedEmbedding> {
-        let dim = self.models.embedding_dim();
-        let mut out = Vec::with_capacity(1 + detections.len());
+    ) -> Result<Vec<GeneratedEmbedding>, MediaWorkerError> {
+        let mut crop_frames: Vec<RgbFrame> = Vec::with_capacity(detections.len());
+        for det in detections {
+            crop_frames.push(frame.crop_normalized(det.padded_crop_bbox_norm()));
+        }
 
+        let mut regions: Vec<(&RgbFrame, Option<ObjectClass>, &[String])> =
+            Vec::with_capacity(usize::from(!scene_suppressed) + detections.len());
         if !scene_suppressed {
-            let scene_colors = classify_dominant_colors(frame, None);
-            let scene_vec = encode_visual_region(frame, None, &scene_colors, &self.models, dim);
+            regions.push((frame, None, &[]));
+        }
+        for (crop_img, det) in crop_frames.iter().zip(detections.iter()) {
+            regions.push((crop_img, Some(det.object_class()), det.dominant_colors()));
+        }
+
+        if regions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let vectors = self.backend.encode_annotated_images(&regions)?;
+        if vectors.len() != regions.len() {
+            return Err(MediaWorkerError::inference_failed(format!(
+                "backend returned {} embeddings for {} visual regions",
+                vectors.len(),
+                regions.len()
+            )));
+        }
+
+        let mut out = Vec::with_capacity(vectors.len());
+        let mut vec_iter = vectors.into_iter();
+
+        if !scene_suppressed && let Some(scene_vec) = vec_iter.next() {
             out.push(GeneratedEmbedding {
                 region_kind: "scene".to_string(),
                 region_index: 0,
@@ -377,19 +740,12 @@ impl VisionPipeline {
                 confidence: None,
                 bbox_norm: None,
                 dominant_colors: Vec::new(),
+                track_id: None,
                 embedding: scene_vec,
             });
         }
 
-        for (idx, det) in detections.iter().enumerate() {
-            let crop_img = frame.crop_normalized(det.padded_crop_bbox_norm());
-            let crop_vec = encode_visual_region(
-                &crop_img,
-                Some(det.object_class()),
-                det.dominant_colors(),
-                &self.models,
-                dim,
-            );
+        for (idx, (det, crop_vec)) in detections.iter().zip(vec_iter).enumerate() {
             out.push(GeneratedEmbedding {
                 region_kind: "crop".to_string(),
                 region_index: (idx + 1) as u32,
@@ -397,12 +753,80 @@ impl VisionPipeline {
                 confidence: Some(det.confidence()),
                 bbox_norm: Some(det.bbox_norm()),
                 dominant_colors: det.dominant_colors().to_vec(),
+                track_id: det.track_id(),
                 embedding: crop_vec,
             });
         }
 
-        out
+        Ok(out)
     }
+
+    /// Infallible Stage 2 helper retained for existing callers.
+    pub fn encode_stage2_batch(
+        &self,
+        frame: &RgbFrame,
+        detections: &[DetectedSubject],
+        scene_suppressed: bool,
+    ) -> Vec<GeneratedEmbedding> {
+        self.encode_stage2_batch_checked(frame, detections, scene_suppressed)
+            .unwrap_or_default()
+    }
+}
+
+fn select_best_crop_per_track(
+    per_frame_detections: &[Vec<DetectedSubject>],
+) -> HashMap<u64, (usize, usize)> {
+    // Maps track_id -> ((frame_idx, det_idx), quality_score, confidence)
+    let mut best: HashMap<u64, ((usize, usize), f32, f32)> = HashMap::new();
+    for (frame_idx, detections) in per_frame_detections.iter().enumerate() {
+        for (det_idx, det) in detections.iter().enumerate() {
+            let Some(tid) = det.track_id() else {
+                continue;
+            };
+            let quality = crop_quality_score(det.confidence(), det.bbox_norm());
+            let conf = det.confidence();
+            match best.get(&tid) {
+                Some(&(_, best_q, best_conf)) => {
+                    let is_better = quality > best_q + 1e-6
+                        || ((quality - best_q).abs() <= 1e-6 && conf > best_conf + 1e-6);
+                    if is_better {
+                        best.insert(tid, ((frame_idx, det_idx), quality, conf));
+                    }
+                }
+                None => {
+                    best.insert(tid, ((frame_idx, det_idx), quality, conf));
+                }
+            }
+        }
+    }
+    best.into_iter()
+        .map(|(tid, (loc, _, _))| (tid, loc))
+        .collect()
+}
+
+pub(crate) fn detect_stub_objects(frame: &RgbFrame, min_confidence: f32) -> Vec<RawDetection> {
+    let bg = estimate_border_background(frame);
+    let min_box_px = if frame.width() >= 160 && frame.height() >= 120 {
+        24u32
+    } else {
+        8u32
+    };
+
+    let raw_blobs = extract_foreground_blobs(frame, bg, min_box_px);
+    let mut out = Vec::with_capacity(raw_blobs.len());
+    for blob in raw_blobs {
+        let (class, confidence) = classify_blob_geometry(frame, &blob, bg);
+        if confidence < min_confidence {
+            continue;
+        }
+        let x1 = (blob.min_x as f32) / (frame.width() as f32);
+        let y1 = (blob.min_y as f32) / (frame.height() as f32);
+        let x2 = ((blob.max_x + 1) as f32) / (frame.width() as f32);
+        let y2 = ((blob.max_y + 1) as f32) / (frame.height() as f32);
+        let bbox_norm = clamp_unit_bbox([x1, y1, x2, y2]);
+        out.push(RawDetection::new(class, confidence, bbox_norm));
+    }
+    out
 }
 
 // ----------------------------------------------------------------------------
@@ -794,7 +1218,7 @@ pub fn embed_query_text(
     Ok(l2_normalize(vec))
 }
 
-fn encode_visual_region(
+pub(crate) fn encode_stub_visual_region(
     region: &RgbFrame,
     object_class: Option<ObjectClass>,
     dominant_colors: &[String],

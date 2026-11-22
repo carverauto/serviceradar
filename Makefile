@@ -60,9 +60,8 @@ BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
 # scripts/elixir_quality.sh workspace_projects. PRs gate format + Credo (--lint-only) through
 # the .github/workflows/elixir-quality.yml matrix, which need not list every project here;
-# BazelCI compiles each Bazel-built project with warnings as errors, and the dependency
-# audits, Sobelow and a warnings-as-errors compile of elixir/palisade (which Bazel does not
-# build) run daily from //buildbuddy.yaml.
+# BazelCI compiles each project with warnings as errors, and the dependency audits and
+# Sobelow run daily from //buildbuddy.yaml.
 #
 # This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
 # separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
@@ -91,11 +90,6 @@ else
 	RUSTUP_HOME ?= $(HOME)/.rustup
 	CARGO_HOME ?= $(HOME)/.cargo
 endif
-
-RPERF_CLIENT_BUILD_DIR ?= rust/rperf-client/target/release
-RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
-RPERF_SERVER_BUILD_DIR ?= rust/rperf-server/target/release
-RPERF_SERVER_BIN ?= rperf
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
@@ -320,7 +314,6 @@ tidy: ## Tidy and format Go code
 	@$(GO) mod tidy
 	@$(GO) fmt ./...
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
-	@cd rust/rperf-client && $(RUSTFMT) src/*.rs
 	@cd rust/trapd && $(RUSTFMT) src/*.rs
 	@cd rust/otel && $(RUSTFMT) src/*.rs
 	@cd rust/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
@@ -368,7 +361,6 @@ else
 	@echo "$(COLOR_BOLD)Skipping SwiftLint (HOST_OS=$(HOST_OS); Darwin only)$(COLOR_RESET)"
 endif
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
-	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
@@ -436,7 +428,6 @@ test-toolchains: $(TEST_PREREQS) get-bun ## Per-language tests + Go coverage pro
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=120s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
-	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
@@ -496,7 +487,6 @@ clean: ## Clean up build artifacts
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
-	@cd rust/rperf-client && $(CARGO) clean
 	@cd rust/trapd && $(CARGO) clean
 	@cd rust/otel && $(CARGO) clean
 	@cd rust/flowgger && $(CARGO) clean
@@ -564,7 +554,7 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
-		proto/rperf/rperf.proto
+		proto/netperf/v1/netperf.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
@@ -585,7 +575,8 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 		proto/agent/discovery/v1/discovery.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
-		proto/metric/v1/metric.proto
+		proto/metric/v1/metric.proto \
+		proto/rum/v1/rum.proto
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto \
@@ -649,10 +640,12 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/desktop_media.proto \
 		proto/remote_capture.proto \
 		proto/identitymap/v1/identity_map.proto \
+		proto/netperf/v1/netperf.proto \
 		proto/agent/netprobe/v1/netprobe.proto \
 		proto/agent/addon/v1/addon.proto \
 		proto/agent/discovery/v1/discovery.proto \
 		proto/metric/v1/metric.proto \
+		proto/rum/v1/rum.proto \
 		proto/edge/v1/sweep.proto \
 		proto/edge/v1/scheduled_mtr.proto \
 		proto/edge/v1/plugin_results.proto \
@@ -790,14 +783,10 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/srctl go/cmd/cli/main.go
 	@ln -sf srctl bin/serviceradar-cli
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
-	@cd rust/rperf-client && $(CARGO) build --release
-	@cd rust/rperf-server && $(CARGO) build --release
 	@cd rust/trapd && $(CARGO) build --release
 	@cd rust/otel && $(CARGO) build --release
 	@cd rust/flowgger && $(CARGO) build --release
 	@mkdir -p bin
-	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
-	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 	@cp rust/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
 	@cp rust/otel/target/release/serviceradar-otel bin/serviceradar-otel
 	@cp rust/flowgger/target/release/flowgger bin/serviceradar-flowgger
@@ -817,16 +806,6 @@ deb-kv: ## Build the KV Debian package
 deb-sync: ## Build the KV Sync Debian package
 	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
-
-.PHONY: deb-rperf-checker
-deb-rperf-checker: ## Build the RPerf checker Debian package
-	@echo "$(COLOR_BOLD)Building RPerf checker Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
-
-.PHONY: deb-rperf
-deb-rperf: ## Build the RPerf server Debian package
-	@echo "$(COLOR_BOLD)Building RPerf server Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
 
 .PHONY: deb-cli
 deb-cli: ## Build the CLI Debian package
@@ -850,8 +829,6 @@ deb-all-container: ## Build all Debian packages
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb nats
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb cli
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon-checker
 
@@ -875,16 +852,6 @@ rpm-kv: ## Build the KV RPM package
 rpm-sync: ## Build the KV Sync RPM package
 	@echo "$(COLOR_BOLD)Building KV Sync RPM package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm sync
-
-.PHONY: rpm-rperf
-rpm-rperf: ## Build the RPerf server RPM package
-	@echo "$(COLOR_BOLD)Building RPerf server RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm rperf-server
-
-.PHONY: rpm-rperf-checker
-rpm-rperf-checker: ## Build the RPerf checker RPM package
-	@echo "$(COLOR_BOLD)Building RPerf checker RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm rperf-client
 
 .PHONY: rpm-cli
 rpm-cli: ## Build the CLI RPM package
@@ -926,32 +893,6 @@ docs-deploy: ## Deploy Docusaurus website to GitHub pages
 docs-setup: ## Initial setup for Docusaurus development
 	@echo "$(COLOR_BOLD)Setting up Docusaurus development environment$(COLOR_RESET)"
 	@cd docs && pnpm install
-
-# RPerf plugin specific targets
-.PHONY: build-rperf-checker
-build-rperf-checker: generate-proto ## Build only the rperf plugin
-	@echo "$(COLOR_BOLD)Building Rust rperf checker$(COLOR_RESET)"
-	@cd rust/rperf-client && $(CARGO) build --release
-	@mkdir -p bin
-	@cp -v $(shell pwd)/rust/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
-
-.PHONY: run-rperf-checker
-run-rperf-checker: build-rperf-checker ## Run the rperf plugin
-	@echo "$(COLOR_BOLD)Running rperf checker$(COLOR_RESET)"
-	@./bin/serviceradar-rperf-checker $(ARGS)
-
-# RPerf server specific targets
-.PHONY: build-rperf
-build-rperf: generate-proto ## Build only the rperf server
-	@echo "$(COLOR_BOLD)Building Rust rperf server$(COLOR_RESET)"
-	@cd rust/rperf-server && $(CARGO) build --release
-	@mkdir -p bin
-	@cp -v $(shell pwd)/rust/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
-
-.PHONY: run-rperf
-run-rperf: build-rperf ## Run the rperf server
-	@echo "$(COLOR_BOLD)Running rperf server$(COLOR_RESET)"
-	@./bin/serviceradar-rperf $(ARGS)
 
 # Default target
 .DEFAULT_GOAL := help

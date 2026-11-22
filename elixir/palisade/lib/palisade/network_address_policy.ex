@@ -3,11 +3,6 @@ defmodule Palisade.NetworkAddressPolicy do
   Reject loopback, link-local, and private network addresses in
   outbound fetch policies.
 
-  Ported from `ServiceRadar.Policies.NetworkAddressPolicy` and
-  `Crm.Policies.NetworkAddressPolicy` (which were verbatim copies
-  of each other). Palisade is the canonical home; both consumers
-  pin to this module via the `:palisade` mix git dep.
-
   ## Blocked
 
     * IPv4: non-public special-use ranges including private,
@@ -25,6 +20,10 @@ defmodule Palisade.NetworkAddressPolicy do
       whole host. Closes the "DNS rebinding" attack where a
       public-looking host returns a 1-second-TTL private IP at
       fetch time.
+
+  `cidr_contains?/2` and `ip_in_any_cidr?/2` match an address against
+  caller-supplied CIDRs, for callers that keep their own allow or deny
+  lists.
   """
 
   import Bitwise
@@ -85,6 +84,24 @@ defmodule Palisade.NetworkAddressPolicy do
 
   def private_or_loopback_ip?({_, _, _, _, _, _, _, _} = ip), do: private_or_loopback_ipv6?(ip)
   def private_or_loopback_ip?(_ip), do: true
+
+  @spec ip_in_any_cidr?(tuple(), [String.t()]) :: boolean()
+  def ip_in_any_cidr?(ip, cidrs) when is_list(cidrs) do
+    Enum.any?(cidrs, &cidr_contains?(ip, &1))
+  end
+
+  @spec cidr_contains?(tuple(), String.t()) :: boolean()
+  def cidr_contains?(ip, cidr) when is_binary(cidr) do
+    with {:ok, {base, bits, size_bits}} <- parse_cidr(cidr),
+         true <- tuple_size(ip) == tuple_size(base) do
+      mask = cidr_mask(size_bits, bits)
+      (ip_to_int(ip) &&& mask) == (ip_to_int(base) &&& mask)
+    else
+      _ -> false
+    end
+  end
+
+  def cidr_contains?(_ip, _cidr), do: false
 
   defp resolve_host_addresses(host) do
     case :inet.parse_address(String.to_charlist(host)) do
@@ -148,6 +165,29 @@ defmodule Palisade.NetworkAddressPolicy do
 
   defp private_or_loopback_ipv6?(_ip), do: false
 
+  defp parse_cidr(cidr) do
+    case String.split(String.trim(cidr), "/", parts: 2) do
+      [ip_text, bits_text] ->
+        with {:ok, ip} <- :inet.parse_address(String.to_charlist(ip_text)),
+             {bits, ""} <- Integer.parse(bits_text),
+             size_bits = ip_size_bits(ip),
+             true <- bits >= 0 and bits <= size_bits do
+          {:ok, {ip, bits, size_bits}}
+        else
+          _ -> {:error, :invalid_cidr}
+        end
+
+      _ ->
+        {:error, :invalid_cidr}
+    end
+  end
+
+  defp ip_size_bits({_a, _b, _c, _d}), do: 32
+  defp ip_size_bits({_a, _b, _c, _d, _e, _f, _g, _h}), do: 128
+
+  defp cidr_mask(_size_bits, 0), do: 0
+  defp cidr_mask(size_bits, bits), do: bnot((1 <<< (size_bits - bits)) - 1)
+
   defp in_cidr?(ip, base, bits) do
     mask = bnot((1 <<< (32 - bits)) - 1) &&& 0xFFFFFFFF
     ip_int = ipv4_to_int(ip)
@@ -156,4 +196,12 @@ defmodule Palisade.NetworkAddressPolicy do
   end
 
   defp ipv4_to_int({a, b, c, d}), do: (a <<< 24) + (b <<< 16) + (c <<< 8) + d
+
+  defp ip_to_int({a, b, c, d}), do: (a <<< 24) + (b <<< 16) + (c <<< 8) + d
+
+  defp ip_to_int(ip) when is_tuple(ip) do
+    ip
+    |> Tuple.to_list()
+    |> Enum.reduce(0, fn part, acc -> (acc <<< 16) + part end)
+  end
 end

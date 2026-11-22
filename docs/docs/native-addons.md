@@ -52,7 +52,10 @@ until an operator selects it:
   Edge Ops UI - no rebuild, no redeploy of the base agent.
 - **Signed.** Add-on OCI bundles are Cosign-signed with the release key, and
   each per-architecture pushed artifact carries an ed25519 signature from the agent
-  release key; the agent verifies before activation.
+  release key; the agent verifies before activation. The Cosign signature carries
+  its transparency-log receipt from ServiceRadar's Rekor log, which ServiceRadar verifies offline at import
+  and records on the package as `transparency_receipt` (`verified`, or
+  `absent_allowlisted` for an add-on published before receipts were introduced).
 - **Out-of-process by default.** The `agent-sidecar` model runs add-ons as
   [HashiCorp `go-plugin`](https://github.com/hashicorp/go-plugin) subprocesses
   (gRPC over a Unix-domain socket with AutoMTLS). The base agent never imports an

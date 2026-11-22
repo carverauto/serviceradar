@@ -40,6 +40,7 @@ Replace `<instance-url>` with the URL of your ServiceRadar instance.
 | `awx` | Ansible AWX / Automation Controller — job inventory sync |
 | `axis` | Axis network cameras — stream health and device signals |
 | `dusk-checker` | Dusk network node liveness and peer health |
+| `http-synthetic-journey` | Multi-step HTTP synthetic journeys — per-step waterfall timings, TLS posture, and assertions |
 | `netbox` | NetBox DCIM/IPAM — inventory sync |
 | `opentext-nom` | OpenText Network Operations Manager — device and interface health |
 | `proxmox` | Proxmox VE — VM, container, and node metrics |

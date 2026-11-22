@@ -31,7 +31,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DataRetentionLive do
     otel: {"OTel metrics", "OTel metric samples and points"},
     traces: {"OTel traces", "Spans and trace summaries"},
     bmp: {"BMP routing", "BMP routing events"},
-    attribution: {"Process attribution", "Observations the flow correlator joins flows to"}
+    attribution: {"Process attribution", "Observations the flow correlator joins flows to"},
+    rum: {"Web RUM beacons", "Boomerang browser telemetry beacons"}
   }
 
   @doc "Age of a pending retention change in seconds."

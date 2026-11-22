@@ -9,6 +9,7 @@ import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
 import {dispatchAgent, dispatchCollector, dispatchEdge, dispatchNats} from "./edge/index.js"
 import {dispatchNotifications} from "./notifications/index.js"
+import {dispatchPack} from "./pack/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
@@ -74,6 +75,12 @@ async function main(): Promise<void> {
     return dispatchPlugin(pluginSub, options, printHelp)
   }
 
+  if (first === "pack") {
+    const [packSub = "help", ...packRest] = rest
+    const options = parseArgs(packRest)
+    return dispatchPack(packSub, options, printHelp)
+  }
+
   if (first === "dashboard") {
     const [dashSub = "help", ...dashRest] = rest
     const options = parseArgs(dashRest)
@@ -91,6 +98,7 @@ function printHelp(): void {
   console.log(`ServiceRadar CLI
 
 Usage:
+  serviceradar <group> <subcommand> [...flags]
   serviceradar-cli <group> <subcommand> [...flags]
   srcloud <group> <subcommand> [...flags]      (same CLI; see "Bin names" below)
   serviceradar-cli --version
@@ -99,6 +107,7 @@ Usage:
 Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
+  pack        Validate, build, sign, and index ServiceRadar Solution Packs (.srpack).
   plugin         Author and publish ServiceRadar Wasm plugins.
   notifications  Configure notification routes against a ServiceRadar instance.
   edge        Edge onboarding: packages, sites (NATS leaf), and edge-host install helpers.
@@ -117,7 +126,7 @@ Top-level commands:
   doctor      Print runtime + project diagnostics (Node, npm, SDK, Vite, config path, auth state).
 
 Common dashboard subcommands:
-  serviceradar-cli dashboard init <name> [--template react-map|react-table|react-blank] [--package-id com.example.foo] [--no-install]
+  serviceradar-cli dashboard init <name> [--template react-map|react-table|react-blank|blueprint] [--package-id com.example.foo] [--no-install]
   serviceradar-cli dashboard build [--config dashboard.config.mjs] [--out-dir dist]
   serviceradar-cli dashboard manifest [--config dashboard.config.mjs] [--out-dir dist]
   serviceradar-cli dashboard validate [--config dashboard.config.mjs]
@@ -139,12 +148,20 @@ Plugin subcommands:
   serviceradar-cli plugin assignments|secrets|rules|controllers <list|get|create|update|enable|disable> --instance <url>
   serviceradar-cli plugin apply --instance <url> --file playbooks/demo-plugins.yaml [--dry-run]
 
+Solution Pack subcommands:
+  serviceradar pack validate <dir-or-srpack> [--json]
+  serviceradar pack build <dir> [-o <out.srpack>] [--refresh-files] [--write-manifest] [--json]
+  serviceradar pack keygen [--out-dir <dir> | -o <prefix>] [--key-id <id>] [--force] [--json]
+  serviceradar pack sign <file.srpack> --key <privkey> --key-id <id> [-o <file.srpack.sig>] [--signer <name>]
+  serviceradar pack index <dir-or-packs...> [-o serviceradar-pack-index.json] [--repo <org/repo> --release-tag <vX.Y.Z> | --base-url <url>]
+
 Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
   serviceradar-cli agent list            --instance <url> [--json]
   serviceradar-cli edge package create   --instance <url> --label <name> [--component-type agent|gateway] [--gateway-id <id>] [--site <s>]
   serviceradar-cli edge package list|show|revoke|download
   serviceradar-cli edge site create      --instance <url> --name <name> [--slug <slug>]
   serviceradar-cli edge site list|show|bundle [--wait]
+  serviceradar-cli edge hub status       --instance <url> [--json]
   serviceradar-cli collector create      --instance <url> --type flowgger|trapd|netflow|sflow|otel [--edge-site <id>]
   serviceradar-cli collector list|show|revoke|download
   serviceradar-cli nats account status   --instance <url>
@@ -161,7 +178,8 @@ Commands:
             chosen template, swizzles project name + identifier, runs npm
             install, and prints next steps. Templates: react-map (default —
             useDeckMap reference), react-table (frame-driven table),
-            react-blank (minimum viable).
+            react-blank (minimum viable), blueprint (Palantir Blueprint v6 +
+            scoped styles).
   build     Build renderer.js with SDK Vite defaults, write manifest, and copy samples.
             Runs validate first; refuses to write dist/ on validation failure.
   manifest  Compute renderer SHA256 and write dist/manifest.json.

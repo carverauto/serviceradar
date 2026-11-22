@@ -1,0 +1,43 @@
+[
+  {
+    "id": "rows",
+    "query": "in:devices limit:100",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 100,
+    "results": [
+      {
+        "device_id": "dev-01",
+        "name": "core-rtr-01.example.com",
+        "ip_address": "192.0.2.10",
+        "site_code": "LAB-A",
+        "status": "up",
+        "last_seen": "2026-11-18T00:00:00Z"
+      },
+      {
+        "device_id": "dev-02",
+        "name": "core-sw-01.example.com",
+        "ip_address": "192.0.2.11",
+        "site_code": "LAB-A",
+        "status": "up",
+        "last_seen": "2026-11-18T00:00:00Z"
+      },
+      {
+        "device_id": "dev-03",
+        "name": "edge-gw-01.example.com",
+        "ip_address": "198.51.100.20",
+        "site_code": "LAB-B",
+        "status": "up",
+        "last_seen": "2026-11-18T00:00:00Z"
+      },
+      {
+        "device_id": "dev-04",
+        "name": "agg-sw-01.example.com",
+        "ip_address": "203.0.113.30",
+        "site_code": "DC-1",
+        "status": "up",
+        "last_seen": "2026-11-18T00:00:00Z"
+      }
+    ]
+  }
+]

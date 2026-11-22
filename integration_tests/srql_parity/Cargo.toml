@@ -22,5 +22,5 @@ runfiles = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 srql = { path = "../../rust/srql" }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "process", "rt-multi-thread", "time"] }
 tokio-postgres = { workspace = true, features = ["with-chrono-0_4", "with-serde_json-1"] }

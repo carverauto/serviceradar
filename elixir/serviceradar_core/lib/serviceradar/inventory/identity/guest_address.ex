@@ -41,9 +41,12 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   text), and interface names are the guest's own choice (`mgmt`, `data`). An
   attached NIC without a configuration index ranks after the indexed ones.
 
-  Otherwise report order decides, and an interface contributes its first
-  address, so a guest that never carried a host-internal address keeps the
-  address it had. `nil` when no interface qualifies: callers keep the device's
+  Across those interfaces the strongest address wins first (`Address.strength/1`:
+  a usable IPv4 over any IPv6, a routable address over a link-local), so the
+  order above decides only among equally strong addresses. Otherwise report
+  order decides, and an interface contributes its strongest address (the first
+  of equally strong ones), so a guest that never carried a host-internal address
+  keeps the address it had. `nil` when no interface qualifies: callers keep the device's
   current address rather than taking a host-internal one.
 
   `preference_order/1` is that ordering on its own, and `primary_interface/1`
@@ -54,7 +57,8 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
 
   import Bitwise
 
-  alias ServiceRadar.Policies.NetworkAddressPolicy
+  alias Palisade.NetworkAddressPolicy
+  alias ServiceRadar.Inventory.Identity.Address
 
   # Interface names container engines, CNI plugins, and local hypervisors give
   # the networks they create inside a host.
@@ -111,7 +115,14 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   def primary_interface(interfaces) when is_list(interfaces) do
     interfaces
     |> preference_order()
-    |> Enum.find(&accepted_address?/1)
+    |> Enum.filter(&accepted_address?/1)
+    |> case do
+      [] -> nil
+      # The strongest address wins (`Address.strength/1`: a usable IPv4 over any
+      # IPv6, a routable address over a link-local); among equally strong ones the
+      # preference order decides, `Enum.max_by/2` keeping the first.
+      accepted -> Enum.max_by(accepted, &(&1 |> interface_address() |> address_strength()))
+    end
   end
 
   def primary_interface(_interfaces), do: nil
@@ -220,15 +231,23 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   end
 
   # An interface's own address, prefix kept so `own_prefix_gateway?/1` can
-  # judge it: the first usable entry of `ip_addresses`, then `cidr`, then
-  # `address`.
+  # judge it: the strongest usable entry of `ip_addresses`, then `cidr`, then
+  # `address` (`Address.strength/1`), the first of equally strong ones.
   defp interface_address(iface) do
     iface
     |> field(:ip_addresses)
     |> List.wrap()
     |> Enum.concat([field(iface, :cidr), field(iface, :address)])
-    |> Enum.find_value(&usable_address/1)
+    |> Enum.map(&usable_address/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      addresses -> Enum.max_by(addresses, &address_strength/1)
+    end
   end
+
+  defp address_strength(nil), do: -1
+  defp address_strength(address), do: address |> strip_prefix() |> Address.strength()
 
   defp usable_address(value) when is_binary(value) do
     value = String.trim(value)

@@ -1,7 +1,8 @@
 defmodule ServiceRadar.NATS.ManagedCertificateSupervisor do
   @moduledoc """
   Supervises the deployment certificate authorizer, its dedicated NATS
-  connections, and the recorder for the chart's rotated runtime certificates.
+  connections, the recorder for the chart's rotated runtime certificates, and
+  the first adoption of the chart's own client certificates.
   """
   use Supervisor
 
@@ -15,7 +16,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateSupervisor do
          name: ServiceRadar.NATS.CertificateConnections, strategy: :one_for_one},
         {Task.Supervisor, name: ServiceRadar.NATS.CertificateObservationTasks, max_children: 1},
         ServiceRadar.NATS.ManagedCertificateAuthorization,
-        ServiceRadar.Edge.RuntimeCertificateRotation
+        ServiceRadar.Edge.RuntimeCertificateRotation,
+        ServiceRadar.Edge.ChartIdentityInventory
       ],
       strategy: :rest_for_one
     )

@@ -67,8 +67,8 @@ ASSUME Bugs \subseteq KnownBugs
 Bug(b) == b \in Bugs
 
 UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten",
-                       "overlapping_hostname_corroborates",
-                       "hostname_adopts_across_integration_ids",
+                       "hostname_corroborates", "overlapping_hostname_corroborates",
+                       "hostname_adopts", "hostname_adopts_across_integration_ids",
                        "shared_certificate_identifies"}
 ASSUME Unsafe \subseteq UnsafeAlternatives
 \* Only a node's own certificate (pve-ssl.pem) is identity: neither producer reports a custom or
@@ -79,6 +79,10 @@ ASSUME "shared_certificate_identifies" \notin Unsafe =>
 ASSUME NewFirstSeenIds \subseteq SrcIds
 
 MacIds == HwIds \cup LaaIds
+\* Whether two integration ids are minted under one provider prefix (proxmox:v3:..., netbox:...).
+\* Every environment's IntIds share one prefix (IntOf); a configuration that needs integration
+\* ids of different providers replaces this definition (SameIntProvider <- OwnIntProviders).
+SameIntProvider(i, j) == TRUE
 Ids    == AgentIds \cup SrcIds \cup IntIds \cup CertIds \cup MacIds
 \* A record is named by the seed its uid was derived from: the highest-priority identifier
 \* (Ids.generate_deterministic_device_id/1) or, for an identifier-less update, the address.
@@ -111,11 +115,13 @@ VARIABLES
     idSeen,   \* identity_observed_at is set: an identity-bearing observation wrote the record (a
               \* source sync, an agent check-in, a poll that identified the device); a sweep, a
               \* census and an address-only poll never do (D7)
-    seenWith  \* ghost: the source ids first seen no later than the source last saw the record's
+    seenWith, \* ghost: the source ids first seen no later than the source last saw the record's
               \* device, that is, already issued at its last source sighting
+    byName    \* ghost: the last step's succession merge, adoption or reactivation rested on a
+              \* hostname (only an unsafe alternative ever sets it)
 
 vars == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, act, srcOf, absence,
-          archive, recFs, idSeen, seenWith>>
+          archive, recFs, idSeen, seenWith, byName>>
 
 \* The coarse absence clock: Fresh is absent from fewer than N exact collections or for less than
 \* T; Stale is absent from N consecutive exact collections and for at least T.
@@ -144,6 +150,7 @@ TypeOK ==
     /\ recFs \in [Recs -> SUBSET (Phys \X (SrcIds \cup {NoId}))]
     /\ idSeen \in [Recs -> BOOLEAN]
     /\ seenWith \in [Recs -> SUBSET SrcIds]
+    /\ byName \in BOOLEAN
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -214,16 +221,20 @@ MacEv(r) == (MacsHeld(r) \cup ifClaims[r] \cup SrcMacs(r)) \cap HwIds
 FsOf(h, a) == <<h, IF a \in NewFirstSeenIds THEN a ELSE NoId>>
 HostsOf(fs) == {HostOf[v[1]] : v \in fs}
 
-\* D3 corroboration of record r by the source's observations with first-seen times fs, under ids.
-\* The first-seen times agree; the ghost makes that exact (README, "What the models do not
-\* express"). Or the hostnames agree, and none of ids was first seen before the source last saw
-\* r's device: cloned machines share a hostname while both are in the source, but a re-keyed
-\* device appears under its new id only after its old one was last seen.
+\* D3 corroboration of record r by the source's observations with first-seen times fs, under ids:
+\* the first-seen times agree; the ghost makes that exact (README, "What the models do not
+\* express"). A hostname never corroborates (SourceCorroboration.corroboration/2): many devices
+\* share one, and a device that takes over another's MAC and name after the other left the source
+\* passes any time guard.
+\*   Unsafe hostname_corroborates: the hostnames agree and none of ids was first seen before the
+\*       source last saw r's device (the retired time guard).
 \*   Unsafe overlapping_hostname_corroborates: a shared hostname corroborates on its own.
+FirstSeenAgrees(r, fs) == recFs[r] \cap fs # {}
 CorroboratedBy(r, fs, ids) ==
-    \/ recFs[r] \cap fs # {}
+    \/ FirstSeenAgrees(r, fs)
     \/ /\ HostsOf(recFs[r]) \cap HostsOf(fs) # {}
-       /\ "overlapping_hostname_corroborates" \in Unsafe \/ ids \cap seenWith[r] = {}
+       /\ \/ "overlapping_hostname_corroborates" \in Unsafe
+          \/ "hostname_corroborates" \in Unsafe /\ ids \cap seenWith[r] = {}
 
 ---------------------------------------------------------------------------
 Init ==
@@ -243,6 +254,7 @@ Init ==
     /\ recFs = [r \in Recs |-> {}]
     /\ idSeen = [r \in Recs |-> FALSE]
     /\ seenWith = [r \in Recs |-> {}]
+    /\ byName = FALSE
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
@@ -251,6 +263,7 @@ Lease(x, p) ==
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
     /\ act' = [name |-> "Lease", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence,
                    archive, recFs, idSeen, seenWith>>
 
@@ -288,11 +301,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* D6: a retired id presented again. Resolution consults the archive: the id returns to the
         \* record it was retired from, or that record's merge survivor, when exactly one such
         \* record holds no current (unretired) id of the source, the update agrees with its archived
-        \* observation on a globally-unique MAC, and their first-seen times or hostnames agree
-        \* (CorroboratedBy). That is a reactivation; the archive row moves back. Otherwise the id is
-        \* re-issued: the update never joins the old record, and a record already named by the
-        \* id's uid, live or merged away, makes it a new record. (A record holding an archived id
-        \* is never deleted here; the grace delete and its restore are in DireLifecycle.)
+        \* observation on a globally-unique MAC, and their first-seen times agree (CorroboratedBy;
+        \* SourceReactivation.qualify/4 compares no hostname). That is a reactivation; the archive
+        \* row moves back. Otherwise the id is re-issued: the update never joins the old record,
+        \* and a record already named by the id's uid, live or merged away, makes it a new record.
+        \* (A record holding an archived id is never deleted here; the grace delete and its
+        \* restore are in DireLifecycle.)
         retiredS == {a \in srcS : owner[a] = NoRec /\ archive[a] # {}}
         heldBy  == UNION {{Canon(q) : q \in archive[a]} : a \in retiredS}
         revivable == {c \in heldBy : /\ SrcHeld(c) = {} /\ S \cap MacEv(c) # {}
@@ -333,25 +347,33 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*     polled, MapperResultsIngestor.move_device_address/4) ---
         others0   == holderAt \ {target0}
         seedHold  == {r \in others0 : IdsHeld(r) = {} /\ ArchivedOf(r) = {}}
-        \* Hostname-agreement adoption (DeviceWrites.adopt_on_hostname_agreement?/4,
-        \* hostname_adoption_refusal/4; #6042). Only Armis and Integration writes carry HostOf[h]
-        \* in the model. Agreement may attach only a record that is not yet a device
-        \* (~created[target0]) when neither side has a source-authoritative identifier
-        \* (srcS = {} /\ SrcHist(y) = {}) and the two sides do not claim disjoint integration ids
-        \* under one provider prefix (IntHeld(y) = {} \/ intS = {} \/ IntHeld(y) \cap intS # {}).
-        \*   Unsafe hostname_adopts_across_integration_ids: disjoint integration ids do not refuse
-        \*       hostname-agreement adoption.
+        \* Hostname agreement with a holder of the address (DeviceWrites.resolve_record_active_ip/7).
+        \* Only Armis and Integration writes carry HostOf[h] in the model. Agreement adopts
+        \* nothing: the write keeps its own record and the pair is recorded as a policy_block
+        \* decision (hostname_agreement_not_identity), which opens a de-duplication task.
         hostAgree == IF kind \in {"Armis", "Integration"}
                      THEN {y \in others0 \ seedHold :
                              HostOf[h] \in (HostsOf(recFs[y]) \cup
                                {HostOf[a] : a \in {v \in Phys : AgentOf[v] \in AgentHeld(y)}})}
                      ELSE {}
+        \* The adoption this change removed, kept only as rejected alternatives. Under its former
+        \* refusals agreement attached only a record that was not yet a device (~created[target0])
+        \* when neither side had a source-authoritative identifier (srcS = {} /\ SrcHist(y) = {}),
+        \* the holder had no agent, and the two sides did not claim disjoint integration ids under
+        \* one provider prefix.
+        \*   Unsafe hostname_adopts: hostname agreement adopts the holder under those refusals.
+        \*   Unsafe hostname_adopts_across_integration_ids: as hostname_adopts, and disjoint
+        \*       integration ids do not refuse it.
+        sameProv(i, I) == {j \in I : SameIntProvider(i, j)}
         intConflict(y) == /\ "hostname_adopts_across_integration_ids" \notin Unsafe
-                          /\ intS # {} /\ IntHeld(y) # {} /\ IntHeld(y) \cap intS = {}
-        hostAdopt == {y \in hostAgree : /\ ~created[target0] /\ srcS = {} /\ SrcHist(y) = {}
-                                        /\ AgentHeld(y) = {} /\ ~intConflict(y)}
+                          /\ \E i \in intS : /\ sameProv(i, IntHeld(y)) # {}
+                                             /\ sameProv(i, IntHeld(y)) \cap sameProv(i, intS) = {}
+        hostAdopt == IF {"hostname_adopts", "hostname_adopts_across_integration_ids"} \cap Unsafe # {}
+                     THEN {y \in hostAgree : /\ ~created[target0] /\ srcS = {} /\ SrcHist(y) = {}
+                                             /\ AgentHeld(y) = {} /\ ~intConflict(y)}
+                     ELSE {}
         \* A strong write creating a new record onto an address held by an anchorless provisional
-        \* seed or an eligible hostname-agreement holder adopts it. An existing record never does
+        \* seed adopts it (DeviceWrites.provisional_ip_seed?/2). An existing record never does
         \* (#4705): it takes the address below and the seed releases it. A record holding only
         \* retired ids is anchored by them: the adoption check reads the archive too (D2), or
         \* another device's new id would adopt it.
@@ -445,7 +467,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* conflicts), as a mapper result does for the address it polled. recordAlias is a sighting
         \* that reaches the confirmation threshold and confirms its row, the result's own.
         \* Rows are per device (DeviceAliasState.lookup_for_device/4): a sighting counts only toward
-        \* the observed record's own row, and another device's row at the address is never touched.
+        \* the observed record's own row. Confirming it expires every other device's live row at the
+        \* address in the same write (AliasGuard.expire_superseded_ip_aliases/4): an address has one
+        \* live holder.
         confirms == IF recordAlias THEN {target} ELSE {}
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
@@ -459,9 +483,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ recIp' = recIp2
     /\ alias' = [q \in Ips |->
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
-                   kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
-                        \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})
-                   \cup (IF q = p THEN confirms ELSE {})]
+                   IF q = p /\ recordAlias THEN confirms
+                   ELSE kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
+                             \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})]
     /\ ifClaims' = [r \in Recs |->
                       ifClaims[r]
                       \cup (IF r = target0 THEN UNION {ifClaims[m] : m \in step1Merged} ELSE {})
@@ -494,6 +518,11 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ archive' = [a \in SrcIds |->
                      IF a \in retiredS THEN {q \in archive[a] : Canon(q) \notin reactivated}
                      ELSE archive[a]]
+    \* An adoption of a holder that is not a seed, or a reactivation without first-seen agreement,
+    \* rested on a hostname.
+    /\ byName' = \/ adopt /\ target \notin seedHold
+                 \/ /\ reactivated # {}
+                    /\ \A c \in reactivated : ~FirstSeenAgrees(c, {FsOf(h, a) : a \in srcS})
     /\ UNCHANGED <<ipAt, srcOf, absence>>
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them. Its update
@@ -530,11 +559,16 @@ ArpObserve(h, x) ==
 \* MACs link it to, and merge it with, a record holding or having held a source id. Step 1's
 \* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart. On a
 \* Proxmox node the agent also reports the node certificate its local pveproxy serves.
+\* The check-in's address replaces the record's existing one only when it is strictly stronger
+\* or the existing one is absent from the sightings of the source that recorded it
+\* (DeviceWrites.direct_write_takes_primary?/3). The model has no address strength, recording
+\* source or clock, so an existing record may keep the address it holds (keep) or take the
+\* check-in's.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN :
+    /\ \E ra \in BOOLEAN, keep \in BOOLEAN :
          Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds) \cup CertsOf(h), ra, "guard",
-                 "Agent", {}, {})
+                 "Agent", {}, IF keep THEN Ips ELSE {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
@@ -573,6 +607,7 @@ SweepObserve(h, x) ==
           /\ recIp' = [recIp EXCEPT ![p] = p]
     /\ act' = [name |-> "Sweep", ids |-> {}, ip |-> p, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<ipAt, into, owner, alias, phys, ifClaims, srcOf, absence, archive,
                    recFs, idSeen, seenWith>>
 
@@ -593,6 +628,7 @@ Rekey(h, a) ==
     /\ seenWith' = IF a = NoId THEN seenWith ELSE [r \in Recs |-> seenWith[r] \ {a}]
     /\ act' = [name |-> "Rekey", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, archive,
                    recFs, idSeen>>
 
@@ -610,6 +646,7 @@ Collect ==
                               [] OTHER -> absence[a]]
     /\ act' = [name |-> "Collect", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf,
                    archive, recFs, idSeen, seenWith>>
 
@@ -626,6 +663,7 @@ RetireAbsent(a) ==
     /\ LET d == {[kind |-> "source_id_retired", recs |-> {owner[a]}]} IN
        act' = [name |-> "Retire", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<ipAt, created, into, recIp, alias, phys, ifClaims, srcOf, absence,
                    recFs, idSeen, seenWith>>
 
@@ -670,6 +708,7 @@ Succeed(pr, sc) ==
          /\ seenWith' = [seenWith EXCEPT ![s] = @ \cup seenWith[m]]
     /\ act' = [name |-> "Succession", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {},
                addressMerged |-> {}]
+    /\ byName' = ~FirstSeenAgrees(pr, recFs[sc])
     /\ UNCHANGED <<ipAt, created, srcOf, absence, archive, idSeen>>
 
 \* The other records a review of the pair names (SourceSuccession.classify/1): for a pairing that
@@ -683,19 +722,24 @@ Rivals(pr, sc) ==
          ELSE {}
 
 \* D4: weaker evidence never merges. The pair gets a succession_review decision, naming its
-\* rivals, which opens a de-duplication task: a MAC only, a MAC linking the predecessor to another
-\* current record, a pairing that is not one-to-one, or, without a MAC, agreement on both the
-\* hostname and the first-seen time (a first-seen time names the device in the model, FsOf). A
-\* hostname alone, without a MAC, records nothing. Distinct agents rule the pair out, as for a
-\* succession.
-Review(pr, sc) ==
+\* rivals, which opens a de-duplication task: a MAC without first-seen agreement, whatever the
+\* hostnames (mac_only, or overlapping_hostname when they agree), a MAC linking the predecessor to
+\* another current record, a pairing that is not one-to-one, or, without a MAC, agreement on both
+\* the hostname and the first-seen time (a first-seen time names the device in the model, FsOf, so
+\* agreement on it implies agreement on the hostname). A hostname alone, without a MAC, records
+\* nothing. Distinct agents rule the pair out, as for a succession.
+ReviewDue(pr, sc) ==
     /\ Pred(pr) /\ Succ(sc)
     /\ MacEv(pr) \cap MacEv(sc) # {} \/ recFs[pr] \cap recFs[sc] # {}
     /\ ~Succession(pr, sc)
     /\ ~DistinctAgents(pr, sc)
+
+Review(pr, sc) ==
+    /\ ReviewDue(pr, sc)
     /\ LET d == {[kind |-> "succession_review", recs |-> {pr, sc} \cup Rivals(pr, sc)]} IN
        act' = [name |-> "Review", ids |-> {}, ip |-> NoIp, decisions |-> d, recorded |-> d,
                addressMerged |-> {}]
+    /\ byName' = FALSE
     /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf,
                    absence, archive, recFs, idSeen, seenWith>>
 
@@ -749,12 +793,18 @@ AddressNeverMerges == [][act'.addressMerged = {}]_vars
 \* An address follows the device observed at it: after an identity-bearing observation lands,
 \* the record it landed on holds the observed address. A census carries no identity-bearing time
 \* of its own, so after one the address may instead stay with a holder whose identity was
-\* observed (D7).
+\* observed (D7). An agent check-in may instead leave the record it landed on with the primary
+\* address it already held, which another source recorded and still sights
+\* (fix-device-attribute-source-precedence, decision 14).
 ObservedAddressHeld ==
     [][(act'.name \in {"Armis", "Arp", "Agent"} /\ act'.ids # {}) =>
-         \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
-                         /\ \/ act'.ids \cap HeldIn(owner', r, Ids) # {}
-                            \/ act'.name = "Arp" /\ idSeen'[r]]_vars
+         \/ \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
+                            /\ \/ act'.ids \cap HeldIn(owner', r, Ids) # {}
+                               \/ act'.name = "Arp" /\ idSeen'[r]
+         \/ act'.name = "Agent"
+            /\ \E r \in Recs : /\ created'[r] /\ into'[r] = NoRec
+                               /\ act'.ids \cap HeldIn(owner', r, Ids) # {}
+                               /\ recIp'[r] # NoIp /\ recIp'[r] = recIp[r]]_vars
 
 \* IP Alias Resolution; IP Alias Sightings and Promotion: after a source sync observes a device at
 \* an address, every identified record keeping a confirmed alias of the address describes that
@@ -816,6 +866,17 @@ SuccessionIsCorroborated ==
     [][act'.name = "Succession" =>
          \A r \in Recs : into[r] = NoRec /\ into'[r] # NoRec =>
            \E pr, sc \in {r, into'[r]} : pr # sc /\ Successive(pr, sc, TRUE)]_vars
+
+\* Hostname Agreement Is Not Identity: no succession merge, adoption or reactivation rested on a
+\* hostname.
+NoIdentityByName == ~byName
+
+\* Corroborated Source Identifier Succession: a device re-keyed to an id carrying a new first-seen
+\* time is described by separate records, the old one holding only the retired id and the new one
+\* the current id, and at rest a review naming them is due (ReviewDue) rather than a merge.
+NewFirstSeenReviewed ==
+    AtRest => \A pr, sc \in Recs :
+                (Pred(pr) /\ Succ(sc) /\ phys[pr] \cap phys[sc] # {}) => ReviewDue(pr, sc)
 
 \* No live record holds neither an identifier nor an address. A record holding only retired ids is
 \* marked source_retired by its retirement and deleted after the grace period (D5, modeled in

@@ -2,12 +2,10 @@
 set -euo pipefail
 
 agent_postinstall="$1"
-rperf_postinstall="$2"
-rperf_checker_postinstall="$3"
-nats_postinstall="$4"
-agent_launcher="$5"
+nats_postinstall="$2"
+agent_launcher="$3"
 
-agent_spec="$6"
+agent_spec="$4"
 
 test_root="${TEST_TMPDIR:-/tmp}/agent_seed_test_$$"
 trap 'chmod -R u+w "$test_root" 2>/dev/null || true; rm -rf "$test_root"' EXIT
@@ -185,18 +183,16 @@ status=$?
 set -e
 [[ "$status" == 78 ]]
 
-for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_postinstall" "$nats_postinstall" "$agent_spec"; do
+for installer in "$agent_postinstall" "$nats_postinstall" "$agent_spec"; do
     for link in none agent agent/tmp agent/versions agent/versions/seed-installed; do
         if [[ "$installer" != "$agent_postinstall" && "$installer" != "$agent_spec" && "$link" != none ]]; then
             continue
         fi
         prepare_fixture
-        mkdir -p "$test_root/bin" "$test_root/etc/serviceradar/rperf" "$test_root/etc/serviceradar/checkers" \
+        mkdir -p "$test_root/bin" "$test_root/etc/serviceradar/checkers" \
             "$test_root/var/lib/serviceradar/agent/tmp" "$test_root/var/lib/serviceradar/agent/versions/seed-installed" \
             "$test_root/var/lib/serviceradar/protected" "$test_root/usr/local/bin"
-        for file in usr/local/bin/serviceradar-agent usr/local/bin/serviceradar-agent-updater \
-            usr/local/bin/serviceradar-rperf usr/local/bin/serviceradar-rperf-checker \
-            etc/serviceradar/rperf/rperf.conf etc/serviceradar/checkers/rperf.json; do
+        for file in usr/local/bin/serviceradar-agent usr/local/bin/serviceradar-agent-updater; do
             touch "$test_root/$file"
         done
         sentinel="$test_root/var/lib/serviceradar/protected"
@@ -236,12 +232,15 @@ for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_posti
             cp "$installer" "$test_root/body"
         fi
         sed -e "s|/var/lib/serviceradar|$test_root/var/lib/serviceradar|g" \
+            -e "s|/var/lib/nats|$test_root/var/lib/nats|g" \
+            -e "s|/var/log/nats|$test_root/var/log/nats|g" \
             -e "s|/etc/serviceradar|$test_root/etc/serviceradar|g" \
             -e "s|/usr/local/bin/|$test_root/usr/local/bin/|g" \
             -e "s|/usr/lib/serviceradar|$test_root/usr/lib/serviceradar|g" \
             -e "s|/etc/nats|$test_root/etc/nats|g" \
             -e "s|/lib/systemd/system|$test_root/lib/systemd/system|g" \
             -e "s|serviceradar:serviceradar|$service_owner|g" \
+            -e "s|nats:serviceradar|$runner_owner|g" \
             -e "s|root:serviceradar|$runner_owner|g" \
             -e "s|root:root|$runner_owner|g" \
             "$test_root/body" > "$test_root/installer"

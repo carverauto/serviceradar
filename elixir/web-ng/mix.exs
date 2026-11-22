@@ -30,13 +30,6 @@ defmodule ServiceRadarWebNG.MixProject do
       # removal criteria for each advisory.
       hex: [
         ignore_advisories: [
-          "GHSA-4g2h-vm7x-747c",
-          # No incoming SAML decompression; see .deps_audit_ignore.
-          "EEF-CVE-2026-93471",
-          # No esaml status-code decoding or logout endpoint; see .deps_audit_ignore.
-          "EEF-CVE-2026-86696",
-          # Response names pass an atom-safe allowlist before xmerl; see .deps_audit_ignore.
-          "EEF-CVE-2026-105270",
           "EEF-CVE-2026-95105"
         ]
       ]
@@ -133,6 +126,8 @@ defmodule ServiceRadarWebNG.MixProject do
       {:usage_rules, "~> 1.2.8", only: [:dev], runtime: false},
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
+      # Reads local recording copies from NVR read listeners (timeline playback).
+      {:serviceradar_nvr_client, path: "../serviceradar_nvr_client"},
       {:gnat, "~> 1.15"},
       {:connection, path: "../../third_party/hex_vendored/connection", override: true},
 
@@ -193,15 +188,9 @@ defmodule ServiceRadarWebNG.MixProject do
       # Guardian - JWT token management (replacing AshAuthentication tokens)
       {:guardian, "~> 2.3"},
 
-      # Ueberauth - OAuth2/OIDC/SAML authentication strategies
+      # Ueberauth - OAuth2/OIDC authentication strategies
       {:ueberauth, "~> 0.10"},
       {:ueberauth_oidcc, "~> 0.4"},
-
-      # SAML 2.0 Service Provider. The SP flow is our own
-      # (ServiceRadarWebNGWeb.SAMLController); these supply XML signature
-      # verification (:xmerl_dsig) and XPath extraction.
-      {:esaml, "~> 4.6"},
-      {:sweet_xml, "~> 0.7.5"},
 
       # Note: ash_admin comes from serviceradar_core dependency
 
@@ -261,13 +250,15 @@ defmodule ServiceRadarWebNG.MixProject do
       "assets.build": [
         "compile",
         "cmd --cd assets bun run build:css",
-        "cmd --cd assets env NODE_PATH=#{dev_node_path} bun run build:js"
+        "cmd --cd assets env NODE_PATH=#{dev_node_path} bun run build:js",
+        "cmd --cd assets node rum_bundle.mjs ../priv/static/assets/rum/boomerang-sr.min.js"
       ],
       "assets.deploy": [
         "cmd --cd assets bun install",
         "cmd --cd assets/component bun install --frozen-lockfile",
         "cmd --cd assets bun run build:css:minify",
         "cmd --cd assets env NODE_PATH=#{prod_node_path} bun run build:js:minify",
+        "cmd --cd assets node rum_bundle.mjs ../priv/static/assets/rum/boomerang-sr.min.js",
         "phx.react.bun.bundle --component-base=assets/component/src --output=#{bundle_output} --cd=#{bundle_cd}",
         "phx.digest"
       ],

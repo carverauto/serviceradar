@@ -1,7 +1,9 @@
 //! Configuration types and CLI/environment parsing for `serviceradar-media-worker`.
 
+use crate::backend::{InferenceBackendKind, InferenceDevicePreference, InferencePrecision};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
+use crate::tracking::TrackerMode;
 use clap::Parser;
 use core::fmt::{self, Display, Formatter};
 use core::str::FromStr;
@@ -9,10 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-/// Supported execution providers (`design.md` Section 1.3).
+/// Execution provider configuration (`design.md` Section 1.3).
 ///
-/// When `TensorRt` or `Cuda` is selected, startup capability verification MUST
-/// confirm hardware and runtime availability and NEVER silently fall back to CPU.
+/// `Cuda` requires verified GPU hardware and runtime availability with zero
+/// silent CPU fallback. `Tensorrt` is parsed so startup admission fails closed
+/// rather than falling back to CPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionProvider {
@@ -50,7 +53,7 @@ impl FromStr for ExecutionProvider {
             "cuda" => Ok(Self::Cuda),
             "cpu_explicit" => Ok(Self::CpuExplicit),
             other => Err(CapabilityError::invalid_configuration(format!(
-                "unsupported execution_provider '{other}'; expected 'tensorrt', 'cuda', or 'cpu_explicit'"
+                "unsupported execution_provider '{other}'; expected 'cuda' or 'cpu_explicit'"
             ))),
         }
     }
@@ -108,6 +111,12 @@ impl FromStr for GpuSharingMode {
         }
     }
 }
+
+/// Default NATS inbox prefix for the worker's own request replies, pull
+/// deliveries and publish acknowledgements. A dedicated prefix lets the broker
+/// grant the worker `_INBOX.media-worker.>` instead of the account-wide
+/// `_INBOX.>`, which also carries other services' JetStream deliveries.
+pub const DEFAULT_NATS_INBOX_PREFIX: &str = "_INBOX.media-worker";
 
 /// Pinned model identity and SHA-256 artifact configuration (`2.2`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,6 +266,10 @@ impl ModelPinConfig {
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     listen_addr: SocketAddr,
+    backend_kind: InferenceBackendKind,
+    model_dir: Option<PathBuf>,
+    device_preference: InferenceDevicePreference,
+    precision: InferencePrecision,
     execution_provider: ExecutionProvider,
     declared_gpu_sharing_mode: Option<GpuSharingMode>,
     min_gpu_vram_mb: u64,
@@ -264,6 +277,8 @@ pub struct WorkerConfig {
     index_concurrency: usize,
     text_embed_concurrency: usize,
     skip_unchanged_empty_scenes: bool,
+    tracker_mode: TrackerMode,
+    dedup_track_crops: bool,
     models: ModelPinConfig,
     control_plane_url: String,
     worker_auth: Option<WorkerAuthCredentials>,
@@ -276,6 +291,7 @@ pub struct WorkerConfig {
     nats_tls_key_file: Option<PathBuf>,
     nats_cert_policy_file: Option<PathBuf>,
     nats_domain: Option<String>,
+    nats_inbox_prefix: String,
     jobs_stream_name: String,
     results_stream_name: String,
     consumer_name: String,
@@ -286,6 +302,10 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 8096)),
+            backend_kind: InferenceBackendKind::Candle,
+            model_dir: None,
+            device_preference: InferenceDevicePreference::Auto,
+            precision: InferencePrecision::Auto,
             execution_provider: ExecutionProvider::Cuda,
             declared_gpu_sharing_mode: None,
             min_gpu_vram_mb: 1024,
@@ -293,6 +313,8 @@ impl Default for WorkerConfig {
             index_concurrency: 2,
             text_embed_concurrency: 4,
             skip_unchanged_empty_scenes: true,
+            tracker_mode: TrackerMode::ByteTrack,
+            dedup_track_crops: true,
             models: ModelPinConfig::default(),
             control_plane_url: "http://serviceradar-web-ng:4001".to_string(),
             worker_auth: None,
@@ -305,6 +327,7 @@ impl Default for WorkerConfig {
             nats_tls_key_file: None,
             nats_cert_policy_file: None,
             nats_domain: None,
+            nats_inbox_prefix: DEFAULT_NATS_INBOX_PREFIX.to_string(),
             jobs_stream_name: "CAMERA_MEDIA_JOBS".to_string(),
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
@@ -325,6 +348,21 @@ impl WorkerConfig {
 
     pub fn with_listen_addr(mut self, addr: SocketAddr) -> Self {
         self.listen_addr = addr;
+        self
+    }
+
+    pub fn with_backend_kind(mut self, kind: InferenceBackendKind) -> Self {
+        self.backend_kind = kind;
+        self
+    }
+
+    pub fn with_model_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.model_dir = dir;
+        self
+    }
+
+    pub fn with_device_preference(mut self, pref: InferenceDevicePreference) -> Self {
+        self.device_preference = pref;
         self
     }
 
@@ -356,6 +394,16 @@ impl WorkerConfig {
 
     pub fn with_skip_unchanged_empty_scenes(mut self, skip: bool) -> Self {
         self.skip_unchanged_empty_scenes = skip;
+        self
+    }
+
+    pub fn with_tracker_mode(mut self, mode: TrackerMode) -> Self {
+        self.tracker_mode = mode;
+        self
+    }
+
+    pub fn with_dedup_track_crops(mut self, dedup: bool) -> Self {
+        self.dedup_track_crops = dedup;
         self
     }
 
@@ -394,6 +442,22 @@ impl WorkerConfig {
         self.listen_addr
     }
 
+    pub fn backend_kind(&self) -> InferenceBackendKind {
+        self.backend_kind
+    }
+
+    pub fn model_dir(&self) -> Option<&Path> {
+        self.model_dir.as_deref()
+    }
+
+    pub fn device_preference(&self) -> InferenceDevicePreference {
+        self.device_preference
+    }
+
+    pub fn precision(&self) -> InferencePrecision {
+        self.precision
+    }
+
     pub fn execution_provider(&self) -> ExecutionProvider {
         self.execution_provider
     }
@@ -420,6 +484,14 @@ impl WorkerConfig {
 
     pub fn skip_unchanged_empty_scenes(&self) -> bool {
         self.skip_unchanged_empty_scenes
+    }
+
+    pub fn tracker_mode(&self) -> TrackerMode {
+        self.tracker_mode
+    }
+
+    pub fn dedup_track_crops(&self) -> bool {
+        self.dedup_track_crops
     }
 
     pub fn models(&self) -> &ModelPinConfig {
@@ -470,6 +542,10 @@ impl WorkerConfig {
         self.nats_domain.as_deref()
     }
 
+    pub fn nats_inbox_prefix(&self) -> &str {
+        &self.nats_inbox_prefix
+    }
+
     pub fn jobs_stream_name(&self) -> &str {
         &self.jobs_stream_name
     }
@@ -497,6 +573,19 @@ pub struct CliArgs {
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_PORT", default_value_t = 8096)]
     port: u16,
+
+    #[arg(long, env = "MEDIA_WORKER_BACKEND", default_value = "candle")]
+    backend: InferenceBackendKind,
+
+    #[arg(long, env = "MEDIA_WORKER_MODEL_DIR")]
+    model_dir: Option<PathBuf>,
+
+    #[arg(long, env = "MEDIA_WORKER_DEVICE", default_value = "auto")]
+    device: String,
+
+    /// SigLIP compute precision: `auto` (f16 on CUDA, f32 on CPU), `f32`, or `f16`.
+    #[arg(long, env = "MEDIA_WORKER_DTYPE", default_value = "auto")]
+    dtype: String,
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER")]
     execution_provider: Option<String>,
@@ -533,6 +622,17 @@ pub struct CliArgs {
         default_value_t = true
     )]
     skip_unchanged_empty_scenes: bool,
+
+    #[arg(long, env = "MEDIA_WORKER_TRACKER", default_value = "bytetrack")]
+    tracker: String,
+
+    #[arg(
+        long,
+        env = "MEDIA_WORKER_DEDUP_TRACK_CROPS",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    dedup_track_crops: bool,
 
     #[arg(
         long,
@@ -662,6 +762,13 @@ pub struct CliArgs {
 
     #[arg(
         long,
+        env = "SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX",
+        default_value = DEFAULT_NATS_INBOX_PREFIX
+    )]
+    nats_inbox_prefix: String,
+
+    #[arg(
+        long,
         env = "SERVICERADAR_MEDIA_WORKER_OTEL_ENDPOINT",
         default_value = "http://serviceradar-otel:4317"
     )]
@@ -679,13 +786,19 @@ impl CliArgs {
             _ => SocketAddr::from(([0, 0, 0, 0], self.port)),
         };
 
+        let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let precision = InferencePrecision::from_str(&self.dtype)?;
+        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
+
         let raw_provider = self
             .execution_provider
             .as_deref()
             .or(self.execution_backend.as_deref())
             .unwrap_or("cuda");
         let execution_provider = ExecutionProvider::from_str(raw_provider)?;
+        device_preference.validate_provider(execution_provider.requires_gpu())?;
 
+        let model_dir = non_empty_path(self.model_dir);
         let declared_gpu_sharing_mode = match self
             .gpu_sharing_mode
             .as_deref()
@@ -716,6 +829,8 @@ impl CliArgs {
         models.set_text_path(non_empty_path(self.text_path));
         models.set_text_sha256(non_empty_opt(self.text_sha256));
 
+        let nats_inbox_prefix = validate_nats_inbox_prefix(&self.nats_inbox_prefix)?;
+
         let token =
             non_empty_opt(self.auth_token).or_else(|| non_empty_opt(self.fallback_auth_token));
         let dep_ref = non_empty_opt(self.deployment_ref)
@@ -727,6 +842,10 @@ impl CliArgs {
 
         Ok(WorkerConfig {
             listen_addr,
+            backend_kind: self.backend,
+            model_dir,
+            device_preference,
+            precision,
             execution_provider,
             declared_gpu_sharing_mode,
             min_gpu_vram_mb: self.min_gpu_vram_mb,
@@ -734,6 +853,8 @@ impl CliArgs {
             index_concurrency,
             text_embed_concurrency: self.text_embed_concurrency,
             skip_unchanged_empty_scenes: self.skip_unchanged_empty_scenes,
+            tracker_mode,
+            dedup_track_crops: self.dedup_track_crops,
             models,
             control_plane_url: self.control_plane_url,
             worker_auth,
@@ -746,11 +867,32 @@ impl CliArgs {
             nats_tls_key_file: non_empty_path(self.nats_tls_key_file),
             nats_cert_policy_file: non_empty_path(self.nats_cert_policy_file),
             nats_domain: non_empty_opt(self.nats_domain),
+            nats_inbox_prefix,
             jobs_stream_name: "CAMERA_MEDIA_JOBS".to_string(),
             results_stream_name: "CAMERA_MEDIA_RESULTS".to_string(),
             consumer_name: "camera_visual_index_worker_v1".to_string(),
             otel_endpoint: self.otel_endpoint,
         })
+    }
+}
+
+/// A literal NATS subject prefix: dot-separated, non-empty tokens with no
+/// wildcards or whitespace, taken as given (no trimming), since it must match the
+/// broker's ACL byte for byte. The client appends `.<id>` to it for every inbox.
+fn validate_nats_inbox_prefix(prefix: &str) -> Result<String, CapabilityError> {
+    let valid = !prefix.is_empty()
+        && prefix.split('.').all(|token| {
+            !token.is_empty()
+                && !token
+                    .chars()
+                    .any(|c| c == '*' || c == '>' || c.is_whitespace())
+        });
+    if valid {
+        Ok(prefix.to_string())
+    } else {
+        Err(CapabilityError::invalid_configuration(format!(
+            "invalid nats_inbox_prefix '{prefix}': expected dot-separated subject tokens without wildcards or whitespace"
+        )))
     }
 }
 
@@ -760,4 +902,47 @@ fn non_empty_opt(val: Option<String>) -> Option<String> {
 
 fn non_empty_path(path: Option<PathBuf>) -> Option<PathBuf> {
     path.filter(|p| !p.as_os_str().is_empty())
+}
+
+#[cfg(test)]
+mod nats_inbox_prefix_tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<WorkerConfig, CapabilityError> {
+        let mut argv = vec!["serviceradar-media-worker"];
+        argv.extend_from_slice(args);
+        CliArgs::try_parse_from(argv)
+            .expect("arguments parse")
+            .into_worker_config()
+    }
+
+    #[test]
+    fn defaults_to_the_dedicated_worker_inbox_prefix() {
+        let config = parse(&[]).expect("default config");
+        assert_eq!(config.nats_inbox_prefix(), "_INBOX.media-worker");
+    }
+
+    #[test]
+    fn accepts_an_operator_prefix() {
+        let config = parse(&["--nats-inbox-prefix", "_INBOX.site-a-worker"]).expect("config");
+        assert_eq!(config.nats_inbox_prefix(), "_INBOX.site-a-worker");
+    }
+
+    #[test]
+    fn rejects_prefixes_that_are_not_literal_subjects() {
+        for prefix in [
+            "",
+            "_INBOX.>",
+            "_INBOX.*.worker",
+            "_INBOX..worker",
+            "_INBOX.",
+            "_INBOX.a b",
+            " _INBOX.media-worker ",
+        ] {
+            assert!(
+                parse(&["--nats-inbox-prefix", prefix]).is_err(),
+                "prefix {prefix:?} was accepted"
+            );
+        }
+    }
 }

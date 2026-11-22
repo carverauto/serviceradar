@@ -5,11 +5,8 @@
   `RBAC.has_permission?/3` takes a permission string and no resource, and no
   call site passes one. `devices.update` therefore means **every device or
   none**.
-- Teams that own a subset of the fleet cannot be given write access to only
-  their own devices. The concrete driver is the RIDS fleet (~420 airport
-  display devices owned by one team), but the shape is general: any customer
-  with per-site or per-team operational ownership hits the same wall.
-- Today the only way to let that team retag or update its own displays is to
+- A team responsible for a subset of devices needs write access to those devices.
+- Today the only way to let that team retag or update its own devices is to
   grant `devices.update` fleet-wide, which also lets them edit every other
   device in inventory.
 

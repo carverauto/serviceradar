@@ -101,6 +101,8 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.OtelTraceSummary
     # Control-plane catalog of OTel services; schema owned by this resource.
     resource ServiceRadar.Observability.OtelServiceCatalogEntry
+    # Boomerang RUM beacons hypertable (migrate?: false)
+    resource ServiceRadar.Observability.RumBeacon
   end
 
   authorization do

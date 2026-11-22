@@ -1,16 +1,28 @@
 defmodule ServiceRadar.NATS.ManagedCertificateConfiguration do
   @moduledoc """
-  Explicit, deployment-owned bootstrap of the NATS certificate authorizer.
+  The signing keys of the NATS certificate authorizer.
 
-  The requested account must equal the deployment account. The returned
-  projection contains only public NKEYs. Operators install those in the broker
-  configuration; signing seeds remain encrypted in CNPG. Creating the record
-  does not claim the broker has applied it or enforcement is ready.
+  On a chart install with certificate authorization on, the three seeds are
+  mounted from the issuer Secret (`:nats_callout_seeds_dir`), and the broker is
+  configured with their public keys from the same provisioning. The mounted
+  seeds are then the only keys the broker accepts, so they are used and a
+  record stored here is ignored. A mount with a seed missing or unreadable is
+  `{:error, :signing_keys_not_provisioned}`; it never falls back to a stored
+  record, which the broker would not accept.
+
+  Without a mount, the keys are the record `bootstrap/2` stores: an explicit,
+  deployment-owned step for installs with no chart. The requested account must
+  equal the deployment account, the returned projection contains only public
+  NKEYs, and signing seeds remain encrypted in CNPG. Creating the record does
+  not claim the broker has applied it or enforcement is ready.
   """
+  alias NKEYS.Keypair
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ManagedCertificateNatsConfig
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.NATS.CertificateAuthorizationToken
+
+  require Logger
 
   @public_fields [:auth_mode, :account_name, :issuer_nkey, :auth_nkey, :system_nkey]
   @account_name ~r/\A[A-Za-z0-9_-]+\z/
@@ -54,7 +66,110 @@ defmodule ServiceRadar.NATS.ManagedCertificateConfiguration do
     Ash.read_one(ManagedCertificateNatsConfig, actor: system_actor())
   end
 
+  @seed_files [
+    issuer: "nats-callout-issuer.seed",
+    auth: "nats-callout-auth.seed",
+    system: "nats-callout-system.seed"
+  ]
+
+  @doc "The directory the chart mounts the signing seeds in, or nil."
+  def mounted_seeds_dir do
+    case Application.get_env(:serviceradar, :nats_callout_seeds_dir) do
+      dir when is_binary(dir) and dir != "" -> dir
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Checks whether the three chart-mounted signing seeds are present and valid.
+
+  Returns `:not_configured` when `:nats_callout_seeds_dir` is unset, `:ok` when
+  all three seeds parse, or `{:error, :signing_keys_not_provisioned}` when any
+  seed is missing or unreadable. Does not touch the database or NATS.
+  """
+  @spec mounted_seeds_status() :: :not_configured | :ok | {:error, :signing_keys_not_provisioned}
+  def mounted_seeds_status do
+    case mounted_seeds_dir() do
+      nil ->
+        :not_configured
+
+      dir ->
+        with {:ok, _} <- mounted_key(dir, :issuer),
+             {:ok, _} <- mounted_key(dir, :auth),
+             {:ok, _} <- mounted_key(dir, :system) do
+          :ok
+        else
+          _ -> {:error, :signing_keys_not_provisioned}
+        end
+    end
+  end
+
   def credentials do
+    case mounted_seeds_dir() do
+      nil -> stored_credentials()
+      dir -> mounted_credentials(dir)
+    end
+  end
+
+  defp mounted_credentials(dir) do
+    with account when is_binary(account) <- deployment_account(),
+         {:ok, issuer} <- mounted_key(dir, :issuer),
+         {:ok, auth} <- mounted_key(dir, :auth),
+         {:ok, system} <- mounted_key(dir, :system) do
+      note_unused_stored_record()
+
+      {:ok,
+       %{
+         auth_mode: "static_mtls",
+         account_name: account,
+         issuer_nkey: issuer.public_key,
+         issuer_seed: issuer.seed,
+         auth_nkey: auth.public_key,
+         auth_seed: auth.seed,
+         system_nkey: system.public_key,
+         system_seed: system.seed
+       }}
+    else
+      nil -> {:error, :nats_account_unconfigured}
+      :error -> {:error, :signing_keys_not_provisioned}
+    end
+  end
+
+  defp mounted_key(dir, name) do
+    with {:ok, contents} <- File.read(Path.join(dir, Keyword.fetch!(@seed_files, name))),
+         seed = String.trim(contents),
+         {:ok, key} <- Keypair.from_seed(seed) do
+      {:ok, %{seed: seed, public_key: Keypair.public_key(key)}}
+    else
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  # Said once per node: the record is harmless, and an operator who bootstrapped
+  # through the API before the chart provisioned keys should know it is unused.
+  defp note_unused_stored_record do
+    if :persistent_term.get({__MODULE__, :stored_record_noted}, false) == false do
+      :persistent_term.put({__MODULE__, :stored_record_noted}, true)
+
+      case read() do
+        {:ok, %ManagedCertificateNatsConfig{}} ->
+          Logger.info(
+            "The stored NATS certificate authorization signing record is unused: the mounted signing seeds are in effect"
+          )
+
+        _ ->
+          :ok
+      end
+    end
+  rescue
+    _ -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp stored_credentials do
     case read() do
       {:ok, %ManagedCertificateNatsConfig{} = config} ->
         Ash.load(config, [:issuer_seed, :auth_seed, :system_seed], actor: system_actor())

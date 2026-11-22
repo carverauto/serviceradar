@@ -860,6 +860,58 @@ write_source_files(
     },
 )
 
+ash_schema(
+    name = "solution_packs_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_solution_packs/repository.json",
+        "generated_solution_packs/installed_pack.json",
+        "generated_solution_packs/binding.json",
+        "generated_solution_packs/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "test/db/solution_packs_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_solution_packs_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.catalog_repositories/20261118193000.json": ":generated_solution_packs/repository.json",
+        "priv/resource_snapshots/repo/platform.installed_solution_packs/20261118193000.json": ":generated_solution_packs/installed_pack.json",
+        "priv/resource_snapshots/repo/platform.installed_solution_pack_credential_bindings/20261118193000.json": ":generated_solution_packs/binding.json",
+        "priv/repo/migrations/20261118193000_add_solution_packs_and_catalog_repositories.exs": ":generated_solution_packs/migration.exs",
+    },
+)
+
+ash_schema(
+    name = "netperf_schema",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_netperf/profile.json",
+        "generated_netperf/responder.json",
+        "generated_netperf/policy.json",
+        "generated_netperf/policy_responder.json",
+        "generated_netperf/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:netperf_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_netperf_schema",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.netperf_profiles/20261118025710.json": ":generated_netperf/profile.json",
+        "priv/resource_snapshots/repo/platform.netperf_responders/20261118025710.json": ":generated_netperf/responder.json",
+        "priv/resource_snapshots/repo/platform.netperf_policies/20261118025710.json": ":generated_netperf/policy.json",
+        "priv/resource_snapshots/repo/platform.netperf_policy_responders/20261118025710.json": ":generated_netperf/policy_responder.json",
+        "priv/repo/migrations/20261118025710_add_netperf_monitoring_resources.exs": ":generated_netperf/migration.exs",
+    },
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
@@ -1016,6 +1068,7 @@ _TEST_RUNTIME_DATA = glob(
     "//go/cmd/wasm-plugins/axis:srcs",
     "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/http-synthetic-journey:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",
@@ -1092,6 +1145,7 @@ INTEGRATION_SELECTION_DATA = glob(
     "//go/cmd/wasm-plugins/axis:srcs",
     "//go/cmd/wasm-plugins/declarative-check-runner:srcs",
     "//go/cmd/wasm-plugins/dusk-checker:srcs",
+    "//go/cmd/wasm-plugins/http-synthetic-journey:srcs",
     "//go/cmd/wasm-plugins/netbox:srcs",
     "//go/cmd/wasm-plugins/opentext-nom:srcs",
     "//go/cmd/wasm-plugins/proxmox:srcs",
@@ -1211,6 +1265,14 @@ filegroup(
     ),
 )
 
+# The camera model identity core compiles in, read as source by
+# //helm/serviceradar:media_worker_model_identity_test so the chart's media worker
+# cannot announce a different one.
+filegroup(
+    name = "camera_model_identity_src",
+    srcs = ["lib/serviceradar/camera/visual_index_dispatcher.ex"],
+)
+
 # Schema-template identity inputs. Keep these separate from the migration execution
 # target: adding the manifest must not change which database any consumer uses.
 filegroup(
@@ -1321,6 +1383,7 @@ CORE_NATIVE_LIBS = {
 }
 
 CORE_DEPS = [
+    "//elixir/palisade:erlang_app",
     "//elixir/serviceradar_recording_control:erlang_app",
     "//elixir/serviceradar_recording_metadata:erlang_app",
     "//third_party/hex_vendored/connection:erlang_app",

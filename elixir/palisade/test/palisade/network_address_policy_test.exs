@@ -93,4 +93,27 @@ defmodule Palisade.NetworkAddressPolicyTest do
                NetworkAddressPolicy.validate_public_host("::ffff:169.254.169.254")
     end
   end
+
+  describe "cidr_contains?/2 and ip_in_any_cidr?/2" do
+    test "match an address inside an IPv4 or IPv6 CIDR" do
+      assert NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "10.0.0.0/8")
+      assert NetworkAddressPolicy.cidr_contains?({192, 168, 1, 10}, "192.168.0.0/16")
+      assert NetworkAddressPolicy.cidr_contains?({0xFD00, 0, 0, 0, 0, 0, 0, 1}, "fd00::/8")
+      assert NetworkAddressPolicy.cidr_contains?({8, 8, 8, 8}, "0.0.0.0/0")
+    end
+
+    test "do not match outside the CIDR, across address families, or for an invalid CIDR" do
+      refute NetworkAddressPolicy.cidr_contains?({8, 8, 8, 8}, "10.0.0.0/8")
+      refute NetworkAddressPolicy.cidr_contains?({11, 0, 0, 0}, "10.0.0.0/8")
+      refute NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "fd00::/8")
+      refute NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "invalid")
+      refute NetworkAddressPolicy.cidr_contains?({10, 1, 2, 3}, "10.0.0.0/33")
+    end
+
+    test "match when any CIDR in the list contains the address" do
+      assert NetworkAddressPolicy.ip_in_any_cidr?({10, 0, 0, 4}, ["192.168.0.0/16", "10.0.0.0/8"])
+      refute NetworkAddressPolicy.ip_in_any_cidr?({8, 8, 8, 8}, ["192.168.0.0/16", "10.0.0.0/8"])
+      refute NetworkAddressPolicy.ip_in_any_cidr?({8, 8, 8, 8}, [])
+    end
+  end
 end

@@ -189,7 +189,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       {:skip, reason} ->
@@ -203,7 +202,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, reason} ->
         {:error, reason}
 
-      :ok ->
+      ready ->
         start_time = System.monotonic_time(:millisecond)
 
         results
@@ -226,6 +225,33 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           marker_chunk_indexes: marker_chunk_indexes,
           reporter_context: reporter_context
         )
+        |> supersede_after_ingest(ready, reporter_context, execution_id, actor, repo)
+    end
+  end
+
+  # Superseding locks the group's older running executions, and recording the run locks the
+  # sweep group row. Both run last, after the device rows, the inventory rollup lock and this
+  # execution's own row, because a late batch of an older execution takes those in that order
+  # and only then locks its execution row and, when it completes the run, the group row.
+  # Taking either earlier, while creating this execution, closes a wait cycle with that batch.
+  # An error inside a transaction leaves it aborted, so nothing more may run against it.
+  defp supersede_after_ingest(result, :ok, _reporter_context, _execution_id, _actor, _repo),
+    do: result
+
+  defp supersede_after_ingest(
+         result,
+         {:created, started_at, insert},
+         reporter_context,
+         execution_id,
+         actor,
+         repo
+       ) do
+    if match?({:error, _}, result) and repo.in_transaction?() do
+      result
+    else
+      maybe_mark_superseded_executions(reporter_context, execution_id, started_at)
+      if insert == :inserted, do: record_group_execution(reporter_context, actor)
+      result
     end
   end
 
@@ -463,7 +489,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     case ensure_execution_exists(
@@ -471,11 +496,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            reporter_context,
            config_version,
            expected_total_hosts,
-           actor,
            repo
          ) do
       :ok ->
         :ok
+
+      {:created, _started_at, _insert} = created ->
+        created
 
       {:error, :missing_sweep_group_id} ->
         Logger.warning(
@@ -527,21 +554,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         partition: partition
       )
 
-    unknown_ips = ips -- Map.keys(device_map)
-
-    detected_device_map =
-      unknown_ips
-      |> DeviceLookup.lookup_detected_aliases_by_ip(
-        actor: actor,
-        include_deleted: true,
-        partition: partition
-      )
-      |> Map.new(fn {ip, {record, _alias}} -> {ip, record} end)
-
     {created_device_map, _seed_uid_collisions} =
       create_available_unknown_devices(
         results,
-        unknown_ips -- Map.keys(detected_device_map),
+        ips -- Map.keys(device_map),
         reporter_context.group,
         actor,
         partition,
@@ -550,9 +566,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     all_devices =
       device_map
-      |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
-      |> Map.drop(stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map)))
+      |> Map.drop(stale_alias_failure_ips(results, device_map))
 
     _accepted =
       upsert_agent_availability(
@@ -696,43 +711,29 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
     partition = sweep_group_partition(reporter_context.group)
 
-    # Step 2: Batch lookup existing devices by IP in this sweep group's partition.
-    # Isolation and monitoring copies of the same address must not share status.
-    device_map =
-      DeviceLookup.batch_lookup_by_ip(ips,
+    # Step 2: Resolve each address to the device it is attributed to, in this sweep group's
+    # partition (isolation and monitoring copies of one address must not share status). A
+    # live holder wins over a soft-deleted one; see DeviceLookup.batch_resolve_by_ip/2.
+    resolved =
+      DeviceLookup.batch_resolve_by_ip(ips,
         actor: actor,
         include_deleted: true,
         use_cache: false,
         partition: partition
       )
 
-    # Step 3: Find IPs without existing devices
+    device_map = Map.new(resolved, fn {ip, {record, _detected_alias}} -> {ip, record} end)
     known_ips = Map.keys(device_map)
-    unknown_ips = ips -- known_ips
 
-    # Step 4: Check detected aliases for unknown IPs (fallback before skipping)
-    detected_alias_map =
-      DeviceLookup.lookup_detected_aliases_by_ip(unknown_ips,
-        actor: actor,
-        include_deleted: true,
-        partition: partition
-      )
-
-    detected_ips = Map.keys(detected_alias_map)
-
-    # Step 4a: Extract device records from detected aliases
-    detected_device_map =
-      Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
-
-    # Step 4b: Unanswered probes of an alias the device has most likely left are not the
+    # Step 3: Unanswered probes of an alias the device has most likely left are not the
     # device's (AliasRecency). Read before any alias below is confirmed.
-    stale_failure_ips =
-      stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map))
+    stale_failure_ips = stale_alias_failure_ips(results, device_map)
 
-    # Step 4c: Confirm detected aliases only for a resolved authenticated reporter.
+    # Step 4: Confirm the detected aliases that resolved an answering address, only for a
+    # resolved authenticated reporter.
     aliases_confirmed =
       maybe_confirm_detected_aliases(
-        detected_alias_map,
+        answered_detected_aliases(results, resolved),
         execution_id,
         reporter_context,
         actor
@@ -741,36 +742,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {created_device_map, seed_uid_collisions} =
       create_available_unknown_devices(
         results,
-        unknown_ips -- detected_ips,
+        ips -- known_ips,
         reporter_context.group,
         actor,
         partition,
         track_collisions?: true,
-        resolved_ips: known_ips ++ detected_ips
+        resolved_ips: known_ips
       )
 
     # Step 5: Merge all device sources
     all_devices =
       device_map
-      |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
       |> Map.drop(stale_failure_ips)
 
-    # Step 7: Build host result records
+    # Step 6: Build host result records
     {host_results, stats} =
       build_host_results(results, execution_id, all_devices,
         agent_id: reporter_context.reporter_agent_id,
         sweep_group_id: reporter_context.resolved_group_id
       )
 
-    # Step 8: Bulk insert host results. Device availability is written once all batches
+    # Step 7: Bulk insert host results. Device availability is written once all batches
     # got here (process_batches/5), from the devices resolved for each.
     case bulk_insert_host_results(host_results) do
       :ok ->
         final_stats =
           stats
           |> Map.put(:devices_created, map_size(created_device_map))
-          |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
+          |> Map.put(:devices_updated, length(known_ips))
           |> Map.put(:aliases_confirmed, aliases_confirmed)
           |> Map.put(:seed_uid_collisions, seed_uid_collisions)
 
@@ -807,17 +807,28 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> MapSet.to_list()
   end
 
-  defp maybe_confirm_detected_aliases(detected_alias_map, execution_id, reporter_context, actor) do
+  # An unanswered probe is no sighting of the address, so it never confirms or refreshes a
+  # detected alias.
+  defp answered_detected_aliases(results, resolved) do
+    for result <- results,
+        result_available?(result),
+        ip = extract_ip(result),
+        {_record, %DeviceAliasState{} = alias_state} <- [Map.get(resolved, ip)],
+        into: %{},
+        do: {ip, alias_state}
+  end
+
+  defp maybe_confirm_detected_aliases(detected_aliases, execution_id, reporter_context, actor) do
     if expected_reporter?(reporter_context) do
-      confirm_detected_aliases(detected_alias_map, execution_id, actor)
-      map_size(detected_alias_map)
+      confirm_detected_aliases(detected_aliases, execution_id, actor)
+      map_size(detected_aliases)
     else
       0
     end
   end
 
-  defp confirm_detected_aliases(detected_alias_map, execution_id, actor) do
-    Enum.each(detected_alias_map, fn {ip, {_record, alias_state}} ->
+  defp confirm_detected_aliases(detected_aliases, execution_id, actor) do
+    Enum.each(detected_aliases, fn {ip, alias_state} ->
       metadata = %{"sweep_execution_id" => execution_id, "sweep_ip" => ip}
 
       case DeviceAliasState.confirm_from_sweep(alias_state, %{metadata: metadata},
@@ -871,6 +882,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     partition = sweep_group_partition(reporter_context.group)
 
+    # Full holder order, as process_batch/4 attributed the result: promotion dispatches
+    # mapper discovery by address and records a cooldown on the device; it does not
+    # create, merge or confirm an identity.
     device_map =
       DeviceLookup.batch_lookup_by_ip(ips,
         actor: actor,
@@ -3208,7 +3222,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     cond do
@@ -3243,7 +3256,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           reporter_context,
           config_version,
           expected_total_hosts,
-          actor,
           repo
         )
     end
@@ -3254,7 +3266,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          reporter_context,
          config_version,
          expected_total_hosts,
-         actor,
          repo
        ) do
     now = DateTime.utc_now()
@@ -3294,12 +3305,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
              winning_execution,
              reporter_context
            ) do
-      maybe_mark_superseded_executions(
-        reporter_context,
-        execution_id,
-        started_at
-      )
-
       case inserted_count do
         1 ->
           Logger.info(
@@ -3316,13 +3321,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           }
 
           NotificationQueue.after_commit(fn -> SweepPubSub.broadcast_started(execution) end)
-          record_group_execution(reporter_context, actor)
 
-          :ok
+          {:created, started_at, :inserted}
 
         0 ->
           Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
-          :ok
+          {:created, started_at, :existing}
       end
     end
   rescue

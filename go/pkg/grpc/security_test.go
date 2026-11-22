@@ -21,6 +21,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -436,4 +437,66 @@ func TestMTLSProviderStartupSelfHealFromComponentBundle(t *testing.T) {
 	provider2, err := NewMTLSProvider(cfg, createTestLogger(t))
 	require.NoError(t, err)
 	assert.Equal(t, int64(2002), provider2.ClientLeaf().SerialNumber.Int64())
+}
+
+func TestPeerMTLSProviderNormalizesRoleAndLeavesGatewayServerNameUnpinned(t *testing.T) {
+	tempDir := t.TempDir()
+	caCert, caKey, caPEM := generateTestCAPEM(t)
+	now := time.Now().UTC()
+
+	cert1PEM, key1PEM := generateTestLeafPEM(t, caCert, caKey, 3001, now.Add(-time.Hour), now.Add(2*time.Hour))
+	cert2PEM, key2PEM := generateTestLeafPEM(t, caCert, caKey, 3002, now.Add(-time.Minute), now.Add(4*time.Hour))
+
+	certPath := filepath.Join(tempDir, "component.pem")
+	keyPath := filepath.Join(tempDir, "component-key.pem")
+	caPath := filepath.Join(tempDir, "root.pem")
+
+	require.NoError(t, os.WriteFile(caPath, caPEM, 0o644))
+	require.NoError(t, os.WriteFile(certPath, cert1PEM, 0o644))
+	require.NoError(t, os.WriteFile(keyPath, key1PEM, 0o600))
+
+	cfg := &models.SecurityConfig{
+		Mode:       SecurityModeMTLS,
+		ServerName: "serviceradar-agent-gateway.example.invalid",
+		TLS: models.TLSConfig{
+			CertFile: certPath,
+			KeyFile:  keyPath,
+			CAFile:   caPath,
+		},
+	}
+
+	provider, err := NewPeerMTLSProvider(cfg, createTestLogger(t))
+	require.NoError(t, err)
+	defer func() { _ = provider.Close() }()
+
+	// Caller struct must not be mutated.
+	assert.Empty(t, cfg.Role)
+	assert.Equal(t, "serviceradar-agent-gateway.example.invalid", cfg.ServerName)
+
+	srvTLS, err := provider.PeerServerTLSConfig()
+	require.NoError(t, err)
+	assert.NotNil(t, srvTLS.ClientCAs)
+	assert.Equal(t, uint16(tls.VersionTLS13), srvTLS.MinVersion)
+
+	cliTLS, err := provider.PeerClientTLSConfig("agent-hub-01.default.serviceradar")
+	require.NoError(t, err)
+	assert.Equal(t, "agent-hub-01.default.serviceradar", cliTLS.ServerName)
+	assert.NotNil(t, cliTLS.RootCAs)
+
+	cliUnpinned, err := provider.PeerClientTLSConfig("")
+	require.NoError(t, err)
+	assert.Empty(t, cliUnpinned.ServerName)
+
+	// Hot-reload updates certificates seen through the peer callbacks.
+	require.NoError(t, os.WriteFile(keyPath, key2PEM, 0o600))
+	require.NoError(t, os.WriteFile(certPath, cert2PEM, 0o644))
+	require.NoError(t, provider.Reload())
+
+	reloadedClient, err := cliTLS.GetClientCertificate(nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3002), reloadedClient.Leaf.SerialNumber.Int64())
+
+	reloadedServer, err := srvTLS.GetCertificate(nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3002), reloadedServer.Leaf.SerialNumber.Int64())
 }

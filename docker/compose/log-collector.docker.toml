@@ -14,6 +14,16 @@ config_file = "/etc/serviceradar/otel.toml"
 listen_addr = "0.0.0.0:50044"
 
 # The Zen ruleset core publishes for syslog, read through datasvc.
+#
+# Normalization stays off here. The collector publishes with the shared
+# platform credential, and that credential is denied `logs.normalized.>`
+# (go/pkg/cli/nats_bootstrap.go), so normalized batches would be refused by
+# the broker. Syslog is published as JSON and EventWriter applies the rules.
+# Turn this on once Compose issues the collector a credential that may
+# publish `logs.normalized.>`.
+[rules]
+normalize = false
+
 [rules.datasvc]
 address = "datasvc:50057"
 

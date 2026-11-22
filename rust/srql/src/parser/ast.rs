@@ -49,7 +49,7 @@ pub enum Entity {
     Gateways,
     OtelMetrics,
     OtelMetricPoints,
-    RperfMetrics,
+    NetperfMetrics,
     CpuMetrics,
     MemoryMetrics,
     DiskMetrics,
@@ -77,11 +77,14 @@ pub enum Entity {
     EndpointInventoryScans,
     PublicEndpoints,
     CameraSources,
+    Websites,
     SourceFactDisagreements,
     MergeAudit,
     DeviceRevivalAudit,
     /// Merged device availability history (`device_availability_transitions`).
     DeviceAvailabilityHistory,
+    /// Boomerang Real User Monitoring (RUM) telemetry beacons (`rum_beacons`).
+    RumBeacons,
     SecurityEvents,
     DeviceIdentifiers,
     IdentityReconciliationRuns,

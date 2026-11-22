@@ -29,6 +29,26 @@ defmodule ServiceRadar.Observability.Zen.RuleBundle do
   def kv_key(stream_name, subject), do: "zen/rulesets/#{stream_name}/#{subject}.json"
 
   @doc """
+  Returns the stream and subject a bundle key names, the inverse of `kv_key/2`.
+  """
+  @spec parse_kv_key(String.t()) :: {:ok, {String.t(), String.t()}} | :error
+  def parse_kv_key("zen/rulesets/" <> rest) do
+    case String.split(rest, "/") do
+      [stream_name, file] when stream_name != "" -> parse_bundle_file(stream_name, file)
+      _ -> :error
+    end
+  end
+
+  def parse_kv_key(_key), do: :error
+
+  defp parse_bundle_file(stream_name, file) do
+    case String.split_at(file, -5) do
+      {subject, ".json"} when subject != "" -> {:ok, {stream_name, subject}}
+      _ -> :error
+    end
+  end
+
+  @doc """
   Loads the enabled rules for a stream and subject in evaluation order.
   """
   @spec effective_rules(String.t(), String.t(), keyword()) :: {:ok, [rule()]} | {:error, term()}

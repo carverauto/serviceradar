@@ -37,7 +37,12 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     :default_time_range,
     :layout,
     :variables,
-    :metadata
+    :metadata,
+    :pack_id,
+    :pack_version,
+    :managed,
+    :template_fingerprint,
+    :parameter_overrides
   ]
 
   # Provenance is written once, at import, and never through :update: a builder
@@ -325,6 +330,30 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       public? true
       default %{}
       description "Commit signature verification recorded at import."
+    end
+
+    attribute :pack_id, :string do
+      public? true
+    end
+
+    attribute :pack_version, :string do
+      public? true
+    end
+
+    attribute :managed, :boolean do
+      allow_nil? false
+      public? true
+      default false
+    end
+
+    attribute :template_fingerprint, :string do
+      public? true
+    end
+
+    attribute :parameter_overrides, :map do
+      allow_nil? false
+      public? true
+      default %{}
     end
 
     create_timestamp :inserted_at

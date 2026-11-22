@@ -108,7 +108,199 @@ defmodule ServiceRadarNVRClient.Wire do
     end
   end
 
-  def archive_error(bytes) do
+  def block_id(block_id), do: if(matches?(block_id, @hex64), do: :ok, else: {:error, :invalid_descriptor_request})
+
+  # Only the exact canonical bytes are accepted, so the caller's re-encoding,
+  # and the digest Core freezes, are the NVR's bytes.
+  def descriptor(bytes, block_id) do
+    with {:ok, descriptor} <- Jason.decode(bytes),
+         {:ok, ^bytes} <- Descriptor.encode(descriptor),
+         true <- Descriptor.block_key(descriptor["identity"]) == block_id do
+      {:ok, descriptor}
+    else
+      _ -> {:error, :invalid_descriptor_response}
+    end
+  end
+
+  def read_request(block_id, descriptor_sha256, selector, %{length: length, sha256: sha256} = expected)
+      when map_size(expected) == 2 do
+    with true <- matches?(block_id, @hex64) and matches?(descriptor_sha256, @hex64) and matches?(sha256, @hex64),
+         {:ok, object, limit} <- media_object(selector),
+         true <- is_integer(length) and length in 1..limit do
+      {:ok, "/v1/blocks/" <> block_id <> "/" <> object <> "?descriptor_sha256=" <> descriptor_sha256}
+    else
+      _ -> {:error, :invalid_read_request}
+    end
+  end
+
+  def read_request(_block_id, _descriptor_sha256, _selector, _expected), do: {:error, :invalid_read_request}
+
+  # The fragment bound is the playback read path's (design D4); init is the descriptor's.
+  defp media_object(:init), do: {:ok, "init", 1_048_576}
+
+  defp media_object({:fragment, index}) when is_integer(index) and index in 0..255,
+    do: {:ok, "fragments/" <> Integer.to_string(index), 4_194_304}
+
+  defp media_object(_selector), do: :error
+
+  def media(bytes, %{length: length, sha256: sha256}) do
+    if byte_size(bytes) == length and Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == sha256,
+      do: {:ok, bytes},
+      else: {:error, :integrity_mismatch}
+  end
+
+  # 409 is the NVR's answer for a block whose seal or selected bytes no longer
+  # verify, or whose descriptor is not the one frozen: the local copy is not the
+  # cataloged block.
+  def read_refusal(404, _body), do: {:error, :not_found}
+  def read_refusal(409, _body), do: {:error, :integrity_mismatch}
+  def read_refusal(503, _body), do: {:error, :unavailable}
+  def read_refusal(status, body), do: {:error, {:read_status, status, error_body(body)}}
+
+  @block_states %{"sealed" => :sealed, "incomplete" => :incomplete, "unresolved" => :unresolved, "absent" => :absent}
+  @gate_states %{"ready" => :ready, "closed" => :closed}
+  @inventory_states %{
+    "ready" => :ready,
+    "rebuilding" => :rebuilding,
+    "mismatch" => :mismatch,
+    "unavailable" => :unavailable
+  }
+  @capacity_keys %{
+    "available_bytes" => :available_bytes,
+    "blocks" => :blocks,
+    "max_blocks" => :max_blocks,
+    "max_spool_bytes" => :max_spool_bytes,
+    "reservations" => :reservations,
+    "reserve_bytes" => :reserve_bytes,
+    "reserved_bytes" => :reserved_bytes,
+    "used_bytes" => :used_bytes
+  }
+
+  def lookup_request(block_ids) when is_list(block_ids) and length(block_ids) in 1..50 do
+    if Enum.all?(block_ids, &matches?(&1, @hex64)) and length(Enum.uniq(block_ids)) == length(block_ids),
+      do: CanonicalJSON.encode(%{"block_ids" => block_ids}),
+      else: {:error, :invalid_lookup_request}
+  end
+
+  def lookup_request(_block_ids), do: {:error, :invalid_lookup_request}
+
+  # A lookup answer must report exactly the requested blocks, in order.
+  def lookup(bytes, block_ids) do
+    with {:ok, %{"storage_id" => storage_id, "blocks" => blocks}} <- block_list(bytes, 3),
+         true <- Enum.map(blocks, & &1.block_id) == block_ids do
+      {:ok, %{storage_id: storage_id, blocks: blocks}}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  # A ledger page holds ascending block IDs after `after_id` and names the last
+  # one as `next_after` when it is full, nil when it is the last page.
+  def block_page(bytes, after_id, limit) do
+    with {:ok, %{"storage_id" => storage_id, "blocks" => blocks, "next_after" => next_after}} <- block_list(bytes, 4),
+         ids = Enum.map(blocks, & &1.block_id),
+         true <- length(ids) <= limit and ids == Enum.sort(Enum.uniq(ids)),
+         true <- is_nil(after_id) or Enum.all?(ids, &(&1 > after_id)),
+         true <- next_after == if(length(ids) == limit, do: List.last(ids)) do
+      {:ok, %{storage_id: storage_id, blocks: blocks, next_after: next_after}}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp block_list(bytes, keys) do
+    with {:ok, %{"version" => 1, "storage_id" => storage_id, "blocks" => blocks} = list} <- Jason.decode(bytes),
+         true <- map_size(list) == keys and uuid?(storage_id) and is_list(blocks),
+         decoded = Enum.map(blocks, &block_state/1),
+         false <- Enum.member?(decoded, :error) do
+      {:ok, Map.put(list, "blocks", decoded)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp block_state(%{"block_id" => id, "state" => state, "writing" => writing, "bytes" => bytes} = block)
+       when is_map_key(@block_states, state) and is_boolean(writing) do
+    digest = Map.get(block, "descriptor_sha256")
+    reason = Map.get(block, "reason")
+
+    if matches?(id, @hex64) and map_size(block) == 4 + present(digest) + present(reason) and
+         state_fields?(state, digest, reason, bytes) do
+      %{
+        block_id: id,
+        state: Map.fetch!(@block_states, state),
+        writing: writing,
+        bytes: bytes,
+        descriptor_sha256: digest,
+        reason: reason
+      }
+    else
+      :error
+    end
+  end
+
+  defp block_state(_block), do: :error
+
+  # A descriptor digest exactly when sealed, a reason exactly when unresolved,
+  # a byte count when sealed or incomplete, optional when unresolved, nil when absent.
+  defp state_fields?("sealed", digest, nil, bytes), do: matches?(digest, @hex64) and nonnegative?(bytes)
+  defp state_fields?("unresolved", nil, reason, bytes), do: bounded_text?(reason, 64) and counted?(bytes)
+  defp state_fields?("incomplete", nil, nil, bytes), do: nonnegative?(bytes)
+  defp state_fields?("absent", nil, nil, nil), do: true
+  defp state_fields?(_state, _digest, _reason, _bytes), do: false
+
+  defp counted?(bytes), do: is_nil(bytes) or nonnegative?(bytes)
+
+  defp present(nil), do: 0
+  defp present(_value), do: 1
+
+  def member_status(bytes) do
+    with {:ok,
+          %{
+            "version" => 1,
+            "storage_id" => storage_id,
+            "recovery" => %{"state" => gate, "generation" => generation} = recovery,
+            "inventory" => inventory,
+            "capacity" => capacity,
+            "max_sessions" => sessions,
+            "archive_busy" => busy,
+            "release" => release
+          } = status} <- Jason.decode(bytes),
+         true <- map_size(status) == 8 and map_size(recovery) == 2,
+         true <- member_identity?(storage_id, gate, generation) and capacity?(capacity, inventory),
+         true <- is_integer(sessions) and sessions > 0 and is_boolean(busy) and bounded_text?(release, 64) do
+      {:ok,
+       %{
+         storage_id: storage_id,
+         recovery: %{state: Map.fetch!(@gate_states, gate), generation: generation},
+         inventory: Map.fetch!(@inventory_states, inventory),
+         capacity: capacity && Map.new(capacity, fn {key, value} -> {Map.fetch!(@capacity_keys, key), value} end),
+         max_sessions: sessions,
+         archive_busy: busy,
+         release: release
+       }}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp member_identity?(storage_id, gate, generation) do
+    (is_nil(storage_id) or uuid?(storage_id)) and is_map_key(@gate_states, gate) and
+      (is_nil(generation) or uuid?(generation))
+  end
+
+  defp capacity?(nil, inventory), do: inventory in ["rebuilding", "unavailable"]
+
+  defp capacity?(%{} = capacity, inventory) do
+    inventory in ["ready", "mismatch"] and Enum.sort(Map.keys(capacity)) == Enum.sort(Map.keys(@capacity_keys)) and
+      Enum.all?(Map.values(capacity), &nonnegative?/1)
+  end
+
+  defp capacity?(_capacity, _inventory), do: false
+
+  defp nonnegative?(value), do: is_integer(value) and value >= 0
+
+  def error_body(bytes) do
     case Jason.decode(bytes) do
       {:ok, %{} = error} -> error
       _ -> %{}
@@ -139,6 +331,8 @@ defmodule ServiceRadarNVRClient.Wire do
   end
 
   defp credential?(_), do: false
+
+  defp bounded_text?(value, limit), do: is_binary(value) and byte_size(value) in 1..limit and String.printable?(value)
 
   defp secret_string?(value, limit), do: is_binary(value) and byte_size(value) in 1..limit and String.valid?(value)
 

@@ -1,6 +1,6 @@
 {
   "name": "@carverauto/serviceradar-cli",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "ServiceRadar developer and operator CLI: dashboard authoring loop, auth, edge onboarding, and tooling. Companion to @carverauto/serviceradar-dashboard-sdk.",
   "type": "module",
   "license": "UNLICENSED",
@@ -13,6 +13,7 @@
     "access": "public"
   },
   "bin": {
+    "serviceradar": "bin/serviceradar-cli.js",
     "serviceradar-cli": "bin/serviceradar-cli.js",
     "srcloud": "bin/serviceradar-cli.js",
     "serviceradar-dashboard": "bin/serviceradar-dashboard.js"

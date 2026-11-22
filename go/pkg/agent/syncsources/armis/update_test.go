@@ -83,6 +83,25 @@ func TestFilterDevicesDropsBlacklistedCommaSeparatedIPs(t *testing.T) {
 	}
 }
 
+func TestFilterDevicesPrefersUsableIPv4AcrossAddressFields(t *testing.T) {
+	got := filterDevices([]device{
+		{ID: 201, IPAddress: "2001:db8::10", IPv4Addresses: []string{"192.168.0.10"}, Name: "dual-stack"},
+		{ID: 202, IPAddress: "169.254.1.5", IPv6Addresses: []string{"2001:db8::5"}, Name: "apipa"},
+		{ID: 203, IPAddress: "fe80::7", Name: "link-local-only"},
+		{ID: 204, IPv4Addresses: []string{"198.51.100.4"}, IPv6Addresses: []string{"2001:db8::4"}, Name: "blacklisted-ipv4"},
+	}, []string{"198.51.100.0/24"})
+
+	want := map[int]string{201: "192.168.0.10", 202: "2001:db8::5", 203: "fe80::7", 204: "2001:db8::4"}
+	if len(got) != len(want) {
+		t.Fatalf("filtered device count = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for _, item := range got {
+		if item.IPAddress != want[item.ID] {
+			t.Errorf("device %d IP = %q, want %q", item.ID, item.IPAddress, want[item.ID])
+		}
+	}
+}
+
 func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	purdue := 2.5
 	firstSeen := time.Date(2026, 5, 14, 1, 2, 3, 246357000, time.UTC)

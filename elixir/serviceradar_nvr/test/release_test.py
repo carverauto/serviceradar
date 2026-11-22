@@ -1149,7 +1149,8 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertTrue((block / "media.m4s").is_symlink())
         self.assertEqual(target.read_bytes(), b"invented retained media")
 
-    def test_inventory_limit_refuses_even_empty_retained_blocks(self):
+    def test_block_cap_refuses_admission_but_keeps_the_volume_listable(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "4096"
         marker = self.spool / ".storage-id"
         marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
         marker.chmod(0o600)
@@ -1160,6 +1161,14 @@ class NVRReleaseTest(unittest.TestCase):
         (self.spool / f"{4096:064x}").mkdir(mode=0o700)
         self.run_probe("discovery_limit")
         self.assertEqual(len(list(self.spool.iterdir())), 4098)
+
+    def test_multipage_rebuild_reports_later_failure_settles_exits_and_rejects_invalid_ids(self):
+        marker = self.spool / ".storage-id"
+        marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        marker.chmod(0o600)
+        for index in range(2100):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+        self.run_probe("multipage_rebuild")
 
     def ingest_installation(self):
         self.run_probe("delivery_certificates")
@@ -1787,7 +1796,8 @@ class NVRReleaseTest(unittest.TestCase):
         malformed = self.root / "delivery.json"
         malformed.write_text("{}")
         settings = [({"SERVICERADAR_NVR_" + key: "0"}, b"invalid_nvr_limit")
-                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]]
+                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES", "MAX_BLOCKS"]]
+        settings += [({"SERVICERADAR_NVR_MAX_BLOCKS": "262145"}, b"invalid_nvr_limit")]
         settings += [({"SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": value}, b"invalid_nvr_limit")
                      for value in ["7", "257"]]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
@@ -1813,6 +1823,474 @@ class NVRReleaseTest(unittest.TestCase):
                 self.assertIn(error, result.stdout + result.stderr)
                 self.assertEqual(list(self.spool.iterdir()), [])
 
+    def sealed_network_block(self):
+        self.ingest_installation()
+        self.make_media()
+        proc = self.start_ingest_release()
+        status, receipt = self.ingest_request(self.ingest_header() + b"".join(self.ingest_units()) + struct.pack("!I", 0))
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(len(receipt["block_ids"]), 1)
+        return proc, receipt["block_ids"][0]
+
+    def descriptor_request(self, block_id, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
+        try:
+            connection.request("GET", f"/v1/blocks/{block_id}/descriptor",
+                               headers={"Authorization": "Bearer " + (token or self.ingest_token)})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def descriptor_peer(self, status, body):
+        """An independent TLS peer that answers every descriptor read with `body`."""
+        requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                requests.append((self.path, self.headers.get("Authorization")))
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.load_cert_chain(str(self.root / "server.pem"), str(self.root / "server-key.pem"))
+        tls.load_verify_locations(str(self.root / "server-ca.pem"))
+        tls.verify_mode = ssl.CERT_REQUIRED
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return requests, server.server_address[1]
+
+    def test_descriptor_returns_the_canonical_bytes_of_a_verified_sealed_block(self):
+        _proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        status, body = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, body)
+        descriptor = json.loads(body)
+        self.assertEqual(canonical(descriptor), body)
+        identity = descriptor["identity"]
+        key = [identity["source_id"], identity["profile"], identity["recorder_epoch"], identity["block_sequence"]]
+        self.assertEqual(hashlib.sha256(json.dumps(key, separators=(",", ":")).encode()).hexdigest(), block_id)
+        self.assertEqual(identity["clock"]["clock_epoch"], "synthetic-network-clock")
+        for name, field in (("init.mp4", "init"), ("media.m4s", "media")):
+            data = (block / name).read_bytes()
+            self.assertEqual(descriptor[field], {"length": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        self.assertEqual(sum(fragment["length"] for fragment in descriptor["fragments"]), descriptor["media"]["length"])
+        # The packaged client returns exactly the descriptor those bytes encode.
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000}),
+                         {"ok": descriptor})
+
+        self.assertEqual(self.descriptor_request(block_id, token="incorrect-token")[0], 401)
+        for unknown in ("0" * 64, "not-a-block-id"):
+            self.assertEqual(self.descriptor_request(unknown), (404, b'{"error":"block_not_found"}'))
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": "0" * 64, "timeout_ms": 15000}),
+                         {"error": "descriptor_status", "status": 404, "body": {"error": "block_not_found"}})
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": "not-a-block-id", "timeout_ms": 15000}),
+                         {"error": ":invalid_descriptor_request"})
+
+        # Removing the seal record leaves an open block, which has no descriptor.
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        self.assertEqual(self.descriptor_request(block_id), (200, body))
+
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal)
+        for name in ("journal", "init.mp4", "media.m4s"):
+            with self.subTest(missing=name):
+                path = block / name
+                retained = path.read_bytes()
+                path.unlink()
+                self.assertEqual(self.descriptor_request(block_id), (409, b'{"error":"block_not_sealed"}'))
+                path.write_bytes(retained)
+
+        unavailable = self.spool.with_name("offline-spool")
+        self.spool.rename(unavailable)
+        try:
+            self.assertEqual(self.descriptor_request("not-a-block-id"), (404, b'{"error":"block_not_found"}'))
+            self.assertEqual(self.descriptor_request("not-a-block-id", token="incorrect-token")[0], 401)
+            self.assertEqual(self.descriptor_request(block_id), (503, b'{"error":"descriptor_unavailable"}'))
+        finally:
+            unavailable.rename(self.spool)
+        self.assertEqual(self.descriptor_request(block_id), (200, body))
+
+        fragment = descriptor["fragments"][0]
+        fragments = [{**fragment, "sequence": n, "offset": n * fragment["length"],
+                      "start_ns": fragment["start_ns"] + n * fragment["duration_ns"]} for n in range(256)]
+        large = {**descriptor, "fragments": fragments,
+                 "media": {**descriptor["media"], "length": len(fragments) * fragment["length"]}}
+        encoded = canonical(large)
+        self.assertGreater(len(encoded), 32 * 1024)
+        self.assertLess(len(encoded), 2 * 1024 * 1024)
+        requests, port = self.descriptor_peer(200, encoded)
+        self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000},
+                                         config_changes={"port": port}), {"ok": large})
+        self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
+
+        # The client accepts only canonical bytes whose identity derives the block it asked for.
+        other = {**identity, "block_sequence": identity["block_sequence"] + 1}
+        refused = (json.dumps(descriptor, indent=1).encode(), canonical({**descriptor, "identity": other}),
+                   canonical({**descriptor, "version": 2}), b"x" * 2097153)
+        for answer in refused:
+            with self.subTest(answer=answer[:40]):
+                requests, port = self.descriptor_peer(200, answer)
+                self.assertEqual(self.run_client({"mode": "descriptor", "block_id": block_id, "timeout_ms": 15000},
+                                                 config_changes={"port": port}),
+                                 {"error": ":invalid_descriptor_response"} if len(answer) <= 2097152
+                                 else {"error": ":descriptor_unavailable"})
+                self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
+
+    def read_installation(self):
+        """A read listener with its own certificates, pin, token and port."""
+        self.run_probe("read_certificates")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.read_port = sock.getsockname()[1]
+        pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert((self.root / "read-client.pem").read_text())).hexdigest()
+        config = {"port": self.read_port, "client_sha256": pin,
+                  "cert_file": str(self.root / "read-server.pem"), "key_file": str(self.root / "read-server-key.pem"),
+                  "ca_file": str(self.root / "read-server-ca.pem")}
+        path = self.root / "read.json"
+        path.write_text(json.dumps(config))
+        token = self.root / "read-token"
+        self.read_token = "synthetic-nvr-playback-reader-token-0123"
+        token.write_text(self.read_token)
+        self.env.update(SERVICERADAR_NVR_READ_CONFIG_FILE=str(path), SERVICERADAR_NVR_READ_TOKEN_FILE=str(token))
+        self.read_tls = ssl.create_default_context(cafile=str(self.root / "read-client-ca.pem"))
+        self.read_tls.load_cert_chain(str(self.root / "read-client.pem"), str(self.root / "read-client-key.pem"))
+
+    def media_request(self, path, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.read_port, context=self.read_tls, timeout=20)
+        try:
+            connection.request("GET", path, headers={"Authorization": "Bearer " + (token or self.read_token)})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def read_with_client(self, block_id, digest, selector, length, sha256):
+        return self.run_client({"mode": "read", "block_id": block_id, "descriptor_sha256": digest,
+                                "selector": selector, "length": length, "sha256": sha256, "timeout_ms": 15000,
+                                "token_path": str(self.root / "read-token")},
+                               config_changes={"port": self.read_port, "ca_file": str(self.root / "read-client-ca.pem"),
+                                               "cert_file": str(self.root / "read-client.pem"),
+                                               "key_file": str(self.root / "read-client-key.pem")})
+
+    def test_read_listener_serves_verified_init_and_fragments_that_decode(self):
+        self.read_installation()
+        _proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        status, body = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, body)
+        descriptor = json.loads(body)
+        digest = hashlib.sha256(body).hexdigest()
+        query = "?descriptor_sha256=" + digest
+
+        init = (block / "init.mp4").read_bytes()
+        media = (block / "media.m4s").read_bytes()
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (200, init))
+        played = bytearray(init)
+        for fragment in descriptor["fragments"]:
+            status, data = self.media_request(f"/v1/blocks/{block_id}/fragments/{fragment['sequence']}{query}")
+            self.assertEqual(status, 200)
+            self.assertEqual(data, media[fragment["offset"]:fragment["offset"] + fragment["length"]])
+            self.assertEqual(hashlib.sha256(data).hexdigest(), fragment["sha256"])
+            played.extend(data)
+        # An independent decoder plays init plus the fragments as the captured frames.
+        output = self.root / "played.mp4"
+        output.write_bytes(bytes(played))
+        self.assertEqual(self.decode(str(output)), self.decode(self.env["NVR_TEST_H264"]))
+
+        # The packaged client returns exactly the selected bytes, and refuses others.
+        first = descriptor["fragments"][0]
+        self.assertEqual(self.read_with_client(block_id, digest, first["sequence"], first["length"], first["sha256"]),
+                         {"ok": {"length": first["length"], "sha256": first["sha256"]}})
+        self.assertEqual(self.read_with_client(block_id, digest, "init", len(init), hashlib.sha256(init).hexdigest()),
+                         {"ok": {"length": len(init), "sha256": hashlib.sha256(init).hexdigest()}})
+        self.assertEqual(self.read_with_client(block_id, digest, first["sequence"], first["length"], "0" * 64),
+                         {"error": ":integrity_mismatch"})
+        self.assertEqual(self.read_with_client(block_id, "0" * 64, first["sequence"], first["length"], first["sha256"]),
+                         {"error": ":integrity_mismatch"})
+        self.assertEqual(self.read_with_client("0" * 64, digest, first["sequence"], first["length"], first["sha256"]),
+                         {"error": ":not_found"})
+
+        # Refusals: wrong descriptor, malformed request, unknown block or fragment, wrong token.
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init?descriptor_sha256=" + "0" * 64),
+                         (409, b'{"error":"descriptor_mismatch"}'))
+        for path in (f"/v1/blocks/{block_id}/init", f"/v1/blocks/{block_id}/init{query}&extra=1",
+                     f"/v1/blocks/{block_id}/init?descriptor_sha256=XYZ"):
+            self.assertEqual(self.media_request(path), (400, b'{"error":"invalid_read_request"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/fragments/{len(descriptor['fragments'])}{query}"),
+                         (404, b'{"error":"fragment_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/fragments/01{query}"),
+                         (404, b'{"error":"fragment_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{'0' * 64}/init{query}"), (404, b'{"error":"block_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}", token=self.ingest_token)[0], 401)
+        # The read token opens nothing on the ingest listener.
+        self.assertEqual(self.descriptor_request(block_id, token=self.read_token)[0], 401)
+
+        # A block whose seal no longer verifies is not served.
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        self.assertEqual(
+            self.read_with_client(block_id, digest, "init", len(init), hashlib.sha256(init).hexdigest()),
+            {"error": ":integrity_mismatch"},
+        )
+        (block / "journal").write_bytes(journal)
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (200, init))
+
+    def test_read_listener_refuses_ingest_credentials_at_boot(self):
+        self.ingest_installation()
+        self.read_installation()
+        ingest = json.loads(Path(self.env["SERVICERADAR_NVR_INGEST_CONFIG_FILE"]).read_text())
+        read = json.loads(Path(self.env["SERVICERADAR_NVR_READ_CONFIG_FILE"]).read_text())
+        shared = self.root / "read-shared.json"
+        for changes, token in (({"port": ingest["port"]}, self.env["SERVICERADAR_NVR_READ_TOKEN_FILE"]),
+                               ({"client_sha256": ingest["client_sha256"]}, self.env["SERVICERADAR_NVR_READ_TOKEN_FILE"]),
+                               ({}, self.env["SERVICERADAR_NVR_INGEST_TOKEN_FILE"])):
+            with self.subTest(changes=changes, token=token):
+                shared.write_text(json.dumps(read | changes))
+                env = self.env | {"SERVICERADAR_NVR_READ_CONFIG_FILE": str(shared),
+                                  "SERVICERADAR_NVR_READ_TOKEN_FILE": token}
+                result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
+                                        env=env, capture_output=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b"invalid_nvr_read_config", result.stdout + result.stderr)
+
+    def member_request_with_headers(self, method, path, body=None, content_type=None, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
+        headers = {"Authorization": "Bearer " + (token or self.ingest_token)}
+        if content_type:
+            headers["Content-Type"] = content_type
+        try:
+            connection.request(method, path, body=body, headers=headers)
+            response = connection.getresponse()
+            resp_headers = {k.lower(): v for k, v in response.getheaders()}
+            return response.status, response.read(), resp_headers
+        finally:
+            connection.close()
+
+    def member_request(self, method, path, body=None, content_type=None, token=None):
+        status, body, _headers = self.member_request_with_headers(method, path, body, content_type, token)
+        return status, body
+
+    def lookup(self, block_ids, content_type="application/vnd.serviceradar.nvr-lookup.v1+json"):
+        return self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": block_ids}), content_type)
+
+    def member_status(self):
+        status, body = self.member_request("GET", "/v1/status")
+        self.assertEqual(status, 200, body)
+        return json.loads(body)
+
+    def block_bytes(self, block_id):
+        return sum(path.stat().st_size for path in (self.spool / block_id).iterdir())
+
+    def test_member_status_lookup_and_ledger_pages_report_local_block_state(self):
+        _proc, block_id = self.sealed_network_block()
+        status, descriptor = self.descriptor_request(block_id)
+        self.assertEqual(status, 200)
+        digest = hashlib.sha256(descriptor).hexdigest()
+        stored = self.block_bytes(block_id)
+
+        report = self.member_status()
+        self.assertEqual({key: report[key] for key in ("version", "storage_id", "recovery", "inventory", "archive_busy",
+                                                       "max_sessions")},
+                         {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                          "recovery": {"state": "ready", "generation": self.generation}, "inventory": "ready",
+                          "archive_busy": False, "max_sessions": 2})
+        self.assertEqual({key: report["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes", "reservations")},
+                         {"blocks": 1, "max_blocks": 131072, "used_bytes": stored, "reservations": 0})
+
+        sealed = {"block_id": block_id, "state": "sealed", "writing": False, "bytes": stored, "descriptor_sha256": digest}
+        absent = {"block_id": "0" * 64, "state": "absent", "writing": False, "bytes": None}
+        status, body = self.lookup([block_id, "0" * 64])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body), {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                            "blocks": [sealed, absent]})
+
+        pages = {"?limit=100": ([sealed], None), "?limit=1": ([sealed], block_id), f"?after={block_id}": ([], None)}
+        for query, (blocks, next_after) in pages.items():
+            with self.subTest(query=query):
+                status, body = self.member_request("GET", "/v1/blocks" + query)
+                self.assertEqual(status, 200, body)
+                self.assertEqual(json.loads(body), {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                                    "blocks": blocks, "next_after": next_after})
+
+        # The packaged client returns the same observations, checked against the request.
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id, "0" * 64], "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [sealed | {"reason": None}, absent | {"descriptor_sha256": None, "reason": None}]}})
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 1, "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [sealed | {"reason": None}], "next_after": block_id}})
+        status_result = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual((status_result["storage_id"], status_result["inventory"], status_result["capacity"]["blocks"]),
+                         (self.env["NVR_TEST_EXPECTED_STORAGE_ID"], "ready", 1))
+
+        # A journal without its seal record is incomplete and has no descriptor digest.
+        block = self.spool / block_id
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        status, body = self.lookup([block_id])
+        self.assertEqual(json.loads(body)["blocks"],
+                         [{"block_id": block_id, "state": "incomplete", "writing": False, "bytes": stored - (len(journal) - last)}])
+
+        # A corrupt journal digest is reported as unresolved with its error class and no digest.
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        unresolved = {"block_id": block_id, "state": "unresolved", "writing": False, "bytes": stored,
+                      "reason": "invalid_journal_record"}
+        status, body = self.lookup([block_id])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        status, body = self.member_request("GET", "/v1/blocks?limit=10")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}]}})
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}], "next_after": None}})
+        (block / "journal").write_bytes(journal)
+
+        # A closed recovery gate is reported on /v1/status (200) and refuses lookup/pages with 503 + retry-after.
+        self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+        closed_report = self.member_status()
+        self.assertEqual(
+            {key: closed_report[key] for key in ("recovery", "inventory", "capacity")},
+            {"recovery": {"state": "closed", "generation": self.generation},
+             "inventory": "unavailable", "capacity": None},
+        )
+        closed_client = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual(
+            (closed_client["recovery"], closed_client["inventory"], closed_client["capacity"]),
+            ({"state": "closed", "generation": self.generation}, "unavailable", None),
+        )
+        status, body, headers = self.member_request_with_headers(
+            "POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+            "application/vnd.serviceradar.nvr-lookup.v1+json",
+        )
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"lookup_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"error": "lookup_status", "status": 503, "body": {"error": "lookup_unavailable"}})
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=10")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"error": "inventory_status", "status": 503, "body": {"error": "inventory_unavailable"}})
+        self.recovery.write_bytes(self.ready)
+        self.assertEqual(self.member_status()["inventory"], "ready")
+
+        # Malformed requests are refused before any read; the ingest token is required.
+        for ids in ([], ["0" * 64] * 2, ["x"], ["%064x" % index for index in range(51)]):
+            with self.subTest(ids=len(ids)):
+                self.assertEqual(self.lookup(ids), (400, b'{"error":"invalid_lookup_request"}'))
+        self.assertEqual(self.lookup([block_id], content_type="application/json")[0], 400)
+        for query in ("?limit=0", "?limit=101", "?limit=01", "?after=XYZ", "?after[a]=1", "?limit=1&extra=1"):
+            with self.subTest(query=query):
+                self.assertEqual(self.member_request("GET", "/v1/blocks" + query),
+                                 (400, b'{"error":"invalid_inventory_request"}'))
+        bad_token = "incorrect-token-for-the-ingest-listener"
+        self.assertEqual(self.member_request("GET", "/v1/status", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+                                             "application/vnd.serviceradar.nvr-lookup.v1+json", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("GET", "/v1/blocks?limit=1", token=bad_token)[0], 401)
+
+    def test_lookup_and_ledger_page_enforce_storage_gate_and_active_block_guards(self):
+        self.make_media()
+        self.run_probe("lookup_page_guards")
+
+    def test_block_ledger_caps_admission_rebuilds_on_restart_and_closes_admission_on_mismatch(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "1"
+        proc, block_id = self.sealed_network_block()
+        stored = self.block_bytes(block_id)
+        units = b"".join(self.ingest_units()) + struct.pack("!I", 0)
+        identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1}
+
+        # At the cap a new recording is refused; reads and lookups keep working.
+        status, body = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 1}) + units)
+        self.assertEqual((status, body), (503, {"error": "ingest_unavailable"}))
+        self.assertEqual(self.descriptor_request(block_id)[0], 200)
+        self.assertEqual(json.loads(self.lookup([block_id])[1])["blocks"][0]["state"], "sealed")
+        self.assertEqual({key: self.member_status()["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes")},
+                         {"blocks": 1, "max_blocks": 1, "used_bytes": stored})
+
+        # After a restart the ledger is rebuilt from the volume with the same charge.
+        self.stop_ingest_release(proc)
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "8"
+        self.start_ingest_release()
+        self.assertEqual({key: self.member_status()["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes")},
+                         {"blocks": 1, "max_blocks": 8, "used_bytes": stored})
+        status, receipt = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 1}) + units)
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(self.member_status()["capacity"]["blocks"], 2)
+
+        # A directory the ledger did not record closes admission; nothing is repaired or removed.
+        before = {str(path.relative_to(self.spool)): path.read_bytes() for path in self.spool.rglob("*") if path.is_file()}
+        stray = self.spool / ("c" * 64)
+        stray.mkdir(mode=0o700)
+        deadline = time.monotonic() + 15
+        while self.member_status()["inventory"] != "mismatch":
+            self.assertLess(time.monotonic(), deadline, "the audit did not report the unrecorded directory")
+            time.sleep(0.2)
+        status, body = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 2}) + units)
+        self.assertEqual((status, body), (503, {"error": "ingest_unavailable"}))
+        self.assertTrue(stray.is_dir())
+        self.assertEqual(before, {str(path.relative_to(self.spool)): path.read_bytes()
+                                  for path in self.spool.rglob("*") if path.is_file()})
+
+    def test_member_status_and_ledger_page_report_rebuilding_over_http(self):
+        self.ingest_installation()
+        for index in range(1025):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+
+        # First /v1/blocks call on a >1024-block volume triggers step 1 and reports 503 inventory_rebuilding.
+        proc = self.start_ingest_release()
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=1")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_rebuilding"}', "1"))
+        self.stop_ingest_release(proc)
+
+        # Fresh restart: first /v1/status call via packaged client reports 200 inventory=rebuilding, capacity=null.
+        self.start_ingest_release()
+        rebuilding = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual((rebuilding["inventory"], rebuilding["capacity"]), ("rebuilding", None))
+        deadline = time.monotonic() + 15
+        while True:
+            report = self.member_status()
+            if report["inventory"] == "ready":
+                break
+            self.assertLess(time.monotonic(), deadline, "ledger rebuild did not finish")
+            time.sleep(0.1)
+        self.assertEqual(report["capacity"]["blocks"], 1025)
 
 
 def canonical(value):
@@ -1928,15 +2406,6 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
             return response.status, response.read()
         finally:
             connection.close()
-
-    def sealed_network_block(self):
-        self.ingest_installation()
-        self.make_media()
-        proc = self.start_ingest_release()
-        status, receipt = self.ingest_request(self.ingest_header() + b"".join(self.ingest_units()) + struct.pack("!I", 0))
-        self.assertEqual(status, 200, receipt)
-        self.assertEqual(len(receipt["block_ids"]), 1)
-        return proc, receipt["block_ids"][0]
 
     def object_prefix(self, block_id):
         return f"recordings/v1/{self.env['NVR_TEST_EXPECTED_STORAGE_ID']}/{block_id}/"
@@ -2054,6 +2523,10 @@ class NVRArchiveReleaseTest(NVRReleaseTest):
             offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
         (block / "journal").write_bytes(journal[:last])
         self.assertEqual(self.archive_request(block_id, document), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.archive_request(block_id, document), (503, b'{"error":"archive_unavailable"}'))
+        (block / "journal").unlink()
+        self.assertEqual(self.archive_request(block_id, document), (404, b'{"error":"block_not_found"}'))
         (block / "journal").write_bytes(journal)
         self.assertEqual(store["requests"], [])
         self.assertFalse((block / "archive-receipt.json").exists())

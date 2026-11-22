@@ -83,6 +83,7 @@ defmodule ServiceRadarCore.MixProject do
       {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       {:serviceradar_recording_control, path: "../serviceradar_recording_control"},
       # SRQL shared library for query parsing and execution
+      {:palisade, path: "../palisade"},
       {:serviceradar_srql, path: "../serviceradar_srql"},
 
       # Ash Framework

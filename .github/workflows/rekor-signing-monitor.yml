@@ -1,0 +1,77 @@
+name: Rekor Signing Monitor
+
+# Reads every entry of ServiceRadar's self-hosted Rekor log (https://rekor.serviceradar.cloud),
+# checks the log against its last checkpoint and the pinned docs/sigstore/rekor.pub, and opens a
+# `security`/`signing-monitor` issue for every release-key signature no signing ledger explains.
+# A failure of the monitor itself fails this workflow, opens an issue and posts to Discord; the
+# scheduled job watch reports this workflow when it has not scanned on staging for three hours.
+# See build/ci/rekor_signing_monitor.py and openspec/changes/restore-signature-tlog-receipts.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Start from the current log when no checkpoint exists (first run only)."
+        required: false
+        type: boolean
+        default: false
+      self_test:
+        description: "Open a test issue and post a test alert to prove the alert path."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  deployments: read
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: arc-runner-set
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+
+      - name: Scan the self-hosted Rekor log
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_FAILURE_DISCORD_WEBHOOK_URL: ${{ secrets.CI_FAILURE_DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap || 'false' }}
+          SELF_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.self_test || 'false' }}
+        run: |
+          set -euo pipefail
+          state_dir="${RUNNER_TEMP}/rekor-monitor-state"
+          mkdir -p "${state_dir}"
+          if [ "${SELF_TEST}" = "true" ]; then
+            python3 build/ci/rekor_signing_monitor.py --self-test --state-out "${state_dir}/state.json"
+            exit 0
+          fi
+          python3 build/ci/rekor_signing_monitor.py --fetch-state --state-out "${state_dir}/previous.json"
+          args=(--state-out "${state_dir}/state.json")
+          if [ -s "${state_dir}/previous.json" ]; then
+            args+=(--state-in "${state_dir}/previous.json")
+          elif [ "${BOOTSTRAP}" = "true" ]; then
+            args+=(--bootstrap)
+          fi
+          python3 build/ci/rekor_signing_monitor.py "${args[@]}"
+
+      - name: Keep the checkpoint
+        if: ${{ success() && !(github.event_name == 'workflow_dispatch' && inputs.self_test) }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rekor-signing-monitor-state
+          path: ${{ runner.temp }}/rekor-monitor-state/state.json
+          if-no-files-found: error
+          # As long as the signing ledgers: the checkpoint carries every entry's decision, and
+          # each successful run replaces it, so it expires only if the monitor stops for 90 days.
+          retention-days: 90

@@ -28,8 +28,10 @@ symlink at `/etc/serviceradar/host-trust`.
 The administrative API requires `settings.edge.manage`:
 
 1. Read `GET /api/admin/managed-components/bootstrap` for the deployment policy
-   verification key and NATS authorization readiness. Pin the key through the trusted
-   enrollment channel; the public policy endpoint is not a key-discovery service.
+   verification key, NATS authorization readiness (`data.nats`), and hub
+   readiness (`data.hub`, or `null` when core is unavailable). Pin the key
+   through the trusted enrollment channel; the public policy endpoint is not a
+   key-discovery service.
 2. Register using `POST /api/admin/managed-components` with `host_agent_id`, `service`,
    and either `edge_site_id` or `collector_id`. A leaf also needs a collector-facing
    `advertise_url` such as `tls://leaf.example.test:4222`. The first registration
@@ -58,8 +60,11 @@ the details view shows the renewal state and error separately. A blocked compone
 shows `revoked`, and re-enrollment shows `pending` until a new operation starts.
 An older enrollment's receipt cannot mark the new enrollment installed. Lists,
 details, and status filters use this same state and refresh every ten seconds.
-Unmanaged deployments retain their existing provisioning status. Use Service
-Certificates for managed rotation, revocation, and re-enrollment.
+Unmanaged deployments retain their existing provisioning status. The edge sites
+API (`/api/admin/edge-sites`) exposes this same `deployment_status` and `managed`
+distinction for `serviceradar-cli edge site list`, `edge site show`, and
+`edge install leaf` (falling back to raw site and leaf fields on older instances).
+Use Service Certificates for managed rotation, revocation, and re-enrollment.
 
 Core persists the operation before sending commands. Lost replies reuse the same
 preparation request, and the agent returns its durable CSR/installation receipt.
@@ -178,18 +183,88 @@ adopted infrastructure certificates are refused (`static identity grants
 unavailable`) rather than granted their stored grant, and no session is
 disconnected for its grant; host-enrolled components are unaffected.
 
+When core and the chart's NATS are enabled, Helm mounts the public certificate
+inventory on core and sets the three paths below. Core can adopt eligible
+certificates even with broker authorization callout disabled. On a non-hosted
+installation with `certs.generator.enabled` set to `true`, the chart owns the
+runtime certificate Secret and projects every chart NATS client certificate.
+
+On a hosted installation or one with the generator disabled, the supplier of
+the runtime certificate Secret lists the files it carries in
+`certs.inventoryCertificates`. The accepted filenames are the `file` entries in
+[`serviceradar.natsChartIdentities`](../helm/serviceradar/templates/_helpers.tpl).
+By default the list is empty and core mounts an empty directory. Each listed
+file must exist in the Secret for the volume to mount.
+
+For installations without the Helm chart, configure the static users file
+described above and supply all three inventory paths to core.
+
+| Core environment variable | Contents |
+| --- | --- |
+| `SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR` | Directory of public PEM files, each containing the client certificate followed by any intermediate issuers in order. |
+| `SERVICERADAR_NATS_CHART_IDENTITIES_FILE` | YAML list of chart client certificate subjects. Static users outside this list are excluded from coverage. |
+| `SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE` | Deployment root CA certificate in PEM format. |
+
+If any of the three paths is unset or empty, reconciliation returns empty
+coverage without accessing the database. With all three set, an unreadable or
+invalid subject list, static users file, or root certificate stops the pass
+before any writes.
+Core matches each client by its certificate subject. For a listed subject with
+a static grant and a valid chain to the deployment root, core records the first
+certificate as a `nats-client` with that grant. Its component ID depends only on
+the subject. Core uses `SERVICERADAR_OTX_PARTITION` when it has a non-empty
+value. Otherwise it uses the `:serviceradar` application setting
+`:nats_chart_identity_partition_id`, which defaults to `default`.
+
+First adoption pauses while any recorded infrastructure certificate lacks a
+stored subject. Use the original-PEM procedure below to fill it. A recorded
+certificate continues to hold its subject after revocation. The existing
+rotation procedure handles replacements for held subjects.
+
+Core logs changes in coverage for each listed subject. An identity counts as
+adopted when the certificate authority allows its inventory fingerprint.
+`recorded_not_authorized` means the fingerprint is on record but the authority
+excludes it. `held_unrecorded` means another recorded certificate holds the
+subject and the inventory fingerprint is absent from the record. Copies of the
+same certificate count once. If several distinct fingerprints name one subject,
+core skips first adoption for that subject and reports it as adopted only when
+the authority allows them all. Files with an unlisted subject or an undecodable
+certificate appear under `unlisted` in the reconciliation report. Coverage is
+advisory and does not block admission; core exposes it in hub readiness under
+`chart_identities` (`null` when inventory reconciliation has not completed,
+failed, or is unavailable). For `held_unrecorded` identities, `chart_identities`
+attaches `rotation_reason` when `RuntimeCertificateRotation` refused that
+certificate fingerprint (non-atom transient errors collapse to
+`transient_error`) or `rotation_unavailable` when the rotation process is
+unavailable or unreconciled or the rotation manifest is unreadable or invalid
+(an absent or unset manifest leaves `rotation_reason` omitted). See
+[Hub status API and CLI preflight](#hub-status-api-and-cli-preflight) for the
+full hub readiness payload and endpoints.
+
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
 `component_type`, `partition_id`, optional `server_hosts`, `certificate_pem`,
-and a static NATS `permissions` block. `publish` and `subscribe` are objects
-with optional `allow` and `deny` arrays. An empty or omitted allow is stored
-as `[">"]` and the deny list is kept. A non-empty allow is copied unchanged.
+and a static NATS `permissions` block. Each supplied host must contain a
+non-whitespace character and must be free of NUL bytes. `publish` and
+`subscribe` are objects with optional `allow` and `deny` arrays. On first
+adoption, an empty or omitted allow is stored as `[">"]` and the deny list is
+kept. A non-empty allow is copied unchanged. Repeating adoption for the same
+component and fingerprint preserves the component's current grant.
 The PEM may contain only certificates. A private key is refused and nothing
 is written. The response returns the component, the stored grant, and the
 certificate fingerprint. It does not return the PEM. The route does not enable
 broker authorization callout. The service-certificates inventory shows that
 stored grant for an infrastructure component. An empty allow there is no
 permission. A host service does not show this grant.
+
+Core stores the subject from the public certificate when it records an
+infrastructure certificate. For an infrastructure certificate recorded before
+subjects were stored, submit its original PEM again for the same component.
+Once the caller is authorized and the fingerprint matches, core fills the
+missing subject before checking admission. A revoked, expired or superseded
+certificate can therefore gain a subject even when the request returns an
+error. This update grants no access. Host-enrolled issuance leaves the
+subject null.
 
 `POST /api/admin/managed-components/:id/certificates` records a successor
 public certificate for that component. The JSON body carries `certificate_pem`
@@ -198,14 +273,18 @@ The predecessor stays authorized until that fingerprint is revoked. The
 response uses the same component and certificate fields as adoption and does
 not return the PEM. A component with no certificate, a host service, a blocked
 component, and a private key are refused. The route uses the same API key
-pipeline and `settings.edge.manage` permission as adoption. Broker
-authorization callout stays disabled.
+pipeline and `settings.edge.manage` permission as adoption.
 
-The chart's runtime certificate generator records its own rotations. When it
-reissues the runtime certificates (a `certs.runtimeLayoutVersion` change), it
-writes `runtime-cert-rotation.json` into the runtime certificate Secret. For each
-reissued public certificate, that record holds the fingerprint it replaced, its
-own fingerprint, and its PEM with the root CA. It holds no key. The core
+When the [in-chart certificate generator](docs/tls-security.md#in-chart-certificate-generator)
+reissues runtime certificates (for example when `certs.runtimeLayoutVersion`
+changes, a required file is missing, or a required leaf does not verify against
+`root.pem`), the pre-upgrade hook runs before core rolls. When the Secret passes
+those checks, any kept certificate that lacks a requested DNS, URI, or IPv4 name
+is reissued alone from the same root CA while every other certificate keeps its
+fingerprint. On any reissue, the generator writes `runtime-cert-rotation.json`
+into the runtime certificate Secret. For each reissued public certificate, that
+record holds the fingerprint it replaced, its own fingerprint, and its PEM with
+the root CA. It holds no key. The core
 migrations pre-upgrade hook, and then core whenever the mounted record changes,
 records each replacement as the successor of the component that holds the
 replaced fingerprint. A replacement is recorded only when the replaced
@@ -221,37 +300,258 @@ revokes that one fingerprint. The component stays unblocked. Its generation
 and stored grant stay unchanged. Other fingerprints on the component stay
 authorized. A fingerprint recorded for another component is refused. The
 route uses the same API key pipeline and `settings.edge.manage` permission.
-Broker authorization callout stays disabled.
 
 The service-certificates inventory history offers the same fingerprint
 revocation. The component stays unblocked. Its generation and stored grant
 stay unchanged. The component Revoke control still blocks renewal until
-re-enrollment. Broker authorization callout stays disabled.
+re-enrollment.
 
-`POST /api/admin/nats/certificate-authorization/bootstrap` stores signing material
-only for the deployment account (`:nats_account_name`). A missing or unusable
-deployment account returns `nats_account_unconfigured`. A different requested
-name returns `nats_account_mismatch`. An existing record for another account
-stays in place. Readiness includes the stored account name and stays unready
-while that name disagrees with the deployment account. An authorization
-request in that state is answered with `nats_account_mismatch` and no user
-JWT, and the session is not remembered. A matching account is still decided
-from the certificate policy. Broker authorization callout stays disabled.
+## Enabling hub certificate authorization
 
-`serviceradar-cli edge install` for a leaf or collector continues when the
-hub authorizer is disconnected. `static_mtls` with an empty reason, or with
-reason `connecting`, `auth_connection_unavailable`,
-`auth_subscription_failed`, `policy_unavailable`, `not_configured`,
-`authorizer_unavailable`, or `core_unavailable`, continues. An unset mode
-continues while the hub is not configured. `static_mtls` still requires the
-deployment account name. The command does not create the account or require
-a JWT account seed. It stops before package installation for
-`jwt_account_signer_unconfigured`, `unsupported_auth_mode`,
-`nats_account_mismatch`, any other authentication mode, and `nats.ready`
-without `static_mtls`. Broker authorization callout stays disabled.
+On Helm-managed deployments, enable broker certificate authorization through
+`nats.certificateAuthorization.enabled` in staged steps. See the
+[TLS guide](docs/tls-security.md#in-chart-certificate-generator) for certificate
+generator details.
 
-A stored `operator_jwt` authentication mode reports readiness reason
-`jwt_account_signer_unconfigured`. The authorizer does not open a broker
-connection and does not create an account signer. `edge install` stops
-before package installation because that readiness is false. Broker
-authorization callout stays disabled.
+### 1. Upgrade with enforcement disabled
+
+Upgrade with `nats.certificateAuthorization.enabled: false` first so core can
+reconcile its chart identity inventory before the broker requires callout
+admission:
+
+- **Generator-owned runtime Secret** (`certs.generator.enabled: true` on a
+  non-hosted install): the chart projects the fixed public certificate
+  inventory defined by `serviceradar.natsChartIdentities` and
+  `chart-identities.yaml` into core, and the pre-upgrade hook verifies every
+  projected file before core rolls. If an older runtime Secret lacks any
+  inventory certificate, the hook regenerates the runtime certificates once and
+  writes `runtime-cert-rotation.json` before core starts; a complete, valid
+  Secret is preserved.
+- **Supplier-owned runtime Secret** (hosted installs or
+  `certs.generator.enabled: false`): core projects only the filenames listed in
+  `certs.inventoryCertificates`, which defaults to `[]` (mounting an empty
+  directory). Core starts, adopts nothing, and reports each chart identity as
+  not adopted (`no_inventory_certificate`). To enable automatic adoption, place
+  the public client certificates in the runtime Secret and list their filenames
+  in `certs.inventoryCertificates`. Every listed key must exist in the Secret
+  for core to mount its volume and start; never list a private key. When
+  `certs.generator.enabled: true` with a distinct `certs.issuerSecretName`, the
+  inventory stays fixed and generator-owned while the Secret supplier owns the
+  callout signing keys.
+- **Legacy certificate rows without a subject**: if any recorded `nats-client`
+  infrastructure certificate lacks a stored subject (from a release before
+  subject storage was added), first adoption pauses and reports
+  `legacy_certificates_without_subject`. Re-record each legacy certificate by
+  submitting its original PEM to `POST /api/admin/managed-components/adopt` for
+  the same component, or remove the obsolete component.
+- **Verify coverage**: run `serviceradar-cli edge hub status` or inspect
+  `data.hub.chart_identities` on `GET /api/admin/managed-components/bootstrap`
+  (and core's reconciliation logs: `Chart identity <subject> is adopted...` and
+  `Chart identity <subject> is not adopted: <reason>`). Hand-adopted inventory
+  certificates that are recorded and unrevoked count toward coverage even if
+  their legacy row has no stored subject, while omitted chart identities log a
+  warning even if previously hand-adopted. Alias static users
+  (`serviceradar-flowgger`, `serviceradar-otel`,
+  `serviceradar-netflow-collector`) and `O=ServiceRadar` are not chart
+  identities and are excluded from coverage.
+
+### 2. Confirm signing key ownership and the five `nats-callout-*` keys
+
+Callout signing uses five keys split between the issuer Secret
+(`certs.issuerSecretName`, defaulting to `certs.runtimeSecretName`) and the
+runtime certificate Secret (`certs.runtimeSecretName`):
+
+| Key | Secret | Role |
+| --- | --- | --- |
+| `nats-callout-issuer.seed` | Issuer Secret | NATS account nkey seed (`SA...`) used by core to sign authorization callout JWT responses. |
+| `nats-callout-auth.seed` | Issuer Secret | NATS user nkey seed (`SU...`) for core's auth callout subscriber connection in account `AUTH`. |
+| `nats-callout-system.seed` | Issuer Secret | NATS user nkey seed (`SU...`) for core's system-account connection in account `SYS`. |
+| `nats-callout-authorization.conf` | Runtime Secret | Top-level broker `authorization: {auth_callout: ...}` configuration fragment with the derived public keys. |
+| `nats-callout-accounts.conf` | Runtime Secret | Broker `SYS` and `AUTH` account definitions with the derived public user keys and permissions. |
+
+Signing key ownership follows the issuer Secret:
+
+- **Generator-owned signing set** (non-hosted install with
+  `certs.generator.enabled: true` and `certs.issuerSecretName` resolving to the
+  same Secret as `certs.runtimeSecretName`): on upgrade (even with enforcement
+  disabled), if all five `nats-callout-*` entries are absent, the pre-upgrade
+  hook generates the three seeds and both matching fragments together. If all
+  three seeds are present, it preserves them and rebuilds only missing or stale
+  fragments. If any `nats-callout-*` entry remains while a seed is missing
+  (including fragments alone), the hook fails without writing, names each
+  missing seed, and directs the operator to restore the missing seeds or
+  deliberately remove every remaining `nats-callout-*` entry to provision a new
+  set.
+- **Supplier-owned signing set** (every other configuration: distinct
+  `certs.issuerSecretName`, hosted installs, or self-managed installs with
+  `certs.generator.enabled: false`): any running generator leaves all five
+  entries untouched, and the Secret supplier must populate the three `.seed`
+  keys in the issuer Secret and both matching `.conf` fragments in the runtime
+  Secret before enabling enforcement. In a self-managed install where
+  `certs.generator.enabled: false` and `certs.issuerSecretName` is unset or
+  equal to `certs.runtimeSecretName` (a shared Secret), the Secret supplier must
+  populate all five `nats-callout-*` entries in that shared Secret before
+  enabling enforcement.
+
+With `nats.certificateAuthorization.enabled: false`, the chart omits both the
+core seed projection and the NATS fragment projections.
+
+### 3. Enable enforcement
+
+Set `nats.certificateAuthorization.enabled: true` and upgrade. For edge leaf
+connections, also set `nats.leafnodes.enabled: true` and configure
+`hostedRuntime.publicEndpoints.natsLeafHost` so web-ng receives
+`SERVICERADAR_NATS_LEAF_UPSTREAM_URL` (the chart renders the `leafnodes`
+listener only when both `nats.leafnodes.enabled` and
+`nats.certificateAuthorization.enabled` are `true`, and `nats.pem` must carry
+the configured public leaf host SAN).
+
+Note these chart value rules:
+
+- `nats.certificateAuthorization.infrastructureAdopted`, `issuerPublicKey`,
+  `authUserPublicKey`, and `systemUserPublicKey` were removed. After upgrading,
+  the chart ignores public keys pasted into those values from a bootstrap
+  record; core reads the mounted seeds in `SERVICERADAR_NATS_CALLOUT_SEEDS_DIR`
+  (`/etc/serviceradar/nats-callout-seeds`), ignores any stored database signing
+  record, and logs once that the stored record is unused.
+- The chart refuses `nats.certificateAuthorization.enabled: true` together with
+  `certs.regenerator.enabled: true`, because `cert-regenerator-job` issues a
+  new root CA that adopted components cannot rotate onto.
+
+### 4. Verify readiness and troubleshoot
+
+Run `serviceradar-cli edge hub status` or query
+`GET /api/admin/managed-components/bootstrap` and verify that `data.nats`
+reports `auth_mode: "static_mtls"`, `ready: true`, and `reason: null`, and that
+`data.hub` reports `enforcement_configured: true`, `authorizer_answering: true`,
+and expected `chart_identities` coverage (plus `leaf_listener: true` and
+`leaf_upstream_url: true` when onboarding edge leaves).
+
+Common failure modes and checks:
+
+- **`signing_keys_not_provisioned`**: Core mounts the three `.seed` keys from
+  the issuer Secret with `optional: true`, so core starts even if a seed is
+  missing or unreadable and reports `reason: "signing_keys_not_provisioned"` in
+  `data.nats` on `GET /api/admin/managed-components/bootstrap` (even during a
+  broker outage or when a broker fragment is also missing). Provision or restore
+  the missing seed(s) in the issuer Secret (or delete all remaining
+  `nats-callout-*` entries if using the generator to mint a fresh set).
+- **NATS pod mount failures for `nats-callout-*.conf`**: NATS mounts
+  `nats-callout-authorization.conf` and `nats-callout-accounts.conf` as required
+  Secret items when enforcement is enabled. If either `.conf` key is missing,
+  Kubernetes blocks the affected NATS pod from mounting its certificate volume
+  and starting, naming the missing key in pod events regardless of core's
+  mounted seeds. An empty fragment exits the NATS startup check before starting
+  `nats-server`. Inspect pod mount errors and events with:
+
+  ```bash
+  kubectl describe pod -n <namespace> <nats-pod>
+  kubectl get events -n <namespace> --field-selector involvedObject.name=<nats-pod> --sort-by=.lastTimestamp
+  ```
+
+- **Surviving broker vs. disconnected authorizer**: In a multi-replica NATS
+  StatefulSet, if one broker pod fails to start due to a missing `.conf`
+  fragment while core has all three seeds mounted and continues answering
+  through a surviving broker, `data.nats.ready` remains `true`. If all three
+  seeds are mounted on core but core loses its authorizer connection to NATS,
+  `data.nats.ready` becomes `false` with the readiness reason (such as
+  `connecting`, `auth_connection_unavailable`, `auth_subscription_failed`, or
+  `authorizer_unavailable`); inspect NATS pod events and core health before
+  retrying.
+
+### 5. Disable enforcement
+
+To turn enforcement back off, set `nats.certificateAuthorization.enabled: false`
+and upgrade. The chart omits the `auth_callout` and `AUTH` includes from
+`nats-server.conf` (restoring static certificate mapping and disabling the
+leafnodes listener) and omits the signing projections from core and NATS.
+Existing adopted components, recorded certificates, and
+`runtime-cert-rotation.json` records remain intact, and core's inventory
+projection continues to follow `certs.generator.enabled` and
+`certs.inventoryCertificates`.
+
+### Hub status API and CLI preflight
+
+- **Hub readiness payload (`GET /api/admin/managed-components/bootstrap` and
+  `GET /v1/hub/readiness`)**: core (`ServiceRadar.NATS.HubReadiness`) assembles
+  `enforcement_configured` (from
+  `SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED`), `leaf_listener` (from
+  `SERVICERADAR_NATS_LEAF_LISTENER_ENABLED`), `signing_keys_provisioned` (from
+  mounted signing seeds when configured, or authorizer state otherwise),
+  `authorizer_answering` and `authorizer_reason` (such as
+  `signing_keys_not_provisioned`, `connecting`, or `authorizer_unavailable`,
+  with `signing_keys_not_provisioned` taking precedence whenever mounted seeds
+  are configured and incomplete or unreadable), and `chart_identities` (`total`,
+  `adopted`, `legacy_certificates`, `not_adopted` entries with `subject`,
+  `reason`, `fingerprint`, optional `fingerprints`, and optional
+  `rotation_reason`, plus `unlisted` files; or `null` when inventory
+  reconciliation has not completed, failed, or is unavailable). Web-ng adds
+  `leaf_upstream_url` (`true` only when `SERVICERADAR_NATS_LEAF_UPSTREAM_URL` is
+  explicitly configured as a non-empty value; the hard-coded hosted fallback is
+  never reported as configured) and serves the combined object as `data.hub` on
+  `GET /api/admin/managed-components/bootstrap` (`null` when core is
+  unavailable) and as `{"schema_version": 1, "hub": ...}` on
+  `GET /v1/hub/readiness` over the cluster-only control-plane runtime listener
+  (`503` with `{"status": "core_unavailable"}` when core is unavailable).
+- **`serviceradar-cli edge hub status`**: reads `data.hub` under the CLI's
+  existing `edge.manage` scope and prints hub readiness along with a warning
+  and reason for each uncovered chart identity.
+- **`serviceradar-cli edge install leaf` preflight stop checks**: before
+  installing packages or writing host files, `edge install leaf` evaluates
+  `data.hub` in this exact order and stops on the first failing check, naming
+  the cause and its resolver:
+  1. Hub status missing or unreadable -> wait and retry, and check core's health.
+  2. Enforcement not configured (`enforcement_configured` is not `true`) ->
+     enable `nats.certificateAuthorization.enabled`.
+  3. Enforcement configured, but any of the three mounted seeds is absent
+     (`signing_keys_not_provisioned`) -> provision the missing signing seeds in
+     the issuer Secret (or remove remaining `nats-callout-*` entries for
+     generator-owned provisioning).
+  4. Enforcement configured, but the authorizer is otherwise not answering
+     (`authorizer_answering` is not `true`) -> check NATS and core health, then
+     retry (showing the readiness reason).
+  5. Leaf listener not configured (`leaf_listener` is not `true`) -> enable
+     `nats.leafnodes.enabled`.
+  6. Leaf upstream URL not configured (`leaf_upstream_url` is not `true`) -> set
+     `hostedRuntime.publicEndpoints.natsLeafHost`.
+
+  In a multi-replica NATS cluster where core has all three seeds mounted and
+  continues answering through a surviving broker, an otherwise ready hub stays
+  ready and leaf installation proceeds; if core loses its authorizer
+  connection, `authorizer_answering` becomes `false` and `edge install leaf`
+  stops before host changes. `chart_identities` coverage warnings remain
+  advisory only and do not block leaf installation.
+
+## Non-chart bootstrap and `serviceradar-cli edge install`
+
+For installations without the Helm chart,
+`POST /api/admin/nats/certificate-authorization/bootstrap` stores signing
+material only for the deployment account (`:nats_account_name`). A missing or
+unusable deployment account returns `nats_account_unconfigured`. A different
+requested name returns `nats_account_mismatch`. An existing record for another
+account stays in place. When no signing seed directory is configured, core uses
+the stored record. Readiness then includes the stored account name and stays
+unready while that name disagrees with the deployment account. An authorization
+request in that state is answered with `nats_account_mismatch` and no user JWT,
+and the session is not remembered. A matching account is still decided from the
+certificate policy. On chart installs with mounted seeds, core ignores this
+stored database record.
+
+`serviceradar-cli edge install collector` continues when the hub authorizer is
+disconnected (`static_mtls` with an empty reason, or with reason `connecting`,
+`auth_connection_unavailable`, `auth_subscription_failed`,
+`policy_unavailable`, `not_configured`, `authorizer_unavailable`, or
+`core_unavailable`). An unset mode continues while the hub is not configured.
+`static_mtls` still requires the deployment account name. The command does not
+create the account or require a JWT account seed. It stops before package
+installation for `jwt_account_signer_unconfigured`, `unsupported_auth_mode`,
+`nats_account_mismatch`, `signing_keys_not_provisioned`, any other
+authentication mode, and `nats.ready` without `static_mtls`.
+`serviceradar-cli edge install leaf` requires all six ordered `data.hub`
+preflight checks above to pass before making any host change (with
+`chart_identities` coverage remaining advisory only).
+
+When core uses a stored `operator_jwt` configuration, it reports readiness
+reason `jwt_account_signer_unconfigured`. The authorizer does not open a broker
+connection and does not create an account signer. `edge install` stops before
+package installation because that readiness is false.

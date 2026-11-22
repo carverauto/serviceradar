@@ -34,6 +34,8 @@ gate.
 
 ## B. Core catalog of NVR blocks (design B)
 
+- Note (2026-11-21): the dependency table lists operator-settings Stage A `POST /v1/blocks/lookup` and `GET /v1/status` as prerequisites of B, but B.1-B.4 were ticked before those routes existed (operator-settings A2.1 was open). Status, lookup and the ledger page now exist; the other A2.1 routes (archive receipt, archive probe, verify, archive verify) do not. A.3.3 and R.4-R.6 depend on the routes that now exist.
+
 ### serviceradar_core
 - [x] B.1 `RecordingCatalogEntry` resource, migration and indexes (design B3), admitting sealed and quarantined entries (design B2); create-only registration identity on `(storage_id, block_key)`; database trigger refusing transitions out of `reclaimed` and `deleted`.
 - [x] B.2 `RecordingGap` resource and migration (append-only except closing `end_us`).
@@ -41,11 +43,11 @@ gate.
 - [x] B.4 `RecordingBlocks.acquire_upload/4` refuses blocks stored on an NVR `LocalStorageBinding`.
 
 ### serviceradar_nvr and serviceradar_nvr_client
-- [ ] B.5 `GET /v1/blocks/<id>/descriptor` returning canonical descriptor bytes from the existing read pool; client function.
+- [x] B.5 `GET /v1/blocks/<id>/descriptor` returning canonical descriptor bytes from the existing read pool; client function.
 
 ### serviceradar_core_elx
-- [ ] B.6 `NVRWorker` registers its block through B.3 before releasing its claim; a block it cannot register is left to the reconciler (R).
-- [ ] B.7 Time basis observation: inbox stamps admission UTC per access unit; worker records first-unit PTS and receipt time (design T).
+- [x] B.6 `NVRWorker` registers its block through B.3 before releasing its claim; a block it cannot register is left to the reconciler (R).
+- [x] B.7 Time basis observation: inbox stamps admission UTC per access unit; worker records first-unit PTS and receipt time (design T).
 
 ### web-ng
 - [x] B.8 Settings `cameras` tab block list reads catalog state (copy states, time basis) alongside the settings change's lookup join.
@@ -56,11 +58,13 @@ gate.
 ## R. Reconciliation: no stranded footage (design R)
 
 ### serviceradar_core
+- Note (2026-11-21, flagged for the owner): the recording plane (design section 4) holds that an elapsed lease alone is not proof of physical retirement. For an INCOMPLETE journal this change keeps that stricter reading: a lapsed claim is not enough; the Core worker must have exited and the NVR must report no active session for the source and profile (design R3 "Writer retired"). `freeze_historical/3` as merged accepts a released, superseded or lease-expired claim; before R.6 adopts incomplete journals it must also require those two facts. Sealed blocks are unaffected (a sealed journal is immutable).
 - [x] R.1 `RecordingBlocks.freeze_historical/3` (system actor, reconciler only): every live-freeze check except claim liveness, replaced by writer retirement; same row lock as the live freeze; catalog insert in the same transaction (design R3).
 - [x] R.2 Rotated-block adoption: create the missing `RecordingBlock` row from the reserved predecessor when the capture identity is unallocated, advance the claim's `next_block_sequence` when it is the same epoch, then R.1 (design R3).
 - [x] R.3 Reservation resolution state on `RecordingBlock` (or a side table) so a reservation resolved as adopted, `block_absent` or quarantined is not re-examined; quarantined catalog entries carry the evidence for unattributable and unrecoverable blocks (design B2, R2).
 
 ### serviceradar_nvr and serviceradar_nvr_client
+- Note (2026-11-21): the inventory page (`GET /v1/blocks?after=&limit=`), lookup and status routes and their client functions now exist, reporting `sealed`, `incomplete`, `unresolved` and `absent` and the descriptor digest for sealed blocks from the journal. `tombstoned` waits for the C.6 disposition journal, so R.4 stays open.
 - [ ] R.4 Inventory page reports block state (`sealed`, `incomplete`, `tombstoned`) and descriptor digest for sealed blocks (extends the settings change's `GET /v1/blocks` page); client function.
 - [ ] R.5 `recover_block/2` over the private listener, refusing only when an active session or publication touches that block or its source and profile (today it refuses whenever any recording is active, `capacity.ex:133-136`); client function.
 
@@ -83,13 +87,16 @@ gate.
 
 ### A.1 serviceradar_nvr and serviceradar_recording (parallel with B)
 - [x] A.1.1 Block sizing baseline, merged in #6660: `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` (default 150, range 8 to 256), 16 MiB block limit and 2 s minimum fragment unchanged, Core capture ceilings 270 s / 8,100 frames / 12 MiB, chart NVR session limit 300 s. This removed the two-block capture hazard (design 1.2); Stage A builds on it without changing it.
-- [ ] A.1.2 Incremental inventory ledger in `Capacity` with paged boot rebuild (`:nvr_inventory_rebuilding`), bounded rotating audit (`:nvr_inventory_mismatch` closes admission) and `SERVICERADAR_NVR_MAX_BLOCKS` (default 131,072, ceiling 262,144).
+- [x] A.1.2 Incremental inventory ledger in `Capacity` with paged boot rebuild (`:nvr_inventory_rebuilding`), bounded rotating audit (`:nvr_inventory_mismatch` closes admission) and `SERVICERADAR_NVR_MAX_BLOCKS` (default 131,072, ceiling 262,144).
 - [ ] A.1.3 Release tests: full-cap refusal leaves reads, archive and receipts working; ledger rebuild after restart; audit mismatch closes admission without touching files; a request never rotates inside the coordinator's bounds.
+  - Note (2026-11-21): covered so far: at the cap, descriptor reads and lookups keep working; restart rebuilds the same charge; an unrecorded directory closes admission with no file changed; a volume larger than one rebuild page reports `rebuilding` first. Still open: archive and receipt writes at the cap (archive suite), and the "never rotates inside the coordinator's bounds" case.
 
 ### A.2 serviceradar_core
 - [x] A.2.1 `CameraRecordingPolicy` fields from design E1 (resource named by the settings change), PaperTrail audited; policy edits are assignment transitions.
 
 ### A.3 serviceradar_core_elx
+- Note (2026-11-21, owner decision via coordinator): phase 1 builds the continuous recorder in core-elx, strictly behind the `ServiceRadarRecording.Inbox` and the NVR ingest contract; recording-plane task 2.3 later replaces only its media source. The NVR path is the only continuous recording path; the core-local spool (`add-persistent-camera-spool`, VMS 1.x) stays bounded capture and gets no continuous mode.
+- Note (2026-11-21, needs an owner decision): which switch enables continuous recording is claimed in three places: VMS 1.7 ("ship disabled"), `add-persistent-camera-spool` 5.4 ("keep continuous recording disabled") and the chart's `nvr.ingest.client.cameraRecordingEnabled` (documented as one-shot capture only). A.3.1 must name one.
 - [ ] A.3.1 `ContinuousRecorder` under the recording supervisor: relay open with recorder consumer lease, one claim per run, one inbox per run, block loop with soft and hard bounds (design A2, A3).
 - [ ] A.3.2 Keyframe-aligned handover with bounded inbox; exact gap accounting by relay sequence and PTS; gap rows with reasons (design A4, A7).
 - [ ] A.3.3 Uncertain outcome handling by lookup under the live claim (design A3 table).
@@ -97,10 +104,11 @@ gate.
 - [ ] A.3.5 Drift check and re-anchoring (design T).
 
 ### A.4 serviceradar_core_elx archive scheduler
-- [ ] A.4.1 `ArchiveBlockJob` (Oban, unique per entry, queue `nvr_archive`): state guard, receipt recording and catalog transition in one transaction, busy snooze, backoff, terminal classes (design A6); a re-archive request (design A6 transition 8) never takes a retained receipt as success: it checks the local bytes, HEAD absence and the recorded binding, PUTs, and records `verified` only on a read-back match; a refused request returns the entry to `missing`, while provider errors, unknown outcomes and `archive_busy` retry or snooze and 409 `archive_receipt_conflict` or 422 are `failed_terminal`, as in the job steps.
+- [ ] A.4.1 `ArchiveBlockJob` (Oban, unique per entry, queue `nvr_archive`): state guard, receipt recording and catalog transition in one transaction, busy snooze, backoff, terminal classes (design A6); a re-archive request (design A6 transition 8) never takes a retained receipt as success: it checks the local bytes, HEAD absence and the recorded binding, PUTs, and records `verified` only on a read-back match; a refused request returns the entry to `missing`, while provider errors, unknown outcomes and `archive_busy` retry or snooze and 409 `archive_receipt_conflict` or 422 are `failed_terminal`, as in the job steps. (First-time upload, atomic receipt recording + `:verified` transition, busy/held snooze, indefinite retryable snooze backoff, narrow terminal classes, Transition 8 identical-receipt refusal, and best-effort `NVRWorker` enqueue are implemented; full Transition 8 re-archive supersession with local byte check, HEAD absence, retained-binding check, and NVR re-archive PUT remains deferred.)
 - [ ] A.4.2 Backlog numbers from catalog and jobs for the settings change's backlog telemetry (JetStream, EventWriter).
 
 ### A.5 helm and docs
+- Note (2026-11-21): `SERVICERADAR_NVR_MAX_SESSIONS` has a hard ceiling of 16 in `ServiceRadarNVR.Config`, which caps a member at 16 continuously recorded cameras. Sizing sessions to assigned cameras (below) and the multi-thousand-camera target need that ceiling raised or more members; this needs a decision before A.5.1.
 - [ ] A.5.1 Chart: NVR session count sized to the member's assigned cameras; `SERVICERADAR_NVR_MAX_BLOCKS` value; archive memory guidance unchanged (one slot, 16 MiB block, 48 MiB locked).
 - [ ] A.5.2 Docs: `docs/nvr-ingest.md` and `docs/nvr-runtime.md` updated for block bounds, continuous runs, ledger and cap behavior.
 
@@ -158,10 +166,10 @@ gate.
 ## D. Unified timeline playback (design D)
 
 ### serviceradar_nvr and serviceradar_nvr_client (parallel)
-- [ ] D.1 Read listener: `GET /v1/blocks/<id>/init` and `/fragments/<n>` with expected descriptor digest; separate mTLS pin and read token; separate playback read pool (default 8); chart NetworkPolicy from web-ng to the read port.
+- [x] D.1 Read listener: `GET /v1/blocks/<id>/init` and `/fragments/<n>` with expected descriptor digest; separate mTLS pin and read token; separate playback read pool (default 8); chart NetworkPolicy from web-ng to the read port.
 
 ### serviceradar_core_elx (parallel)
-- [ ] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
+- [x] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
 
 ### web-ng
 - [x] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4); quarantined catalog entries never served; a `quarantined` gap only when that block's camera and its own media interval are known, otherwise the entry is only on the health tab's quarantine list (design R2).

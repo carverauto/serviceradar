@@ -57,6 +57,7 @@ filegroup(
         "automation_launch_envelope.proto",
         "monitoring.proto",
         "//proto/edge/v1:edge_proto_src",
+        "//proto/netperf/v1:netperf_proto_src",
     ],
     visibility = ["//visibility:public"],
 )
@@ -112,6 +113,7 @@ go_library(
     deps = [
         "//proto/edge/v1:edgev1",
         "//proto/identitymap/v1:identity_map",
+        "//proto/netperf/v1:netperfpb",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",

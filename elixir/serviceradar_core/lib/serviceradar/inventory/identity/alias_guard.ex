@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   held by an identified device is invalidated (marked stale).
   """
 
+  alias Ash.Notifier.Notification
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
@@ -20,6 +21,11 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
 
   require Ash.Query
   require Logger
+
+  # Marks an IP alias row expire_superseded_ip_aliases/4 staled, the one stale row a
+  # later sighting of its own device revives (revive_superseded_ip_alias/2).
+  @superseded_key "stale_reason"
+  @superseded_value "superseded"
 
   @doc """
   Handles the confirmed IP aliases other devices hold of the address a resolved device was just
@@ -319,6 +325,93 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     e ->
       Logger.warning("Failed to invalidate conflicting alias #{ip}: #{inspect(e)}")
       :ok
+  end
+
+  @doc """
+  Revive `alias_state` when it is an IP alias row `expire_superseded_ip_aliases/4` staled
+  and its own device has just been sighted at the address again: the address came back to
+  it. The revival does not expire the other holder's row; the live holder is then the one
+  sighted last. Any other row, including one `invalidate_ip_alias/5` staled, is returned
+  unchanged. Returns the notifications for the caller to send after its commit.
+  """
+  @spec revive_superseded_ip_alias(DeviceAliasState.t(), term()) ::
+          {:ok, DeviceAliasState.t(), [Notification.t()]} | {:error, term()}
+  def revive_superseded_ip_alias(
+        %DeviceAliasState{
+          alias_type: :ip,
+          state: :stale,
+          metadata: %{@superseded_key => @superseded_value} = metadata
+        } =
+          alias_state,
+        actor
+      ) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    alias_state
+    |> Ash.Changeset.for_update(:reactivate, %{metadata: Map.delete(metadata, @superseded_key)})
+    |> Ash.update(Keyword.put(query_opts, :return_notifications?, true))
+  end
+
+  def revive_superseded_ip_alias(alias_state, _actor), do: {:ok, alias_state, []}
+
+  @doc """
+  Expire every other device's live IP alias of `ip` once `holder_device_id` holds a
+  confirmed alias of it: an address has one live holder per partition. Staled in the
+  caller's transaction, with the same revision bump as `invalidate_ip_alias/5`, so a
+  recycled address stops being attributed to the device that held it before. Returns the
+  notifications of the staled rows for the caller to send after its commit.
+  """
+  @spec expire_superseded_ip_aliases(String.t(), String.t() | nil, String.t(), term()) ::
+          {:ok, [Notification.t()]} | {:error, term()}
+  def expire_superseded_ip_aliases(ip, partition, holder_device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and device_id != ^holder_device_id and
+          state in [:detected, :confirmed, :updated]
+      )
+      |> Resolver.maybe_filter_alias_partition(partition)
+
+    with {:ok, alias_states} <- Ash.read(query, query_opts),
+         {:ok, notifications} <- stale_all(alias_states, query_opts) do
+      bumped =
+        alias_states
+        |> Enum.map(& &1.device_id)
+        |> Enum.uniq()
+        |> Enum.flat_map(&bump_revision_in_transaction(&1, query_opts))
+
+      {:ok, notifications ++ bumped}
+    end
+  end
+
+  # bump_alias_owner_revision/2 for a caller holding a transaction: the bump's notifications
+  # are returned for it to send after the commit.
+  defp bump_revision_in_transaction(device_id, query_opts) do
+    actor = Keyword.get(query_opts, :actor) || SystemActor.system(:alias_guard)
+
+    with {:ok, %Device{} = device} <- Device.get_by_uid(device_id, false, actor: actor),
+         {:ok, _device, notifications} <-
+           Device.bump_identity_revision(device, actor: actor, return_notifications?: true) do
+      notifications
+    else
+      _ -> []
+    end
+  end
+
+  defp stale_all(alias_states, query_opts) do
+    Enum.reduce_while(alias_states, {:ok, []}, fn alias_state, {:ok, acc} ->
+      metadata = Map.put(alias_state.metadata || %{}, @superseded_key, @superseded_value)
+
+      alias_state
+      |> Ash.Changeset.for_update(:mark_stale, %{metadata: metadata})
+      |> Ash.update(Keyword.put(query_opts, :return_notifications?, true))
+      |> case do
+        {:ok, _staled, notifications} -> {:cont, {:ok, notifications ++ acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   # Best-effort, matching the rest of this function: a failed bump must not stop

@@ -57,7 +57,11 @@ in nats-server. Both are off in the baseline. Before turning them on, the
 control plane must issue `nats.pem` with
 `hostedRuntime.publicEndpoints.natsLeafHost` as a SAN, because hosted mode never
 runs the chart's certificate generator. Setting `natsLeafHost` also renders
-`SERVICERADAR_NATS_LEAF_UPSTREAM_URL` for web-ng.
+`SERVICERADAR_NATS_LEAF_UPSTREAM_URL` for web-ng and sets `leafnodes.advertise`
+on the NATS broker (using `natsLeafPort`, default 7422) when
+`nats.leafnodes.enabled` and `nats.certificateAuthorization.enabled` are both
+enabled, so edge leaves reconnect to the public endpoint rather than pod
+addresses.
 
 External telemetry NetworkPolicy CIDR lists are intentionally empty in the
 baseline. The hosted control plane's network-security sync writes tenant

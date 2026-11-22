@@ -162,6 +162,36 @@ defmodule ServiceRadarWebNGWeb.Plugins.ShowLiveRenderTest do
     assert Components.dom_id_segment("snmp_if") == "snmp_if"
   end
 
+  test "declarative-check-runner hides manual assignment form and links to Solution Packs & Declarative Checks" do
+    package = %{
+      package_fixture()
+      | plugin_id: "io.serviceradar.declarative-check-runner",
+        name: "Declarative Check Runner",
+        config_schema: %{
+          "type" => "object",
+          "properties" => %{
+            "check_id" => %{"type" => "string", "title" => "check_id"},
+            "nodes" => %{"type" => "array", "title" => "nodes"},
+            "edges" => %{"type" => "array", "title" => "edges"}
+          }
+        }
+    }
+
+    html =
+      package
+      |> assigns_fixture()
+      |> ShowLive.render()
+      |> rendered_to_string()
+
+    assert html =~ ~s(id="declarative-check-managed-banner")
+    assert html =~ "Managed automatically by Solution Packs"
+    assert html =~ ~s(href="/catalog")
+    assert html =~ ~s(href="/settings/declarative-checks")
+    assert html =~ ~s(href="/websites")
+    assert html =~ "https://docs.serviceradar.cloud/docs/solution-packs"
+    refute html =~ ~s(phx-submit="create_assignment")
+  end
+
   defp package_fixture do
     now = ~U[2024-01-02 03:04:05Z]
 

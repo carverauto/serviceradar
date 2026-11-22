@@ -481,6 +481,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_kind_label(:declarative_check, count), do: count_label(count, "declarative check", "declarative checks")
 
+  defp consumer_kind_label(:catalog_repository, count),
+    do: count_label(count, "catalog repository", "catalog repositories")
+
+  defp consumer_kind_label(:installed_solution_pack, count), do: count_label(count, "solution pack", "solution packs")
+
   defp consumer_kind_label(kind, count) do
     label = kind |> humanize() |> String.downcase()
     count_label(count, label, "#{label}s")
@@ -501,6 +506,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp consumer_path(%Consumer{kind: :declarative_check, id: id}), do: ~p"/settings/declarative-checks/#{id}"
 
+  defp consumer_path(%Consumer{kind: :catalog_repository, id: id}), do: ~p"/catalog?modal=repositories&repo=#{id}"
+
+  defp consumer_path(%Consumer{kind: :installed_solution_pack, id: id}), do: ~p"/catalog?installed=#{id}"
+
   defp consumer_path(_consumer), do: nil
 
   defp consumer_accessible_label(%Consumer{kind: :snmp_profile, label: label}), do: "Edit SNMP profile #{label}"
@@ -510,6 +519,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
   defp consumer_accessible_label(%Consumer{kind: :mapper_job, label: label}), do: "Edit discovery job #{label}"
 
   defp consumer_accessible_label(%Consumer{kind: :declarative_check, label: label}), do: "Edit declarative check #{label}"
+
+  defp consumer_accessible_label(%Consumer{kind: :catalog_repository, label: label}),
+    do: "Manage catalog repository #{label}"
+
+  defp consumer_accessible_label(%Consumer{kind: :installed_solution_pack, label: label}),
+    do: "Inspect solution pack #{label}"
 
   defp consumer_accessible_label(%Consumer{label: label}), do: label
 

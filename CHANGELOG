@@ -1,3 +1,143 @@
+# ServiceRadar v1.6.0
+
+This release introduces L7 **Web Properties (`in:websites`) and Akamai Boomerang Real User Monitoring (RUM)**, **embedded agent `netperf`** (retiring standalone `rperf`), the **Dashboard SDK Blueprint** runtime with first-party **Web RUM** and **Network Performance** dashboards, **Wasm Synthetic Journeys**, the **Proxmox Monitoring Solution Pack**, and collector-side Zen syslog normalization backed by NATS KV rule buckets.
+
+## Upgrade Notes
+
+- **The log collector now applies the Zen rules to syslog itself.** It
+  publishes normalized batches on `logs.normalized.syslog`, and EventWriter
+  stores them without running the rules again. Until the collector has
+  received its ruleset it still publishes JSON, which EventWriter normalizes
+  as before. To keep the old behaviour, set `[rules] normalize = false` in
+  the collector configuration or `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`.
+  Upgrade core before the collector if you upgrade them separately:
+  EventWriter has read the normalized subject since v1.5.6.
+  Docker Compose installs keep the old behaviour for now: the collector there
+  publishes with the shared platform credential, which may not publish the
+  normalized subject.
+- **The log collector reads its Zen ruleset from a NATS bucket.** Core
+  now also writes each rule bundle to the key-value bucket
+  `serviceradar-zen-rules` (it creates the bucket on reconcile), and with
+  `kv.enabled` the chart renders a `[rules.nats]` section that the collector
+  uses instead of `[rules.datasvc]`. The chart grants core and web-ng write
+  access to `$KV.serviceradar-zen-rules.>`. `[rules.datasvc]` still works and
+  Docker Compose keeps using it; it will be removed in a later release.
+  Upgrade core before the collector: until core has created the bucket, the
+  collector has no ruleset and publishes raw syslog as described above.
+- **Standalone `rperf` is retired in favor of embedded agent `netperf`.**
+  Configure responders, profiles, and policies under
+  **Settings -> Networks -> Netperf** (`/settings/networks/netperf`) and roll
+  agents forward to `v1.6.0` so they advertise the `netperf` capability (#6767).
+
+## Highlights
+
+- **L7 Web Properties (`in:websites`) and Boomerang RUM (`in:rum`)**: sibling L7
+  inventory isolated from `ocsf_devices`/DIRE, bundled `boomerang-sr.min.js`
+  with W3C `traceparent` injection and Akamai mPulse tee support, public-safe
+  `/rum/v1/beacon` Rust ingest gate with `Origin`/site-key validation, PII
+  query stripping, Akamai `Server-Timing` + `Akamai-Edgescape` + `prefix_tags`
+  enrichment, single-active-store StarRocks/CNPG persistence (30d retention),
+  adaptive-bucket trendlines, `/websites` LiveViews, conditional `/dashboard`
+  RUM summary, and dedicated `rumHostname` Helm `HTTPRoute` (#6853, #6876,
+  #6877, #6879, #6881, #6882, #6883).
+- **Embedded agent `netperf` and Network Performance dashboard**: in-agent
+  mTLS TCP / HMAC UDP throughput, loss, and jitter testing with hub-and-spoke
+  and hub-mesh policies and the first-party `Network Performance` Blueprint
+  dashboard (#6856, #6852).
+- **Wasm Synthetic Journeys and Proxmox Monitoring Solution Pack**: multi-step
+  synthetic HTTP/TLS journeys with `httptrace` phase breakdown and a built-in
+  Proxmox monitoring pack (#6855, #6865).
+- **Collector-side Zen syslog normalization and NATS KV rule buckets**: moves
+  syslog normalization into the Rust log collector and distributes rule bundles
+  via NATS KV with refused-ack error handling and atomic-update publishing
+  (#6863, #6871, #6872, #6875, #6880).
+- **UI and reliability fixes**: improved `Declarative Check Runner` plugin
+  guidance banner (#6879), SSO profile claims (#6861), local login denial
+  without IdP redirect (#6866), Longshore `0.2.0` update (#6874), and agent
+  plugin load retry backoff (#6858).
+
+# ServiceRadar v1.5.10
+
+This release refreshes `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 so the
+formal release publish pipeline (`--lockfile_mode=error`) succeeds (#6850). It
+supersedes the unpublished `v1.5.9` tag and carries all `v1.5.9` features,
+security hardening, fixes, and upgrade notes listed below.
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles (#6836).
+- **Upgrading from v1.5.8 or earlier: read the v1.5.9 and earlier upgrade notes
+  below first.** They still apply to this release.
+
+## Build and CI
+
+- bazel: refresh `MODULE.bazel.lock` for `tonic-reflection` 0.14.9 (#6850).
+
+# ServiceRadar v1.5.9
+
+This release introduces Solution Packs with a `/catalog` gallery, 4-step
+install and upgrade wizard, two-way GitOps sync, `serviceradar-cli` pack
+tooling, four flagship packs, and signed `.srpack` plus
+`serviceradar-pack-index.json` release publishing. It expands Declarative
+Checks operations with the `/services/checks` SRQL Check Results Explorer,
+global SRQL bar routing for `in:declarative_check_results`, fullscreen editor
+mode with collapsible Palette and Inspector panels, dark-mode canvas polish,
+and `declarative_checks` Oban queue activation. For Camera Semantic Clip
+Search, the stateless media worker adds a pure-Rust HuggingFace `candle`
+(`.safetensors`, CPU and optional CUDA) inference backend behind
+`InferenceBackend` and `trackforge` multi-object tracking (ByteTrack,
+BoT-SORT, and Deep OC-SORT) with best-crop deduplication. It also removes
+SAML single sign-on, adopts Palisade for outbound URL and address policy,
+adds offline transparency-log receipt verification at import and a
+self-hosted Rekor signing monitor, hardens web-ng Sobelow findings, and
+fixes dashboard renderer blob repair and fullest-datastore labeling.
+
+## Upgrade Notes
+
+- **SAML single sign-on is removed.** Configure OIDC before upgrading if your
+  users sign in through SAML. An installation set to SAML falls back to local
+  password login after the upgrade; users provisioned through SAML keep their
+  accounts and roles (#6836).
+- **Upgrading from v1.5.7 or earlier: read the v1.5.8 upgrade notes below
+  first.** They still apply and are not repeated here.
+
+## Features
+
+- Solution Packs: core domain, two-way GitOps sync, and `serviceradar-cli`
+  pack tooling (#6822); `/catalog` gallery, 4-step install/upgrade wizard,
+  REST API, and documentation (#6832); four flagship packs and signed
+  `.srpack` plus `serviceradar-pack-index.json` release publishing (#6839).
+- Declarative checks: `/services/checks` SRQL Check Results Explorer and
+  global SRQL bar routing for `in:declarative_check_results` (#6840);
+  fullscreen editor mode and collapsible Palette/Inspector panels (#6841);
+  dark-mode canvas polish and `declarative_checks` Oban queue activation
+  (#6837).
+- Media worker: pure-Rust HuggingFace `candle` (`.safetensors`, CPU and
+  optional CUDA) inference backend behind `InferenceBackend` (#6845), and
+  `trackforge` multi-object tracking (ByteTrack, BoT-SORT, Deep OC-SORT)
+  with best-crop deduplication (#6846).
+- Signing: verify first-party transparency-log receipts offline at import
+  (#6828) and add a Rekor signing monitor for the self-hosted transparency
+  log (#6835).
+
+## Security and Fixes
+
+- auth: remove SAML single sign-on (#6836).
+- elixir: adopt Palisade for outbound URL and address policy (#6824).
+- web-ng: harden Sobelow findings and document safe exceptions (#6833).
+- web-ng: repair missing dashboard renderer blobs idempotently on republish
+  (#6821) and name the fullest datastore on the virtualization panel (#6820).
+- scripts: bound which reused signatures release verification accepts as
+  pre-cutover (#6834).
+
+## Build and CI
+
+- ci(elixir): resolve remaining daily Elixir quality audit failures (#6826).
+- deps: bump `tonic-reflection` from 0.14.6 to 0.14.9 (#6677).
+
 # ServiceRadar v1.5.8
 
 This release fixes the v1.5.7 upgrade: the Helm migrations Job crashed at boot
@@ -4976,7 +5116,7 @@ distribution aware.
   blocked for this plugin. (PR #4164, #4157)
 - Web UI: dashboard Share moves into the operations topbar
   instead of an overlay on the WASM canvas, which had covered
-  in-dashboard controls on RIDS. (PR #4161)
+  in-dashboard controls. (PR #4161)
 - Sweep: reconstructed host summaries keep a requested TCP
   mode as `no_response` when every port is closed or
   filtered, instead of looking like ICMP-only. (PR #4169)
@@ -5388,7 +5528,7 @@ hand.
   scan from a blocked subnet no longer flips the monitoring copy a
   reachable scanner still owns. Uniqueness moves to
   `(partition, ip)`, CSV import and the import modal accept a
-  partition, and `in:devices partition:rids` filters on it. Scanners
+  partition, and `in:devices partition:<slug>` filters on it. Scanners
   are no longer bound to the device partition: a group's `partition`
   is the ingest lookup, `agent_id` is who runs the scan. (PR #4049)
 - Inventory: active-IP conflict resolution is keyed on
@@ -5400,9 +5540,9 @@ hand.
 - Inventory: an integration can no longer overwrite a device type a
   human set. `type` was the one identity field with no source
   precedence -- the raw upsert took any non-empty incoming string --
-  and one Armis sync relabelled 280 of 412 hand-imported RIDS
-  displays as "Interactive Kiosks", leaving every `type:rids` query
-  reporting the surviving 132 as the whole fleet. The guard is
+  and an Armis sync relabelled hand-imported devices with its own
+  vendor category, so a `type:` query for the operator-chosen type
+  silently missed them. The guard is
   deliberately narrow: an integration still overwrites another
   integration's guess, fills a blank type, and upgrades the
   `Unknown` placeholder. (PR #4046)

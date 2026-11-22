@@ -1,0 +1,113 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "degraded",
+      "down"
+    ],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Detects missing or failing uploader/reader/retention S3 archive secrets and stale daily usage reports.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "posture_1",
+      "source_handle": "signal",
+      "target": "assert_archive",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_archive",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "max_report_age_hours"
+      },
+      "description": "Maximum permitted age in hours for StorageUsageDailyReport",
+      "key": "max_report_age_hours",
+      "max": 720.0,
+      "min": 1.0,
+      "type": "number"
+    }
+  ],
+  "managed": true,
+  "name": "Archive Credential and Usage Report Health",
+  "nodes": [
+    {
+      "config": {
+        "evaluator": "storage.archive_credential_and_usage_health",
+        "max_report_age_hours": "{{inputs.max_report_age_hours}}"
+      },
+      "id": "posture_1",
+      "kind": "platform_posture",
+      "label": "Archive Credential & Usage Health"
+    },
+    {
+      "config": {
+        "fail_closed_field": "credential_failure",
+        "field": "report_age_hours",
+        "warn": {
+          "op": ">",
+          "value": "{{inputs.max_report_age_hours}}"
+        }
+      },
+      "id": "assert_archive",
+      "kind": "threshold_assert",
+      "label": "Credential & Report Freshness"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "usage_report_stale",
+          "down": "archive_credentials_unhealthy",
+          "healthy": "archive_and_usage_healthy",
+          "unknown": "archive_health_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Archive Health Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.storage-and-nvr-health",
+  "pack_version": "0.1.2",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "storage-archive-credential-health",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_archive": {
+        "x": 380,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      },
+      "posture_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

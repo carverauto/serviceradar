@@ -12,7 +12,13 @@ import {DEFAULT_RENDERER_ENTRY, outputDir, rendererArtifact, sampleTarget} from 
 import {basenameWithoutExt, relativePath, runCommand} from "../utils.js"
 import {formatValidationFailures, validateProject} from "../validation.js"
 import {manifestCommand} from "./manifest.js"
-import {assertReactResolvable, projectReactAliases} from "./resolve.js"
+import {dashboardCssBuildPlugins} from "./css-plugin.js"
+import {
+  assertReactResolvable,
+  buildViteAliases,
+  explainBlueprintResolveError,
+  projectReactAliases,
+} from "./resolve.js"
 
 export async function buildCommand(options: Record<string, any>): Promise<void> {
   const projectDir = resolve(options.cwd || process.cwd())
@@ -47,46 +53,57 @@ async function buildRenderer(
   if (!existsSync(entry)) throw new Error(`renderer entry does not exist: ${entry}`)
 
   // Resolved from the project, so a hoisted install is found. The author's own
-  // alias entries still spread last and win, as they always have here.
+  // alias entries always come first via buildViteAliases.
   const reactAliases = projectReactAliases(projectDir)
   assertReactResolvable(projectDir, reactAliases)
 
-  await build({
-    root: projectDir,
-    configFile: false,
-    plugins: [react()],
-    define: {
-      "process.env.NODE_ENV": JSON.stringify("production"),
-      ...(config.vite?.define || {}),
-    },
-    resolve: {
-      alias: {
-        ...reactAliases,
-        ...(config.vite?.resolve?.alias || {}),
+  const {alias: configAlias, ...restViteResolve} = config.vite?.resolve || {}
+  const {rollupOptions: configRollupOptions, lib: configLib, ...restViteBuild} = config.vite?.build || {}
+  const configOutput = configRollupOptions?.output
+  const baseOutput = Array.isArray(configOutput) ? (configOutput[0] || {}) : (configOutput || {})
+
+  try {
+    await build({
+      root: projectDir,
+      configFile: false,
+      plugins: [react(), ...dashboardCssBuildPlugins({projectDir, entry, artifact})],
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+        ...(config.vite?.define || {}),
       },
-      ...(config.vite?.resolve || {}),
-    },
-    build: {
-      outDir,
-      emptyOutDir: false,
-      sourcemap: Boolean(config.renderer?.sourcemap || config.build?.sourcemap),
-      minify: config.renderer?.minify ?? config.build?.minify ?? false,
-      lib: {
-        entry,
-        formats: ["es"],
-        fileName: () => artifact,
+      resolve: {
+        ...restViteResolve,
+        alias: buildViteAliases(projectDir, configAlias),
       },
-      rollupOptions: {
-        output: {
-          entryFileNames: artifact,
-          chunkFileNames: basenameWithoutExt(artifact) + "-[hash].js",
-          assetFileNames: basenameWithoutExt(artifact) + "-[hash][extname]",
+      build: {
+        ...restViteBuild,
+        outDir,
+        emptyOutDir: false,
+        sourcemap: Boolean(config.renderer?.sourcemap || config.build?.sourcemap),
+        minify: config.renderer?.minify ?? config.build?.minify ?? false,
+        cssCodeSplit: false,
+        lib: {
+          ...(configLib || {}),
+          entry,
+          formats: ["es"],
+          fileName: () => artifact,
+          cssFileName: basenameWithoutExt(artifact),
         },
-        ...(config.vite?.build?.rollupOptions || {}),
+        rollupOptions: {
+          ...(configRollupOptions || {}),
+          output: {
+            ...baseOutput,
+            entryFileNames: artifact,
+            inlineDynamicImports: true,
+          },
+        },
       },
-      ...(config.vite?.build || {}),
-    },
-  })
+    })
+  } catch (error) {
+    const explained = explainBlueprintResolveError(projectDir, error)
+    if (explained) throw explained
+    throw error
+  }
 }
 
 async function writeSamples(

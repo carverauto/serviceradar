@@ -2,26 +2,43 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecorderOwnership
+  alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingControl
+  alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
+  alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Credentials.CredentialSecretBuilder
+  alias ServiceRadar.Credentials.NativeDescriptors
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+  alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.Capture
   alias ServiceRadarCoreElx.CameraRecording.NVRCapture
+  alias ServiceRadarCoreElx.CameraRecording.NVRWorker
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
+  alias ServiceRadarCoreElx.CameraRecording.Workers
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.CanonicalJSON
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
@@ -30,6 +47,35 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   @replaced_marker "00000000-0000-4000-8000-000000000099\n"
   # The NVR client's 4-byte zero end marker as a chunk, then the chunked body end.
   @ingest_request_end "4\r\n" <> <<0::32>> <> "\r\n0\r\n\r\n"
+
+  defmodule RegistrationFault do
+    @moduledoc false
+    use Ash.Notifier
+    use Ash.Tracer
+
+    def start_span(_, _), do: :ok
+    def stop_span, do: :ok
+    def set_error(_, _), do: :ok
+    def get_span_context, do: nil
+    def set_span_context(_), do: :ok
+    def trace_type?(type), do: type == :action
+
+    def set_metadata(:action, %{action: action, resource: resource}) do
+      with {worker, ^resource, ^action, fault} <- Application.get_env(:ash, __MODULE__),
+           true <- self() == worker or worker in Process.get(:"$callers", []) do
+        fault.()
+      else
+        _ -> :ok
+      end
+    end
+
+    def set_metadata(_, _), do: :ok
+
+    def notify(%{metadata: %{observer: observer}}) do
+      send(observer, :freeze_reply_lost)
+      raise DBConnection.ConnectionError, "synthetic connection loss after commit"
+    end
+  end
 
   setup ctx do
     Fixtures.recording_recovery_gate(ctx.tmp_dir)
@@ -235,7 +281,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   test "one-shot deadline includes a stalled start and survives loss of its caller", ctx do
     owner = owner(ctx, 90_000)
     tasks = start_supervised!(Task.Supervisor)
-    workers = ServiceRadarCoreElx.CameraRecording.Workers
+    workers = Workers
     :ok = :sys.suspend(workers)
 
     try do
@@ -581,7 +627,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     File.write!(Path.join(ctx.root, ".storage-id"), "00000000-0000-4000-8000-000000000012\n")
     assert {:error, :storage_identity_mismatch} = Worker.status(worker)
-    release_hook = capture_slow_recorder_release(1_100)
+    release_hook = capture_recorder_release(1_100)
     # A burst of the remaining units can fill the finite inbox and stop as
     # queue_full before persistence reaches the storage guard. Renewal is the
     # scheduled production event that checks storage first.
@@ -593,7 +639,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
     detach_freeze_hook(release_hook)
-    assert_receive {:recorder_claim_released_by, ^worker}, 1_000
+    assert_receive {:recorder_claim_released_by, ^worker, _callers}, 1_000
 
     assert Map.new(
              File.ls!(snapshot.directory),
@@ -851,7 +897,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       if Process.alive?(once), do: Agent.stop(once)
     end)
 
-    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
 
     :ok =
       :telemetry.attach(
@@ -869,7 +915,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     handler_id
   end
 
-  defp capture_slow_recorder_release(delay_ms) do
+  defp capture_recorder_release(delay_ms) do
     handler_id = {__MODULE__, make_ref()}
     parent = self()
     {:ok, once} = Agent.start_link(fn -> false end)
@@ -879,7 +925,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       if Process.alive?(once), do: Agent.stop(once)
     end)
 
-    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
 
     :ok =
       :telemetry.attach(
@@ -888,7 +934,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         fn _event, _measurements, metadata, _config ->
           if recorder_claim_release_update?(metadata) and claim_once(once) do
             Process.sleep(delay_ms)
-            send(parent, {:recorder_claim_released_by, self()})
+            send(parent, {:recorder_claim_released_by, self(), Process.get(:"$callers", [])})
           end
         end,
         nil
@@ -1011,7 +1057,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert String.trim(output) == Integer.to_string(expected)
   end
 
-  test "NVRCapture.once_source streams bounded relay media into serviceradar_nvr, retains decodable fMP4 across restart, and keeps catalog state open_local",
+  test "NVRCapture.once_source streams bounded relay media into serviceradar_nvr, retains decodable fMP4 across restart, and catalogs the sealed block",
        ctx do
     nvr_ctx = Fixtures.context()
     nvr = setup_nvr_release(ctx.tmp_dir)
@@ -1090,14 +1136,34 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert block.id == receipt.recording_block_id
     assert block.block_key == receipt.block_key
     assert block.storage_id == nvr.storage_id
-    assert block.state == :open_local
-    assert block.descriptor == nil
     assert block.archive_published_at == nil
 
-    assert {:error, :recording_block_unfrozen} =
+    # The frozen descriptor is the NVR's own description of the bytes it sealed.
+    assert block.state == :sealed
+    assert block.descriptor["identity"] == RecordingBlock.identity(block)
+    media_path = Path.join([nvr.spool_dir, block.block_key, "media.m4s"])
+    assert block.descriptor["media"]["length"] == File.stat!(media_path).size
+
+    assert {:registered, entry_id} = receipt.catalog
+    assert [entry] = catalog_entries(nvr.storage_id)
+    assert entry.id == entry_id
+    assert entry.recording_block_id == block.id
+    assert entry.block_key == block.block_key
+    assert entry.descriptor_sha256 == block.descriptor_sha256
+    assert entry.local_state == :present
+
+    # A block on an NVR volume is archived by the NVR, never by the older upload path.
+    assert {:error, :nvr_local_storage_block} =
              RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
                actor: nvr_ctx.actor
              )
+
+    # Playback: the catalog entry's local read plans, served by the NVR read
+    # listener with the read-purpose credentials, are the init segment and the
+    # fragments of the captured media.
+    played = play_cataloged_block(nvr, nvr_ctx.source.id, entry, block.descriptor)
+    played_mp4 = Path.join(nvr.dir, "played.mp4")
+    File.write!(played_mp4, played)
 
     assert_live_delivery(%{relay: active_relay, pipeline: pipeline}, List.last(units))
 
@@ -1111,6 +1177,36 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     expected_raw = binary_part(decode_rawvideo(ctx.media.path), 0, 60 * div(64 * 64 * 3, 2))
     assert decode_rawvideo(exported_mp4) == expected_raw
+    assert decode_rawvideo(played_mp4) == expected_raw
+  end
+
+  # Reads the entry's init segment and every fragment the way web-ng's local
+  # reader does: the plan `RecordingTimeline.resolve_read_plans/5` builds from the
+  # catalog, sent to the member that stores the entry with the read credentials.
+  defp play_cataloged_block(nvr, camera_source_id, entry, descriptor) do
+    {:ok, members} =
+      ServiceRadarNVRClient.Members.load(nvr.read_client_config, nvr.read_token_file)
+
+    {:ok, target} = ServiceRadarNVRClient.Members.by_storage_id(members, entry.storage_id)
+    selectors = [:init | Enum.map(descriptor["fragments"], &{:fragment, &1["sequence"]})]
+
+    Enum.map_join(selectors, fn selector ->
+      assert {:ok, [plan]} =
+               RecordingTimeline.resolve_read_plans(camera_source_id, entry.id, selector, :local)
+
+      assert plan.provisional?
+
+      assert {:ok, bytes} =
+               ServiceRadarNVRClient.read_block(
+                 target.client_config,
+                 plan.block_key,
+                 plan.descriptor_sha256,
+                 plan.selector,
+                 %{length: plan.expected_length, sha256: plan.expected_sha256}
+               )
+
+      bytes
+    end)
   end
 
   test "NVRCapture mid-stream transport drop returns uncertain without retrying, failing over, or releasing the active recorder fence",
@@ -1309,17 +1405,16 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              second
   end
 
-  test "NVRCapture keeps a capture Core aborts after the end marker uncertain, holding the recorder fence",
-       ctx do
-    owner = owner(ctx, 30_000)
-    nvr = fake_nvr_member(ctx, "late-abort", &start_sealing_tls_peer(&1, self()))
-    task = start_fake_nvr_capture(ctx, nvr, 3)
-    worker = await_nvr_worker_attached(owner)
-    %{block: %{block_key: block_key}} = :sys.get_state(worker)
-    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
-
-    # The peer has read the end marker, so the worker handed its sender `:eof`.
-    assert_receive :nvr_sealing_peer_request_complete, 5_000
+  test "NVRCapture registers a verified seal after a late Core abort", ctx do
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {_descriptor, bytes}
+    } =
+      capture_waiting_for_seal(ctx)
 
     # Closing the relay pipeline stops the stream from Core's side while the
     # seal answer is outstanding.
@@ -1334,24 +1429,124 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       System.monotonic_time(:millisecond) + 5_000
     )
 
-    # The end marker went out, so the NVR may have sealed; here it has.
-    seal =
-      Jason.encode!(%{
-        "version" => 1,
-        "status" => "sealed_local",
-        "storage_id" => nvr.storage_id,
-        "block_ids" => [block_key]
-      })
+    send(nvr.peer, {:seal, Jason.encode!(seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(nvr.peer, {:descriptor, 200, bytes})
 
-    send(nvr.peer, {:seal, seal})
+    assert {:ok, receipt} = Task.await(task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert receipt.frames_sent == 3
 
-    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
-    assert details.reason == :ingest_stopped
-    assert details.frames_sent == 3
+    assert [%{id: sealed_id, state: :sealed}] = recording_blocks(ctx)
+    assert sealed_id == block.id
+    assert [%{id: ^entry_id, recording_block_id: ^sealed_id}] = catalog_entries(nvr.storage_id)
 
     claim = recorder_claim(ctx)
-    assert claim.state == :active
+    assert claim.state == :released
     assert claim.recorder_epoch == 1
+  end
+
+  test "NVRCapture delivers a verified reply processed after its capture deadline", ctx do
+    capture = capture_waiting_for_seal(ctx)
+    %{sender_ref: sender_ref, capture: %{deadline: deadline}} = :sys.get_state(capture.worker)
+    :ok = :sys.suspend(capture.worker)
+
+    try do
+      send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+
+      await_worker_message(
+        capture.worker,
+        &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1)
+      )
+
+      Process.sleep(max(0, deadline - System.monotonic_time(:millisecond) + 1))
+    after
+      :ok = :sys.resume(capture.worker)
+    end
+
+    assert_registration_refused(ctx, capture, :registration_deadline)
+    refute_received {:nvr_descriptor_read, _}
+  end
+
+  test "NVRCapture registers a verified reply queued behind a timeout interrupt before the deadline",
+       ctx do
+    capture = capture_waiting_for_seal(ctx)
+    %{sender_ref: sender_ref} = :sys.get_state(capture.worker)
+    {_descriptor, bytes} = capture.descriptor
+    :ok = :sys.suspend(capture.worker)
+
+    try do
+      GenServer.cast(capture.worker, {:interrupt, :capture_timeout})
+      send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+
+      await_worker_message(
+        capture.worker,
+        &match?({^sender_ref, {:ok, %{status: :sealed_local}}}, &1)
+      )
+    after
+      :ok = :sys.resume(capture.worker)
+    end
+
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture registers the seal when recovery reopens before the reply", ctx do
+    capture = capture_waiting_for_seal(ctx)
+    {_descriptor, bytes} = capture.descriptor
+    gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
+    ready = File.read!(gate.path)
+    close_recovery_gate()
+    send(capture.worker, :renew_lease)
+    assert %{abort_reason: :nvr_recovery_closed} = :sys.get_state(capture.worker)
+    File.write!(gate.path, ready)
+    send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
+  end
+
+  defp capture_waiting_for_seal(ctx) do
+    owner = owner(ctx, 30_000)
+    nvr = fake_nvr_member(ctx, "pending-seal", &start_registering_tls_peer(&1, self()))
+    task = start_fake_nvr_capture(ctx, nvr, 3)
+    worker = await_nvr_worker_attached(owner)
+    %{block: block} = :sys.get_state(worker)
+    descriptor = Fixtures.recording_descriptor(block)
+    {:ok, bytes} = Descriptor.encode(descriptor)
+    Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
+    assert_receive :nvr_sealing_peer_request_complete, 5_000
+
+    seal = %{
+      "version" => 1,
+      "status" => "sealed_local",
+      "storage_id" => nvr.storage_id,
+      "block_ids" => [block.block_key]
+    }
+
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {descriptor, bytes}
+    }
   end
 
   test "NVRCapture keeps a capture uncertain when its caller dies while a unit is queued before the end marker, holding the recorder fence",
@@ -1527,7 +1722,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     [block] = recording_blocks(ctx)
     assert block.block_key == receipt.block_key
-    assert block.state == :open_local
+    assert block.state == :sealed
+    assert {:registered, _entry_id} = receipt.catalog
   end
 
   test "NVRCapture rejects a capture timeout beyond the NVR client limit before taking the recorder fence",
@@ -1829,11 +2025,594 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert claim.lease_expires_at == last_permitted_renewal
   end
 
-  test "NVRCapture returns a verified seal receipt when worker cleanup outlasts the exit wait",
+  test "NVRCapture catalogs a sealed block under its live recorder claim with the received time basis",
+       ctx do
+    enable_deployment_archive(ctx)
+
+    {:ok, _profile} =
+      StreamProfile.update_profile(ctx.profile, %{relay_eligible: true}, actor: ctx.actor)
+
+    {:ok, policy} =
+      CameraRecordingPolicy
+      |> Ash.Changeset.for_create(:create, %{
+        camera_source_id: ctx.source.id,
+        stream_profile_id: ctx.profile.id,
+        storage: :local_only
+      })
+      |> Ash.create(actor: ctx.actor)
+
+    %{
+      receipt: receipt,
+      nvr: nvr,
+      block: block,
+      descriptor: {descriptor, bytes},
+      units: units,
+      admitted: admitted,
+      recording_while_attached: recording_while_attached
+    } =
+      registering_capture(sealing_capture(ctx), fn bytes -> {200, bytes} end)
+
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert_receive {:nvr_descriptor_read, request_line}, 1_000
+    assert request_line == "GET /v1/blocks/#{block.block_key}/descriptor HTTP/1.1"
+
+    frozen = Ash.get!(RecordingBlock, block.id, actor: ctx.actor)
+    assert frozen.state == :sealed
+    assert frozen.descriptor == descriptor
+
+    assert frozen.descriptor_sha256 ==
+             :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+
+    assert [entry] = catalog_entries(nvr.storage_id)
+    assert entry.id == entry_id
+    assert entry.recording_block_id == block.id
+    assert entry.block_key == block.block_key
+    assert entry.local_state == :present
+    # A local-only camera's block is not owed an archive copy.
+    assert entry.policy_id == policy.id
+    assert entry.archive_state == :not_required
+    assert is_nil(entry.archive_binding_id)
+
+    # One capture is one run anchored at its first admitted unit; the window
+    # spans the descriptor's one second of media, and its uncertainty is unmeasured.
+    assert entry.time_basis == :received
+    assert entry.time_uncertainty_us == nil
+    assert entry.first_unit_pts == hd(units).pts
+    received_us = DateTime.to_unix(entry.first_unit_received_at, :microsecond)
+    assert received_us in admitted
+    assert entry.timeline_start_us == received_us
+    assert entry.timeline_end_us == received_us + 1_000_000
+    assert entry.run_id == "#{ctx.relay.id}:1"
+    assert entry.anchor_id == "#{ctx.relay.id}:1:0"
+
+    # The freeze ran under the claim; only then was the claim released.
+    assert recorder_claim(ctx).state == :released
+
+    # Recorder status follows the live claim, not the policy.
+    assert MapSet.member?(recording_while_attached, {ctx.source.id, ctx.profile.id})
+    assert {:ok, recording_after} = RecorderOwnership.recording_now(ctx.source.id)
+    refute MapSet.member?(recording_after, {ctx.source.id, ctx.profile.id})
+  end
+
+  test "NVRCapture leaves a sealed block it cannot read back to the reconciler and still releases its claim",
+       ctx do
+    unavailable = ~s({"error":"descriptor_unavailable"})
+
+    %{receipt: receipt, nvr: nvr, block: block} =
+      registering_capture(sealing_capture(ctx), fn _bytes -> {503, unavailable} end)
+
+    # The NVR sealed the media, so the capture completes; the block is not cataloged.
+    assert receipt.status == :sealed_local
+    assert receipt.block_key == block.block_key
+
+    assert receipt.catalog ==
+             {:unregistered, {:descriptor_status, 503, %{"error" => "descriptor_unavailable"}}}
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(nvr.storage_id) == []
+    # A released claim is the writer retirement the reconciler's historical freeze needs.
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture preserves the seal when recovery closes before descriptor read", ctx do
+    capture = sealing_capture(ctx, owner(ctx, 30_000), &close_recovery_gate/0)
+
+    assert_registration_refused(ctx, capture)
+    refute_received {:nvr_descriptor_read, _}
+  end
+
+  test "NVRCapture refuses the freeze when recovery closes during the descriptor read", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+    close_recovery_gate()
+    {_descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+    assert_registration_refused(ctx, capture)
+  end
+
+  test "NVRCapture refuses the freeze when recovery closes during the policy read", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+
+    fault_on_action(
+      capture.worker,
+      CameraRecordingPolicy,
+      :by_camera_profile,
+      &close_recovery_gate/0
+    )
+
+    {_descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+    assert_registration_refused(ctx, capture)
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture withholds registration success when recovery closes during freeze", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _}, 5_000
+
+    fault_on_action(
+      capture.worker,
+      RecordingCatalogEntry,
+      :register_sealed,
+      &close_recovery_gate/0
+    )
+
+    %{receipt: receipt} = registering_capture(capture, fn bytes -> {200, bytes} end)
+    assert receipt.status == :sealed_local
+    assert receipt.catalog == {:unconfirmed, :nvr_recovery_closed_after_freeze}
+    assert receipt.release == :released
+    assert recorder_claim(ctx).state == :released
+    assert [%{state: :sealed, id: id}] = recording_blocks(ctx)
+    assert id == capture.block.id
+    assert [%{recording_block_id: ^id}] = catalog_entries(capture.nvr.storage_id)
+  end
+
+  defp close_recovery_gate do
+    gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
+    File.write!(gate.path, "closed")
+  end
+
+  defp assert_registration_refused(ctx, capture, reason \\ :nvr_recovery_closed) do
+    assert {:ok, receipt} = Task.await(capture.task)
+    assert receipt.status == :sealed_local
+    assert receipt.catalog == {:unregistered, reason}
+    assert receipt.release == :released
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture registers a slow descriptor locally when the camera has no policy", ctx do
+    enable_deployment_archive(ctx)
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    {_descriptor, bytes} = capture.descriptor
+    Process.sleep(12_500)
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, %{status: :sealed_local, catalog: {:registered, entry_id}}} =
+             Task.await(capture.task)
+
+    assert [entry] = catalog_entries(capture.nvr.storage_id)
+    assert entry.id == entry_id
+    assert is_nil(entry.policy_id)
+    assert entry.archive_state == :not_required
+    assert is_nil(entry.archive_binding_id)
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture skips registration when the held lease only covers cleanup", ctx do
+    capture = sealing_capture(ctx, owner(ctx, 4_000))
+
+    assert {:ok,
+            %{status: :sealed_local, catalog: {:unregistered, :registration_cleanup_reserve}}} =
+             Task.await(capture.task)
+
+    refute_received {:nvr_descriptor_read, _}
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture releases its claim when the descriptor read exhausts its lease budget", ctx do
+    capture = sealing_capture(ctx, owner(ctx, 9_000))
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+
+    assert {:ok, %{status: :sealed_local, catalog: {:unconfirmed, :timeout}, release: :released}} =
+             Task.await(capture.task, 10_000)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture reports a lost descriptor response before freeze as unregistered", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    Process.exit(capture.nvr.peer, :kill)
+
+    assert {:ok, %{status: :sealed_local, catalog: {:unregistered, :descriptor_unavailable}}} =
+             Task.await(capture.task, 10_000)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture keeps the seal and releases the claim when policy checkout exits", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+
+    {pool, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^pool, :normal}
+
+    fault_on_action(capture.worker, CameraRecordingPolicy, :by_camera_profile, fn ->
+      DBConnection.run(pool, fn _conn -> :ok end)
+    end)
+
+    {_descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok,
+            %{
+              status: :sealed_local,
+              catalog:
+                {:unconfirmed, {:noproc, {DBConnection.Holder, :checkout, [^pool, _opts]}}},
+              release: :released
+            }} =
+             Task.await(capture.task)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture reports an unconfirmed commit even when the catalog entry is durable", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    observer = self()
+
+    fault_on_action(capture.worker, RecordingCatalogEntry, :register_sealed, fn ->
+      Ash.Actions.Helpers.queue_notifications(
+        Ash.Notifier.Notification.new(RecordingCatalogEntry,
+          for: RegistrationFault,
+          metadata: %{observer: observer}
+        )
+      )
+    end)
+
+    {descriptor, bytes} = capture.descriptor
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+    assert_receive :freeze_reply_lost, 5_000
+
+    assert {:ok,
+            %{
+              status: :sealed_local,
+              catalog: {:unconfirmed, :ingest_ownership_unavailable},
+              release: :released
+            }} =
+             Task.await(capture.task)
+
+    assert [%{recording_block_id: block_id}] = catalog_entries(capture.nvr.storage_id)
+    assert block_id == capture.block.id
+    assert [%{id: ^block_id, descriptor: ^descriptor, state: :sealed}] = recording_blocks(ctx)
+    assert recorder_claim(ctx).state == :released
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture delivers its receipt when a pool shuts down during freeze checkout", ctx do
+    repo = saturated_checkout_repo()
+    capture = sealing_capture(ctx)
+    queue_freeze_checkout(capture, repo)
+    %{pid: pool} = Ecto.Adapter.lookup_meta(repo)
+    stop_supervised!(:checkout_repo)
+
+    assert {:ok,
+            %{
+              status: :sealed_local,
+              catalog: {:unconfirmed, {:shutdown, {DBConnection.Holder, :checkout, [^pool, _]}}},
+              release: :released
+            }} =
+             Task.await(capture.task)
+
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture cuts off queued registration in time to release its claim", ctx do
+    repo = saturated_checkout_repo()
+    ingest = owner(ctx, 8_000)
+    latest = System.monotonic_time(:millisecond) + 4_000 + 750
+
+    {:ok, _viewer} =
+      IngestOwnership.acquire_consumer(ingest, :viewer, Ecto.UUID.generate(), 8_000,
+        actor: ctx.actor
+      )
+
+    capture = sealing_capture(ctx, ingest)
+    queue_freeze_checkout(capture, repo)
+
+    assert {:ok, %{status: :sealed_local, catalog: {:unconfirmed, :timeout}, release: :released}} =
+             Task.await(capture.task, max(1, latest - System.monotonic_time(:millisecond)))
+
+    assert System.monotonic_time(:millisecond) <= latest
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+    assert recorder_claim(ctx).state == :released
+  end
+
+  test "NVRCapture delivers the receipt while release is still waiting for checkout", ctx do
+    capture = sealing_capture(ctx)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+
+    Repo.checkout(fn ->
+      send(capture.nvr.peer, {:descriptor, 503, ~s({"error":"descriptor_unavailable"})})
+      await_queued_checkout(Repo, :proxy)
+
+      assert {:ok, %{status: :sealed_local, release: {:release_pending_lease_expiry, :timeout}}} =
+               Task.await(capture.task, 4_750)
+    end)
+
+    assert recorder_claim(ctx).state == :active
+  end
+
+  defp saturated_checkout_repo do
+    repo =
+      start_supervised!(
+        {Repo,
+         name: nil,
+         pool: DBConnection.ConnectionPool,
+         pool_size: 1,
+         queue_interval: 30_000,
+         queue_target: 30_000},
+        id: :checkout_repo
+      )
+
+    %{pid: pool} = Ecto.Adapter.lookup_meta(repo)
+    parent = self()
+
+    hold = fn _conn ->
+      send(parent, :connection_held)
+      Process.sleep(:infinity)
+    end
+
+    start_supervised!({Task, fn -> DBConnection.run(pool, hold, timeout: :infinity) end})
+    assert_receive :connection_held, 5_000
+    repo
+  end
+
+  defp queue_freeze_checkout(capture, repo) do
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    hook = {__MODULE__, make_ref()}
+    event = [:ash, Ash.Domain.Info.short_name(ServiceRadar.Camera), :read, :stop]
+    worker = capture.worker
+
+    :ok =
+      :telemetry.attach(
+        hook,
+        event,
+        fn
+          _, _, %{resource: CameraRecordingPolicy, action: :by_camera_profile}, _ ->
+            if self() == worker or worker in Process.get(:"$callers", []) do
+              Repo.put_dynamic_repo(repo)
+            end
+
+          _, _, _, _ ->
+            :ok
+        end,
+        nil
+      )
+
+    try do
+      {_descriptor, bytes} = capture.descriptor
+      send(capture.nvr.peer, {:descriptor, 200, bytes})
+      await_queued_checkout(repo, :pool)
+    after
+      :telemetry.detach(hook)
+    end
+  end
+
+  defp await_queued_checkout(repo, source) do
+    %{pid: pool, opts: opts} = Ecto.Adapter.lookup_meta(repo)
+
+    await_capture(
+      fn ->
+        metrics = DBConnection.get_connection_metrics(pool, opts)
+
+        case Enum.filter(metrics, &match?(%{source: {^source, _}}, &1)) do
+          [%{ready_conn_count: 0, checkout_queue_length: 1}] -> {:ready, :queued}
+          _ -> :waiting
+        end
+      end,
+      System.monotonic_time(:millisecond) + 3_000
+    )
+  end
+
+  @tag sandbox: :unboxed
+  test "NVRCapture reports blocked release, requests relay close and permits capture after expiry",
+       ctx do
+    ingest = owner(ctx, 10_000)
+    capture = sealing_capture(ctx, ingest)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    claim = recorder_claim(ctx)
+    assert {:ok, renewed} = IngestOwnership.renew(ingest, 30_000, actor: ctx.actor)
+    assert renewed.epoch == capture.block.ingest_epoch
+    assert DateTime.after?(renewed.lease_expires_at, claim.lease_expires_at)
+    trace = :trace.session_create(:recorder_close, self(), [])
+    on_exit(fn -> :trace.session_destroy(trace) end)
+    Code.ensure_loaded!(RelaySessionManager)
+    :trace.function(trace, {RelaySessionManager, :request_close, 2}, true, [])
+    :trace.process(trace, capture.worker, true, [:call, :set_on_spawn])
+
+    assert {:ok, {:ok, receipt}} =
+             Repo.transaction(fn ->
+               assert %{num_rows: 1} =
+                        Repo.query!(
+                          "SELECT id FROM platform.camera_recorder_claims WHERE id = $1 FOR UPDATE",
+                          [
+                            Ecto.UUID.dump!(claim.id)
+                          ]
+                        )
+
+               send(capture.nvr.peer, {:descriptor, 503, ~s({"error":"descriptor_unavailable"})})
+
+               await_capture(
+                 fn ->
+                   sql =
+                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid)))"
+
+                   if Repo.query!(sql).rows == [[true]], do: {:ready, :locked}, else: :waiting
+                 end,
+                 System.monotonic_time(:millisecond) + 2_000
+               )
+
+               Task.await(capture.task, 10_000)
+             end)
+
+    assert receipt.status == :sealed_local
+    assert {:unregistered, {:descriptor_status, 503, _}} = receipt.catalog
+    assert {:release_pending_lease_expiry, reason} = receipt.release
+    assert reason
+    relay_id = ctx.relay.id
+
+    assert_receive {:trace, _pid, :call,
+                    {RelaySessionManager, :request_close, [^relay_id, _opts]}},
+                   2_000
+
+    assert recorder_claim(ctx).state == :active
+    assert [%{state: :open_local, descriptor: nil}] = recording_blocks(ctx)
+    assert catalog_entries(capture.nvr.storage_id) == []
+
+    await_capture(
+      fn ->
+        {:ok, current} = Ash.load(recorder_claim(ctx), :database_now, actor: ctx.actor)
+
+        if DateTime.after?(current.database_now, current.lease_expires_at),
+          do: {:ready, :expired},
+          else: :waiting
+      end,
+      System.monotonic_time(:millisecond) + 12_000
+    )
+
+    remaining = update_in(ctx.media.units, &Enum.drop(&1, length(capture.units)))
+    next = registering_capture(sealing_capture(remaining, renewed), fn bytes -> {200, bytes} end)
+    assert next.block.ingest_owner_id == capture.block.ingest_owner_id
+    assert next.block.ingest_epoch == capture.block.ingest_epoch
+    assert next.receipt.recorder_epoch > claim.recorder_epoch
+    assert {:registered, _id} = next.receipt.catalog
+    assert next.receipt.release == :released
+  end
+
+  defp fault_on_action(worker, resource, action, fault) do
+    previous = Application.fetch_env(:ash, :tracer)
+    Application.put_env(:ash, RegistrationFault, {worker, resource, action, fault})
+
+    Application.put_env(:ash, :tracer, [
+      RegistrationFault | List.wrap(Application.get_env(:ash, :tracer))
+    ])
+
+    on_exit(fn ->
+      case previous do
+        {:ok, tracers} -> Application.put_env(:ash, :tracer, tracers)
+        :error -> Application.delete_env(:ash, :tracer)
+      end
+
+      Application.delete_env(:ash, RegistrationFault)
+    end)
+  end
+
+  defp enable_deployment_archive(ctx) do
+    {:ok, binding} =
+      ArchiveBinding.register(Fixtures.archive_destination(Ecto.UUID.generate()),
+        actor: ctx.actor
+      )
+
+    {:ok, _settings} =
+      RecordingArchiveSettings.save_settings(
+        %{archive_enabled: true, active_archive_binding_id: binding.id},
+        actor: ctx.actor
+      )
+  end
+
+  defp registering_capture(capture, answer) do
+    {_descriptor, bytes} = capture.descriptor
+    {status, body} = answer.(bytes)
+    send(capture.nvr.peer, {:descriptor, status, body})
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    Map.put(capture, :receipt, receipt)
+  end
+
+  defp sealing_capture(ctx), do: sealing_capture(ctx, owner(ctx, 30_000))
+
+  defp sealing_capture(ctx, owner, before_seal \\ fn -> :ok end) do
+    nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
+    task = start_fake_nvr_capture(ctx, nvr, 3, 25_000)
+    worker = await_nvr_worker_attached(owner)
+    {:ok, recording_while_attached} = RecorderOwnership.recording_now(ctx.source.id)
+    [block] = Enum.filter(recording_blocks(ctx), &(&1.storage_id == nvr.storage_id))
+    descriptor = Fixtures.recording_descriptor(block)
+    {:ok, bytes} = Descriptor.encode(descriptor)
+
+    receipt =
+      Jason.encode!(%{
+        "version" => 1,
+        "status" => "sealed_local",
+        "storage_id" => nvr.storage_id,
+        "block_ids" => [block.block_key]
+      })
+
+    [first | later] = units = Enum.take(ctx.media.units, 3)
+    admitted = admit_first_unit(ctx.pipeline, worker, first)
+    await_sender_blocked_in_pull(worker)
+    Enum.each(later, &send(ctx.pipeline, {:media_chunk, &1}))
+    before_seal.()
+    send(nvr.peer, {:seal, receipt})
+
+    %{
+      task: task,
+      worker: worker,
+      nvr: nvr,
+      block: block,
+      descriptor: {descriptor, bytes},
+      units: units,
+      admitted: admitted,
+      recording_while_attached: recording_while_attached
+    }
+  end
+
+  defp admit_first_unit(pipeline, worker, %{sequence: sequence} = first) do
+    :ok = :sys.suspend(worker)
+
+    try do
+      admitted_from = System.os_time(:microsecond)
+      send(pipeline, {:media_chunk, first})
+      await_worker_message(worker, &match?({:recording_media, _, %{sequence: ^sequence}}, &1))
+      admitted_from..System.os_time(:microsecond)
+    after
+      :ok = :sys.resume(worker)
+    end
+  end
+
+  defp catalog_entries(storage_id) do
+    RecordingCatalogEntry
+    |> Ash.Query.filter(storage_id == ^storage_id)
+    |> Ash.read!(actor: SystemActor.system(:camera_recording_test))
+  end
+
+  test "NVRCapture reports the verified seal and claim release before a delayed worker exits",
        ctx do
     owner = owner(ctx, 30_000)
     nvr = setup_nvr_release(ctx.tmp_dir)
     _daemon = start_nvr_daemon(nvr)
+    workers = Workers
+    :ok = Supervisor.terminate_child(RecordingSupervisor, workers)
+    Process.register(self(), workers)
 
     task =
       Task.async(fn ->
@@ -1846,9 +2625,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         )
       end)
 
-    worker = await_nvr_worker_attached(owner)
-    # Slower than the 150ms exit wait, faster than the worker's 2s cleanup timeout.
-    _release_hook = capture_slow_recorder_release(600)
+    worker = start_worker_with_exit_barrier(owner)
+    assert ^worker = await_nvr_worker_attached(owner)
+    _release_hook = capture_recorder_release(0)
     worker_ref = Process.monitor(worker)
     Enum.each(Enum.take(ctx.media.units, 5), &send(ctx.pipeline, {:media_chunk, &1}))
 
@@ -1857,9 +2636,52 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert receipt.storage_id == nvr.storage_id
     assert receipt.frames_sent == 5
 
-    assert_receive {:recorder_claim_released_by, ^worker}, 5_000
+    assert receipt.release == :released
+    assert_receive {:recorder_claim_released_by, releaser, callers}, 5_000
+    refute releaser == worker
+    assert worker in callers
+    assert_receive {:worker_terminating, ^worker}, 5_000
+    assert Process.alive?(worker)
+    send(worker, :finish_exit)
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, :normal}, 5_000
     assert recorder_claim(ctx).state == :released
+  end
+
+  defp start_worker_with_exit_barrier(owner) do
+    assert_receive {:"$gen_call", from,
+                    {:start_child, {{NVRWorker, :start_link, [opts]}, _, _, _, _}}},
+                   5_000
+
+    parent = self()
+
+    worker =
+      start_supervised!({Task, fn -> run_worker_with_exit_barrier(owner, opts, parent) end})
+
+    GenServer.reply(from, {:ok, worker})
+    worker
+  end
+
+  defp run_worker_with_exit_barrier(owner, opts, parent) do
+    {:ok, _} =
+      Registry.register(
+        ServiceRadarCoreElx.CameraRecording.Registry,
+        {owner.id, owner.epoch},
+        nil
+      )
+
+    {:ok, state, continuation} = NVRWorker.init(opts)
+
+    try do
+      :gen_server.enter_loop(NVRWorker, [], state, continuation)
+    after
+      send(parent, {:worker_terminating, self()})
+
+      receive do
+        :finish_exit -> :ok
+      after
+        5_000 -> exit(:exit_barrier_timeout)
+      end
+    end
   end
 
   defp await_nvr_worker_attached(owner) do
@@ -1942,13 +2764,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     result
   end
 
-  defp start_fake_nvr_capture(ctx, nvr, max_frames) do
+  defp start_fake_nvr_capture(ctx, nvr, max_frames, timeout_ms \\ 8_000) do
     Task.async(fn ->
       NVRCapture.once_relay(ctx.relay.id, "serviceradar-nvr-0",
         actor: ctx.actor,
         config_file: nvr.config_file,
         token_file: nvr.token_file,
-        timeout_ms: 8_000,
+        timeout_ms: timeout_ms,
         bounds: %{max_frames: max_frames, max_bytes: 8_388_608, max_duration_ms: 6_000}
       )
     end)
@@ -1990,12 +2812,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   # Writes synthetic mTLS material and a client config naming one NVR member,
   # served by the TLS peer `start_peer` starts on those certificates.
   defp fake_nvr_member(ctx, name, start_peer) do
-    abs_tmp = Path.expand(ctx.tmp_dir)
-    certs = write_nvr_mtls_certs(Path.join(abs_tmp, "#{name}-certs"))
-    {port, peer} = start_peer.(certs)
     storage_id = Ecto.UUID.generate()
-    token_file = Path.join(abs_tmp, "#{name}-token")
-    config_file = Path.join(abs_tmp, "#{name}-client.json")
+    dir = Path.join(Path.expand(ctx.tmp_dir), "#{name}-#{storage_id}")
+    certs = write_nvr_mtls_certs(Path.join(dir, "certs"))
+    {port, peer} = start_peer.(certs)
+    token_file = Path.join(dir, "token")
+    config_file = Path.join(dir, "client.json")
     File.write!(token_file, "synthetic-nvr-#{name}-token-0123456789")
 
     File.write!(
@@ -2034,7 +2856,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert {:ok, _} = Storage.initialize(spool_dir, storage_id)
 
     certs = write_nvr_mtls_certs(certs_dir)
+    read_certs = write_nvr_mtls_certs(Path.join(dir, "read-certs"))
     ingest_port = free_local_port()
+    read_port = free_local_port()
     health_port = free_local_port()
     unused_port = free_local_port()
     gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
@@ -2053,6 +2877,36 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         "cert_file" => certs.server_cert,
         "key_file" => certs.server_key,
         "ca_file" => certs.server_ca
+      })
+    )
+
+    read_config = Path.join(dir, "read.json")
+    read_token_file = Path.join(dir, "read-token")
+    read_client_config = Path.join(dir, "read-client.json")
+    File.write!(read_token_file, "synthetic-nvr-playback-reader-token-0123")
+
+    File.write!(
+      read_config,
+      Jason.encode!(%{
+        "port" => read_port,
+        "client_sha256" => read_certs.client_sha256,
+        "cert_file" => read_certs.server_cert,
+        "key_file" => read_certs.server_key,
+        "ca_file" => read_certs.server_ca
+      })
+    )
+
+    File.write!(
+      read_client_config,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => read_port,
+        "ca_file" => read_certs.client_ca,
+        "cert_file" => read_certs.client_cert,
+        "key_file" => read_certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
       })
     )
 
@@ -2085,6 +2939,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       ingest_config: ingest_config,
       token_file: token_file,
       client_config: client_config,
+      read_config: read_config,
+      read_token_file: read_token_file,
+      read_client_config: read_client_config,
       certs: certs,
       gate: gate
     }
@@ -2103,7 +2960,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       {~c"SERVICERADAR_NVR_MAX_SESSIONS", ~c"2"},
       {~c"SERVICERADAR_NVR_HEALTH_PORT", String.to_charlist(Integer.to_string(nvr.health_port))},
       {~c"SERVICERADAR_NVR_INGEST_CONFIG_FILE", String.to_charlist(nvr.ingest_config)},
-      {~c"SERVICERADAR_NVR_INGEST_TOKEN_FILE", String.to_charlist(nvr.token_file)}
+      {~c"SERVICERADAR_NVR_INGEST_TOKEN_FILE", String.to_charlist(nvr.token_file)},
+      {~c"SERVICERADAR_NVR_READ_CONFIG_FILE", String.to_charlist(nvr.read_config)},
+      {~c"SERVICERADAR_NVR_READ_TOKEN_FILE", String.to_charlist(nvr.read_token_file)}
     ]
 
     port =
@@ -2509,6 +3368,414 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       tail = binary_part(seen, byte_size(seen) - keep, keep)
       if tail == @ingest_request_end, do: :ok, else: read_until_request_end(ssl_sock, tail)
     end
+  end
+
+  # Answers the ingest request with the receipt it is handed, then answers the
+  # descriptor read on the next connection with the status and body it is handed,
+  # reporting that read's request line.
+  defp start_registering_tls_peer(certs, notify_pid) do
+    {:ok, listen} = :ssl.listen(0, tls_server_opts(certs))
+    {:ok, {_addr, port}} = :ssl.sockname(listen)
+    pid = spawn(fn -> registering_peer_accept(listen, notify_pid) end)
+
+    on_exit(fn ->
+      Process.exit(pid, :kill)
+      _ = :ssl.close(listen)
+    end)
+
+    {port, pid}
+  end
+
+  defp registering_peer_accept(listen, notify_pid) do
+    with {:ok, ingest} <- accept_tls_peer(listen),
+         :ok <- read_until_request_end(ingest, <<>>) do
+      send(notify_pid, :nvr_sealing_peer_request_complete)
+
+      receive do
+        {:seal, body} -> answer_tls_peer(ingest, 200, body)
+      end
+
+      _ = :ssl.close(ingest)
+
+      with {:ok, read} <- accept_tls_peer(listen),
+           {:ok, request_line} <- read_request_line(read, <<>>) do
+        send(notify_pid, {:nvr_descriptor_read, request_line})
+
+        receive do
+          {:descriptor, status, body} -> answer_tls_peer(read, status, body)
+        end
+
+        _ = :ssl.recv(read, 0, 5_000)
+      end
+    end
+  end
+
+  defp accept_tls_peer(listen) do
+    with {:ok, transport} <- :ssl.transport_accept(listen, 10_000),
+         do: :ssl.handshake(transport, 5_000)
+  end
+
+  defp read_request_line(ssl_sock, seen) do
+    case :binary.split(seen, "\r\n\r\n") do
+      [head, _rest] ->
+        {:ok, head |> String.split("\r\n") |> hd()}
+
+      [_partial] ->
+        with {:ok, chunk} <- :ssl.recv(ssl_sock, 0, 10_000),
+             do: read_request_line(ssl_sock, seen <> chunk)
+    end
+  end
+
+  defp answer_tls_peer(ssl_sock, status, body) do
+    headers =
+      "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n"
+
+    :ok = :ssl.send(ssl_sock, ["HTTP/1.1 #{status} Answer\r\n", headers, body])
+  end
+
+  describe "ArchiveBlockJob transactional commit" do
+    test "records NVRArchiveReceipt and marks RecordingCatalogEntry verified in one transaction",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+      {:ok, expected_bytes} = CanonicalJSON.encode(receipt)
+      expected_sha = :sha256 |> :crypto.hash(expected_bytes) |> Base.encode16(case: :lower)
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn sid ->
+                   assert sid == entry.storage_id
+                   {:ok, "serviceradar-nvr-0"}
+                 end,
+                 archive_fn: fn "serviceradar-nvr-0",
+                                block_key,
+                                passed_binding,
+                                _secret_id,
+                                _opts ->
+                   assert block_key == entry.block_key
+                   assert passed_binding.id == binding.id
+                   {:ok, receipt}
+                 end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [persisted_receipt] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert persisted_receipt.recording_block_id == entry.recording_block_id
+      assert persisted_receipt.destination_sha256 == binding.destination_sha256
+      assert persisted_receipt.receipt_sha256 == expected_sha
+      assert length(persisted_receipt.objects) == 3
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :verified
+      assert reloaded.archive_binding_id == binding.id
+      assert reloaded.nvr_archive_receipt_id == persisted_receipt.id
+      assert reloaded.archived_at == persisted_receipt.verified_at
+      assert reloaded.archive_attempts == 1
+      assert is_nil(reloaded.archive_last_error_class)
+    end
+
+    test "rolls back NVRArchiveReceipt atomically when the catalog verified update fails", ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+
+      Repo.query!("""
+      CREATE OR REPLACE FUNCTION platform.test_fail_catalog_verified_update()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.archive_state = 'verified' THEN
+          RAISE EXCEPTION 'synthetic catalog verified update failure'
+            USING ERRCODE = 'check_violation',
+                  CONSTRAINT = 'synthetic_catalog_verified_update_failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      """)
+
+      Repo.query!("""
+      CREATE TRIGGER trg_test_fail_catalog_verified_update
+      BEFORE UPDATE ON platform.camera_recording_catalog
+      FOR EACH ROW
+      EXECUTE FUNCTION platform.test_fail_catalog_verified_update();
+      """)
+
+      assert {:snooze, 30} =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [] ==
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :failed_retryable
+      assert is_nil(reloaded.nvr_archive_receipt_id)
+      assert is_nil(reloaded.archived_at)
+      assert reloaded.archive_attempts == 1
+    end
+
+    test "refuses an identical retained receipt on Transition 8 re-archive and returns entry to missing",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+      {:ok, receipt_bytes} = CanonicalJSON.encode(receipt)
+
+      {:ok, retained_receipt} =
+        NVRArchiveReceipt
+        |> Ash.Changeset.for_create(:record, %{
+          archive_binding_id: binding.id,
+          receipt_bytes: receipt_bytes,
+          recording_block_id: entry.recording_block_id
+        })
+        |> Ash.create(actor: ctx.actor)
+
+      now = DateTime.utc_now()
+
+      {:ok, verified_entry} =
+        entry
+        |> Ash.Changeset.for_update(:transition_archive_state, %{
+          archive_state: :verified,
+          archive_state_at: now,
+          nvr_archive_receipt_id: retained_receipt.id,
+          archived_at: retained_receipt.verified_at
+        })
+        |> Ash.update(actor: ctx.actor)
+
+      {:ok, pending_rearchive} =
+        verified_entry
+        |> Ash.Changeset.for_update(:transition_archive_state, %{
+          archive_state: :pending,
+          archive_state_at: now
+        })
+        |> Ash.update(actor: ctx.actor)
+
+      parent = self()
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :camera_recording, :archive_block, :outcome],
+          fn _event, _measurements, metadata, _config ->
+            send(parent, {:archive_outcome, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 pending_rearchive.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert_receive {:archive_outcome,
+                      %{
+                        outcome: :rearchive_refused,
+                        catalog_entry_id: catalog_entry_id,
+                        error_class: "rearchive_retained_receipt_refused"
+                      }}
+
+      assert catalog_entry_id == pending_rearchive.id
+
+      assert [only_receipt] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert only_receipt.id == retained_receipt.id
+
+      reloaded = Ash.get!(RecordingCatalogEntry, pending_rearchive.id, actor: ctx.actor)
+      assert reloaded.archive_state == :missing
+      assert reloaded.nvr_archive_receipt_id == retained_receipt.id
+      assert reloaded.archive_last_error_class == "rearchive_retained_receipt_refused"
+      assert reloaded.archive_attempts == 1
+    end
+
+    test "marks entry failed_terminal and discards when NVRArchiveReceipt conflicts with retained receipt",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      retained_map = synthetic_archive_receipt(entry, binding, etag: ~s("retained-etag"))
+      {:ok, retained_bytes} = CanonicalJSON.encode(retained_map)
+
+      {:ok, retained_receipt} =
+        NVRArchiveReceipt
+        |> Ash.Changeset.for_create(:record, %{
+          archive_binding_id: binding.id,
+          receipt_bytes: retained_bytes,
+          recording_block_id: entry.recording_block_id
+        })
+        |> Ash.create(actor: ctx.actor)
+
+      conflicting_map = synthetic_archive_receipt(entry, binding, etag: ~s("conflicting-etag"))
+
+      assert {:discard, "archive_receipt_conflict"} =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, conflicting_map} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [still_retained] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert still_retained.id == retained_receipt.id
+      assert still_retained.receipt_sha256 == retained_receipt.receipt_sha256
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :failed_terminal
+      assert reloaded.archive_last_error_class == "archive_receipt_conflict"
+      assert is_nil(reloaded.nvr_archive_receipt_id)
+      assert reloaded.archive_attempts == 1
+    end
+  end
+
+  defp setup_pending_archive_catalog_entry(ctx) do
+    {:ok, binding} =
+      ArchiveBinding.register(
+        Fixtures.archive_destination("archive-job-#{Ecto.UUID.generate()}"),
+        actor: ctx.actor
+      )
+
+    {:ok, built_secret} =
+      CredentialSecretBuilder.build(
+        NativeDescriptors.s3_compatible(),
+        "access_key",
+        %{
+          "access_key_id" => "SYNTHETICARCHIVEWRITER01",
+          "secret_access_key" => "invented-archive-writer-secret-material"
+        },
+        %{name: "Archive Writer #{System.unique_integer([:positive])}"}
+      )
+
+    writer_secret = NetworkCredentialSecret.create_secret!(built_secret, actor: ctx.actor)
+
+    {:ok, _settings} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          archive_enabled: true,
+          active_archive_binding_id: binding.id,
+          writer_credential_secret_id: writer_secret.id
+        },
+        actor: ctx.actor
+      )
+
+    {:ok, _profile} =
+      StreamProfile.update_profile(ctx.profile, %{relay_eligible: true}, actor: ctx.actor)
+
+    {:ok, policy} =
+      CameraRecordingPolicy
+      |> Ash.Changeset.for_create(:create, %{
+        camera_source_id: ctx.source.id,
+        stream_profile_id: ctx.profile.id,
+        storage: :local_and_archive
+      })
+      |> Ash.create(actor: ctx.actor)
+
+    ingest = owner(ctx, 30_000)
+
+    {:ok, claim} =
+      RecorderOwnership.acquire(
+        ingest,
+        Ecto.UUID.generate(),
+        ctx.relay.media_ingest_id,
+        Ecto.UUID.generate(),
+        30_000,
+        actor: ctx.actor
+      )
+
+    clock = %{
+      "clock_epoch" => "#{ctx.relay.id}:#{claim.recorder_epoch}",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    {:ok, block} = RecorderOwnership.reserve_block(ingest, claim, clock, actor: ctx.actor)
+    descriptor = Fixtures.recording_descriptor(block)
+
+    {:ok, entry} =
+      RecordingBlocks.freeze_and_catalog(
+        ingest,
+        claim,
+        block,
+        descriptor,
+        %{
+          policy_id: policy.id,
+          policy_storage: :local_and_archive,
+          first_unit_pts: 90_000,
+          first_unit_received_at: ~U[2026-11-22 05:00:00.000000Z],
+          run_id: "#{ctx.relay.id}:#{claim.recorder_epoch}",
+          anchor_id: "#{ctx.relay.id}:#{claim.recorder_epoch}:0",
+          reanchored: false,
+          contiguous_with_previous: false
+        },
+        actor: ctx.actor
+      )
+
+    assert entry.archive_state == :pending
+    assert entry.archive_binding_id == binding.id
+    assert is_nil(entry.nvr_archive_receipt_id)
+
+    %{entry: entry, binding: binding, writer_secret: writer_secret}
+  end
+
+  defp synthetic_archive_receipt(entry, binding, opts \\ []) do
+    etag = Keyword.get(opts, :etag, ~s("example-etag"))
+    prefix = "#{binding.namespace}/#{entry.storage_id}/#{entry.block_key}/"
+
+    %{
+      "version" => 1,
+      "storage_id" => entry.storage_id,
+      "block_id" => entry.block_key,
+      "destination" => %{
+        "host" => URI.parse(binding.endpoint).host,
+        "region" => binding.region,
+        "bucket" => binding.bucket,
+        "object_prefix" => binding.namespace
+      },
+      "objects" =>
+        Enum.map(["init.mp4", "media.m4s", "descriptor.json"], fn name ->
+          %{
+            "name" => name,
+            "key" => prefix <> name,
+            "length" => 4_096,
+            "sha256" => String.duplicate("ab", 32),
+            "etag" => etag
+          }
+        end),
+      "verified_at_ms" => 1_763_164_800_000
+    }
   end
 
   defp decode_rawvideo(path) do

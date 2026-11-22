@@ -30,15 +30,17 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 ## Deployment checkpoint
 
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
-and health probes. A separately installed [private finite-stream listener](nvr-ingest.md)
-can accept authenticated media from the bounded relay coordinator described there;
-continuous recorder scheduling and pool assignment are not wired yet. Local catalog publication, automatic archive
-scheduling and reclamation, and automated restart reconciliation remain pending;
-an explicit, verified copy of one sealed block to a bucket is described under
-[Archive upload](#archive-upload). Do not enable recording policies through this
+and health probes. A separately installed private listener accepts authenticated
+media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator),
+which registers sealed blocks in Core, and an opt-in
+[playback read listener](nvr-ingest.md#playback-read-listener) serves verified
+local copies to web-ng. `core-elx` schedules archive uploads for `:pending`
+cataloged blocks via `ArchiveBlockJob`; continuous recorder scheduling and pool
+assignment, reclamation, and automated restart reconciliation remain pending.
+See [Archive upload](#archive-upload). Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
-recording, local playback and deployed storage acceptance boundaries.
+recording, archive playback and deployed storage acceptance boundaries.
 
 The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. Capture admission also reserves 64 KiB for each missing
@@ -72,9 +74,10 @@ one block. Back-to-back captures make about 320 blocks per camera per day below
 about 370 kbit/s; a higher-bitrate stream reaches the byte bound sooner and
 makes more blocks (about 860 a day at 1 Mbit/s). Each active session reserves
 one maximum block: 18,453,856 bytes at 150 fragments, 586,744 bytes more than
-at the earlier fixed 8. The 4096-block volume cap is unchanged and nothing
-reclaims blocks yet, so a volume fills; size `nvr.maxSpoolBytes` for the
-retention you need until reclamation exists. Lowering `nvr.maxBlockFragments`
+at the earlier fixed 8. The volume cap is `SERVICERADAR_NVR_MAX_BLOCKS`
+(default 131,072, ceiling 262,144) and nothing reclaims blocks yet, so a volume
+fills; size `nvr.maxSpoolBytes` for the retention you need until reclamation
+exists. Lowering `nvr.maxBlockFragments`
 affects new blocks only: reads accept up to 256 fragments, so retained blocks
 stay readable. The ceiling is 256 because a block's publication intent embeds
 one descriptor entry per fragment and is capped at 64 KiB.
@@ -96,9 +99,11 @@ acknowledgement or permission to discard records. Pages share the existing read
 admission/deadline; reduce the page size after a timeout and preserve unresolved
 entries for reconciliation.
 
-The inventory is intentionally limited to 4096 block directories and known spool
-file names. Unrecognized or unreadable entries stop admission for operator
-reconciliation. This is not journal reconciliation, archival, retention or a
+Admission tracks retained blocks in an incremental block ledger (rebuilt in
+1,024-directory pages and checked by a bounded rotating audit) capped at
+`SERVICERADAR_NVR_MAX_BLOCKS` (default 131,072, ceiling 262,144), and accepts
+only known spool, publication and archive-receipt file names. Unrecognized,
+unreadable or mismatched entries stop admission for operator reconciliation. This is not journal reconciliation, archival, retention or a
 long-running recording capacity qualification. The free-space floor uses GNU
 coreutils probes, refreshed at admission and at most once per second by write
 guards. Admission needs the floor plus all full reservations free; an admitted
@@ -147,7 +152,7 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 ## Deployment recovery gate
 
-NVR runtime admission, Core recording and archive work, archive playback, and
+NVR runtime admission, Core recording and archive work, timeline playback, and
 local-publication acceptance require deployment-owned recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.
@@ -235,8 +240,10 @@ reads use `archive_read_unavailable`, with private/no-store responses. The exist
 post-fetch range recheck withholds media if recovery closes during provider I/O.
 Bytes already delivered cannot be recalled; retained plans are not bearer grants.
 
-Stop and status, recorder/upload release, freezing already allocated blocks,
-media preparation and late observations remain available for preservation.
+Stop and status, recorder/upload release, descriptor-only freeze of an allocated
+block, media preparation and late observations remain available for preservation.
+Freezing a block together with its catalog entry requires ready recovery before
+the transaction and again before Core confirms registration.
 General Core health remains independent of this gate. These paths are not a
 claim that current-history reconciliation or all recovery consumers are complete.
 No ready result is cached. Closing the gate cannot recall bytes already returned,
@@ -407,22 +414,24 @@ increment it. `delay_ms` is the last scheduled delay, not a countdown. Counters
 and cursors reset on restart; this status contains no intent, token or certificate
 bytes. Disabled or restarting coordinators return `:nvr_scheduler_unavailable`.
 
-Each verified page inventories up to 4,096 directories and rehashes the selected
-media; pending delivery verifies it again. This conservative first scheduler has
-not qualified large-backlog catch-up throughput. Even without errors, a full
-4,096-entry cycle takes over an hour at this cadence. A block that cannot pass
+Each verified page inventories every block directory on the volume and rehashes
+the selected media; pending delivery verifies it again. This conservative first
+scheduler has not qualified large-backlog catch-up throughput. Even without
+errors, a 4,096-entry backlog takes over an hour at this cadence. A block that cannot pass
 verification remains unresolved; no background repair or destructive cleanup is
 implied. Publication acceptance is still not playable local-copy availability.
 
 ## Archive upload
 
-With `nvr.archive.enabled`, Core can ask an NVR replica to copy one sealed block
-to an S3-compatible bucket. The replica uploads the block's files through
-Longshore, verifies each by reading it back, and writes an `archive-receipt.json`
-beside the block. The local copy is kept and nothing is deleted. The request uses
-the ingest listener and token, so the chart refuses `nvr.archive.enabled` without
-`nvr.ingest.enabled`. Archive playback, reclamation and a Core record of the
-archive are not part of this.
+With `nvr.archive.enabled`, Core asks an NVR replica to copy each sealed block
+to an S3-compatible bucket via `ArchiveBlockJob` on the dedicated `nvr_archive`
+Oban queue (`OBAN_QUEUE_NVR_ARCHIVE`, default `2`). The replica uploads the
+block's files through Longshore, verifies each by reading it back, and writes an
+`archive-receipt.json` beside the block; Core then records `NVRArchiveReceipt`
+and transitions `RecordingCatalogEntry` to `:verified` in one transaction. The
+local copy is kept and nothing is deleted. The request uses the ingest listener
+and token, so the chart refuses `nvr.archive.enabled` without
+`nvr.ingest.enabled`. Archive playback and reclamation remain pending.
 
 The bucket credential is stored in Core's CNPG credential store and travels inside
 each request. The NVR holds it in memory for that request only. The chart adds no

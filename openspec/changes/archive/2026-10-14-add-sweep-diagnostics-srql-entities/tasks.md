@@ -151,6 +151,6 @@ established entity pattern. (`sweep_compiled_config` was superseded by #4963 /
 - [x] 6.2 *(Superseded by remote Bazel CI and `no-mistakes` verification)*
       Verify `//rust/srql/...` and `web-ng` SRQL/MCP tests pass under Bazel.
 - [x] 6.3 Reproduce the reported symptom end to end: confirm the entities show
-      whether the `rids` TCP ports were compiled, delivered and attempted, and
+      whether the tagged devices' TCP ports were compiled, delivered and attempted, and
       record the finding on GitHub issue #4167 (#4167 closed as completed;
       #4963/#4970 fixed the declared-target backing relation).

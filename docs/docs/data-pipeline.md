@@ -60,7 +60,7 @@ dead-lettering, readiness conditions and troubleshooting are described in
 [Durable Edge Records](./durable-edge-records.md). The rest of this section is
 how each family is projected.
 
-Sysmon, SNMP, ICMP, rperf and MTR scalar metrics and the periodic sweep summary
+Sysmon, SNMP, ICMP, netperf and MTR scalar metrics and the periodic sweep summary
 share the `serviceradar.metrics.batch` grant. Each producer keeps its own queue
 or pending-item state. Full MTR traces, from agent-scheduled checks and from a
 sweep group's `mtr` mode, use the `serviceradar.mtr.scheduled_trace` version 1
@@ -206,6 +206,10 @@ state—for example, the KV bucket `serviceradar-datasvc` holds rule definitions
 and runtime settings, and the object store carries larger payloads. Routing this
 state through one service keeps NATS KV/object access consistent and avoids
 components manipulating JetStream buckets directly.
+The exception is Zen rule bundles: core also writes each bundle to the NATS
+key-value bucket `serviceradar-zen-rules`, and the log collector reads and
+watches that bucket directly when its configuration has a `[rules.nats]`
+section, as the Helm chart renders it.
 
 ## CNPG (System Of Record)
 

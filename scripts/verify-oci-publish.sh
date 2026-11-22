@@ -24,8 +24,14 @@ if [[ ! -r "${INVENTORY}" ]]; then
   exit 1
 fi
 
-image_specs_output="$(
-  python3 - "${INVENTORY}" "${OCI_REPOSITORY_BASE}" <<'PY'
+if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+  # shellcheck source=scripts/oci_registry.sh
+  source "${SCRIPT_DIR}/oci_registry.sh"
+  oci_check_native_image "${INVENTORY}" "${SERVICERADAR_NATIVE_IMAGE}"
+  IMAGE_SPECS=("${OCI_REPOSITORY_BASE}/${SERVICERADAR_NATIVE_IMAGE}|native")
+else
+  image_specs_output="$(
+    python3 - "${INVENTORY}" "${OCI_REPOSITORY_BASE}" <<'PY'
 import ast
 import os
 import re
@@ -51,17 +57,18 @@ for entry in entries:
     kind = "index" if entry.get("push_image") else "single"
     print(f"{repository_base}/{image_name}|{kind}")
 PY
-)" || {
-  echo "error: failed to parse publishable image repositories from ${INVENTORY}" >&2
-  exit 1
-}
+  )" || {
+    echo "error: failed to parse publishable image repositories from ${INVENTORY}" >&2
+    exit 1
+  }
 
-if [[ -z "${image_specs_output}" ]]; then
-  echo "error: no publishable image repositories found in ${INVENTORY}" >&2
-  exit 1
+  if [[ -z "${image_specs_output}" ]]; then
+    echo "error: no publishable image repositories found in ${INVENTORY}" >&2
+    exit 1
+  fi
+
+  mapfile -t IMAGE_SPECS <<<"${image_specs_output}"
 fi
-
-mapfile -t IMAGE_SPECS <<<"${image_specs_output}"
 
 if [[ "${1:-}" == "--list-image-specs" ]]; then
   printf '%s\n' "${IMAGE_SPECS[@]}"
@@ -73,7 +80,7 @@ if ! command -v oras >/dev/null 2>&1; then
   exit 1
 fi
 # shellcheck source=scripts/oci_registry.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/oci_registry.sh"
+source "${SCRIPT_DIR}/oci_registry.sh"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "error: jq is required" >&2
@@ -135,103 +142,95 @@ assert_contains_env() {
   fi
 }
 
-resolve_digest() {
-  local ref="$1"
-  oci_registry_digest "${ref}"
-}
-
 check_image_shape() {
-  local tag="$1"
-  local ref="$2"
-  local kind="$3"
-  local raw
-  raw="$(oci_registry_manifest "${ref}:${tag}")"
-  local media_type
+  local subject="$1" kind="$2"
+  local raw media_type
+  raw="$(oci_registry_manifest "${subject}")"
   media_type="$(jq -r '.mediaType' <<<"$raw")"
 
   if [[ "$kind" == "index" ]]; then
-    assert_eq "$media_type" "application/vnd.oci.image.index.v1+json" "${ref}:${tag} mediaType"
+    assert_eq "$media_type" "application/vnd.oci.image.index.v1+json" "${subject} mediaType"
     jq -e '
       [.manifests[].platform | "\(.os)/\(.architecture)\(if .variant then "/" + .variant else "" end)"] as $platforms
       | ($platforms | index("linux/amd64")) != null
       and ($platforms | index("linux/arm64/v8")) != null
-    ' <<<"$raw" >/dev/null || fail "${ref}:${tag} is missing amd64/arm64-v8 manifests"
+    ' <<<"$raw" >/dev/null || fail "${subject} is missing amd64/arm64-v8 manifests"
   else
-    assert_eq "$media_type" "application/vnd.oci.image.manifest.v1+json" "${ref}:${tag} mediaType"
+    assert_eq "$media_type" "application/vnd.oci.image.manifest.v1+json" "${subject} mediaType"
   fi
 }
 
 check_config() {
-  local tag="$1"
+  local subject="$1"
   local ref="$2"
   local config
-  config="$(oci_registry_config "${ref}:${tag}" linux amd64)"
+  config="$(oci_registry_config "${subject}" linux amd64)"
 
   case "${ref##*/}" in
     serviceradar-web-ng)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_web_ng"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
-      assert_contains_env "$config" "PHX_SERVER=true" "${ref}:${tag}"
-      assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_web_ng"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${subject} workdir"
+      assert_contains_env "$config" "PHX_SERVER=true" "${subject}"
+      assert_contains_env "$config" "MIX_ENV=prod" "${subject}"
       ;;
     serviceradar-core-elx)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_core_elx"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
-      assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_core_elx"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${subject} workdir"
+      assert_contains_env "$config" "MIX_ENV=prod" "${subject}"
       ;;
     serviceradar-agent-gateway)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_agent_gateway"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${ref}:${tag} workdir"
-      assert_contains_env "$config" "MIX_ENV=prod" "${ref}:${tag}"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/app/bin/serviceradar_agent_gateway"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["start"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/app" "${subject} workdir"
+      assert_contains_env "$config" "MIX_ENV=prod" "${subject}"
       ;;
     serviceradar-agent)
-      assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed","-config","/etc/serviceradar/agent.json"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
+      assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/lib/serviceradar/agent/serviceradar-agent-seed","-config","/etc/serviceradar/agent.json"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${subject} workdir"
       ;;
     serviceradar-log-collector)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["serviceradar-log-collector"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["serviceradar-log-collector"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${subject} workdir"
       ;;
     serviceradar-flow-collector)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-flow-collector"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["--config","/etc/serviceradar/flow-collector.json"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-flow-collector"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["--config","/etc/serviceradar/flow-collector.json"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${subject} workdir"
       ;;
     arancini)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-bmp-collector"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd // []' <<<"$config")" '[]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
-      ;;
-    serviceradar-rperf-client)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-rperf-checker","--config","/etc/serviceradar/checkers/rperf.json"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/serviceradar-bmp-collector"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd // []' <<<"$config")" '[]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${subject} workdir"
       ;;
     serviceradar-faker)
-      assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-faker","-config","/etc/serviceradar/faker.json"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
+      assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-faker","-config","/etc/serviceradar/faker.json"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${subject} workdir"
       ;;
     serviceradar-tools)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/bin/sh"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/" "${ref}:${tag} workdir"
-      assert_contains_env "$config" "PATH=/usr/libexec/postgresql18:/usr/local/bin:/usr/bin:/bin" "${ref}:${tag}"
+      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${subject} entrypoint"
+      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/bin/sh"]' "${subject} cmd"
+      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/" "${subject} workdir"
+      assert_contains_env "$config" "PATH=/usr/libexec/postgresql18:/usr/local/bin:/usr/bin:/bin" "${subject}"
       ;;
   esac
 }
 
+signature_digest() {
+  if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+    printf '%s\n' "${1##*@}"
+  else
+    oci_registry_digest "$1"
+  fi
+}
+
 check_signature_accessory() {
-  local tag="$1"
-  local ref="$2"
-  local digest
-  digest="$(resolve_digest "${ref}:${tag}")"
-  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   local repo_path="${ref#"${REGISTRY_HOST}"/}"
   local auth user pass token
@@ -244,7 +243,7 @@ check_signature_accessory() {
   else
     token="$(curl -fsSL "${token_url}" | jq -r '.token')"
   fi
-  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}:${tag} registry token lookup failed"
+  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}@${digest} registry token lookup failed"
 
   local referrers
   referrers="$(
@@ -257,7 +256,7 @@ check_signature_accessory() {
   # referrer is not an accepted signature format.
   local referrer_digests=()
   mapfile -t referrer_digests < <(jq -r '.manifests[]?.digest // empty' <<<"${referrers}")
-  [[ ${#referrer_digests[@]} -gt 0 ]] || fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
+  [[ ${#referrer_digests[@]} -gt 0 ]] || fail "${ref}@${digest} is missing a Harbor-visible Cosign signature accessory"
 
   local referrer_manifest
   local referrer_digest
@@ -280,19 +279,16 @@ check_signature_accessory() {
     fi
   done
 
-  fail "${ref}:${tag} is missing a Harbor-visible Cosign signature accessory"
+  fail "${ref}@${digest} is missing a Harbor-visible Cosign signature accessory"
 }
 
 check_legacy_signature_tag() {
-  local tag="$1"
-  local ref="$2"
-  local digest
-  digest="$(resolve_digest "${ref}:${tag}")"
-  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   local signature_ref
   signature_ref="$(cosign triangulate "${ref}@${digest}")"
-  [[ -n "${signature_ref}" ]] || fail "${ref}:${tag} legacy signature reference lookup failed"
+  [[ -n "${signature_ref}" ]] || fail "${ref}@${digest} legacy signature reference lookup failed"
 
   local signature_repo="${signature_ref%:*}"
   local signature_tag="${signature_ref##*:}"
@@ -307,38 +303,41 @@ check_legacy_signature_tag() {
   else
     token="$(curl -fsSL "${token_url}" | jq -r '.token')"
   fi
-  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}:${tag} legacy signature token lookup failed"
+  [[ -n "${token}" && "${token}" != "null" ]] || fail "${ref}@${digest} legacy signature token lookup failed"
 
   curl -fsSI \
     -H "Authorization: Bearer ${token}" \
     -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
     "https://${REGISTRY_HOST}/v2/${signature_repo_path}/manifests/${signature_tag}" >/dev/null \
-    || fail "${ref}:${tag} is missing the legacy cosign signature tag ${signature_tag}"
+    || fail "${ref}@${digest} is missing the legacy cosign signature tag ${signature_tag}"
 }
 
 check_cosign_verify() {
-  local tag="$1"
-  local ref="$2"
-  local digest
-  digest="$(resolve_digest "${ref}:${tag}")"
-  [[ -n "${digest}" && "${digest}" != "null" ]] || fail "${ref}:${tag} digest lookup failed"
+  local ref="$1" digest
+  digest="$(signature_digest "$2")"
 
   if ! cosign_init_verify_args; then
-    fail "${ref}:${tag} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
+    fail "${ref}@${digest} cannot resolve a Cosign verification identity; restore the configured key or provide a trusted public key/keyless identity"
   fi
 
-  cosign_verify_legacy_signature "${ref}@${digest}" >/dev/null || fail "${ref}:${tag} failed cosign verification"
+  cosign_verify_legacy_signature "${ref}@${digest}" image >/dev/null || fail "${ref}@${digest} failed cosign verification"
 }
 
 for tag in "${TAGS[@]}"; do
   for spec in "${IMAGE_SPECS[@]}"; do
     IFS="|" read -r ref kind <<<"$spec"
-    echo "checking ${ref}:${tag}"
-    check_image_shape "$tag" "$ref" "$kind"
-    check_config "$tag" "$ref"
-    check_signature_accessory "$tag" "$ref"
-    check_legacy_signature_tag "$tag" "$ref"
-    check_cosign_verify "$tag" "$ref"
+    if [[ "${kind}" == native ]]; then
+      [[ $# == 1 && "${tag}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "a native-build image requires one verified digest"
+      subject="${ref}@${tag}"
+    else
+      subject="${ref}:${tag}"
+    fi
+    echo "checking ${subject}"
+    check_image_shape "${subject}" "${kind}"
+    check_config "${subject}" "${ref}"
+    check_signature_accessory "${ref}" "${subject}"
+    check_legacy_signature_tag "${ref}" "${subject}"
+    check_cosign_verify "${ref}" "${subject}"
   done
 done
 

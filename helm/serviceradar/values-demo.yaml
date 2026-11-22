@@ -288,10 +288,17 @@ logCollector:
       externalTrafficPolicy: Local
       http:
         enabled: true
-    # Public otlp-demo HTTPRoute/TLSRoute removed (unauthenticated ingest was
-    # internet-reachable). OTLP is LAN-only on 192.168.6.93.
+    # Public OTLP/HTTP (/v1/*) and OTLP/gRPC remain LAN-only on 192.168.6.93
+    # (unauthenticated OTLP ingest must not be internet-reachable). Expose only
+    # the public-safe, site-key- and Origin-gated /rum/v1/beacon endpoint via
+    # the shared gateway on rum-demo.serviceradar.cloud.
     gateway:
-      enabled: false
+      enabled: true
+      httpHostname: ""
+      grpcHostname: ""
+      rum:
+        enabled: true
+      rumHostname: "rum-demo.serviceradar.cloud"
 
 agentGateway:
   enabled: true
@@ -640,6 +647,15 @@ webNg:
     storageClassName: ""
     downloadTtlSeconds: 86400
     jetstreamReplicas: 3
+  # Read-grant listener for the camera semantic search worker (mediaWorker
+  # below). Switched on together with mediaWorker.enabled; the chart refuses a
+  # deploymentRef or generation that differs between the two.
+  controlPlaneRuntime:
+    mediaWorker:
+      enabled: false
+      existingSecret: serviceradar-media-worker-auth
+      deploymentRef: "00000000-0000-4000-8000-000000000001"
+      generation: "1"
 
 # NVR recorder with its private ingest listener, for testing one-shot capture
 # from the shared camera relay. Blocks are kept locally; Core may also ask a
@@ -703,6 +719,45 @@ nvr:
         - "2600:3c06::/32"
         - "2600:3c0f:18::/48"
       port: 443
+
+# Camera semantic search worker on the arm64 GPU nodes. Operator-owned objects
+# that must exist in the namespace first (never created by Helm): the PVC
+# serviceradar-media-worker-models holding the SigLIP weights and the Secret
+# serviceradar-media-worker-auth (key media-worker-token), which web-ng reads too.
+# Its fixed JetStream streams (512Mi + 2Gi, R1) do not fit the NATS budget
+# below: with them the most loaded server needs 26362598742 bytes against a
+# limit of 25500000000 (85% of maxFileStore 30G). Before switching it on,
+# raise nats.jetstream.maxFileStore to at least 31020M, which first needs the
+# NATS PVCs grown to 31Gi (profile runbook), or lower other reservations.
+mediaWorker:
+  enabled: false  # switched on once the CUDA image and the weights PVC exist
+  image:
+    repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+    # Set to the sha-<commit> tag the CUDA publish workflow produced, from a
+    # commit that includes the worker's dedicated NATS inbox support (older
+    # builds are denied their NATS replies). Left empty, the chart refuses to
+    # render the worker.
+    tag: ""
+  executionProvider: cuda
+  runtimeClassName: nvidia
+  gpuResourceName: nvidia.com/gpu
+  gpuCount: 1
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Equal
+      value: present
+      effect: NoSchedule
+  models:
+    existingClaim: serviceradar-media-worker-models
+  auth:
+    existingSecret: serviceradar-media-worker-auth
+    tokenKey: media-worker-token
+    deploymentRef: "00000000-0000-4000-8000-000000000001"
+    generation: "1"
+  networkPolicy:
+    allowNvrRead: false
 
 faker:
   enabled: true
@@ -1134,6 +1189,11 @@ flowCollector:
         protocol: TCP
 
 certs:
+  # The demo Secret was reissued once at layout 7 to put the leaf host name on
+  # the broker certificate, before the generator learned to reissue a single
+  # certificate for a new name. Keep this until the chart default reaches 7:
+  # a lower value here would reissue every runtime certificate again.
+  runtimeLayoutVersion: "7"
   regenerator:
     # Leave disabled in demo so pre-upgrade cert preservation is stable and
     # upgrades do not rotate the runtime CA unexpectedly.
@@ -1182,8 +1242,22 @@ bmpCollector:
       metallb.universe.tf/address-pool: k3s-lan-pool
     loadBalancerIP: "192.168.6.92"
     externalTrafficPolicy: Local
+# The name edge leaf servers on the LAN dial. It is added to the broker
+# certificate and given to web-ng as the leaf upstream address. The LAN-only
+# LoadBalancer behind it lives in carverauto/gitops
+# (clusters/tonka01/demo-edge-leaf).
+hostedRuntime:
+  publicEndpoints:
+    natsLeafHost: nats-leaf-demo.serviceradar.cloud
+
 nats:
   replicas: 3
+  # Edge leaf servers connect here; the listener exists only with certificate
+  # authorization on.
+  leafnodes:
+    enabled: true
+  certificateAuthorization:
+    enabled: true
   jetstream:
     maxMemoryStore: 1G
     # maxFileStore is pinned: the small profile default rose to 36G but the

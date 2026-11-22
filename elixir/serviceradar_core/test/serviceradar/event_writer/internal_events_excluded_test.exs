@@ -65,12 +65,13 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # inventory.k8s.public_endpoints). That is external observation data pushed in by an
         # agent, not this deployment reporting on itself, so it belongs on JetStream like
         # every other ingestion subject. `mtr` is the same case: agents trace remote targets and
-        # core relays the traces for EventWriter to store. Assessment transitions
+        # core relays the traces for EventWriter to store. `rum.beacons` carries external
+        # browser RUM beacons ingested at the OTLP/log-collector gateway. Assessment transitions
         # describe vulnerabilities on monitored devices, and availability transitions the
         # merged availability history of monitored devices. The recovery stream's
         # routing is asserted by the pipeline test below.
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|availability\.transitions|vulnerability\.assessment\.transitions|exposure\.dimensions)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|rum\.beacons|availability\.transitions|vulnerability\.assessment\.transitions|exposure\.dimensions)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

@@ -18,7 +18,12 @@ defmodule ServiceRadar.Observability.ZenRule do
       :template,
       :builder_config,
       :jdm_definition,
-      :agent_id
+      :agent_id,
+      :pack_id,
+      :pack_version,
+      :managed,
+      :template_fingerprint,
+      :parameter_overrides
     ],
     fields: [
       {:name, :string, [allow_nil?: false]},
@@ -42,7 +47,12 @@ defmodule ServiceRadar.Observability.ZenRule do
        ]},
       {:compiled_jdm, :map, [default: %{}, public?: false]},
       {:kv_revision, :integer, [public?: false]},
-      {:agent_id, :string, [allow_nil?: false, default: "default-agent"]}
+      {:agent_id, :string, [allow_nil?: false, default: "default-agent"]},
+      {:pack_id, :string, []},
+      {:pack_version, :string, []},
+      {:managed, :boolean, [default: false, allow_nil?: false]},
+      {:template_fingerprint, :string, []},
+      {:parameter_overrides, :map, [default: %{}, allow_nil?: false]}
     ],
     active_sort: [order: :asc, inserted_at: :asc],
     create_validations: [ServiceRadar.Observability.Validations.ZenRule],

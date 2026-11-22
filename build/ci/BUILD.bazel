@@ -87,6 +87,19 @@ py_test(
     ],
 )
 
+py_binary(
+    name = "rekor_signing_monitor",
+    srcs = ["rekor_signing_monitor.py"],
+)
+
+# Synthetic log, keys, signing-ledger artifacts and issue tracker on loopback; needs openssl.
+py_test(
+    name = "rekor_signing_monitor_test",
+    size = "small",
+    srcs = ["rekor_signing_monitor_test.py"],
+    deps = [":rekor_signing_monitor"],
+)
+
 py_library(
     name = "git_metadata",
     srcs = ["git_metadata.py"],

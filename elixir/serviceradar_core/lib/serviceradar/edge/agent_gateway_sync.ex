@@ -20,7 +20,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Edge.AgentArtifactDelivery
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentReleaseManager
-  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
@@ -41,19 +40,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.DeviceWrites
-  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.LeaseRefresh
-  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
   require Logger
 
-  @terminal_release_target_statuses [:healthy, :failed, :rolled_back, :canceled]
   @agent_live_window_minutes 30
   # A reused grant must outlive this, so the material the agent caches until
   # the lease ends is never handed over about to expire.
@@ -386,7 +382,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
            :ok <- validate_broker_request(grant, request),
            {:ok, resolved} <-
              resolve_broker_grant_material(grant, actor, agent_id) do
-        {:ok, credential_material(resolved)}
+        {:ok, credential_material(resolved, grant)}
       end
     end
   end
@@ -856,6 +852,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:os, os_info)
       |> maybe_put(:zone, partition)
       |> compact_attrs()
+      |> Map.put(:attribute_provenance, check_in_provenance(hostname))
 
     # DB connection's search_path determines the schema. The check-in is an
     # identity-bearing observation (DeviceWrites.observed_after?/2), which
@@ -879,6 +876,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           allow_conflict_release?
         )
     end
+  end
+
+  defp check_in_provenance(hostname) do
+    type = %{"type" => AttributeStrength.tag("type", :agent_check_in, "agent")}
+
+    if present_string?(hostname),
+      do: Map.put(type, "name", AttributeStrength.tag("name", :agent_check_in, "agent")),
+      else: type
   end
 
   defp maybe_adopt_existing_active_ip_device(
@@ -1300,20 +1305,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  # The check-in's hostname and host type are corroboration, not identity
+  # (fix-device-attribute-source-precedence, design decision 13): writing them
+  # here replaced the inventory's name and a hypervisor guest's or SNMP device's
+  # type on every check-in. Only a device the check-in creates takes them, at the
+  # weakest tier, so any other source replaces them.
   defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now) do
-    hostname = Map.get(attrs, :hostname)
     source_ip = agent_source_ip(attrs)
 
     # Merge discovery_sources with capability-based sources
     existing_sources = device.discovery_sources || []
     capability_sources = build_discovery_sources(capabilities)
     new_sources = Enum.uniq(capability_sources ++ existing_sources)
-    {device_type, device_type_id} = agent_host_device_type(device)
 
     update_attrs =
       %{
-        type_id: device_type_id,
-        type: device_type,
         agent_id: agent_id,
         is_available: true,
         is_managed: true,
@@ -1322,8 +1328,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         last_seen_time: now,
         identity_observed_at: now
       }
-      |> maybe_put(:hostname, hostname)
-      |> maybe_put(:ip, source_ip)
+      |> Map.merge(checkin_primary_attrs(device, source_ip, now))
       |> compact_attrs()
 
     action = gateway_update_action(device)
@@ -1345,7 +1350,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           stale_record_error?(error) ->
             force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
-          active_ip_unique_conflict?(error) and present_string?(source_ip) ->
+          active_ip_unique_conflict?(error) and Map.has_key?(update_attrs, :ip) ->
             claim_active_ip_for_existing_device(
               device,
               action,
@@ -1361,29 +1366,26 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  @checkin_ip_source "agent_checkin"
+
+  # The check-in's source address goes through the same keep decision as every other
+  # primary-ip writer (`DeviceWrites.direct_primary_ip_attrs/4`): a check-in from an
+  # IPv6 never moves a dual-stack host off its IPv4, and another source's address is not
+  # displaced by an equally strong check-in address. A check-in that re-sights the stored
+  # primary it recorded refreshes the sighting time. A restore that keeps the stored
+  # address still releases it when another live device holds it
+  # (`ReleaseContestedAddress`).
+  defp checkin_primary_attrs(%Device{} = device, source_ip, now) when is_binary(source_ip),
+    do: DeviceWrites.direct_primary_ip_attrs(device, source_ip, @checkin_ip_source, now)
+
+  defp checkin_primary_attrs(_device, _source_ip, _now), do: %{}
+
   # A check-in on a soft-deleted device restores it (Device :gateway_restore bumps
   # identity_revision, as :restore does); :gateway_sync never clears a tombstone. A
   # merged-away device never gets here (follow_merged_away_device/6), nor does a retained
   # one (refuse_retained_device/2), which :gateway_restore also refuses.
   defp gateway_update_action(%Device{deleted_at: %DateTime{}}), do: :gateway_restore
   defp gateway_update_action(%Device{}), do: :gateway_sync
-
-  defp agent_host_device_type(%Device{} = device) do
-    if hypervisor_device?(device) do
-      {"Hypervisor", 99}
-    else
-      {"Server", 1}
-    end
-  end
-
-  defp hypervisor_device?(%Device{} = device) do
-    metadata = device.metadata || %{}
-    role = metadata |> Map.get("device_role") |> to_string() |> String.downcase()
-
-    role == "hypervisor" or
-      device.type == "Hypervisor" or
-      Enum.any?(device.discovery_sources || [], &(&1 in ["proxmox-api", "proxmox-candidate"]))
-  end
 
   # Build discovery_sources list based on agent capabilities
   defp build_discovery_sources(capabilities) when is_list(capabilities) do
@@ -1464,170 +1466,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   # Same device only. A shared address is not a host: two devices behind one
-  # NAT address must not retire each other. Side effects run only for a row
-  # that was actually superseded, including one the pruner already marked
-  # unavailable.
+  # NAT address must not retire each other. Assignment handoff and release-target
+  # cancellation run inside AgentSupersession whenever a row is superseded.
   defp retire_superseded_agents(agent_id, device_uid, _attrs, actor) do
-    agent_id
-    |> AgentSupersession.on_check_in(device_uid, actor)
-    |> Enum.each(&finish_superseded_agent(&1, agent_id, actor))
-  end
-
-  defp finish_superseded_agent(agent, replacement_agent_id, actor) do
-    cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
-    mark_superseded_release_state(agent, actor)
-    transfer_superseded_assignments(agent.uid, replacement_agent_id, actor)
-
-    Logger.info("Superseded agent #{agent.uid} in favor of #{replacement_agent_id}")
-  end
-
-  defp mark_superseded_release_state(agent, actor) do
-    _ =
-      agent
-      |> Ash.Changeset.for_update(:update_release_status, %{
-        release_rollout_state: :canceled,
-        last_update_at: DateTime.utc_now(),
-        last_update_error: "agent_superseded"
-      })
-      |> Ash.update(actor: actor)
-
+    _ = AgentSupersession.on_check_in(agent_id, device_uid, actor)
     :ok
-  end
-
-  defp cancel_superseded_release_targets(agent_id, replacement_agent_id, actor) do
-    AgentReleaseTarget
-    |> Ash.Query.for_read(:read, %{}, actor: actor)
-    |> Ash.Query.filter(
-      expr(agent_id == ^agent_id and status not in ^@terminal_release_target_statuses)
-    )
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, targets} ->
-        Enum.each(targets, fn target ->
-          _ =
-            AgentReleaseTarget.set_status(
-              target,
-              %{
-                status: :canceled,
-                last_status_message: "superseded by #{replacement_agent_id}",
-                last_error: "agent_superseded",
-                completed_at: DateTime.utc_now()
-              },
-              actor: actor
-            )
-        end)
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to cancel release targets for superseded agent #{agent_id}: #{inspect(reason)}"
-        )
-    end
-  end
-
-  defp transfer_superseded_assignments(agent_id, replacement_agent_id, actor) do
-    Enum.each(
-      [
-        {:mapper_jobs,
-         transfer_agent_assignment(MapperJob, agent_id, replacement_agent_id, actor)},
-        {:sweep_groups, transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor)}
-      ],
-      &log_assignment_transfer(&1, agent_id, replacement_agent_id)
-    )
-  end
-
-  defp log_assignment_transfer({_label, {:ok, 0}}, _agent_id, _replacement_agent_id), do: :ok
-
-  defp log_assignment_transfer({label, {:ok, count}}, agent_id, replacement_agent_id) do
-    Logger.info(
-      "Reassigned #{count} #{label} from superseded agent #{agent_id} to #{replacement_agent_id}"
-    )
-  end
-
-  defp log_assignment_transfer({label, {:error, reason}}, agent_id, replacement_agent_id) do
-    Logger.warning(
-      "Failed to reassign #{label} from superseded agent #{agent_id} to #{replacement_agent_id}: #{inspect(reason)}"
-    )
-  end
-
-  defp transfer_agent_assignment(resource, agent_id, replacement_agent_id, actor) do
-    query =
-      resource
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(agent_id == ^agent_id)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, []} ->
-        {:ok, 0}
-
-      {:ok, records} ->
-        update_agent_assignments(records, replacement_agent_id, actor)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor) do
-    query =
-      SweepGroup
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(^agent_id in agent_ids)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, records} ->
-        records
-        |> Enum.map(&replace_sweep_group_assignment(&1, agent_id, replacement_agent_id))
-        |> update_sweep_group_assignments(actor)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp replace_sweep_group_assignment(group, agent_id, replacement_agent_id) do
-    agent_ids =
-      group.agent_ids
-      |> AgentAssignment.normalize()
-      |> Enum.map(fn current_agent_id ->
-        if current_agent_id == agent_id, do: replacement_agent_id, else: current_agent_id
-      end)
-      |> AgentAssignment.normalize()
-
-    {group, agent_ids}
-  end
-
-  defp update_agent_assignments(records, replacement_agent_id, actor) do
-    records
-    |> Enum.reduce_while(0, fn record, count ->
-      record
-      |> Ash.Changeset.for_update(:update, %{agent_id: replacement_agent_id}, actor: actor)
-      |> Ash.update()
-      |> case do
-        {:ok, _record} -> {:cont, count + 1}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      count -> {:ok, count}
-    end
-  end
-
-  defp update_sweep_group_assignments(assignments, actor) do
-    assignments
-    |> Enum.reduce_while(0, fn {group, agent_ids}, count ->
-      group
-      |> Ash.Changeset.for_update(:update, %{agent_ids: agent_ids}, actor: actor)
-      |> Ash.update()
-      |> case do
-        {:ok, _group} -> {:cont, count + 1}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      count -> {:ok, count}
-    end
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -2153,7 +1996,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          {:ok, grant} <- issue_binding_grant(attrs, actor),
          :ok <- validate_broker_request(grant, request),
          {:ok, resolved} <- resolve_broker_grant_material(grant, actor, agent_id) do
-      {:ok, credential_material(resolved)}
+      {:ok, credential_material(resolved, grant)}
     else
       {:binding_denied, reason, attrs} ->
         audit_binding_denial(request, agent_id, attrs, reason)
@@ -2297,7 +2140,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp expire_broker_grant(_grant, _actor), do: :ok
 
-  defp credential_material(resolved) do
+  defp credential_material(resolved, grant) do
     secret = Map.get(resolved, :secret)
     value = resolved |> Map.get(:value) |> string_value() |> format_credential_value(secret)
     fields = credential_material_fields(value, secret)
@@ -2306,9 +2149,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       value: value,
       fields: fields,
       source_type: string_value(Map.get(resolved, :source_type)),
-      lease_expires_at_unix: unix_seconds(Map.get(resolved, :lease_expires_at)),
+      lease_expires_at_unix: material_lease_unix(Map.get(resolved, :lease_expires_at), grant),
       cache_status: string_value(Map.get(resolved, :cache_status))
     }
+  end
+
+  # The lease is the latest moment the agent may still use this material: the
+  # provider lease or the grant's expiry, whichever comes first. A local CNPG
+  # secret has no provider lease, and a grant resolved by binding reaches the
+  # agent as scope only, without an expiry, so without the grant's expiry here
+  # an agent cache would be bounded by nothing core issued.
+  defp material_lease_unix(provider_lease, %CredentialBrokerGrant{expires_at: expiry}) do
+    case provider_lease do
+      %DateTime{} = lease -> [lease, expiry] |> Enum.min(DateTime) |> DateTime.to_unix()
+      _no_provider_lease -> DateTime.to_unix(expiry)
+    end
   end
 
   # The agent sends this value verbatim after `PVEAPIToken=`, so a secret that
@@ -2353,9 +2208,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         fields
     end
   end
-
-  defp unix_seconds(%DateTime{} = value), do: DateTime.to_unix(value)
-  defp unix_seconds(_value), do: 0
 
   defp present_required(value, field) do
     if value == "" do

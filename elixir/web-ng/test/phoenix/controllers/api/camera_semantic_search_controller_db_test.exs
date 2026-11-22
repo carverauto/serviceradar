@@ -19,17 +19,20 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
+  alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
 
   @moduletag :web_ng_shared_fixture_db
+  @moduletag :tmp_dir
 
   @storage_id "00000000-0000-4000-8000-000000000611"
   @base_dt ~U[2026-11-17 12:00:00.000000Z]
   @base_us DateTime.to_unix(@base_dt, :microsecond)
 
-  setup %{conn: conn} do
+  setup %{conn: conn, tmp_dir: directory} do
+    Fixtures.recording_recovery_gate(directory)
     previous_embedder = Application.get_env(:serviceradar_core, :camera_semantic_text_embedder)
     previous_web_opts = Application.get_env(:serviceradar_web_ng, :camera_semantic_search_opts)
 
@@ -212,6 +215,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
 
     assert {:ok, _} =
              VisualIndexResultProjector.ingest_result(%{
+               "schema" => "media.results.visual_index.v1",
                "schema_version" => 1,
                "catalog_entry_id" => playable_entry.id,
                "descriptor_sha256" => playable_entry.descriptor_sha256,
@@ -224,6 +228,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
                  %{
                    "fragment_sequence" => 0,
                    "media_pts_ns" => 0,
+                   "scene_suppressed" => false,
                    "detections" => [
                      %{
                        "object_class" => "person",
@@ -234,15 +239,16 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
                    ],
                    "embeddings" => [
                      %{
-                       "embedding_kind" => "scene",
-                       "crop_index" => 0,
+                       "region_kind" => "scene",
+                       "region_index" => 0,
+                       "dominant_colors" => [],
                        "embedding" => basis_vector(dim, 2)
                      },
                      %{
-                       "embedding_kind" => "crop",
-                       "crop_index" => 1,
+                       "region_kind" => "crop",
+                       "region_index" => 1,
                        "object_class" => "person",
-                       "detector_confidence" => 0.92,
+                       "confidence" => 0.92,
                        "bbox" => [0.2, 0.15, 0.45, 0.85],
                        "dominant_colors" => ["red"],
                        "embedding" => basis_vector(dim, 0)
@@ -272,6 +278,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
 
     assert {:ok, _} =
              VisualIndexResultProjector.ingest_result(%{
+               "schema" => "media.results.visual_index.v1",
                "schema_version" => 1,
                "catalog_entry_id" => reclaimed_entry.id,
                "descriptor_sha256" => reclaimed_entry.descriptor_sha256,
@@ -284,6 +291,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
                  %{
                    "fragment_sequence" => 0,
                    "media_pts_ns" => 4_000_000_000,
+                   "scene_suppressed" => false,
                    "detections" => [
                      %{
                        "object_class" => "person",
@@ -294,10 +302,10 @@ defmodule ServiceRadarWebNGWeb.Api.CameraSemanticSearchControllerDBTest do
                    ],
                    "embeddings" => [
                      %{
-                       "embedding_kind" => "crop",
-                       "crop_index" => 1,
+                       "region_kind" => "crop",
+                       "region_index" => 1,
                        "object_class" => "person",
-                       "detector_confidence" => 0.95,
+                       "confidence" => 0.95,
                        "bbox" => [0.1, 0.1, 0.4, 0.9],
                        "dominant_colors" => ["red"],
                        "embedding" => basis_vector(dim, 0)

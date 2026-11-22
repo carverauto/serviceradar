@@ -69,7 +69,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
     otel: "otel_metric_points",
     traces: "otel_traces",
     bmp: "bmp_routing_events",
-    attribution: "flow_process_attribution_observations"
+    attribution: "flow_process_attribution_observations",
+    rum: "rum_beacons"
   ]
 
   @min_days 1

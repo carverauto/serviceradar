@@ -1,0 +1,266 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["steps"],
+  "properties": {
+    "journey_name": {
+      "type": "string",
+      "description": "Logical synthetic journey name used in result labels and synthetic.* metrics",
+      "default": "http-synthetic-journey"
+    },
+    "web_property_id": {
+      "type": "string",
+      "description": "Optional WebProperty UUID attached as web_property_id attribute on synthetic.* metrics and result labels"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Optional device UID for metric resource attribution"
+    },
+    "target_ip": {
+      "type": "string",
+      "description": "Optional target IP for metric resource attribution"
+    },
+    "emit_telemetry": {
+      "type": "boolean",
+      "description": "Emit canonical synthetic.* serviceradar.metric.v1 telemetry alongside PluginResult",
+      "default": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 30000,
+      "default": 10000,
+      "description": "Default per-step HTTP timeout in milliseconds"
+    },
+    "follow_redirects": {
+      "type": "boolean",
+      "default": true,
+      "description": "Default redirect behavior for steps that omit follow_redirects; a redirect response that sets cookies is never followed, so that step reports the redirect status"
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false,
+      "description": "Skip TLS certificate verification for all steps unless overridden"
+    },
+    "warn_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Default step warning latency threshold in milliseconds"
+    },
+    "crit_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Default step critical latency threshold in milliseconds"
+    },
+    "min_cert_days_warn": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Default minimum TLS leaf certificate remaining days before warning"
+    },
+    "min_cert_days_crit": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Default minimum TLS leaf certificate remaining days before critical"
+    },
+    "api_token_secret_ref": {
+      "type": "string",
+      "description": "Credential reference for {{api_token}} header/body substitution",
+      "secretRef": true,
+      "credentialKind": "api_token"
+    },
+    "api_token": {
+      "type": "string",
+      "description": "Materialized API token for {{api_token}} header/body substitution",
+      "x-serviceradar-ui-hidden": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Optional username for {{username}} header/body substitution"
+    },
+    "password_secret_ref": {
+      "type": "string",
+      "description": "Credential reference for {{password}} header/body substitution",
+      "secretRef": true,
+      "credentialKind": "username_password"
+    },
+    "password": {
+      "type": "string",
+      "description": "Materialized password for {{password}} header/body substitution",
+      "x-serviceradar-ui-hidden": true
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "description": "Ordered HTTP journey steps executed sequentially with an ephemeral RFC 6265 cookie jar",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "default": "GET"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Step target URL (supports {{var}} substitution from prior step extractors; credential placeholders are rejected)"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Request headers; supports {{var}} and {{api_token}}/{{username}}/{{password}}"
+          },
+          "body": {
+            "type": "string",
+            "description": "Request body; supports {{var}} and {{api_token}}/{{username}}/{{password}}"
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Optional Content-Type header applied when headers does not already define Content-Type"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 30000
+          },
+          "follow_redirects": {
+            "type": "boolean",
+            "description": "Optional per-step override for redirect behavior (inherits top-level follow_redirects when omitted)"
+          },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "description": "Optional per-step override for TLS certificate verification (inherits top-level insecure_skip_verify when omitted)"
+          },
+          "expect_status": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          },
+          "expect_status_min": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "expect_status_max": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "expect_headers": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expect_header_contains": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expect_body_contains": {
+            "type": "string"
+          },
+          "expect_json_fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pointer"],
+              "properties": {
+                "pointer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "expected": {
+                  "type": "string"
+                },
+                "value_type": {
+                  "type": "string",
+                  "enum": ["string", "number", "boolean", "null"],
+                  "default": "string"
+                }
+              }
+            }
+          },
+          "warn_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "crit_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "min_cert_days_warn": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "min_cert_days_crit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "extract_headers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["header", "var"],
+              "properties": {
+                "header": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "var": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "extract_cookies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cookie", "var"],
+              "properties": {
+                "cookie": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "var": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "extract_json_fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pointer", "var"],
+              "properties": {
+                "pointer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "var": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

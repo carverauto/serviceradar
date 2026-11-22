@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdPSession do
 
   defp default_check(%McpOAuthGrant{auth_method: :password}), do: {:ok, nil}
 
-  defp default_check(%McpOAuthGrant{auth_method: method} = grant) when method in [:oidc, :saml] do
+  defp default_check(%McpOAuthGrant{auth_method: :oidc} = grant) do
     refresh = grant.idp_refresh_token
 
     if is_binary(refresh) and refresh != "" do

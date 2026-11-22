@@ -110,6 +110,25 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
              command.payload
            )
 
+    for {cache, expected} <- [
+          {%{"mode" => "memory_ttl", "ttl_seconds" => 120}, true},
+          {%{"mode" => "memory_ttl", "ttl_seconds" => 300}, true},
+          {nil, false},
+          {%{"mode" => "memory", "ttl_seconds" => 120}, false},
+          {%{"mode" => "memory_ttl", "ttl_seconds" => 0}, false},
+          {%{"mode" => "memory_ttl", "ttl_seconds" => 301}, false},
+          {%{"mode" => "memory_ttl", "ttl_seconds" => 120, "scope" => "global"}, false}
+        ] do
+      assert CallbackCommandContract.persisted_payload_matches?(
+               attempt,
+               resources.execution,
+               resources.controller,
+               request,
+               put_in(command.payload, ["credential_broker", "cache"], cache)
+             ) == expected,
+             "cache #{inspect(cache)} should match: #{expected}"
+    end
+
     assert {:ok, :persisted_for_recovery} =
              CallbackCommandDispatcher.dispatch(attempt,
                now: @now,

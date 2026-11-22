@@ -69,32 +69,19 @@
      (serviceradar.jetstreamBudget in _helpers.tpl). */ -}}
 {{- $jsBudget := include "serviceradar.jetstreamBudget" . | fromJson -}}
 {{- include "serviceradar.validateJetStreamBudget" (list . $jsBudget) -}}
-{{- /* Callout stays off unless an operator has already stored explicit grants
-     for existing infrastructure clients. The chart cannot see that inventory. */ -}}
-{{- $certAuth := default (dict) $nats.certificateAuthorization -}}
-{{- $certAuthEnabled := eq (toString (default false $certAuth.enabled)) "true" -}}
-{{- $certAuthIssuer := default "" $certAuth.issuerPublicKey -}}
-{{- $certAuthUser := default "" $certAuth.authUserPublicKey -}}
-{{- $certAuthSystem := default "" $certAuth.systemUserPublicKey -}}
+{{- /* One value turns the certificate authorization callout on. The broker's
+     half of the signing set, two fragments holding only public keys, is read
+     from the runtime certificate Secret, where the certificate generator or
+     the Secret's supplier put it. Core adopts the chart's own client
+     certificates by itself (ServiceRadar.Edge.ChartIdentityInventory). */ -}}
+{{- $certAuthEnabled := eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) -}}
 {{- if $certAuthEnabled -}}
-{{- if ne (toString (default false $certAuth.infrastructureAdopted)) "true" -}}
-  {{- fail "nats.certificateAuthorization.enabled requires infrastructureAdopted true after existing clients have explicit grants" -}}
-{{- end -}}
 {{- /* The regenerator reissues the runtime certificates from a new root CA on
      every upgrade. The callout admits an adopted certificate by recorded
      fingerprint and records a reissued one only from the same issuer, so every
      adopted component would lose NATS access. */ -}}
 {{- if eq (toString (default false ((default (dict) .Values.certs).regenerator).enabled)) "true" -}}
   {{- fail "nats.certificateAuthorization.enabled cannot be combined with certs.regenerator.enabled: the regenerator reissues every runtime certificate from a new root CA, which adopted components cannot rotate onto" -}}
-{{- end -}}
-{{- if not (regexMatch `^A[A-Z2-7]{55}$` $certAuthIssuer) -}}
-  {{- fail "nats.certificateAuthorization.issuerPublicKey must be an account public nkey" -}}
-{{- end -}}
-{{- if not (regexMatch `^U[A-Z2-7]{55}$` $certAuthUser) -}}
-  {{- fail "nats.certificateAuthorization.authUserPublicKey must be a user public nkey" -}}
-{{- end -}}
-{{- if not (regexMatch `^U[A-Z2-7]{55}$` $certAuthSystem) -}}
-  {{- fail "nats.certificateAuthorization.systemUserPublicKey must be a user public nkey" -}}
 {{- end -}}
 {{- end -}}
 ---
@@ -159,6 +146,9 @@ spec:
         app.kubernetes.io/part-of: serviceradar
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        {{- with (include "serviceradar.natsLeafCertSans" .) }}
+        checksum/nats-leaf-cert-sans: {{ . | sha256sum | quote }}
+        {{- end }}
     spec:
       {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-nats") | nindent 6 }}
@@ -176,6 +166,17 @@ spec:
             peer="serviceradar-nats-${i}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local"
             if [ "${peer}" != "${POD_NAME}.serviceradar-nats-headless.${POD_NAMESPACE}.svc.cluster.local" ]; then
               ROUTES_BLOCK="${ROUTES_BLOCK}        nats://${peer}:6222,\n"
+            fi
+          done
+          {{- end }}
+
+          {{- if $certAuthEnabled }}
+          # The callout's public keys. A missing fragment is a mount failure
+          # before this runs; an empty one must not start an open broker.
+          for fragment in nats-callout-authorization.conf nats-callout-accounts.conf; do
+            if [ ! -s "/etc/serviceradar/certs/${fragment}" ]; then
+              echo "certificate authorization is enabled but ${fragment} is missing or empty in the runtime certificate Secret" >&2
+              exit 1
             fi
           done
           {{- end }}
@@ -200,7 +201,7 @@ spec:
             verify_and_map: true
           }
           {{- if $certAuthEnabled }}
-          authorization: {auth_callout: {issuer: {{ $certAuthIssuer | quote }}, account: AUTH, auth_users: [{{ $certAuthUser | quote }}, {{ $certAuthSystem | quote }}]}}
+          $(cat /etc/serviceradar/certs/nats-callout-authorization.conf)
           {{- end }}
           {{- if and $leafnodesEnabled $certAuthEnabled }}
 
@@ -211,6 +212,17 @@ spec:
           # account, so this listener exists only with the callout above.
           leafnodes {
             port: {{ $leafnodesPort }}
+            {{- /* A hub tells each leaf which addresses to reconnect to. Left
+                 alone it advertises its pod address, which no edge host can
+                 reach, so a leaf spends a dial timeout on each one before it
+                 returns to the address it was configured with. Do not fall back
+                 to no_advertise when no public leaf host is set: it has no
+                 effect on the hub's own address before nats-server 2.15.0, and
+                 from 2.15.0 it makes pre-2.15 leaf servers refuse the
+                 connection. */}}
+            {{- with include "serviceradar.natsLeafAdvertise" . }}
+            advertise: {{ . | quote }}
+            {{- end }}
             tls {
               cert_file: "/etc/serviceradar/certs/nats.pem"
               key_file: "/etc/serviceradar/certs/nats-key.pem"
@@ -239,16 +251,7 @@ spec:
           {{- end }}
           accounts {
             {{- if $certAuthEnabled }}
-            SYS: {
-              users: [
-                {nkey: {{ $certAuthSystem | quote }}, permissions: {publish: {allow: ["\$SYS.REQ.SERVER.*.CONNZ", "\$SYS.REQ.SERVER.*.KICK"]}, subscribe: {allow: ["_INBOX.>"]}}}
-              ]
-            }
-            AUTH: {
-              users: [
-                {nkey: {{ $certAuthUser | quote }}, permissions: {subscribe: ["\$SYS.REQ.USER.AUTH"], publish: ["\$SYS._INBOX.>"]}}
-              ]
-            }
+          $(cat /etc/serviceradar/certs/nats-callout-accounts.conf)
             {{- else }}
             SYS: {
               users: []
@@ -342,7 +345,11 @@ spec:
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
           items:
-{{ include "serviceradar.runtimeCertItems" (list "root.pem" "nats.pem" "nats-key.pem") | indent 12 }}
+{{- $natsCertItems := list "root.pem" "nats.pem" "nats-key.pem" }}
+{{- if $certAuthEnabled }}
+{{- $natsCertItems = concat $natsCertItems (list "nats-callout-authorization.conf" "nats-callout-accounts.conf") }}
+{{- end }}
+{{ include "serviceradar.runtimeCertItems" $natsCertItems | indent 12 }}
   volumeClaimTemplates:
   - metadata:
       name: nats-data
@@ -366,4 +373,11 @@ metadata:
 data:
   static-users.yaml: |
 {{ toYaml $staticUsers | indent 4 }}
+  # The subjects of the chart's own NATS client certificates, which core adopts
+  # on first sight and reports coverage for. A static user that is not listed
+  # here is not one of the chart's certificates.
+  chart-identities.yaml: |
+{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) }}
+    - {{ printf "CN=%s,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US" .cn | quote }}
+{{- end }}
 {{- end }}

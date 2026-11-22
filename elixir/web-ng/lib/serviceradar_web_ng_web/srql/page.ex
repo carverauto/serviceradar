@@ -1026,13 +1026,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp maybe_add_default_time(tokens, "logs"), do: tokens ++ ["time:last_24h"]
 
   defp maybe_add_default_time(tokens, entity) do
-    if entity in [
+    canonical_entity = Catalog.entity(entity).id
+
+    if canonical_entity in [
          "events",
          "bmp_events",
          "otel_metrics",
          "timeseries_metrics",
          "snmp_metrics",
-         "rperf_metrics",
+         "netperf_metrics",
          "cpu_metrics",
          "memory_metrics",
          "disk_metrics",

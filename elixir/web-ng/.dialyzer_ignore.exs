@@ -121,7 +121,6 @@
   {"lib/serviceradar_web_ng_web/controllers/dashboard_package_publish_controller.ex", :unused_fun, {354, 8}},
   {"lib/serviceradar_web_ng_web/controllers/dashboard_package_publish_controller.ex", :unused_fun, {373, 8}},
   {"lib/serviceradar_web_ng_web/controllers/dashboard_package_publish_controller.ex", :unused_fun, {378, 8}},
-  {"lib/serviceradar_web_ng_web/controllers/saml_controller.ex", :guard_fail, 733},
   {"lib/serviceradar_web_ng_web/dashboard/plugins/table.ex", :pattern_match_cov, {307, 8}},
   {"lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/metrics.ex", :pattern_match_cov, {147, 8}},
   {"lib/serviceradar_web_ng_web/dashboard/plugins/timeseries/series_data.ex", :pattern_match, {396, 8}},

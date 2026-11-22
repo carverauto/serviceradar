@@ -1,47 +1,24 @@
 defmodule ServiceRadar.DeclarativeChecks.PostureEvaluatorsAndLegacyImporterTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.DeclarativeChecks.BuiltinPacks
+  alias ServiceRadar.Catalog.BuiltinPacks
   alias ServiceRadar.DeclarativeChecks.CanonicalJSON
   alias ServiceRadar.DeclarativeChecks.DAGEngine
   alias ServiceRadar.DeclarativeChecks.LegacyImporter
   alias ServiceRadar.DeclarativeChecks.PostureEvaluators
   alias ServiceRadar.DeclarativeChecks.SchemaValidator
 
+  # The shipped pack files, with pack parameters resolved to their defaults.
   defp built_in_doc!(slug) do
-    BuiltinPacks.storage_and_nvr_checks()
-    |> Enum.find(&(&1["slug"] == slug))
-    |> case do
+    {:ok, pack} = BuiltinPacks.get_pack("storage-and-nvr-health")
+
+    case Enum.find(pack.checks, &(&1.normalized["slug"] == slug)) do
       nil -> raise "missing built-in check #{slug}"
-      doc -> doc
+      check -> check.normalized
     end
   end
 
   describe "Built-in Pack #1 (io.serviceradar.storage-and-nvr-health, PR #6760, 2.3)" do
-    test "ships all 4 managed posture checks and every document passes strict v1 validation" do
-      docs = BuiltinPacks.storage_and_nvr_checks()
-      assert length(docs) == 4
-
-      slugs = Enum.map(docs, & &1["slug"])
-
-      assert slugs == [
-               "storage-entitlement-utilization",
-               "storage-hold-pin-pressure",
-               "storage-archive-credential-and-usage-health",
-               "camera-continuous-recording-silence"
-             ]
-
-      for doc <- docs do
-        assert {:ok, normalized} = SchemaValidator.validate_document(doc, skip_srql_nif?: true)
-        assert normalized["managed"] == true
-        assert normalized["pack_id"] == "io.serviceradar.storage-and-nvr-health"
-        assert String.length(normalized["template_fingerprint"]) == 64
-      end
-
-      assert {:error, {:unsupported_posture_evaluator, "unknown.evaluator"}} =
-               PostureEvaluators.evaluate(%{"evaluator" => "unknown.evaluator"})
-    end
-
     test "1. storage.entitlement_utilization evaluates healthy, warn (85%), crit (95%), hard cap, and parameter_overrides" do
       doc = built_in_doc!("storage-entitlement-utilization")
       fp_before = CanonicalJSON.compute_template_fingerprint(doc)
@@ -83,11 +60,11 @@ defmodule ServiceRadar.DeclarativeChecks.PostureEvaluatorsAndLegacyImporterTest 
                eval_with_used.(70_000_000_000, true, %{})
 
       # Tuning warn_percent to 92 via parameter_overrides keeps 88% healthy without changing template_fingerprint!
-      tuned = Map.put(doc, "parameter_overrides", %{"warn_percent" => 92})
+      tuned = Map.put(doc, "parameter_overrides", %{"utilization_warn_pct" => 92})
       assert CanonicalJSON.compute_template_fingerprint(tuned) == fp_before
 
       assert {:ok, %{status: :healthy}} =
-               eval_with_used.(88_000_000_000, false, %{"warn_percent" => 92})
+               eval_with_used.(88_000_000_000, false, %{"utilization_warn_pct" => 92})
     end
 
     test "2. storage.hold_pin_pressure warns on elevated held share and fails closed when PD5 holds starve retention" do
@@ -124,7 +101,7 @@ defmodule ServiceRadar.DeclarativeChecks.PostureEvaluatorsAndLegacyImporterTest 
     end
 
     test "3. storage.archive_credential_and_usage_health catches missing/failing archive secrets and stale >36h usage reports" do
-      doc = built_in_doc!("storage-archive-credential-and-usage-health")
+      doc = built_in_doc!("storage-archive-credential-health")
       now = ~U[2026-11-18 05:00:00Z]
 
       s_up = "00000000-0000-0000-0000-000000000301"

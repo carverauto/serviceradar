@@ -186,6 +186,25 @@ config :serviceradar_web_ng, :nvr_publication_listener,
   config_file: System.get_env("SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE"),
   token_file: System.get_env("SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE")
 
+# Read-purpose client credentials for NVR read listeners (timeline playback of
+# local copies). Unset: local copies are reported unavailable.
+config :serviceradar_web_ng, :nvr_read_client,
+  config_file: System.get_env("SERVICERADAR_NVR_READ_CLIENT_CONFIG_FILE"),
+  token_file: System.get_env("SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE")
+
+# Isolated archive reader client for timeline playback of S3-archived copies (D.2).
+case System.get_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG") do
+  path when is_binary(path) and path != "" ->
+    config :serviceradar_web_ng, :camera_timeline_readers,
+      local: ServiceRadarWebNG.CameraTimelineReader.NVRLocal,
+      archive: ServiceRadarWebNG.CameraTimelineReader.Archive
+
+    config :serviceradar_web_ng, :timeline_archive_reader_config, path
+
+  _ ->
+    :ok
+end
+
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()
   otel_rpc_timeout_ms = parse_int_env.("OTEL_EXPORTER_OTLP_TIMEOUT_MS", 30_000)

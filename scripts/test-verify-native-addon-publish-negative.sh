@@ -48,6 +48,9 @@ mkdir -p "${fake_bin}" "${metadata_dir}"
 printf '%s\n' 'synthetic cosign public key fixture' >"${TMP_DIR}/cosign.pub"
 # The signing run reused the fixture digest's existing signature.
 printf '{"event":"reused","digest":"sha256:%s"}\n' "$(printf 'c%.0s' {1..64})" >"${TMP_DIR}/signing-ledger.jsonl"
+# ...and that pre-cutover signature carries no receipt, so its digest is on the frozen allowlist.
+mkdir -p "${TMP_DIR}/sigstore"
+printf '{"digests":["sha256:%s"]}\n' "$(printf 'c%.0s' {1..64})" >"${TMP_DIR}/sigstore/pre-cutover-first-party-digests.json"
 
 cat >"${metadata_dir}/fixture.metadata.json" <<'JSON'
 {
@@ -215,6 +218,7 @@ run_expected_failure() {
     METADATA_DIR="${metadata_dir}" \
     COSIGN_PUBLIC_KEY_FILE="${TMP_DIR}/cosign.pub" \
     SERVICERADAR_SIGNING_LEDGER="${TMP_DIR}/signing-ledger.jsonl" \
+    SERVICERADAR_SIGSTORE_DIR="${TMP_DIR}/sigstore" \
     OCI_REGISTRY="registry.example.test" \
     OCI_PROJECT="serviceradar" \
     VERIFY_NATIVE_ADDON_FIXTURE_MODE="${mode}" \

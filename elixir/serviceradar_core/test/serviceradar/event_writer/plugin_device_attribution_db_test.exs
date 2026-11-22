@@ -11,8 +11,12 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Core.ResultProcessor
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Metrics
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -25,6 +29,7 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
   alias ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -181,6 +186,55 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
       |> Metrics.attribute_device_ids()
 
     assert row.device_id == polled.uid
+  end
+
+  # Holder order (DeviceLookup.batch_resolve_by_ip/2, docs/docs/network-sweeps.md): a detected
+  # alias seen within the 30-day recency window ranks ahead of a confirmed alias seen outside
+  # it, so the ICMP metric and the sweep row for one address land on the same device.
+  test "a metric backfilled by target IP lands on the holder sweep ingest resolves", ctx do
+    ip = "192.0.2.88"
+    older_confirmed = create_device!(ctx.actor, "default")
+    fresh_detected = create_device!(ctx.actor, "default")
+    hold_ip_alias!(ctx.actor, older_confirmed, ip, :confirmed, 40)
+    hold_ip_alias!(ctx.actor, fresh_detected, ip, :detected, 0)
+
+    [row] =
+      ctx
+      |> metric_message(nil,
+        ingest_identity: %IngestIdentity{
+          source: "snmp-metrics",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: ctx.agent_id,
+          producer_kind: "agent",
+          attested_by: "gateway-attr"
+        },
+        target_device_ip: ip
+      )
+      |> List.wrap()
+      |> Metrics.decode_batch()
+      |> elem(0)
+      |> Metrics.attribute_device_ids()
+
+    assert row.device_id == fresh_detected.uid
+
+    assert %{^ip => {%{canonical_device_id: sweep_uid}, %DeviceAliasState{}}} =
+             DeviceLookup.batch_resolve_by_ip([ip],
+               actor: ctx.actor,
+               include_deleted: true,
+               partition: "default"
+             )
+
+    assert sweep_uid == fresh_detected.uid
+
+    assert %{^ip => %{canonical_device_id: processor_uid}} =
+             ResultProcessor.lookup_canonical_sweep_identities([ip], actor: ctx.actor)
+
+    assert processor_uid == fresh_detected.uid
+
+    # Device correlation keys alerts and findings to a device, so an unconfirmed alias
+    # does not decide it.
+    assert DeviceCorrelation.resolve_uncached(%{ip: ip, partition: "default"}) ==
+             older_confirmed.uid
   end
 
   test "an agent's sysmon metric is stored against the agent's device, not by host IP", ctx do
@@ -357,6 +411,32 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttributionDbTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+  end
+
+  # An IP alias of `device` in `state`, last seen `days_ago` days ago.
+  defp hold_ip_alias!(actor, device, ip, state, days_ago) do
+    {:ok, alias_state} =
+      DeviceAliasState.create_detected(
+        %{
+          device_id: device.uid,
+          partition: device.partition,
+          alias_type: :ip,
+          alias_value: ip,
+          metadata: %{}
+        },
+        actor: actor
+      )
+
+    %{num_rows: 1} =
+      Repo.query!(
+        """
+        UPDATE platform.device_alias_states
+        SET state = $2,
+            last_seen_at = (now() AT TIME ZONE 'utc') - make_interval(days => $3)
+        WHERE id = $1
+        """,
+        [Ecto.UUID.dump!(alias_state.id), Atom.to_string(state), days_ago]
+      )
   end
 
   defp register_integration_id!(actor, device_uid, value, partition) do

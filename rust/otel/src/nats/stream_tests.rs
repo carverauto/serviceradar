@@ -83,6 +83,7 @@ fn existing_events(
         subjects: vec![
             "otel.traces.>".to_string(),
             "otel.metrics.>".to_string(),
+            "rum.beacons.>".to_string(),
             "otel.logs".to_string(),
         ],
         storage: StorageType::File,
@@ -202,12 +203,17 @@ fn subjects_other_writers_added_are_kept_while_claiming() {
             "otel.logs".to_string(),
             "otel.traces.>".to_string(),
             "otel.metrics.>".to_string(),
+            "rum.beacons.>".to_string(),
         ]
     );
     assert!(plan.removed_subjects.is_empty());
     assert_eq!(
         plan.missing_subjects,
-        vec!["otel.traces.>".to_string(), "otel.metrics.>".to_string()]
+        vec![
+            "otel.traces.>".to_string(),
+            "otel.metrics.>".to_string(),
+            "rum.beacons.>".to_string(),
+        ]
     );
     assert_eq!(owner_of(&plan.config), Some(OWNER_OTEL_LOG_COLLECTOR));
 }

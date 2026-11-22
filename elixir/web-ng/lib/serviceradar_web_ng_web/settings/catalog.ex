@@ -476,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :sys_security,
       subgroup: "Users & Access",
       title: "Authentication",
-      description: "Configure sign-in: local passwords, SSO with OIDC or SAML, or a gateway proxy.",
+      description: "Configure sign-in: local passwords, SSO with OIDC, or a gateway proxy.",
       icon: "hero-identification",
       route: "/settings/authentication",
       live_view: ServiceRadarWebNGWeb.Settings.AuthenticationLive,
@@ -489,7 +489,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       keywords: [
         "authentication",
         "oidc",
-        "saml",
         "sso",
         "login",
         "password",
@@ -1890,6 +1889,41 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    %{
+      id: :solution_packs_catalog,
+      category: :network_services,
+      parent_group: :net_discovery,
+      subgroup: nil,
+      title: "Solution Packs Catalog",
+      description: "Browse, install, upgrade, and GitOps-sync secret-free Solution Packs.",
+      icon: "hero-cube-transparent",
+      route: "/settings/catalog",
+      live_view: ServiceRadarWebNGWeb.CatalogLive.Index,
+      permission: [
+        "catalog.view",
+        "catalog.packs.install",
+        "catalog.packs.export",
+        "catalog.repositories.manage",
+        "catalog.gitops.sync"
+      ],
+      order: 64,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: ["/settings/catalog", "/catalog"],
+      keywords: [
+        "catalog",
+        "solution packs",
+        "srpack",
+        "gitops",
+        "release catalog",
+        "templates",
+        "nvr",
+        "storage"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
     # === Network Services · Services =========================================
     %{
@@ -1999,6 +2033,69 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         "udp",
         "tcp",
         "srql"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :netperf,
+      category: :network_services,
+      parent_group: :net_services,
+      subgroup: nil,
+      title: "Network Performance",
+      description:
+        "Configure Hub & Spoke network performance policies, Hub Responders, profiles, and run on-demand tests.",
+      icon: "hero-bolt",
+      route: "/settings/networks/netperf",
+      live_view: ServiceRadarWebNGWeb.Settings.NetperfLive.Index,
+      permission: "settings.networks.manage",
+      order: 145,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "netperf",
+        "throughput",
+        "bandwidth",
+        "jitter",
+        "packet loss",
+        "hub",
+        "spoke",
+        "mesh",
+        "responder",
+        "profile",
+        "policy",
+        "tcp",
+        "udp",
+        "5199",
+        "run test"
+      ],
+      tabs: [
+        %{
+          id: :policies,
+          tab: "policies",
+          title: "Policies",
+          route: "/settings/networks/netperf?tab=policies",
+          keywords: ["policies", "hub and spoke", "hub mesh", "spoke selector"],
+          permission: nil
+        },
+        %{
+          id: :responders,
+          tab: "responders",
+          title: "Hub Responders",
+          route: "/settings/networks/netperf?tab=responders",
+          keywords: ["responders", "hub", "5199", "authority epoch", "admission"],
+          permission: nil
+        },
+        %{
+          id: :profiles,
+          tab: "profiles",
+          title: "Profiles",
+          route: "/settings/networks/netperf?tab=profiles",
+          keywords: ["profiles", "tcp", "udp", "bandwidth", "duration", "parallel"],
+          permission: nil
+        }
       ],
       badge: nil,
       hidden_from_nav: false
@@ -2981,6 +3078,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   tab's deep link, and merges the view's and tab's keywords.
   """
   @spec palette_index(term()) :: [map()]
+  # `view.id` and `tab.id` come from the compile-time view table, never from a
+  # request.
+  # sobelow_skip ["DOS.BinToAtom"]
   def palette_index(scope) do
     @views
     |> Enum.filter(fn view -> visible_view?(scope, view) end)

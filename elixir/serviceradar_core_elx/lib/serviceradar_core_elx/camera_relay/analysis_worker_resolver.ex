@@ -3,8 +3,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolver do
   Resolves registered camera analysis workers for relay-scoped dispatch.
   """
 
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadar.Camera.AnalysisWorker
-  alias ServiceRadar.Policies.OutboundURLPolicy
 
   @supported_http_adapters ["http"]
   @default_flapping_transition_threshold 3

@@ -63,8 +63,8 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
     <Layouts.app
       flash={%{}}
       current_scope={%{user: %{id: "u1", email: "owner@example.test", role: :admin}}}
-      current_path="/dashboards/rids"
-      page_title="RIDS Displays"
+      current_path="/dashboards/status-board"
+      page_title="Status Board"
       shell={:operations}
       hide_breadcrumb
       srql={%{}}
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
         <button id="dashboard-package-share-button" type="button">Share</button>
       </:topbar_actions>
       <section id="dashboard-package-host">
-        <button type="button">Gates</button>
+        <button type="button">Floors</button>
       </section>
     </Layouts.app>
     """

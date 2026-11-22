@@ -97,6 +97,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
     end
   end
 
+  # The SQL is a constant heredoc with a bound parameter. The attribute inside
+  # the `quote` below is not visible to the scanner.
+  # sobelow_skip ["SQL.Query"]
   defp timeseries_definitions do
     quote do
       defp mtr_timeseries_summary(time_window) do

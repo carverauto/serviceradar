@@ -32,6 +32,16 @@ sealed block's init, media and descriptor through Longshore, reads every object
 back and only then retains `archive-receipt.json` beside the block. The local
 block is kept. See [archive upload](../../docs/nvr-ingest.md#archive-upload).
 
+It also answers `GET /v1/blocks/<block_id>/descriptor` with the canonical
+descriptor bytes of one verified sealed block, read in the shared read pool.
+Core freezes those bytes when it catalogs the block. See
+[block descriptor](../../docs/nvr-ingest.md#block-descriptor).
+
+An optional separate read listener, with its own port, pin and read-purpose
+token, serves a sealed block's init segment and fragments to web-ng for
+playback, bound to the cataloged descriptor digest. See
+[playback read listener](../../docs/nvr-ingest.md#playback-read-listener).
+
 ## Deployment recovery admission
 
 Runtime admission requires an external boot-pinned recovery generation and a
@@ -98,9 +108,9 @@ assignment must establish physical writer exclusivity before calling this API.
 ## Read-only restart discovery
 
 Trusted same-VM callers can use `ServiceRadarNVR.list_blocks/0` after restart to
-list retained block IDs, without saved notifications or receipts. It uses the
-same verified storage identity and bounded inventory as admission: at most 4096
-block directories, with aliases and unknown file names refused. The list can
+list retained block IDs, without saved notifications or receipts. It scans the
+volume under the same verified storage identity, with aliases and unknown file
+names refused; it is not limited by the admission block cap. The list can
 include incomplete or corrupt blocks and is not an atomic coverage catalog;
 recording may add blocks after enumeration.
 
@@ -122,9 +132,8 @@ requires expected identity and exclusive ownership before repairing tails.
 `ServiceRadarNVR.block_descriptor/1` performs the same read-only verification
 and returns canonical v1 JSON for the sealed block: identity, clock, native format,
 initialization/media digests and fragment ranges. It uses the same descriptor
-validator as Core's frozen blocks and archive manifests. The bytes contain no
-local paths or storage receipts; the API is trusted same-VM only, with no HTTP
-endpoint. Descriptor inspection itself does not persist a sidecar.
+validator as Core's frozen blocks and archive manifests. The descriptor omits
+local paths and storage receipts. Inspection does not persist a sidecar.
 
 These observations do not establish current assignment authority, physical
 storage durability, publication receipts or playback authorization. They do not
@@ -285,8 +294,8 @@ the acknowledgement's durable boundary.
 
 The limit is 1..16 entries (one by default), under the existing four read slots
 and ten-second task deadline. Returned record bytes are bounded to 16 times
-66,048 bytes per page; no media bytes are returned. Inventory still scans at most
-4,096 block directories. A timeout returns no partial page: retry the same cursor
+66,048 bytes per page; no media bytes are returned. The scan covers every block
+directory on the volume. A timeout returns no partial page: retry the same cursor
 with a smaller limit. Failure at limit one remains unresolved work.
 
 This is an observation scan, not a stable snapshot or a durable delivery queue.
@@ -294,7 +303,8 @@ Concurrent publication may change previously read entries, and new blocks that
 sort before the cursor appear only on a new scan from nil. Preserve unresolved
 work and rescan; advancing a cursor acknowledges nothing. A trusted coordinator
 may explicitly deliver a pending intent with `deliver_publication/1`, or enable
-the scheduler above. Core catalog completion remains separate work.
+the scheduler above. For Core catalog registration during capture, see the
+[bounded relay coordinator](../../docs/nvr-ingest.md#bounded-relay-coordinator).
 
 ## Descriptor-bound local media reads
 
@@ -306,23 +316,28 @@ A different digest returns `:descriptor_digest_mismatch`; malformed digests and
 selectors are refused before media I/O. A missing fragment returns `:not_readable`.
 Paths, arbitrary byte ranges and whole-block media reads are not accepted.
 
-Every request re-verifies the complete sealed block under the existing 16 MiB /
-8 fragment limit, compares its descriptor digest, then rechecks storage identity
-and the selected bytes' hash. Initialization output is at most 1 MiB and fragment
-output at most 4 MiB. Corrupt or unsealed evidence is refused without repair.
-I/O runs in the bounded read pool, outside the recording capacity admission GenServer.
+Every request re-verifies the complete sealed block, compares its descriptor
+digest, then rechecks storage identity and the selected bytes' hash.
+Initialization output is at most 1 MiB and fragment output at most 4 MiB.
+Corrupt or unsealed evidence is refused without repair. I/O runs in a bounded
+read pool, outside the recording capacity admission GenServer.
 
-This is a trusted same-VM primitive, with no network endpoint. The digest is a
-content binding, not playback permission or an assignment lease. Full-block
-verification on every read is finite but is not a playback throughput claim.
-Authenticated owner-aware delivery, downstream buffering budgets and seek
-cancellation remain work for the remote playback protocol. No cache or catalog
-is created by these reads.
+`read_block/3` is a trusted same-VM primitive running in the shared four-slot
+read pool. `ServiceRadarNVR.playback_read/3` performs the same descriptor-bound
+verification in the separate playback read pool for the opt-in
+[playback read listener](../../docs/nvr-ingest.md#playback-read-listener). The
+digest is a content binding, not playback permission or an assignment lease.
+Full-block verification on every read is finite but is not a playback throughput
+claim. No cache or catalog is created by these reads.
 
 ## Read admission and lifetime
 
-Inventory, sealed-block inspection, descriptor generation, intent inspection and media reads share
-four supervised task slots per replica. A full pool returns
+Inventory, block lookups, ledger pages, sealed-block inspection, descriptor
+generation, intent inspection, archive verification and same-VM `read_block/3`
+share four supervised task slots per replica (`ServiceRadarNVR.ReadTasks`). The playback read listener uses a
+separate pool (`ServiceRadarNVR.PlaybackReadTasks`, configured by
+`SERVICERADAR_NVR_PLAYBACK_READ_SLOTS`, default 8, 1 through 64) so playback
+cannot starve the shared pool. A full pool returns
 `:nvr_read_capacity`; media work is not queued. An unavailable/restarting pool or
 failed task returns `:nvr_read_unavailable`. Invalid media selectors and descriptor
 digest syntax are refused before requesting a slot.
@@ -385,10 +400,12 @@ authorization and automatic assignment reconciliation remain pending.
 | `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` | 150 | 8 through 256; fragments per local block before rotation. Reads accept up to 256, so lowering it never strands a retained block. 256 keeps the publication intent, which lists every fragment, within its 64 KiB cap |
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes, full active reservations and missing publication records |
 | `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
+| `SERVICERADAR_NVR_MAX_BLOCKS` | 131072 | 262144; block directories per volume, counting active reservations; at the cap admission refuses and nothing is deleted |
+| `SERVICERADAR_NVR_PLAYBACK_READ_SLOTS` | 8 | 1 through 64; playback read listener task pool (10 seconds each), separate from the 4-slot read pool |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
-| Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most 4096 blocks per volume; no eviction or deletion |
+| Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most `SERVICERADAR_NVR_MAX_BLOCKS` per volume; no eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
-| Read work | 4 tasks per replica / 10 seconds each | no media-work queue; separate from writers |
+| Read work | 4 shared tasks + playback read slots / 10 seconds each | no media-work queue; separate from writers |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
 | Kubernetes | 2 CPU / 1 GiB memory per replica | configurable container limits |
 
@@ -408,15 +425,16 @@ so it fits one block. Back-to-back 270-second captures of one camera make
 370 kbit/s (12 MiB in 270 seconds). A higher-bitrate stream reaches the byte
 limit first and makes more, shorter blocks: at 1 Mbit/s a 12 MiB capture lasts
 about 100 seconds, about 860 blocks a day. A direct ingest session longer than
-one block still rotates at 16 MiB or at the fragment limit. The volume still
-holds at most 4096 blocks, so at 320 blocks a day one camera fills it in about
-13 days. With the default 1 GiB `SERVICERADAR_NVR_MAX_SPOOL_BYTES` the byte
-budget fills well before 4096 blocks for any real camera stream. Nothing
+one block still rotates at 16 MiB or at the fragment limit. The volume holds at
+most `SERVICERADAR_NVR_MAX_BLOCKS` blocks (131,072 by default), about 410 days of
+one camera at 320 blocks a day. With the default 1 GiB
+`SERVICERADAR_NVR_MAX_SPOOL_BYTES` the byte budget fills long before the block
+cap for any real camera stream. Nothing
 reclaims blocks yet: reclamation is not implemented, and a full volume or
 budget refuses new captures.
 
-The default network listener only serves health probes; private media ingress is
-separately opt-in:
+The default network listener only serves health probes; private media ingress
+and the playback read listener are separately opt-in:
 `GET /healthz` means the runtime is live; `/readyz` additionally verifies the
 configured private storage root and identity. Neither admits a recording pool.
 
@@ -432,7 +450,7 @@ publication record. Existing records are immutable: even partial/corrupt records
 are charged by their actual size and cannot be repaired or replaced by retry.
 Worker exit releases the media reservation, not retained bytes or missing records.
 At rotation the capacity owner atomically replaces that worker's reservation
-after inventorying the sealed block. There is no release/reacquire gap, and
+after re-measuring the sealed block. There is no release/reacquire gap, and
 other active reservations remain charged.
 `ServiceRadarNVR.capacity/0` returns a read-only observation of usage, full active
 media `reserved_bytes`, `publication_reserved_bytes` (missing retained records
@@ -444,15 +462,30 @@ available space. It is not a promise to a future caller. Reducing the spool
 budget below retained bytes plus these allowances refuses new capture; it does
 not delete evidence or invalidate exact publication retries.
 
-Inventory accepts at most 4096 block directories with the spool file names and
-the optional `publication.json`, `publication-ack.json`, `archive-receipt.json`
-and an interrupted `archive-receipt.json.tmp`. Unknown entries,
-aliases and unreadable inventory refuse admission and
-remain intact. Admission conservatively counts active bytes both as inventory
-and as full reservations. It can refuse early; it cannot spend that slack on a
-second worker. Losing the capacity owner retires publication tasks and recording
-workers before the
-replacement owner accepts reservations. Restart inventories the retained volume.
+Admission reads a block ledger instead of scanning the volume on every call.
+The ledger records each block directory's charged bytes and missing publication
+allowances. It is built from the volume once per capacity-owner lifetime by a
+paged scan of 1,024 directories per step: a small volume is ready on the first
+call, a larger one answers `:nvr_inventory_rebuilding` (and `GET /v1/status`
+reports `rebuilding`) until the scan finishes, while reads keep working. The
+capacity owner then keeps it current: the block an admitted writer holds is
+re-measured on every measurement, at rotation and when the writer exits, and a
+block is re-measured after a publication record, archive receipt or recovery
+touches it. Block directories hold the spool file names and the optional
+`publication.json`, `publication-ack.json`, `archive-receipt.json` and an
+interrupted `archive-receipt.json.tmp`. Unknown entries, aliases and unreadable
+blocks refuse admission with `:nvr_inventory_unavailable` and remain intact.
+
+A bounded audit re-measures 64 settled blocks per second, rotating through the
+ledger, and at the end of each rotation compares the volume root with it. Blocks
+a writer or publication holds are skipped. Any difference (a changed block, a
+missing one, or a directory the ledger did not record) closes admission with
+`:nvr_inventory_mismatch` until the service restarts; the audit never repairs or
+deletes. Admission conservatively counts active bytes both as measured and as
+full reservations. It can refuse early; it cannot spend that slack on a second
+worker. Losing the capacity owner retires publication tasks and recording
+workers before the replacement owner accepts reservations, and the replacement
+rebuilds the ledger from the retained volume.
 
 Linux hosts need GNU coreutils `/usr/bin/stat` and `/usr/bin/timeout`, supplied by
 the Ubuntu image. Available space uses non-root available blocks and fundamental
@@ -472,6 +505,13 @@ partition or protection against other applications consuming the volume. The
 publication allowances are logical byte bounds, not filesystem allocation or
 node-loss qualification. Reserve filesystem metadata, explicit recovery and
 future hold/disposition headroom when sizing the dedicated PVC.
+
+## Status, lookup and block pages
+
+The ingest listener, with the ingest pin and token, also answers three bounded
+observations for Core's coordinators. None reserves, repairs or deletes. See
+[member status and block state](../../docs/nvr-ingest.md#member-status-and-block-state)
+for the wire contract.
 
 ## Persistent storage and replicas
 

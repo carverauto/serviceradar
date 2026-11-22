@@ -22,6 +22,7 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 
 import "automation_launch_envelope.proto";
 import "edge/v1/record.proto";
+import "netperf/v1/netperf.proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
@@ -605,6 +606,10 @@ message AgentConfigResponse {
   // partition. Empty means unavailable; new record attribution must retry. The
   // config version covers the entire document, including key status and fences.
   bytes edge_record_trust_document = 17;
+
+  // Embedded pure-Go network performance testing configuration (responder and/or
+  // spoke targets with Ed25519-signed NetperfPermitV1 tokens).
+  netperf.v1.NetperfConfig netperf_config = 18;
 }
 
 // EdgeOutputGrant is one standing output grant. `production_capability` is an

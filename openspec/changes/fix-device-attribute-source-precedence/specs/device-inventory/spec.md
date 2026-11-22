@@ -11,10 +11,16 @@ stored value until a strictly stronger write arrives. A weaker write SHALL only
 fill an attribute for which no strength has been recorded; a recorded clear
 (an empty value with a recorded strength, such as a platform inventory's
 cleared management_device_id) is a stored decision and SHALL NOT be filled by
-a weaker write. A populated value
+a weaker write. An identity scrub is not a clear: it SHALL reset the
+recorded strengths of the attributes it empties, so any write may refill them.
+A populated value
 without a recorded strength (written before this rule) SHALL be kept against a
 write of the weakest tier; the next write of any higher tier SHALL replace it
-and record its strength. For a value made of several fields (name and
+and record its strength. A device-reference attribute (management_device_id)
+whose stored value names a deleted or missing device SHALL count as empty, so
+when no strength is recorded for it a write of any tier MAY fill it; a
+reference to a live device is a populated value and follows the rules above.
+For a value made of several fields (name and
 hostname; vendor and model; type, type_id and device_role) the strength
 decision SHALL accept or reject the write as a whole, and a field of that value
 that the write does not carry SHALL stay stored and SHALL NOT be cleared by the
@@ -30,8 +36,13 @@ as stated in each ladder. Every writer of these fields, including hypervisor
 enrichment, Proxmox enrichment, camera inventory, WiFi-map ingestion, endpoint
 inventory, SHALL write them through the same strength decision, with no update
 path that bypasses it. The agent gateway check-in's hostname and type are
-corroboration, not identity: it SHALL NOT write name, hostname, type, type_id or
-device_role. A defaulted or guessed vendor (such as a filler vendor an
+corroboration, not identity: on a device that already exists it SHALL NOT write
+name, hostname, type, type_id or device_role. On a device the check-in creates
+it SHALL record its hostname as name and hostname and its host type as type and
+type_id at a dedicated agent check-in tier below every other tier of those
+ladders, including the address fallback, so that any other source replaces
+them. Restoring a device whose identity was purged SHALL record the check-in
+hostname as name and hostname at that same agent check-in tier. A defaulted or guessed vendor (such as a filler vendor an
 ingestor sets when its source row has none) is not vendor evidence and SHALL
 NOT be written to the vendor.
 
@@ -45,8 +56,11 @@ AWX); an SNMP sysName; a name reported by a platform inventory (such as the
 hypervisor or camera inventory). A
 name derived from an address SHALL use the address the device keeps after the
 address rank guard, and only when that address is not link-local; an
-address-fallback write SHALL carry that address in both the name and the
-hostname, so the same source rewriting its own value moves the pair together. A
+address-fallback write SHALL set the name only and SHALL NOT write the
+hostname, because a hostname is identity evidence and a bare address in it
+would let a different device later seen at that address merge into this
+record; the same source rewriting its own fallback name still moves the
+name to the kept address. A
 link-local primary SHALL NOT become the name or hostname: the device keeps a
 stronger recorded name, or none. The hostname SHALL be gated by the same tiers and SHALL be
 accepted or rejected together with the name as one value. Every
@@ -201,7 +215,8 @@ ingestion batch.
 #### Scenario: A hypervisor placeholder without a record name is an address fallback
 - **GIVEN** a hypervisor inventory record with a provider reference and the address 192.0.2.40 but no name
 - **WHEN** the placeholder update that creates its device is ingested
-- **THEN** the device name and hostname SHALL be recorded as the address fallback 192.0.2.40, not the provider reference
+- **THEN** the device name SHALL be recorded as the address fallback 192.0.2.40, not the provider reference
+- **AND** the device hostname SHALL NOT be set to the address
 - **AND** a later SNMP sysName SHALL replace them
 
 #### Scenario: A hypervisor node settles on its platform inventory name
@@ -253,6 +268,17 @@ inventory cleared it.
 - **THEN** the management_device_id SHALL remain none
 - **AND** the SNMP polling host compiled for the camera SHALL NOT change
 
+#### Scenario: The mapper refills a management device that names a deleted device
+- **GIVEN** a device whose management_device_id, with no recorded strength, names a device that has since been deleted
+- **WHEN** a mapper update naming a live management device for it is ingested
+- **THEN** the management_device_id SHALL be the live device the mapper named
+- **AND** its recorded source SHALL be the mapper
+
+#### Scenario: The mapper keeps an unrecorded management device that is live
+- **GIVEN** a device whose management_device_id, with no recorded strength, names a live device
+- **WHEN** a mapper update naming a different management device is ingested
+- **THEN** the management_device_id SHALL be unchanged
+
 #### Scenario: Two writers at the same tier keep the first recorded value
 - **GIVEN** a camera whose vendor Example Cam Co and model were recorded from the camera inventory at the hardware-vendor tier
 - **WHEN** a mapper update deriving the hardware vendor Example Cam at the same tier is ingested
@@ -264,6 +290,12 @@ inventory cleared it.
 - **GIVEN** a virtual guest whose name, hostname, type Virtual and device_role virtual-guest were recorded from the hypervisor inventory
 - **WHEN** an agent gateway check-in reporting hostname guest-host-01 and type Server for that guest is ingested
 - **THEN** the guest name, hostname, type, type_id and device_role SHALL be unchanged
+
+#### Scenario: A source replaces the names and type an agent check-in created
+- **GIVEN** a device created by an agent gateway check-in reporting hostname agent-host-01 and type Server
+- **WHEN** a mapper update for that device reporting sysName core-sw-01 and a router type is ingested
+- **THEN** the device name and hostname SHALL be core-sw-01
+- **AND** the device type SHALL be the type the mapper derived
 
 #### Scenario: A defaulted vendor is not written
 - **GIVEN** a device whose vendor was recorded from the MAC OUI
@@ -313,7 +345,14 @@ source that recorded it (that source's full address set for the device, every
 address it reported for that device in the snapshot or window including
 candidates its chooser did not submit, no longer contains it, or it has aged
 out of that source's window); a single-address update from another source
-SHALL NOT count as the stored address being absent. Every source that feeds
+SHALL NOT count as the stored address being absent. An absence SHALL let
+only an address of the same class or a stronger class replace the stored
+primary (a same-family re-IP, such as one usable IPv4 to another, replaces it
+on absence); an address of a weaker class (a usable IPv4 to an IPv6, a routable
+address to a link-local) SHALL replace it only once the stored address has also
+aged out of its recording source's sighting window. A direct writer SHALL
+record itself as the primary's source and its sighting time whenever it sets
+the primary, so it never leaves a primary with no recorded source. Every source that feeds
 the primary SHALL pass its full per-device address set to the batch builder,
 and absence SHALL be computed from that set and the sighting window before the
 per-address write (a census snapshot is applied as a set per device) and
@@ -339,7 +378,12 @@ one, never an empty primary. Each chooser and Identity.Address.best/1 SHALL pick
 the highest-strength candidate (usable IPv4, then routable IPv6, then
 link-local, then higher rank within the family); only among candidates of equal
 class and equal rank SHALL they tie-break deterministically, the stored primary
-first if present among them, then the lowest address, never across ranks; a
+first if present among them, then the lowest address, never across ranks,
+except that the hypervisor host selection SHALL order equally strong host
+addresses by its management score (a gateway, a private address, a Linux bridge)
+before the lowest address, and the hypervisor guest selection SHALL order equally
+strong guest addresses by the guest's NIC preference order (hypervisor-attached
+NICs by configured index, then report order); a
 stored 10.1.0.5 (rank 40) is therefore replaced when the same source reports
 203.0.113.5 (rank 50). Identity.Address.best/1 SHALL take the stored primary as
 an optional input used only for that equal-rank tie-break. A

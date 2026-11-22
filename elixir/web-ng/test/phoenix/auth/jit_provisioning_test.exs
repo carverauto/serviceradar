@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
   Tests for Just-In-Time (JIT) user provisioning.
 
   JIT provisioning creates users automatically on first SSO login.
-  This is used by OIDC, SAML, and gateway authentication.
+  This is used by OIDC and gateway authentication.
 
   Run with: mix test test/phoenix/auth/jit_provisioning_test.exs
   """
@@ -38,19 +38,6 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
       assert user.role == :viewer
       # SSO users should be auto-confirmed
       assert user.confirmed_at
-    end
-
-    test "creates a new user with SAML provider", %{actor: actor} do
-      params = %{
-        email: "saml_user@example.com",
-        display_name: "SAML User",
-        external_id: "saml:nameid:67890",
-        provider: :saml
-      }
-
-      assert {:ok, user} = User.provision_sso_user(params, actor: actor)
-      assert to_string(user.email) == "saml_user@example.com"
-      assert user.external_id == "saml:nameid:67890"
     end
 
     test "creates a new user with gateway provider", %{actor: actor} do
@@ -258,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.Auth.JITProvisioningTest do
         email: "timestamp_test@example.com",
         display_name: "Timestamp Test",
         external_id: "sso:timestamp:test",
-        provider: :saml
+        provider: :oidc
       }
 
       {:ok, user} = User.provision_sso_user(params, actor: actor)

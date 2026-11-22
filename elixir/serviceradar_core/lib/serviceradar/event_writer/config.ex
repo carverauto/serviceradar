@@ -53,6 +53,8 @@ defmodule ServiceRadar.EventWriter.Config do
     `_FALLBACK_REPLICAS` - JetStream stream sizes, see `jetstream_sizes_from_env!/1`
   """
 
+  alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
@@ -82,6 +84,10 @@ defmodule ServiceRadar.EventWriter.Config do
   # EventWriter fallback below; flow-collector owns the shape once it claims it.
   @default_flows_stream_max_age_ns 21_600_000_000_000
   @default_events_stream_max_age_ns 86_400_000_000_000
+  # bmp-collector's default age (24h). Without one, a stream bmp-collector later
+  # claims keeps no age limit under its discard-new policy and never frees space
+  # once full.
+  @default_arancini_stream_max_age_ns 86_400_000_000_000
 
   # Streams only EventWriter creates, keyed by JetStream stream name: their
   # compiled default `max_bytes` (design D3). Each is overridden by
@@ -129,7 +135,8 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @fallback_max_age_ns %{
     "events" => @default_events_stream_max_age_ns,
-    "flows" => @default_flows_stream_max_age_ns
+    "flows" => @default_flows_stream_max_age_ns,
+    "ARANCINI_CAUSAL" => @default_arancini_stream_max_age_ns
   }
 
   @default_ownership_reconcile_interval_ms 300_000
@@ -808,7 +815,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
   A stream only EventWriter creates gets its `max_bytes`. Every consumer of a
   stream a collector may own (`events`, `flows`, `ARANCINI_CAUSAL`) gets the
-  EventWriter fallback shape (discard-old, the fallback size and replicas) and
+  EventWriter fallback shape (discard-old, the fallback size, replicas and age) and
   the `event-writer` claim, which replaces `reconcile_stream_shape`: EventWriter
   creates the stream with that claim when it is absent and reconciles the shape
   only of a stream that carries it (design D6). A consumer that never creates
@@ -1222,6 +1229,44 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  Media worker visual index results (`media.results.visual_index.v1`), stored
+  by the CameraVisualIndexResults processor.
+
+  The media worker creates `CAMERA_MEDIA_RESULTS` and owns its shape, so
+  EventWriter only binds its durable (`ensure_stream: false`). A result can
+  carry a few MiB of vectors. Each EventWriter worker contributes 20 pending
+  acknowledgements to the durable (60 with three workers). A transient failure
+  is redelivered with backoff for up to ten deliveries.
+  """
+  @spec camera_visual_index_results_stream() :: stream_config()
+  def camera_visual_index_results_stream do
+    %{
+      name: "CAMERA_VISUAL_INDEX_RESULTS",
+      stream_name: "CAMERA_MEDIA_RESULTS",
+      subject: VisualIndexResultProjector.result_subject(),
+      allow_stream_fallback: false,
+      processor: ServiceRadar.EventWriter.Processors.CameraVisualIndexResults,
+      ensure_stream: false,
+      batch_size: 10,
+      batch_timeout: 1_000,
+      consumer_max_ack_pending: 20,
+      consumer_max_deliver: 10
+    }
+  end
+
+  @doc """
+  The visual index result stream, for both runtime stream lists, when the
+  deployment relays visual index jobs
+  (`ServiceRadar.Camera.VisualIndexDispatcher.deployment_enabled?/0`).
+  """
+  @spec camera_visual_index_results_streams() :: [stream_config()]
+  def camera_visual_index_results_streams do
+    if VisualIndexDispatcher.deployment_enabled?(),
+      do: [camera_visual_index_results_stream()],
+      else: []
+  end
+
+  @doc """
   The merged device availability history (`ServiceRadar.Inventory.Availability.History`).
   The records are few, one per change of a device's merged state, so they share the
   `events` stream under their own subject and consumer rather than a stream of their own.
@@ -1234,6 +1279,23 @@ defmodule ServiceRadar.EventWriter.Config do
       subject: "availability.transitions.>",
       processor: ServiceRadar.EventWriter.Processors.AvailabilityTransitions,
       batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_max_deliver: 5
+    }
+  end
+
+  @doc """
+  Boomerang RUM beacons published by `log-collector` on `rum.beacons.>`.
+  Shares the `events` JetStream stream to preserve tenant stream memory budgets.
+  """
+  @spec rum_beacons_stream() :: stream_config()
+  def rum_beacons_stream do
+    %{
+      name: "RUM_BEACONS",
+      stream_name: "events",
+      subject: "rum.beacons.>",
+      processor: ServiceRadar.EventWriter.Processors.RumBeacons,
+      batch_size: 200,
       batch_timeout: 1_000,
       consumer_max_deliver: 5
     }
@@ -1392,6 +1454,7 @@ defmodule ServiceRadar.EventWriter.Config do
       scan_results_stream(),
       mtr_results_stream(),
       availability_transitions_stream(),
+      rum_beacons_stream(),
       exposure_transitions_stream(),
       exposure_dimensions_stream(),
       exposure_snapshots_stream(),

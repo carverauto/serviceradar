@@ -26,7 +26,7 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
-use dgraph_migrate::{Mode, Outcome, run_with_client, verify};
+use dgraph_migrate::{Mode, Outcome, SchemaSpec, apply, run_with_client, verify};
 use dgraph_topology::{
     DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite, MtrMetrics, PREDICATES, TYPES,
     TopologyClient, schema_spec,
@@ -36,6 +36,10 @@ use serde::Deserialize;
 #[path = "support/fixture.rs"]
 mod fixture;
 use fixture::with_scratch;
+
+/// A predicate the topology spec does not own, so `remove` must leave it.
+const FOREIGN_SPEC: SchemaSpec =
+    SchemaSpec::new("unrelated.foo: string .", &["unrelated.foo"], &[]);
 
 #[tokio::test]
 async fn apply_is_idempotent_remove_is_scoped_and_reapply_restores() {
@@ -69,8 +73,9 @@ async fn apply_is_idempotent_remove_is_scoped_and_reapply_restores() {
             .expect("second migrate");
         assert_eq!(second, Outcome::AlreadyCurrent);
 
-        client
-            .set_schema("unrelated.foo: string .")
+        // Through the migrator's own alter path, so this alter waits out an
+        // index build the same way the spec's own alters do.
+        apply(&client, FOREIGN_SPEC)
             .await
             .expect("foreign predicate");
         assert!(

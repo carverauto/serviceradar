@@ -6,22 +6,24 @@
       clear is distinguishable from an unset value; a populated value with no recorded
       strength is kept against weakest-tier writes; the next write of any
       tier above the weakest replaces it and records its strength
-- [ ] 1.2 Upsert: record the source with the strength; a write replaces the
+- [x] 1.2 Upsert: record the source with the strength; a write replaces the
       recorded value when strictly stronger, or equal and from the same
       source; a different source at the same tier keeps the stored value; a
       weaker value fills only an attribute with no recorded strength (a
       recorded clear is a stored decision)
-- [ ] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
-- [ ] 1.4 Derive an address fallback name from the address kept after the
+- [x] 1.3 Batch merge (`merge_records_by_uid`): same order, same rule
+- [x] 1.4 Derive an address fallback name from the address kept after the
       address rank guard, only when that address is not link-local; a
       link-local primary leaves the name and hostname at a stronger recorded
       value, or unset
-- [ ] 1.5 An address-fallback write carries the kept non-link-local address
-      in both `name` and `hostname`
+- [x] 1.5 An address-fallback write carries the kept non-link-local address
+      in `name` only and never writes `hostname` (a hostname is identity
+      evidence; an address in it lets a different device polled at that
+      address merge into the record)
 
 ## 2. Name precedence
 
-- [ ] 2.1 Writers tag names: address fallback (passive census or hypervisor
+- [x] 2.1 Writers tag names: address fallback (passive census or hypervisor
       enrichment without a hostname) < passive census sighting with an
       observed hostname < automation inventory (AWX) name < SNMP `sysName` <
       platform inventory name (hypervisor, camera or other decision 13
@@ -33,13 +35,13 @@
       the record has one (a `provider_ref` or an address is never that name;
       an update with no record name stays address fallback, none for a
       link-local address)
-- [ ] 2.2 Test: a `sysName` survives a hostname-less census update, in one
+- [x] 2.2 Test: a `sysName` survives a hostname-less census update, in one
       batch and across batches
-- [ ] 2.3 Test: a hostname-less sighting of a rejected address, including an
+- [x] 2.3 Test: a hostname-less sighting of a rejected address, including an
       NDP / `fe80::` sighting, does not rename the device
-- [ ] 2.4 Test: a hypervisor-enrichment update without a hostname keeps the
+- [x] 2.4 Test: a hypervisor-enrichment update without a hostname keeps the
       node name reported by the automation inventory
-- [ ] 2.5 Test: on a hypervisor node, alternating automation-inventory, mapper
+- [x] 2.5 Test: on a hypervisor node, alternating automation-inventory, mapper
       `sysName` and hypervisor-inventory writes leave `name` and `hostname` at
       the hypervisor inventory value in either batch order, and Proxmox plugin
       assignment inputs do not change
@@ -49,7 +51,7 @@
 
 ## 3. Vendor precedence
 
-- [ ] 3.1 Writers tag vendors: a name naming agent software (device,
+- [x] 3.1 Writers tag vendors: a name naming agent software (device,
       integration or metadata evidence) < IEEE OUI lookup result (always this
       tier, whatever the registrant string) < hardware vendor name (device,
       integration or metadata evidence: `sysObjectID` hardware enterprise,
@@ -57,21 +59,21 @@
       integration report, or explicit metadata); a weakest-tier
       vendor never replaces a populated value without recorded strength or any
       stronger value; provenance keys follow the kept value
-- [ ] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
+- [x] 3.2 Keep the agent-software enterprise list (Net-SNMP 8072 and similar)
       next to the enterprise-to-vendor table, only to mark table entries whose
       name is agent software
-- [ ] 3.3 Stop writing OS, software or platform names to `vendor_name` from
+- [x] 3.3 Stop writing OS, software or platform names to `vendor_name` from
       any source (fingerprint, classification rule, integration, metadata);
       write OS / software names to the OS / software fields, and still rank
       the same update's OUI or hardware vendor
-- [ ] 3.4 Test: a hardware-enterprise vendor with recorded strength survives
+- [x] 3.4 Test: a hardware-enterprise vendor with recorded strength survives
       an OUI update; an OUI vendor survives an update whose derived vendor
       names agent software (Net-SNMP); a hardware vendor from `sysDescr` or a
       classification rule replaces the OUI vendor even when the `sysObjectID`
       is under enterprise 8072; OUI replaces OUI
-- [ ] 3.5 Test: a `sysDescr`-inferred hardware vendor with recorded strength
+- [x] 3.5 Test: a `sysDescr`-inferred hardware vendor with recorded strength
       survives an OUI-only update
-- [ ] 3.6 Test: a fingerprint classification naming an OS leaves
+- [x] 3.6 Test: a fingerprint classification naming an OS leaves
       `vendor_name` unchanged; an automation inventory reporting its own
       platform name leaves `vendor_name` and `model` unchanged; Proxmox
       discovery's `Proxmox` / `PVE` leaves a recorded SNMP vendor and model
@@ -83,14 +85,14 @@
 
 ## 4. Type and integration type precedence
 
-- [ ] 4.1 Writers tag `type`: generic `host` / default < fingerprint or
+- [x] 4.1 Writers tag `type`: generic `host` / default < fingerprint or
       classification-rule type < SNMP-derived type < platform-inventory type;
       `type`, `type_id` and `metadata.device_role` are accepted or rejected
       together (mapper `persist_role_metadata` included); manual ownership
       keeps precedence over all three
-- [ ] 4.2 Writers tag `integration_type`: generic automation inventory <
+- [x] 4.2 Writers tag `integration_type`: generic automation inventory <
       platform inventory that discovers the device as its own object
-- [ ] 4.3 Test: alternating automation-inventory and hypervisor writes leave
+- [x] 4.3 Test: alternating automation-inventory and hypervisor writes leave
       `type` and `integration_type` at the hypervisor values; a mapper
       `ip_forwarding` update leaves a hypervisor node's type `Hypervisor` and
       its `type_id` unchanged; a mapper pass scoring a hypervisor node as
@@ -105,21 +107,21 @@
       and the `SourceIdentityDrift` repair reread; stop the `ResultProcessor`
       writer that copies a snapshot `integration_id` into update metadata, or
       move it to the provider-scoped identifier
-- [ ] 5.2 `PluginInputPayloadBuilder.normalize_device_row`: copy an
+- [x] 5.2 `PluginInputPayloadBuilder.normalize_device_row`: copy an
       integration identifier only into input items for the plugin whose
       provider owns it
 - [ ] 5.3 Proxmox inputs and `ProxmoxHostAuthority.target_ids` read the
       hypervisor provider ref from `device_identifiers`
-- [ ] 5.4 Test: alternating automation-inventory and hypervisor writes leave
+- [x] 5.4 Test: alternating automation-inventory and hypervisor writes leave
       Proxmox plugin assignment inputs unchanged
 
 ## 6. Attribute ownership
 
-- [ ] 6.1 Accept or reject `model` together with `vendor_name`
-- [ ] 6.2 Owned metadata keys (design.md decision 12) are replaced only by
+- [x] 6.1 Accept or reject `model` together with `vendor_name`
+- [x] 6.2 Owned metadata keys (design.md decision 12) are replaced only by
       their owner; other ingestors (for example the automation inventory's
       `proxmox_node`) only fill an absent key
-- [ ] 6.3 Rank `management_device_id`: platform inventory (camera) > mapper;
+- [x] 6.3 Rank `management_device_id`: platform inventory (camera) > mapper;
       a platform clear to none is the stronger value, and the mapper's
       empty-fill does not put a parent back on a device whose platform
       inventory cleared it
@@ -129,15 +131,17 @@
       or weaker write after an owner or stronger write and assert the stored
       value is unchanged, and with a fill into an absent value and assert it
       is stored; include a camera clear to none followed by a mapper pass
-- [ ] 6.5 Route every decision 13 platform-inventory writer
+- [x] 6.5 Route every decision 13 platform-inventory writer
       (`HypervisorEnrichmentIngestor`, `ProxmoxEnrichmentIngestor`,
       `Camera.InventoryIngestor` `camera_device_update_attrs`, WiFi-map
       controller / batch ingestion, `EndpointInventoryIngestor`) through the
       shared strength decision; remove direct updates that skip it; stop
       `AgentGatewaySync` writing `name`, `hostname`, `type`, `type_id` or
-      `device_role`; stop defaulted vendors (for example the WiFi-map batch
+      `device_role` on an existing device, and record those it writes on a
+      device it creates at the agent check-in tier below every other tier;
+      stop defaulted vendors (for example the WiFi-map batch
       filler) writing `vendor_name`
-- [ ] 6.6 Apply a multi-field value as a whole: fields a write does not carry
+- [x] 6.6 Apply a multi-field value as a whole: fields a write does not carry
       stay stored (a role-only write keeps `type` / `type_id`; a vendor
       without a model keeps `model`)
 - [ ] 6.7 Test: an SNMP-polled camera keeps the camera inventory name,
@@ -150,7 +154,7 @@
 
 ## 7. Primary address and aliases
 
-- [ ] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
+- [x] 7.1 Upsert guard in `DeviceWrites`: IPv4 always preferred when the
       device has a usable IPv4 (a routable IPv4 with `sr_address_rank >= 40`;
       routable = chooser-accepted, not link-local, not a directed broadcast,
       not host-internal, ULA included);
@@ -162,7 +166,10 @@
       rank within the same family after the IPv4-mapped unwrap; a
       higher-rank IPv6 never replaces a usable IPv4) or the stored address
       is absent from the sightings of the source that recorded it (another
-      source's single-address update never counts as absence); equal rank
+      source's single-address update never counts as absence; an absence
+      takes only a same-or-stronger-class address, and a weaker class only
+      once the stored address has also aged out of the window; a direct
+      writer records its source and sighting time); equal rank
       never replaces, for two usable IPv4s and for `fe80::` vs `169.254/16`
       on a link-local-only device; every source that feeds the primary
       passes its full per-device address set (including candidates its
@@ -170,18 +177,21 @@
       computes the recording source's membership and window per device
       before the write and passes it to the upsert, which decides; the
       upsert never infers absence from `EXCLUDED.ip` differing
-- [ ] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
+- [x] 7.2 `Identity.Address.best/1` and its rank follow the same rule (keep
       `better?/2`'s equal-rank-never-replaces; take the stored primary as an
       optional input and, only among equal-class equal-rank candidates,
       tie-break stored primary first, then lowest address, never across
       ranks); extend the existing SQL /
       Elixir rank parity test to the family rule and the keep-unless-stronger
       rule
-- [ ] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
+- [x] 7.3 Hypervisor guest primary-IP NIC selection (`primary_ip_by_guest`)
       and the camera and succession primary-IP paths follow the same rule;
       `GuestAddress.primary/1` keeps skipping host-internal addresses (for
-      example a docker bridge), and no chooser promotes an address it rejects
-- [ ] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
+      example a docker bridge), and no chooser promotes an address it rejects;
+      among equally strong guest addresses the guest's NIC preference order
+      (hypervisor-attached NICs by configured index, then report order) is the
+      tie-break, not the lowest address
+- [x] 7.4 Hypervisor host selection (`primary_ip_by_host/1`,
       `primary_interface_ip`, `management_ip_score`,
       `routable_management_ip?`) and the `DeviceDiscoveryIngestor` guest
       address fallback submit the best usable IPv4 among every address on the
@@ -194,8 +204,10 @@
       chooser picks the highest-strength candidate (usable IPv4, routable
       IPv6, link-local, then higher rank within the family) and only among
       equal-class equal-rank candidates puts the stored primary first, then
-      the lowest address
-- [ ] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
+      the lowest address; the hypervisor host selection breaks a tie between
+      equally strong host addresses by `management_ip_score` (gateway, private
+      address, Linux bridge) before the lowest address
+- [x] 7.5 Proxmox plugin `primaryIP` / `firstUsableIP`
       (`go/cmd/wasm-plugins/proxmox/summaries.go`, called from
       `discovery.go`) and the Armis address walk in `filterDevices`
       (`go/pkg/agent/syncsources/armis/device.go`, called from `driver.go`;
@@ -214,7 +226,7 @@
       (`go/cmd/wasm-plugins/netbox/main.go`) takes `primary_ip4` only when
       it is a usable IPv4, otherwise its routable IPv6, otherwise a
       link-local, so a link-local-only device is not dropped
-- [ ] 7.6 Route the agent gateway check-in (`AgentGatewaySync`
+- [x] 7.6 Route the agent gateway check-in (`AgentGatewaySync`
       `update_existing_device_for_agent` and `:gateway_restore`) and any
       other writer that sets a device's `ip` directly through the same
       ranked keep decision instead of assigning `ip`; keep the explicit
@@ -224,7 +236,7 @@
       primary to `203.0.113.5`
 - [ ] 7.7 Find any other primary-IP chooser, apply the same rule, and cover
       each one with the extended parity test
-- [ ] 7.8 Census decoder: an NDP / IPv6 sighting of a device with a usable
+- [x] 7.8 Census decoder: an NDP / IPv6 sighting of a device with a usable
       IPv4 records an aliasable IPv6 as an alias and does not set the primary
       `ip`; a link-local sighting is never an alias or a name, and sets the
       primary only of a link-local-only device
@@ -240,7 +252,7 @@
 - [ ] 7.10 Alias expiry: a confirmed re-attribution expires the previous
       holder's alias in the same write; a holder that has not re-sighted an
       address within the alias expiry window is expired
-- [ ] 7.11 `SweepCompiler` attributes each target only to the current live
+- [x] 7.11 `SweepCompiler` attributes each target only to the current live
       holder
 - [ ] 7.12 Test: dual-stack census keeps the usable IPv4 primary and records the
       global IPv6 as a live alias with a non-IPv6 name; a link-local

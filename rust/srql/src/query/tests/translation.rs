@@ -2089,3 +2089,65 @@ fn grouped_log_stats_sort_and_bound_groups() {
         );
     }
 }
+
+#[test]
+fn datastores_filter_and_sort_by_used_percent() {
+    // Byte counts cannot say how full a datastore is. A capacity check asks for
+    // the fullest one, or for those at or above a percentage.
+    let query = "in:virtualization_datastores used_percent:>=90 sort:used_percent:desc limit:1";
+    let response =
+        translate_request(&test_config(), request_for(query)).expect("used_percent translates");
+
+    assert!(
+        response
+            .params
+            .iter()
+            .any(|param| matches!(param, BindParam::Int(90))),
+        "the threshold must be a bound integer, not SQL text: {:?}",
+        response.params
+    );
+}
+
+#[test]
+fn used_percent_is_refused_where_it_has_no_meaning() {
+    for query in [
+        // Only datastores have a used and a total size to compare.
+        "in:virtualization_guests used_percent:>=90",
+        "in:virtualization_hosts sort:used_percent:desc",
+        // A percentage is a whole number.
+        "in:virtualization_datastores used_percent:>=ninety",
+    ] {
+        let result = translate_request(&test_config(), request_for(query));
+        assert!(
+            matches!(result, Err(crate::error::ServiceError::InvalidRequest(_))),
+            "{query} must be refused"
+        );
+    }
+}
+
+#[test]
+fn guests_filter_by_runtime_state() {
+    // Proxmox lists a paused guest as running. The runtime state is what tells
+    // them apart, and "unknown" marks a guest whose state could not be read.
+    let query = "in:virtualization_guests status:running runtime_state:unknown";
+    let response =
+        translate_request(&test_config(), request_for(query)).expect("runtime_state translates");
+
+    assert!(
+        response
+            .params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "unknown")),
+        "the state must be a bound value, not SQL text: {:?}",
+        response.params
+    );
+
+    let refused = translate_request(
+        &test_config(),
+        request_for("in:virtualization_datastores runtime_state:unknown"),
+    );
+    assert!(
+        matches!(refused, Err(crate::error::ServiceError::InvalidRequest(_))),
+        "only guests have a runtime state"
+    );
+}

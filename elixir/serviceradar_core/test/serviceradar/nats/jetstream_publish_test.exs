@@ -29,6 +29,25 @@ defmodule ServiceRadar.NATS.JetStreamPublishTest do
              JetStreamPublish.publish("mtr.results.ingest", "{}", request: request)
   end
 
+  # What a stream sends when it refuses a message: its own name and sequence 0
+  # beside the error (NATS server, JetStream publish response).
+  test "a refusal that still names the stream is a failure" do
+    request =
+      replying(
+        ~s({"error":{"code":400,"description":"maximum bytes exceeded"},"stream":"events","seq":0})
+      )
+
+    assert {:error, {:jetstream, %{"description" => "maximum bytes exceeded"}}} =
+             JetStreamPublish.publish_acked("logs.syslog", "{}", request: request)
+  end
+
+  test "sequence 0 without an error is not a stored message" do
+    request = replying(~s({"stream":"events","seq":0}))
+
+    assert {:error, {:invalid_jetstream_ack, _}} =
+             JetStreamPublish.publish_acked("logs.syslog", "{}", request: request)
+  end
+
   test "an unexpected reply is a failure, not a success" do
     assert {:error, {:invalid_jetstream_ack, _}} =
              JetStreamPublish.publish("s", "{}", request: replying(~s({"ok":true})))

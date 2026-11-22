@@ -8,6 +8,10 @@ defmodule ServiceRadarRecording.Inbox do
   worker. End-of-stream comes from the same producer, after its admitted media.
   That ordered end permits draining after the producer exits; an open inbox
   becomes unusable when its producer dies.
+
+  Each admitted unit carries `admitted_at_us`, this node's UTC time in
+  microseconds when the inbox admitted it. It is a receipt time, not a capture
+  time: the camera captured the unit an unmeasured delay earlier.
   """
 
   @byte_base 4_294_967_296
@@ -57,7 +61,8 @@ defmodule ServiceRadarRecording.Inbox do
          {:ok, unit} <- access_unit(chunk),
          :ok <- reserve(inbox, byte_size(unit.payload), 129) do
       # Avoid retaining a larger decoded transport binary through a small sub-binary.
-      send(inbox.worker, {:recording_media, inbox.id, %{unit | payload: :binary.copy(unit.payload)}})
+      unit = %{unit | payload: :binary.copy(unit.payload)}
+      send(inbox.worker, {:recording_media, inbox.id, Map.put(unit, :admitted_at_us, System.os_time(:microsecond))})
       :ok
     else
       {:error, reason} = error ->

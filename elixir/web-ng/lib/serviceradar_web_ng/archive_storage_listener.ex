@@ -88,6 +88,8 @@ defmodule ServiceRadarWebNG.ArchiveStorageListener do
     token != config[:token] and token != get_in(config, [:media, :token])
   end
 
+  # The path is operator configuration read at boot, never request input.
+  # sobelow_skip ["Traversal.FileModule"]
   defp bounded_file(path, limit) when is_binary(path) do
     case File.open(path, [:read, :binary]) do
       {:ok, file} ->

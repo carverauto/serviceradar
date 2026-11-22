@@ -178,6 +178,7 @@ elixir_release(
         "//third_party/hex_vendored/boombox:mix.exs",
         "//third_party/hex_vendored/connection:mix.exs",
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
+        "//elixir/palisade:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_nvr_client:mix.exs",
         "//elixir/serviceradar_object_storage:mix.exs",
@@ -213,6 +214,7 @@ ex_unit_tests(
             "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
             "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
             "test/serviceradar_core_elx/camera_storage_longshore_test.exs",
+            "test/serviceradar_core_elx/camera_storage_per_request_read_test.exs",
             "test/serviceradar_core_elx/camera_storage_test.exs",
             "test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs",
             "test/serviceradar_core_elx/camera_recording/codec_capability_test.exs",
@@ -249,6 +251,14 @@ ex_unit_test(
     name = "camera_storage_test",
     size = "medium",
     srcs = ["test/serviceradar_core_elx/camera_storage_test.exs"],
+    exec_properties = {"test.network": "off"},
+    deps = [":erlang_app"],
+)
+
+ex_unit_test(
+    name = "camera_storage_per_request_read_test",
+    size = "medium",
+    srcs = ["test/serviceradar_core_elx/camera_storage_per_request_read_test.exs"],
     exec_properties = {"test.network": "off"},
     deps = [":erlang_app"],
 )

@@ -183,15 +183,15 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
   } do
     unique_id = System.unique_integer([:positive])
     agent_partition = "default"
-    device_partition = "rids-#{unique_id}"
-    device_ip = "10.1.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
+    device_partition = "lab-#{unique_id}"
+    device_ip = "203.0.113.234"
 
     {:ok, _device} =
       Device
       |> Ash.Changeset.for_create(
         :create,
         %{
-          uid: "device-rids-#{unique_id}",
+          uid: "device-lab-#{unique_id}",
           ip: device_ip,
           partition: device_partition
         },

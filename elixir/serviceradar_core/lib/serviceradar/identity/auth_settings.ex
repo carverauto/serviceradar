@@ -4,7 +4,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
   This resource stores SSO configuration for the instance, supporting three modes:
   - `password_only` - Standard password authentication (default)
-  - `active_sso` - Direct IdP integration (OIDC or SAML)
+  - `active_sso` - Direct OIDC identity provider integration
   - `passive_proxy` - Gateway JWT validation (Kong, Ambassador, etc.)
 
   ## Singleton Pattern
@@ -14,9 +14,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
   ## Encrypted Fields
 
-  Sensitive fields are encrypted using AshCloak:
-  - `oidc_client_secret_encrypted` - OIDC client secret
-  - `saml_private_key_encrypted` - SAML SP signing key
+  The OIDC client secret (`oidc_client_secret_encrypted`) is encrypted using
+  AshCloak.
 
   ## Usage
 
@@ -45,10 +44,6 @@ defmodule ServiceRadar.Identity.AuthSettings do
     :oidc_discovery_url,
     :oidc_scopes,
     :oidc_pkce_mode,
-    :saml_idp_metadata_url,
-    :saml_idp_metadata_xml,
-    :saml_sp_entity_id,
-    :saml_pinned_cert_fingerprints,
     :jwt_public_key_pem,
     :jwt_jwks_url,
     :jwt_issuer,
@@ -70,8 +65,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
   cloak do
     vault(ServiceRadar.Vault)
-    attributes([:oidc_client_secret_encrypted, :saml_private_key_encrypted])
-    decrypt_by_default([:oidc_client_secret_encrypted, :saml_private_key_encrypted])
+    attributes([:oidc_client_secret_encrypted])
+    decrypt_by_default([:oidc_client_secret_encrypted])
   end
 
   code_interface do
@@ -133,21 +128,11 @@ defmodule ServiceRadar.Identity.AuthSettings do
         description "OIDC client secret (will be encrypted)"
       end
 
-      argument :saml_private_key, :string do
-        sensitive? true
-        # See :oidc_client_secret above: preserve the key verbatim and allow ""
-        # to clear it instead of being coerced to nil by the Ash string defaults.
-        constraints allow_empty?: true, trim?: false
-        description "SAML private key (will be encrypted)"
-      end
-
       accept @settings_accept
 
       # Encrypt secrets before save
       change fn changeset, _context ->
-        changeset
-        |> maybe_encrypt_secret(:oidc_client_secret, :oidc_client_secret_encrypted)
-        |> maybe_encrypt_secret(:saml_private_key, :saml_private_key_encrypted)
+        maybe_encrypt_secret(changeset, :oidc_client_secret, :oidc_client_secret_encrypted)
       end
 
       change after_action(&broadcast_cache_update/3)
@@ -233,8 +218,8 @@ defmodule ServiceRadar.Identity.AuthSettings do
     # Provider type (when mode = active_sso)
     attribute :provider_type, :atom do
       public? true
-      constraints one_of: [:oidc, :saml]
-      description "SSO provider type (oidc or saml)"
+      constraints one_of: [:oidc]
+      description "SSO provider type (oidc is the only supported protocol)"
     end
 
     # OIDC Configuration
@@ -273,34 +258,6 @@ defmodule ServiceRadar.Identity.AuthSettings do
       disabled: never send PKCE (escape hatch for a provider that rejects code_verifier).
       Never falls back to plain.
       """
-    end
-
-    # SAML Configuration
-    attribute :saml_idp_metadata_url, :string do
-      public? true
-      description "SAML IdP metadata URL"
-    end
-
-    attribute :saml_idp_metadata_xml, :string do
-      public? true
-      description "SAML IdP metadata XML (if URL not available)"
-    end
-
-    attribute :saml_sp_entity_id, :string do
-      public? true
-      description "SAML Service Provider entity ID"
-    end
-
-    attribute :saml_private_key_encrypted, :string do
-      public? false
-      sensitive? true
-      description "Encrypted SAML SP signing key"
-    end
-
-    attribute :saml_pinned_cert_fingerprints, {:array, :string} do
-      public? true
-      default []
-      description "SHA256 fingerprints of pinned IdP certificates for additional security"
     end
 
     # Proxy JWT Configuration
@@ -397,11 +354,4 @@ defmodule ServiceRadar.Identity.AuthSettings do
   Note: The secret is automatically decrypted by AshCloak.
   """
   def get_oidc_client_secret(%{oidc_client_secret_encrypted: secret}), do: secret
-
-  @doc """
-  Gets the SAML private key (decrypted).
-
-  Note: The key is automatically decrypted by AshCloak.
-  """
-  def get_saml_private_key(%{saml_private_key_encrypted: key}), do: key
 end

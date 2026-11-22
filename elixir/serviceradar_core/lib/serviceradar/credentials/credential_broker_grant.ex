@@ -13,8 +13,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     extensions: [AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.ApplyGrantCachePolicy
   alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
+  alias ServiceRadar.Credentials.GrantCachePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.Validations.GrantPrunableForSecretDeletion
@@ -25,7 +27,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   @schema_v2 "serviceradar.edge_credential_broker_grant.v2"
   @reserved_payload_keys ~w(
     schema grant_id grant_type credential_rule_id credential_secret_ref consumer target
-    resolution_location inject allow ttl_seconds expires_at
+    resolution_location inject cache allow ttl_seconds expires_at
   )
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
 
@@ -139,6 +141,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     create :issue do
       accept @fields
       change {GuardCredentialRuleLifecycle, mode: :issue}
+      change ApplyGrantCachePolicy
       change set_attribute(:issued_at, &__MODULE__.utc_now/0)
       change {WriteBrokerGrantLifecycleEvent, action: :issue}
     end
@@ -329,6 +332,21 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       constraints min: 1
     end
 
+    # Set by ApplyGrantCachePolicy at issue, never by the caller: see
+    # GrantCachePolicy for who may cache and for how long.
+    attribute :cache_mode, :atom do
+      allow_nil? false
+      public? true
+      default :no_cache
+      constraints one_of: [:no_cache, :memory_ttl]
+    end
+
+    attribute :cache_ttl_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1, max: 300
+    end
+
     # PaperTrail dumps tracked datetime attributes as :utc_datetime; keep lifecycle
     # timestamps at seconds precision even though the columns support microseconds.
     attribute :expires_at, :utc_datetime do
@@ -428,14 +446,18 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   allow-list) plus metadata, must still be issued or active, and must not expire
   within `:min_remaining_seconds` (default 0). A rule-bound grant is reused only
   while the rule is still enabled for the same secret, the condition the issue
-  action enforces. Any lookup failure falls back to issuing.
+  action enforces. The cache policy is part of that scope, so a candidate must
+  also carry the policy the issue action would set now. Any lookup failure
+  falls back to issuing.
   """
   def reuse_or_issue(attrs, opts) when is_map(attrs) and is_list(opts) do
     actor = Keyword.fetch!(opts, :actor)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     attrs = issue_attrs(attrs, now)
+    secret = GrantCachePolicy.load_secret(value(attrs, :secret_id), actor: actor)
+    comparable = GrantCachePolicy.put(attrs, secret)
 
-    case find_reusable(attrs, actor, now, Keyword.get(opts, :min_remaining_seconds, 0)) do
+    case find_reusable(comparable, actor, now, Keyword.get(opts, :min_remaining_seconds, 0)) do
       {:ok, grant} -> {:ok, grant}
       :none -> issue_grant(attrs, actor: actor)
     end
@@ -525,6 +547,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       },
       "resolution_location" => stringify(value(grant_or_attrs, :resolution_location)),
       "inject" => inject,
+      "cache" => GrantCachePolicy.payload(grant_or_attrs),
       "allow" => allow,
       "ttl_seconds" => int_value(grant_or_attrs, :ttl_seconds, 300),
       "expires_at" => iso8601(expires_at)

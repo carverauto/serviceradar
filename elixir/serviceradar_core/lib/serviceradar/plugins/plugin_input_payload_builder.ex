@@ -172,8 +172,13 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
         # Safe source/ownership evidence used by trusted host-authority
         # generation. Preserve only an explicit finite set; arbitrary device
         # metadata can contain unrelated or sensitive integration data.
-        "integration_id" =>
-          device_string(row, metadata, [:integration_id, "integration_id"], ["integration_id"]),
+        #
+        # No metadata integration_id: that slot is written by every integration
+        # that reports the device (an automation inventory and the hypervisor
+        # inventory alternate on one node), so copying it re-versioned every
+        # device-backed plugin assignment on each cycle. The Proxmox identity is
+        # the hypervisor provider ref below, a key only the hypervisor inventory
+        # replaces (AttributeStrength.owned_metadata_keys/0).
         "provider_ref" =>
           device_string(
             row,

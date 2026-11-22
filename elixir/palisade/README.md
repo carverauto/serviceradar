@@ -6,7 +6,7 @@
 
 Apache-2.0 licensed. Originally extracted from
 CarverAutomation's CRM + ServiceRadar codebases, which kept
-drifting verbatim copies of the same SSRF / OIDC / SAML
+drifting verbatim copies of the same SSRF / OIDC
 hardening modules. Palisade is the canonical home.
 
 ## Scope
@@ -18,7 +18,7 @@ Palisade currently provides:
   DNS-resolution aware (defeats DNS rebinding).
 - **`Palisade.OutboundURLPolicy`** — HTTPS-only, public-host URL
   validator. Used wherever app code follows an admin-supplied
-  URL (SAML IdP metadata, OIDC discovery, webhook callbacks).
+  URL (OIDC discovery, webhook callbacks).
 - **`Palisade.OutboundFetch`** — HTTP fetch helper that binds
   requests to the resolved IP `OutboundURLPolicy` approved. TLS
   hostname verification + the `Host:` header stay tied to the
@@ -30,8 +30,6 @@ Planned for next versions:
   verify with proper nonce / iss / aud / exp validation.
 - `Palisade.OIDC.ConfigCache` — ETS-backed cache for OIDC
   discovery + JWKS payloads.
-- `Palisade.SAML.CertTrust` / `Palisade.SAML.AssertionValidator`
-  / `Palisade.SAML.XML` — SAML primitives.
 
 ## Installation
 
@@ -56,7 +54,9 @@ via the standard sibling-path dep:
 {:palisade, path: "../palisade"}
 ```
 
-External consumers pull from hex.pm.
+Bazel builds and tests palisade on every pull request (see
+[Bazel and Mix](#bazel-and-mix)). External consumers pull from
+hex.pm, and Hex publication remains tag-triggered.
 
 ## Versioning + publishing
 
@@ -72,12 +72,15 @@ ServiceRadar CI watches for `palisade-v*` tags and runs
 publish step needs `HEX_API_KEY` set as a CI secret with publish
 scope on hex.pm.
 
-## Why not Bazel?
+## Bazel and Mix
 
-Palisade is a small single-language Elixir library. Consumers
-call `mix compile` on it directly when they pull it in as a
-hex dep — Bazel never enters the picture. CI runs `mix format /
-compile / test / credo` and is done.
+Inside this repository Bazel builds palisade with warnings as
+errors (`//elixir/palisade:erlang_app`), runs its tests
+(`//elixir/palisade:unit_tests`) and runs its format/Credo check
+(`//elixir/palisade:quality_check`) on every pull request. The
+tag-triggered Hex publish workflow still uses plain Mix, because
+external consumers build palisade with Mix when they pull it in
+as a Hex dependency.
 
 ## Development
 

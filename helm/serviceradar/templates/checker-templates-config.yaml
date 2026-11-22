@@ -23,20 +23,6 @@ data:
       },
       "targets": []
     }
-  rperf.json: |
-    {
-      "listen_addr": "0.0.0.0:50081",
-      "name": "rperf-checker",
-      "type": "grpc",
-      "timeout": "30s",
-      "security": {
-        "mode": "mtls",
-        "cert_dir": "/etc/serviceradar/certs",
-        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}"
-      },
-      "default_poll_interval": 300,
-      "targets": []
-    }
   dusk.json: |
     {
       "name": "dusk",

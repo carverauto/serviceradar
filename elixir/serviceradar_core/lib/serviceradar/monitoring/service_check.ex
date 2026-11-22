@@ -49,6 +49,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     :critical_threshold_ms,
     :agent_uid,
     :device_uid,
+    :web_property_id,
     :metadata
   ]
   @service_check_update_fields @service_check_fields -- [:check_type, :device_uid]
@@ -119,6 +120,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     read :by_device do
       argument :device_uid, :string, allow_nil?: false
       filter expr(device_uid == ^arg(:device_uid))
+    end
+
+    read :by_web_property do
+      argument :web_property_id, :uuid, allow_nil?: false
+      filter expr(web_property_id == ^arg(:web_property_id))
     end
 
     read :enabled do
@@ -373,6 +379,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       description "Device being monitored"
     end
 
+    attribute :web_property_id, :uuid do
+      public? true
+      description "Optional L7 WebProperty this check monitors"
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -400,6 +411,14 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     belongs_to :device, ServiceRadar.Inventory.Device do
       source_attribute :device_uid
       destination_attribute :uid
+      allow_nil? true
+      public? true
+    end
+
+    belongs_to :web_property, ServiceRadar.Inventory.WebProperty do
+      source_attribute :web_property_id
+      destination_attribute :id
+      define_attribute? false
       allow_nil? true
       public? true
     end

@@ -7,7 +7,8 @@
 use crate::errors::MediaWorkerError;
 use chrono::Utc;
 use prometheus::{
-    Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+    Encoder, Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub const MEDIA_WORKER_TELEMETRY_SUBJECT: &str = "telemetry.media_worker.metrics
 pub struct WorkerMetrics {
     registry: Registry,
     keyframes_decoded_total: IntCounter,
+    keyframes_undecodable_total: IntCounterVec,
     stage1_latency_seconds: Histogram,
     stage2_latency_seconds: Histogram,
     text_embed_latency_seconds: Histogram,
@@ -59,6 +61,15 @@ impl WorkerMetrics {
             "Total number of verified IDR keyframes decoded by the media worker",
         ))
         .expect("valid keyframes_decoded_total metric");
+
+        let keyframes_undecodable_total = IntCounterVec::new(
+            Opts::new(
+                "keyframes_undecodable_total",
+                "Sampled keyframes recorded as undecodable instead of indexed, by bounded reason",
+            ),
+            &["reason"],
+        )
+        .expect("valid keyframes_undecodable_total metric");
 
         let latency_buckets = vec![
             0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
@@ -124,6 +135,7 @@ impl WorkerMetrics {
         .expect("valid inflight_text_embeds gauge");
 
         let _ = registry.register(Box::new(keyframes_decoded_total.clone()));
+        let _ = registry.register(Box::new(keyframes_undecodable_total.clone()));
         let _ = registry.register(Box::new(stage1_latency_seconds.clone()));
         let _ = registry.register(Box::new(stage2_latency_seconds.clone()));
         let _ = registry.register(Box::new(text_embed_latency_seconds.clone()));
@@ -136,6 +148,7 @@ impl WorkerMetrics {
         Self {
             registry,
             keyframes_decoded_total,
+            keyframes_undecodable_total,
             stage1_latency_seconds,
             stage2_latency_seconds,
             text_embed_latency_seconds,
@@ -149,6 +162,14 @@ impl WorkerMetrics {
 
     pub fn inc_keyframes_decoded(&self, count: u64) {
         self.keyframes_decoded_total.inc_by(count);
+    }
+
+    /// Counts one sampled keyframe that was recorded as undecodable. `reason` is one of the
+    /// bounded `UndecodableKeyframePayload` reasons, so the label set stays fixed.
+    pub fn inc_keyframes_undecodable(&self, reason: &str) {
+        self.keyframes_undecodable_total
+            .with_label_values(&[reason])
+            .inc();
     }
 
     pub fn observe_stage1_latency(&self, seconds: f64) {

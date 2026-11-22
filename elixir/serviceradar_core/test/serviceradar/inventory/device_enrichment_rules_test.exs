@@ -132,7 +132,8 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
 
     classification = DeviceEnrichmentRules.classify(update)
 
-    assert classification.vendor_name == "Linux"
+    # An operating system is not vendor evidence: the rule sets the OS family only.
+    refute classification.vendor_name
     assert classification.type == "Server"
     assert classification.type_id == 1
     assert classification.os_family == "Linux"
@@ -154,7 +155,8 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
 
     classification = DeviceEnrichmentRules.classify(update)
 
-    assert classification.vendor_name == "NGINX"
+    # A web server's name is software, not vendor evidence.
+    refute classification.vendor_name
     assert classification.type == "Server"
     assert classification.type_id == 1
     assert classification.rule_id == "passive-fingerprint-nginx-http-server"

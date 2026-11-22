@@ -33,14 +33,15 @@ NIC-lease string extension is a separately measured upstreamable change.
 Conformance must cover numeric conversion boundaries, error behavior, aliases,
 custom JDM and JavaScript nodes before removing intermediate conversions.
 
-### Immutable rules through datasvc
+### Immutable rules through the rule store
 
 Publish a self-versioned bundle with effective scope, ordered keys/content and
 digest. Validate and compile the entire candidate before activation. If a
 bundle exceeds configured KV limits, use immutable documents with a manifest
 pinning content digests, never mutable unversioned references.
 
-Collectors use datasvc with existing authenticated identity. Watch currently
+Collectors read rules from the rule store and over the transport defined by
+`collector-rule-distribution`, with existing authenticated identity. Watch
 carries bytes without replay cursors: supervise reconnection and reconcile
 through Get. No record-path RPC and no watch per sending host. Reconcile the
 current agent/stream/subject scope differences in compiler/conformance work.
@@ -48,9 +49,10 @@ current agent/stream/subject scope differences in compiler/conformance work.
 Each batch uses one ruleset version. Invalid updates retain last-known-good
 and expose stale/error status. Explicit empty snapshots are valid. A collector
 never refuses syslog for want of a ruleset: until its first validated snapshot
-it publishes each record as JSON on the rule-bearing subject, where EventWriter
-normalizes it, and it normalizes from the next record once a snapshot is
-active. A persisted snapshot must pass the same validation. Preserve current per-record failure semantics
+it publishes a schema-header batch without `Sr-Ruleset-Id` on
+`logs.normalized.<kind>`, which EventWriter stores with built-in mapping, and it
+normalizes from the next record once a snapshot is active (see
+`collector-rule-distribution`). A persisted snapshot must pass the same validation. Preserve current per-record failure semantics
 until shared conformance establishes the exact behavior.
 
 ### Binary contract
@@ -62,7 +64,7 @@ Start with OTLP ExportLogsServiceRequest. The proposed transport headers are:
 | Content-Type | application/x-protobuf |
 | Sr-Log-Schema | otlp-normalized-v1 |
 | Sr-Normalization-Version | 1 for the shared normalization contract |
-| Sr-Ruleset-Id | Validated effective snapshot content digest |
+| Sr-Ruleset-Id | Validated effective snapshot content digest; present when rules were applied, absent on a built-in-mapping pass-through batch |
 | Sr-Collector-Id | Existing authenticated collector component identity |
 | Sr-Routing-Epoch | Immutable routing epoch; 0 for unsharded binary mode |
 | Nats-Msg-Id | Stable batch identity retained across retries |

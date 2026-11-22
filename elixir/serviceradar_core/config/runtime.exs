@@ -32,6 +32,7 @@ alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
+alias ServiceRadar.Observability.Zen.RuleBucket
 alias ServiceRadar.Security.AuditVersionRetentionWorker
 
 for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
@@ -99,8 +100,45 @@ nats_certificate_grant_ttl =
     _ -> raise "SERVICERADAR_NATS_CERTIFICATE_GRANT_TTL_SECONDS must be a positive integer"
   end
 
+chart_identity_partition = System.get_env("SERVICERADAR_OTX_PARTITION", "")
+
 config :serviceradar, :nats_account_name, nats_account_name
 config :serviceradar, :nats_certificate_grant_ttl_seconds, nats_certificate_grant_ttl
+
+# Chart certificate inventory inputs are documented in docs/managed-component-certificates.md.
+config :serviceradar,
+       :nats_chart_identities_file,
+       System.get_env("SERVICERADAR_NATS_CHART_IDENTITIES_FILE")
+
+if chart_identity_partition != "" do
+  config :serviceradar, :nats_chart_identity_partition_id, chart_identity_partition
+end
+
+# The NATS certificate authorization signing seeds the chart mounts from the
+# issuer Secret when certificate authorization is on. When set, the mounted
+# seeds are used and a stored signing record is ignored.
+config :serviceradar,
+       :nats_callout_seeds_dir,
+       System.get_env("SERVICERADAR_NATS_CALLOUT_SEEDS_DIR")
+
+# Rendered by the chart from nats.certificateAuthorization.enabled and
+# (nats.leafnodes.enabled and nats.certificateAuthorization.enabled) so core
+# can report hub readiness without inspecting the broker configuration.
+config :serviceradar,
+       :nats_certificate_authorization_enabled,
+       System.get_env("SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED") == "true"
+
+config :serviceradar,
+       :nats_infrastructure_certs_dir,
+       System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR")
+
+config :serviceradar,
+       :nats_infrastructure_root_file,
+       System.get_env("SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE")
+
+config :serviceradar,
+       :nats_leaf_listener_enabled,
+       System.get_env("SERVICERADAR_NATS_LEAF_LISTENER_ENABLED") == "true"
 
 # The chart's built-in NATS identities (serviceradar-nats-static-users ConfigMap).
 # Unset, or a missing file, leaves every adopted component on its stored grant.
@@ -1230,6 +1268,21 @@ if config_env() == :prod do
         ExposureTransitionRelay.default_max_bytes()
       )
 
+  # The NATS bucket collectors read Zen rule bundles from. Unset or blank means a
+  # 1 MiB cap and one replica (the chart sets the datasvc bucket's replica count);
+  # an invalid value fails boot naming the variable.
+  config :serviceradar_core, RuleBucket,
+    max_bytes:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_MAX_BYTES",
+        RuleBucket.default_max_bytes()
+      ),
+    replicas:
+      StateBucketSizing.replicas_from_env!(
+        "SERVICERADAR_JS_KV_SERVICERADAR_ZEN_RULES_REPLICAS",
+        RuleBucket.default_replicas()
+      )
+
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
 
   # Notification firehose stream size and replica count (a discard-old buffer,
@@ -1955,6 +2008,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.availability_transitions_stream(),
+        Config.rum_beacons_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
         Config.exposure_snapshots_stream(),
@@ -1995,6 +2049,9 @@ if config_env() == :prod do
         Config.edge_record_security_quarantine_stream(),
         Config.edge_record_recovery_stream(),
         Config.edge_record_dead_letter_stream()
+        # Media worker visual index results, only where visual indexing is
+        # enabled; the media worker owns their stream.
+        | Config.camera_visual_index_results_streams()
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

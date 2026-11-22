@@ -8,17 +8,31 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
+  alias ServiceRadar.Infrastructure.StateMonitor
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.IdentityDecision
+  alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.Plugins.AddonRolloutTarget
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   require Ash.Query
 
@@ -146,6 +160,296 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       assert agent!(old_uid, actor).status == :connected
       assert agent!(new_uid, actor).status == :connected
+    end
+
+    test "transfers sweep groups and mapper jobs when superseding a quiet identity",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert {:ok, %{superseded: superseded}} = AgentSupersession.sweep(actor: actor)
+      assert superseded >= 1
+
+      assert agent!(old_uid, actor).status == :superseded
+      assert agent!(old_uid, actor).superseded_by == new_uid
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "reconciles lingering assignments left on an already-superseded identity",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+      enabled_package = create_approved_plugin_package!(uniq, actor)
+      disabled_package = create_approved_plugin_package!("#{uniq}-disabled", actor)
+      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, enabled_package, true)
+      disabled_assignment_id = insert_manual_plugin_assignment!(old_uid, disabled_package, false)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
+      snmp_profile = create_snmp_profile!(uniq, old_uid, actor)
+      integration_source = create_integration_source!(uniq, old_uid, actor)
+      service_check = create_service_check!(uniq, old_uid, actor)
+
+      # Simulate an agent that was marked superseded before assignment handoff ran.
+      {:ok, _} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: new_uid})
+        |> Ash.update(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == old_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               old_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(PluginAssignment, disabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == old_uid
+      assert Ash.get!(SNMPProfile, snmp_profile.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == old_uid
+      assert Ash.get!(ServiceCheck, service_check.id, actor: actor).agent_uid == old_uid
+
+      assert {:ok, _} = AgentSupersession.sweep(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == new_uid
+      assert Ash.get!(PluginAssignment, disabled_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
+      assert Ash.get!(SNMPProfile, snmp_profile.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == new_uid
+      assert Ash.get!(ServiceCheck, service_check.id, actor: actor).agent_uid == new_uid
+    end
+
+    test "reconciles lingering assignments across a multi-hop supersession chain",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      host_mac = mac(uniq, 0)
+      old_uid = "agent-chain-a-#{uniq}"
+      mid_uid = "agent-chain-b-#{uniq}"
+      new_uid = "agent-chain-c-#{uniq}"
+
+      device_uid = enroll!(old_uid, ip, "chain-#{uniq}", host_mac)
+      assert ^device_uid = enroll!(mid_uid, ip, "chain-#{uniq}", host_mac)
+      assert ^device_uid = enroll!(new_uid, ip, "chain-#{uniq}", host_mac)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      {:ok, _} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: mid_uid})
+        |> Ash.update(actor: actor)
+
+      {:ok, _} =
+        mid_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: new_uid})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, _} = AgentSupersession.sweep(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+  end
+
+  describe "StateMonitor.check_agents/1" do
+    test "supersedes a timed-out identity and transfers its assignments when a live replacement exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+      plugin_package = create_approved_plugin_package!(uniq, actor)
+      enabled_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, true)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
+      snmp_profile = create_snmp_profile!(uniq, old_uid, actor)
+      integration_source = create_integration_source!(uniq, old_uid, actor)
+      service_check = create_service_check!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      old = agent!(old_uid, actor)
+      assert old.status == :superseded
+      assert old.superseded_by == new_uid
+      assert %DateTime{} = old.superseded_at
+      assert agent!(new_uid, actor).status == :connected
+      assert decision?(device_uid, "older_identity_on_device", old_uid, actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
+
+      assert Ash.get!(PluginAssignment, enabled_assignment_id, actor: actor).agent_uid == new_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
+      assert Ash.get!(SNMPProfile, snmp_profile.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == new_uid
+      assert Ash.get!(ServiceCheck, service_check.id, actor: actor).agent_uid == new_uid
+    end
+
+    test "skips conflicting manual plugin assignment without blocking other handoffs",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      plugin_package = create_approved_plugin_package!(uniq, actor)
+      old_assignment_id = insert_manual_plugin_assignment!(old_uid, plugin_package, true)
+      _existing_new_id = insert_manual_plugin_assignment!(new_uid, plugin_package, true)
+      camera_source = create_camera_source!(uniq, device_uid, old_uid, actor)
+      credential_rule = create_agent_credential_rule!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      assert agent!(old_uid, actor).status == :superseded
+      assert Ash.get!(PluginAssignment, old_assignment_id, actor: actor).agent_uid == old_uid
+      assert Ash.get!(CameraSource, camera_source.id, actor: actor).assigned_agent_id == new_uid
+
+      assert Ash.get!(NetworkCredentialRule, credential_rule.id, actor: actor).scope_value ==
+               new_uid
+    end
+
+    test "transitions a timed-out solo identity to disconnected without superseding it",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      uid = "agent-monitor-solo-#{uniq}"
+      _device_uid = enroll!(uid, ip, "monitor-solo-#{uniq}", mac(uniq, 0))
+
+      went_quiet!(uid)
+
+      assert StateMonitor.check_agents(actor: actor) >= 1
+
+      agent = agent!(uid, actor)
+      assert agent.status == :disconnected
+      assert is_nil(agent.superseded_by)
+    end
+  end
+
+  describe "on_agent_disconnected/2" do
+    test "supersedes a disconnected identity and transfers assignments when a live replacement exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+      assert decision?(device_uid, "older_identity_on_device", old_uid, actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "transfers integration sources when the live replacement is degraded and no connected agent exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+      integration_source = create_integration_source!(uniq, old_uid, actor)
+
+      {:ok, _degraded} =
+        new_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:degrade, %{})
+        |> Ash.update(actor: actor)
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      Repo.query!(
+        "UPDATE platform.ocsf_agents SET status = 'disconnected' WHERE status = 'connected'"
+      )
+
+      assert {:error, _} =
+               integration_source
+               |> Ash.Changeset.for_update(:update, %{agent_id: new_uid}, actor: actor)
+               |> Ash.update()
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+      assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == new_uid
+    end
+
+    test "continues transferring remaining SNMP profiles when one profile exceeds the replacement target limit",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      blocked_first = create_snmp_profile!("#{uniq}-blocked-1", old_uid, actor)
+      add_snmp_targets!(blocked_first, uniq, 1..2, actor)
+
+      valid_first = create_snmp_profile!("#{uniq}-valid-1", old_uid, actor)
+
+      blocked_second = create_snmp_profile!("#{uniq}-blocked-2", old_uid, actor)
+      add_snmp_targets!(blocked_second, uniq, 3..4, actor)
+
+      valid_second = create_snmp_profile!("#{uniq}-valid-2", old_uid, actor)
+
+      PipelineSetting
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{scope: :agent, scope_key: new_uid, snmp_max_targets: 1},
+        actor: actor
+      )
+      |> Ash.create!()
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+
+      assert Ash.get!(SNMPProfile, blocked_first.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(SNMPProfile, blocked_second.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(SNMPProfile, valid_first.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(SNMPProfile, valid_second.id, actor: actor).agent_ids == [new_uid]
+    end
+
+    test "leaves a disconnected identity alone when no live sibling exists",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      uid = "agent-solo-#{uniq}"
+      _device_uid = enroll!(uid, ip, "solo-#{uniq}", mac(uniq, 0))
+
+      {:ok, disconnected} =
+        uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert :noop = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert agent!(uid, actor).status == :disconnected
     end
   end
 
@@ -305,6 +609,222 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
     |> Ash.read!(actor: actor)
     |> Enum.map(& &1.agent_uid)
     |> Enum.sort()
+  end
+
+  defp create_sweep_group!(uniq, agent_uid, actor) do
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-sweep-#{uniq}",
+          partition: "default",
+          agent_ids: [agent_uid],
+          target_query: "in:devices",
+          static_targets: [test_ip(uniq)],
+          ports: [],
+          sweep_modes: ["icmp"]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    group
+  end
+
+  defp create_mapper_job!(uniq, agent_uid, actor) do
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-mapper-#{uniq}",
+          partition: "default",
+          agent_id: agent_uid,
+          discovery_mode: :snmp_api,
+          discovery_type: :full,
+          options: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    job
+  end
+
+  defp create_agent_credential_rule!(uniq, agent_uid, actor) do
+    secret = CredentialIntegrationFixtures.secret!(actor: actor)
+
+    {:ok, rule} =
+      NetworkCredentialRule.create_rule(
+        %{
+          name: "supersession-rule-#{uniq}",
+          provider: "example-network",
+          auth_method: "api_token",
+          purpose: "inventory",
+          target_query: "in:devices",
+          scope_type: :agent,
+          scope_value: agent_uid,
+          secret_id: secret.id
+        },
+        actor: actor
+      )
+
+    rule
+  end
+
+  defp create_approved_plugin_package!(uniq, actor) do
+    plugin_id = "supersession-plugin-#{uniq}"
+
+    Plugin
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Supersession Plugin #{uniq}",
+        description: "Synthetic plugin for agent supersession handoff tests"
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    PluginPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Supersession Plugin #{uniq}",
+        version: "1.0.0",
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: %{
+          "id" => plugin_id,
+          "name" => "Supersession Plugin #{uniq}",
+          "version" => "1.0.0",
+          "entrypoint" => "run_check",
+          "runtime" => "wasi-preview1",
+          "outputs" => "serviceradar.plugin_result.v1",
+          "capabilities" => ["submit_result"],
+          "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100}
+        },
+        config_schema: %{},
+        display_contract: %{},
+        content_hash: "sha256:#{plugin_id}:1.0.0",
+        signature: %{},
+        source_type: :upload
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+    |> Ash.Changeset.for_update(:approve, %{approved_by: "system:agent_supersession_test"},
+      actor: actor
+    )
+    |> Ash.update!()
+  end
+
+  defp insert_manual_plugin_assignment!(agent_uid, plugin_package, enabled) do
+    id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_assignments
+        (id, agent_uid, partition_id, plugin_package_id, plugin_id, source, enabled)
+      VALUES ($1::text::uuid, $2, 'default', $3::text::uuid, $4, 'manual', $5)
+      """,
+      [id, agent_uid, to_string(plugin_package.id), plugin_package.plugin_id, enabled]
+    )
+
+    id
+  end
+
+  defp create_camera_source!(uniq, device_uid, agent_uid, actor) do
+    {:ok, source} =
+      CameraSource.create_source(
+        %{
+          device_uid: device_uid,
+          vendor: "example-camera",
+          vendor_camera_id: "cam-#{uniq}",
+          display_name: "Example Camera #{uniq}",
+          assigned_agent_id: agent_uid
+        },
+        actor: actor
+      )
+
+    source
+  end
+
+  defp create_snmp_profile!(uniq, agent_uid, actor) do
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-snmp-#{uniq}",
+          agent_ids: [agent_uid],
+          version: :v2c,
+          community: "example-community"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    profile
+  end
+
+  defp add_snmp_targets!(profile, uniq, indices, actor) do
+    for index <- indices do
+      SNMPTarget
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-target-#{uniq}-#{index}",
+          host: test_ip(uniq + index),
+          version: :v2c,
+          community: "example-community",
+          snmp_profile_id: profile.id
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+    end
+  end
+
+  defp create_integration_source!(uniq, agent_uid, actor) do
+    {:ok, source} =
+      IntegrationSource
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-integration-#{uniq}",
+          source_type: :custom,
+          endpoint: "https://example.invalid/api",
+          agent_id: agent_uid,
+          partition: "default"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    source
+  end
+
+  defp create_service_check!(uniq, agent_uid, actor) do
+    {:ok, check} =
+      ServiceCheck
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-check-#{uniq}",
+          check_type: :ping,
+          target: test_ip(uniq),
+          agent_uid: agent_uid
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    check
   end
 
   # 198.18.0.0/15 (benchmarking range), unique per test run.

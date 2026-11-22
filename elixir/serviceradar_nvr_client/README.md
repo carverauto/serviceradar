@@ -82,6 +82,56 @@ The credential is held only for the request. No returned error, and nothing this
 library logs, contains it. It is a bucket credential resolved by Core for this
 one request, never a camera credential or an installed workload credential.
 
+## Reading a sealed block's descriptor
+
+`ServiceRadarNVRClient.block_descriptor/3` reads the canonical descriptor of one
+sealed block (`GET /v1/blocks/<block_id>/descriptor`) over the same mutual TLS
+and bearer token. The default total timeout is 15000 milliseconds (1 through
+300000). The result is `{:ok, descriptor}`, the decoded string-keyed descriptor,
+only when the 200 body is a valid descriptor, its canonical encoding is exactly
+the bytes received, and its identity derives the requested block id; so a
+caller that re-encodes it gets the NVR's bytes and digest. Any other 200 body is
+`{:error, :invalid_descriptor_response}`. A non-200 answer is
+`{:error, {:descriptor_status, status, error}}`, decoded as for archiving. A
+lost, truncated or late answer, or one larger than the descriptor's 2 MiB bound,
+is `{:error, :descriptor_unavailable}`. A malformed block id is refused before
+connecting with `{:error, :invalid_descriptor_request}`. The read changes
+nothing, so it can be repeated.
+
+## Member status, block lookup and ledger pages
+
+`status/2`, `lookup_blocks/3` and `block_page/4` read the member's observations
+over the ingest listener with the ingest credentials. Each answer is checked
+before it is returned: a lookup must report exactly the requested IDs in order;
+a ledger page must hold ascending IDs after the cursor and name the last one as
+`next_after` only when full; a block carries a descriptor digest exactly when
+sealed and a reason exactly when unresolved. A failed check is
+`{:error, :invalid_response}`; a non-200 answer is `{:error, {tag, status,
+error}}` with tag `:member_status`, `:lookup_status` or `:inventory_status`; a
+lost or late answer is `{:error, :unavailable}`. Callers compare the returned
+`storage_id` with the member's configured storage. See
+[member status and block state](../../docs/nvr-ingest.md#member-status-and-block-state).
+
+## Reading media for playback
+
+`ServiceRadarNVRClient.read_block/6` reads a sealed block's initialization bytes
+(`:init`) or one fragment (`{:fragment, sequence}`) from an NVR's separate read
+listener, so its configuration holds the read-purpose token and client
+certificate, never the ingest ones. The caller passes the frozen descriptor's
+SHA-256, which the NVR must match, and the expected `%{length:, sha256:}` of the
+selected object (at most 1 MiB for init, 4 MiB for a fragment). `{:ok, bytes}`
+is returned only when the body has exactly that length and digest. Errors are
+typed for copy resolution: `:not_found` (404), `:integrity_mismatch` (409, or
+bytes that differ from `expected`: the local copy is not the cataloged block),
+`:unavailable` (503, transport failure or deadline), `{:read_status, status,
+error}` for anything else, and `:invalid_read_request` before connecting. The
+default timeout is 10000 milliseconds.
+
+`ServiceRadarNVRClient.Members` loads an installed member map (`version`, `port`,
+`ca_file`, `cert_file`, `key_file`, `members` of `host`, `storage_id` and an
+optional `port`) with its token file, and finds the member that stores a given
+storage UUID.
+
 ## Test ownership
 
 The receiver's `//elixir/serviceradar_nvr:release_test` owns end-to-end transport
@@ -93,5 +143,8 @@ deadline cleanup. A real NVR refusing a stream mid-body checks that the client
 reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
-with the request file's `block_id` and `archive_request`; its `paced` mode
+with the request file's `block_id` and `archive_request`; its `descriptor` mode
+calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `status`,
+`lookup` and `page` modes call `status/2`, `lookup_blocks/3` and `block_page/4`; its `read` mode calls
+`read_block/6` and reports the length and SHA-256 of what it returned; its `paced` mode
 sleeps `pace_ms` before each unit and reports how many units were pulled.

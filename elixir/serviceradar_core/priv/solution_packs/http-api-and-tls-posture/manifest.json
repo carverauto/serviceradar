@@ -1,0 +1,120 @@
+{
+  "author": "ServiceRadar",
+  "categories": [
+    "Synthetic HTTP",
+    "Security & Posture"
+  ],
+  "config": [
+    {
+      "default": 400,
+      "description": "Warning total HTTP journey latency threshold in milliseconds.",
+      "key": "warn_ms",
+      "max": 30000,
+      "min": 50,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 1500,
+      "description": "Critical total HTTP journey latency threshold in milliseconds.",
+      "key": "crit_ms",
+      "max": 60000,
+      "min": 100,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 30,
+      "description": "Warning threshold for remaining TLS leaf certificate validity in days.",
+      "key": "tls_warn_days",
+      "max": 365,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": 14,
+      "description": "Critical threshold for remaining TLS leaf certificate validity in days.",
+      "key": "tls_crit_days",
+      "max": 365,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "default": "https://api.example.com/healthz",
+      "description": "Target URL for the primary synthetic HTTP API health step.",
+      "key": "api_target_url",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "default": "api.example.com",
+      "description": "Target hostname for TLS handshake certificate expiry inspection.",
+      "key": "tls_target_host",
+      "required": false,
+      "type": "string"
+    }
+  ],
+  "credential_slots": [
+    {
+      "description": "Optional bearer token or API credential for authenticated synthetic API probes.",
+      "provider": "generic_http",
+      "purpose": "Synthetic HTTP API health journey",
+      "required": false,
+      "role": "bearer_token",
+      "slot": "api_auth"
+    }
+  ],
+  "description": "Monitors multi-step synthetic HTTP API health, JSON payload assertions, httptrace latency thresholds, and TLS leaf certificate expiry posture.",
+  "files": {
+    "README.md": "d94b6a32c6541e45d100aea806f0c5e3d235bda7e683eecdc207fb565fa44571",
+    "assets/architecture.svg": "d52e6791f2bfd79b46cadc6cae0566c77d4968c383c7235c0253d8f97d4306e3",
+    "checks/http-journey-health.json": "a02e72577cf31eb786635729e22c26cdcd4d6a71eccf84cff397a355c7fd4532",
+    "checks/tls-certificate-expiry-posture.json": "daa308b384916ff58c00b4ca822174589cb3964e2591952d3bc5d03d515dab96",
+    "dashboards/http-tls-overview.json": "f40c1bd73cff923f61c7388a4fee737559032443fcd6cfd60f99d5e919db3d15",
+    "rules/http-journey-down-alert.json": "0d7d1b9ef3beba2eb18665a21af36bedf35e8a60de19c6fa01a1f8d711852a3f",
+    "rules/tls-certificate-expiry-alert.json": "89f9c66cfb3b5c4c3fd25d90b39b3e68d78d32874bb4c32a0b8eef5c1d613031"
+  },
+  "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxwYXRoIGQ9Ik0yNCAxMiBMMzQgMTcgVjI1IEMzNCAzMSAyOS41IDM1IDI0IDM3IEMxOC41IDM1IDE0IDMxIDE0IDI1IFYxNyBaIiBmaWxsPSIjMjJjNTVlIi8+PGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iNCIgZmlsbD0iIzBmMTcyYSIvPjwvc3ZnPg==",
+  "id": "io.serviceradar.http-api-and-tls-posture",
+  "license": "Apache-2.0",
+  "min_serviceradar_version": "1.0.70",
+  "name": "HTTP API & TLS Certificate Posture",
+  "pack_format_version": 1,
+  "plugin_dependencies": [],
+  "resources": {
+    "checks": [
+      {
+        "file": "checks/http-journey-health.json",
+        "slug": "http-api-journey-health"
+      },
+      {
+        "file": "checks/tls-certificate-expiry-posture.json",
+        "slug": "tls-certificate-expiry-posture"
+      }
+    ],
+    "dashboards": [
+      {
+        "file": "dashboards/http-tls-overview.json",
+        "slug": "http-api-and-tls-overview"
+      }
+    ],
+    "rules": [
+      {
+        "file": "rules/http-journey-down-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "http_api_journey_down"
+      },
+      {
+        "file": "rules/tls-certificate-expiry-alert.json",
+        "install_state": "paused",
+        "kind": "stateful_alert_rule",
+        "name": "tls_certificate_expiry_warning"
+      }
+    ]
+  },
+  "slug": "http-api-and-tls-posture",
+  "version": "0.1.1"
+}

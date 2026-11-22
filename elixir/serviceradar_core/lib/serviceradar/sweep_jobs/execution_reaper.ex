@@ -16,6 +16,10 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
     * its sweep group is disabled and it has made no progress for
       `disabled_grace_seconds` (agents still in flight may deliver a last chunk
       just after the config change), or
+    * it belongs to a leased `SweepExecutionSlot` whose `collection_expires`
+      passed at least `lease_grace_seconds` ago (defaulting to
+      `ServiceRadar.SweepJobs.LeaseMisses.grace_seconds/0`) and it has made no
+      progress for `lease_grace_seconds`, or
     * it has made no progress for the group's bound: three times the group's
       interval, clamped to `[min_stale_seconds, max_stale_seconds]`. A
       cron-scheduled group has no interval to scale by, so it uses
@@ -31,6 +35,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.LeaseMisses
+  alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
@@ -59,6 +65,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
 
     bounds = %{
       disabled_grace: Keyword.get(opts, :disabled_grace_seconds, @default_disabled_grace_seconds),
+      lease_grace: Keyword.get_lazy(opts, :lease_grace_seconds, &LeaseMisses.grace_seconds/0),
       min_stale: Keyword.get(opts, :min_stale_seconds, @default_min_stale_seconds),
       max_stale: Keyword.get(opts, :max_stale_seconds, @default_max_stale_seconds)
     }
@@ -80,10 +87,14 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
   @spec abandon_reason(map(), DateTime.t(), map()) :: String.t() | nil
   def abandon_reason(%{updated_at: updated_at} = candidate, now, bounds) do
     idle_seconds = DateTime.diff(now, updated_at, :second)
+    lease_grace = Map.get_lazy(bounds, :lease_grace, &LeaseMisses.grace_seconds/0)
 
     cond do
       candidate.group_enabled == false and idle_seconds >= bounds.disabled_grace ->
         "abandoned: sweep group disabled"
+
+      leased_slot_expired?(candidate, now, idle_seconds, lease_grace) ->
+        "incomplete: leased collection window expired at #{DateTime.to_iso8601(candidate.collection_expires)}"
 
       idle_seconds >= stale_bound_seconds(candidate, bounds) ->
         "abandoned: no progress since #{DateTime.to_iso8601(updated_at)}"
@@ -92,6 +103,17 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
         nil
     end
   end
+
+  defp leased_slot_expired?(
+         %{collection_expires: %DateTime{} = expires},
+         now,
+         idle_seconds,
+         grace
+       ) do
+    DateTime.diff(now, expires, :second) >= grace and idle_seconds >= grace
+  end
+
+  defp leased_slot_expired?(_candidate, _now, _idle_seconds, _grace), do: false
 
   defp stale_bound_seconds(%{schedule_type: type}, bounds) when type in [:cron, "cron"],
     do: bounds.max_stale
@@ -109,6 +131,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
         from(e in SweepGroupExecution,
           join: g in SweepGroup,
           on: g.id == e.sweep_group_id,
+          left_join: s in SweepExecutionSlot,
+          on: s.id == e.id,
           where: e.status == :running,
           order_by: [asc: e.updated_at],
           limit: ^batch_size,
@@ -117,7 +141,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
             updated_at: e.updated_at,
             group_enabled: g.enabled,
             interval: g.interval,
-            schedule_type: g.schedule_type
+            schedule_type: g.schedule_type,
+            collection_expires: s.collection_expires
           }
         )
       )

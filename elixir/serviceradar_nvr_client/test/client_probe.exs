@@ -60,6 +60,34 @@ result =
           request["timeout_ms"]
         )
 
+      "status" ->
+        ServiceRadarNVRClient.status(config, request["timeout_ms"])
+
+      "lookup" ->
+        ServiceRadarNVRClient.lookup_blocks(config, request["block_ids"], request["timeout_ms"])
+
+      "page" ->
+        ServiceRadarNVRClient.block_page(config, request["after"], request["limit"], request["timeout_ms"])
+
+      "descriptor" ->
+        ServiceRadarNVRClient.block_descriptor(config, request["block_id"], request["timeout_ms"])
+
+      "read" ->
+        selector = if request["selector"] == "init", do: :init, else: {:fragment, request["selector"]}
+        expected = %{length: request["length"], sha256: request["sha256"]}
+
+        with {:ok, bytes} <-
+               ServiceRadarNVRClient.read_block(
+                 config,
+                 request["block_id"],
+                 request["descriptor_sha256"],
+                 selector,
+                 expected,
+                 request["timeout_ms"]
+               ) do
+          {:ok, %{length: byte_size(bytes), sha256: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)}}
+        end
+
       "caller_loss" ->
         {caller, caller_monitor} =
           spawn_monitor(fn ->
@@ -97,6 +125,8 @@ result =
   case result do
     {:ok, receipt} -> %{ok: receipt}
     {:error, {:archive_status, status, error}} -> %{error: "archive_status", status: status, body: error}
+    {:error, {:descriptor_status, status, error}} -> %{error: "descriptor_status", status: status, body: error}
+    {:error, {tag, status, error}} when is_integer(status) -> %{error: Atom.to_string(tag), status: status, body: error}
     {:error, reason} -> %{error: inspect(reason)}
   end
 

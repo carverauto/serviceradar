@@ -861,12 +861,14 @@ use_repo(
     "io_opentelemetry_go_otel_sdk_metric",
     "io_opentelemetry_go_otel_trace",
     "net_pgregory_rapid",
+    "org_golang_google_genproto_googleapis_rpc",
     "org_golang_google_grpc",
     "org_golang_google_grpc_cmd_protoc_gen_go_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
     "org_golang_x_sys",
+    "org_golang_x_time",
     "org_uber_go_mock",
 )
 
@@ -2055,49 +2057,49 @@ http_file(
 
 http_file(
     name = "alpine_3_24_openssl_apk",
-    sha256 = "9358e8f38eb19a1e035355626570c76bda1e5a49084c768fb0edc1e607251e99",
+    sha256 = "ed11241475e5757ce8eb9788b18116a804a579395d4813605df12989a2acbabf",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.9-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_openssl_apk_arm64",
-    sha256 = "aa27b9edfeffbf7ebafbcf29df3f02eef4bf50f793a4874ae2f52aba6b53e653",
+    sha256 = "4f5adffa94887a87807d9222cf26930e906ae47e6a15ee9b8d1da034d695614d",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.9-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libssl3_apk",
-    sha256 = "05e3393fb95aa5751ca2f9d242f659f6cff82c1cc7767cc2df4a086f7ad01877",
+    sha256 = "18c5778cbe52e1991303f8531970b05d4e6e036ea08349322f7422f42a689dc7",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.9-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libssl3_apk_arm64",
-    sha256 = "20ac252b276d73f2c69c1d25f84537c7fba81caefc026c6be1094b394af2082e",
+    sha256 = "4aff30f84e7ac922b026f8b2dd574d91bb3bb01d22767a8a9a0a10c5ef64a44b",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.9-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libcrypto3_apk",
-    sha256 = "6632d758d8f5e9ea3b650fe966f23bbf9a202f8b8dceecac93da135dec5e3689",
+    sha256 = "042026082cc9bc7872d1baa81755c50efa70b05f03b5369fdc5f0a1303009720",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.9-r1.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libcrypto3_apk_arm64",
-    sha256 = "2676a2b0b6e23ea2edccf3ee982b9842a665d52603d047de3d0a185dc316d983",
+    sha256 = "58ea027d8bd64fffac7d2106a9034341d6735387298a5e01b551429c73a13c71",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.9-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.9-r1.apk",
     ],
 )
 

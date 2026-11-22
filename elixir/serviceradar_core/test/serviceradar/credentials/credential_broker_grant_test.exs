@@ -146,14 +146,18 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
       end
     end
 
-    payload =
+    # Agents cache material on the strength of this key, so only core's policy
+    # may set it; an integration descriptor's payload must not.
+    assert_raise ArgumentError, ~r/reserved keys: cache/, fn ->
       CredentialBrokerGrant.to_payload(attrs, %{
-        "auth_method" => "api_token",
-        "cache" => %{"scope" => "assignment"}
+        "cache" => %{"mode" => "memory_ttl", "ttl_seconds" => 300}
       })
+    end
+
+    payload = CredentialBrokerGrant.to_payload(attrs, %{"auth_method" => "api_token"})
 
     assert payload["auth_method"] == "api_token"
-    assert payload["cache"] == %{"scope" => "assignment"}
+    refute Map.has_key?(payload, "cache")
     assert payload["allow"]["hosts"] == ["api.example.test"]
     assert payload["inject"] == %{"type" => "http_header", "name" => "Authorization"}
   end

@@ -2,23 +2,29 @@
 //!
 //! All fixtures, tokens, UUIDs, endpoints, and video frames are 100% synthetic.
 
+use crate::cmaf::{SyntheticRasterKeyframeDecoder, assemble_cmaf_block, avcc_box};
+use crate::cmaf::{build_fragment_m4s, build_init_mp4};
+use crate::keyframe_decoder_tests::{annex_b_nals, encode_idr, nals_of_type, pattern};
 use crate::worker::log_worker_error;
 use crate::{
     ArchiveGrantTarget, ArchiveMediaObjectPlan, ArchivePlanSpec, BackingSource, BrokerGrantScope,
     CapabilityErrorKind, EphemeralS3Credentials, ExecutionProvider, FragmentSlicePlan,
     FragmentStore, GpuEnvironmentObservation, GpuEnvironmentProbe, GpuSharingMode, GrantClient,
     GrantResolution, HEADER_CONTROL_PLANE_AUTH, HEADER_DEPLOYMENT_REF,
-    HEADER_MEDIA_WORKER_GENERATION, HttpControlPlaneGrantClient, IntegrityErrorKind, JobDelivery,
-    JobOutcome, LocalGrantTarget, LocalPlanSpec, LongshoreArchiveReader, MAX_COALESCED_RANGE_BYTES,
-    MAX_LONGSHORE_REGISTERED_POOL_BYTES, MediaWorkerError, MediaWorkerErrorKind, ModelPinConfig,
-    NvrAnalysisReader, ObjectClass, OrtRuntimeProbeResult, ReadGrantPlan, ReadGrantRequest,
-    ReadinessState, ResultPublisher, SyntheticColor, SyntheticFragmentSpec, SyntheticObjectSpec,
-    TextEmbedRpcRequest, TextEmbedRpcResponse, TextEmbedService, VISUAL_INDEX_RESULTS_SUBJECT,
-    VerifiedKeyframeBlock, VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope,
-    WorkerAuthCredentials, WorkerConfig, WorkerMetrics, coalesce_fragment_ranges,
-    cosine_similarity, embed_query_text, generate_synthetic_cmaf_block,
-    longshore_registered_pool_bytes, serve_http_probes, spawn_nats_text_embed_responder,
+    HEADER_MEDIA_WORKER_GENERATION, HttpControlPlaneGrantClient, InferenceBackendKind,
+    IntegrityErrorKind, JobDelivery, JobOutcome, LocalGrantTarget, LocalPlanSpec,
+    LongshoreArchiveReader, MAX_COALESCED_RANGE_BYTES, MAX_LONGSHORE_REGISTERED_POOL_BYTES,
+    MediaWorkerError, MediaWorkerErrorKind, ModelPinConfig, NvrAnalysisReader, ObjectClass,
+    OrtRuntimeProbeResult, ReadGrantPlan, ReadGrantRequest, ReadinessState, ResultPublisher,
+    SyntheticColor, SyntheticFragmentSpec, SyntheticObjectSpec, TextEmbedRpcRequest,
+    TextEmbedRpcResponse, VISUAL_INDEX_RESULTS_SUBJECT, VerifiedKeyframeBlock,
+    VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, WorkerAuthCredentials,
+    WorkerConfig, WorkerMetrics, coalesce_fragment_ranges, cosine_similarity, embed_query_text,
+    generate_synthetic_cmaf_block, longshore_registered_pool_bytes, serve_http_probes,
     text_embed_rpc_subject, verify_startup_capabilities,
+};
+use crate::{
+    KeyframeDecodeError, KeyframeDecoder, ParsedInitSegment, ParsedMediaFragment, RgbFrame,
 };
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
@@ -41,36 +47,56 @@ impl GpuEnvironmentProbe for StaticGpuProbe {
 
 #[test]
 fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model_digests() {
-    // 1. CUDA & TensorRT fail closed when no GPU device nodes exist — ZERO silent CPU fallback.
-    for provider in [ExecutionProvider::Cuda, ExecutionProvider::Tensorrt] {
-        let cfg = WorkerConfig::default().with_execution_provider(provider);
-        let err =
-            verify_startup_capabilities(&cfg, &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()))
-                .expect_err("GPU provider without hardware must fail closed");
-        assert!(
-            matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)),
-            "expected GpuUnavailable for {provider}, got {err:?}"
-        );
-    }
-
-    // 2. CUDA present on host, but ORT lacks CUDAExecutionProvider -> fails closed.
-    let gpu_no_ort = GpuEnvironmentObservation::new(
-        1,
-        false,
-        false,
-        Some("565.57.01".to_string()),
-        Some(16_384),
-        OrtRuntimeProbeResult::synthetic("1.20.1", false, false),
-    );
+    let admit_cuda_backend = |cfg: &WorkerConfig, observation| {
+        let info = crate::InferenceBackendInfo::new(
+            InferenceBackendKind::Candle,
+            "cuda:0",
+            cfg.models().embedding_dim(),
+            "synthetic",
+            false,
+        )
+        .with_dtype(crate::InferencePrecision::F16);
+        let backend = crate::candle_tests::RecordingBackend::new(cfg.models(), info);
+        crate::verify_startup_capabilities_with_backend(
+            cfg,
+            &StaticGpuProbe(observation),
+            Arc::new(backend),
+        )
+    };
     let cuda_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Cuda);
-    let ort_err = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(gpu_no_ort))
-        .expect_err("missing CUDA EP must fail closed");
+    let err = admit_cuda_backend(&cuda_cfg, GpuEnvironmentObservation::no_gpu())
+        .expect_err("CUDA provider without hardware must fail closed");
     assert!(matches!(
-        ort_err.kind(),
-        CapabilityErrorKind::GpuUnavailable(_)
+        err.kind(),
+        CapabilityErrorKind::GpuUnavailable(reason) if reason.contains("found 0")
     ));
 
-    // 3. TensorRT fails closed when only CUDA EP is available (no silent downgrade to CUDA or CPU).
+    for provider in [ExecutionProvider::Cuda, ExecutionProvider::Tensorrt] {
+        let cfg = WorkerConfig::default().with_execution_provider(provider);
+        for available in [false, true] {
+            let probe = StaticGpuProbe(GpuEnvironmentObservation::new(
+                1,
+                false,
+                false,
+                None,
+                Some(16_384),
+                OrtRuntimeProbeResult::synthetic("1.20.1", available, available),
+            ));
+            let stub_config = cfg.clone().with_backend_kind(InferenceBackendKind::Stub);
+            let err = verify_startup_capabilities(&stub_config, &probe)
+                .expect_err("GPU provider must refuse the CPU stub");
+            assert!(
+                matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(reason)
+                if reason.contains("cpu_explicit"))
+            );
+            let stub = Arc::new(crate::DeterministicStubBackend::new(cfg.models().clone()));
+            let err = crate::verify_startup_capabilities_with_backend(&cfg, &probe, stub)
+                .expect_err("an injected CPU stub must also fail GPU admission");
+            assert!(matches!(err.kind(), CapabilityErrorKind::GpuUnavailable(_)));
+        }
+    }
+
+    // 3. CUDA succeeds when GPU + VRAM are verified, and classifies physical / MIG / time_sliced.
     let cuda_only_obs = GpuEnvironmentObservation::new(
         1,
         false,
@@ -79,16 +105,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(24_576),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, false),
     );
-    let trt_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Tensorrt);
-    let trt_err = verify_startup_capabilities(&trt_cfg, &StaticGpuProbe(cuda_only_obs.clone()))
-        .expect_err("TensorRT without TensorRT EP must fail closed");
-    assert!(matches!(
-        trt_err.kind(),
-        CapabilityErrorKind::GpuUnavailable(_)
-    ));
-
-    // 4. CUDA succeeds when GPU + VRAM + CUDA EP are verified, and classifies physical / MIG / time_sliced.
-    let phys_manifest = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(cuda_only_obs))
+    let phys_manifest = admit_cuda_backend(&cuda_cfg, cuda_only_obs)
         .expect("verified CUDA capability should succeed");
     assert_eq!(phys_manifest.execution_provider(), ExecutionProvider::Cuda);
     assert_eq!(phys_manifest.gpu_sharing_mode(), GpuSharingMode::Physical);
@@ -102,8 +119,15 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(20_480),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, true),
     );
-    let mig_manifest = verify_startup_capabilities(&trt_cfg, &StaticGpuProbe(mig_obs))
-        .expect("verified TensorRT MIG capability should succeed");
+    let trt_cfg = WorkerConfig::default().with_execution_provider(ExecutionProvider::Tensorrt);
+    let trt_err = admit_cuda_backend(&trt_cfg, mig_obs.clone())
+        .expect_err("an installed TensorRT EP cannot execute a Candle forward pass");
+    assert!(
+        matches!(trt_err.kind(), CapabilityErrorKind::GpuUnavailable(reason)
+        if reason.contains("tensorrt") && reason.contains("Candle"))
+    );
+    let mig_manifest = admit_cuda_backend(&cuda_cfg, mig_obs)
+        .expect("verified CUDA MIG capability should succeed");
     assert_eq!(mig_manifest.gpu_sharing_mode(), GpuSharingMode::Mig);
 
     let ts_obs = GpuEnvironmentObservation::new(
@@ -114,7 +138,7 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         Some(8_192),
         OrtRuntimeProbeResult::synthetic("1.20.1", true, false),
     );
-    let ts_manifest = verify_startup_capabilities(&cuda_cfg, &StaticGpuProbe(ts_obs))
+    let ts_manifest = admit_cuda_backend(&cuda_cfg, ts_obs)
         .expect("verified CUDA time-sliced capability should succeed");
     assert_eq!(ts_manifest.gpu_sharing_mode(), GpuSharingMode::TimeSliced);
     assert_eq!(ts_manifest.max_stage2_batch_size(), 4);
@@ -141,7 +165,9 @@ fn gpu_providers_fail_closed_with_zero_cpu_fallback_and_verify_sharing_and_model
         .with_embedder_pin(emb_path.clone(), emb_sha)
         .with_text_pin(txt_path.clone(), txt_sha);
 
-    let cpu_cfg = WorkerConfig::cpu_explicit_default().with_models(pinned_models);
+    let cpu_cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_models(pinned_models);
     let cpu_manifest = verify_startup_capabilities(
         &cpu_cfg,
         &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()),
@@ -222,7 +248,7 @@ async fn http_probe_server_serves_healthz_readyz_draining_503_and_prometheus_met
 
     // 2. Admit capabilities -> /readyz returns 200 JSON CapabilityManifest.
     let manifest = verify_startup_capabilities(
-        &WorkerConfig::cpu_explicit_default(),
+        &WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub),
         &StaticGpuProbe(GpuEnvironmentObservation::no_gpu()),
     )
     .expect("cpu_explicit admission");
@@ -987,7 +1013,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
     // End-to-end test across BOTH 768-d (`siglip-b16-384`) and 512-d (`mobileclip-s2`) models!
     for (model_id, dim) in [("siglip-b16-384", 768usize), ("mobileclip-s2", 512usize)] {
         let models = ModelPinConfig::new("rtdetr-r18", "2026.1", model_id, "2026.1", dim);
-        let cfg = WorkerConfig::cpu_explicit_default().with_models(models.clone());
+        let cfg = WorkerConfig::cpu_explicit_default()
+            .with_backend_kind(InferenceBackendKind::Stub)
+            .with_models(models.clone());
 
         // Fragment 0: Wide-angle synthetic scene containing BOTH:
         //   - "person" in "red" garment at [0.10, 0.16, 0.26, 0.86]
@@ -1051,9 +1079,17 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
             fail_publish: false,
         };
         let metrics = Arc::new(WorkerMetrics::new());
-        let processor =
-            VisualIndexProcessor::new(&cfg, grant_client, store, publisher, Arc::clone(&metrics))
-                .with_wpi_interval(Duration::from_millis(10));
+        let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+        let processor = VisualIndexProcessor::with_backend(
+            &cfg,
+            Arc::clone(&backend),
+            grant_client,
+            store,
+            publisher,
+            Arc::clone(&metrics),
+        )
+        .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder))
+        .with_wpi_interval(Duration::from_millis(10));
 
         let delivery = Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
@@ -1185,8 +1221,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
 
         // 4. Verify publish failure NEVER ACKs the source job message (`nak` instead)!
         let fail_events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let fail_proc = VisualIndexProcessor::new(
+        let fail_proc = VisualIndexProcessor::with_backend(
             &cfg,
+            Arc::clone(&backend),
             DelayedMockGrantClient {
                 resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
                     &job, &block,
@@ -1202,7 +1239,8 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
                 fail_publish: true,
             },
             Arc::new(WorkerMetrics::new()),
-        );
+        )
+        .with_keyframe_decoder(Arc::new(SyntheticRasterKeyframeDecoder));
         let fail_delivery = Arc::new(RecordingDelivery {
             payload: serde_json::to_vec(&job).expect("job json"),
             events: Arc::clone(&fail_events),
@@ -1225,8 +1263,9 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         // 5. Verify `410 Gone` ACKs immediately without publishing any result!
         let gone_events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let gone_metrics = Arc::new(WorkerMetrics::new());
-        let gone_proc = VisualIndexProcessor::new(
+        let gone_proc = VisualIndexProcessor::with_backend(
             &cfg,
+            Arc::clone(&backend),
             DelayedMockGrantClient {
                 resolution: GrantResolution::Gone,
                 delay: Duration::ZERO,
@@ -1256,19 +1295,487 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
 }
 
 #[tokio::test]
+async fn undecodable_keyframes_are_recorded_and_the_rest_of_the_block_is_still_indexed() {
+    // Fragment 0: a real H.264 IDR. Fragment 1: the generator's SRIDR1 raster keyframe, which
+    // the production decoder must refuse rather than recognise by its magic bytes.
+    // Fragment 2: the real IDR with its slice cut in half.
+    let (width, height) = (128usize, 96usize);
+    let annex_b = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(width, height),
+        &pattern(width, height),
+    );
+    let nals = annex_b_nals(&annex_b);
+    let slice = nals_of_type(&nals, 5)[0];
+    let raster_block = generate_synthetic_cmaf_block(
+        width as u32,
+        height as u32,
+        90_000,
+        &[SyntheticFragmentSpec::new(
+            0,
+            0,
+            2_000_000_000,
+            [40, 44, 50],
+            vec![],
+        )],
+    )
+    .expect("synthetic raster block");
+    let fragments = vec![
+        (
+            0,
+            0,
+            2_000_000_000,
+            build_fragment_m4s(0, 0, 2_000_000_000, 90_000, &[slice]),
+        ),
+        (
+            1,
+            2_000_000_000,
+            2_000_000_000,
+            raster_block
+                .fragment_slice_bytes(0)
+                .expect("raster fragment")
+                .to_vec(),
+        ),
+        (
+            2,
+            4_000_000_000,
+            2_000_000_000,
+            build_fragment_m4s(
+                2,
+                4_000_000_000,
+                2_000_000_000,
+                90_000,
+                &[&slice[..slice.len() / 2]],
+            ),
+        ),
+    ];
+    let init = build_init_mp4(
+        width as u32,
+        height as u32,
+        90_000,
+        b"avc1",
+        &avcc_box(&nals_of_type(&nals, 7), &nals_of_type(&nals, 8)),
+    );
+    let block = assemble_cmaf_block(width as u32, height as u32, 90_000, init, fragments)
+        .expect("assemble block");
+
+    let (envelope, metrics, events) = index_test_block(block, None).await;
+
+    assert_eq!(
+        envelope
+            .frames()
+            .iter()
+            .map(|f| f.fragment_sequence())
+            .collect::<Vec<_>>(),
+        vec![0]
+    );
+    let undecodable: Vec<(u32, &str, &str)> = envelope
+        .undecodable_keyframes()
+        .iter()
+        .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
+        .collect();
+    assert_eq!(
+        undecodable,
+        vec![
+            (1, "malformed_bitstream", "h264"),
+            (2, "malformed_bitstream", "h264")
+        ]
+    );
+    assert_eq!(metrics.keyframes_decoded_count(), 1);
+    assert_exported_refusals(&metrics, "malformed_bitstream", 2);
+    let wire = serde_json::to_value(&envelope).expect("serialize envelope");
+    assert_eq!(
+        wire["undecodable_keyframes"][0],
+        serde_json::json!({"fragment_sequence": 1, "reason": "malformed_bitstream", "codec": "h264"})
+    );
+    assert!(
+        events.lock().iter().any(|e| e == "ack"),
+        "job must be ACKed"
+    );
+}
+
+fn assert_exported_refusals(metrics: &WorkerMetrics, reason: &str, count: u64) {
+    let sample = format!(
+        r#"serviceradar_media_worker_keyframes_undecodable_total{{reason="{reason}"}} {count}"#
+    );
+    let output = metrics.render_prometheus_text().unwrap();
+    assert!(
+        output.lines().any(|line| line == sample),
+        "missing sample {sample} in {output}"
+    );
+}
+
+async fn index_test_block(
+    block: crate::SyntheticCmafBlock,
+    decoder: Option<Arc<dyn KeyframeDecoder>>,
+) -> (
+    VisualIndexResultEnvelope,
+    Arc<WorkerMetrics>,
+    Arc<Mutex<Vec<String>>>,
+) {
+    let models = ModelPinConfig::default();
+    let cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_models(models.clone());
+    let job = VisualIndexJobEnvelope::new(
+        "01933b40-0000-7000-8000-000000000031",
+        "00000000-0000-4000-8000-000000000031",
+        "00000000-0000-4000-8000-000000000007",
+        "00000000-0000-4000-8000-000000000008",
+        block.descriptor_sha256(),
+        &models,
+    );
+    let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let metrics = Arc::new(WorkerMetrics::new());
+    let backend = crate::build_inference_backend(&cfg).expect("configured CPU stub");
+    let processor = VisualIndexProcessor::with_backend(
+        &cfg,
+        Arc::clone(&backend),
+        DelayedMockGrantClient {
+            resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                &job, &block,
+            ))),
+            delay: Duration::ZERO,
+        },
+        InMemoryVerifiedStore {
+            block: block.clone(),
+        },
+        RecordingPublisher {
+            events: Arc::clone(&events),
+            published: Arc::new(Mutex::new(Vec::new())),
+            fail_publish: false,
+        },
+        Arc::clone(&metrics),
+    );
+    let processor = match decoder {
+        Some(decoder) => processor.with_keyframe_decoder(decoder),
+        None => processor,
+    };
+    let outcome = processor
+        .process_delivery(Arc::new(RecordingDelivery {
+            payload: serde_json::to_vec(&job).expect("job json"),
+            events: Arc::clone(&events),
+        }))
+        .await
+        .expect("a block with some undecodable keyframes still completes");
+    let envelope = outcome.completed_envelope().expect("completed envelope");
+
+    (envelope.clone(), metrics, events)
+}
+
+#[tokio::test]
+async fn verified_invalid_init_publishes_a_refusal_for_each_sample_before_ack() {
+    let stream = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(16, 16),
+        &pattern(16, 16),
+    );
+    let nals = annex_b_nals(&stream);
+    let (sps, pps) = (nals_of_type(&nals, 7)[0], nals_of_type(&nals, 8)[0]);
+    let mut short_sps = avcc_box(&[&[0x67]], &[]);
+    short_sps[14..16].copy_from_slice(&32u16.to_be_bytes());
+    let mut missing_pps = avcc_box(&[], &[]);
+    *missing_pps.last_mut().unwrap() = 1;
+    for (init, codec) in [
+        (
+            build_init_mp4(16, 16, 90_000, b"avc1", &avcc_box(&[&sps[..5]], &[pps])),
+            "h264",
+        ),
+        (
+            build_init_mp4(16, 16, 90_000, b"avc3", &avcc_box(&[sps], &[&pps[..2]])),
+            "h264",
+        ),
+        (
+            build_init_mp4(
+                16,
+                16,
+                90_000,
+                b"avc3",
+                &avcc_box(&[&[0x67, 0x42, 0, 0, 3]], &[pps]),
+            ),
+            "h264",
+        ),
+        (
+            build_init_mp4(
+                16,
+                16,
+                90_000,
+                b"avc3",
+                &avcc_box(&[sps], &[&[0x68, 0xc0, 0, 0, 3]]),
+            ),
+            "h264",
+        ),
+        (build_init_mp4(16, 16, 90_000, b"avc1", &short_sps), "h264"),
+        (
+            build_init_mp4(16, 16, 90_000, b"avc3", &missing_pps),
+            "h264",
+        ),
+        (build_init_mp4(16, 16, 90_000, b"hvc1", &[]), "hevc"),
+        (vec![0; 3], "unknown"),
+    ] {
+        let idr = nals_of_type(&nals, 5)[0];
+        let fragments = (0..2).map(|seq| {
+            (
+                seq,
+                0,
+                1,
+                build_fragment_m4s(seq, 0, 1, 90_000, &[sps, pps, idr]),
+            )
+        });
+        let block = assemble_cmaf_block(16, 16, 90_000, init, fragments).unwrap();
+        let (result, metrics, events) = index_test_block(block, None).await;
+        let refusals: Vec<_> = result
+            .undecodable_keyframes()
+            .iter()
+            .map(|k| (k.fragment_sequence(), k.reason(), k.codec()))
+            .collect();
+        assert_eq!(
+            refusals,
+            [
+                (0, "invalid_container", codec),
+                (1, "invalid_container", codec)
+            ]
+        );
+        assert!(result.frames().is_empty());
+        assert!(result.tracks().is_empty());
+        assert_exported_refusals(&metrics, "invalid_container", 2);
+        assert_eq!(events.lock().as_slice(), ["publish_result", "ack"]);
+    }
+}
+
+#[tokio::test]
+async fn verified_oversized_recordings_publish_every_refusal_before_ack() {
+    let stream = encode_idr(
+        rusty_h264_encoder::EncoderConfig::baseline(16, 16),
+        &pattern(16, 16),
+    );
+    let nals = annex_b_nals(&stream);
+    for (width, height) in [(4097, 64), (64, 4097)] {
+        let init = build_init_mp4(
+            width,
+            height,
+            90_000,
+            b"avc1",
+            &avcc_box(&nals_of_type(&nals, 7), &nals_of_type(&nals, 8)),
+        );
+        let fragments =
+            (0..2).map(|seq| (seq, 0, 1, build_fragment_m4s(seq, 0, 1, 90_000, &[&[0x65]])));
+        let block = assemble_cmaf_block(width, height, 90_000, init, fragments).unwrap();
+        let (result, metrics, events) = index_test_block(block, None).await;
+        assert_eq!(events.lock().as_slice(), ["publish_result", "ack"]);
+        assert!(result.frames().is_empty());
+        let reasons: Vec<_> = result
+            .undecodable_keyframes()
+            .iter()
+            .map(|k| (k.fragment_sequence(), k.reason()))
+            .collect();
+        assert_eq!(reasons, [(0, "limit_exceeded"), (1, "limit_exceeded")]);
+        assert_exported_refusals(&metrics, "limit_exceeded", 2);
+    }
+}
+
+#[tokio::test]
+async fn refused_samples_expire_tracks_without_publishing_frames() {
+    let duration = 1_000_000_000;
+    let specs: Vec<_> = [0, 1, 33, 34]
+        .into_iter()
+        .map(|seq| {
+            SyntheticFragmentSpec::new(
+                seq,
+                u64::from(seq) * duration,
+                duration,
+                [40, 44, 50],
+                vec![SyntheticObjectSpec::new(
+                    ObjectClass::Person,
+                    SyntheticColor::Red,
+                    [0.1, 0.16, 0.26, 0.86],
+                )],
+            )
+        })
+        .collect();
+    let source = generate_synthetic_cmaf_block(128, 96, 90_000, &specs).unwrap();
+    let mut decoded = 0;
+    let fragments = (0..=34).map(|seq| {
+        let start = u64::from(seq) * duration;
+        let bytes = if (2..33).contains(&seq) {
+            build_fragment_m4s(seq, start, duration, 90_000, &[&[0x65]])
+        } else {
+            let bytes = source.fragment_slice_bytes(decoded).unwrap().to_vec();
+            decoded += 1;
+            bytes
+        };
+        (seq, start, duration, bytes)
+    });
+    let block =
+        assemble_cmaf_block(128, 96, 90_000, source.init_mp4().to_vec(), fragments).unwrap();
+    let (result, _, _) =
+        index_test_block(block, Some(Arc::new(SyntheticRasterKeyframeDecoder))).await;
+    assert_eq!(result.undecodable_keyframes().len(), 31);
+    assert_eq!(
+        result
+            .frames()
+            .iter()
+            .map(|f| f.fragment_sequence())
+            .collect::<Vec<_>>(),
+        [0, 1, 33, 34]
+    );
+    let tracks = result.tracks();
+    assert_eq!(tracks.len(), 2);
+    assert_ne!(tracks[0].track_id(), tracks[1].track_id());
+    for (track, start) in tracks.iter().zip([0, 33_000]) {
+        assert_eq!(track.first_seen_offset_ms(), start);
+        assert_eq!(track.last_seen_offset_ms(), start + 1_000);
+        assert_eq!(track.dwell_ms(), 1_000);
+        assert_eq!(track.frame_count(), 2);
+    }
+}
+
+#[tokio::test]
+async fn refused_first_sample_preserves_descriptor_or_container_origin_for_tracks() {
+    use std::io::{Seek, SeekFrom};
+    let duration = 2_000_000_000;
+    let start = 5_000_000_000;
+    let object = SyntheticObjectSpec::new(
+        ObjectClass::Person,
+        SyntheticColor::Red,
+        [0.1, 0.16, 0.26, 0.86],
+    );
+    let source = generate_synthetic_cmaf_block(
+        128,
+        96,
+        90_000,
+        &[
+            SyntheticFragmentSpec::new(
+                1,
+                start + duration,
+                duration,
+                [40, 44, 50],
+                vec![object.clone()],
+            ),
+            SyntheticFragmentSpec::new(
+                2,
+                start + 2 * duration,
+                duration,
+                [40, 44, 50],
+                vec![object],
+            ),
+        ],
+    )
+    .unwrap();
+    let aud: &[u8] = &[0x09, 0x10];
+    let mut nals = vec![aud; 4096];
+    nals.push(&[0x65]);
+    let excessive = build_fragment_m4s(0, start, duration, 90_000, &nals);
+    let mut bad_size = build_fragment_m4s(0, start, duration, 90_000, &[&[0x65]]);
+    let trun = bad_size.windows(4).position(|tag| tag == b"trun").unwrap();
+    bad_size[trun + 20..trun + 24].copy_from_slice(&128u32.to_be_bytes());
+    let mut non_sync = build_fragment_m4s(0, start, duration, 90_000, &[&[0x65]]);
+    non_sync[trun + 12..trun + 16].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    let _outside_capture =
+        tracing::subscriber::set_default(tracing::subscriber::NoSubscriber::new());
+    for (descriptor_origin, first, last, first_reason, last_reason) in [
+        (
+            0,
+            excessive.clone(),
+            vec![1, 2, 3],
+            "limit_exceeded",
+            "invalid_container",
+        ),
+        (
+            start,
+            build_fragment_m4s(0, 0, duration, 90_000, &nals),
+            vec![1, 2, 3],
+            "limit_exceeded",
+            "invalid_container",
+        ),
+        (
+            0,
+            bad_size,
+            excessive.clone(),
+            "invalid_container",
+            "limit_exceeded",
+        ),
+        (
+            0,
+            non_sync,
+            excessive,
+            "invalid_container",
+            "limit_exceeded",
+        ),
+    ] {
+        let fragments = vec![
+            (0, descriptor_origin, duration, first),
+            (
+                1,
+                start + duration,
+                duration,
+                source.fragment_slice_bytes(0).unwrap().to_vec(),
+            ),
+            (
+                2,
+                start + 2 * duration,
+                duration,
+                source.fragment_slice_bytes(1).unwrap().to_vec(),
+            ),
+            (3, start + 3 * duration, duration, last),
+        ];
+        let block =
+            assemble_cmaf_block(128, 96, 90_000, source.init_mp4().to_vec(), fragments).unwrap();
+        let mut log = tempfile::tempfile().unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(log.try_clone().unwrap())
+            .finish();
+        let _subscriber = tracing::subscriber::set_default(subscriber);
+        let (result, metrics, _) =
+            index_test_block(block, Some(Arc::new(SyntheticRasterKeyframeDecoder))).await;
+        let reasons: Vec<_> = result
+            .undecodable_keyframes()
+            .iter()
+            .map(|k| (k.fragment_sequence(), k.reason()))
+            .collect();
+        assert_eq!(reasons, [(0, first_reason), (3, last_reason)]);
+        assert_exported_refusals(&metrics, "limit_exceeded", 1);
+        assert_exported_refusals(&metrics, "invalid_container", 1);
+        assert_eq!(result.tracks().len(), 1);
+        assert_eq!(result.tracks()[0].first_seen_offset_ms(), 2000);
+        assert_eq!(result.tracks()[0].last_seen_offset_ms(), 4000);
+        log.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = String::new();
+        log.read_to_string(&mut output).unwrap();
+        assert_eq!(
+            output.matches("decoding synthetic raster keyframe").count(),
+            2,
+            "{output}"
+        );
+        let summaries: Vec<_> = output
+            .lines()
+            .filter(|line| line.contains("keyframe decode summary"))
+            .collect();
+        assert_eq!(
+            summaries.len(),
+            1,
+            "descriptor origin {descriptor_origin}, log {output:?}"
+        );
+        assert!(summaries[0].contains("DEBUG"));
+        assert!(summaries[0].contains(r#""invalid_container": 1"#));
+        assert!(summaries[0].contains(r#""limit_exceeded": 1"#));
+        assert!(!output.contains("WARN"), "{output}");
+    }
+}
+
+#[tokio::test]
 async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_slots_are_saturated()
 {
     let models = ModelPinConfig::default(); // siglip-b16-384, 2026.1, 768-d
-    let cfg = WorkerConfig::default()
-        .with_execution_provider(ExecutionProvider::Cuda)
+    let cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
         .with_concurrency(2, 4)
         .with_models(models.clone());
     let metrics = Arc::new(WorkerMetrics::new());
 
-    // Gate that holds ALL 2 `index_concurrency` slots occupied for 500 ms.
-    let (release_tx, release_rx) = tokio::sync::watch::channel(false);
-    let entered = Arc::new(tokio::sync::Notify::new());
-    let occupied_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (entered_tx, mut entered_rx) = tokio::sync::mpsc::unbounded_channel();
+    let release = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
 
     let block = generate_synthetic_cmaf_block(
         64,
@@ -1292,15 +1799,18 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         &models,
     );
 
-    let blocking_grant = BlockingGrantClient {
-        entered: Arc::clone(&entered),
-        occupied: Arc::clone(&occupied_count),
-        release_rx,
-        plan: build_in_memory_local_plan(&job, &block),
-    };
-    let processor = VisualIndexProcessor::new(
+    let (worker, _) = crate::load_and_admit_worker(cfg.clone())
+        .await
+        .expect("admit CPU stub");
+    let processor = VisualIndexProcessor::with_backend(
         &cfg,
-        blocking_grant,
+        Arc::clone(&worker.backend),
+        DelayedMockGrantClient {
+            resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                &job, &block,
+            ))),
+            delay: Duration::ZERO,
+        },
         InMemoryVerifiedStore {
             block: block.clone(),
         },
@@ -1310,7 +1820,11 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
             fail_publish: false,
         },
         Arc::clone(&metrics),
-    );
+    )
+    .with_keyframe_decoder(Arc::new(BlockingDecoder {
+        entered: entered_tx,
+        release: Arc::clone(&release),
+    }));
 
     let mut index_handles = Vec::new();
     for _ in 0..2 {
@@ -1325,8 +1839,11 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
     }
 
     // Wait until BOTH index_concurrency permits are deterministically held busy (`available_permits == 0`).
-    while occupied_count.load(std::sync::atomic::Ordering::Acquire) < 2 {
-        entered.notified().await;
+    for _ in 0..2 {
+        tokio::time::timeout(Duration::from_secs(5), entered_rx.recv())
+            .await
+            .expect("decode started")
+            .expect("decoder alive");
     }
     assert_eq!(processor.index_semaphore().available_permits(), 0);
     assert_eq!(metrics.inflight_index_jobs_value(), 2);
@@ -1341,12 +1858,15 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
         .await
         .expect("caller connect to loopback NATS");
 
-    let text_service = TextEmbedService::new(models.clone(), 4, Arc::clone(&metrics));
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let _responder =
-        spawn_nats_text_embed_responder(worker_nats.clone(), text_service, shutdown_rx)
-            .await
-            .expect("spawn text-embed responder");
+    let _responder = crate::worker::spawn_nats_text_embed_responder(
+        worker_nats.clone(),
+        &worker,
+        Arc::clone(&metrics),
+        shutdown_rx,
+    )
+    .await
+    .expect("spawn text-embed responder");
     worker_nats.flush().await.expect("flush worker sub");
 
     let subject = text_embed_rpc_subject(&models);
@@ -1383,7 +1903,8 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
     assert!((norm - 1.0).abs() < 1e-5);
 
     // Release blocked backfill jobs and tear down cleanly.
-    let _ = release_tx.send(true);
+    *release.0.lock().unwrap() = true;
+    release.1.notify_all();
     for h in index_handles {
         let _ = h.await.expect("join index job").expect("index job ok");
     }
@@ -1790,28 +2311,24 @@ impl GrantClient for DelayedMockGrantClient {
     }
 }
 
-struct BlockingGrantClient {
-    entered: Arc<tokio::sync::Notify>,
-    occupied: Arc<std::sync::atomic::AtomicUsize>,
-    release_rx: tokio::sync::watch::Receiver<bool>,
-    plan: ReadGrantPlan,
+struct BlockingDecoder {
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+    release: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 }
 
-impl GrantClient for BlockingGrantClient {
-    async fn acquire_read_grant(
+impl KeyframeDecoder for BlockingDecoder {
+    fn decode_keyframe(
         &self,
-        _request: &ReadGrantRequest,
-    ) -> Result<GrantResolution, MediaWorkerError> {
-        self.occupied
-            .fetch_add(1, std::sync::atomic::Ordering::Release);
-        self.entered.notify_waiters();
-        let mut rx = self.release_rx.clone();
-        while !*rx.borrow_and_update() {
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
-        Ok(GrantResolution::Admitted(Box::new(self.plan.clone())))
+        init: &ParsedInitSegment,
+        fragment: &ParsedMediaFragment,
+    ) -> Result<RgbFrame, KeyframeDecodeError> {
+        self.entered.send(()).unwrap();
+        let (lock, wake) = &*self.release;
+        let (released, _) = wake
+            .wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(5), |done| !*done)
+            .unwrap();
+        assert!(*released, "RPC must finish while decoding is in progress");
+        SyntheticRasterKeyframeDecoder.decode_keyframe(init, fragment)
     }
 }
 

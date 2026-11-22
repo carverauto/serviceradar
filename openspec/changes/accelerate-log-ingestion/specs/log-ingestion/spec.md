@@ -30,16 +30,16 @@ Collector and NIF normalization SHALL share one Rust implementation preserving o
 - **AND** no field is removed because of it
 
 ### Requirement: Versioned ruleset activation
-The collector SHALL receive effective rules through datasvc, validate complete snapshots before activation, and bind each batch to one version without per-record control-plane requests.
+The collector SHALL receive effective rules from the rule store, validate complete snapshots before activation, and bind each batch to one version without per-record control-plane requests. The store and transport are defined by `collector-rule-distribution`.
 
 #### Scenario: An update fails compilation
 - **WHEN** a candidate snapshot fails compilation
 - **THEN** the previous validated snapshot remains active
 - **AND** stale/error status is exposed
 
-#### Scenario: A collector starts while datasvc is unreachable
+#### Scenario: A collector starts while the rule store is unreachable
 - **WHEN** the collector has no validated snapshot
-- **THEN** it accepts syslog and publishes each record as JSON for EventWriter to normalize
+- **THEN** it accepts syslog and publishes it as `collector-rule-distribution` requires for a collector without a ruleset
 - **AND** it publishes normalized batches from the first record after a snapshot is active
 
 #### Scenario: A watch reconnects
@@ -48,14 +48,19 @@ The collector SHALL receive effective rules through datasvc, validate complete s
 - **AND** it does not assume the current Watch API provides revision replay
 
 ### Requirement: Binary semantic parity
-The binary path SHALL preserve log fields, normalization, redaction, provenance and stable record identity, and SHALL bound batch bytes, records and age.
+The binary path SHALL preserve log fields, normalization, redaction, provenance and stable record identity, and SHALL bound batch bytes, records and age. A batch on `logs.normalized.<kind>` SHALL carry the schema header, and SHALL carry `Sr-Ruleset-Id` with the validated snapshot digest when rules were applied; a batch without `Sr-Ruleset-Id` is built-in-mapping pass-through as `collector-rule-distribution` defines.
 
 #### Scenario: Equivalent legacy and binary input
 - **WHEN** both paths process the same synthetic input with the same rules
 - **THEN** persisted fields and required downstream effects agree
 
+#### Scenario: A batch carries no ruleset digest
+- **WHEN** a batch with the schema header and no `Sr-Ruleset-Id` arrives on `logs.normalized.<kind>`
+- **THEN** EventWriter stores it with the built-in mapping, without running Zen and without rejecting it
+- **AND** it records that no ruleset was applied
+
 ### Requirement: Trusted normalization and durable acknowledgment
-EventWriter SHALL skip repeated Zen only for authorized versioned collector output, use the selected StarRocks or CNPG backend, and acknowledge a batch only after successful persistence under its replay contract.
+EventWriter SHALL skip Zen for a schema-header batch on `logs.normalized.<kind>` from an authorized publisher, whether or not it carries a ruleset digest, and SHALL NOT let a flag in a record body skip Zen on any other subject. EventWriter SHALL use the selected StarRocks or CNPG backend and SHALL acknowledge a batch only after successful persistence under its replay contract.
 
 #### Scenario: An untrusted body claims normalization
 - **WHEN** log content supplies a normalized flag
@@ -66,7 +71,7 @@ EventWriter SHALL skip repeated Zen only for authorized versioned collector outp
 - **THEN** it is refused and counted as rejected
 
 #### Scenario: Another identity publishes the normalized subject
-- **WHEN** any NATS identity other than the log collector or an edge leaf publishes to `logs.normalized.`
+- **WHEN** any NATS identity other than a collector identity or the edge leaf that forwards an edge collector's batches publishes to `logs.normalized.`
 - **THEN** the broker refuses the publish
 
 #### Scenario: An edge leaf forwards normalized batches

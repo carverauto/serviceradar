@@ -1,8 +1,6 @@
 included:
   - swift/FieldSurvey/FieldSurvey
   - swift/FieldSurvey/Tests
-  - swift/RPerfClient/Sources
-  - swift/RPerfClient/Tests
 
 excluded:
   - swift/FieldSurvey/LocalPackages

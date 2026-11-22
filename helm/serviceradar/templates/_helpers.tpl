@@ -150,6 +150,77 @@ compatibility Service and the namespace NetworkPolicy must all agree on it.
 {{- end }}
 {{- end -}}
 
+{{/*
+A boolean value that must be a YAML boolean. A string such as the one
+`--set-string ...=false` produces is truthy in Go templates, so it fails here
+instead of reading as true in one template and false in another. Absent takes
+the default. Renders "true" or "false".
+Takes (dict "name" <value path, for the error> "value" <value> "default" <bool>).
+*/}}
+{{- define "serviceradar.strictBool" -}}
+{{- if kindIs "invalid" .value -}}
+{{- ternary "true" "false" .default -}}
+{{- else if kindIs "bool" .value -}}
+{{- ternary "true" "false" .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a boolean (true or false), got %s %q" .name (kindOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+A count that must be a whole number >= 0. Absent takes the default; a fraction,
+a negative number or a string fails rather than being truncated.
+Takes (dict "name" <value path> "value" <value> "default" <int>). Renders the number.
+*/}}
+{{- define "serviceradar.wholeCount" -}}
+{{- if kindIs "invalid" .value -}}
+{{- .default -}}
+{{- else if and (or (kindIs "int" .value) (kindIs "int64" .value) (kindIs "float64" .value) (typeIs "json.Number" .value)) (regexMatch `^[0-9]+$` (toString .value)) -}}
+{{- toString .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a whole number >= 0, got %s %q" .name (typeOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The media worker's booleans, validated once for every template that reads them.
+mediaWorker.enabled gates the worker, its certificate, NATS grants, JetStream
+budget, the namespace policies' exclusions and core's dispatch flag;
+networkPolicy.enabled the worker's own policy; networkPolicy.allowNvrRead both
+the worker's egress and the NVR's ingress for analysis reads.
+*/}}
+{{- define "serviceradar.mediaWorkerEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.enabled" "value" (default (dict) .Values.mediaWorker).enabled "default" false) -}}
+{{- end -}}
+
+{{- define "serviceradar.mediaWorkerNetworkPolicyEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.enabled" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).enabled "default" true) -}}
+{{- end -}}
+
+{{- define "serviceradar.mediaWorkerAllowNvrRead" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
+{{- end -}}
+
+{{- define "serviceradar.validateMediaWorkerNvrReadPort" -}}
+{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- if $nvr.enabled -}}
+{{- $np := default (dict) (default (dict) .Values.mediaWorker).networkPolicy -}}
+{{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- $readPort := int (default 8444 $read.port) -}}
+{{- if and $read.enabled (eq $nvrReadPort $readPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.read.port (%d), which is restricted to serviceradar-web-ng playback reads: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $readPort) -}}
+{{- end -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestPort := int (default 8443 $ingest.port) -}}
+{{- if and $ingest.enabled (eq $nvrReadPort $ingestPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.ingest.port (%d), which is restricted to serviceradar-core ingest: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $ingestPort) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
@@ -203,6 +274,187 @@ projected. Optional: a Secret written before the record existed has no such key.
     items:
     - key: runtime-cert-rotation.json
       path: runtime-cert-rotation.json
+{{- end -}}
+
+{{/*
+The chart's own NATS client identities: each certificate file the generator
+issues for a NATS client, and the common name of its subject. One list feeds
+core's inventory projection, the subject list core reads, and the generator's
+required-files check, so the three cannot drift. The files that are copies of
+another identity's certificate (flowgger, otel, netflow-collector) are not
+identities and are not listed. Disabling the media worker removes it from this
+inventory even if the Secret still holds its certificate.
+*/}}
+{{- define "serviceradar.natsChartIdentities" -}}
+- {file: "tools.pem", cn: "serviceradar-tools"}
+- {file: "web.pem", cn: "serviceradar-web-ng"}
+- {file: "core.pem", cn: "serviceradar-core"}
+- {file: "gateway.pem", cn: "serviceradar-agent-gateway"}
+- {file: "kv.pem", cn: "serviceradar-datasvc"}
+- {file: "agent.pem", cn: "serviceradar-agent"}
+- {file: "log-collector.pem", cn: "serviceradar-log-collector"}
+- {file: "trapd.pem", cn: "serviceradar-trapd"}
+- {file: "flow-collector.pem", cn: "serviceradar-flow-collector"}
+- {file: "bmp-collector.pem", cn: "serviceradar-bmp-collector"}
+- {file: "falcosidekick.pem", cn: "serviceradar-falcosidekick"}
+- {file: "trivy-sidecar.pem", cn: "serviceradar-trivy-sidecar"}
+- {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+- {file: "media-worker.pem", cn: "serviceradar-media-worker"}
+{{- end }}
+{{- end -}}
+
+{{/*
+"true" when the chart's generator job runs and so owns the runtime certificate
+Secret: every chart identity's certificate is then guaranteed to be in it.
+*/}}
+{{- define "serviceradar.runtimeCertGeneratorOwned" -}}
+{{- $generator := default dict (get (default dict .Values.certs) "generator") -}}
+{{- $enabled := true -}}
+{{- if hasKey $generator "enabled" -}}
+{{- $enabled = get $generator "enabled" -}}
+{{- end -}}
+{{- ternary "true" "false" (and $enabled (ne "true" (include "serviceradar.hostedRuntimeEnabled" .))) -}}
+{{- end -}}
+
+{{- define "serviceradar.coreProjectsFixedNatsInventory" -}}
+{{- if and (dig "enabled" true (default dict .Values.core)) (dig "enabled" true (default dict .Values.nats)) -}}
+{{- include "serviceradar.runtimeCertGeneratorOwned" . -}}
+{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
+"true" when NATS certificate authorization is turned on. The one setting.
+*/}}
+{{- define "serviceradar.natsCertificateAuthorizationEnabled" -}}
+{{- $certAuth := default dict (get (default dict .Values.nats) "certificateAuthorization") -}}
+{{- ternary "true" "false" (eq (toString (default false (get $certAuth "enabled"))) "true") -}}
+{{- end -}}
+
+{{/*
+"true" when the hub broker renders its leafnodes listener: the chart NATS
+broker, nats.leafnodes.enabled, and nats.certificateAuthorization.enabled must
+all be on, matching templates/nats.yaml.
+*/}}
+{{- define "serviceradar.natsLeafListenerConfigured" -}}
+{{- $nats := default dict .Values.nats -}}
+{{- $natsEnabled := or (not (hasKey $nats "enabled")) $nats.enabled -}}
+{{- $leafnodes := default dict (get $nats "leafnodes") -}}
+{{- $leafnodesEnabled := eq (toString (default false (get $leafnodes "enabled"))) "true" -}}
+{{- $certAuthEnabled := eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) -}}
+{{- ternary "true" "false" (and $natsEnabled $leafnodesEnabled $certAuthEnabled) -}}
+{{- end -}}
+
+{{/*
+Settings telling core what the chart rendered for the NATS hub so it can report
+hub readiness without inspecting the broker configuration.
+*/}}
+{{- define "serviceradar.natsHubReadinessEnv" -}}
+- name: SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED
+  value: {{ include "serviceradar.natsCertificateAuthorizationEnabled" . | quote }}
+- name: SERVICERADAR_NATS_LEAF_LISTENER_ENABLED
+  value: {{ include "serviceradar.natsLeafListenerConfigured" . | quote }}
+{{- end -}}
+
+{{/*
+The callout signing seeds, for core only, from the issuer Secret: with
+certificate authorization on, core signs every grant with them. Optional, so
+core starts without them and reports that they are not provisioned.
+*/}}
+{{- define "serviceradar.natsCalloutSeedsEnv" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: SERVICERADAR_NATS_CALLOUT_SEEDS_DIR
+  value: "/etc/serviceradar/nats-callout-seeds"
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.natsCalloutSeedsVolumeMount" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: nats-callout-seeds
+  mountPath: /etc/serviceradar/nats-callout-seeds
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "serviceradar.natsCalloutSeedsVolume" -}}
+{{- if eq "true" (include "serviceradar.natsCertificateAuthorizationEnabled" .) }}
+- name: nats-callout-seeds
+  secret:
+    secretName: {{ include "serviceradar.runtimeIssuerSecretName" . | quote }}
+    optional: true
+    defaultMode: 0440
+    items:
+{{ include "serviceradar.runtimeCertItems" (list "nats-callout-issuer.seed" "nats-callout-auth.seed" "nats-callout-system.seed") | indent 4 }}
+{{- end }}
+{{- end -}}
+
+{{/*
+"true" when the chart's generator provisions the NATS authorization callout
+signing set: it owns the runtime certificate Secret, and that is also the
+issuer Secret the seeds belong in. With a distinct issuer Secret, a hosted
+install or a disabled generator, whoever supplies the Secrets supplies the
+three seeds and both broker fragments.
+*/}}
+{{- define "serviceradar.natsCalloutSigningGeneratorOwned" -}}
+{{- ternary "true" "false" (and (eq "true" (include "serviceradar.runtimeCertGeneratorOwned" .)) (eq (include "serviceradar.runtimeIssuerSecretName" .) (include "serviceradar.runtimeCertsSecretName" .))) -}}
+{{- end -}}
+
+{{/*
+The public certificate files core is given for first adoption of the chart's
+NATS client identities (ServiceRadar.Edge.ChartIdentityInventory), as a JSON
+list. When the generator owns the Secret it is every chart identity. Otherwise
+the Secret's supplier lists what it carries in certs.inventoryCertificates,
+which defaults to none: a Secret volume does not mount when a listed key is
+missing, and core must start whatever a supplier's Secret holds.
+*/}}
+{{- define "serviceradar.natsInventoryCertificateFiles" -}}
+{{- $allowed := list -}}
+{{- range (include "serviceradar.natsChartIdentities" . | fromYamlArray) -}}
+{{- $allowed = append $allowed .file -}}
+{{- end -}}
+{{- $files := $allowed -}}
+{{- if ne "true" (include "serviceradar.coreProjectsFixedNatsInventory" .) -}}
+{{- $files = default list (get (default dict .Values.certs) "inventoryCertificates") -}}
+{{- range $files -}}
+{{- if not (has . $allowed) -}}
+{{- fail (printf "certs.inventoryCertificates lists %v: allowed names are %s" . (join ", " $allowed)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $files | uniq | toJson -}}
+{{- end -}}
+
+{{- define "serviceradar.natsInventoryEnv" -}}
+- name: SERVICERADAR_NATS_INFRASTRUCTURE_CERTS_DIR
+  value: "/etc/serviceradar/nats-infrastructure-certs"
+- name: SERVICERADAR_NATS_CHART_IDENTITIES_FILE
+  value: "/etc/serviceradar/nats-static-users/chart-identities.yaml"
+- name: SERVICERADAR_NATS_INFRASTRUCTURE_ROOT_FILE
+  value: "/etc/serviceradar/certs/root.pem"
+{{- end -}}
+
+{{- define "serviceradar.natsInventoryVolumeMount" -}}
+- name: nats-infrastructure-certs
+  mountPath: /etc/serviceradar/nats-infrastructure-certs
+  readOnly: true
+{{- end -}}
+
+{{/*
+Public certificates only, each named explicitly. With nothing to project the
+directory is still mounted, empty: an items list that is empty would project
+every key of the Secret, private keys included.
+*/}}
+{{- define "serviceradar.natsInventoryVolume" -}}
+{{- $files := include "serviceradar.natsInventoryCertificateFiles" . | fromJsonArray -}}
+- name: nats-infrastructure-certs
+{{- if $files }}
+  secret:
+    secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+    items:
+{{ include "serviceradar.runtimeCertItems" $files | indent 4 }}
+{{- else }}
+  emptyDir: {}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -1379,6 +1631,16 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
   (dict "id" "aranciniFallback" "stream" "ARANCINI_CAUSAL" "source" "core.eventWriter.streams.ARANCINI_CAUSAL.maxBytes" "value" $ewArancini.maxBytes "replicaSource" "core.eventWriter.streams.ARANCINI_CAUSAL.replicas" "replicaValue" $ewArancini.replicas "counted" false)
 ) -}}
 
+{{- /* The media worker creates its jobs and results streams itself at fixed sizes, one
+     replica each (rust/media-worker/src/worker.rs ensure_media_streams); the chart
+     cannot change them, so it counts them while the worker is enabled. */ -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- $entries = concat $entries (list
+  (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+) -}}
+{{- end -}}
+
 {{- $sizes := dict -}}
 {{- $full := int64 0 -}}
 {{- $spread := int64 0 -}}
@@ -1709,15 +1971,26 @@ the leafnode listener by its public name. Renders a leading-comma list
 {{- end -}}
 
 {{/*
+The host:port the hub advertises to connected leaf servers for reconnecting:
+the same public endpoint leaves are told to dial. Empty when
+hostedRuntime.publicEndpoints.natsLeafHost is unset.
+*/}}
+{{- define "serviceradar.natsLeafAdvertise" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- with $endpoints.natsLeafHost -}}
+{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Effective upstream URL edge-site leaf servers dial, derived from the hosted
 public endpoint facts. Empty when hostedRuntime.publicEndpoints.natsLeafHost is
 unset, so web-ng keeps its configured default.
 */}}
 {{- define "serviceradar.natsLeafUpstreamUrl" -}}
-{{- $hosted := default (dict) .Values.hostedRuntime -}}
-{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
-{{- with $endpoints.natsLeafHost -}}
-tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- with include "serviceradar.natsLeafAdvertise" . -}}
+tls://{{ . }}
 {{- end -}}
 {{- end -}}
 
@@ -1725,7 +1998,7 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- define "serviceradar.componentServiceAccount" -}}
 {{- $component := .component -}}
 {{- $values := .values -}}
-{{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "rperfChecker" "serviceradar-rperf-checker" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
+{{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
 {{- $neutral := get (default (dict) $values.serviceAccounts) $component -}}
 {{- $fallback := get $defaults $component -}}
 {{- if eq $component "agent" -}}

@@ -28,6 +28,9 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
       :managed,
       :template_version,
       :template_fingerprint,
+      :pack_id,
+      :pack_version,
+      :parameter_overrides,
       :plugin_package_id
     ],
     fields: [
@@ -48,6 +51,9 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
       {:managed, :boolean, [default: false, allow_nil?: false]},
       {:template_version, :integer, []},
       {:template_fingerprint, :string, []},
+      {:pack_id, :string, []},
+      {:pack_version, :string, []},
+      {:parameter_overrides, :map, [default: %{}, allow_nil?: false]},
       # Provenance for a rule contributed by a plugin package. NULL for every
       # rule an operator authored or core seeded, which is why it is nullable
       # rather than defaulted.

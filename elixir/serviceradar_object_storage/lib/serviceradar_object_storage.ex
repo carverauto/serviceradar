@@ -9,9 +9,10 @@ defmodule ServiceRadarObjectStorage do
 
   Open accepts a map with `host`, `port`, `region`, `bucket` (or `nil`),
   `access_key`, `secret_key`, `session_token` (or `nil`), `tls`, `concurrency`,
-  and `buffer_size`. Missing, unknown, or incorrectly typed fields return
-  `{:error, :bad_config}`. Only numeric loopback hosts allow plaintext HTTP.
-  TLS uses public roots.
+  `buffer_size`, and optional `portable` (boolean, defaults to `false`; uses
+  `epoll` on Linux instead of `io_uring`, while macOS always uses `kqueue`).
+  Missing, unknown, or incorrectly typed fields return `{:error, :bad_config}`.
+  Only numeric loopback hosts allow plaintext HTTP. TLS uses public roots.
 
   Verified operations default to `%{timeout_ms: 30_000}` (`Budget::once`) and
   return `{:ok, reference}` after admission or `{:error, reason}` immediately.

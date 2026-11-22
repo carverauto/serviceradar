@@ -86,19 +86,34 @@ async fn run() -> Result<()> {
         health_server = health_server.tls_config(tls)?;
     }
 
-    // --- Zen ruleset from datasvc ---
-    let rules = cfg.rules.as_ref().map(|rules_cfg| {
-        let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
-            rules_cfg.stream_name.clone(),
-            rules_cfg.subject.clone(),
-        ));
-        info!("Following Zen ruleset {}", active.key());
-        tokio::spawn(rules::follow(
-            rules::Datasvc(rules_cfg.datasvc.endpoint()),
-            std::sync::Arc::clone(&active),
-        ));
-        active
-    });
+    // --- Zen ruleset from the NATS rule bucket, or datasvc ---
+    let rules = cfg
+        .rules
+        .as_ref()
+        .map(|rules_cfg| -> Result<_> {
+            let source = rules_cfg.source()?;
+            let active = std::sync::Arc::new(serviceradar_zen_normalize::ActiveRules::new(
+                rules_cfg.stream_name.clone(),
+                rules_cfg.subject.clone(),
+            ));
+            let following = std::sync::Arc::clone(&active);
+            match source {
+                config::RulesSource::Nats(nats) => {
+                    info!(
+                        "Following Zen ruleset {} in NATS bucket {}",
+                        active.key(),
+                        nats.bucket
+                    );
+                    tokio::spawn(rules::follow(rules::NatsBucket(nats.clone()), following));
+                }
+                config::RulesSource::Datasvc(datasvc) => {
+                    info!("Following Zen ruleset {} in datasvc", active.key());
+                    tokio::spawn(rules::follow(rules::Datasvc(datasvc.endpoint()), following));
+                }
+            }
+            Ok(active)
+        })
+        .transpose()?;
     let normalize_syslog =
         cfg.normalize_syslog(std::env::var(config::NORMALIZE_SYSLOG_ENV).ok().as_deref())?;
 
@@ -242,6 +257,7 @@ async fn start_otel(config_path: &str) -> Result<()> {
     if ingest_auth.enabled() {
         info!("OTLP ingestion authentication enforced");
     }
+    let rum_nats_config = nats_config.clone();
     let collector = create_collector(nats_config)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -260,6 +276,17 @@ async fn start_otel(config_path: &str) -> Result<()> {
     // Start OTLP/HTTP listener (default port 4318) unless disabled.
     match otel::http_server::HttpServerOptions::from_config(&otel_cfg) {
         Ok(Some(http_options)) => {
+            if http_options.rum.config.enabled {
+                if let Some(cfg) = rum_nats_config.clone() {
+                    let policy_cache = std::sync::Arc::clone(&http_options.rum.policy);
+                    let rum_cfg = http_options.rum.config.clone();
+                    tokio::spawn(async move {
+                        otel::rum::policy::run_policy_sync(cfg, policy_cache, rum_cfg).await;
+                    });
+                } else {
+                    log::warn!("RUM enabled without [nats] config; policy sync inactive");
+                }
+            }
             let http_collector = collector.clone();
             tokio::spawn(async move {
                 if let Err(e) =

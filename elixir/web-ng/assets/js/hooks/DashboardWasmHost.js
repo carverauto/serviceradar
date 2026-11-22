@@ -94,9 +94,14 @@ function shouldUseMapbox(mapbox) {
 }
 
 function createSrqlApi({frames, pushQuery, pageFrame}) {
+  const resolveFrames = () => {
+    const list = typeof frames === "function" ? frames() : frames
+    return Array.isArray(list) ? list : []
+  }
   const currentQuery = (frameId = "sites") => {
-    const preferred = frames.find((frame) => String(frame?.id || "") === String(frameId || ""))
-    return preferred?.query || frames[0]?.query || ""
+    const list = resolveFrames()
+    const preferred = list.find((frame) => String(frame?.id || "") === String(frameId || ""))
+    return preferred?.query || list[0]?.query || ""
   }
   const update = (query, frameQueries = {}) => pushQuery(query, frameQueries)
   const page = (frameId, cursor) => {
@@ -298,9 +303,26 @@ function lngLatToWorld(longitude, latitude, zoom = 0) {
   }
 }
 
+function stableHostValue(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableHostValue).join(",")}]`
+  const keys = Object.keys(value).sort()
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableHostValue(value[key])}`).join(",")}}`
+}
+
+function hostRuntimeContextChanged(currentHost, nextHost) {
+  return (
+    stableHostValue(currentHost?.instance?.settings ?? null) !== stableHostValue(nextHost?.instance?.settings ?? null) ||
+    stableHostValue(currentHost?.settings ?? null) !== stableHostValue(nextHost?.settings ?? null) ||
+    stableHostValue(currentHost?.package?.capabilities ?? null) !== stableHostValue(nextHost?.package?.capabilities ?? null) ||
+    stableHostValue(currentHost?.permissions ?? null) !== stableHostValue(nextHost?.permissions ?? null)
+  )
+}
+
 const DashboardWasmHost = {
   mounted() {
-    this.cancelled = false
+    this._destroyed = false
+    this._bootGen = 0
     this._frameUpdateCallbacks = []
     this._hostPayloadSignature = null
     this._onResize = () => this.resizeMap()
@@ -329,13 +351,18 @@ const DashboardWasmHost = {
   },
 
   updated() {
+    if (this._destroyed) return
     const signature = this.el.dataset.host || ""
     if (!signature || signature === this._hostPayloadSignature) return
 
     const nextHost = this.readHostPayload()
     if (nextHost && this.updateBrowserModuleHost(nextHost, signature)) return
 
-    this.cancelled = true
+    this._bootGen = (this._bootGen || 0) + 1
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    this._bootAbortController = null
 
     try {
       this._moduleDestroy?.()
@@ -349,18 +376,48 @@ const DashboardWasmHost = {
     this._wasmContext = null
     this._wasmInstance = null
     this._host = null
-    this.cancelled = false
     this.boot()
   },
 
   updateBrowserModuleHost(nextHost, signature) {
-    if (!this._host || this.rendererKind(this._host) !== "browser_module" || this.rendererKind(nextHost) !== "browser_module") {
+    const currentKind = this._host ? this.rendererKind(this._host) : null
+    const nextKind = this.rendererKind(nextHost)
+    if (!this._host || currentKind !== nextKind) {
       return false
     }
 
-    const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
-    const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
-    if (!currentUrl || currentUrl !== nextUrl) return false
+    if (currentKind === "browser_module") {
+      const currentUrl = this._host?.package?.renderer_url || this._host?.package?.wasm_url
+      const nextUrl = nextHost?.package?.renderer_url || nextHost?.package?.wasm_url
+      if (!currentUrl || currentUrl !== nextUrl) return false
+    } else if (currentKind === "built_in") {
+      if (
+        this._host?.package?.source_type !== "first_party" ||
+        nextHost?.package?.source_type !== "first_party"
+      ) {
+        return false
+      }
+      const currentEntrypoint = String(
+        this._host?.package?.renderer?.entrypoint || this._host?.package?.renderer?.artifact || "",
+      )
+      const nextEntrypoint = String(
+        nextHost?.package?.renderer?.entrypoint || nextHost?.package?.renderer?.artifact || "",
+      )
+      if (!currentEntrypoint || currentEntrypoint !== nextEntrypoint) return false
+      if (
+        (nextHost?.package?.renderer?.interface_version || nextHost?.host?.interface_version) !==
+        (this._host?.package?.renderer?.interface_version || this._host?.host?.interface_version)
+      ) {
+        return false
+      }
+    } else {
+      return false
+    }
+
+    if (hostRuntimeContextChanged(this._host, nextHost)) {
+      return false
+    }
+
     const currentStreamToken = this._host?.data_provider?.stream_token || ""
     const currentStreamTopic = this._host?.data_provider?.stream_topic || ""
     const nextStreamToken = nextHost?.data_provider?.stream_token || ""
@@ -370,7 +427,74 @@ const DashboardWasmHost = {
 
     const currentFrames = Array.isArray(this._host.package?.frames) ? this._host.package.frames : []
     const nextFrames = Array.isArray(nextHost.package?.frames) ? nextHost.package.frames : []
-    currentFrames.splice(0, currentFrames.length, ...nextFrames)
+    const previousById = new Map(currentFrames.map((frame) => [String(frame?.id), frame]))
+    const nextIds = new Set(nextFrames.map((frame) => String(frame?.id)))
+    const hasPendingLoadingFrame = nextFrames.some((frame) => frame?.status === "loading")
+    const frameQuery = (frame) => String(frame?.query ?? "").trim()
+    const nextDataFrames = Array.isArray(nextHost.package?.data_frames) ? nextHost.package.data_frames : []
+    const nextQueryById = new Map(nextDataFrames.map((frame) => [String(frame?.id), frameQuery(frame)]))
+
+    const mergedFrames = nextFrames.map((frame) => {
+      const previous = previousById.get(String(frame?.id))
+      if (!previous) return frame
+
+      const isEmptyPendingFrame =
+        frame?.status === "loading" &&
+        (!Array.isArray(frame?.results) || frame.results.length === 0) &&
+        frame?.payload == null &&
+        typeof frame?.payload_base64 !== "string"
+
+      if (!isEmptyPendingFrame || frameQuery(frame) !== frameQuery(previous)) return frame
+
+      const prevHasResults = Array.isArray(previous?.results) && previous.results.length > 0
+      const prevHasPayload = previous?.payload != null || typeof previous?.payload_base64 === "string"
+      if (!prevHasResults && !prevHasPayload) return frame
+
+      return {
+        ...previous,
+        ...frame,
+        ...(prevHasResults ? {results: previous.results} : {}),
+        ...(prevHasPayload && !prevHasResults && previous?.encoding
+          ? {
+              encoding: previous.encoding,
+              ...(previous?.payload_transport !== undefined ? {payload_transport: previous.payload_transport} : {}),
+            }
+          : {}),
+        ...(previous?.payload !== undefined
+          ? {
+              payload: previous.payload,
+              ...(previous?.payload_encoding !== undefined ? {payload_encoding: previous.payload_encoding} : {}),
+            }
+          : {}),
+        ...(previous?.payload_base64 !== undefined && frame?.payload_base64 === undefined
+          ? {payload_base64: previous.payload_base64}
+          : {}),
+        ...(previous?.row_count !== undefined && frame?.row_count === undefined
+          ? {row_count: previous.row_count}
+          : {}),
+        ...(previous?.truncated !== undefined && frame?.truncated === undefined
+          ? {truncated: previous.truncated}
+          : {}),
+        ...(previous?.refreshed_at !== undefined && frame?.refreshed_at === undefined
+          ? {refreshed_at: previous.refreshed_at}
+          : {}),
+        ...(previous?.generated_at !== undefined && frame?.generated_at === undefined
+          ? {generated_at: previous.generated_at}
+          : {}),
+      }
+    })
+
+    if (hasPendingLoadingFrame) {
+      for (const previous of currentFrames) {
+        const id = String(previous?.id)
+        const nextQuery = nextQueryById.get(id)
+        if (!nextIds.has(id) && (nextQuery === undefined || nextQuery === frameQuery(previous))) {
+          mergedFrames.push(previous)
+        }
+      }
+    }
+
+    currentFrames.splice(0, currentFrames.length, ...mergedFrames)
 
     this._host = {
       ...this._host,
@@ -391,7 +515,12 @@ const DashboardWasmHost = {
   },
 
   destroyed() {
-    this.cancelled = true
+    this._destroyed = true
+    this._bootGen = (this._bootGen || 0) + 1
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    this._bootAbortController = null
     window.removeEventListener("resize", this._onResize)
     document.removeEventListener("visibilitychange", this._onVisibilityChange)
 
@@ -426,8 +555,18 @@ const DashboardWasmHost = {
   },
 
   async boot() {
+    const bootGen = (this._bootGen = (this._bootGen || 0) + 1)
+    if (this._destroyed) return
+    try {
+      this._bootAbortController?.abort()
+    } catch (_error) {}
+    const bootAbort = typeof AbortController === "function" ? new AbortController() : null
+    this._bootAbortController = bootAbort
     const host = this.readHostPayload()
-    if (!host) return
+    if (!host) {
+      if (this._bootAbortController === bootAbort) this._bootAbortController = null
+      return
+    }
     this._hostPayloadSignature = this.el.dataset.host || ""
 
     this.renderState("loading", "Loading dashboard renderer")
@@ -436,12 +575,12 @@ const DashboardWasmHost = {
       this.validateInterfaceVersion(host)
 
       if (this.rendererKind(host) === "built_in") {
-        await this.bootBuiltInRenderer(host)
+        await this.bootBuiltInRenderer(host, bootGen, bootAbort)
         return
       }
 
       if (this.rendererKind(host) === "browser_module") {
-        await this.bootBrowserModule(host)
+        await this.bootBrowserModule(host, bootGen, bootAbort)
         return
       }
 
@@ -449,6 +588,7 @@ const DashboardWasmHost = {
       if (!wasmUrl) throw new Error("renderer URL is missing")
 
       const response = await fetch(wasmUrl, {credentials: "same-origin", cache: "force-cache"})
+      if (this._bootGen !== bootGen) return
       if (!response.ok) throw new Error(`renderer fetch failed (${response.status})`)
 
       const wasmContext = {instance: null, memory: null, renderModel: null}
@@ -459,16 +599,20 @@ const DashboardWasmHost = {
         try {
           result = await WebAssembly.instantiateStreaming(response, imports)
         } catch (_error) {
+          if (this._bootGen !== bootGen) return
           const retry = await fetch(wasmUrl, {credentials: "same-origin", cache: "force-cache"})
+          if (this._bootGen !== bootGen) return
           const bytes = await retry.arrayBuffer()
+          if (this._bootGen !== bootGen) return
           result = await WebAssembly.instantiate(bytes, imports)
         }
       } else {
         const bytes = await response.arrayBuffer()
+        if (this._bootGen !== bootGen) return
         result = await WebAssembly.instantiate(bytes, imports)
       }
 
-      if (this.cancelled) return
+      if (this._bootGen !== bootGen) return
 
       const instance = result.instance || result
       wasmContext.instance = instance
@@ -479,14 +623,20 @@ const DashboardWasmHost = {
       this.invokeEntrypoint(instance, host)
 
       if (wasmContext.renderModel) {
-        this.renderModel(wasmContext.renderModel, host)
+        this.renderModel(wasmContext.renderModel, host, bootGen)
       } else {
         this.renderState("ready", `${host.package.name} renderer loaded`)
       }
 
       this.connectFrameStream(host)
     } catch (error) {
-      if (!this.cancelled) this.renderState("error", error?.message || String(error))
+      if (this._bootGen === bootGen && !this._destroyed) {
+        this.renderState("error", error?.message || String(error))
+      }
+    } finally {
+      if (this._bootAbortController === bootAbort) {
+        this._bootAbortController = null
+      }
     }
   },
 
@@ -499,7 +649,89 @@ const DashboardWasmHost = {
     }
   },
 
-  async bootBrowserModule(host) {
+  async mountExternalRenderer(host, bootGen, libraries, mount, bootAbort = null) {
+    const effectiveAbort = bootAbort || (typeof AbortController === "function" ? new AbortController() : null)
+    if (!bootAbort && effectiveAbort) {
+      try {
+        this._bootAbortController?.abort()
+      } catch (_error) {}
+      this._bootAbortController = effectiveAbort
+    }
+
+    const api = this.browserModuleApi(host, {
+      signal: effectiveAbort?.signal,
+      libraries,
+    })
+
+    let timedOut = false
+    let destroyedLate = false
+    const destroyStaleMount = (candidate) => {
+      if (destroyedLate) return
+      destroyedLate = true
+      const fn = typeof candidate === "function" ? candidate : candidate?.destroy
+      if (typeof fn === "function") {
+        try {
+          fn()
+        } catch (_error) {}
+      }
+    }
+
+    const mountPromise = Promise.resolve().then(() => mount(this.el, host, api))
+    mountPromise.then(
+      (lateMounted) => {
+        if (timedOut || (this._bootGen ?? 0) !== bootGen || this._destroyed || effectiveAbort?.signal?.aborted) {
+          destroyStaleMount(lateMounted)
+        }
+      },
+      () => {},
+    )
+
+    let mounted
+    try {
+      mounted = await withTimeout(
+        mountPromise,
+        rendererBootTimeoutMs(host),
+        `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
+      )
+    } catch (error) {
+      timedOut = true
+      try {
+        effectiveAbort?.abort()
+      } catch (_abortErr) {}
+      if (this._bootAbortController === effectiveAbort) {
+        this._bootAbortController = null
+      }
+      if ((this._bootGen ?? 0) === bootGen && !this._destroyed) {
+        this.closeCameraSessions()
+        this._eventsApi?.clear()
+        this._eventsApi = null
+        this._actionsApi = null
+        this._frameUpdateCallbacks = []
+      }
+      throw error
+    }
+
+    if (this._bootAbortController === effectiveAbort) {
+      this._bootAbortController = null
+    }
+
+    if ((this._bootGen ?? 0) !== bootGen || this._destroyed || effectiveAbort?.signal?.aborted) {
+      timedOut = true
+      try {
+        effectiveAbort?.abort()
+      } catch (_abortErr) {}
+      destroyStaleMount(mounted)
+      return
+    }
+
+    const destroyFn = typeof mounted === "function" ? mounted : mounted?.destroy
+    this._host = host
+    this._dashboardLibraries = libraries
+    this._moduleDestroy = destroyFn
+    this.connectFrameStream(this._host)
+  },
+
+  async bootBrowserModule(host, bootGen = this._bootGen ?? 0, bootAbort = null) {
     const moduleUrl = host?.package?.renderer_url || host?.package?.wasm_url
     if (!moduleUrl) throw new Error("renderer module URL is missing")
     if (host?.package?.renderer?.trust !== "trusted") {
@@ -507,29 +739,22 @@ const DashboardWasmHost = {
     }
 
     const module = await import(/* @vite-ignore */ moduleUrl)
-    if (this.cancelled) return
+    if ((this._bootGen ?? 0) !== bootGen) return
 
     const mount = module.mountDashboard || module.default
     if (typeof mount !== "function") {
       throw new Error("dashboard browser module must export mountDashboard(hostElement, hostPayload, api)")
     }
 
+    const libraries = await loadMapDependencies()
+    if ((this._bootGen ?? 0) !== bootGen) return
+
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-browser-module")
-    this._host = host
-    this._dashboardLibraries = await loadMapDependencies()
-    if (this.cancelled) return
-
-    const mounted = await withTimeout(
-      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
-      rendererBootTimeoutMs(host),
-      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
-    )
-    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
-    this.connectFrameStream(host)
+    await this.mountExternalRenderer(host, bootGen, libraries, mount, bootAbort)
   },
 
-  async bootBuiltInRenderer(host) {
+  async bootBuiltInRenderer(host, bootGen = this._bootGen ?? 0, bootAbort = null) {
     const entrypoint = String(host?.package?.renderer?.entrypoint || host?.package?.renderer?.artifact || "")
     const mount = builtInDashboardRenderers[entrypoint]
 
@@ -541,19 +766,12 @@ const DashboardWasmHost = {
       throw new Error(`unknown built-in dashboard renderer: ${entrypoint || "missing"}`)
     }
 
+    const libraries = await loadMapDependencies()
+    if ((this._bootGen ?? 0) !== bootGen) return
+
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-built-in")
-    this._host = host
-    this._dashboardLibraries = await loadMapDependencies()
-    if (this.cancelled) return
-
-    const mounted = await withTimeout(
-      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
-      rendererBootTimeoutMs(host),
-      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
-    )
-    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
-    this.connectFrameStream(host)
+    await this.mountExternalRenderer(host, bootGen, libraries, mount, bootAbort)
   },
 
   actionsApiFor(host, capabilityAllowed) {
@@ -575,13 +793,14 @@ const DashboardWasmHost = {
     return this._eventsApi.publicApi()
   },
 
-  browserModuleApi(host) {
+  browserModuleApi(host, options = {}) {
     const capabilities = new Set(Array.isArray(host?.package?.capabilities) ? host.package.capabilities : [])
     const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
-    const frames = Array.isArray(host?.package?.frames) ? host.package.frames : []
+    const initialFrames = Array.isArray(host?.package?.frames) ? host.package.frames : []
+    const currentFrames = () => (Array.isArray(this._host?.package?.frames) ? this._host.package.frames : initialFrames)
     const resolveFrame = (idOrFrame) => {
       if (idOrFrame && typeof idOrFrame === "object") return idOrFrame
-      return frames.find((frame) => String(frame?.id) === String(idOrFrame))
+      return currentFrames().find((frame) => String(frame?.id) === String(idOrFrame))
     }
     const arrowBytes = (idOrFrame) => {
       const frame = resolveFrame(idOrFrame)
@@ -632,7 +851,7 @@ const DashboardWasmHost = {
 
       this._frameChannel.push("frames:page", {frame_id: id, cursor: token})
     }
-    const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery, pageFrame})
+    const srql = createSrqlApi({frames: currentFrames, pushQuery: pushSrqlQuery, pageFrame})
     const navigate = (target) => {
       if (!capabilityAllowed("navigation.open")) {
         throw new Error("dashboard capability is not approved: navigation.open")
@@ -697,13 +916,14 @@ const DashboardWasmHost = {
 
     return {
       version: "dashboard-browser-module-host-v1",
+      ...(options.signal ? {signal: options.signal} : {}),
       capabilityAllowed,
       requireCapability: (capability) => {
         if (!capabilityAllowed(capability)) throw new Error(`dashboard capability is not approved: ${capability}`)
       },
       theme: () => (this.isDarkMode() ? "dark" : "light"),
       isDarkMode: () => this.isDarkMode(),
-      frames: () => frames,
+      frames: () => currentFrames(),
       frame: (id) => resolveFrame(id),
       srql,
       setSrqlQuery: srql.update,
@@ -734,7 +954,7 @@ const DashboardWasmHost = {
         },
       },
       mapbox: () => (capabilityAllowed("map.basemap.read") ? host?.mapbox || {} : {}),
-      libraries: this._dashboardLibraries || {loadDependencies: loadMapDependencies},
+      libraries: options.libraries || this._dashboardLibraries || {loadDependencies: loadMapDependencies},
       onThemeChange: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -882,7 +1102,7 @@ const DashboardWasmHost = {
   connectFrameStream(host) {
     const topic = host?.data_provider?.stream_topic
     const token = host?.data_provider?.stream_token
-    if (!topic || !token || this._frameChannel || this.cancelled) return
+    if (!topic || !token || this._frameChannel || this._destroyed) return
 
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
 
@@ -974,6 +1194,7 @@ const DashboardWasmHost = {
       } else {
         currentFrames.push(frame)
       }
+      this._host.package.frames = currentFrames
 
       this._pendingBinaryFrameIds?.delete(String(id))
       if (!this._pendingBinaryFrameIds || this._pendingBinaryFrameIds.size === 0) {
@@ -1192,7 +1413,7 @@ const DashboardWasmHost = {
     }
   },
 
-  renderModel(model, host) {
+  renderModel(model, host, bootGen = this._bootGen || 0) {
     const kind = String(model?.kind || "deck_map")
 
     if (kind !== "deck_map") {
@@ -1204,7 +1425,7 @@ const DashboardWasmHost = {
     this._renderModel = model
     this._webglUnavailable = false
     this.ensureMapContainers()
-    this.createMap()
+    this.createMap(bootGen)
   },
 
   updateRenderModel(model, host) {
@@ -1232,13 +1453,13 @@ const DashboardWasmHost = {
     this.el.appendChild(this._mapContainer)
   },
 
-  async createMap() {
+  async createMap(bootGen = this._bootGen ?? 0) {
     const mapbox = this._host?.mapbox || {}
     const useMapbox = shouldUseMapbox(mapbox)
     const style = this.currentStyle(useMapbox)
     const initialViewState = this.initialViewState()
     const libraries = await loadMapDependencies()
-    if (this.cancelled) return
+    if (this._destroyed || (this._bootGen ?? 0) !== bootGen) return
 
     this._mapboxgl = libraries.mapboxgl
     this._MapboxOverlay = libraries.MapboxOverlay

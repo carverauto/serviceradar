@@ -113,6 +113,32 @@ defmodule ServiceRadar.Inventory.Discovery.DecodersTest do
       assert stats.devices == 1
     end
 
+    test "an IPv6 sighting of a MAC the snapshot saw at a usable IPv4 is an alias only" do
+      assert {:ok, [v4, v6, v6_only], _stats} =
+               Decoders.Census.decode(
+                 census_payload([
+                   observation(mac: "a8:bb:cc:00:00:07", ip: "192.0.2.7"),
+                   observation(
+                     mac: "a8:bb:cc:00:00:07",
+                     ip: "2001:db8::7",
+                     kind: :DEVICE_CENSUS_KIND_IPV6_NDP
+                   ),
+                   observation(
+                     mac: "a8:bb:cc:00:00:08",
+                     ip: "2001:db8::8",
+                     kind: :DEVICE_CENSUS_KIND_IPV6_NDP
+                   )
+                 ])
+               )
+
+      assert v4["ip"] == "192.0.2.7"
+      assert v6["ip"] == ""
+      assert v6["metadata"]["_alias_last_seen_ip"] == "2001:db8::7"
+      assert Map.has_key?(v6["metadata"], "ip_alias:2001:db8::7")
+      # An IPv6-only device keeps its IPv6 as the observed address.
+      assert v6_only["ip"] == "2001:db8::8"
+    end
+
     test "an off-segment sighting is skipped" do
       # It carries the ROUTER's MAC. Emitting it would bind a remote address to
       # the gateway's hardware and collapse distinct hosts onto one device.

@@ -16,8 +16,8 @@ Each entry in `components.json` is a JSON object representing a component. The a
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| name | String | Yes | Unique identifier for the component (e.g., `core`, `rperf-client`). Used to select components in `setup-package.sh`. |
-| package_name | String | Yes | Name of the package (e.g., `serviceradar-agent`, `serviceradar-rperf-checker`). Used in package filenames and metadata. |
+| name | String | Yes | Unique identifier for the component (e.g., `core`, `log-collector`). Used to select components in `setup-package.sh`. |
+| package_name | String | Yes | Name of the package (e.g., `serviceradar-agent`, `serviceradar-trapd`). Used in package filenames and metadata. |
 | version | String | Yes | Version of the component (e.g., `1.0.32`). Can be overridden by the `VERSION` environment variable. |
 | description | String | Yes | Description of the package, used in the Debian `control` file and RPM spec file. |
 | maintainer | String | Yes | Maintainer contact information (e.g., `Michael Freeman <mfreeman@carverauto.dev>`). |
@@ -30,13 +30,13 @@ Each entry in `components.json` is a JSON object representing a component. The a
 | build_method | String | No | Build method for non-binary components (e.g., `npm` for `web`, `external` for `nats`). Options: `go`, `rust`, `npm`, `docker`, `external`. |
 | build_dir | String | No | Directory for building non-binary components (e.g., `web` for Next.js). Used with `npm` build method. |
 | output_dir | String | No | Destination directory for non-binary build outputs (e.g., `/usr/local/share/serviceradar-web-ng`). Used with `npm` build method. |
-| custom_steps | Array | No | Custom commands to run before building (e.g., protobuf compilation for `rperf-client`). |
+| custom_steps | Array | No | Custom commands to run before building (e.g., protobuf compilation for `log-collector`). |
 | config_files | Array | No | List of configuration files to include in the package (see below). |
 | systemd_service | Object | No | Systemd service file configuration (see below). |
 | postinst | Object | No | Post-install script configuration (see below). |
 | prerm | Object | No | Pre-removal script configuration (see below). |
 | conffiles | Array | No | List of configuration files to mark as preserved during upgrades (e.g., `/etc/serviceradar/core.json`). |
-| additional_dirs | Array | No | Additional directories to create in the package (e.g., `/var/log/rperf`). |
+| additional_dirs | Array | No | Additional directories to create in the package (e.g., `/var/lib/serviceradar/agent`). |
 
 ### deb and rpm Objects
 
@@ -52,7 +52,7 @@ Each entry in `components.json` is a JSON object representing a component. The a
 |-------|------|----------|-------------|
 | source_path | String | No | Source directory for the binary (e.g., `cmd/core`). Required for `go` and `docker` build methods. |
 | build_method | String | Yes | Build method for the binary (`go`, `rust`, `docker`). |
-| dockerfile | String | No | Path to the Dockerfile for building the binary (e.g., `rust/rperf-client/Dockerfile`). Required for `rust` and some `docker` builds. |
+| dockerfile | String | No | Path to the Dockerfile for building the binary (e.g., `rust/trapd/Dockerfile`). Required for `rust` and some `docker` builds. |
 | output_path | String | Yes | Destination path for the binary in the package (e.g., `/usr/local/bin/serviceradar-agent`). |
 
 ### external_binary Object (Used with build_method: external)
@@ -103,7 +103,7 @@ The `setup-package.sh` script builds Debian and RPM packages based on the `compo
     - `build/packaging/components.json`: Configuration file.
     - `build/packaging/<component>/`: Component-specific files (e.g., `config/`, `systemd/`, `scripts/`).
     - `docker/deb/` and `docker/rpm/`: Dockerfiles for Debian and RPM builds.
-    - `rust/<component>/`: Dockerfiles for Rust components like rperf-client and rperf-server.
+    - `rust/<component>/`: Dockerfiles for Rust components like `trapd` and `log-collector`.
 
 ### Running the Build
 

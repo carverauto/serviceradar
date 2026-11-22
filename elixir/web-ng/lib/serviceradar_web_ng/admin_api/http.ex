@@ -195,7 +195,6 @@ defmodule ServiceRadarWebNG.AdminApi.Http do
     case value do
       "password" -> :password
       "oidc" -> :oidc
-      "saml" -> :saml
       "gateway" -> :gateway
       "api_token" -> :api_token
       "oauth_client" -> :oauth_client

@@ -39,47 +39,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,type,tags
-      ,192.0.2.11,rids,gate=B40
+      ,192.0.2.11,kiosk,floor=3
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
     assert device.hostname == ""
     assert device.ip == "192.0.2.11"
-    assert device.tags == ["gate=B40"]
-    assert device.metadata == %{"gate" => "B40"}
+    assert device.tags == ["floor=3"]
+    assert device.metadata == %{"floor" => "3"}
   end
 
   test "parse_csv_file copies key=value tags into metadata for All Metadata" do
     path =
       csv_fixture("""
       hostname,ip,type,tags
-      rids-sfo-e6,10.0.4.17,rids,rids=true|site=SFO|concourse=E|gate=E6|model=DAK_VENUS1500_4LINE|config=efids|rows=4|cols=24|source=rids
+      host01.example.com,198.51.100.17,kiosk,role=kiosk|site=SITE01|wing=north|room=R204|model=ACME-K100|profile=standard|floor=2|owner=facilities
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
 
     assert device.tags == [
-             "rids=true",
-             "site=SFO",
-             "concourse=E",
-             "gate=E6",
-             "model=DAK_VENUS1500_4LINE",
-             "config=efids",
-             "rows=4",
-             "cols=24",
-             "source=rids"
+             "role=kiosk",
+             "site=SITE01",
+             "wing=north",
+             "room=R204",
+             "model=ACME-K100",
+             "profile=standard",
+             "floor=2",
+             "owner=facilities"
            ]
 
     assert device.metadata == %{
-             "rids" => "true",
-             "site" => "SFO",
-             "concourse" => "E",
-             "gate" => "E6",
-             "model" => "DAK_VENUS1500_4LINE",
-             "config" => "efids",
-             "rows" => "4",
-             "cols" => "24",
-             "source" => "rids"
+             "role" => "kiosk",
+             "site" => "SITE01",
+             "wing" => "north",
+             "room" => "R204",
+             "model" => "ACME-K100",
+             "profile" => "standard",
+             "floor" => "2",
+             "owner" => "facilities"
            }
   end
 
@@ -87,12 +85,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,tags,site
-      rids-den-a14,10.130.20.228,site=ZZC|gate=A14,ZZC-override
+      host02.example.com,198.51.100.28,site=SITE02|room=R110,SITE02-override
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.tags == ["site=ZZC", "gate=A14"]
-    assert device.metadata == %{"site" => "ZZC-override", "gate" => "A14"}
+    assert device.tags == ["site=SITE02", "room=R110"]
+    assert device.metadata == %{"site" => "SITE02-override", "room" => "R110"}
   end
 
   test "parse_csv_file accepts a hostname-only row for DNS resolution" do
@@ -184,13 +182,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       HostName, IP ,Type
-      host-a.example,192.0.2.20,rids
+      host010.example.com,192.0.2.20,kiosk
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.hostname == "host-a.example"
+    assert device.hostname == "host010.example.com"
     assert device.ip == "192.0.2.20"
-    assert device.type == "rids"
+    assert device.type == "kiosk"
   end
 
   # A quoted field may contain newlines, so the Nth record is not line N. A
@@ -199,10 +197,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,type
-      "multi
-      line host",192.0.2.21,rids
+      "host011
+      .example.com",192.0.2.21,kiosk
       ,
-      host-c.example,192.0.2.23,rids
+      host012.example.com,192.0.2.23,kiosk
       """)
 
     assert {:ok, devices, warnings} = IndexCsvImport.parse_csv_file(path)
@@ -210,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     # The record spans lines 2-3, so the blank record sits on line 4.
     assert warnings == ["Row 4 skipped: needs a hostname or an ip"]
 
-    assert [%{hostname: "multi\nline host", source_line: 2}, %{source_line: 5}] =
+    assert [%{hostname: "host011\n.example.com", source_line: 2}, %{source_line: 5}] =
              Enum.sort_by(devices, & &1.source_line)
   end
 
@@ -455,7 +453,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
       valid?: true,
       done?: true,
       cancelled?: false,
-      client_name: "rids-import.csv",
+      client_name: "device-import.csv",
       client_type: "text/csv"
     }
 
@@ -464,24 +462,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert {:error, :in_progress} = IndexCsvImport.completed_csv_upload_entry({[], [entry]})
   end
 
-  test "parse_csv_file accepts a rids spreadsheet row with pipe-separated tags" do
+  test "parse_csv_file accepts a spreadsheet row with pipe-separated tags" do
     path =
       csv_fixture("""
       hostname,ip,type,tags
-      rids-bos-b23,10.102.61.31,rids,rids=true|site=BOS|concourse=B|gate=B23
+      host03.example.com,203.0.113.23,kiosk,role=kiosk|site=SITE01|wing=south|room=R312
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.hostname == "rids-bos-b23"
-    assert device.ip == "10.102.61.31"
-    assert device.type == "rids"
-    assert device.tags == ["rids=true", "site=BOS", "concourse=B", "gate=B23"]
+    assert device.hostname == "host03.example.com"
+    assert device.ip == "203.0.113.23"
+    assert device.type == "kiosk"
+    assert device.tags == ["role=kiosk", "site=SITE01", "wing=south", "room=R312"]
 
     assert device.metadata == %{
-             "rids" => "true",
-             "site" => "BOS",
-             "concourse" => "B",
-             "gate" => "B23"
+             "role" => "kiosk",
+             "site" => "SITE01",
+             "wing" => "south",
+             "room" => "R312"
            }
   end
 
@@ -489,16 +487,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,type,tags,model,site
-      rids-bos-b23,10.102.61.31,rids,rids=true,DAK_VENUS1500_4LINE,BOS
+      host03.example.com,203.0.113.23,kiosk,role=kiosk,ACME-K100,SITE01
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.tags == ["rids=true"]
+    assert device.tags == ["role=kiosk"]
 
     assert device.metadata == %{
-             "rids" => "true",
-             "model" => "DAK_VENUS1500_4LINE",
-             "site" => "BOS"
+             "role" => "kiosk",
+             "model" => "ACME-K100",
+             "site" => "SITE01"
            }
   end
 
@@ -528,19 +526,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     path =
       csv_fixture("""
       hostname,ip,type,partition,tags
-      rids-iah-b40,10.0.0.1,rids,rids,rids=true|site=ZZA
+      host04.example.com,192.0.2.30,kiosk,lab,role=kiosk|site=SITE03
       """)
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.partition == "rids"
-    assert device.metadata == %{"rids" => "true", "site" => "ZZA"}
+    assert device.partition == "lab"
+    assert device.metadata == %{"role" => "kiosk", "site" => "SITE03"}
   end
 
   test "parse_csv_file downcases a partition slug" do
-    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.40,RIDS\n")
+    path = csv_fixture("hostname,ip,partition\nhost013.example.com,192.0.2.40,LAB\n")
 
     assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
-    assert device.partition == "rids"
+    assert device.partition == "lab"
   end
 
   test "parse_csv_file skips an invalid partition slug" do
@@ -554,12 +552,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
   test "apply_import_partition fills blank rows from the modal default" do
     devices = [
       %{hostname: "a", ip: "192.0.2.50", partition: ""},
-      %{hostname: "b", ip: "192.0.2.51", partition: "lab"}
+      %{hostname: "host014.example.com", ip: "192.0.2.51", partition: "branch"}
     ]
 
     assert [
-             %{partition: "rids", ip: "192.0.2.50"},
-             %{partition: "lab", ip: "192.0.2.51"}
-           ] = IndexCsvImport.apply_import_partition(devices, "rids")
+             %{partition: "lab", ip: "192.0.2.50"},
+             %{partition: "branch", ip: "192.0.2.51"}
+           ] = IndexCsvImport.apply_import_partition(devices, "lab")
   end
 end

@@ -17,13 +17,34 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   recovery. A lost, cut-short or unreadable NVR answer is uncertain, and so is
   a non-200 answer read after the end marker, which can follow a seal.
 
+  On a verified seal for its reserved block, the worker reads the canonical NVR
+  descriptor and the camera's recording policy before calling
+  `ServiceRadar.Camera.RecordingBlocks.freeze_and_catalog/6` under its live
+  claim. When registration returns an entry with `archive_state: :pending`, it
+  best-effort enqueues `ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob`.
+  Each step runs at most once. Registration leaves lease time for claim release
+  and relay close. The first admitted unit anchors the run, identified by the
+  clock epoch. Its anchor ID combines the epoch and block sequence.
+
+  The worker attempts claim release and requests relay close before reporting a
+  verified seal, including when registration was refused or its outcome is
+  uncertain. See `ServiceRadarCoreElx.CameraRecording.NVRCapture` for the receipt
+  fields.
+
+  Accepted limit (`verified-seal-lost-before-finalization`): if a late capture
+  timeout, caller loss or other interrupt kills the sender before the worker
+  receives a verified `sealed_local` reply, the worker cannot observe the seal,
+  finalizes the capture as uncertain and leaves the sealed block to the
+  reconciler's historical freeze. Once a verified `sealed_local` reply reaches
+  finalization, registration is gated only by the recovery gate, cleanup
+  reserve and capture deadline, not by a prior stream abort.
+
   An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
   refused the unfinished stream and sealed nothing it had open. That is a
   definite failure: the worker reports `{:nvr_ingest_refused, details}` with the
-  status and correlation fields and releases the recorder claim, as it does for
-  a failure before streaming, so the next capture of the source can start at
-  once. The reserved `RecordingBlock` row stays `:open_local`, as after any
-  other failure; the NVR keeps the block's unsealed journal.
+  status and correlation fields and attempts to release the recorder claim,
+  as it does for a failure before streaming. The reservation stays `:open_local`
+  and the NVR keeps the block's unsealed journal.
 
   Core can also stop the stream itself: a unit that fails order validation, a
   failed relay drain, a stopped relay pipeline or a failed fence renewal. The
@@ -31,9 +52,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   Core abort before the worker hands out `:eof` cannot have requested a seal of
   the block the NVR had open. That is a definite failure too: the worker reports
   `{:nvr_ingest_aborted, details}` with the abort `reason` and the correlation
-  fields and releases the recorder claim. A Core abort after `:eof` stays
-  uncertain, because the end marker may have gone out and the NVR may have
-  sealed. Capture timeout and caller loss stay uncertain before `:eof` too. On
+  fields and attempts to release the recorder claim. Without a verified receipt,
+  a Core abort after `:eof` stays uncertain because the NVR may have sealed.
+  Capture timeout and caller loss stay uncertain before `:eof` too. On
   an NVR whose block limit a capture can exceed, the NVR may already have
   rotated and sealed an earlier block of an aborted or refused capture. It keeps
   that block, but reports mid-stream seals only in a 200 receipt, so Core never
@@ -51,25 +72,31 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   NVR block. The receipt must name exactly that block; any other receipt is
   treated as uncertain. A 270 s capture needs a `timeout_ms` of about 295,000,
   within the 300,000 ms ceiling, and an NVR `SERVICERADAR_NVR_MAX_DURATION_MS`
-  long enough to cover the request and its seal.
+  long enough to cover the request and its seal. The timeout must also leave
+  time to register the block after the seal; a block sealed too close to the
+  deadline is left to the reconciler.
   """
 
   use GenServer, restart: :temporary
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.RecorderRenewal
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarNVRClient.Config, as: ClientConfig
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
+  require Logger
+
   @lease_ms 30_000
   @call_cap_ms 5_000
-  @cleanup_timeout_ms 2_000
   @min_call_timeout_ms 250
   @max_capture_timeout_ms 300_000
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
@@ -147,6 +174,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         uncertain?: false,
         lease_timer: nil,
         first_pts: nil,
+        first_admitted_at_us: nil,
         last_pts: nil,
         last_sequence: nil,
         frames_accepted: 0,
@@ -248,7 +276,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{sender_monitor: ref} = state) do
-    finalize_uncertain(state, {:sender_crashed, reason})
+    finalize_uncertain(state, state.abort_reason || {:sender_crashed, reason})
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{capture: %{monitor: ref}} = state) do
@@ -302,10 +330,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   end
 
   defp open_and_attach(state, deadline_ms) do
-    clock_epoch = "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}"
-
     retained_clock = %{
-      "clock_epoch" => clock_epoch,
+      "clock_epoch" => "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}",
       "timebase" => 90_000,
       "dts_source" => "pts_no_reordering",
       "utc_mapping" => "unknown"
@@ -322,7 +348,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
          :ok <- Inbox.usable(inbox),
          {:ok, reserve_opts} <- capture_call_opts(state),
          {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, reserve_opts),
-         {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block, clock_epoch),
+         {:ok, header} <- build_wire_header(state.storage_id, state.recovery_gate.generation, block),
          {:ok, attach_timeout} <- capture_call_timeout(state.capture),
          :ok <- attach_pipeline(state.pipeline, inbox, attach_timeout) do
       next =
@@ -337,7 +363,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     end
   end
 
-  defp build_wire_header(storage_id, recovery_generation, block, clock_epoch) do
+  defp build_wire_header(storage_id, recovery_generation, block) do
     identity =
       block
       |> RecordingBlock.identity()
@@ -349,7 +375,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
        "storage_id" => storage_id,
        "recovery_generation" => recovery_generation,
        "identity" => identity,
-       "clock_epoch" => clock_epoch
+       "clock_epoch" => block.clock["clock_epoch"]
      }}
   end
 
@@ -459,6 +485,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       end
     else
       first_pts = state.first_pts || unit.pts
+      first_admitted_at_us = state.first_admitted_at_us || unit.admitted_at_us
       next_frames = state.frames_accepted + 1
       duration_ticks = unit.pts - first_pts
       max_duration_ticks = div(state.bounds.max_duration_ms * 90_000, 1_000)
@@ -468,6 +495,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
         state
         | queue: :queue.in(unit, state.queue),
           first_pts: first_pts,
+          first_admitted_at_us: first_admitted_at_us,
           last_pts: unit.pts,
           last_sequence: unit.sequence,
           frames_accepted: next_frames,
@@ -620,31 +648,29 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     if state.sender_pid == nil do
       stop_failed(state, reason)
     else
-      finalize_uncertain(%{state | abort_reason: state.abort_reason || reason}, reason)
+      Process.exit(state.sender_pid, :kill)
+      {:noreply, %{state | abort_reason: state.abort_reason || reason}}
     end
   end
 
   defp finalize_send_result(state, send_result) do
     if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
     state = cancel_lease_timer(%{state | sender_pid: nil, sender_monitor: nil})
-    expected_key = state.block.block_key
-    expected_storage = state.storage_id
+    block_key = state.block.block_key
+    storage_id = state.storage_id
 
-    capture_status = check_capture(state.capture)
+    refusal_reason = state.abort_reason || capture_error(check_capture(state.capture))
     eof_replied? = state.eof_replied?
 
-    case {state.abort_reason, capture_status, state.frames_sent > 0, check_recovery_gate(), send_result} do
-      {nil, :ok, true, {:ok, _gate},
-       {:ok, %{status: :sealed_local, storage_id: ^expected_storage, block_ids: [^expected_key]}}} ->
-        payload =
-          state
-          |> correlation_fields()
-          |> Map.put(:status, :sealed_local)
-
+    case {send_result, refusal_reason, check_recovery_gate()} do
+      {{:ok, %{status: :sealed_local, storage_id: ^storage_id, block_ids: [^block_key]}}, _reason, gate_status} ->
+        catalog = register_sealed_block(state, gate_status)
+        release = release_clean_consumer(state)
+        payload = Map.merge(correlation_fields(state), %{status: :sealed_local, catalog: catalog, release: release})
         notify(state, {:completed, payload})
-        {:stop, :normal, state}
+        {:stop, :normal, %{state | claim: nil}}
 
-      {nil, :ok, _has_frames, {:ok, _gate}, {:error, {:ingest_refused, status}}} when status in @definite_refusals ->
+      {{:error, {:ingest_refused, status}}, nil, {:ok, _gate}} when status in @definite_refusals ->
         refusal =
           state
           |> correlation_fields()
@@ -655,7 +681,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
       # Core stopped the stream before the sender pulled `:eof`, so the client
       # never sent the end marker and the NVR sealed nothing it had open,
       # whatever the client returned.
-      {abort_reason, _capture_status, _has_frames, {:ok, _gate}, _result}
+      {_result, abort_reason, {:ok, _gate}}
       when not is_nil(abort_reason) and abort_reason not in @uncertain_interrupts and not eof_replied? ->
         abort =
           state
@@ -664,11 +690,137 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
 
         stop_failed(state, {:nvr_ingest_aborted, abort})
 
-      {abort_reason, capture_status, _has_frames, _gate_status, other_result} ->
-        reason = classify_send_failure(abort_reason || capture_error(capture_status), state.frames_sent, other_result)
+      {other_result, reason, _gate_status} ->
+        reason = classify_send_failure(reason, state.frames_sent, other_result)
         finalize_uncertain(state, reason)
     end
   end
+
+  defp register_sealed_block(state, gate_status) do
+    outcome = run_registration(state, gate_status)
+
+    if !match?({:registered, _}, outcome) do
+      Logger.warning("NVR block #{state.block.block_key} registration: #{inspect(outcome, limit: 8)}")
+    end
+
+    outcome
+  end
+
+  defp run_registration(_state, {:error, reason}), do: {:unregistered, reason}
+
+  defp run_registration(state, {:ok, _gate}) do
+    lease_limit = state.lease_deadline - RecorderRenewal.teardown_ms()
+    deadline = min(lease_limit, state.capture.deadline)
+    now = now()
+
+    cond do
+      lease_limit - now < @min_call_timeout_ms ->
+        {:unregistered, :registration_cleanup_reserve}
+
+      deadline - now < @min_call_timeout_ms ->
+        {:unregistered, :registration_deadline}
+
+      true ->
+        catalog_before_deadline(state, deadline)
+    end
+  end
+
+  defp catalog_before_deadline(state, deadline) do
+    case run_until(deadline, fn -> catalog_sealed_block(state, deadline) end) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:unconfirmed, reason}
+    end
+  end
+
+  defp catalog_sealed_block(state, deadline) do
+    with {:ok, read_timeout} <- step_timeout(deadline, ServiceRadarNVRClient.descriptor_timeout_ms()),
+         {:ok, descriptor} <-
+           ServiceRadarNVRClient.block_descriptor(state.client_config, state.block.block_key, read_timeout),
+         {:ok, policy_timeout} <- step_timeout(deadline, @call_cap_ms),
+         {:ok, policy} <-
+           CameraRecordingPolicy.get_by_camera_profile(state.owner.camera_source_id, state.owner.stream_profile_id,
+             actor: state.actor,
+             timeout: policy_timeout,
+             not_found_error?: false
+           ),
+         {:ok, freeze_timeout} <- step_timeout(deadline, @call_cap_ms) do
+      state.owner
+      |> RecordingBlocks.freeze_and_catalog(state.claim, state.block, descriptor, catalog_attrs(state, policy),
+        actor: state.actor,
+        timeout: freeze_timeout
+      )
+      |> freeze_outcome()
+    else
+      {:error, reason} -> {:unregistered, reason}
+    end
+  end
+
+  defp step_timeout(deadline, cap) do
+    remaining = deadline - now()
+    if remaining < @min_call_timeout_ms, do: {:error, :registration_deadline}, else: {:ok, min(remaining, cap)}
+  end
+
+  defp freeze_outcome({:ok, entry}) do
+    _ = ArchiveBlockJob.enqueue_for_entry(entry)
+    {:registered, entry.id}
+  end
+
+  defp freeze_outcome({:error, reason})
+       when reason in [
+              :ambient_transaction,
+              :nvr_recovery_closed,
+              :invalid_recording_descriptor,
+              :invalid_catalog_attributes,
+              :recording_descriptor_conflict,
+              :recording_block_mismatch,
+              :recording_block_not_found,
+              :ownership_lost,
+              :recorder_claim_lost,
+              :recorder_ingest_mismatch,
+              :owner_unavailable
+            ], do: {:unregistered, reason}
+
+  defp freeze_outcome({:error, %Ash.Error.Invalid{errors: errors} = reason}) do
+    if Enum.all?(errors, &validation_error?/1), do: {:unregistered, reason}, else: {:unconfirmed, reason}
+  end
+
+  defp freeze_outcome({:error, %Ash.Error.Forbidden{} = reason}), do: {:unregistered, reason}
+  defp freeze_outcome({:error, reason}), do: {:unconfirmed, reason}
+
+  defp validation_error?(%Ash.Error.Invalid.Timeout{}), do: false
+  defp validation_error?(error), do: match?(%{class: :invalid}, error)
+
+  defp run_until(deadline, operation) do
+    task = Task.async(operation)
+
+    case Task.yield(task, max(0, deadline - now())) do
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+        {:exit, :timeout}
+
+      reply ->
+        if now() < deadline, do: reply, else: {:exit, :timeout}
+    end
+  end
+
+  # One capture is one run, anchored at its first admitted unit.
+  defp catalog_attrs(state, policy) do
+    clock_epoch = state.block.clock["clock_epoch"]
+
+    Map.merge(
+      %{
+        time_basis: :received,
+        first_unit_pts: state.first_pts,
+        first_unit_received_at: DateTime.from_unix!(state.first_admitted_at_us, :microsecond),
+        run_id: clock_epoch,
+        anchor_id: "#{clock_epoch}:#{state.block.block_sequence}"
+      },
+      policy_attrs(policy)
+    )
+  end
+
+  defp policy_attrs(%CameraRecordingPolicy{id: id, storage: storage}), do: %{policy_id: id, policy_storage: storage}
+  defp policy_attrs(nil), do: %{policy_storage: :local_only}
 
   defp capture_error(:ok), do: nil
   defp capture_error({:error, reason}), do: reason
@@ -681,11 +833,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp finalize_uncertain(state, reason) do
     if state.inbox, do: Inbox.cancel(state.inbox)
     state = cancel_lease_timer(state)
-
-    if is_pid(state.sender_pid) and Process.alive?(state.sender_pid) do
-      if state.sender_monitor, do: Process.demonitor(state.sender_monitor, [:flush])
-      Process.exit(state.sender_pid, :kill)
-    end
 
     payload =
       state
@@ -726,15 +873,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   defp release_inbox_credit(_state, _bytes), do: :ok
 
   defp release_clean_consumer(state) do
-    case RecorderOwnership.release(state.owner, state.claim, actor: state.actor, timeout: @cleanup_timeout_ms) do
-      {:ok, :released} ->
-        request_relay_close(state.owner.relay_session_id, state.actor)
+    outcome = release_claim(state)
+    request_relay_close(state.owner.relay_session_id, state.actor)
+    outcome
+  end
 
-      _ ->
-        :ok
+  defp release_claim(state) do
+    timeout = RecorderRenewal.cleanup_timeout_ms()
+
+    case run_until(now() + timeout, fn ->
+           RecorderOwnership.release(state.owner, state.claim, actor: state.actor, timeout: timeout)
+         end) do
+      {:ok, {:ok, :released}} -> :released
+      {:ok, {:error, reason}} -> release_pending(state, reason)
+      {:exit, reason} -> release_pending(state, reason)
     end
-  catch
-    _kind, _reason -> :ok
+  end
+
+  defp release_pending(state, reason) do
+    Logger.warning("Recorder claim #{state.claim.id} release pending lease expiry: #{inspect(reason, limit: 8)}")
+    {:release_pending_lease_expiry, reason}
   end
 
   defp request_relay_close(relay_session_id, actor) do
@@ -746,7 +904,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     receive do
       {:DOWN, ^ref, :process, _pid, _reason} -> :ok
     after
-      @cleanup_timeout_ms -> Process.demonitor(ref, [:flush])
+      RecorderRenewal.cleanup_timeout_ms() -> Process.demonitor(ref, [:flush])
     end
 
     :ok

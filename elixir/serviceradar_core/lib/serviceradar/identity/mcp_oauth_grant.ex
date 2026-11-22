@@ -3,8 +3,8 @@ defmodule ServiceRadar.Identity.McpOAuthGrant do
   Persistent consent grant for MCP authorization-code clients.
 
   Binds the first-party public client `serviceradar-mcp` to a user and,
-  when the user signed in via SSO, to the IdP session (`sid` /
-  SessionIndex plus an encrypted IdP refresh token when issued).
+  when the user signed in via OIDC, to the IdP session (`sid` plus an
+  encrypted IdP refresh token when issued).
   """
 
   use Ash.Resource,
@@ -16,7 +16,7 @@ defmodule ServiceRadar.Identity.McpOAuthGrant do
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @auth_methods [:oidc, :saml, :password]
+  @auth_methods [:oidc, :password]
   @mcp_manage_check {ActorHasPermission, permission: Constants.mcp_manage_permission()}
 
   postgres do

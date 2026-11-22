@@ -319,27 +319,42 @@ func TestBuildDiscoveredDeviceMapping(t *testing.T) {
 	}
 }
 
-func TestPrimaryIPFallsBackToIPv6(t *testing.T) {
-	row := `{
-		"id": 7,
-		"name": "v6-only",
-		"primary_ip4": null,
-		"primary_ip6": {"id": 1, "address": "2001:db8::7/64"},
-		"role": {"name": "server"},
-		"site": {"name": "lab"},
-		"status": {"value": "active"},
-		"device_type": {"manufacturer": {"name": "Dell"}, "model": "R650"}
-	}`
-	fake := &fakeHTTP{responses: map[string]fakeResponse{
-		"https://netbox.example.com/api/dcim/devices/?limit=100": {body: pageJSON(1, "", row)},
-	}}
-	swapHTTP(t, fake)
+func TestPrimaryIPTakesIPv4OnlyWhenUsable(t *testing.T) {
+	cases := []struct {
+		name, ip4, ip6, want string
+	}{
+		{"v6-only", `null`, `{"id": 1, "address": "2001:db8::7/64"}`, "2001:db8::7"},
+		{"dual-stack", `{"id": 2, "address": "192.0.2.7/24"}`, `{"id": 3, "address": "2001:db8::7/64"}`, "192.0.2.7"},
+		// A 169.254/16 IPv4 is link-local: the routable IPv6 wins.
+		{"apipa-v4", `{"id": 4, "address": "169.254.1.5/16"}`, `{"id": 5, "address": "2001:db8::5/64"}`, "2001:db8::5"},
+		// A link-local-only device keeps its link-local rather than being dropped.
+		{"link-local-only", `{"id": 6, "address": "169.254.1.6/16"}`, `null`, "169.254.1.6"},
+	}
 
-	result := runInventorySyncSource(testSource())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := fmt.Sprintf(`{
+				"id": 7,
+				"name": %q,
+				"primary_ip4": %s,
+				"primary_ip6": %s,
+				"role": {"name": "server"},
+				"site": {"name": "lab"},
+				"status": {"value": "active"},
+				"device_type": {"manufacturer": {"name": "Dell"}, "model": "R650"}
+			}`, tc.name, tc.ip4, tc.ip6)
+			fake := &fakeHTTP{responses: map[string]fakeResponse{
+				"https://netbox.example.com/api/dcim/devices/?limit=100": {body: pageJSON(1, "", row)},
+			}}
+			swapHTTP(t, fake)
 
-	device := result.DeviceDiscovery[0].Devices[0]
-	if device.IP != "2001:db8::7" {
-		t.Fatalf("expected IPv6 fallback, got %q", device.IP)
+			result := runInventorySyncSource(testSource())
+
+			device := result.DeviceDiscovery[0].Devices[0]
+			if device.IP != tc.want {
+				t.Fatalf("primary IP = %q, want %q", device.IP, tc.want)
+			}
+		})
 	}
 }
 

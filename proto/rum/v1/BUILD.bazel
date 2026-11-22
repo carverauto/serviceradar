@@ -1,0 +1,28 @@
+# gazelle:ignore
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+
+proto_library(
+    name = "rumpb_proto",
+    srcs = ["rum.proto"],
+    strip_import_prefix = "/proto",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "rum_proto_src",
+    srcs = ["rum.proto"],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "rumpb",
+    srcs = ["rum.pb.go"],
+    importpath = "github.com/carverauto/serviceradar/proto/rum/v1",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+    ],
+)

@@ -10,10 +10,15 @@ and posts one Discord message naming every watched job whose newest status is
   * pending for longer than STALLED_AFTER, or
   * absent, or a success older than EXPECTED_WITHIN (the job did not run).
 
+The Rekor signing monitor is a GitHub Actions workflow and posts no commit status, so it is not
+in WATCHED_JOBS: a separate Actions run lookup reports it when its last successful scan on staging
+(a run that kept its checkpoint artifact) is older than MONITOR_EXPECTED_WITHIN (three of its
+hourly scan intervals).
+
 It runs from .github/workflows/scheduled-job-watch.yml, after the last nightly.
 
 Environment:
-  GITHUB_TOKEN                     reads commit statuses
+  GITHUB_TOKEN                     reads commit statuses and Actions runs
   GITHUB_REPOSITORY                owner/name
   CI_FAILURE_DISCORD_WEBHOOK_URL   where the message goes (a credential)
 
@@ -29,6 +34,7 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPException
 
 # Every action in //:buildbuddy.yaml with a schedule trigger.
 # //build/ci:scheduled_job_watch_test fails when this list and that file differ.
@@ -46,6 +52,12 @@ STALLED_AFTER = timedelta(hours=6)
 LOOKBACK = timedelta(hours=72)
 WEBHOOK_ENV = "CI_FAILURE_DISCORD_WEBHOOK_URL"
 GITHUB_GRAPHQL = "https://api.github.com/graphql"
+GITHUB_API = "https://api.github.com"
+MONITOR_WORKFLOW = "rekor-signing-monitor.yml"
+MONITOR_NAME = "Rekor Signing Monitor"
+MONITOR_EXPECTED_WITHIN = timedelta(hours=3)
+MONITOR_SCAN_EVENTS = ("schedule", "workflow_dispatch")
+MONITOR_STATE_ARTIFACT = "rekor-signing-monitor-state"
 # Discord rejects a message longer than 2000 characters.
 MESSAGE_LIMIT = 2000
 TIMEOUT_SECONDS = 30
@@ -83,6 +95,47 @@ def request_json(url, payload, headers):
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         body = response.read()
     return json.loads(body) if body else None
+
+
+def get_json(url, headers):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        return json.loads(response.read())
+
+
+def pages(url, headers, key):
+    """Every item of a GitHub list, one page of 100 at a time."""
+    page = 1
+    while True:
+        items = get_json(f"{url}{'&' if '?' in url else '?'}per_page=100&page={page}", headers).get(key) or []
+        yield from items
+        if len(items) < 100:
+            return
+        page += 1
+
+
+def monitor_problems(api, token, repository, now):
+    """A line when the Rekor signing monitor has not scanned within MONITOR_EXPECTED_WITHIN.
+
+    A scan is a successful schedule or workflow_dispatch run on BRANCH that kept its checkpoint
+    artifact; a self-test dispatch keeps none, so it never counts.
+    """
+    api = api.rstrip("/")
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+               "User-Agent": "scheduled-job-watch/1"}
+    last = None
+    for run in pages(f"{api}/repos/{repository}/actions/workflows/{MONITOR_WORKFLOW}/runs?status=success", headers,
+                     "workflow_runs"):
+        if run.get("head_branch") != BRANCH or run.get("event") not in MONITOR_SCAN_EVENTS:
+            continue
+        artifacts = pages(f"{api}/repos/{repository}/actions/runs/{run['id']}/artifacts", headers, "artifacts")
+        if any(artifact["name"] == MONITOR_STATE_ARTIFACT for artifact in artifacts):
+            last = parse_time(run["updated_at"])
+            break
+    if last is not None and now - last <= MONITOR_EXPECTED_WITHIN:
+        return []
+    seen = f"last scan {last:%Y-%m-%d %H:%M} UTC" if last else "no successful scan found"
+    return [f"**{MONITOR_NAME}** has not scanned in the last {hours(MONITOR_EXPECTED_WITHIN)} hours ({seen})."]
 
 
 def parse_time(text):
@@ -169,7 +222,7 @@ def post(webhook, content):
     )
 
 
-def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL):
+def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL, actions_api=GITHUB_API):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--self-test",
@@ -182,14 +235,19 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL):
     if args.self_test:
         content = "Scheduled CI job watch: test message. The webhook works."
     else:
-        try:
-            newest = newest_statuses(
-                graphql_url, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now
-            )
-        except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
-            print(f"could not read commit statuses: {type(error).__name__}: {error}", file=sys.stderr)
-            return 1
-        found = problems(newest, now)
+        found, read_failed = [], False
+        for what, read in (
+            ("the commit statuses", lambda: problems(newest_statuses(
+                graphql_url, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now), now)),
+            (f"the {MONITOR_NAME} runs", lambda: monitor_problems(
+                actions_api, environ["GITHUB_TOKEN"], environ["GITHUB_REPOSITORY"], now)),
+        ):
+            try:
+                found += read()
+            except (urllib.error.URLError, OSError, HTTPException, ValueError, KeyError, TypeError) as error:
+                print(f"could not read {what}: {type(error).__name__}: {error}", file=sys.stderr)
+                found.append(f"Could not read {what} ({type(error).__name__}).")
+                read_failed = True
         if not found:
             print("every scheduled job is healthy")
             return 0
@@ -202,12 +260,12 @@ def main(argv, environ, now=None, graphql_url=GITHUB_GRAPHQL):
         return 1
     try:
         post(webhook, content)
-    except (urllib.error.URLError, OSError) as error:
+    except (urllib.error.URLError, OSError, HTTPException) as error:
         # The URL is a credential: report the kind of failure, never the URL.
         reason = getattr(error, "code", None) or type(error).__name__
         print(f"the notification was not delivered ({reason})", file=sys.stderr)
         return 1
-    return 0
+    return 1 if not args.self_test and read_failed else 0
 
 
 if __name__ == "__main__":

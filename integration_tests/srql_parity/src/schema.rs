@@ -402,6 +402,63 @@ pub const POST_BASELINE_TABLES: &[&str] = &[
     "SELECT create_hypertable('platform.device_availability_transitions', 'changed_at', \
      chunk_time_interval => INTERVAL '7 days', create_default_indexes => false, \
      migrate_data => true, if_not_exists => true)",
+    // 20261118093331_create_rum_beacons.exs
+    "CREATE TABLE IF NOT EXISTS platform.rum_beacons (
+       web_property_id text NOT NULL,
+       observed_at timestamptz NOT NULL,
+       beacon_id text NOT NULL,
+       canonical_origin text,
+       environment text,
+       url text,
+       host text,
+       path text,
+       metric_path text,
+       referrer text,
+       page_group text,
+       initiator text,
+       trace_id text,
+       span_id text,
+       session_id text,
+       user_agent text,
+       device_type text,
+       browser text,
+       os text,
+       lcp_ms double precision,
+       inp_ms double precision,
+       cls double precision,
+       fcp_ms double precision,
+       ttfb_ms double precision,
+       page_load_ms double precision,
+       dns_ms double precision,
+       connect_ms double precision,
+       tls_ms double precision,
+       dom_ready_ms double precision,
+       rage_clicks integer NOT NULL DEFAULT 0,
+       js_errors integer NOT NULL DEFAULT 0,
+       http_status integer NOT NULL DEFAULT 0,
+       has_error boolean NOT NULL DEFAULT false,
+       cdn_provider text,
+       cdn_cache_status text,
+       cdn_edge_rtt_ms double precision,
+       cdn_origin_rtt_ms double precision,
+       cdn_pop text,
+       server_timing_raw text,
+       client_ip text,
+       client_ip_anonymized boolean NOT NULL DEFAULT true,
+       country text,
+       region text,
+       city text,
+       asn integer,
+       as_org text,
+       prefix_tag text,
+       attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
+       created_at timestamptz NOT NULL DEFAULT now()
+     )",
+    "CREATE UNIQUE INDEX IF NOT EXISTS rum_beacons_identity_idx
+       ON platform.rum_beacons (web_property_id, beacon_id, observed_at)",
+    "SELECT create_hypertable('platform.rum_beacons', 'observed_at', \
+     chunk_time_interval => INTERVAL '1 day', create_default_indexes => false, \
+     migrate_data => true, if_not_exists => true)",
 ];
 
 /// Hypertables and continuous aggregates, restated from the migrations named beside each.

@@ -39,5 +39,6 @@ defmodule ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  # An atomic update never calls change/3, so the hook is registered here too.
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 end

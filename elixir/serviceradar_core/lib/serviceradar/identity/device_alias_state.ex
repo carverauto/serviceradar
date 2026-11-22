@@ -222,12 +222,14 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :mark_stale do
       description "Mark alias as stale (not seen recently)"
+      accept @metadata_fields
 
       change transition_state(:stale)
     end
 
     update :reactivate do
       description "Reactivate a stale alias"
+      accept @metadata_fields
 
       validate {AliasValue, []}
 

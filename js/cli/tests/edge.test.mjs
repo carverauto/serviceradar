@@ -228,12 +228,14 @@ test("agent list prints a table from the admin route", async () => {
 
 test("edge package create sends the UI-equivalent payload and prints the onboarding token", async () => {
   const token = edgepkgToken("pkg-1")
+  const publicKey = Buffer.alloc(32, 5).toString("base64")
   await withServer(
     (req, res) => json(res, 201, {
       package: {package_id: "pkg-1", label: "Branch Office 1", component_id: "agent-branch-office-1", component_type: "agent", status: "issued", site: "branch"},
       join_token: "join",
       download_token: "dl",
       onboarding_token: token,
+      onboarding_token_public_key: publicKey,
       bundle_pem: "",
     }),
     async (instance, requests) => {
@@ -257,12 +259,40 @@ test("edge package create sends the UI-equivalent payload and prints the onboard
       })
       assert.match(stdout, /Created agent package pkg-1/)
       assert.ok(stdout.includes(token))
-      assert.match(stdout, /edge install agent --instance .* --package pkg-1/)
+      assert.ok(stdout.includes(`--token-public-key ${publicKey}`))
+      assert.doesNotMatch(stdout, /did not return its onboarding token public key/)
 
       const asJson = await runCli(["edge", "package", "create", "--instance", instance, "--label", "x", "--json"], {env: TOKEN_ENV})
       const parsed = JSON.parse(asJson.stdout)
       assert.equal(parsed.package.package_id, "pkg-1")
       assert.equal(parsed.onboarding_token, token)
+      assert.equal(parsed.onboarding_token_public_key, publicKey)
+    },
+  )
+})
+
+test("edge package create omits --token-public-key and explains where to get it when the instance omits the key", async () => {
+  const token = edgepkgToken("pkg-older")
+  await withServer(
+    (req, res) => json(res, 201, {
+      package: {package_id: "pkg-older", label: "Branch Older", component_id: "agent-branch-older", component_type: "agent", status: "issued"},
+      join_token: "join",
+      download_token: "dl",
+      onboarding_token: token,
+    }),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(
+        ["edge", "package", "create", "--instance", instance, "--label", "Branch Older", "--component-type", "agent"],
+        {env: TOKEN_ENV},
+      )
+      assert.equal(code, 0, stderr)
+      assert.match(stdout, /edge install agent --instance .* --package pkg-older --token '<onboarding token>' --version <release>/)
+      assert.doesNotMatch(stdout, /--token-public-key <token public key>/)
+      assert.match(stdout, /did not return its onboarding token public key.*Settings -> Edge onboarding.*--token-public-key/)
+
+      const asJson = await runCli(["edge", "package", "create", "--instance", instance, "--label", "Branch Older", "--json"], {env: TOKEN_ENV})
+      const parsed = JSON.parse(asJson.stdout)
+      assert.equal(parsed.onboarding_token_public_key, null)
     },
   )
 })
@@ -387,6 +417,63 @@ test("edge site create/list/show use the edge-sites contract", async () => {
   )
 })
 
+// The Edge Sites page shows a managed site by its deployment status. The site
+// record's own status stays "pending" for the life of a managed site, so the
+// CLI must report the same state the page does.
+test("edge site list, show, and install leaf report deployment status for managed sites", async () => {
+  const managed = {...SITE, status: "pending", deployment_status: "installed", managed: true, leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
+  await withServer(
+    (req, res) => {
+      if (managedBootstrap(req, res)) return
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites") return json(res, 200, {data: [managed]})
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: managed})
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const list = await runCli(["edge", "site", "list", "--instance", instance], {env: TOKEN_ENV})
+      const rows = list.stdout.trim().split("\n").map((line) => line.split(/\s{2,}/))
+      assert.deepEqual(rows[1], ["site-1", "Branch 1", "branch-1", "installed", "installed", "2026-10-03T00:00:00Z"])
+
+      const show = await runCli(["edge", "site", "show", "site-1", "--instance", instance], {env: TOKEN_ENV})
+      assert.match(show.stdout, /status:\s+installed/)
+      assert.match(show.stdout, /leaf status:\s+installed/)
+      assert.doesNotMatch(show.stdout, /pending|provisioned/)
+
+      const install = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      assert.equal(install.code, 0, install.stderr)
+      assert.match(install.stdout, /leaf status: installed/)
+    },
+  )
+})
+
+// An updated server always returns deployment_status (the site's own status when
+// unmanaged), alongside managed: false. Unmanaged sites must keep showing the
+// leaf record's own status in LEAF / leaf status, matching the Edge Sites page.
+test("edge site list, show, and install leaf keep the leaf record status for unmanaged sites", async () => {
+  const unmanaged = {...SITE, status: "pending", deployment_status: "pending", managed: false, leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
+  await withServer(
+    (req, res) => {
+      if (managedBootstrap(req, res)) return
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites") return json(res, 200, {data: [unmanaged]})
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: unmanaged})
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const list = await runCli(["edge", "site", "list", "--instance", instance], {env: TOKEN_ENV})
+      const rows = list.stdout.trim().split("\n").map((line) => line.split(/\s{2,}/))
+      assert.deepEqual(rows[1], ["site-1", "Branch 1", "branch-1", "pending", "provisioned", "2026-10-03T00:00:00Z"])
+
+      const show = await runCli(["edge", "site", "show", "site-1", "--instance", instance], {env: TOKEN_ENV})
+      assert.match(show.stdout, /status:\s+pending/)
+      assert.match(show.stdout, /leaf status:\s+provisioned/)
+
+      const install = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      assert.equal(install.code, 0, install.stderr)
+      assert.match(install.stdout, /leaf status: provisioned/)
+    },
+  )
+})
+
 test("edge site bundle fails with a --wait hint while the leaf is not ready", async () => {
   await withServer(
     (req, res) => json(res, 409, {error: "leaf_not_ready"}),
@@ -507,31 +594,106 @@ test("nats account status renders the deployment's NATS account", async () => {
 
 // ------------------------------------------------------------------ install helpers
 
+const READY_HUB = {
+  enforcement_configured: true,
+  authorizer_answering: true,
+  authorizer_reason: null,
+  leaf_listener: true,
+  leaf_upstream_url: true,
+  chart_identities: {
+    total: 13,
+    adopted: 13,
+    legacy_certificates: 0,
+    not_adopted: [],
+    unlisted: [],
+  },
+}
+
 function managedBootstrap(req, res) {
   if (req.path !== "/api/admin/managed-components/bootstrap") return false
-  json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"}}})
+  json(res, 200, {
+    data: {
+      policy_public_key: Buffer.alloc(32, 7).toString("base64"),
+      nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"},
+      hub: READY_HUB,
+    },
+  })
   return true
 }
 
 const DRY = ["--dry-run", "--format", "rpm", "--arch", "x86_64"]
+// An invented Ed25519 public key in the base64 form the deployment publishes.
+const TOKEN_PUBLIC_KEY = Buffer.alloc(32, 9).toString("base64")
 
 test("edge install agent --dry-run plans the release RPM, dnf, and srctl enroll without leaking the token", async () => {
   const token = edgepkgToken("pkg-1")
   const {code, stdout, stderr} = await runCli(
-    ["edge", "install", "agent", "--instance", "https://tenant.example", "--package", "pkg-1", "--token", token, "--version", "v1.4.81", ...DRY],
+    ["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, "--instance", "https://tenant.example", "--package", "pkg-1", "--token", token, "--version", "v1.4.81", ...DRY],
   )
   assert.equal(code, 0, stderr)
   assert.match(stdout, /download https:\/\/github\.com\/carverauto\/serviceradar\/releases\/download\/v1\.4\.81\/serviceradar-agent-1\.4\.81-1\.x86_64\.rpm/)
   assert.match(stdout, /run: dnf install -y \S+serviceradar-agent-1\.4\.81-1\.x86_64\.rpm/)
-  assert.match(stdout, /run: \/usr\/local\/bin\/srctl enroll --core-url https:\/\/tenant\.example --token <token>/)
+  assert.match(stdout, /run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=\S+ \/usr\/local\/bin\/srctl enroll --core-url https:\/\/tenant\.example --token <token>/)
   assert.match(stdout, /systemctl restart serviceradar-agent\.service/)
   assert.ok(!stdout.includes(token), "the onboarding token must not be printed")
   assert.match(stdout, /nothing was changed/)
 })
 
+// srctl verifies the token signature with the deployment's public key, read
+// from its environment. Dry-run verifies the plan includes the key, the env
+// var is accepted, and missing or malformed keys are refused before touching
+// the host.
+test("edge install agent plans the token public key, accepts it from env, and refuses missing or malformed keys", async () => {
+  const token = edgepkgToken("pkg-1")
+  const base = ["--instance", "https://tenant.example", "--package", "pkg-1", "--token", token, "--version", "1.4.81", ...DRY]
+  // Bytes whose base64 uses '+' and '/' and whose base64url uses '-' and '_' in both halves.
+  const rawKey = Buffer.from([0xfb, 0xff, 0xbf, 0xef, ...Array(24).fill(0x5a), 0xfb, 0xff, 0xbf, 0xef])
+  const validKeys = [
+    rawKey.toString("base64"),
+    rawKey.toString("base64").replace(/=+$/, ""),
+    rawKey.toString("base64url"),
+    `${rawKey.toString("base64url")}=`,
+  ]
+
+  for (const key of validKeys) {
+    const planned = await runCli(["edge", "install", "agent", "--token-public-key", key, ...base])
+    assert.equal(planned.code, 0, `${key}: ${planned.stderr}`)
+    assert.ok(
+      planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY=${key} /usr/local/bin/srctl enroll`) ||
+        planned.stdout.includes(`run: SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY='${key}' /usr/local/bin/srctl enroll`),
+      planned.stdout,
+    )
+  }
+
+  const missing = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: ""}})
+  assert.notEqual(missing.code, 0)
+  assert.match(missing.stderr, /--token-public-key is required/)
+  assert.match(missing.stderr, /Settings -> Edge onboarding/)
+  assert.doesNotMatch(missing.stderr, /`edge package create` prints it with the install command/)
+
+  for (const key of [TOKEN_PUBLIC_KEY, rawKey.toString("base64url")]) {
+    const fromEnvironment = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: key}})
+    assert.equal(fromEnvironment.code, 0, `${key}: ${fromEnvironment.stderr}`)
+  }
+
+  const malformedKeys = [
+    "not-a-key",
+    rawKey.toString("hex"),
+    rawKey.toString("hex").toUpperCase(),
+    Buffer.alloc(31, 9).toString("base64"),
+    `${"A".repeat(42)}B=`,
+    `${rawKey.toString("base64").slice(0, 20)}${rawKey.toString("base64url").slice(20)}`,
+  ]
+  for (const badKey of malformedKeys) {
+    const malformed = await runCli(["edge", "install", "agent", "--token-public-key", badKey, ...base])
+    assert.notEqual(malformed.code, 0, `expected ${badKey} to be rejected`)
+    assert.match(malformed.stderr, /must be a 32-byte Ed25519 public key \(base64 or base64url\)/)
+  }
+})
+
 test("edge install agent maps deb hosts and arm64 to the matching release asset", async () => {
   const {stdout} = await runCli(
-    ["edge", "install", "agent", "--instance", "https://t.example", "--package", "p", "--token", "t", "--version", "1.4.81", "--dry-run", "--format", "deb", "--arch", "arm64"],
+    ["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, "--instance", "https://t.example", "--package", "p", "--token", "t", "--version", "1.4.81", "--dry-run", "--format", "deb", "--arch", "arm64"],
   )
   assert.match(stdout, /v1\.4\.81\/serviceradar-agent_1\.4\.81_arm64\.deb/)
   assert.match(stdout, /run: apt-get install -y /)
@@ -539,7 +701,7 @@ test("edge install agent maps deb hosts and arm64 to the matching release asset"
 
 test("edge install agent refuses a token issued for another package", async () => {
   const {code, stderr} = await runCli(
-    ["edge", "install", "agent", "--instance", "https://t.example", "--package", "pkg-1", "--token", edgepkgToken("pkg-2"), "--version", "1.4.81", ...DRY],
+    ["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, "--instance", "https://t.example", "--package", "pkg-1", "--token", edgepkgToken("pkg-2"), "--version", "1.4.81", ...DRY],
   )
   assert.notEqual(code, 0)
   assert.match(stderr, /--token belongs to edge package pkg-2, not --package pkg-1/)
@@ -547,7 +709,7 @@ test("edge install agent refuses a token issued for another package", async () =
 
 test("edge install agent requires --version", async () => {
   const {code, stderr} = await runCli(
-    ["edge", "install", "agent", "--instance", "https://t.example", "--package", "p", "--token", "t", ...DRY],
+    ["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, "--instance", "https://t.example", "--package", "p", "--token", "t", ...DRY],
   )
   assert.notEqual(code, 0)
   assert.match(stderr, /--version is required/)
@@ -555,7 +717,7 @@ test("edge install agent requires --version", async () => {
 
 test("edge install refuses to change the host unless run as root", {skip: process.getuid?.() === 0}, async () => {
   const {code, stderr} = await runCli(
-    ["edge", "install", "agent", "--instance", "https://t.example", "--package", "p", "--token", "t", "--version", "1.4.81"],
+    ["edge", "install", "agent", "--token-public-key", TOKEN_PUBLIC_KEY, "--instance", "https://t.example", "--package", "p", "--token", "t", "--version", "1.4.81"],
   )
   assert.notEqual(code, 0)
   assert.match(stderr, /must run as root/)
@@ -672,11 +834,161 @@ test("edge install collector without --version uses the latest package and confi
   )
 })
 
+test("edge hub status prints readiness, identity coverage, and uncovered warnings", async () => {
+  await withServer(
+    (req, res) => {
+      if (req.path === "/api/admin/managed-components/bootstrap") {
+        return json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true}, hub: READY_HUB}})
+      }
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const human = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(human.code, 0, human.stderr)
+      assert.match(human.stdout, /enforcement:\s+configured/)
+      assert.doesNotMatch(human.stdout, /signing keys:/)
+      assert.match(human.stdout, /authorizer:\s+answering/)
+      assert.match(human.stdout, /leaf listener:\s+configured/)
+      assert.match(human.stdout, /leaf upstream url:\s+configured/)
+      assert.match(human.stdout, /chart identities:\s+13\/13 adopted/)
+      assert.doesNotMatch(human.stdout, /WARNING:/)
+
+      const asJson = await runCli(["edge", "hub", "status", "--instance", instance, "--json"], {env: TOKEN_ENV})
+      assert.equal(asJson.code, 0, asJson.stderr)
+      assert.deepEqual(JSON.parse(asJson.stdout), READY_HUB)
+    },
+  )
+
+  const partialHub = {
+    enforcement_configured: true,
+    authorizer_answering: false,
+    authorizer_reason: "signing_keys_not_provisioned",
+    leaf_listener: true,
+    leaf_upstream_url: false,
+    chart_identities: {
+      total: 13,
+      adopted: 11,
+      legacy_certificates: 2,
+      not_adopted: [
+        {
+          subject: "CN=agent-gateway",
+          reason: "no_inventory_certificate",
+        },
+        {
+          subject: "CN=core-elx",
+          reason: "held_unrecorded",
+          rotation_reason: "manifest_missing",
+          remedy: "Subject is held and the current inventory certificate is unrecorded; record it through the successor API (POST /api/admin/managed-components/<id>/certificates).",
+        },
+      ],
+      unlisted: [
+        {file: "extra.pem", reason: "untrusted_issuer"},
+      ],
+    },
+  }
+  await withServer(
+    (req, res) => json(res, 200, {data: {hub: partialHub}}),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(code, 0, stderr)
+      assert.doesNotMatch(stdout, /signing keys:/)
+      assert.match(stdout, /authorizer:\s+not answering \(signing keys not provisioned\)/)
+      assert.match(stdout, /leaf upstream url:\s+not configured/)
+      assert.match(stdout, /chart identities:\s+11\/13 adopted \(2 legacy without subject\)/)
+      assert.match(stdout, /WARNING: CN=agent-gateway .*no inventory certificate supplied \(no_inventory_certificate\)/)
+      assert.match(stdout, /WARNING: CN=core-elx .*held_unrecorded/)
+      assert.match(stdout, /rotation reason: manifest_missing/)
+      assert.match(stdout, /remedy: Subject is held.*POST \/api\/admin\/managed-components\/<id>\/certificates/)
+      assert.match(stdout, /WARNING: unlisted inventory file extra\.pem .*untrusted_issuer/)
+    },
+  )
+
+  const unreadableHubs = [
+    {name: "null hub", hub: null},
+    {name: "missing required booleans", hub: {enforcement_configured: true, chart_identities: READY_HUB.chart_identities}},
+    {name: "non-string authorizer_reason", hub: {...READY_HUB, authorizer_reason: 42}},
+    {name: "missing chart_identities", hub: {...READY_HUB, chart_identities: undefined}},
+    {name: "renamed chart_identities list (identities instead of total/adopted/not_adopted)", hub: {...READY_HUB, chart_identities: {identities: [{subject: "CN=core-elx", status: "not_adopted", reason: "no_inventory_certificate"}]}}},
+    {name: "renamed not_adopted key", hub: {...READY_HUB, chart_identities: {total: 13, adopted: 12, uncovered: [{subject: "CN=core-elx", reason: "no_inventory_certificate"}]}}},
+    {name: "adopted + not_adopted count mismatch", hub: {...READY_HUB, chart_identities: {total: 13, adopted: 10, not_adopted: []}}},
+    {name: "invalid not_adopted entry", hub: {...READY_HUB, chart_identities: {total: 1, adopted: 0, not_adopted: [{subject: "CN=core-elx"}]}}},
+  ]
+  for (const tc of unreadableHubs) {
+    await withServer(
+      (req, res) => json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), hub: tc.hub}}),
+      async (instance) => {
+        const human = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+        assert.notEqual(human.code, 0, tc.name)
+        assert.match(human.stderr, /hub status is missing or unreadable/, tc.name)
+        assert.match(human.stderr, /wait and retry, and check core's health/, tc.name)
+        assert.doesNotMatch(human.stdout, /0\/0 adopted/, tc.name)
+
+        const asJson = await runCli(["edge", "hub", "status", "--instance", instance, "--json"], {env: TOKEN_ENV})
+        assert.notEqual(asJson.code, 0, `${tc.name} (--json)`)
+        assert.match(asJson.stderr, /hub status is missing or unreadable/, `${tc.name} (--json)`)
+      },
+    )
+  }
+
+  const unconfiguredHub = {
+    enforcement_configured: false,
+    authorizer_answering: false,
+    authorizer_reason: "auth_connection_unavailable",
+    leaf_listener: false,
+    leaf_upstream_url: false,
+    chart_identities: {
+      total: 2,
+      adopted: 0,
+      not_adopted: [
+        {
+          subject: "CN=core-elx",
+          reason: "held_unrecorded",
+          rotation_reason: null,
+          remedy: "Record the successor certificate through the successor API.",
+        },
+        {
+          subject: "CN=datasvc",
+          reason: "adoption_failed:db_timeout",
+        },
+      ],
+    },
+  }
+  await withServer(
+    (req, res) => json(res, 200, {hub: unconfiguredHub}),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(code, 0, stderr)
+      assert.match(stdout, /enforcement:\s+not configured/)
+      assert.match(stdout, /authorizer:\s+not answering \(auth_connection_unavailable\)/)
+      assert.match(stdout, /leaf listener:\s+not configured/)
+      assert.match(stdout, /leaf upstream url:\s+not configured/)
+      assert.match(stdout, /chart identities:\s+0\/2 adopted/)
+      assert.doesNotMatch(stdout, /rotation reason:/)
+      assert.match(stdout, /WARNING: CN=core-elx .*held_unrecorded/)
+      assert.match(stdout, /remedy: Record the successor certificate/)
+      assert.match(stdout, /WARNING: CN=datasvc — adoption failed \(db_timeout\)/)
+    },
+  )
+
+  await withServer(
+    (req, res) => json(res, 403, {error: "insufficient_scope", granted: ["dashboard.publish"]}),
+    async (instance) => {
+      const forbidden = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.notEqual(forbidden.code, 0)
+      assert.match(forbidden.stderr, /does not carry the edge\.manage scope/)
+    },
+  )
+
+  const unknownSub = await runCli(["edge", "hub", "bogus", "--instance", "https://tenant.example"], {env: TOKEN_ENV})
+  assert.notEqual(unknownSub.code, 0)
+  assert.match(unknownSub.stderr, /unknown subcommand: edge hub bogus/)
+})
+
 test("edge install leaf stops before packaging unless static mTLS names the deployment account", async () => {
   const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
-  const bootstrap = (nats) => (req, res) => {
+  const bootstrap = (nats, hub = READY_HUB) => (req, res) => {
     if (req.path === "/api/admin/managed-components/bootstrap") {
-      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, hub}})
       return
     }
     if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
@@ -709,47 +1021,257 @@ test("edge install leaf stops before packaging unless static mTLS names the depl
   })
 })
 
-test("edge install leaf onboards locally while the hub authorizer is disconnected", async () => {
-  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
-  const bootstrap = (nats) => (req, res) => {
+test("edge install leaf enforces the 6 ordered hub readiness preflight checks before any GitHub or host step", async () => {
+  const bootstrap = (hub, nats = {ready: true, auth_mode: "static_mtls", account_name: "EDGE"}) => (req, res) => {
     if (req.path === "/api/admin/managed-components/bootstrap") {
-      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, hub}})
+      return
+    }
+    if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+    if (req.path === "/github/releases/latest") return json(res, 200, latestRelease(LATEST_PACKAGES))
+    return json(res, 404, {})
+  }
+  const calls = ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"]
+
+  const cases = [
+    {
+      name: "1a. missing hub",
+      hub: undefined,
+      nats: {ready: false, reason: "not_configured"},
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "1b. null hub",
+      hub: null,
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "1c. unreadable hub (missing/non-boolean fields)",
+      hub: {enforcement_configured: "yes", authorizer_answering: false},
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "1d. unreadable hub (non-string authorizer_reason)",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: true,
+        authorizer_reason: 123,
+        leaf_listener: true,
+        leaf_upstream_url: true,
+      },
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
+      name: "2. enforcement not configured (takes precedence over signing keys/authorizer/listener/upstream)",
+      hub: {
+        enforcement_configured: false,
+        authorizer_answering: false,
+        authorizer_reason: "signing_keys_not_provisioned",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /hub certificate authorization enforcement is not configured/,
+      action: /nats\.certificateAuthorization\.enabled/,
+    },
+    {
+      name: "3. signing keys not provisioned via authorizer_reason (takes precedence over authorizer/listener/upstream)",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: false,
+        authorizer_reason: "signing_keys_not_provisioned",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /signing keys not provisioned/,
+      action: /provision the missing signing seeds in the issuer Secret/,
+    },
+    {
+      name: "4. authorizer otherwise not answering (takes precedence over listener/upstream, ignores uncontracted signing_keys_provisioned)",
+      hub: {
+        enforcement_configured: true,
+        signing_keys_provisioned: false,
+        authorizer_answering: false,
+        authorizer_reason: "connecting",
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      nats: {ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"},
+      cause: /hub authorizer is not answering \(connecting\)/,
+      action: /check NATS and core health/,
+    },
+    {
+      name: "4b. authorizer not answering without reason defaults to authorizer_unavailable",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: false,
+        authorizer_reason: null,
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      nats: {ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"},
+      cause: /hub authorizer is not answering \(authorizer_unavailable\)/,
+      action: /check NATS and core health/,
+    },
+    {
+      name: "5. leaf listener not configured (takes precedence over upstream)",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: true,
+        authorizer_reason: null,
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      cause: /hub broker leaf listener is not configured/,
+      action: /nats\.leafnodes\.enabled/,
+    },
+    {
+      name: "6. no leaf upstream URL",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: true,
+        authorizer_reason: null,
+        leaf_listener: true,
+        leaf_upstream_url: false,
+      },
+      cause: /leaf upstream URL is not configured/,
+      action: /hostedRuntime\.publicEndpoints\.natsLeafHost/,
+    },
+  ]
+
+  for (const tc of cases) {
+    await withServer(bootstrap(tc.hub, tc.nats), async (instance, requests) => {
+      const refused = await runCli(
+        ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, "--instance", instance, ...DRY],
+        {env: TOKEN_ENV},
+      )
+      assert.notEqual(refused.code, 0, tc.name)
+      assert.match(refused.stderr, tc.cause, tc.name)
+      assert.match(refused.stderr, tc.action, tc.name)
+      assert.equal(refused.stdout.includes("serviceradar-nats"), false, tc.name)
+      assert.deepEqual(requests.map((request) => `${request.method} ${request.path}`), calls, tc.name)
+    })
+  }
+})
+
+test("edge install leaf proceeds when all 6 checks pass even with empty or partial chart_identities", async () => {
+  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (chartIdentities) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {
+        data: {
+          policy_public_key: Buffer.alloc(32, 7).toString("base64"),
+          nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"},
+          hub: {...READY_HUB, chart_identities: chartIdentities},
+        },
+      })
       return
     }
     if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
     return json(res, 404, {})
   }
 
-  await withServer(bootstrap({ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"}), async (instance) => {
-    const pending = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({total: 0, adopted: 0, legacy_certificates: 0, not_adopted: [], unlisted: []}), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(
+    bootstrap({total: 13, adopted: 12, legacy_certificates: 0, not_adopted: [{subject: "CN=agent-gateway", reason: "no_inventory_certificate"}], unlisted: []}),
+    async (instance) => {
+      const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(ok.code, 0, ok.stderr)
+      assert.match(ok.stdout, /1 chart identity is not adopted yet \(advisory/)
+      assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    },
+  )
+
+  await withServer(
+    bootstrap({
+      total: 13,
+      adopted: 11,
+      legacy_certificates: 0,
+      not_adopted: [
+        {subject: "CN=agent-gateway", reason: "no_inventory_certificate"},
+        {subject: "CN=datasvc", reason: "held_unrecorded"},
+      ],
+      unlisted: [],
+    }),
+    async (instance) => {
+      const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(ok.code, 0, ok.stderr)
+      assert.match(ok.stdout, /2 chart identities are not adopted yet \(advisory/)
+      assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    },
+  )
+
+  await withServer(bootstrap(undefined), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(bootstrap({identities: []}), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /chart identity coverage could not be read \(advisory/)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+})
+
+test("edge install collector keeps local onboarding behavior when hub is absent or disconnected", async () => {
+  const collector = ["edge", "install", "collector", "--id", "col-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (nats, hub) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats, ...(hub !== undefined ? {hub} : {})}})
+      return
+    }
+    if (req.path === "/api/admin/collectors/col-1") return json(res, 200, {id: "col-1", collector_type: "sflow", status: "ready"})
+    return json(res, 404, {})
+  }
+
+  await withServer(bootstrap({ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"}, undefined), async (instance) => {
+    const pending = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.equal(pending.code, 0, pending.stderr)
     assert.match(pending.stdout, /hub enforcement is not connected \(connecting\)/)
     assert.match(pending.stdout, /local onboarding continues/)
-    assert.equal(pending.stdout.includes("static mTLS account EDGE"), false)
-    assert.match(pending.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    assert.match(pending.stdout, /serviceradar-flow-collector-1\.4\.81-1\.x86_64\.rpm/)
   })
 
-  await withServer(bootstrap({ready: false, reason: "not_configured"}), async (instance) => {
-    const unconfigured = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "not_configured"}, null), async (instance) => {
+    const unconfigured = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.equal(unconfigured.code, 0, unconfigured.stderr)
     assert.match(unconfigured.stdout, /hub enforcement is not configured/)
-    assert.equal(unconfigured.stdout.includes("static mTLS account"), false)
-    assert.match(unconfigured.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    assert.match(unconfigured.stdout, /serviceradar-flow-collector-1\.4\.81-1\.x86_64\.rpm/)
   })
 
-  await withServer(bootstrap({ready: false, reason: "unsupported_auth_mode:token"}), async (instance) => {
-    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "unsupported_auth_mode:token"}, undefined), async (instance) => {
+    const refused = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.notEqual(refused.code, 0)
     assert.match(refused.stderr, /requires static mTLS; got unsupported_auth_mode:token/)
-    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.equal(refused.stdout.includes("serviceradar-flow-collector"), false)
   })
 
-  await withServer(bootstrap({ready: false, reason: "jwt_account_signer_unconfigured", auth_mode: "operator_jwt", account_name: "EDGE"}), async (instance) => {
-    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+  await withServer(bootstrap({ready: false, reason: "jwt_account_signer_unconfigured", auth_mode: "operator_jwt", account_name: "EDGE"}, undefined), async (instance) => {
+    const refused = await runCli([...collector, "--instance", instance], {env: TOKEN_ENV})
     assert.notEqual(refused.code, 0)
     assert.match(refused.stderr, /requires static mTLS; got operator_jwt/)
-    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.equal(refused.stdout.includes("serviceradar-flow-collector"), false)
   })
+})
+
+test("help output documents edge hub status", async () => {
+  const topHelp = await runCli(["--help"])
+  assert.equal(topHelp.code, 0, topHelp.stderr)
+  assert.match(topHelp.stdout, /serviceradar-cli edge hub status/)
+
+  const edgeHelp = await runCli(["edge", "help"])
+  assert.equal(edgeHelp.code, 0, edgeHelp.stderr)
+  assert.match(edgeHelp.stdout, /serviceradar-cli edge hub status/)
 })
 
 test("edge install leaf --dry-run checks the site exists and plans managed NATS onboarding", async () => {

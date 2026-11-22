@@ -725,6 +725,12 @@ func (s *Server) Stop(_ context.Context) error {
 		}
 	}
 
+	if s.netperfService != nil {
+		if err := s.netperfService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop netperf service")
+		}
+	}
+
 	if s.pluginManager != nil {
 		s.pluginManager.Stop()
 	}

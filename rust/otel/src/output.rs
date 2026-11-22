@@ -43,6 +43,8 @@ pub const INGEST_IDENTITY_HEADER: &str = "Sr-Ingest-Identity";
 /// across all log records in the chunk. Absent when no records carry the
 /// attribute.
 pub const SR_DEVICE_ID_HEADER: &str = "Sr-Device-Id";
+/// NATS message header carrying the attributed web property ULID for RUM payloads.
+pub const SR_WEB_PROPERTY_ID_HEADER: &str = "Sr-Web-Property-Id";
 /// OTLP log record attribute key that carries the ServiceRadar device UID.
 pub const DEVICE_ID_ATTRIBUTE: &str = "serviceradar.device_id";
 pub const METRIC_ENVELOPE_SCHEMA_VERSION: &str = "serviceradar.metric.v1";
@@ -120,6 +122,20 @@ pub trait TelemetryOutput: Send + Sync {
         &self,
         metrics: &[PerformanceMetric],
         ctx: &IngestContext,
+    ) -> Result<PublishOutcome>;
+
+    /// Publishes an enriched RUM beacon protobuf to `rum.beacons.<web_property_id>`.
+    async fn publish_rum_beacon(
+        &self,
+        web_property_id: &str,
+        beacon: &crate::rum_proto::RumBeaconV1,
+    ) -> Result<PublishOutcome>;
+
+    /// Publishes derived RUM metric rollup batches to `metrics.rum.<web_property_id>`.
+    async fn publish_rum_metrics(
+        &self,
+        web_property_id: &str,
+        metrics: &MetricBatch,
     ) -> Result<PublishOutcome>;
 }
 

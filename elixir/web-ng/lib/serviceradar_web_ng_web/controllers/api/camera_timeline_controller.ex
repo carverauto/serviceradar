@@ -320,6 +320,9 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
 
   defp timeline_error(conn, :recording_integrity_failed), do: error(conn, :conflict, "recording_integrity_failed")
 
+  # No archive reader is installed; this is a lasting configuration state, not a retry.
+  defp timeline_error(conn, :archive_reader_not_installed), do: error(conn, :conflict, "archive_playback_not_available")
+
   defp timeline_error(conn, reason)
        when reason in [
               :recording_unavailable,

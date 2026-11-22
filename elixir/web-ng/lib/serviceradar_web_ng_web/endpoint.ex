@@ -38,6 +38,10 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     secure: Application.compile_env(:serviceradar_web_ng, [:session, :secure], false)
   ]
 
+  # The origin check for every socket below is the endpoint's `check_origin`
+  # (config/runtime.exs), which defaults to the request host in production. The
+  # scanner only looks for the option on each socket; those three findings are
+  # recorded in .sobelow-skips.
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options, uri: true]],
     longpoll: [connect_info: [session: @session_options, uri: true]]
@@ -45,6 +49,20 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   socket "/socket", ServiceRadarWebNGWeb.UserSocket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: false
+
+  # Serve Boomerang RUM bundle with CORS, Timing-Allow-Origin, and cache headers
+  # so third-party/external sites can load it with crossorigin="anonymous".
+  @rum_static_headers %{
+    "access-control-allow-origin" => "*",
+    "timing-allow-origin" => "*",
+    "cache-control" => "public, max-age=300, stale-while-revalidate=86400"
+  }
+
+  plug Plug.Static,
+    at: "/assets/rum",
+    from: {:serviceradar_web_ng, "priv/static/assets/rum"},
+    gzip: not code_reloading?,
+    headers: @rum_static_headers
 
   # Serve at "/" the static files from "priv/static" directory.
   #

@@ -28,7 +28,6 @@ examples:
 | Datasvc | `datasvc.json` |
 | Trapd (SNMP traps) | `trapd.json` |
 | Flowgger (syslog/flow) | `flowgger.toml` |
-| rperf checker | `checkers/rperf.json` |
 
 In Kubernetes, these files are delivered through the `serviceradar-config`
 ConfigMap and mounted into each pod. On standalone hosts, they live directly on
@@ -58,7 +57,6 @@ managed service has a descriptor that defines its key — for example:
 | Trapd | `config/trapd.json` |
 | Flowgger | `config/flowgger.toml` |
 | OTEL collector | `config/otel.toml` |
-| rperf checker | `config/rperf-checker.json` |
 
 Scoped services use a templated key that includes an identity. For example a
 gateway's config lives at `config/gateways/{gateway_id}.json`, an agent's at
@@ -80,7 +78,7 @@ chart these are emitted automatically when `kv.enabled` is true:
 | `KV_SERVER_NAME` | Expected server name for TLS verification. |
 
 On standalone hosts these are set in the systemd unit for each service. For
-example, the rperf checker unit ships with:
+example, the trapd unit ships with:
 
 ```
 Environment="CONFIG_SOURCE=file"

@@ -865,7 +865,7 @@ fn devices_merged_availability_filters_translate_on_every_path() {
 
 #[test]
 fn devices_type_like_filter_uses_normalized_ilike() {
-    let query = "in:devices include_inactive:true type:%rids% sort:last_seen:desc limit:100";
+    let query = "in:devices include_inactive:true type:%kiosk% sort:last_seen:desc limit:100";
     let plan = plan_for(query);
 
     let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
@@ -876,14 +876,14 @@ fn devices_type_like_filter_uses_normalized_ilike() {
         "expected normalized type ILIKE in SQL, got: {sql}"
     );
     assert!(
-        matches!(params.first(), Some(BindParam::Text(value)) if value == "%rids%"),
-        "expected %rids% bind, got: {params:?}"
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "%kiosk%"),
+        "expected %kiosk% bind, got: {params:?}"
     );
 }
 
 #[test]
 fn devices_stats_type_like_filter_uses_normalized_ilike() {
-    let query = r#"in:devices type:%rids% stats:"count() as count by type""#;
+    let query = r#"in:devices type:%kiosk% stats:"count() as count by type""#;
     let plan = plan_for(query);
 
     let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
@@ -895,14 +895,14 @@ fn devices_stats_type_like_filter_uses_normalized_ilike() {
     );
     assert_eq!(params.len(), 1, "expected one type filter param");
     assert!(
-        matches!(params.first(), Some(BindParam::Text(value)) if value == "%rids%"),
-        "expected %rids% bind, got: {params:?}"
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "%kiosk%"),
+        "expected %kiosk% bind, got: {params:?}"
     );
 }
 
 #[test]
 fn devices_partition_filter_uses_partition_column() {
-    let query = "in:devices partition:rids sort:hostname:asc limit:500";
+    let query = "in:devices partition:lab sort:hostname:asc limit:500";
     let plan = plan_for(query);
 
     let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
@@ -913,8 +913,8 @@ fn devices_partition_filter_uses_partition_column() {
         "expected partition equality in SQL, got: {sql}"
     );
     assert!(
-        matches!(params.first(), Some(BindParam::Text(value)) if value == "rids"),
-        "expected rids partition bind, got: {params:?}"
+        matches!(params.first(), Some(BindParam::Text(value)) if value == "lab"),
+        "expected lab partition bind, got: {params:?}"
     );
 }
 

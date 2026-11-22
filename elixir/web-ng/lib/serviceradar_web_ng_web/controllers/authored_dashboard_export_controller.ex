@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
   alias ServiceRadarWebNG.Dashboards.DefinitionSerializer
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
 
+  require Logger
+
   @export_limit 10_000
 
   def definition_json(conn, %{"dashboard_id" => dashboard_id}) do
@@ -25,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
         send_resp(conn, 404, "Dashboard not found")
 
       {:error, reason} ->
-        send_resp(conn, 422, "Could not export dashboard: #{format_error(reason)}")
+        export_failed(conn, "Could not export dashboard", reason)
     end
   end
 
@@ -54,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
         send_resp(conn, 404, "Dashboard panel not found")
 
       {:error, reason} ->
-        send_resp(conn, 422, "Could not export panel CSV: #{format_error(reason)}")
+        export_failed(conn, "Could not export panel CSV", reason)
     end
   end
 
@@ -134,6 +136,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
     end
   end
 
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
+  # The reason can carry request text (a JSON decode error holds the `vars`
+  # parameter), so it goes to the log and the response is a fixed plain-text line.
+  defp export_failed(conn, message, reason) do
+    Logger.warning("#{message}: #{inspect(reason)}")
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(422, message)
+  end
 end

@@ -35,6 +35,9 @@
 {{- if or (hasKey (default (dict) $webNg.extraEnv) "VMS_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "VMS_ARCHIVE_READER_CONFIG") -}}
 {{- fail "VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader" -}}
 {{- end -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG") -}}
+{{- fail "SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG must be configured through archiveReader" -}}
+{{- end -}}
 {{- range $key := list "SERVICERADAR_ARCHIVE_STORAGE_ENABLED" "SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE" "SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE" "SERVICERADAR_ARCHIVE_STORAGE_PORT" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through webNg.archiveStorage" $key) -}}
@@ -57,6 +60,17 @@
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.media" $key) -}}
 {{- end -}}
+{{- end -}}
+{{- /* web-ng's listener ports each have exactly one source, the chart values the
+     collision check below reads; the media worker's URL and both network policy
+     directions are rendered from the control-plane port. */ -}}
+{{- range $key, $source := dict "SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT" "webNg.controlPlaneRuntime.port" "PORT" "the chart (web-ng's public listener is 4000)" "SERVICERADAR_METRICS_PORT" "webNg.metricsPort" -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
+{{- fail (printf "%s must be configured through %s" $key $source) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $controlPlaneListenerEnabled (has (int $controlPlaneRuntimePort) (list 4000 (int (default 9090 $webNg.metricsPort)) 4369 9100)) -}}
+{{- fail (printf "webNg.controlPlaneRuntime.port %d collides with another web-ng listener: the public listener (4000), the metrics port (%d), or Erlang distribution (4369, 9100)" (int $controlPlaneRuntimePort) (int (default 9090 $webNg.metricsPort))) -}}
 {{- end -}}
 {{- range $key := list "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_TOKEN" "SERVICERADAR_CONTROL_PLANE_MEDIA_WORKER_GENERATION" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
@@ -358,13 +372,19 @@ spec:
           name: dist
         env:
         {{- include "serviceradar.nvrRecoveryEnv" . | nindent 8 }}
+        {{- include "serviceradar.nvrReadClientEnv" . | nindent 8 }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
         {{- if $archiveReader.enabled }}
+        {{- if eq (default "fixed" $archiveReader.mode) "perRequest" }}
+        - name: SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG
+          value: /etc/serviceradar/archive-reader/config/config.json
+        {{- else }}
         - name: VMS_ARCHIVE_READER_CONFIG
           value: /etc/serviceradar/archive-reader/config/config.json
+        {{- end }}
         {{- end }}
         {{- if $archiveStorage.enabled }}
         - name: SERVICERADAR_ARCHIVE_STORAGE_ENABLED
@@ -891,6 +911,7 @@ spec:
           value: {{ $datasvcServerName | quote }}
         volumeMounts:
         {{- include "serviceradar.nvrRecoveryMount" . | nindent 8 }}
+        {{- include "serviceradar.nvrReadClientMounts" . | nindent 8 }}
         - name: tmp
           mountPath: /tmp
         {{- if $archiveReader.enabled }}
@@ -984,6 +1005,7 @@ spec:
           failureThreshold: 3
       volumes:
       {{- include "serviceradar.nvrRecoveryVolume" . | nindent 6 }}
+      {{- include "serviceradar.nvrReadClientVolumes" . | nindent 6 }}
       - name: tmp
         emptyDir:
           sizeLimit: 512Mi

@@ -185,7 +185,20 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
     assert default_writer.provider.transport == :http
 
     assert {:ok, default_reader} = ArchiveStorageConfig.load_read_storage(fixture.reader_path)
+    assert default_reader.mode == :fixed
+    assert default_reader.max_concurrency == 1
     assert default_reader.provider.transport == :http
+
+    for {name, extra} <- [
+          {"reader-fixed-mode.json", %{"mode" => "fixed"}},
+          {"reader-fixed-concurrency.json", %{"max_concurrency" => 4}},
+          {"reader-fixed-portable.json", %{"portable" => true}}
+        ] do
+      bad_fixed = write_json(tmp_dir, name, Map.merge(fixture.reader_doc, extra))
+
+      assert {:error, :invalid_archive_read_storage_configuration} =
+               ArchiveStorageConfig.load_read_storage(bad_fixed)
+    end
 
     longshore_writer =
       write_json(
@@ -233,6 +246,109 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
     assert {:error, :invalid_storage_configuration} = ArchiveStorageConfig.load(extra_key)
   end
 
+  @tag :tmp_dir
+  test "ArchiveStorageConfig supports per-request read storage via env vars and timeline reader client configs",
+       %{tmp_dir: tmp_dir} do
+    fixture = write_storage_config_fixture(tmp_dir)
+
+    per_req_doc = %{
+      "schema_version" => 1,
+      "mode" => "per_request",
+      "listener" => fixture.reader_doc["listener"]
+    }
+
+    per_req_path = write_json(tmp_dir, "per-request-reader.json", per_req_doc)
+
+    with_env(
+      %{
+        "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => nil,
+        "SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => nil,
+        "SERVICERADAR_ARCHIVE_READER_PORTABLE" => nil,
+        "SERVICERADAR_EGRESS_PROXY" => nil
+      },
+      fn ->
+        assert {:ok, loaded} = ArchiveStorageConfig.load_read_storage(per_req_path)
+        assert loaded.mode == :per_request
+        assert loaded.max_concurrency == 8
+        assert loaded.provider.transport == :http
+        assert loaded.provider.portable == false
+      end
+    )
+
+    # Duplicate JSON fields are rejected; per-request settings come exclusively from env vars.
+    for {name, extra} <- [
+          {"per-request-json-concurrency.json", %{"max_concurrency" => 12}},
+          {"per-request-json-transport.json", %{"provider_transport" => "longshore"}},
+          {"per-request-json-portable.json", %{"portable" => true}}
+        ] do
+      bad_path = write_json(tmp_dir, name, Map.merge(per_req_doc, extra))
+
+      assert {:error, :invalid_archive_read_storage_configuration} =
+               ArchiveStorageConfig.load_read_storage(bad_path)
+    end
+
+    with_env(
+      %{
+        "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => "longshore",
+        "SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => "12",
+        "SERVICERADAR_ARCHIVE_READER_PORTABLE" => "true",
+        "SERVICERADAR_EGRESS_PROXY" => nil
+      },
+      fn ->
+        assert {:ok, ls_cfg} = ArchiveStorageConfig.load_read_storage(per_req_path)
+        assert ls_cfg.mode == :per_request
+        assert ls_cfg.max_concurrency == 12
+        assert ls_cfg.provider.transport == :longshore
+        assert ls_cfg.provider.portable == true
+      end
+    )
+
+    for bad_env <- [
+          %{"SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => "s3"},
+          %{"SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => "0"},
+          %{"SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => "65"},
+          %{"SERVICERADAR_ARCHIVE_READER_PORTABLE" => "yes"},
+          %{
+            "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => "longshore",
+            "SERVICERADAR_EGRESS_PROXY" => "http://proxy.example.test:3128"
+          }
+        ] do
+      with_env(
+        Map.merge(
+          %{
+            "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => nil,
+            "SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => nil,
+            "SERVICERADAR_ARCHIVE_READER_PORTABLE" => nil,
+            "SERVICERADAR_EGRESS_PROXY" => nil
+          },
+          bad_env
+        ),
+        fn ->
+          assert {:error, :invalid_archive_read_storage_configuration} =
+                   ArchiveStorageConfig.load_read_storage(per_req_path)
+        end
+      )
+    end
+
+    client_doc = %{
+      "schema_version" => 1,
+      "storage" => fixture.writer_doc["runtime"]
+    }
+
+    client_path = write_json(tmp_dir, "timeline-client.json", client_doc)
+    assert {:ok, %{client: client}} = ArchiveStorageConfig.load_timeline_reader(client_path)
+    assert client.base_url == fixture.writer_doc["runtime"]["base_url"]
+
+    assert {:error, :invalid_timeline_archive_reader_configuration} =
+             ArchiveStorageConfig.load_timeline_reader(
+               write_json(
+                 tmp_dir,
+                 "bad-timeline-client.json",
+                 Map.put(client_doc, "binding_id", @binding_id)
+               )
+             )
+  end
+
   defp binding_fixture do
     destination = Fixtures.archive_destination("allocation-example")
     {:ok, parsed} = ArchiveDestination.attributes(destination)
@@ -240,22 +356,24 @@ defmodule ServiceRadar.Camera.ArchiveCredentialResolverTest do
   end
 
   defp with_egress_proxy(value, fun) do
-    previous = System.get_env("SERVICERADAR_EGRESS_PROXY")
+    with_env(%{"SERVICERADAR_EGRESS_PROXY" => value}, fun)
+  end
+
+  defp with_env(vars, fun) when is_map(vars) do
+    previous = Map.new(vars, fn {k, _} -> {k, System.get_env(k)} end)
 
     try do
-      if is_nil(value) do
-        System.delete_env("SERVICERADAR_EGRESS_PROXY")
-      else
-        System.put_env("SERVICERADAR_EGRESS_PROXY", value)
-      end
+      Enum.each(vars, fn
+        {k, nil} -> System.delete_env(k)
+        {k, v} -> System.put_env(k, v)
+      end)
 
       fun.()
     after
-      if is_nil(previous) do
-        System.delete_env("SERVICERADAR_EGRESS_PROXY")
-      else
-        System.put_env("SERVICERADAR_EGRESS_PROXY", previous)
-      end
+      Enum.each(previous, fn
+        {k, nil} -> System.delete_env(k)
+        {k, v} -> System.put_env(k, v)
+      end)
     end
   end
 

@@ -142,7 +142,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
             %{
               "hostname" => "kiosk-1",
               "ip" => "10.100.159.26",
-              "mac" => "00:09:EC:02:83:7E",
+              "mac" => "00:00:5E:00:53:7B",
               "metadata" => %{
                 "facts" => %{
                   "switch_port_attachment" => %{

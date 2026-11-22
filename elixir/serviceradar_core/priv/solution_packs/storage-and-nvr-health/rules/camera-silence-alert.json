@@ -1,0 +1,38 @@
+{
+  "alert": {
+    "severity": "high",
+    "title": "Enabled continuous camera recording policy has sealed zero blocks"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Alerts when continuous NVR camera recording policies seal zero non-quarantined blocks across the configured silence window.",
+  "event": {
+    "log_name": "health.camera_recording_silence"
+  },
+  "group_by": [
+    "check_slug",
+    "target_key"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "attribute_equals": {
+      "check_slug": "camera-continuous-recording-silence",
+      "to_status": "down"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "camera-continuous-recording-silence",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
+  },
+  "name": "camera_continuous_recording_silence",
+  "priority": 25,
+  "renotify_seconds": 21600,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

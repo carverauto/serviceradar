@@ -194,6 +194,54 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     refute body =~ "platform.timeseries_metrics"
   end
 
+  test "netperf aliases route through StarRocks when enabled and CNPG when disabled",
+       %{prev: prev} do
+    parent = self()
+    scope = %{permissions: MapSet.new(["observability.metrics.view"])}
+
+    mysql = fn sql ->
+      send(parent, {:starrocks_query, sql})
+      {:ok, postgrex_result(["metric_name", "value"], [["rperf.bits_per_second", 50_000_000.0]])}
+    end
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      prev
+      |> Keyword.put(:enabled, true)
+      |> Keyword.put(:cutover_datasets, [])
+      |> Keyword.put(:mysql, mysql)
+    )
+
+    for alias_name <- ~w(netperf_metrics netperf) do
+      assert {:ok, %{"results" => [row], "error" => nil}} =
+               SRQL.query("in:#{alias_name} time:last_1h limit:1", %{scope: scope})
+
+      assert row["metric_name"] == "rperf.bits_per_second"
+      assert_received {:starrocks_query, body}
+      assert body =~ "timeseries_metrics"
+      assert body =~ "metric_type = 'rperf'"
+    end
+
+    # When StarRocks is disabled, the same queries fall back to CNPG (Ecto repo).
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :enabled, false)
+    )
+
+    for alias_name <- ~w(netperf_metrics netperf) do
+      result =
+        try do
+          SRQL.query("in:#{alias_name} time:last_1h limit:1", %{scope: scope})
+        rescue
+          exception -> {:rescued, exception}
+        end
+
+      assert match?({:rescued, %RuntimeError{message: "could not lookup Ecto repo" <> _}}, result)
+    end
+  end
+
   test "enrichment queries error when the JDBC catalog is disabled", %{prev: prev} do
     mysql = fn _sql ->
       flunk("catalog-disabled enrichment must not call StarRocks")

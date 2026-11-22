@@ -50,13 +50,20 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   - `Succeed` is the reconciler's succession merge. A predecessor holding only retired ids
     merges with the successor holding the current one only when a MAC links them, their
     observations corroborate, and the pairing is one-to-one in both directions. The ghost
-    `recFs` says whose first-seen time a record carries, and an equal one corroborates on its
-    own. A hostname (`HostOf`) corroborates only under D3's time guard: the source first saw the
-    successor after it last saw the predecessor. The ghost `seenWith` stands for that order,
-    holding the ids already issued at a record's last sighting. Under an id in
-    `NewFirstSeenIds` the source reports a device with a new first-seen time, so only the
-    hostname corroborates a re-key to it. `Review` records every weaker pairing as a
-    `succession_review` decision and merges nothing.
+    `recFs` says whose first-seen time a record carries, and only an equal one corroborates
+    (`stop-name-as-identity-evidence`). A hostname (`HostOf`) never corroborates a succession or
+    a reactivation, whatever the source times: two rejected alternatives let it (see Rejected
+    alternatives). Only `hostname_corroborates` reads the ghost `seenWith`, which orders a
+    record's last sighting against the issue of an id for the retired time guard. Under an id in
+    `NewFirstSeenIds` the source reports a device with a new first-seen time, so nothing
+    corroborates a re-key to it and the pair goes to review. `Review` records every weaker
+    pairing as a `succession_review` decision and merges nothing. The ghost `byName` says that
+    the last step's succession merge, adoption or reactivation rested on a hostname; only an
+    unsafe alternative sets it, and every goal checks `NoIdentityByName`.
+  - Hostname agreement adopts nothing. A source or integration write at an address another
+    record holds whose hostname agrees keeps its own record, and the pair is recorded as a
+    `policy_block` decision (`hostname_agreement_not_identity`), which opens a de-duplication
+    task. Only an anchorless provisional seed is adopted (`DeviceWrites.provisional_ip_seed?/2`).
   - An identified write observed at an address takes it from the record holding it, which
     releases it in the same transaction, and the conflict is recorded (#4639). Under D7 the
     holder keeps it only against a write observed before it, comparing `identity_observed_at`,
@@ -137,7 +144,7 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), lets another record claim a MAC a sole-source retirement released, reactivates a retired id, moves a source update off an unrevivable tombstone and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), lets another record claim a MAC a sole-source retirement released, reactivates a retired id, moves a source update off an unrevivable tombstone and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
@@ -166,6 +173,11 @@ decision, so the property must fail.
 environment: a census reports a MAC at an address an Armis record holds, the census's record has
 no identity-bearing observation, and the Armis record keeps the address. `ObservedAddressHeld`
 allows that after a census only, so the property must fail, or that allowance is vacuous.
+`ObservedAddressHeld` also lets an agent check-in leave the record it landed on with the primary
+address it already holds: the check-in moves a primary only when its address is strictly
+stronger or the recorded one is no longer sighted by the source that recorded it
+(`DeviceWrites.direct_write_takes_primary?/3`), and the model has no address strength, recording
+source or clock, so `AgentObserve` chooses either.
 
 `resolution_vacuity_agent_links_known_host` checks `NeverAgentOnDiscoveredRecord` in the
 `agent_known_host` environment: the agent lands on the record discovery identified, so the property
@@ -199,9 +211,14 @@ Every `resolution_goal_*` configuration also checks the source id change propert
 - `NoMergeOfCurrentSourceIds`
 - `SuccessionIsCorroborated`
 - `NoAddresslessShell`
+- `NoIdentityByName`: no succession merge, adoption or reactivation rested on a hostname
+  (`stop-name-as-identity-evidence`).
 
 Without `Rekeys` the source id never changes, so in those environments they guard the existing
-paths.
+paths. The `Rekeys` goals (`armis_rekey*`, `armis_reissued_ids*`, `armis_clones`) also check
+`NewFirstSeenReviewed`: at rest, a record holding only retired ids and a record holding a current
+id that describe the same device are a pair a review is due for, so a re-key to an id with a new
+first-seen time leaves two records and a review instead of a merge.
 
 `MC*.tla` modules hold TLC-only definitions: environments, symmetry, views, vacuity predicates.
 
@@ -285,9 +302,9 @@ Each environment stands for a real situation:
 | `armis_rekey_shared_mac` | Two Armis devices reporting the same MAC, each of which Armis may re-key: a linking MAC alone must not make them one device. |
 | `armis_reissued_ids` | Two Armis devices with their own MACs. Armis may re-issue an id DIRE has retired, to either device (`FreshIds = FALSE`). |
 | `armis_reissued_ids_one_device` | One Armis device that Armis may re-key and later report again under an id DIRE retired from it. |
-| `armis_clones` | Two devices cloned from one image, reporting the same MAC and the same hostname. Armis may stop reporting either, and the hostname must not make them one device. Both are in Armis from the start, so their lifetimes overlap. |
-| `armis_rekey_new_first_seen` | `armis_rekey`, except that Armis reports the device with a new first-seen time under its new id. Only the hostname corroborates the re-keyed pair, so the time guard must let a true re-key converge. |
-| `integration_clones` | Two same-named hypervisor nodes in different clusters under one non-source-authoritative integration provider (`IntIds`), with no MAC, serial or source-authoritative id. Disjoint integration ids refuse hostname-agreement adoption (`conflicting_integration_identity`, #6042). |
+| `armis_clones` | Two devices cloned from one image, reporting the same MAC and the same hostname. Armis may stop reporting either, and the hostname must not make them one device. Both are in Armis from the start, so their lifetimes overlap; `resolution_unsafe_hostname_corroborates` covers the case where they do not. |
+| `armis_rekey_new_first_seen` | `armis_rekey`, except that Armis reports the device with a new first-seen time under its new id. Only the hostname agrees, which corroborates nothing, so the old and new records stay separate and `NewFirstSeenReviewed` checks that a review naming them is due at rest. |
+| `integration_clones` | Two same-named hypervisor nodes in different clusters under one non-source-authoritative integration provider (`IntIds`), with no MAC, serial or source-authoritative id. Their hostname agreement at a shared address adopts nothing and records a `hostname_agreement_not_identity` review. |
 | `agent_known_host` | One host with two NICs, known to a hypervisor integration (which reports no MAC), the census and discovery, and running an agent. The agent links to the record its MACs name, whichever NIC it announces. |
 | `agent_same_name` | Two same-named hypervisor nodes at two sites, each with its own integration id, agent and MAC. Disjoint MACs keep them apart whatever their names. |
 | `agent_on_armis` | An Armis device (Armis reports its MAC) that also runs an agent. By the user's decision of 2026-10-28 the agent may share the Armis record. |
@@ -312,8 +329,10 @@ alternative merges two physical devices.
 |---|---|---|---|
 | `mac_only_succession` | `resolution_unsafe_mac_only_succession` | `armis_rekey_shared_mac` | Succession on a linking MAC alone, without corroboration: once one of two devices sharing a MAC leaves Armis, its record merges into the other's. |
 | `retired_ids_forgotten` | `resolution_unsafe_retired_ids_forgotten` | `armis_reissued_ids` | Retirement without the archive: when Armis re-issues a retired id to another device, nothing remembers the record that held it, and the write lands on that record, which its uid still names. |
-| `overlapping_hostname_corroborates` | `resolution_unsafe_overlapping_hostname_corroborates` | `armis_clones` | A hostname corroborates without D3's time guard: once one of two clones leaves Armis and its id retires, its record merges into the other's, because they share a MAC and a hostname. |
-| `hostname_adopts_across_integration_ids` | `resolution_unsafe_hostname_adopts_across_integration_ids` | `integration_clones` | Hostname-agreement adoption without the `conflicting_integration_identity` refusal (#6042): two same-named nodes in different hypervisor clusters that share an address fuse onto one record owning both integration ids. |
+| `hostname_corroborates` | `resolution_unsafe_hostname_corroborates` | `armis_clones`, except that only the first clone starts in Armis and the second may join it later | A hostname corroborates under the time guard D3 had before `stop-name-as-identity-evidence`: the second clone, with the first's MAC and hostname, enters Armis only after the first has left it, so its id passes the guard and the first clone's record merges with it. |
+| `overlapping_hostname_corroborates` | `resolution_unsafe_overlapping_hostname_corroborates` | `armis_clones` | A hostname corroborates without any time guard: once one of two clones leaves Armis and its id retires, its record merges into the other's, because they share a MAC and a hostname. |
+| `hostname_adopts` | `resolution_unsafe_hostname_adopts` | `integration_clones`, with each integration id under its own provider (`SameIntProvider <- OwnIntProviders`) | Hostname-agreement adoption of an address holder under the refusals it had before `stop-name-as-identity-evidence` (#6042): two same-named devices known to different integration providers meet at one address, no refusal applies, and the second fuses onto the first's record. |
+| `hostname_adopts_across_integration_ids` | `resolution_unsafe_hostname_adopts_across_integration_ids` | `integration_clones` | As `hostname_adopts`, and without the `conflicting_integration_identity` refusal: two same-named nodes in different hypervisor clusters under one provider that share an address fuse onto one record owning both integration ids. |
 | `shared_certificate_identifies` | `resolution_unsafe_shared_certificate_identifies` | `integration_clones` with one certificate on both nodes | A certificate several nodes serve (a custom or ACME wildcard) is admitted as identity: the second node's sync lands on the first node's record through it (#6146). |
 
 An alternative is never fixed, so its configuration stays when switches come and go.
@@ -393,16 +412,18 @@ The resolution traces of the alias fixes (D16, #5135):
   sightings; it leaves the address and an Armis device is synced there. The Armis device takes
   the address, and the sync's alias pass, looking under the device's partition, invalidates the
   first device's alias and records it (`armis_alias_pass_blind`).
-- `armis_dhcp_two_holders`: two devices in turn confirm an alias of one address and leave it; an
-  Armis device synced there takes the address, and the alias pass invalidates both aliases,
-  recording each. The pass used to handle only the first holder.
+- `armis_dhcp_two_holders`: two devices in turn confirm an alias of one address and leave it;
+  the second device's confirmation expires the first device's alias (one live holder per
+  address). An Armis device synced there takes the address, and the alias pass invalidates the
+  remaining alias and records it. The pass used to handle only the first holder.
 - `mapper_prior_alias_holder`: a device confirms an alias of an address and leaves it; a second
-  device leases the address and is sighted there often enough to be its first holder, and the
-  mapper polls it. AliasGuard skips the polled device's own row and invalidates the first
-  device's alias. Reading only the first holder, it found the device's own row and stopped.
+  device leases the address and is sighted there often enough to be its first holder, which
+  confirms its own row and expires the first device's alias in the same write. The mapper then
+  polls it, and AliasGuard skips the polled device's own row. Reading only the first holder, it
+  used to find the device's own row and stop.
 - `src_rekey_succession`: Armis re-keys a device. The new id gets its own record, which takes the
-  address, while the old record keeps the MAC. Matching hostnames record the pair for
-  de-duplication review. The new record's sightings of the address confirm a row of its own;
+  address, while the old record keeps the MAC. Matching hostnames adopt nothing and record the
+  pair for de-duplication review (`hostname_agreement_not_identity`). The new record's sightings of the address confirm a row of its own;
   they used to land on the row the old record's sync created and confirm the old record's alias
   (`foreign_sighting_confirms_alias`). Three exact collections without the old id retire it from
   the old record, which keeps it as history, so the new record is the one record holding a
@@ -415,8 +436,9 @@ The resolution traces of source succession (D3, D4). The first three are variant
 `src_rekey_succession`:
 
 - `src_rekey_new_first_seen`: as `src_rekey_succession`, but the new id has a first-seen time of
-  its own, later than the old id's last sighting. The hostnames agree and pass the time guard,
-  so the pass merges the two.
+  its own, later than the old id's last sighting. Only the MAC and the hostname agree, and a
+  hostname corroborates nothing, so the pass records a `succession_review`
+  (`overlapping_hostname`) and merges nothing.
 - `src_rekey_no_macs`: as `src_rekey_succession`, but Armis reports no MAC. The hostname and the
   first-seen time agree without a MAC, so the pass records a `succession_review`
   (`corroborated_without_mac`) and merges nothing (D4).
@@ -439,7 +461,7 @@ takes the address, and the conflict is recorded. The seed releases it and is sof
 
 `integration_hostname_conflict` (#6042) records two same-named hypervisor nodes in different
 clusters colliding on an address under one integration provider (`proxmox:v3:...`): hostname
-agreement is refused with `conflicting_integration_identity`, recording a `policy_block`
+agreement adopts nothing and records a `hostname_agreement_not_identity` `policy_block`
 decision alongside the `ip_conflict` decision, and the second node stays a separate device.
 
 The traces of agent host identity (`link-agent-host-by-strong-identity`):
@@ -447,14 +469,18 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
 - `agent_known_host_shared_mac`: a hypervisor integration syncs a node, which it reports with no
   MAC; the census sees the node's second NIC; the node's agent, with an FQDN hostname, announces
   the first NIC's address and reports both NICs. The agent lands on the census record through the
-  second NIC's MAC, which takes the announced address from the integration record. The
-  integration record shares no strong identifier with the host and stays its own record.
+  second NIC's MAC. That record keeps the address the census recorded and still sights, since a
+  check-in moves a primary only when its address is strictly stronger or the recorded one is no
+  longer sighted (`DeviceWrites.direct_write_takes_primary?/3`), so the integration record keeps
+  the announced address. The integration record shares no strong identifier with the host and
+  stays its own record.
 - `agent_same_name_two_sites`: two same-named nodes at two sites, each synced by its own
   integration and each running an agent with its own MAC. Each agent gets a record of its own and
-  nothing joins the two sites.
+  nothing joins the two sites; a hostname agreement at a shared address adopts nothing and only
+  records a `hostname_agreement_not_identity` review.
 - `agent_first_same_name`: an agent enrolls first, then a same-named integration node with
-  disjoint strong identity arrives at its address. The records stay separate and hostname
-  adoption records a `hostname_agreement_not_identity` policy block.
+  disjoint strong identity arrives at its address. No adoption is possible: the records stay
+  separate and the write records a `hostname_agreement_not_identity` policy block.
 
 The traces of the node certificate identifier (#6146):
 
@@ -468,11 +494,10 @@ The traces of the node certificate identifier (#6146):
   with its own integration id, node certificate and agent. Each agent lands on its own node's
   record, and the two sites never join.
 
-Hostname adoption refuses agent-bound records in either arrival order (`AgentHeld(y) = {}`
-is required for `hostAdopt`). Agent-held records use their agent's `HostOf` value for the
-refusal decision; this abstracts hostname spelling. Mapper/MAC holders remain eligible.
-Agent-before-Proxmox hosts without shared strong identity remain split and need operator
-review.
+Hostname agreement adopts no holder, agent-bound or not, in either arrival order. Agent-held
+records use their agent's `HostOf` value for the `hostname_agreement_not_identity` decision;
+this abstracts hostname spelling. Agent-before-Proxmox hosts without shared strong identity
+remain split and need operator review.
 
 Until this change the agent reported only the MAC of the interface owning its announced address
 (`go/pkg/agent/host_identity.go`), while `AgentObserve`, and the trace harness, reported every MAC
@@ -559,10 +584,10 @@ already explores both arrival orders under `EvidenceConverges`.
   best-ranked alias row of a live device and reactivates the row when it is stale
   (`MapperResultsIngestor.find_device_uid_by_alias/3`). The model's mapper resolves through the
   Resolver only, and an invalidated alias never comes back.
-- The sweep's fallback to a pending alias. For an address no record holds and no confirmed
-  alias names, the sweep looks up pending aliases and confirms one
-  (`DeviceLookup.lookup_detected_aliases_by_ip`, `confirm_from_sweep`); the model's sweep seeds
-  a record there instead.
+- The sweep's use of a pending alias. The sweep ranks a live device's pending alias among the
+  address's holders and confirms it when that device wins and the address answered
+  (`DeviceLookup.batch_resolve_by_ip/2`, `confirm_from_sweep`); the model's sweep seeds a
+  record where no record or confirmed alias holds the address instead.
 - The sweep reaching a tombstone through an alias. The sweep resolves an address with deleted
   records included, so a confirmed alias of a deleted record can resolve it there; the
   resolution model's sweep reads live records only, and the lifecycle model's matches a
@@ -573,7 +598,7 @@ already explores both arrival orders under `EvidenceConverges`.
   trace `armis_dhcp` and the tests pin the fix. For the same reason a lifecycle trace never
   reaches a source's record by a MAC-only sighting.
 - Hostnames reported by agents and the mapper. The model writes only the source's hostnames
-  (`recFs`), with agent-bound refusal additionally using `HostOf` through `AgentOf`. The agent
+  (`recFs`), with the hostname-agreement review additionally using `HostOf` through `AgentOf`. The agent
   [corroboration review](../../docs/docs/dire-identity-model.md#agent-host-evidence)
   (`AgentCorroboration`) is not modeled: it never links, merges or moves anything, and the
   integration tests in `agent_gateway_sync_test.exs` pin it. The trace projection excludes the
@@ -601,22 +626,10 @@ already explores both arrival orders under `EvidenceConverges`.
   Agent-id rotation and moving telemetry are non-goals of the source id change.
 - Imprecise succession evidence. Two devices never share a first-seen time, a device's MACs
   never change, and the archived observation of a retired id carries the MACs of the devices
-  its record describes (`SrcMacs`). Hostnames may be shared (`HostOf`). The time guard is
-  exact: `seenWith` orders a record's last sighting against the issue of an id, where the code
-  compares timestamps at the source's precision and fails the guard on a missing one.
-- The clones D3 accepts as residual. A clone that the source first sees after it last saw its
-  twin, or that it reports under a re-issued id, presents the evidence of a re-key, and the
-  guarded rule merges it. `armis_clones` puts both clones in the source from the start and only
-  lets them leave, so their lifetimes always overlap; an environment with either residual case
-  would fail `NoFalseMerge`. An operator undoes such a merge with an administrative unmerge.
-- D3's rule that a hostname held by more than one current record of the source does not
-  corroborate. It takes three records sharing a hostname, two of them current, and no
-  environment has them. The rule only withholds a merge, so its absence hides no false merge;
-  that the code still converges where it applies is left to the tests.
+  its record describes (`SrcMacs`). Hostnames may be shared (`HostOf`).
 - One device reported under two ids at once. `srcOf` gives a device one id at a time. In the
-  code both records stay current while both ids are reported; once the older id retires, its
-  last sighting is later than the newer id's first, so the hostname fails the time guard and
-  the pair goes to review unless their first-seen times agree.
+  code both records stay current while both ids are reported; once the older id retires, the
+  pair converges only if their first-seen times agree, and otherwise goes to review.
 - A new first-seen time under a re-issued id. The `armis_reissued_ids` environments keep
   `NewFirstSeenIds` empty, so each stays inside its budget.
 - Creation order. A succession merge keeps the record created first; the model has no creation

@@ -336,7 +336,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, bundle_layer} <- find_layer(manifest, @bundle_media_type),
          {:ok, signature_layer} <- find_layer(manifest, @upload_signature_media_type),
          :ok <- verify_declared_digest(entry_value(entry, "oci_digest"), manifest_digest),
-         :ok <- verify_cosign_signature(entry_value(entry, "oci_ref"), manifest_digest),
+         {:ok, receipt} <- verify_cosign_signature(repo, entry_value(entry, "oci_ref"), manifest_digest),
          {:ok, bundle} <- fetch_oci_blob(repo, ref, bundle_layer["digest"]),
          {:ok, upload_signature} <- fetch_oci_blob(repo, ref, signature_layer["digest"]) do
       {:ok,
@@ -345,7 +345,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          upload_signature: upload_signature,
          oci_digest: manifest_digest,
          oci_manifest: manifest,
-         cosign_verified?: true
+         cosign_verified?: true,
+         transparency_receipt: receipt
        }}
     end
   end
@@ -619,6 +620,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
       "oci_digest" => fetched.oci_digest || entry_value(entry, "oci_digest"),
       "bundle_digest" => normalize_digest(Storage.sha256(fetched.bundle)),
       "cosign_verified" => Map.get(fetched, :cosign_verified?, false),
+      "transparency_receipt" => Map.get(fetched, :transparency_receipt),
       "import_index_asset_name" => @default_index_asset_name,
       "verified_at" => DateTime.to_iso8601(now)
     }

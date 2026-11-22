@@ -5,9 +5,9 @@ title: Syslog Ingest Guide
 # Syslog Ingest Guide
 
 ServiceRadar collects log events through `serviceradar-log-collector`, publishes
-them to NATS JetStream, normalizes them with in-process Zen rules in core-elx,
-and stores them in the configured telemetry backend (StarRocks or
-CNPG/Timescale). Pair this quick guide with the
+them to NATS JetStream, and stores them in the configured telemetry backend
+(StarRocks or CNPG/Timescale). The collector applies the Zen rules to syslog
+itself; see [Event Pipeline](#event-pipeline). Pair this quick guide with the
 [Device Configuration Reference](./device-configuration.md#syslog-configuration)
 and the [Kubernetes External Ingestion](./kubernetes-ingestion.md) guide when
 onboarding new platforms.
@@ -120,12 +120,17 @@ attribution is required.
 
 ## Event Pipeline
 
-1. `serviceradar-log-collector` accepts syslog over UDP 514 and optional TCP 514 in one process and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
-2. JetStream retains the raw envelope while `serviceradar_core` consumes the same
-   stream, evaluates the bundled Zen rules through a Rustler NIF, and persists
-   the normalized log record.
-3. Because the raw subject remains in the `events` stream, you can replay
-   ingestion after adjusting code or bundled rules.
+1. `serviceradar-log-collector` accepts syslog over UDP 514 and optional TCP 514 in one process. It follows the Zen ruleset core publishes, applies it to each message, and publishes normalized OTLP batches to the NATS JetStream stream named `events` on the `logs.normalized.syslog` subject.
+2. `serviceradar_core` consumes that stream and persists the records without
+   running the rules again.
+3. Until the collector has received its first ruleset, or when normalization is
+   turned off (`[rules] normalize = false` in the collector configuration or
+   `LOG_COLLECTOR_NORMALIZE_SYSLOG=false`; the Docker Compose collector ships
+   with it off), it publishes each message as GELF on
+   `logs.syslog` instead, and `serviceradar_core` evaluates the Zen rules
+   through a Rustler NIF before persisting it. Only these raw messages can be
+   replayed through changed rules; records on `logs.normalized.syslog` already
+   carry the result of the ruleset that produced them.
 
 ## Zen Rules
 

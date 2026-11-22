@@ -1,22 +1,29 @@
 //! JetStream visual-index pull loop (`WPI` + publish-before-ACK) and reserved
 //! interactive NATS text-embedding responder (`2.5`, `5.2`).
 
-use crate::cmaf::{decode_idr_keyframe, parse_init_segment, parse_media_fragment};
+use crate::backend::{InferenceBackend, build_inference_backend};
+use crate::capability::{
+    CapabilityManifest, SystemGpuEnvironmentProbe, verify_startup_capabilities_with_backend,
+};
+use crate::cmaf::{VideoCodec, parse_init_segment_with_codec, parse_timed_fragment};
 use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
 use crate::grants::{GrantClient, GrantResolution, HttpControlPlaneGrantClient, ReadGrantRequest};
+use crate::keyframe_decoder::{DefaultKeyframeDecoder, KeyframeDecoder};
 use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
     FragmentStore, HybridGrantStore, LongshoreArchiveReader, NvrAnalysisReader,
+    VerifiedKeyframeBlock,
 };
-use crate::vision::{RgbFrame, VisionPipeline, embed_query_text};
+use crate::vision::VisionPipeline;
 use async_nats::jetstream::AckKind;
 use async_nats::jetstream::consumer::{AckPolicy, pull};
 use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
 use async_nats::{Client, ConnectOptions, HeaderMap, jetstream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Once};
@@ -172,6 +179,8 @@ pub struct DetectionPayload {
     confidence: f32,
     bbox: [f32; 4],
     dominant_colors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track_id: Option<u64>,
 }
 
 impl DetectionPayload {
@@ -190,11 +199,15 @@ impl DetectionPayload {
     pub fn dominant_colors(&self) -> &[String] {
         &self.dominant_colors
     }
+
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
+    }
 }
 
 /// Embedding entry inside `VisualIndexResultEnvelope.frames[*].embeddings`.
 ///
-/// Matches `VisualIndexResultProjector.parse_single_embedding/2`:
+/// Matches `ServiceRadar.Camera.VisualIndexResultEnvelope`:
 /// `:scene` embeddings carry `object_class: null`, `confidence: null`, `bbox: null`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingPayload {
@@ -204,6 +217,8 @@ pub struct EmbeddingPayload {
     confidence: Option<f32>,
     bbox: Option<[f32; 4]>,
     dominant_colors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track_id: Option<u64>,
     embedding: Vec<f32>,
 }
 
@@ -232,8 +247,54 @@ impl EmbeddingPayload {
         &self.dominant_colors
     }
 
+    pub fn track_id(&self) -> Option<u64> {
+        self.track_id
+    }
+
     pub fn embedding(&self) -> &[f32] {
         &self.embedding
+    }
+}
+
+/// Per-track summary entry inside `VisualIndexResultEnvelope.tracks`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackSummaryPayload {
+    track_id: u64,
+    object_class: String,
+    first_seen_offset_ms: u64,
+    last_seen_offset_ms: u64,
+    dwell_ms: u64,
+    frame_count: u32,
+    peak_confidence: f32,
+}
+
+impl TrackSummaryPayload {
+    pub fn track_id(&self) -> u64 {
+        self.track_id
+    }
+
+    pub fn object_class(&self) -> &str {
+        &self.object_class
+    }
+
+    pub fn first_seen_offset_ms(&self) -> u64 {
+        self.first_seen_offset_ms
+    }
+
+    pub fn last_seen_offset_ms(&self) -> u64 {
+        self.last_seen_offset_ms
+    }
+
+    pub fn dwell_ms(&self) -> u64 {
+        self.dwell_ms
+    }
+
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    pub fn peak_confidence(&self) -> f32 {
+        self.peak_confidence
     }
 }
 
@@ -269,6 +330,39 @@ impl FrameResultPayload {
     }
 }
 
+/// A sampled keyframe that was not indexed because it could not be decoded. Recorded in
+/// `VisualIndexResultEnvelope.undecodable_keyframes` instead of a fabricated frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndecodableKeyframePayload {
+    fragment_sequence: u32,
+    /// One of `unsupported_codec`, `malformed_bitstream`, `limit_exceeded`,
+    /// `invalid_container`.
+    reason: String,
+    codec: String,
+}
+
+impl UndecodableKeyframePayload {
+    fn new(fragment_sequence: u32, reason: &str, codec: &str) -> Self {
+        Self {
+            fragment_sequence,
+            reason: reason.to_string(),
+            codec: codec.to_string(),
+        }
+    }
+
+    pub fn fragment_sequence(&self) -> u32 {
+        self.fragment_sequence
+    }
+
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    pub fn codec(&self) -> &str {
+        &self.codec
+    }
+}
+
 /// Result envelope published to `media.results.visual_index.v1` (`VisualIndexResultProjector`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualIndexResultEnvelope {
@@ -285,6 +379,11 @@ pub struct VisualIndexResultEnvelope {
     model_version: String,
     embedding_dim: usize,
     frames: Vec<FrameResultPayload>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tracks: Vec<TrackSummaryPayload>,
+    /// Sampled keyframes that could not be decoded; absent when every keyframe decoded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    undecodable_keyframes: Vec<UndecodableKeyframePayload>,
 }
 
 impl VisualIndexResultEnvelope {
@@ -326,6 +425,14 @@ impl VisualIndexResultEnvelope {
 
     pub fn frames(&self) -> &[FrameResultPayload] {
         &self.frames
+    }
+
+    pub fn tracks(&self) -> &[TrackSummaryPayload] {
+        &self.tracks
+    }
+
+    pub fn undecodable_keyframes(&self) -> &[UndecodableKeyframePayload] {
+        &self.undecodable_keyframes
     }
 }
 
@@ -483,28 +590,17 @@ pub fn text_embed_rpc_subject(models: &ModelPinConfig) -> String {
 
 /// Reserved interactive text-embedding lane (`2.5`), isolated on its own semaphore
 /// from bulk `media.jobs.visual_index.v1` processing.
-#[derive(Debug, Clone)]
-pub struct TextEmbedService {
+#[derive(Clone)]
+struct TextEmbedService {
     models: ModelPinConfig,
+    backend: Arc<dyn InferenceBackend>,
     semaphore: Arc<Semaphore>,
     metrics: Arc<WorkerMetrics>,
 }
 
 impl TextEmbedService {
-    pub fn new(models: ModelPinConfig, concurrency: usize, metrics: Arc<WorkerMetrics>) -> Self {
-        Self {
-            models,
-            semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
-            metrics,
-        }
-    }
-
-    pub fn subject(&self) -> String {
-        text_embed_rpc_subject(&self.models)
-    }
-
     /// Evaluates a JSON `TextEmbedRpcRequest` within `<= 250 ms` on reserved capacity.
-    pub async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
+    async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
         let req: TextEmbedRpcRequest = match serde_json::from_slice(raw_payload) {
             Ok(parsed) => parsed,
             Err(_) => return TextEmbedRpcResponse::error("invalid_json_request"),
@@ -516,9 +612,10 @@ impl TextEmbedService {
             return TextEmbedRpcResponse::error("unsupported_schema");
         }
 
+        let expected_dim = self.backend.info().embedding_dim();
         if req.model_id() != self.models.embedder_model_id()
             || req.model_version() != self.models.embedder_model_version()
-            || req.expected_dim() != self.models.embedding_dim()
+            || req.expected_dim() != expected_dim
         {
             return TextEmbedRpcResponse::error("model_version_or_dim_mismatch");
         }
@@ -538,10 +635,10 @@ impl TextEmbedService {
         }
 
         let query = req.query().to_string();
-        let models = self.models.clone();
+        let backend = Arc::clone(&self.backend);
         let compute_res = timeout(
             remaining,
-            tokio::task::spawn_blocking(move || embed_query_text(&query, &models)),
+            tokio::task::spawn_blocking(move || backend.encode_text(&query)),
         )
         .await;
         drop(permit);
@@ -574,6 +671,7 @@ pub struct VisualIndexProcessor<G, S, P> {
     fragment_store: Arc<S>,
     publisher: Arc<P>,
     metrics: Arc<WorkerMetrics>,
+    keyframe_decoder: Arc<dyn KeyframeDecoder>,
 }
 
 impl<G, S, P> Clone for VisualIndexProcessor<G, S, P> {
@@ -588,6 +686,7 @@ impl<G, S, P> Clone for VisualIndexProcessor<G, S, P> {
             fragment_store: Arc::clone(&self.fragment_store),
             publisher: Arc::clone(&self.publisher),
             metrics: Arc::clone(&self.metrics),
+            keyframe_decoder: Arc::clone(&self.keyframe_decoder),
         }
     }
 }
@@ -598,8 +697,9 @@ where
     S: FragmentStore + 'static,
     P: ResultPublisher + 'static,
 {
-    pub fn new(
+    pub fn with_backend(
         config: &WorkerConfig,
+        backend: Arc<dyn InferenceBackend>,
         grant_client: G,
         fragment_store: S,
         publisher: P,
@@ -607,10 +707,12 @@ where
     ) -> Self {
         Self {
             models: config.models().clone(),
-            pipeline: VisionPipeline::new(
+            pipeline: VisionPipeline::with_backend(
                 config.models().clone(),
                 config.skip_unchanged_empty_scenes(),
-            ),
+                backend,
+            )
+            .with_tracking(config.tracker_mode(), config.dedup_track_crops()),
             index_semaphore: Arc::new(Semaphore::new(config.index_concurrency().max(1))),
             wpi_interval: Duration::from_secs(15),
             otel_endpoint: config.otel_endpoint().to_string(),
@@ -618,7 +720,14 @@ where
             fragment_store: Arc::new(fragment_store),
             publisher: Arc::new(publisher),
             metrics,
+            keyframe_decoder: Arc::new(DefaultKeyframeDecoder::new()),
         }
+    }
+
+    /// Replaces the keyframe decoder (the default is [`DefaultKeyframeDecoder`]).
+    pub fn with_keyframe_decoder(mut self, decoder: Arc<dyn KeyframeDecoder>) -> Self {
+        self.keyframe_decoder = decoder;
+        self
     }
 
     pub fn with_wpi_interval(mut self, interval: Duration) -> Self {
@@ -640,7 +749,7 @@ where
         &self,
         delivery: Arc<D>,
     ) -> Result<JobOutcome, MediaWorkerError> {
-        let _permit = Arc::clone(&self.index_semaphore)
+        let permit = Arc::clone(&self.index_semaphore)
             .acquire_owned()
             .await
             .map_err(|_| MediaWorkerError::nats_error("index_concurrency semaphore closed"))?;
@@ -663,7 +772,8 @@ where
             Duration::from_millis(job.budget_ms()),
         );
 
-        let execution_res = self.execute_job(&job).await;
+        let permit = Arc::new(permit);
+        let execution_res = self.execute_job(&job, Arc::clone(&permit)).await;
         wpi_guard.stop().await;
 
         match execution_res {
@@ -674,6 +784,13 @@ where
                 Ok(JobOutcome::Gone)
             }
             Ok(JobExecution::ReadyResult(envelope)) => {
+                debug!(job_id = job.job_id(), totals_by_reason = ?{
+                    let mut totals = BTreeMap::new();
+                    for entry in envelope.undecodable_keyframes() {
+                        *totals.entry(entry.reason()).or_insert(0usize) += 1;
+                    }
+                    totals
+                }, "keyframe decode summary");
                 // CRITICAL INVARIANT (`2.5`): Confirm durable JetStream publish of
                 // `media.results.visual_index.v1` BEFORE calling `ack_completed`!
                 let msg_id = format!("visual-result:{}", job.job_id());
@@ -710,6 +827,7 @@ where
     async fn execute_job(
         &self,
         job: &VisualIndexJobEnvelope,
+        permit: Arc<tokio::sync::OwnedSemaphorePermit>,
     ) -> Result<JobExecution, MediaWorkerError> {
         self.validate_job_compatibility(job)?;
 
@@ -724,53 +842,106 @@ where
         };
 
         let verified_block = self.fragment_store.fetch_verified_block(&plan).await?;
-        let init_seg = parse_init_segment(verified_block.init_bytes())?;
+        let processor = self.clone();
+        let job = job.clone();
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let _subscriber = tracing::dispatcher::set_default(&dispatch);
+            processor.index_block(&job, &verified_block)
+        })
+        .await
+        .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?
+    }
 
-        let mut frame_payloads = Vec::with_capacity(verified_block.fragments().len());
-        let mut previous_frame: Option<RgbFrame> = None;
-
-        for frag in verified_block.fragments() {
-            let parsed_frag = parse_media_fragment(frag.bytes(), &init_seg)?;
-            let decoded_frame = decode_idr_keyframe(&init_seg, &parsed_frag)?;
-            self.metrics.inc_keyframes_decoded(1);
-
-            let t_s1 = Instant::now();
-            let detections = self.pipeline.detect_subjects(&decoded_frame);
-            self.metrics
-                .observe_stage1_latency(t_s1.elapsed().as_secs_f64());
-
-            let scene_suppressed = self.pipeline.skip_unchanged_empty_scenes()
-                && detections.is_empty()
-                && previous_frame
-                    .as_ref()
-                    .is_some_and(|prev| decoded_frame.downsampled_l1_delta(prev) < 0.02);
-
-            let t_s2 = Instant::now();
-            let generated_embs =
-                self.pipeline
-                    .encode_stage2_batch(&decoded_frame, &detections, scene_suppressed);
-            self.metrics
-                .observe_stage2_latency(t_s2.elapsed().as_secs_f64());
-
-            // Prefer authoritative descriptor `start_ns` when > 0, else container `tfdt` PTS.
-            let media_pts_ns = if frag.start_ns() > 0 {
-                frag.start_ns()
-            } else {
-                parsed_frag.media_pts_ns(init_seg.timescale())
+    fn index_block(
+        &self,
+        job: &VisualIndexJobEnvelope,
+        verified_block: &VerifiedKeyframeBlock,
+    ) -> Result<JobExecution, MediaWorkerError> {
+        let (codec, init_seg) = parse_init_segment_with_codec(verified_block.init_bytes());
+        let init_seg = init_seg.and_then(|init| {
+            self.keyframe_decoder.validate_init(&init)?;
+            Ok(init)
+        });
+        let codec = codec.map_or("unknown", VideoCodec::as_str);
+        let mut sampled_frames = Vec::with_capacity(verified_block.fragments().len());
+        let mut undecodable_keyframes = Vec::new();
+        let mut base_pts_ns = 0;
+        for (index, frag) in verified_block.fragments().iter().enumerate() {
+            let (container_pts_ns, decoded) = match &init_seg {
+                Ok(init) => {
+                    let (pts, sample) = parse_timed_fragment(frag.bytes(), init);
+                    (
+                        pts,
+                        sample.map_err(|err| err.error_class()).and_then(|parsed| {
+                            self.keyframe_decoder
+                                .decode_keyframe(init, &parsed)
+                                .map_err(|err| err.reason())
+                        }),
+                    )
+                }
+                Err(error) => (0, Err(error.error_class())),
             };
+            let media_pts_ns = if frag.start_ns() == 0 {
+                container_pts_ns
+            } else {
+                frag.start_ns()
+            };
+            if index == 0 {
+                base_pts_ns = media_pts_ns;
+            }
+            let frame = match decoded {
+                Ok(frame) => {
+                    self.metrics.inc_keyframes_decoded(1);
+                    Some(frame)
+                }
+                Err(reason) => {
+                    self.metrics.inc_keyframes_undecodable(reason);
+                    undecodable_keyframes.push(UndecodableKeyframePayload::new(
+                        frag.sequence(),
+                        reason,
+                        codec,
+                    ));
+                    None
+                }
+            };
+            sampled_frames.push((frag.sequence(), media_pts_ns, frame));
+        }
 
-            let det_payloads = detections
+        let slots = sampled_frames
+            .iter()
+            .map(|(_, pts, frame)| (pts.saturating_sub(base_pts_ns) / 1_000_000, frame.as_ref()));
+        let clip_analysis = self.pipeline.process_sampled_keyframes(slots)?;
+        for &secs in clip_analysis.stage1_latencies_secs() {
+            self.metrics.observe_stage1_latency(secs);
+        }
+        for &secs in clip_analysis.stage2_latencies_secs() {
+            self.metrics.observe_stage2_latency(secs);
+        }
+
+        let (frame_analyses, track_summaries) = clip_analysis.into_parts();
+        let mut frame_payloads = Vec::with_capacity(frame_analyses.len());
+        for ((sequence, media_pts_ns, _), analysis) in sampled_frames
+            .into_iter()
+            .filter(|(_, _, frame)| frame.is_some())
+            .zip(frame_analyses)
+        {
+            let det_payloads = analysis
+                .detections()
                 .iter()
                 .map(|d| DetectionPayload {
                     object_class: d.object_class().as_str().to_string(),
                     confidence: d.confidence(),
                     bbox: d.bbox_norm(),
                     dominant_colors: d.dominant_colors().to_vec(),
+                    track_id: d.track_id(),
                 })
                 .collect();
 
-            let emb_payloads = generated_embs
-                .into_iter()
+            let emb_payloads = analysis
+                .embeddings()
+                .iter()
                 .map(|e| EmbeddingPayload {
                     region_kind: e.region_kind().to_string(),
                     region_index: e.region_index(),
@@ -778,20 +949,32 @@ where
                     confidence: e.confidence(),
                     bbox: e.bbox_norm(),
                     dominant_colors: e.dominant_colors().to_vec(),
+                    track_id: e.track_id(),
                     embedding: e.embedding().to_vec(),
                 })
                 .collect();
 
             frame_payloads.push(FrameResultPayload {
-                fragment_sequence: frag.sequence(),
+                fragment_sequence: sequence,
                 media_pts_ns,
-                scene_suppressed,
+                scene_suppressed: analysis.scene_suppressed(),
                 detections: det_payloads,
                 embeddings: emb_payloads,
             });
-
-            previous_frame = Some(decoded_frame);
         }
+
+        let track_payloads: Vec<TrackSummaryPayload> = track_summaries
+            .into_iter()
+            .map(|t| TrackSummaryPayload {
+                track_id: t.track_id(),
+                object_class: t.object_class().as_str().to_string(),
+                first_seen_offset_ms: t.first_seen_offset_ms(),
+                last_seen_offset_ms: t.last_seen_offset_ms(),
+                dwell_ms: t.dwell_ms(),
+                frame_count: t.frame_count(),
+                peak_confidence: t.peak_confidence(),
+            })
+            .collect();
 
         let det_id = job
             .resolved_detector_model_id(self.models.detector_model_id())
@@ -817,6 +1000,8 @@ where
                 model_version: emb_ver,
                 embedding_dim: self.models.embedding_dim(),
                 frames: frame_payloads,
+                tracks: track_payloads,
+                undecodable_keyframes,
             },
         )))
     }
@@ -1056,12 +1241,20 @@ impl ResultPublisher for JetStreamResultPublisher {
 
 /// Spawns the reserved NATS request-reply subscriber on
 /// `media.rpc.visual_text_embed.v1.<model_id>.<model_version>`.
-pub async fn spawn_nats_text_embed_responder(
+pub(crate) async fn spawn_nats_text_embed_responder(
     client: Client,
-    service: TextEmbedService,
+    worker: &AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<tokio::task::JoinHandle<()>, MediaWorkerError> {
-    let subject = service.subject();
+    let models = worker.config.models();
+    let subject = text_embed_rpc_subject(models);
+    let service = TextEmbedService {
+        models: models.clone(),
+        backend: Arc::clone(&worker.backend),
+        semaphore: Arc::new(Semaphore::new(worker.config.text_embed_concurrency())),
+        metrics,
+    };
     let mut subscription = client
         .queue_subscribe(subject.clone(), VISUAL_TEXT_EMBED_QUEUE_GROUP.to_string())
         .await
@@ -1100,14 +1293,67 @@ pub async fn spawn_nats_text_embed_responder(
     Ok(handle)
 }
 
+pub struct AdmittedWorker {
+    config: WorkerConfig,
+    pub(crate) backend: Arc<dyn InferenceBackend>,
+}
+
+pub async fn load_and_admit_worker(
+    config: WorkerConfig,
+) -> Result<(AdmittedWorker, CapabilityManifest), MediaWorkerError> {
+    admit_worker(config, build_inference_backend).await
+}
+
+async fn admit_worker(
+    config: WorkerConfig,
+    load: impl FnOnce(&WorkerConfig) -> Result<Arc<dyn InferenceBackend>, MediaWorkerError>
+    + Send
+    + 'static,
+) -> Result<(AdmittedWorker, CapabilityManifest), MediaWorkerError> {
+    tokio::task::spawn_blocking(move || {
+        let backend = load(&config)?;
+        let manifest = verify_startup_capabilities_with_backend(
+            &config,
+            &SystemGpuEnvironmentProbe,
+            Arc::clone(&backend),
+        )?;
+        Ok((AdmittedWorker { config, backend }, manifest))
+    })
+    .await
+    .map_err(|err| {
+        MediaWorkerError::inference_failed(format!("startup admission task failed: {err}"))
+    })?
+}
+
 /// Connects to NATS (with optional mTLS + `serviceradar-cert-policy`) and runs
 /// both the reserved interactive text-embedder responder and the JetStream
 /// visual-index pull loop until `shutdown` signals termination.
 pub async fn run_nats_worker_loops(
     config: WorkerConfig,
     metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    let (worker, _) = load_and_admit_worker(config).await?;
+    run_admitted_nats_worker(worker, metrics, shutdown).await
+}
+
+/// Runs the NATS worker loops using a pre-initialized `InferenceBackend`.
+pub async fn run_nats_worker_loops_with_backend(
+    config: WorkerConfig,
+    backend: Arc<dyn InferenceBackend>,
+    metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    let (worker, _) = admit_worker(config, move |_| Ok(backend)).await?;
+    run_admitted_nats_worker(worker, metrics, shutdown).await
+}
+
+pub async fn run_admitted_nats_worker(
+    worker: AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), MediaWorkerError> {
+    let config = &worker.config;
     let auth = config.worker_auth().cloned().unwrap_or_else(|| {
         WorkerAuthCredentials::new(
             "unconfigured-media-worker-token",
@@ -1116,16 +1362,16 @@ pub async fn run_nats_worker_loops(
         )
     });
 
-    let (client, js, cert_policy) = connect_nats_and_jetstream(&config).await?;
-    ensure_media_streams(&js, &config).await?;
+    let (client, js, cert_policy) = connect_nats_and_jetstream(config).await?;
+    ensure_media_streams(&js, config).await?;
 
-    let text_service = TextEmbedService::new(
-        config.models().clone(),
-        config.text_embed_concurrency(),
+    let _text_handle = spawn_nats_text_embed_responder(
+        client.clone(),
+        &worker,
         Arc::clone(&metrics),
-    );
-    let _text_handle =
-        spawn_nats_text_embed_responder(client.clone(), text_service, shutdown.clone()).await?;
+        shutdown.clone(),
+    )
+    .await?;
 
     let grant_client =
         HttpControlPlaneGrantClient::new(config.control_plane_url(), auth, Duration::from_secs(10));
@@ -1141,7 +1387,14 @@ pub async fn run_nats_worker_loops(
         ),
     );
     let publisher = JetStreamResultPublisher::new(js.clone(), cert_policy, Duration::from_secs(10));
-    let processor = VisualIndexProcessor::new(&config, grant_client, store, publisher, metrics);
+    let processor = VisualIndexProcessor::with_backend(
+        config,
+        worker.backend,
+        grant_client,
+        store,
+        publisher,
+        metrics,
+    );
 
     let live_consumer = ensure_pull_consumer(
         &js,
@@ -1234,7 +1487,7 @@ async fn connect_nats_and_jetstream(
     MediaWorkerError,
 > {
     ensure_rustls_provider();
-    let mut options = ConnectOptions::new();
+    let mut options = ConnectOptions::new().custom_inbox_prefix(config.nats_inbox_prefix());
 
     if let Some(creds_file) = config.nats_creds_file() {
         options = options.credentials_file(creds_file).await.map_err(|err| {

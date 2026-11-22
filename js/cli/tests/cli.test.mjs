@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import {execFile} from "node:child_process"
-import {mkdtemp, readFile, stat, writeFile} from "node:fs/promises"
+import {mkdir, mkdtemp, readFile, stat, writeFile} from "node:fs/promises"
 import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {promisify} from "node:util"
@@ -411,7 +411,7 @@ test("init rejects an unknown template", async () => {
   )
 })
 
-for (const template of ["react-blank", "react-map", "react-table"]) {
+for (const template of ["react-blank", "react-map", "react-table", "blueprint"]) {
   test(`init scaffold for ${template} produces a structurally complete project`, async () => {
     const parentDir = await mkdtemp(join(tmpdir(), `sr-dashboard-tmpl-${template}-`))
     const projectName = `${template}-smoke`
@@ -445,6 +445,33 @@ for (const template of ["react-blank", "react-map", "react-table"]) {
     for (const fixturePath of fixturesMatch) {
       const fStat = await stat(join(projectDir, fixturePath))
       assert.equal(fStat.isFile(), true, `fixture ${fixturePath} missing`)
+    }
+
+    if (template === "blueprint") {
+      assert.equal(pkg.dependencies["@blueprintjs/core"], "^6.16.0")
+      assert.equal(pkg.dependencies["@blueprintjs/icons"], "^6.16.0")
+      assert.equal(pkg.dependencies["@blueprintjs/select"], "^6.4.2")
+      assert.equal(pkg.dependencies["@carverauto/serviceradar-dashboard-sdk"], "^0.5.0")
+      assert.equal(pkg.dependencies.react, "19.2.9")
+      assert.equal(pkg.dependencies["react-dom"], "19.2.9")
+      assert.doesNotMatch(config, /__PACKAGE_|__DASHBOARD_TITLE__/)
+      const mainSource = await readFile(join(projectDir, "src", "main.jsx"), "utf8")
+      assert.doesNotMatch(mainSource, /__PACKAGE_|__DASHBOARD_TITLE__/)
+      // Stage minimal SDK config helper stub (since --no-install skips npm install)
+      // so `serviceradar-cli validate` exercises the full schema + fixtures check.
+      const sdkStubDir = join(projectDir, "node_modules", "@carverauto", "serviceradar-dashboard-sdk")
+      await mkdir(sdkStubDir, {recursive: true})
+      await writeFile(
+        join(sdkStubDir, "package.json"),
+        JSON.stringify({name: "@carverauto/serviceradar-dashboard-sdk", version: "0.5.0", type: "module", exports: {"./config": "./config.js"}}),
+      )
+      await writeFile(join(sdkStubDir, "config.js"), "export function defineDashboardConfig(c) { return c }\n")
+      const {stdout: validateOut} = await execFileAsync(
+        process.execPath,
+        [cliPath.pathname, "validate"],
+        {cwd: projectDir},
+      )
+      assert.match(validateOut, /Dashboard config validates\./)
     }
   })
 }
@@ -610,6 +637,36 @@ test("doctor prints runtime + project diagnostics", async () => {
   assert.match(stdout, /platform:/)
   assert.match(stdout, /@carverauto\/serviceradar-cli:\s+\d+\.\d+\.\d+/)
   assert.match(stdout, /credentials path:/)
+  assert.doesNotMatch(stdout, /@blueprintjs\//)
+})
+
+test("doctor reports resolved Blueprint versions when present and stays quiet when absent", async () => {
+  const workspaceDir = await mkdtemp(join(tmpdir(), "sr-cli-doctor-bp-"))
+  const projectDir = join(workspaceDir, "dashboards", "netperf")
+  await mkdir(projectDir, {recursive: true})
+  await writeFile(join(projectDir, "package.json"), JSON.stringify({name: "netperf", version: "0.1.0", type: "module"}))
+
+  // Non-Blueprint project: zero @blueprintjs lines or warnings
+  const nonBp = await execFileAsync(process.execPath, [cliPath.pathname, "doctor"], {cwd: projectDir})
+  assert.doesNotMatch(nonBp.stdout, /@blueprintjs\//)
+  assert.equal(nonBp.stderr, "")
+
+  // Hoisted Blueprint packages
+  for (const [pkg, version] of [
+    ["@blueprintjs/core", "6.23.0"],
+    ["@blueprintjs/icons", "6.16.0"],
+    ["@blueprintjs/select", "6.4.2"],
+  ]) {
+    const pkgDir = join(workspaceDir, "node_modules", pkg)
+    await mkdir(pkgDir, {recursive: true})
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({name: pkg, version, main: "index.js"}))
+    await writeFile(join(pkgDir, "index.js"), "export default {}\n")
+  }
+
+  const withBp = await execFileAsync(process.execPath, [cliPath.pathname, "doctor"], {cwd: projectDir})
+  assert.match(withBp.stdout, /@blueprintjs\/core:\s+6\.23\.0/)
+  assert.match(withBp.stdout, /@blueprintjs\/icons:\s+6\.16\.0/)
+  assert.match(withBp.stdout, /@blueprintjs\/select:\s+6\.4\.2/)
 })
 
 test("formatFetchFailure explains private-CA TLS errors", async () => {

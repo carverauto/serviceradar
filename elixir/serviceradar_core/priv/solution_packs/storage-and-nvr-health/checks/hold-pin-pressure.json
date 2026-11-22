@@ -1,0 +1,125 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [
+      "down"
+    ],
+    "priority": 3,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Warns when PD5 RecordingHold pinned bytes consume archive budget and starve normal object retention.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "posture_1",
+      "source_handle": "signal",
+      "target": "assert_holds",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_holds",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "hold_warn_share_pct"
+      },
+      "description": "Warning percentage of archive budget pinned by active holds",
+      "key": "hold_warn_share_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    },
+    {
+      "default": {
+        "$pack_param": "hold_crit_share_pct"
+      },
+      "description": "Critical percentage of archive budget pinned by active holds",
+      "key": "hold_crit_share_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    }
+  ],
+  "managed": true,
+  "name": "Storage Hold Pin Pressure",
+  "nodes": [
+    {
+      "config": {
+        "evaluator": "storage.hold_pin_pressure"
+      },
+      "id": "posture_1",
+      "kind": "platform_posture",
+      "label": "Hold Pin Pressure"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.hold_crit_share_pct}}"
+        },
+        "fail_closed_field": "retention_starved",
+        "field": "held_share_percent",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.hold_warn_share_pct}}"
+        }
+      },
+      "id": "assert_holds",
+      "kind": "threshold_assert",
+      "label": "Hold Budget Share"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "hold_pressure_elevated",
+          "down": "hold_pins_starving_retention",
+          "healthy": "hold_pressure_nominal",
+          "unknown": "hold_pressure_unknown"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Hold Pin Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.storage-and-nvr-health",
+  "pack_version": "0.1.2",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "storage-hold-pin-pressure",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_holds": {
+        "x": 380,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      },
+      "posture_1": {
+        "x": 80,
+        "y": 120
+      }
+    }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "author": "ServiceRadar",
+  "categories": [
+    "Storage & NVR",
+    "Infrastructure"
+  ],
+  "config": [
+    {
+      "default": 85.0,
+      "description": "Warning threshold percentage for billable storage utilization.",
+      "key": "utilization_warn_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 95.0,
+      "description": "Critical threshold percentage for billable storage utilization.",
+      "key": "utilization_crit_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 50.0,
+      "description": "Warning percentage of archive budget pinned by active investigation holds.",
+      "key": "hold_warn_share_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 80.0,
+      "description": "Critical percentage of archive budget pinned by active investigation holds.",
+      "key": "hold_crit_share_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 36.0,
+      "description": "Maximum permitted age in hours for StorageUsageDailyReport before warning.",
+      "key": "max_report_age_hours",
+      "max": 720.0,
+      "min": 1.0,
+      "required": false,
+      "type": "number"
+    },
+    {
+      "default": 15,
+      "description": "Minutes with zero sealed blocks on an enabled continuous recording policy before alerting.",
+      "key": "silence_window_minutes",
+      "max": 1440,
+      "min": 1,
+      "required": false,
+      "type": "integer"
+    }
+  ],
+  "credential_slots": [],
+  "description": "Monitors archive storage entitlement quota, PD5 hold-pin retention pressure, S3 role credential health, and continuous camera recording silence.",
+  "files": {
+    "README.md": "990031029af8c10414752a93bff4f5a01d88fe2246944027d127da5ba0edb384",
+    "assets/architecture.svg": "b3108812b243005d43b5284aa74e58ae254c519db9b890b6982bd1c0f80e1f78",
+    "checks/archive-storage-posture.json": "1447322d388231ec8016959afcaa5617610224d3e237140705f8adc1f26460c4",
+    "checks/camera-recording-silence.json": "603677e896317724c1d3cfefb0866b82855d1814a7cd7b149037f26a7e5550ee",
+    "checks/entitlement-utilization.json": "886300f0eacbc3086c522d1f549afca030b9ea009ba040b7f8679d2034ac68e0",
+    "checks/hold-pin-pressure.json": "239c13353d03203b1b664bebbb9b755df4894dbaa364847313c2cda3bb161860",
+    "dashboards/storage-and-nvr-overview.json": "d46401780e60cc73240472222880bd3ac152aed72d91cb2ef4e8151e0f8a0fa4",
+    "rules/camera-silence-alert.json": "a4f8c5ed2a93db29cd646094dc22a0f5c328f3fa38c4f3b1d95d03b3349d0286",
+    "rules/storage-hard-cap-alert.json": "28a6c211df95b22d9355b1eba3cd41584559b2dba02bfdd9cb4dbe0bd7055eb8"
+  },
+  "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjM2IiBoZWlnaHQ9IjM2IiByeD0iOCIgZmlsbD0iIzBmMTcyYSIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMjQiIHI9IjEwIiBmaWxsPSIjMzhiZGY4Ii8+PC9zdmc+",
+  "id": "io.serviceradar.storage-and-nvr-health",
+  "license": "Apache-2.0",
+  "min_serviceradar_version": "1.0.70",
+  "name": "Storage Entitlements & NVR Recording Health",
+  "pack_format_version": 1,
+  "plugin_dependencies": [],
+  "resources": {
+    "checks": [
+      {
+        "file": "checks/entitlement-utilization.json",
+        "slug": "storage-entitlement-utilization"
+      },
+      {
+        "file": "checks/hold-pin-pressure.json",
+        "slug": "storage-hold-pin-pressure"
+      },
+      {
+        "file": "checks/archive-storage-posture.json",
+        "slug": "storage-archive-credential-health"
+      },
+      {
+        "file": "checks/camera-recording-silence.json",
+        "slug": "camera-continuous-recording-silence"
+      }
+    ],
+    "dashboards": [
+      {
+        "file": "dashboards/storage-and-nvr-overview.json",
+        "slug": "storage-and-nvr-overview"
+      }
+    ],
+    "rules": [
+      {
+        "file": "rules/storage-hard-cap-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "storage_entitlement_hard_cap"
+      },
+      {
+        "file": "rules/camera-silence-alert.json",
+        "install_state": "enabled",
+        "kind": "stateful_alert_rule",
+        "name": "camera_continuous_recording_silence"
+      }
+    ]
+  },
+  "slug": "storage-and-nvr-health",
+  "version": "0.1.2"
+}

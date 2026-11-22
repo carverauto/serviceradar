@@ -6,9 +6,11 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config
   alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
+  alias ServiceRadarCoreElx.CameraStorage.ReadLongshorePool
   alias ServiceRadarCoreElx.CameraStorage.Service
   alias ServiceRadarCoreElx.CameraStorage.Session
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Fixture
+  alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   @moduletag :tmp_dir
   @moduletag timeout: 60_000
@@ -317,7 +319,7 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
   @tag :skip_service
   test "shutdown budgets outlast the 35 s ObjectStorage.Session drain", ctx do
     object_storage_shutdown =
-      Supervisor.child_spec({ServiceRadarObjectStorage.Session, config: %{}}, []).shutdown
+      Supervisor.child_spec({ObjectStorageSession, config: %{}}, []).shutdown
 
     assert object_storage_shutdown > 30_000
     assert %{type: :supervisor, shutdown: :infinity} = Supervisor.child_spec({Service, ctx.config}, [])
@@ -348,6 +350,72 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
 
     assert {:error, :unsupported_provider_cacerts} = Service.start_link(custom_ca)
     assert {:error, :unsupported_provider_cacerts} = Service.start_read_link(custom_ca)
+  end
+
+  @tag skip_service: true
+  test "per-request ReadService serves verified ranges, rotates credentials across real Longshore NIF clients, and maps 404/412",
+       ctx do
+    reader = start_per_request_read_service(ctx)
+    media_slice = "invented archived media fragment bytes for per-request longshore"
+    Agent.update(ctx.store, &%{&1 | object: media_slice})
+    block_key = String.duplicate("ab", 32)
+    expected_slice = binary_part(media_slice, 9, 8)
+
+    build_req = fn access_key, secret_key, session_token ->
+      cred = %{"access_key_id" => access_key, "secret_access_key" => secret_key}
+      cred = if session_token, do: Map.put(cred, "session_token", session_token), else: cred
+
+      %{
+        "schema_version" => 1,
+        "destination" => ctx.config.provider.destination,
+        "credential" => cred,
+        "plan" => %{
+          "storage_id" => @storage,
+          "block_key" => block_key,
+          "object_key" => "recordings/v1/#{@storage}/#{block_key}/media.m4s",
+          "first" => 9,
+          "last" => 16,
+          "size" => byte_size(media_slice),
+          "etag" => ~s("synthetic-etag"),
+          "version_id" => "version-1",
+          "sha256" => digest(expected_slice)
+        }
+      }
+    end
+
+    # First credential opens an active Longshore NIF client clamped to concurrency 4 and signs session token.
+    req_a = build_req.("SYNTHETICREADERA01", "invented-longshore-secret-a", "invented-session-token-a")
+    assert {:ok, %{status: 200, body: ^expected_slice}} = read_timeline_range(reader, req_a)
+
+    active_pid = :sys.get_state(ReadLongshorePool).active.pid
+    assert ObjectStorageSession.info(active_pid).workers == 4
+
+    [first_get | _] = Agent.get(ctx.store, & &1.provider)
+    assert first_get.headers["authorization"] =~ "Credential=SYNTHETICREADERA01/"
+    assert first_get.headers["x-amz-security-token"] == "invented-session-token-a"
+
+    # Second credential rotates active client to draining and retires it cleanly so a third rotation succeeds.
+    req_b = build_req.("SYNTHETICREADERB02", "invented-longshore-secret-b", nil)
+    assert {:ok, %{status: 200, body: ^expected_slice}} = read_timeline_range(reader, req_b)
+    assert eventually(fn -> :sys.get_state(ReadLongshorePool).draining == nil end)
+
+    req_c = build_req.("SYNTHETICREADERC03", "invented-longshore-secret-c", nil)
+    assert {:ok, %{status: 200, body: ^expected_slice}} = read_timeline_range(reader, req_c)
+    [third_get | _] = Agent.get(ctx.store, & &1.provider)
+    assert third_get.headers["authorization"] =~ "Credential=SYNTHETICREADERC03/"
+
+    # 412 -> 409 integrity mismatch and 404 -> 404 not found without leaking XML or credentials.
+    Agent.update(ctx.store, &%{&1 | mode: :read_precondition_failed})
+    assert {:ok, %{status: 409, body: mismatch_body}} = read_timeline_range(reader, req_c)
+    assert Jason.decode!(mismatch_body) == %{"error" => "archive_integrity_mismatch"}
+    refute mismatch_body =~ "xml-error-sentinel"
+    refute mismatch_body =~ "invented-longshore-secret-c"
+
+    Agent.update(ctx.store, &%{&1 | mode: :read_not_found})
+    assert {:ok, %{status: 404, body: missing_body}} = read_timeline_range(reader, req_c)
+    assert Jason.decode!(missing_body) == %{"error" => "archive_object_not_found"}
+    refute missing_body =~ "NoSuchKey"
+    refute missing_body =~ "invented-longshore-secret-c"
   end
 
   defp assert_longshore_canonical_evidence(kind, put, expected_bytes, core_calls) do
@@ -474,6 +542,107 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
     ]
 
     HTTP.request(installed.client, :post, installed.client.base_url <> "/v1/archive-ranges", headers, body, 5_000, 65_536)
+  end
+
+  defp start_per_request_read_service(ctx) do
+    algorithm = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
+
+    certificates =
+      :public_key.pkix_test_data(%{
+        server_chain: %{root: algorithm, intermediates: [], peer: algorithm},
+        client_chain: %{root: algorithm, intermediates: [], peer: algorithm}
+      })
+
+    roots = Enum.uniq(ctx.roots ++ certificates.client_config[:cacerts] ++ certificates.server_config[:cacerts])
+    ca = write_pem(ctx.tmp_dir, "per-req-ca.crt", Enum.map(roots, &{:Certificate, &1, :not_encrypted}))
+    cert = write_pem(ctx.tmp_dir, "per-req.crt", [{:Certificate, certificates.client_config[:cert], :not_encrypted}])
+    {key_type, key_der} = certificates.client_config[:key]
+    key = write_pem(ctx.tmp_dir, "per-req.key", [{key_type, key_der, :not_encrypted}])
+    token = String.duplicate("q", 40)
+    tokenfile = write_file(ctx.tmp_dir, "per-req-token", token)
+    port = free_port()
+
+    document = %{
+      "schema_version" => 1,
+      "mode" => "per_request",
+      "listener" =>
+        Map.merge(ctx.tls, %{
+          "port" => port,
+          "cacertfile" => ca,
+          "reader_certificate_sha256" => digest(certificates.client_config[:cert]),
+          "token_file" => tokenfile
+        })
+    }
+
+    path = write_file(ctx.tmp_dir, "per-req-storage.json", Jason.encode!(document))
+
+    env_vars = %{
+      "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => "longshore",
+      "SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => "12",
+      "SERVICERADAR_ARCHIVE_READER_PORTABLE" => "true"
+    }
+
+    previous = Map.new(env_vars, fn {k, _} -> {k, System.get_env(k)} end)
+
+    config =
+      try do
+        Enum.each(env_vars, fn {k, v} -> System.put_env(k, v) end)
+        assert {:ok, loaded} = Config.load_read_storage(path)
+        loaded
+      after
+        Enum.each(previous, fn
+          {k, nil} -> System.delete_env(k)
+          {k, v} -> System.put_env(k, v)
+        end)
+      end
+
+    assert config.mode == :per_request
+    assert config.max_concurrency == 12
+    assert config.provider.transport == :longshore
+    assert config.provider.portable == true
+
+    config = put_in(config.provider[:longshore_loopback_peer], {"127.0.0.1", ctx.provider_port})
+
+    start_supervised!(%{
+      id: :per_request_longshore_reader_service,
+      start: {Service, :start_read_link, [config]},
+      restart: :temporary
+    })
+
+    client_doc = %{
+      "schema_version" => 1,
+      "storage" => %{
+        "base_url" => "https://localhost:#{port}",
+        "certfile" => cert,
+        "keyfile" => key,
+        "cacertfile" => ca,
+        "token_file" => tokenfile
+      }
+    }
+
+    client_path = write_file(ctx.tmp_dir, "per-req-client.json", Jason.encode!(client_doc))
+    {:ok, installed} = Config.load_timeline_reader(client_path)
+    installed
+  end
+
+  defp read_timeline_range(installed, payload) do
+    body = Jason.encode!(payload)
+
+    headers = [
+      {"authorization", "Bearer " <> installed.client.token},
+      {"content-type", "application/json"},
+      {"content-length", Integer.to_string(byte_size(body))}
+    ]
+
+    HTTP.request(
+      installed.client,
+      :post,
+      installed.client.base_url <> "/v1/timeline-archive-ranges",
+      headers,
+      body,
+      5_000,
+      65_536
+    )
   end
 
   defp open_ingress_post(ctx, path, body) do
@@ -715,6 +884,11 @@ defmodule ServiceRadarCoreElx.CameraStorageLongshoreTest do
   defp provider_response(%{mode: :read_precondition_failed} = state, %{method: "GET"}) do
     xml = "<Error><Code>PreconditionFailed</Code><Message>xml-error-sentinel</Message></Error>"
     {{412, %{"content-type" => "application/xml"}, xml}, state}
+  end
+
+  defp provider_response(%{mode: :read_not_found} = state, %{method: "GET"}) do
+    xml = "<Error><Code>NoSuchKey</Code></Error>"
+    {{404, %{"content-type" => "application/xml"}, xml}, state}
   end
 
   defp provider_response(state, %{method: "GET", headers: request_headers}) do

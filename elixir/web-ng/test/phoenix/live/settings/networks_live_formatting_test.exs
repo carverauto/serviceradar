@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveFormattingTest do
 
     test "shows ports when any mode uses them" do
       assert Formatting.format_ports_for_modes([22, 80], ["tcp"]) == "22, 80"
-      assert Formatting.format_ports_for_modes([3001, 443, 4502], ["icmp", "tcp"]) == "3001, 443, 4502"
+      assert Formatting.format_ports_for_modes([80, 22, 8443], ["icmp", "tcp"]) == "80, 22, 8443"
       assert Formatting.format_ports_for_modes([22, 80, 445, 3389, 5985, 5986], ["tcp"]) == "6 ports"
     end
 

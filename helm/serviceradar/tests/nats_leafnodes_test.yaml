@@ -70,10 +70,6 @@ tests:
       partitionId: acme
       nats.leafnodes.enabled: true
       nats.certificateAuthorization.enabled: true
-      nats.certificateAuthorization.infrastructureAdopted: true
-      nats.certificateAuthorization.issuerPublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-      nats.certificateAuthorization.authUserPublicKey: UBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-      nats.certificateAuthorization.systemUserPublicKey: UCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
@@ -83,7 +79,7 @@ tests:
           value: StatefulSet
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'authorization: \{auth_callout:'
+          pattern: '\$\(cat /etc/serviceradar/certs/nats-callout-authorization\.conf\)'
         documentSelector:
           path: kind
           value: StatefulSet
@@ -286,6 +282,66 @@ tests:
       - matchRegex:
           path: data["generate-certs.sh"]
           pattern: 'generate_cert "nats" "serviceradar-nats" "[^"]*svc\.cluster\.local,DNS:localhost,IP:127\.0\.0\.1"'
+
+  - it: omits the broker leaf SAN roll annotation without extra leaf names
+    template: templates/nats.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: stamps the broker leaf SAN roll annotation when extra leaf names are set
+    template: templates/nats.yaml
+    set:
+      nats.leafnodes.tls.extraDnsNames:
+        - leaf-a.example.com
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+          value: c3dc6faa9206a8c8517030e6eff7996b6753869be228c22af083535ef878463a
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: changes the broker leaf SAN roll annotation when extra leaf names change
+    template: templates/nats.yaml
+    set:
+      nats.leafnodes.tls.extraDnsNames:
+        - leaf-a.example.com
+        - leaf-b.example.com
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+          value: c3dc6faa9206a8c8517030e6eff7996b6753869be228c22af083535ef878463a
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - equal:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+          value: fbd862535b1247780b4eebc17dc5cada29a5bde7a89e0ea80daa4cba62029d40
+        documentSelector:
+          path: kind
+          value: StatefulSet
+
+  - it: stamps the broker leaf SAN roll annotation from hostedRuntime.publicEndpoints.natsLeafHost
+    template: templates/nats.yaml
+    set:
+      hostedRuntime.publicEndpoints.natsLeafHost: acme.nats.serviceradar.cloud
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+          value: c3dc6faa9206a8c8517030e6eff7996b6753869be228c22af083535ef878463a
+        documentSelector:
+          path: kind
+          value: StatefulSet
+      - equal:
+          path: spec.template.metadata.annotations['checksum/nats-leaf-cert-sans']
+          value: 7ce5d230d6e0f7ea451e37022b8f59eb2542ccd6d77b8a35be09de4ed0f659ec
+        documentSelector:
+          path: kind
+          value: StatefulSet
 
   - it: renders the web-ng leaf upstream URL from the hosted public endpoint
     template: templates/web.yaml

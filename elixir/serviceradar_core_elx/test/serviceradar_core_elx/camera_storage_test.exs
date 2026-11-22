@@ -893,7 +893,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     Agent.update(ctx.store, &%{&1 | mode: :slow_read})
     task = Task.async(fn -> read_range(reader) end)
     assert_receive :read_started, 2_000
-    slot = :sys.get_state(ReadSession).slot
+    [slot] = Map.values(:sys.get_state(ReadSession).slots)
     {socket, _} = slot.socket
     ingress_monitor = Process.monitor(slot.owner)
     socket_monitor = Process.monitor(socket)
@@ -904,7 +904,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     assert_receive {:DOWN, ^ingress_monitor, :process, _, :killed}, 11_000
     assert_receive {:DOWN, ^socket_monitor, :process, ^socket, _}, 1_000
     assert {:error, _} = Task.await(task, 2_000)
-    assert eventually(fn -> is_nil(:sys.get_state(ReadSession).slot) end)
+    assert eventually(fn -> map_size(:sys.get_state(ReadSession).slots) == 0 end)
     Agent.update(ctx.store, &%{&1 | mode: nil})
     assert {:ok, %{status: 200, body: "immutable"}} = read_range(reader)
   end

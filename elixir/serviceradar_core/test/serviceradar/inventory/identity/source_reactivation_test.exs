@@ -139,8 +139,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
       assert open_tasks(ctx, b) == []
     end
 
-    test "returns on a shared hostname first seen no earlier than the id was last seen", ctx do
+    # A name is not identity (stop-name-as-identity-evidence): the shared MAC and hostname do
+    # not return the id when the first-seen times differ, even though the device comes back
+    # first seen no earlier than the source last saw the id.
+    test "is re-issued on a shared MAC and hostname first seen no earlier than the id was last seen",
+         ctx do
       {_a, b} = retire_second(ctx)
+      [armis_row, _integration_row] = archived(ctx, b.source_id)
 
       # The source last saw the id at t0+5h. The device comes back first seen at that time,
       # under the record's hostname written differently.
@@ -151,13 +156,18 @@ defmodule ServiceRadar.Inventory.Identity.SourceReactivationTest do
           hostname: "HOST02.example.com."
         )
 
-      assert reported.uid == b.uid
-      assert [decision] = decisions(ctx, :source_id_reactivated, b)
-      assert decision.evidence["corroboration"] == "hostname"
-      assert decision.evidence["first_seen_basis"] == "source"
+      assert reported.uid == Ids.reissued_device_id(b.uid, [armis_row.id])
+      assert decisions(ctx, :source_id_reactivated, b) == []
+      assert [decision] = decisions(ctx, :source_id_reissued, b)
+      assert decision.device_uids == Enum.sort([reported.uid, b.uid])
+      assert decision.evidence["holders"] == %{b.uid => "not_corroborated"}
+      assert length(archived(ctx, b.source_id)) == 2
+
+      assert [task] = open_tasks(ctx, b)
+      assert task.device_uids == Enum.sort([reported.uid, b.uid])
     end
 
-    test "is re-issued when a shared hostname was first seen while the id was still seen", ctx do
+    test "is re-issued when the source first saw the device at another time", ctx do
       {_a, b} = retire_second(ctx)
       [armis_row, _integration_row] = archived(ctx, b.source_id)
 

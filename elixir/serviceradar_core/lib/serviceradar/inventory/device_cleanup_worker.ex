@@ -561,6 +561,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     "UPDATE platform.ocsf_devices SET " <>
       cleared <>
       ", metadata = COALESCE(metadata, '{}'::jsonb) - ARRAY(SELECT jsonb_object_keys(COALESCE(metadata, '{}'::jsonb)) EXCEPT SELECT unnest(ARRAY['_merged_into', '_merged_at', '_seed_successor']::text[])), " <>
+      "attribute_provenance = '{}'::jsonb, " <>
       "modified_time = timezone('utc', now()), " <>
       "identity_purged_at = timezone('utc', now()), identity_revision = identity_revision + 1 WHERE uid = ANY($1)"
   end

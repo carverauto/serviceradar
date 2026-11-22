@@ -57,24 +57,24 @@ defmodule ServiceRadar.SweepJobs.PortCoverageTest do
     test "records every attempted port, open or not" do
       result = %{
         "port_results" => [
-          %{"port" => 443, "available" => true},
-          %{"port" => 3001, "available" => false},
-          %{"port" => 4502, "available" => false}
+          %{"port" => 22, "available" => true},
+          %{"port" => 80, "available" => false},
+          %{"port" => 8443, "available" => false}
         ]
       }
 
-      assert PortCoverage.scanned_ports(result) == [443, 3001, 4502]
+      assert PortCoverage.scanned_ports(result) == [22, 80, 8443]
     end
 
     test "a host that refuses every port still reports coverage" do
       result = %{
         "port_results" => [
-          %{"port" => 3001, "available" => false},
-          %{"port" => 4502, "available" => false}
+          %{"port" => 80, "available" => false},
+          %{"port" => 8443, "available" => false}
         ]
       }
 
-      assert PortCoverage.scanned_ports(result) == [3001, 4502]
+      assert PortCoverage.scanned_ports(result) == [80, 8443]
     end
 
     test "an ICMP-only result scans no ports" do
@@ -261,20 +261,20 @@ Append to `elixir/serviceradar_core/test/serviceradar/sweep_jobs/sweep_results_i
 
       results = [
         %{
-          "host" => "192.168.1.10",
+          "host" => "192.0.2.118",
           "available" => true,
           "port_results" => [
-            %{"port" => 443, "available" => true},
-            %{"port" => 3001, "available" => false},
-            %{"port" => 4502, "available" => false}
+            %{"port" => 22, "available" => true},
+            %{"port" => 80, "available" => false},
+            %{"port" => 8443, "available" => false}
           ]
         }
       ]
 
       {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
-      assert record.open_ports == [443]
-      assert record.scanned_ports == [443, 3001, 4502]
+      assert record.open_ports == [22]
+      assert record.scanned_ports == [22, 80, 8443]
     end
 
     test "a host refusing every port is distinguishable from an ICMP-only host" do
@@ -282,18 +282,18 @@ Append to `elixir/serviceradar_core/test/serviceradar/sweep_jobs/sweep_results_i
 
       results = [
         %{
-          "host" => "192.168.1.11",
+          "host" => "192.0.2.153",
           "available" => false,
-          "port_results" => [%{"port" => 3001, "available" => false}]
+          "port_results" => [%{"port" => 80, "available" => false}]
         },
-        %{"host" => "192.168.1.12", "available" => true, "icmp_available" => true}
+        %{"host" => "192.0.2.196", "available" => true, "icmp_available" => true}
       ]
 
       {[refused, icmp_only], _stats} =
         SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
       assert refused.open_ports == []
-      assert refused.scanned_ports == [3001]
+      assert refused.scanned_ports == [80]
       assert icmp_only.open_ports == []
       assert icmp_only.scanned_ports == []
     end
@@ -566,26 +566,26 @@ defmodule ServiceRadar.SweepJobs.SweepHostResultCoverageDbTest do
 
     first = [
       %{
-        "host" => "192.168.50.10",
+        "host" => "198.51.100.146",
         "available" => true,
-        "port_results" => [%{"port" => 443, "available" => true}]
+        "port_results" => [%{"port" => 22, "available" => true}]
       }
     ]
 
     second = [
       %{
-        "host" => "192.168.50.10",
+        "host" => "198.51.100.146",
         "available" => false,
-        "port_results" => [%{"port" => 3001, "available" => false}]
+        "port_results" => [%{"port" => 80, "available" => false}]
       }
     ]
 
     ingest(first, execution_id, agent_id: "agent-a", sweep_group_id: group_id)
     ingest(second, execution_id, agent_id: nil, sweep_group_id: nil)
 
-    row = fetch_row(execution_id, "192.168.50.10")
+    row = fetch_row(execution_id, "198.51.100.146")
 
-    assert Enum.sort(row.scanned_ports) == [443, 3001]
+    assert Enum.sort(row.scanned_ports) == [22, 80]
     assert row.open_ports == []
     assert row.agent_id == "agent-a"
     assert row.sweep_group_id == group_id
@@ -766,8 +766,8 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-overlap"
     {group_a, group_b} = {Ash.UUID.generate(), Ash.UUID.generate()}
 
-    insert_result(day, device_uid, "10.0.0.5", group_a, "agent-a", [443], [443])
-    insert_result(day, device_uid, "10.0.0.5", group_b, "agent-a", [3001], [])
+    insert_result(day, device_uid, "198.51.100.132", group_a, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.132", group_b, "agent-a", [80], [])
 
     assert {:ok, 2} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -799,14 +799,14 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     device_uid = "device-union"
     group = Ash.UUID.generate()
 
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [443], [443])
-    insert_result(day, device_uid, "10.0.0.7", group, "agent-a", [3001, 4502], [])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [22], [22])
+    insert_result(day, device_uid, "198.51.100.179", group, "agent-a", [80, 8443], [])
 
     assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
     [row] = coverage_rows(day, device_uid)
-    assert Enum.sort(row.scanned_ports) == [443, 3001, 4502]
-    assert row.open_ports == [443]
+    assert Enum.sort(row.scanned_ports) == [22, 80, 8443]
+    assert row.open_ports == [22]
     assert row.execution_count == 2
   end
 
@@ -1066,7 +1066,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a day that has not been rolled up is not deleted" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.5")
+    insert_result_on(day, "198.51.100.121")
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
 
@@ -1075,7 +1075,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "a rolled-up day past retention is deleted, and its coverage survives" do
     day = Date.add(Date.utc_today(), -10)
-    insert_result_on(day, "10.0.1.6")
+    insert_result_on(day, "198.51.100.141")
 
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
@@ -1087,7 +1087,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
 
   test "coverage rows past the rollup retention are deleted" do
     day = Date.add(Date.utc_today(), -500)
-    insert_result_on(day, "10.0.1.7")
+    insert_result_on(day, "198.51.100.161")
     {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
@@ -1124,8 +1124,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
         execution_id: execution.id,
         ip: ip,
         status: :available,
-        open_ports: [443],
-        scanned_ports: [443, 3001],
+        open_ports: [22],
+        scanned_ports: [22, 80],
         sweep_modes_results: %{"tcp" => "success"},
         agent_id: "agent-a",
         sweep_group_id: group.id,

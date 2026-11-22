@@ -4,9 +4,12 @@ defmodule ServiceRadar.Inventory.Remediation.SourceSuccessionMerge do
   `add-source-id-succession`, design D11), and the count of class 8.
 
     * Classes 2 and 3, a retired-only predecessor and its successor sharing a universal MAC and
-      a hostname (2) or a first-seen time only (3): the step merges each pair with reason
-      `source_succession`, as a scheduled run does (`SourceSuccession.merge_pair/3`), and the
-      merge guard admits exactly these merges.
+      an agreeing first-seen time, with a hostname as well (2) or without (3): the step merges
+      each pair with reason `source_succession`, as a scheduled run does
+      (`SourceSuccession.merge_pair/3`), and the merge guard admits exactly these merges. A
+      shared hostname never corroborates (requirement "Hostname Agreement Is Not Identity"): a
+      pair sharing a MAC and a hostname whose first-seen times differ is not class 2, it is the
+      class 4 review `overlapping_hostname`.
     * Classes 4 and 6, weaker evidence and sets that are not one-to-one: the step records their
       review decisions, which open the review tasks, and merges nothing.
     * Class 8, one source id in the metadata of several live records, is reviewed only: the dry

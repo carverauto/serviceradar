@@ -1216,13 +1216,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   end
 
   describe "ingest/4 of metrics batch records" do
-    for {source, family} <- [
-          {"sysmon-metrics", "sysmon"},
-          {"snmp-metrics", "snmp"},
-          {"icmp-metrics", "icmp"},
-          {"rperf-metrics", "rperf"},
-          {"mtr-metrics", "mtr"},
-          {"sweep-metrics", "sweep"}
+    for {source, family, expected_producer_kind} <- [
+          {"sysmon-metrics", "sysmon", "agent"},
+          {"snmp-metrics", "snmp", "agent"},
+          {"icmp-metrics", "icmp", "agent"},
+          {"rperf-metrics", "rperf", "agent"},
+          {"mtr-metrics", "mtr", "mtr-checker"},
+          {"sweep-metrics", "sweep", "sweep"}
         ] do
       test "a fresh #{source} record is published once to metrics.#{family} under the authenticated agent" do
         frame = with_source(build_metrics_frame(), unquote(source))
@@ -1237,6 +1237,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
         published = MetricBatch.decode(body)
         assert published.resource.agent_id == frame.agent_id
         assert published.ingest_identity.producer_id == frame.agent_id
+        assert published.ingest_identity.producer_kind == unquote(expected_producer_kind)
         assert length(published.metrics) == 2
         assert ledger_count(frame.record) == 1
       end

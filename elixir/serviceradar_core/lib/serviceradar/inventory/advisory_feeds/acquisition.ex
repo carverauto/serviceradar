@@ -22,9 +22,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   `:http_get` / `:http_get_json` are injectable for tests.
   """
 
+  alias Palisade.OutboundURLPolicy
   alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
-  alias ServiceRadar.Policies.OutboundURLPolicy
 
   defmodule SecretDownloadLimitError do
     @moduledoc false

@@ -11,6 +11,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher do
   import ServiceRadar.Observability.StatefulAlertEngine.Helpers
   import ServiceRadar.Observability.StatefulAlertEngine.Record
 
+  # Every key a rule's `match` may carry. A key outside this list is read by
+  # nothing: it does not narrow the rule, it silently widens it to every record.
+  @match_keys ~w(
+    always recovery
+    subject_prefix service_name body_contains
+    severity_number_min severity_number_max severity_text
+    attribute_equals resource_attribute_equals
+    metric_name metric_type unit device_id agent_id gateway_id partition series_key
+    tag_equals metadata_equals
+    condition metric_condition threshold_condition
+  )
+
+  @doc """
+  Paths of the keys in `match` that the engine does not read, including those
+  inside its `recovery` clause. An empty list means every key takes effect.
+  """
+  @spec unknown_match_keys(term()) :: [String.t()]
+  def unknown_match_keys(match) when is_map(match) do
+    recovery_unknown =
+      case match["recovery"] do
+        %{} = recovery -> Enum.map(unknown_keys(recovery, ["recovery"]), &("recovery." <> &1))
+        _ -> []
+      end
+
+    unknown_keys(match, []) ++ recovery_unknown
+  end
+
+  def unknown_match_keys(_match), do: []
+
+  defp unknown_keys(map, also_refused) do
+    map
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @match_keys and &1 not in also_refused))
+    |> Enum.sort()
+  end
+
   def rule_matches_log?(log, rule) do
     match = rule.match || %{}
 

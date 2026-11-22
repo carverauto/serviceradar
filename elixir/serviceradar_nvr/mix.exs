@@ -24,6 +24,10 @@ defmodule ServiceRadarNVR.MixProject do
       {:serviceradar_recording_control, path: "../serviceradar_recording_control"},
       {:serviceradar_recording_metadata, path: "../serviceradar_recording_metadata"},
       {:serviceradar_recording, path: "../serviceradar_recording"},
+      # Ratio 4.0.1 still advertises Decimal 2.x. serviceradar_recording overrides it,
+      # but Mix honours an override only from the top-level project, so repeat it here.
+      {:decimal, "~> 3.1 and >= 3.1.2", override: true},
+      {:numbers, "~> 5.2.5", override: true},
       {:serviceradar_object_storage, path: "../serviceradar_object_storage"},
       {:ecto, "~> 3.14"},
       {:bandit, "~> 1.8"},

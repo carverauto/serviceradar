@@ -6,6 +6,8 @@ defmodule ServiceRadarNVR.Config do
   # this ceiling too, so a block written under any accepted value stays readable
   # after the setting is lowered.
   @block_fragments_ceiling 256
+  # A flat volume root is listed whole; beyond this a sharded layout is needed.
+  @max_blocks_ceiling 262_144
 
   defstruct [
     :root,
@@ -13,12 +15,15 @@ defmodule ServiceRadarNVR.Config do
     :max_sessions,
     :max_duration_ms,
     :max_block_fragments,
+    :max_blocks,
     :health_port,
     :max_spool_bytes,
     :reserve_bytes,
     :recovery_gate,
     :delivery,
     :ingest,
+    :read,
+    :playback_read_slots,
     :auto_delivery
   ]
 
@@ -27,12 +32,16 @@ defmodule ServiceRadarNVR.Config do
          {:ok, sessions} <- integer(env, "SERVICERADAR_NVR_MAX_SESSIONS", 1, 16),
          {:ok, duration} <- integer(env, "SERVICERADAR_NVR_MAX_DURATION_MS", 30_000, 300_000),
          {:ok, fragments} <- integer(env, "SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS", 150, 8, @block_fragments_ceiling),
+         {:ok, max_blocks} <- integer(env, "SERVICERADAR_NVR_MAX_BLOCKS", 131_072, @max_blocks_ceiling),
          {:ok, spool} <- integer(env, "SERVICERADAR_NVR_MAX_SPOOL_BYTES", 1_073_741_824, 1_099_511_627_776),
          {:ok, reserve} <- integer(env, "SERVICERADAR_NVR_RESERVE_BYTES", 67_108_864, 1_125_899_906_842_624),
          {:ok, root, id} <- storage(env),
          {:ok, recovery_gate} <- ServiceRadarRecordingControl.RecoveryGate.load(env, root),
          {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
          {:ok, ingest} <- ServiceRadarNVR.IngestListener.load(env),
+         {:ok, read} <- ServiceRadarNVR.ReadListener.load(env),
+         :ok <- distinct_listeners(ingest, read),
+         {:ok, playback_read_slots} <- integer(env, "SERVICERADAR_NVR_PLAYBACK_READ_SLOTS", 8, 64),
          {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{
         root: root,
@@ -40,12 +49,15 @@ defmodule ServiceRadarNVR.Config do
         max_sessions: sessions,
         max_duration_ms: duration,
         max_block_fragments: fragments,
+        max_blocks: max_blocks,
         health_port: port,
         max_spool_bytes: spool,
         reserve_bytes: reserve,
         recovery_gate: recovery_gate,
         delivery: delivery,
         ingest: ingest,
+        read: read,
+        playback_read_slots: playback_read_slots,
         auto_delivery: auto_delivery
       }
 
@@ -55,6 +67,17 @@ defmodule ServiceRadarNVR.Config do
 
   @doc "Largest accepted `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, so also the fragment bound for reading a retained block."
   def block_fragments_ceiling, do: @block_fragments_ceiling
+
+  # The read listener is a separate trust boundary: a playback credential must
+  # not open the ingest listener, and an ingest credential must not read media.
+  defp distinct_listeners(%{} = ingest, %{} = read) do
+    if ingest.port != read.port and ingest.client_sha256 != read.client_sha256 and
+         ingest.token_sha256 != read.token_sha256,
+       do: :ok,
+       else: {:error, :invalid_nvr_read_config}
+  end
+
+  defp distinct_listeners(_ingest, _read), do: :ok
 
   defp auto_delivery(env, root, delivery) do
     case Map.get(env, "SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY", "false") do

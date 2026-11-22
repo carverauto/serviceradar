@@ -2,6 +2,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   use ExUnit.Case, async: false
 
   alias Ash.Notifier.Notification
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
@@ -151,6 +152,80 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.result == :ok
     end
 
+    test "dispatcher pushes only the replacement agent for IntegrationSource reassign_agent" do
+      notification = %Notification{
+        resource: IntegrationSource,
+        action: %{type: :update, name: :reassign_agent},
+        data: %{agent_id: "agent-replacement"}
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:push_config, "agent-replacement"}
+      assert_received {:diagnostic, ^diagnostic}
+      refute_received {:push_config, "agent-old"}
+      refute_received {:push_config_for_type, :sync}
+      refute_received {:invalidate, :sync}
+
+      assert diagnostic.dependency_id == :integration_source_sync_config
+      assert diagnostic.config_type == :sync
+      assert diagnostic.action_type == :update
+      assert diagnostic.affected_agents == ["agent-replacement"]
+      assert diagnostic.affected_agent_count == 1
+      assert diagnostic.result == :ok
+    end
+
+    test "IntegrationSource reassign_agent only changes agent_id and is restricted to system actors" do
+      source = %IntegrationSource{
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        name: "example-source",
+        source_type: :custom,
+        endpoint: "https://example.invalid/api",
+        agent_id: "agent-old"
+      }
+
+      system_actor = SystemActor.system(:agent_supersession)
+      admin_actor = %{id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: :admin}
+      viewer_actor = %{id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", role: :viewer}
+
+      valid_changeset =
+        Ash.Changeset.for_update(source, :reassign_agent, %{agent_id: "agent-replacement"},
+          actor: system_actor
+        )
+
+      assert valid_changeset.valid?
+      assert Ash.Changeset.get_attribute(valid_changeset, :agent_id) == "agent-replacement"
+
+      extra_field_changeset =
+        Ash.Changeset.for_update(
+          source,
+          :reassign_agent,
+          %{agent_id: "agent-replacement", endpoint: "https://other.invalid/api"},
+          actor: system_actor
+        )
+
+      refute extra_field_changeset.valid?
+
+      assert Enum.any?(
+               extra_field_changeset.errors,
+               &match?(%Ash.Error.Invalid.NoSuchInput{input: :endpoint}, &1)
+             )
+
+      blank_changeset =
+        Ash.Changeset.for_update(source, :reassign_agent, %{agent_id: nil}, actor: system_actor)
+
+      refute blank_changeset.valid?
+
+      assert Ash.can?({IntegrationSource, :reassign_agent}, system_actor)
+      refute Ash.can?({IntegrationSource, :reassign_agent}, admin_actor)
+      refute Ash.can?({IntegrationSource, :reassign_agent}, viewer_actor)
+    end
+
     test "runtime sync status updates do not trigger config pushes" do
       for action_name <- [
             :sync_start,
@@ -210,6 +285,31 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
 
       assert diagnostic.dependency_id == :plugin_assignment_agent_config
       assert diagnostic.affected_agents == ["agent-plugin"]
+      assert diagnostic.affected_agent_count == 1
+      assert diagnostic.result == :ok
+    end
+
+    test "plugin assignment reassign_agent dispatches only its replacement agent" do
+      notification = %Notification{
+        resource: PluginAssignment,
+        action: %{type: :update, name: :reassign_agent},
+        data: %{agent_uid: "agent-replacement"}
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:push_config, "agent-replacement"}
+      assert_received {:diagnostic, ^diagnostic}
+      refute_received {:push_config_for_type, :agent}
+      refute_received {:invalidate, :agent}
+
+      assert diagnostic.dependency_id == :plugin_assignment_agent_config
+      assert diagnostic.affected_agents == ["agent-replacement"]
       assert diagnostic.affected_agent_count == 1
       assert diagnostic.result == :ok
     end

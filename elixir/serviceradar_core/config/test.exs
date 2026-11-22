@@ -171,6 +171,9 @@ ssl_enabled =
     true -> ssl_ca || ssl_cert || ssl_key
   end
 
+config :serviceradar_core, ServiceRadar.Inventory.WebPropertyDiscoveryWorker,
+  network_probes: false
+
 if db_url do
   Code.require_file("test_database_guard.exs", __DIR__)
 
@@ -338,6 +341,7 @@ config :serviceradar_core,
   ash_domains: [
     ServiceRadar.AgentConfig,
     ServiceRadar.Camera,
+    ServiceRadar.Catalog,
     ServiceRadar.CompositeChecks,
     ServiceRadar.Credentials,
     ServiceRadar.Dashboards,

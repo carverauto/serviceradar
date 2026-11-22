@@ -99,6 +99,8 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.EndpointVulnerabilityAssessment
     resource ServiceRadar.Inventory.VulnerabilityFeedDefinition
     resource ServiceRadar.Inventory.VulnerabilityFeedSnapshot
+    resource ServiceRadar.Inventory.WebProperty
+    resource ServiceRadar.Inventory.WebPropertyBinding
   end
 
   authorization do

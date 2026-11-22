@@ -14,8 +14,10 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   locked component generation before recording.
   """
 
+  alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.StaticNatsPermissionProjection
+  alias ServiceRadar.NATS.StaticIdentityGrants
 
   @private_key_types [
     :RSAPrivateKey,
@@ -39,15 +41,29 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
              | :certificate_not_valid
              | :issuer_certificate_required
              | :untrusted_issuer}
-  def prepare(attrs) when is_map(attrs) do
-    with {:ok, issuance} <- certificate(fetch(attrs, :certificate_pem)),
-         {:ok, permissions} <- project(fetch(attrs, :permissions)),
-         {:ok, identity} <- identity(attrs) do
-      {:ok, %{component: Map.put(identity, :permissions, permissions), issuance: issuance}}
+  def prepare(attrs) do
+    with {:ok, component, presented} <- read_adoption(attrs) do
+      verify_adoption(component, presented)
     end
   end
 
-  def prepare(_attrs), do: {:error, :invalid_adoption}
+  @doc false
+  def read_adoption(attrs) when is_map(attrs) do
+    with {:ok, presented} <- read_certificate(attrs),
+         {:ok, permissions} <- project(fetch(attrs, :permissions)),
+         {:ok, identity} <- identity(attrs) do
+      {:ok, Map.put(identity, :permissions, permissions), presented}
+    end
+  end
+
+  def read_adoption(_attrs), do: {:error, :invalid_adoption}
+
+  @doc false
+  def verify_adoption(component, presented) do
+    with {:ok, issuance} <- verify_certificate(presented) do
+      {:ok, %{component: component, issuance: Map.put(issuance, :expected_generation, 1)}}
+    end
+  end
 
   @doc """
   Reads one public certificate for an infrastructure component that already exists.
@@ -63,13 +79,36 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
              | :certificate_not_valid
              | :issuer_certificate_required
              | :untrusted_issuer}
-  def prepare_certificate(attrs) when is_map(attrs) do
-    with {:ok, issuance} <- certificate(fetch(attrs, :certificate_pem)) do
-      {:ok, Map.delete(issuance, :expected_generation)}
+  def prepare_certificate(attrs) do
+    with {:ok, presented} <- read_certificate(attrs) do
+      verify_certificate(presented)
     end
   end
 
-  def prepare_certificate(_attrs), do: {:error, :invalid_certificate}
+  @doc "Reads the leaf and its metadata before checking validity and issuer trust."
+  def read_certificate(attrs) when is_map(attrs) do
+    with {:ok, [leaf | chain]} <- certificates(fetch(attrs, :certificate_pem)),
+         {:ok, fields} <- describe(leaf),
+         :ok <- validate_chain_encoding(chain) do
+      {:ok, %{leaf: leaf, chain: chain, fields: fields}}
+    end
+  end
+
+  def read_certificate(_attrs), do: {:error, :invalid_certificate}
+
+  defp validate_chain_encoding(chain) do
+    Enum.each(chain, &:public_key.pkix_decode_cert(&1, :plain))
+    :ok
+  rescue
+    _ -> {:error, :invalid_certificate}
+  end
+
+  @doc false
+  def verify_certificate(%{leaf: leaf, chain: chain, fields: fields}) do
+    with :ok <- current?(fields) do
+      bind_issuer(leaf, fields, chain)
+    end
+  end
 
   defp project(permissions) when is_map(permissions),
     do: StaticNatsPermissionProjection.project(permissions)
@@ -77,9 +116,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   defp project(_permissions), do: {:error, :invalid_permissions}
 
   defp identity(attrs) do
-    component_id = fetch(attrs, :component_id)
     component_type = fetch(attrs, :component_type)
-    partition_id = fetch(attrs, :partition_id)
 
     server_hosts =
       case fetch(attrs, :server_hosts) do
@@ -87,52 +124,74 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
         hosts -> hosts
       end
 
-    cond do
-      not valid_id?(component_id) or not valid_id?(partition_id) or
-          not valid_hosts?(server_hosts) ->
-        {:error, :invalid_adoption}
+    with {:ok, component_id} <- cast_component_id(fetch(attrs, :component_id)),
+         {:ok, partition_id} <-
+           cast_id(
+             ManagedComponent,
+             :partition_id,
+             fetch(attrs, :partition_id),
+             :invalid_adoption
+           ) do
+      cond do
+        not valid_hosts?(server_hosts) ->
+          {:error, :invalid_adoption}
 
-      not (is_binary(component_type) and ManagedComponent.infrastructure_type?(component_type)) ->
-        {:error, :not_infrastructure}
+        not ManagedComponent.infrastructure_type?(component_type) ->
+          {:error, :not_infrastructure}
 
-      true ->
-        {:ok,
-         %{
-           component_id: component_id,
-           component_type: component_type,
-           partition_id: partition_id,
-           server_hosts: server_hosts
-         }}
-    end
-  end
-
-  defp valid_id?(value), do: is_binary(value) and value != ""
-  defp valid_hosts?(hosts), do: is_list(hosts) and Enum.all?(hosts, &is_binary/1)
-
-  defp certificate(pem) when is_binary(pem) do
-    if String.contains?(pem, "PRIVATE KEY") do
-      {:error, :private_key}
-    else
-      with {:ok, ders} <- certificates(pem) do
-        issued(ders)
+        true ->
+          {:ok,
+           %{
+             component_id: component_id,
+             component_type: component_type,
+             partition_id: partition_id,
+             server_hosts: server_hosts
+           }}
       end
     end
   end
 
-  defp certificate(_pem), do: {:error, :invalid_certificate}
+  @doc false
+  def cast_component_id(value),
+    do: cast_id(ManagedComponent, :component_id, value, :invalid_adoption)
 
-  defp certificates(pem) do
-    case decode_entries(pem) do
-      {:ok, entries} -> classify(entries)
-      :error -> {:error, :invalid_certificate}
+  @doc false
+  def cast_fingerprint(value),
+    do: cast_id(ComponentCertificate, :fingerprint, value, :unknown_certificate)
+
+  defp cast_id(resource, field, value, error) do
+    with true <- valid_text?(value),
+         %{valid?: true} = changeset <-
+           resource |> Ash.Changeset.new() |> Ash.Changeset.change_attribute(field, value),
+         id when is_binary(id) <- Ash.Changeset.get_attribute(changeset, field) do
+      {:ok, id}
+    else
+      _ -> {:error, error}
     end
   end
 
-  defp decode_entries(pem) do
-    {:ok, :public_key.pem_decode(pem)}
-  rescue
-    _ -> :error
+  defp valid_hosts?(hosts) when is_list(hosts) do
+    Enum.all?(hosts, &valid_text?/1) and
+      Ash.Changeset.change_attribute(Ash.Changeset.new(ManagedComponent), :server_hosts, hosts).valid?
   end
+
+  defp valid_hosts?(_hosts), do: false
+
+  defp valid_text?(value) do
+    is_binary(value) and String.valid?(value) and not String.contains?(value, <<0>>)
+  end
+
+  defp certificates(pem) when is_binary(pem) do
+    cond do
+      String.contains?(pem, "PRIVATE KEY") -> {:error, :private_key}
+      valid_text?(pem) -> pem |> :public_key.pem_decode() |> classify()
+      true -> {:error, :invalid_certificate}
+    end
+  rescue
+    _ -> {:error, :invalid_certificate}
+  end
+
+  defp certificates(_pem), do: {:error, :invalid_certificate}
 
   defp classify([]), do: {:error, :invalid_certificate}
 
@@ -155,13 +214,6 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   defp private_key_entry?({type, _der, _cipher}), do: type in @private_key_types
   defp private_key_entry?(_entry), do: false
 
-  defp issued([leaf | chain]) do
-    with {:ok, fields} <- describe(leaf),
-         :ok <- current?(fields) do
-      bind_issuer(leaf, fields, chain)
-    end
-  end
-
   defp bind_issuer(leaf, fields, []) do
     cond do
       not fields.self_signed? ->
@@ -176,8 +228,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   end
 
   defp bind_issuer(leaf, fields, [issuer | _] = chain) do
-    anchor = List.last(chain)
-    path = [leaf | Enum.drop(chain, -1)]
+    [anchor | path] = Enum.reverse([leaf | chain])
 
     if path_valid?(anchor, path) do
       {:ok, issuance(fields, fingerprint(issuer))}
@@ -193,9 +244,9 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
       serial_number: fields.serial_number,
       not_before: fields.not_before,
       not_after: fields.not_after,
+      subject: fields.subject,
       role: "client",
-      host_agent_id: nil,
-      expected_generation: 1
+      host_agent_id: nil
     }
   end
 
@@ -209,6 +260,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
       {:ok,
        %{
          fingerprint: fingerprint(der),
+         subject: stored_subject(der, elem(tbs, 6)),
          serial_number: serial |> Integer.to_string(16) |> String.downcase(),
          not_before: not_before,
          not_after: not_after,
@@ -219,6 +271,13 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
     end
   rescue
     _ -> {:error, :invalid_certificate}
+  end
+
+  defp stored_subject(der, name) do
+    case StaticIdentityGrants.certificate_subject(der) do
+      {:ok, subject} -> subject
+      :error -> "#" <> Base.encode16(:public_key.der_encode(:Name, name), case: :lower)
+    end
   end
 
   defp current?(fields) do

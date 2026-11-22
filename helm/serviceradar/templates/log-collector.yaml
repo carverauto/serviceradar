@@ -48,7 +48,21 @@ data:
     listen_addr = "0.0.0.0:50044"
 {{- if .Values.kv.enabled }}
 
-    # The Zen ruleset core publishes for syslog, read through datasvc.
+    # The Zen ruleset core publishes for syslog, read from the NATS rule bucket
+    # (core writes it while datasvc is deployed).
+    [rules.nats]
+    url = "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"
+{{- if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
+    creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
+
+    [rules.nats.tls]
+    cert_file = "/etc/serviceradar/certs/log-collector.pem"
+    key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/root.pem"
+
+    # The same ruleset through datasvc, for a collector without [rules.nats]
+    # support. Ignored while [rules.nats] is present; removed in a later release.
     [rules.datasvc]
     address = {{ default (printf "serviceradar-datasvc.%s.svc.cluster.local:50057" .Release.Namespace) .Values.kv.address | quote }}
 
@@ -157,6 +171,21 @@ data:
     [grpc_tls]
     cert_file = "/etc/serviceradar/certs/log-collector.pem"
     key_file = "/etc/serviceradar/certs/log-collector-key.pem"
+
+{{- $rumCfg := default (dict) (default (dict) .Values.logCollector.otlp).rum }}
+{{- $rumCfgEnabled := true }}
+{{- if hasKey $rumCfg "enabled" }}
+{{- $rumCfgEnabled = $rumCfg.enabled }}
+{{- end }}
+    [rum]
+    enabled = {{ ternary "true" "false" $rumCfgEnabled }}
+    max_body_bytes = {{ default 65536 $rumCfg.maxBodyBytes }}
+{{- if $rumCfg.trustedProxies }}
+    trusted_proxies = [{{ range $i, $cidr := $rumCfg.trustedProxies }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+{{- end }}
+{{- if $rumCfg.cdnPeers }}
+    cdn_peers = [{{ range $i, $cidr := $rumCfg.cdnPeers }}{{ if $i }}, {{ end }}{{ $cidr | quote }}{{ end }}]
+{{- end }}
 {{- if and $logCollectorDataEnabled (not $logCollectorData.existingClaim) }}
 ---
 apiVersion: v1

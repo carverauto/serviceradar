@@ -1,0 +1,124 @@
+{
+  "alert_policy": {
+    "cooldown_seconds": 300,
+    "emit_ocsf_transition": true,
+    "open_on_statuses": [],
+    "priority": 2,
+    "renotify_seconds": 21600,
+    "threshold": 1,
+    "window_seconds": 300
+  },
+  "credential_slots": [],
+  "description": "Compares the fullest Proxmox datastore reported in the last hour against warning and critical used-space thresholds.",
+  "edges": [
+    {
+      "id": "e1",
+      "source": "fullest_datastore",
+      "source_handle": "signal",
+      "target": "assert_used",
+      "target_handle": "in"
+    },
+    {
+      "id": "e2",
+      "source": "assert_used",
+      "source_handle": "verdict",
+      "target": "out_1",
+      "target_handle": "in"
+    }
+  ],
+  "inputs": [
+    {
+      "default": {
+        "$pack_param": "storage_warn_pct"
+      },
+      "description": "Used-space percentage that marks a datastore as filling",
+      "key": "storage_warn_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    },
+    {
+      "default": {
+        "$pack_param": "storage_crit_pct"
+      },
+      "description": "Used-space percentage at which guests are at risk of pausing",
+      "key": "storage_crit_pct",
+      "max": 100.0,
+      "min": 1.0,
+      "type": "number"
+    }
+  ],
+  "managed": true,
+  "name": "Proxmox Datastore Capacity",
+  "nodes": [
+    {
+      "config": {
+        "limit": 1,
+        "query": "in:virtualization_datastores time:last_1h sort:used_percent:desc limit:1",
+        "result_mode": "first_row"
+      },
+      "id": "fullest_datastore",
+      "kind": "srql_query",
+      "label": "Fullest Datastore"
+    },
+    {
+      "config": {
+        "crit": {
+          "op": ">=",
+          "value": "{{inputs.storage_crit_pct}}"
+        },
+        "field": "first_row.payload.used_percent",
+        "warn": {
+          "op": ">=",
+          "value": "{{inputs.storage_warn_pct}}"
+        }
+      },
+      "id": "assert_used",
+      "kind": "threshold_assert",
+      "label": "Used Space Thresholds"
+    },
+    {
+      "config": {
+        "verdict_map": {
+          "degraded": "datastore_filling",
+          "down": "datastore_nearly_full",
+          "healthy": "datastores_have_headroom",
+          "unknown": "no_fresh_datastore_inventory"
+        }
+      },
+      "id": "out_1",
+      "kind": "alert_output",
+      "label": "Datastore Capacity Verdict"
+    }
+  ],
+  "pack_id": "io.serviceradar.proxmox-monitoring",
+  "pack_version": "0.1.0",
+  "parameter_overrides": {},
+  "schedule": {
+    "interval_seconds": 300,
+    "jitter_seconds": 15,
+    "timeout_seconds": 30
+  },
+  "schema_version": 1,
+  "slug": "proxmox-datastore-capacity",
+  "state": "enabled",
+  "target_binding": {
+    "mode": "singleton"
+  },
+  "ui_layout": {
+    "nodes": {
+      "assert_used": {
+        "x": 380,
+        "y": 120
+      },
+      "fullest_datastore": {
+        "x": 80,
+        "y": 120
+      },
+      "out_1": {
+        "x": 680,
+        "y": 120
+      }
+    }
+  }
+}

@@ -93,6 +93,9 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   `RecordingCatalogEntry` in one database transaction under
   `RecorderOwnership.with_current` with zero external I/O (`B.3`, `B2`, `A6`).
 
+  A closed recovery gate refuses admission. Closure observed after commit returns
+  `{:error, :nvr_recovery_closed_after_freeze}`.
+
   Exact retries with identical descriptor and catalog attributes return the
   existing `RecordingCatalogEntry` without touching copy states; conflicting
   descriptors or catalog attributes return `{:error, :recording_descriptor_conflict}`.
@@ -100,30 +103,29 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   def freeze_and_catalog(ingest, claim, block, descriptor, catalog_attrs, opts \\ []) do
     with {:ok, bytes} <- Descriptor.encode(descriptor),
          {:ok, prepared} <- prepare_catalog_params(descriptor, bytes, catalog_attrs) do
-      RecorderOwnership.with_current(
-        ingest,
-        claim,
-        fn owner, current ->
-          with {:ok, retained} <- lock(block.id, opts),
-               true <-
-                 original_recorder?(retained, owner, current) ||
-                   {:error, :recording_block_mismatch},
-               true <-
-                 descriptor["identity"] == RecordingBlock.identity(retained) ||
-                   {:error, :recording_block_mismatch},
-               {:ok, frozen} <-
-                 freeze_and_mark_adopted(
-                   retained,
-                   descriptor,
-                   prepared.descriptor_sha256,
-                   %{"source" => "live_freeze"},
-                   opts
-                 ) do
-            ensure_catalog_entry(frozen, retained.database_now, prepared)
-          end
-        end,
-        opts
-      )
+      freeze = fn owner, current ->
+        with {:ok, retained} <- lock(block.id, opts),
+             true <-
+               original_recorder?(retained, owner, current) ||
+                 {:error, :recording_block_mismatch},
+             true <-
+               descriptor["identity"] == RecordingBlock.identity(retained) ||
+                 {:error, :recording_block_mismatch},
+             {:ok, frozen} <-
+               freeze_and_mark_adopted(
+                 retained,
+                 descriptor,
+                 prepared.descriptor_sha256,
+                 %{"source" => "live_freeze"},
+                 opts
+               ) do
+          ensure_catalog_entry(frozen, retained.database_now, prepared)
+        end
+      end
+
+      with_recovery(:nvr_recovery_closed_after_freeze, fn ->
+        RecorderOwnership.with_current(ingest, claim, freeze, opts)
+      end)
     end
   end
 
@@ -1067,12 +1069,12 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   defp publication_result({:error, _} = error), do: error
   defp publication_result(_), do: {:error, :invalid_recording_publication_result}
 
-  defp with_recovery(fun) do
+  defp with_recovery(closed_after_work \\ :nvr_recovery_closed, fun) do
     if Repo.in_transaction?() do
       {:error, :ambient_transaction}
     else
       gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
-      RecoveryGate.with_ready(gate, fun)
+      RecoveryGate.with_ready(gate, closed_after_work, fun)
     end
   end
 

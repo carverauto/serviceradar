@@ -43,7 +43,9 @@ defmodule ServiceRadarObjectStorage.ConfigTest do
           Map.put(@config, :buffer_size, -1),
           Map.put(@config, :port, 0),
           Map.put(@config, :port, 65_536),
-          Map.put(@config, :host, "storage.example.test")
+          Map.put(@config, :host, "storage.example.test"),
+          Map.put(@config, :portable, "true"),
+          Map.put(@config, :portable, nil)
         ] do
       assert {:error, :bad_config} = Storage.open(config)
     end

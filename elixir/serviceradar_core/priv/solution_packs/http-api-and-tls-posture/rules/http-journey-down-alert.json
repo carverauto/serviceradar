@@ -1,0 +1,38 @@
+{
+  "alert": {
+    "severity": "critical",
+    "title": "Synthetic HTTP API journey failed or exceeded critical latency threshold"
+  },
+  "bucket_seconds": 60,
+  "cooldown_seconds": 300,
+  "description": "Opens a critical alert when the synthetic HTTP API health journey transitions to down.",
+  "event": {
+    "log_name": "health.http_api_journey_down"
+  },
+  "group_by": [
+    "check_slug",
+    "target_key"
+  ],
+  "install_state": "enabled",
+  "kind": "stateful_alert_rule",
+  "match": {
+    "attribute_equals": {
+      "check_slug": "http-api-journey-health",
+      "to_status": "down"
+    },
+    "recovery": {
+      "attribute_equals": {
+        "check_slug": "http-api-journey-health",
+        "to_status": "healthy"
+      },
+      "subject_prefix": "declarative_check.health.state_change"
+    },
+    "subject_prefix": "declarative_check.health.state_change"
+  },
+  "name": "http_api_journey_down",
+  "priority": 20,
+  "renotify_seconds": 21600,
+  "signal": "event",
+  "threshold": 1,
+  "window_seconds": 300
+}

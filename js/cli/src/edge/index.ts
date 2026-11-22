@@ -1,6 +1,7 @@
 // `serviceradar-cli edge ...` dispatch + help.
 
 import {parseArgs} from "../args.js"
+import {dispatchEdgeHub} from "./hub.js"
 import {dispatchEdgeInstall} from "./install.js"
 import {dispatchEdgePackage} from "./packages.js"
 import {dispatchEdgeSite} from "./sites.js"
@@ -24,6 +25,8 @@ export async function dispatchEdge(argv: string[]): Promise<void> {
       return dispatchEdgePackage(sub, options)
     case "site":
       return dispatchEdgeSite(sub, options)
+    case "hub":
+      return dispatchEdgeHub(sub, options)
     case "install":
       return dispatchEdgeInstall(sub, options)
     default:
@@ -49,8 +52,11 @@ export function printEdgeHelp(): void {
     serviceradar-cli edge site show   <id> --instance <url> [--json]
     serviceradar-cli edge site bundle <id> --instance <url> [-o file] [--wait] [--timeout 600] [--interval 5]
 
+  Hub certificate authorization readiness:
+    serviceradar-cli edge hub status  --instance <url> [--json]
+
   Edge host install helpers (run as root on the edge host; --dry-run prints the plan):
-    serviceradar-cli edge install agent     --instance <url> --package <id> --token <onboarding-token> --version <release>
+    serviceradar-cli edge install agent     --instance <url> --package <id> --token <onboarding-token> --token-public-key <key> --version <release>
     serviceradar-cli edge install leaf      --instance <url> --site <id> [--advertise-url tls://<host>:4222] [--version <release>]
     serviceradar-cli edge install collector --instance <url> --id <id> [--version <release>]
       common: [--format rpm|deb] [--arch x86_64|aarch64] [--release-base-url <url>] [--release-api-url <url>] [--server-hosts <dns,ip,...>] [--dry-run]

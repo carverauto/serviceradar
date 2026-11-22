@@ -102,6 +102,48 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     refute Map.has_key?(policy.params_template["credential_broker"], "expires_at")
   end
 
+  # An agent that resolves by binding never sees the issued grant: it caches
+  # material only as far as this scope allows.
+  test "the template scope carries the cache policy of its consumer and secret" do
+    no_cache = %{cache_policy: :no_cache, cache_ttl_seconds: nil}
+    short = %{cache_policy: :memory_ttl, cache_ttl_seconds: 30}
+    long = %{cache_policy: :memory_ttl, cache_ttl_seconds: 3_600}
+    encrypted = %{cache_policy: :encrypted_ttl, cache_ttl_seconds: 60}
+
+    cases = [
+      # The agent host injects a Proxmox credential, so it caches by default,
+      # bounded by the grant's TTL, the secret's TTL and 300 seconds.
+      {"proxmox-inventory", no_cache, 45, 45},
+      {"proxmox-inventory", short, 120, 30},
+      {"proxmox-inventory", nil, 900, 300},
+      # Every other consumer caches only when its secret allows memory caching.
+      {"example-network-inventory", short, 120, 30},
+      {"example-network-inventory", long, 900, 300},
+      {"example-network-inventory", no_cache, 120, nil},
+      {"example-network-inventory", encrypted, 120, nil}
+    ]
+
+    for {plugin_id, secret, grant_ttl, expected_ttl} <- cases do
+      rule =
+        credential_rule(%{
+          secret: secret,
+          metadata: %{"credential_broker_ttl_seconds" => grant_ttl}
+        })
+
+      profile = CredentialIntegrationFixtures.target_policy_profile(plugin_id: plugin_id)
+      assert {:ok, _summary} = materialize([rule], profile: profile)
+      assert_receive {:reconcile, policy, _input_defs, _opts}
+
+      cache = policy.params_template["credential_broker"]["cache"]
+      label = inspect({plugin_id, secret, grant_ttl})
+
+      case expected_ttl do
+        nil -> assert cache == nil, label
+        ttl -> assert cache == %{"mode" => "memory_ttl", "ttl_seconds" => ttl}, label
+      end
+    end
+  end
+
   test "renders public credential metadata only when the manifest requests it" do
     rule =
       credential_rule(%{

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -455,24 +456,73 @@ func relativizePath(next string) string {
 	}
 }
 
-// primaryIP returns the device's primary IP as a bare address, preferring
-// IPv4. NetBox reports addresses in CIDR form ("10.0.0.5/24").
+// primaryIP is the device's primary address from NetBox's primary_ip4 and
+// primary_ip6: the IPv4 only when it is a usable (routable) IPv4, otherwise the
+// routable IPv6, otherwise a link-local, so a link-local-only device still has
+// one. NetBox reports addresses in CIDR form ("10.0.0.5/24"); the result is
+// the bare address. It ranks the two the way core's Identity.Address.strength/1
+// does.
 func primaryIP(item gjson.Result) string {
+	best := ""
+	bestStrength := 0
 	for _, field := range []string{"primary_ip4.address", "primary_ip6.address"} {
-		address := strings.TrimSpace(item.Get(field).String())
-		if address == "" {
+		address, _, _ := strings.Cut(strings.TrimSpace(item.Get(field).String()), "/")
+		addr := net.ParseIP(address)
+		if addr == nil {
 			continue
 		}
-
-		if prefix, err := netip.ParsePrefix(address); err == nil {
-			return prefix.Addr().String()
-		}
-		if addr, err := netip.ParseAddr(address); err == nil {
-			return addr.String()
+		if strength := addressStrength(addr); strength > bestStrength {
+			best, bestStrength = strings.ToLower(address), strength
 		}
 	}
 
-	return ""
+	return best
+}
+
+// addressStrength mirrors core's platform.sr_address_strength: usable IPv4
+// 300+rank, routable IPv6 200+rank, link-local 120, never 0, where rank is 50
+// global, 40 private, 30 unique-local.
+//
+// It reads the address bytes of a net.IP, never a netip.Addr or a package-level
+// address value: the agent calls the plugin without WASI _start, so netip's
+// package-initialized family handles stay zero and every netip.Addr reads as
+// invalid (IsValid false, Is4 true, String "invalid IP").
+func addressStrength(addr net.IP) int {
+	if v4 := addr.To4(); v4 != nil {
+		switch {
+		case v4[0] == 127, v4[0] == 0 && v4[1] == 0 && v4[2] == 0 && v4[3] == 0:
+			return 0
+		case addr.IsLinkLocalUnicast():
+			return 120
+		// 100.64.0.0/10 (shared address space) ranks with the RFC 1918 ranges.
+		case addr.IsPrivate(), v4[0] == 100 && v4[1]&0xc0 == 64:
+			return 340
+		default:
+			return 350
+		}
+	}
+	if len(addr) != net.IPv6len {
+		return 0
+	}
+	switch {
+	case isZeroBytes(addr[:15]) && addr[15] <= 1: // :: and ::1
+		return 0
+	case addr.IsLinkLocalUnicast():
+		return 120
+	case addr.IsPrivate(): // fc00::/7
+		return 230
+	default:
+		return 250
+	}
+}
+
+func isZeroBytes(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // parseBlacklist accepts CIDRs and bare addresses (treated as single-host

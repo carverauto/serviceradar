@@ -29,9 +29,9 @@
 - [x] 2.4 Consent LiveView after session login. Approve issues a one-time
       code; Deny returns OAuth error to redirect_uri. Repeat consent can
       be skipped while a grant is active.
-- [x] 2.5 LoginPolicy is unchanged: OIDC/SAML/password as configured
+- [x] 2.5 LoginPolicy is unchanged: OIDC/password as configured
       (Authentik on demo). Authorize MUST NOT bypass SSO. Consent copies
-      IdP `sid` / SessionIndex (and IdP refresh if issued) onto the grant.
+      IdP `sid` (and IdP refresh if issued) onto the grant.
 - [x] 2.6 Tests: PKCE missing/plain rejected; bad redirect rejected;
       unauthenticated hits log-in; SSO session can approve; code is
       single-use; grant stores `idp_sid` after OIDC login.
@@ -44,11 +44,11 @@
       refresh token only when the grant has IdP session binding (or is
       local-password).
 - [x] 3.2 `grant_type=refresh_token` rotates refresh; reuse of a rotated
-      token revokes the family. For OIDC/SAML grants, confirm the IdP
+      token revokes the family. For OIDC grants, confirm the IdP
       session is still valid before minting a new access token; on failure
       return `invalid_grant` and revoke the family. If SSO produced no
       session id and no IdP refresh, do not issue an MCP refresh token.
-- [x] 3.3 Honor OIDC back-channel logout / SAML SLO: revoke MCP grants
+- [x] 3.3 Honor OIDC back-channel logout: revoke MCP grants
       whose `idp_sid` matches. Do not wait for the next refresh.
 - [x] 3.4 `grant_type=client_credentials` unchanged unless
       `mcp.clientCredentialsEnabled` is false, in which case mcp-scoped

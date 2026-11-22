@@ -2,12 +2,11 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.CertificateLifetimePolicy
+  alias ServiceRadar.Edge.ComponentCertificateAuthority
   alias ServiceRadar.Edge.InfrastructureCertificateAdoption, as: Adoption
 
-  @validity {{2026, 1, 1}, {2027, 6, 1}}
-
   test "adopts a static NATS client with its existing grant and public certificate" do
-    %{pem: pem, der: der} = self_signed(@validity)
+    %{pem: pem, der: der} = self_signed()
 
     assert {:ok, prepared} =
              Adoption.prepare(
@@ -32,6 +31,44 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     assert DateTime.after?(prepared.issuance.not_after, prepared.issuance.not_before)
   end
 
+  test "records the DER Name when the matcher cannot read a BMPString common name" do
+    %{cert: root, key: key} = :public_key.pkix_test_root_cert(~c"example-root", [])
+    {:OTPCertificate, tbs, _, _} = :public_key.pkix_decode_cert(root, :otp)
+    cn = {:AttributeTypeAndValue, {2, 5, 4, 3}, {:bmpString, [{0, 0, 1, 65}]}}
+    name = {:rdnSequence, [[cn]]}
+    der = tbs |> put_elem(4, name) |> put_elem(6, name) |> :public_key.pkix_sign(key)
+    pem = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+
+    assert {:ok, prepared} = Adoption.prepare(attrs(pem, empty_subscribe()))
+    assert prepared.issuance.subject == "#300d310b300906035504031e020141"
+  end
+
+  test "rejects blank or NUL-containing hosts before recording a certificate" do
+    request = attrs(self_signed().pem, empty_subscribe())
+
+    for host <- ["", " \t ", "edge\0.example"] do
+      assert {:error, :invalid_adoption} =
+               ComponentCertificateAuthority.adopt_existing_certificate(
+                 Map.put(request, "server_hosts", ["gateway.example", host])
+               )
+    end
+  end
+
+  test "refuses certificate adoption without edge management permission" do
+    request = attrs(self_signed().pem, empty_subscribe())
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+
+    for opts <- [[], [actor: viewer]] do
+      assert {:error, :forbidden} =
+               ComponentCertificateAuthority.adopt_existing_certificate(request, opts)
+    end
+  end
+
+  test "rejects a NUL in the PEM text even after a complete certificate" do
+    assert {:error, :invalid_certificate} =
+             Adoption.prepare_certificate(%{certificate_pem: self_signed().pem <> <<0>>})
+  end
+
   test "keeps an explicit allow and uses the issuer certificate that signed the leaf" do
     %{leaf: leaf, issuer: issuer, pem: pem} = signed_chain()
 
@@ -51,7 +88,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   end
 
   test "refuses private keys, bad issuers, expired certificates, and non-infrastructure types" do
-    %{pem: pem} = self_signed(@validity)
+    %{pem: pem} = self_signed()
 
     assert {:error, :private_key} =
              Adoption.prepare(attrs(pem <> private_key_pem(), empty_subscribe()))
@@ -59,12 +96,12 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     assert {:error, :issuer_certificate_required} =
              Adoption.prepare(attrs(signed_chain().leaf_pem, empty_subscribe()))
 
-    unrelated = pem <> self_signed(@validity, ~c"example-other").pem
+    unrelated = pem <> self_signed(~c"example-other").pem
 
     assert {:error, :untrusted_issuer} =
              Adoption.prepare(attrs(unrelated, empty_subscribe()))
 
-    expired = self_signed({{2020, 1, 1}, {2020, 6, 1}})
+    expired = self_signed(~c"example-expired", validity: {{2020, 1, 1}, {2020, 6, 1}})
 
     assert {:error, :certificate_not_valid} =
              Adoption.prepare(attrs(expired.pem, empty_subscribe()))
@@ -92,8 +129,8 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
     }
   end
 
-  defp self_signed(validity, name \\ ~c"example-gateway") do
-    %{cert: der} = :public_key.pkix_test_root_cert(name, validity: validity)
+  defp self_signed(name \\ ~c"example-gateway", opts \\ []) do
+    %{cert: der} = :public_key.pkix_test_root_cert(name, opts)
 
     %{
       der: der,
@@ -104,8 +141,7 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
   defp signed_chain do
     alg = [
       {:digest, :sha256},
-      {:key, {:namedCurve, :secp256r1}},
-      {:validity, @validity}
+      {:key, {:namedCurve, :secp256r1}}
     ]
 
     data =

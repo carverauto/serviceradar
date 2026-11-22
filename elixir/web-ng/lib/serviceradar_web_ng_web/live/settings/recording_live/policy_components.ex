@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
   end
 
   attr :policies, :list, required: true
+  attr :recording_now, :any, default: MapSet.new()
   attr :sources, :list, required: true
   attr :entitlement, :map, default: %{}
   attr :can_manage?, :boolean, required: true
@@ -133,15 +134,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
               </td>
               <td class="py-2.5 pr-3">
                 <.ui_badge
+                  id={"policy-recording-state-#{fetch_val(policy, :id)}"}
                   size="xs"
-                  variant={
-                    if(fetch_val(policy, :mode) in [:continuous, "continuous"],
-                      do: "success",
-                      else: "ghost"
-                    )
-                  }
+                  variant={policy_mode_variant(policy, @recording_now)}
                 >
-                  {to_string(fetch_val(policy, :mode) || :off)}
+                  {policy_mode_label(policy, @recording_now)}
                 </.ui_badge>
               </td>
               <td class="py-2.5 pr-3 font-mono text-sr-ink">
@@ -891,6 +888,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.PolicyComponents do
   end
 
   defp format_estimate_line(_est), do: "unknown until recorded"
+
+  # A continuous policy says recording is wanted; a live recorder claim says it
+  # is happening. Show which, rather than implying recording from the policy.
+  defp policy_mode_label(policy, recording_now) do
+    cond do
+      not continuous_mode?(policy) -> to_string(fetch_val(policy, :mode) || :off)
+      recording?(policy, recording_now) -> "continuous: recording"
+      true -> "continuous: not recording yet"
+    end
+  end
+
+  defp policy_mode_variant(policy, recording_now) do
+    cond do
+      not continuous_mode?(policy) -> "ghost"
+      recording?(policy, recording_now) -> "success"
+      true -> "warning"
+    end
+  end
+
+  defp continuous_mode?(policy), do: fetch_val(policy, :mode) in [:continuous, "continuous"]
+
+  defp recording?(policy, recording_now) do
+    MapSet.member?(
+      recording_now,
+      {to_string(fetch_val(policy, :camera_source_id)), to_string(fetch_val(policy, :stream_profile_id))}
+    )
+  end
 
   defp format_override_label(policy, plan_max_days) do
     mode = fetch_val(policy, :archive_retention_override_mode) || :inherit

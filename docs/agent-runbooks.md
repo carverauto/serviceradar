@@ -54,7 +54,7 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
    - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
 2. Copy unchanged images from the current demo tag to the new tag:
    - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
-   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
+   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
 3. Build, sign and promote the new `web-ng` image through the publishing workflow, not by hand:
    - Push the commit to a reviewed branch, then
      `gh workflow run publish-oci.yml --repo carverauto/serviceradar --ref <branch> -f publish_scope=web-stack-commit-only -f expected_commit=<full sha>`.
@@ -62,10 +62,9 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
      classic `.sig` that demo admission reads, records the signature in its signing ledger, and verifies
      and promotes the image.
    - Do not sign with `hashivault://cosign-release` from a workstation. Every release-key signature is
-     logged in the self-hosted Rekor log, and the transparency-log monitor will report a signature that no
+     logged in the self-hosted Rekor log, and the transparency-log monitor reports a signature that no
      workflow's signing ledger records as possible key misuse; if a manual signature is ever unavoidable,
-     its log entry will be recorded in `docs/sigstore/rekor-acknowledged-entries.json` in a reviewed PR
-     (pending: lands with the monitor PR).
+     record its log entry in `docs/sigstore/rekor-acknowledged-entries.json` in a reviewed PR.
 4. Patch the Argo app override instead of editing chart values for one-off demo tests:
    - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
 5. Watch the rollout to completion:

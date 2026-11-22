@@ -48,6 +48,30 @@ if [ -d "$serviceradar_etc_dir" ]; then
     chmod 755 "$serviceradar_etc_dir"
 fi
 
+# nats-server runs as the nats user and writes its JetStream store and its log
+# file. The package ships these directories root-owned, and systemd creates the
+# unit's two log files as root on first start, so without this the server
+# cannot open its log and the service restarts forever.
+for nats_dir in /var/lib/nats /var/lib/nats/jetstream /var/log/nats; do
+    if [ -L "$(root_path "$nats_dir")" ]; then
+        echo "Error: refusing symlinked $nats_dir" >&2
+        exit 1
+    fi
+    mkdir -p "$(root_path "$nats_dir")"
+    chmod 750 "$(root_path "$nats_dir")"
+done
+for nats_log in /var/log/nats/nats.log /var/log/nats/nats-error.log; do
+    if [ -L "$(root_path "$nats_log")" ]; then
+        echo "Error: refusing symlinked $nats_log" >&2
+        exit 1
+    fi
+    [ -e "$(root_path "$nats_log")" ] || : > "$(root_path "$nats_log")"
+    chmod 640 "$(root_path "$nats_log")"
+done
+if [ -z "$postinstall_root" ]; then
+    chown -R nats:serviceradar /var/lib/nats /var/log/nats
+fi
+
 # Render the partition_id placeholder in the NATS server / cloud-template
 # configs (B-5 sub-issue 2). The literal token `__SERVICERADAR_PARTITION_ID__`
 # is emitted by the shipped conf templates; it MUST be substituted with the

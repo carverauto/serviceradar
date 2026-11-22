@@ -98,6 +98,30 @@ defmodule ServiceRadar.Camera.RecordingTimelineTest do
                )
     end
 
+    test "a continuous policy is reported recording only while its camera and profile hold a live recorder" do
+      policy = %{camera_source_id: @camera_id, stream_profile_id: @profile_id, mode: :continuous}
+
+      coverage = fn recording_now ->
+        {:ok, cov} =
+          RecordingTimeline.coverage(
+            @camera_id,
+            %{from_us: @base_us, to_us: @base_us + 60_000_000},
+            actor: @footage_viewer,
+            loaders: %{
+              catalog_loader: fn -> {:ok, []} end,
+              policies_loader: fn -> {:ok, [policy]} end,
+              recording_now_loader: fn @camera_id -> {:ok, MapSet.new(recording_now)} end
+            }
+          )
+
+        {cov.scheduled_continuous?, cov.continuous_recording_active?}
+      end
+
+      assert coverage.([]) == {true, false}
+      assert coverage.([{@camera_id, "00000000-0000-4000-8000-000000000999"}]) == {true, false}
+      assert coverage.([{@camera_id, @profile_id}]) == {true, true}
+    end
+
     test "excludes quarantined catalog rows, classifies copy states & provisional?, marks re-anchors, and reports received/unmeasured" do
       window_end = @base_us + 120_000_000
 
