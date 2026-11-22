@@ -1946,15 +1946,26 @@ the leafnode listener by its public name. Renders a leading-comma list
 {{- end -}}
 
 {{/*
+The host:port the hub advertises to connected leaf servers for reconnecting:
+the same public endpoint leaves are told to dial. Empty when
+hostedRuntime.publicEndpoints.natsLeafHost is unset.
+*/}}
+{{- define "serviceradar.natsLeafAdvertise" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- with $endpoints.natsLeafHost -}}
+{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Effective upstream URL edge-site leaf servers dial, derived from the hosted
 public endpoint facts. Empty when hostedRuntime.publicEndpoints.natsLeafHost is
 unset, so web-ng keeps its configured default.
 */}}
 {{- define "serviceradar.natsLeafUpstreamUrl" -}}
-{{- $hosted := default (dict) .Values.hostedRuntime -}}
-{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
-{{- with $endpoints.natsLeafHost -}}
-tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- with include "serviceradar.natsLeafAdvertise" . -}}
+tls://{{ . }}
 {{- end -}}
 {{- end -}}
 
