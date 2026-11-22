@@ -598,7 +598,6 @@ const READY_HUB = {
   enforcement_configured: true,
   authorizer_answering: true,
   authorizer_reason: null,
-  signing_keys_provisioned: true,
   leaf_listener: true,
   leaf_upstream_url: true,
   chart_identities: {
@@ -847,7 +846,7 @@ test("edge hub status prints readiness, identity coverage, and uncovered warning
       const human = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
       assert.equal(human.code, 0, human.stderr)
       assert.match(human.stdout, /enforcement:\s+configured/)
-      assert.match(human.stdout, /signing keys:\s+provisioned/)
+      assert.doesNotMatch(human.stdout, /signing keys:/)
       assert.match(human.stdout, /authorizer:\s+answering/)
       assert.match(human.stdout, /leaf listener:\s+configured/)
       assert.match(human.stdout, /leaf upstream url:\s+configured/)
@@ -864,12 +863,11 @@ test("edge hub status prints readiness, identity coverage, and uncovered warning
     enforcement_configured: true,
     authorizer_answering: false,
     authorizer_reason: "signing_keys_not_provisioned",
-    signing_keys_provisioned: false,
     leaf_listener: true,
     leaf_upstream_url: false,
     chart_identities: {
       total: 13,
-      adopted: 10,
+      adopted: 11,
       legacy_certificates: 2,
       not_adopted: [
         {
@@ -893,10 +891,10 @@ test("edge hub status prints readiness, identity coverage, and uncovered warning
     async (instance) => {
       const {code, stdout, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
       assert.equal(code, 0, stderr)
-      assert.match(stdout, /signing keys:\s+signing keys not provisioned/)
-      assert.match(stdout, /authorizer:\s+not answering \(signing_keys_not_provisioned\)/)
+      assert.doesNotMatch(stdout, /signing keys:/)
+      assert.match(stdout, /authorizer:\s+not answering \(signing keys not provisioned\)/)
       assert.match(stdout, /leaf upstream url:\s+not configured/)
-      assert.match(stdout, /chart identities:\s+10\/13 adopted \(2 legacy without subject\)/)
+      assert.match(stdout, /chart identities:\s+11\/13 adopted \(2 legacy without subject\)/)
       assert.match(stdout, /WARNING: CN=agent-gateway .*no inventory certificate supplied \(no_inventory_certificate\)/)
       assert.match(stdout, /WARNING: CN=core-elx .*held_unrecorded/)
       assert.match(stdout, /rotation reason: manifest_missing/)
@@ -905,15 +903,32 @@ test("edge hub status prints readiness, identity coverage, and uncovered warning
     },
   )
 
-  await withServer(
-    (req, res) => json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), hub: null}}),
-    async (instance) => {
-      const {code, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
-      assert.notEqual(code, 0)
-      assert.match(stderr, /hub status is missing or unreadable/)
-      assert.match(stderr, /wait and retry, and check core's health/)
-    },
-  )
+  const unreadableHubs = [
+    {name: "null hub", hub: null},
+    {name: "missing required booleans", hub: {enforcement_configured: true, chart_identities: READY_HUB.chart_identities}},
+    {name: "non-string authorizer_reason", hub: {...READY_HUB, authorizer_reason: 42}},
+    {name: "missing chart_identities", hub: {...READY_HUB, chart_identities: undefined}},
+    {name: "renamed chart_identities list (identities instead of total/adopted/not_adopted)", hub: {...READY_HUB, chart_identities: {identities: [{subject: "CN=core-elx", status: "not_adopted", reason: "no_inventory_certificate"}]}}},
+    {name: "renamed not_adopted key", hub: {...READY_HUB, chart_identities: {total: 13, adopted: 12, uncovered: [{subject: "CN=core-elx", reason: "no_inventory_certificate"}]}}},
+    {name: "adopted + not_adopted count mismatch", hub: {...READY_HUB, chart_identities: {total: 13, adopted: 10, not_adopted: []}}},
+    {name: "invalid not_adopted entry", hub: {...READY_HUB, chart_identities: {total: 1, adopted: 0, not_adopted: [{subject: "CN=core-elx"}]}}},
+  ]
+  for (const tc of unreadableHubs) {
+    await withServer(
+      (req, res) => json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), hub: tc.hub}}),
+      async (instance) => {
+        const human = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+        assert.notEqual(human.code, 0, tc.name)
+        assert.match(human.stderr, /hub status is missing or unreadable/, tc.name)
+        assert.match(human.stderr, /wait and retry, and check core's health/, tc.name)
+        assert.doesNotMatch(human.stdout, /0\/0 adopted/, tc.name)
+
+        const asJson = await runCli(["edge", "hub", "status", "--instance", instance, "--json"], {env: TOKEN_ENV})
+        assert.notEqual(asJson.code, 0, `${tc.name} (--json)`)
+        assert.match(asJson.stderr, /hub status is missing or unreadable/, `${tc.name} (--json)`)
+      },
+    )
+  }
 })
 
 test("edge install leaf stops before packaging unless static mTLS names the deployment account", async () => {
@@ -986,10 +1001,21 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       action: /wait and retry, and check core's health/,
     },
     {
+      name: "1d. unreadable hub (non-string authorizer_reason)",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: true,
+        authorizer_reason: 123,
+        leaf_listener: true,
+        leaf_upstream_url: true,
+      },
+      cause: /hub status is missing or unreadable/,
+      action: /wait and retry, and check core's health/,
+    },
+    {
       name: "2. enforcement not configured (takes precedence over signing keys/authorizer/listener/upstream)",
       hub: {
         enforcement_configured: false,
-        signing_keys_provisioned: false,
         authorizer_answering: false,
         authorizer_reason: "signing_keys_not_provisioned",
         leaf_listener: false,
@@ -999,12 +1025,11 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       action: /nats\.certificateAuthorization\.enabled/,
     },
     {
-      name: "3a. signing keys not provisioned via boolean (takes precedence over authorizer/listener/upstream)",
+      name: "3. signing keys not provisioned via authorizer_reason (takes precedence over authorizer/listener/upstream)",
       hub: {
         enforcement_configured: true,
-        signing_keys_provisioned: false,
         authorizer_answering: false,
-        authorizer_reason: "auth_connection_unavailable",
+        authorizer_reason: "signing_keys_not_provisioned",
         leaf_listener: false,
         leaf_upstream_url: false,
       },
@@ -1012,23 +1037,10 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       action: /provision the missing signing seeds in the issuer Secret/,
     },
     {
-      name: "3b. signing keys not provisioned via authorizer_reason",
+      name: "4. authorizer otherwise not answering (takes precedence over listener/upstream, ignores uncontracted signing_keys_provisioned)",
       hub: {
         enforcement_configured: true,
-        signing_keys_provisioned: true,
-        authorizer_answering: false,
-        authorizer_reason: "signing_keys_not_provisioned",
-        leaf_listener: false,
-        leaf_upstream_url: false,
-      },
-      cause: /signing keys not provisioned/,
-      action: /issuer Secret/,
-    },
-    {
-      name: "4. authorizer otherwise not answering (takes precedence over listener/upstream)",
-      hub: {
-        enforcement_configured: true,
-        signing_keys_provisioned: true,
+        signing_keys_provisioned: false,
         authorizer_answering: false,
         authorizer_reason: "connecting",
         leaf_listener: false,
@@ -1042,7 +1054,6 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       name: "5. leaf listener not configured (takes precedence over upstream)",
       hub: {
         enforcement_configured: true,
-        signing_keys_provisioned: true,
         authorizer_answering: true,
         authorizer_reason: null,
         leaf_listener: false,
@@ -1055,7 +1066,6 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       name: "6. no leaf upstream URL",
       hub: {
         enforcement_configured: true,
-        signing_keys_provisioned: true,
         authorizer_answering: true,
         authorizer_reason: null,
         leaf_listener: true,
@@ -1105,7 +1115,7 @@ test("edge install leaf proceeds when all 6 checks pass even with empty or parti
   })
 
   await withServer(
-    bootstrap({total: 13, adopted: 11, legacy_certificates: 0, not_adopted: [{subject: "CN=agent-gateway", reason: "no_inventory_certificate"}], unlisted: []}),
+    bootstrap({total: 13, adopted: 12, legacy_certificates: 0, not_adopted: [{subject: "CN=agent-gateway", reason: "no_inventory_certificate"}], unlisted: []}),
     async (instance) => {
       const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
       assert.equal(ok.code, 0, ok.stderr)
@@ -1113,6 +1123,19 @@ test("edge install leaf proceeds when all 6 checks pass even with empty or parti
       assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
     },
   )
+
+  await withServer(bootstrap(undefined), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(bootstrap({identities: []}), async (instance) => {
+    const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(ok.code, 0, ok.stderr)
+    assert.match(ok.stdout, /chart identity coverage could not be read \(advisory/)
+    assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
 })
 
 test("edge install collector keeps local onboarding behavior when hub is absent or disconnected", async () => {
