@@ -71,11 +71,22 @@ pub use range_reader::{
     NvrAnalysisReader, VerifiedFragmentBytes, VerifiedKeyframeBlock, coalesce_fragment_ranges,
     extract_and_verify_slices, longshore_registered_pool_bytes, verify_sha256_hex,
 };
+pub use serviceradar_media_core as media_core;
+pub use serviceradar_media_core::{
+    ColorName, CompressedFrameGate, CompressedFrameGateConfig, Detection, DetectionEvent,
+    DetectionEventKind, EncodedThumbnail, GateAdmitReason, GateDecision, LetterboxTransform,
+    LumaPlane, LumaPlaneView, MediaCoreError, MediaPipeline, MediaPipelineConfig,
+    MultiObjectTracker, ObjectCategory, ObjectDetector, PipelineFrameOutput, PixelMotionGate,
+    PixelMotionGateConfig, PixelMotionMetrics, RoiMask, SyntheticDetector, ThumbnailConfig,
+    TrackState, TrackerConfig, TwoTierFrameGate, VisualAttributes, YoloxConfig, YoloxPostProcessor,
+    encode_jpeg_thumbnail, extract_visual_attributes,
+};
 pub use tokenizer::PureRustTokenizer;
 pub use tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
 pub use vision::{
-    ClipAnalysis, ClipKeyframe, DetectedSubject, GeneratedEmbedding, KeyframeAnalysis, ObjectClass,
-    RgbFrame, VisionPipeline, classify_dominant_colors, cosine_similarity, embed_query_text,
+    BackendObjectDetector, ClipAnalysis, ClipKeyframe, DetectedSubject, GeneratedEmbedding,
+    KeyframeAnalysis, ObjectClass, RgbFrame, VisionPipeline, classify_dominant_colors,
+    cosine_similarity, embed_query_text,
 };
 pub use worker::{
     AdmittedWorker, DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,

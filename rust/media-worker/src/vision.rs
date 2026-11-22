@@ -154,6 +154,14 @@ impl RgbFrame {
         }
     }
 
+    /// Converts this worker [`RgbFrame`] into a [`serviceradar_media_core::RgbFrame`].
+    pub fn to_media_core_frame(
+        &self,
+    ) -> Result<serviceradar_media_core::RgbFrame, MediaWorkerError> {
+        serviceradar_media_core::RgbFrame::from_rgb8(self.width, self.height, self.pixels.clone())
+            .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))
+    }
+
     /// Computes normalized `[0.0, 1.0]` L1 pixel difference on a `16x16` downsampled grid.
     pub fn downsampled_l1_delta(&self, other: &Self) -> f32 {
         let grid = 16u32;
@@ -403,6 +411,22 @@ impl VisionPipeline {
 
     pub fn backend_info(&self) -> InferenceBackendInfo {
         self.backend.info()
+    }
+
+    /// Builds a stateful `serviceradar-media-core` stage pipeline (two-tier motion gate ->
+    /// object detector -> HSV sub-crop attributes -> `trackforge` tracker -> bounded JPEG
+    /// keyframe thumbnail encoder) backed by this worker's active [`InferenceBackend`].
+    pub fn build_media_core_pipeline(
+        &self,
+        config: serviceradar_media_core::MediaPipelineConfig,
+    ) -> Result<serviceradar_media_core::MediaPipeline, serviceradar_media_core::MediaCoreError>
+    {
+        let detector: Arc<dyn serviceradar_media_core::ObjectDetector> =
+            Arc::new(BackendObjectDetector::new(
+                self.models.detector_model_id().to_string(),
+                Arc::clone(&self.backend),
+            ));
+        serviceradar_media_core::MediaPipeline::new(config, detector)
     }
 
     /// Runs Stage 1 detection, per-clip `trackforge` multi-object tracking, optional
@@ -770,6 +794,62 @@ impl VisionPipeline {
     ) -> Vec<GeneratedEmbedding> {
         self.encode_stage2_batch_checked(frame, detections, scene_suppressed)
             .unwrap_or_default()
+    }
+}
+
+/// Bridges a `serviceradar-media-worker` [`InferenceBackend`] into the pure-Rust
+/// [`serviceradar_media_core::ObjectDetector`] trait.
+pub struct BackendObjectDetector {
+    model_id: String,
+    backend: Arc<dyn InferenceBackend>,
+}
+
+impl BackendObjectDetector {
+    pub fn new(model_id: impl Into<String>, backend: Arc<dyn InferenceBackend>) -> Self {
+        Self {
+            model_id: model_id.into(),
+            backend,
+        }
+    }
+}
+
+impl serviceradar_media_core::ObjectDetector for BackendObjectDetector {
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
+    fn detect(
+        &self,
+        frame: &serviceradar_media_core::RgbFrame,
+        min_confidence: f32,
+    ) -> Result<Vec<serviceradar_media_core::Detection>, serviceradar_media_core::MediaCoreError>
+    {
+        let worker_frame =
+            RgbFrame::from_rgb8(frame.width(), frame.height(), frame.pixels().to_vec()).map_err(
+                |e| serviceradar_media_core::MediaCoreError::invalid_frame(e.to_string()),
+            )?;
+        let raw = self
+            .backend
+            .detect_objects(&worker_frame, min_confidence)
+            .map_err(|e| serviceradar_media_core::MediaCoreError::detector(e.to_string()))?;
+        Ok(raw
+            .into_iter()
+            .map(|r| {
+                let category = match r.object_class() {
+                    ObjectClass::Person => serviceradar_media_core::ObjectCategory::Person,
+                    ObjectClass::Vehicle => serviceradar_media_core::ObjectCategory::Vehicle,
+                    ObjectClass::Bicycle => serviceradar_media_core::ObjectCategory::Bicycle,
+                    ObjectClass::Animal => serviceradar_media_core::ObjectCategory::Animal,
+                    ObjectClass::Package => serviceradar_media_core::ObjectCategory::Package,
+                };
+                serviceradar_media_core::Detection::new(
+                    category.class_id(),
+                    category,
+                    r.confidence(),
+                    r.bbox_norm(),
+                )
+            })
+            .collect())
     }
 }
 

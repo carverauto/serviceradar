@@ -39,6 +39,7 @@ safetensors = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serviceradar-cert-policy = { path = "../cert-policy" }
+serviceradar-media-core = { path = "../media-core" }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 trackforge = { workspace = true }

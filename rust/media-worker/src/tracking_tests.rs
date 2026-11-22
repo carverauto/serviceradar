@@ -618,3 +618,49 @@ async fn config_and_http_probes_expose_tracker_mode_and_dedup_setting() {
 
     let _ = shutdown_tx.send(true);
 }
+
+#[test]
+fn vision_pipeline_bridges_into_media_core_stage_pipeline() {
+    let config = WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub);
+    let backend: Arc<dyn InferenceBackend> = Arc::new(
+        crate::backend::DeterministicStubBackend::new(config.models().clone()),
+    );
+    let vision = VisionPipeline::with_backend(config.models().clone(), true, backend);
+
+    let mut mc_cfg = crate::MediaPipelineConfig::for_camera("cam-synth-worker-01");
+    mc_cfg.tracker.min_hits_to_activate = 1;
+    let mut stage_pipeline = vision
+        .build_media_core_pipeline(mc_cfg)
+        .expect("build media-core stage pipeline");
+
+    let bg = RgbFrame::solid(320, 180, [190, 190, 190])
+        .to_media_core_frame()
+        .expect("convert bg frame");
+    let r0 = stage_pipeline
+        .process_rgb_frame(0, &bg)
+        .expect("process anchor");
+    assert!(r0.gate_decision.is_admitted());
+
+    let r1 = stage_pipeline
+        .process_rgb_frame(1_000, &bg)
+        .expect("process static");
+    assert!(!r1.gate_decision.is_admitted());
+
+    let mut moved = bg.clone();
+    moved.fill_rect(60, 40, 100, 90, [220, 25, 25]);
+    moved.fill_rect(60, 90, 100, 140, [25, 65, 225]);
+    let r2 = stage_pipeline
+        .process_rgb_frame(2_000, &moved)
+        .expect("process moving person");
+    assert!(r2.gate_decision.is_admitted());
+    assert!(!r2.detections.is_empty());
+    assert_eq!(
+        r2.attributes[0].upper_body_colors,
+        vec![crate::ColorName::Red]
+    );
+    assert_eq!(
+        r2.attributes[0].lower_body_colors,
+        vec![crate::ColorName::Blue]
+    );
+    assert!(r2.thumbnail.is_some());
+}
