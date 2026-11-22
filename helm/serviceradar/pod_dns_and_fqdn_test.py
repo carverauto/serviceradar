@@ -14,27 +14,15 @@ Enforces OpenSpec change `harden-pod-dns-and-cluster-resolver`:
 
 from pathlib import Path
 import json
-import os
 import re
-import shutil
-import subprocess
-import tempfile
 import unittest
 
 import yaml
 
-
-def _repo_root() -> Path:
-    srcdir = os.environ.get("TEST_SRCDIR")
-    workspace = os.environ.get("TEST_WORKSPACE")
-    if srcdir and workspace:
-        candidate = Path(srcdir) / workspace
-        if candidate.is_dir():
-            return candidate
-    return Path(__file__).resolve().parent.parent.parent
+from chart_render import render_templates, repo_root
 
 
-REPO_ROOT = _repo_root()
+REPO_ROOT = repo_root()
 CHART_DIR = REPO_ROOT / "helm" / "serviceradar"
 RELEASE = "serviceradar"
 NAMESPACE = "sr-dns-test"
@@ -80,6 +68,10 @@ ALL_GATED_OVERRIDES = {
     "mediaStorage.tlsSecretName": "synthetic-media-storage-tls",
     "mediaStorage.providerEgress.cidrs": ["192.0.2.17/32"],
     "mediaWorker.enabled": True,
+    "mediaWorker.runtimeClassName": "nvidia",
+    "mediaWorker.image.repository": "registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda",
+    "mediaWorker.image.tag": "sha-0123456789abcdef0123456789abcdef01234567",
+    "mediaWorker.models.existingClaim": "synthetic-media-worker-models",
     "mediaWorker.auth.existingSecret": "synthetic-media-worker-auth",
     "mediaWorker.auth.deploymentRef": "11111111-2222-4333-8444-555555555555",
     "mediaWorker.auth.generation": "3",
@@ -120,60 +112,9 @@ ALL_GATED_OVERRIDES = {
 
 
 def _render_templates(source_chart: Path, templates: list[str], overrides: dict, release_ns: str = NAMESPACE) -> dict[str, list[dict]]:
-    """Render each template via helm-unittest snapshot mode and return {template: [docs]}."""
-    binary = Path(os.environ["SERVICERADAR_HELM_UNITTEST_BINARY"]).resolve()
-    results: dict[str, list[dict]] = {}
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TEST_TMPDIR")) as tmp:
-        chart = Path(tmp) / "chart"
-        chart.mkdir()
-        for entry in source_chart.iterdir():
-            if entry.name in ("tests", "__snapshot__"):
-                continue
-            dest = chart / entry.name
-            if entry.is_dir():
-                shutil.copytree(entry, dest)
-            elif entry.is_file():
-                shutil.copy2(entry, dest)
-        tests_dir = chart / "tests"
-        tests_dir.mkdir()
-
-        suite = {
-            "suite": "render templates",
-            "templates": templates,
-            "release": {"name": RELEASE, "namespace": release_ns},
-            "tests": [
-                {
-                    "it": tpl,
-                    "template": tpl,
-                    "set": overrides,
-                    "asserts": [{"matchSnapshot": {}}],
-                }
-                for tpl in templates
-            ],
-        }
-        (tests_dir / "render_test.yaml").write_text(json.dumps(suite), encoding="utf-8")
-        env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_")}
-        proc = subprocess.run(
-            [str(binary), str(chart)],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if proc.returncode != 0:
-            raise AssertionError(f"Helm rendering failed for {source_chart}:\n{proc.stdout}\n{proc.stderr}")
-
-        snap_file = tests_dir / "__snapshot__" / "render_test.yaml.snap"
-        raw_snaps = yaml.safe_load(snap_file.read_text(encoding="utf-8")) or {}
-        for tpl in templates:
-            tpl_snaps = raw_snaps.get(tpl, {})
-            docs = []
-            for _, doc_yaml in sorted(tpl_snaps.items()):
-                parsed = yaml.safe_load(doc_yaml)
-                if isinstance(parsed, dict) and parsed.get("kind"):
-                    docs.append(parsed)
-            results[tpl] = docs
-    return results
+    return render_templates(
+        templates, overrides, release=RELEASE, namespace=release_ns, source_chart=source_chart,
+    )
 
 
 def _pod_spec(doc: dict) -> dict:

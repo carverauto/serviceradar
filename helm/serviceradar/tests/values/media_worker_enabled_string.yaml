@@ -1,0 +1,3 @@
+# What `--set-string mediaWorker.enabled=false` produces: a string, not a boolean.
+mediaWorker:
+  enabled: "false"

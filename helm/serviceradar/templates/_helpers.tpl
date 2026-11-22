@@ -150,6 +150,77 @@ compatibility Service and the namespace NetworkPolicy must all agree on it.
 {{- end }}
 {{- end -}}
 
+{{/*
+A boolean value that must be a YAML boolean. A string such as the one
+`--set-string ...=false` produces is truthy in Go templates, so it fails here
+instead of reading as true in one template and false in another. Absent takes
+the default. Renders "true" or "false".
+Takes (dict "name" <value path, for the error> "value" <value> "default" <bool>).
+*/}}
+{{- define "serviceradar.strictBool" -}}
+{{- if kindIs "invalid" .value -}}
+{{- ternary "true" "false" .default -}}
+{{- else if kindIs "bool" .value -}}
+{{- ternary "true" "false" .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a boolean (true or false), got %s %q" .name (kindOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+A count that must be a whole number >= 0. Absent takes the default; a fraction,
+a negative number or a string fails rather than being truncated.
+Takes (dict "name" <value path> "value" <value> "default" <int>). Renders the number.
+*/}}
+{{- define "serviceradar.wholeCount" -}}
+{{- if kindIs "invalid" .value -}}
+{{- .default -}}
+{{- else if and (or (kindIs "int" .value) (kindIs "int64" .value) (kindIs "float64" .value) (typeIs "json.Number" .value)) (regexMatch `^[0-9]+$` (toString .value)) -}}
+{{- toString .value -}}
+{{- else -}}
+{{- fail (printf "%s must be a whole number >= 0, got %s %q" .name (typeOf .value) (toString .value)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The media worker's booleans, validated once for every template that reads them.
+mediaWorker.enabled gates the worker, its certificate, NATS grants, JetStream
+budget, the namespace policies' exclusions and core's dispatch flag;
+networkPolicy.enabled the worker's own policy; networkPolicy.allowNvrRead both
+the worker's egress and the NVR's ingress for analysis reads.
+*/}}
+{{- define "serviceradar.mediaWorkerEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.enabled" "value" (default (dict) .Values.mediaWorker).enabled "default" false) -}}
+{{- end -}}
+
+{{- define "serviceradar.mediaWorkerNetworkPolicyEnabled" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.enabled" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).enabled "default" true) -}}
+{{- end -}}
+
+{{- define "serviceradar.mediaWorkerAllowNvrRead" -}}
+{{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
+{{- end -}}
+
+{{- define "serviceradar.validateMediaWorkerNvrReadPort" -}}
+{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- if $nvr.enabled -}}
+{{- $np := default (dict) (default (dict) .Values.mediaWorker).networkPolicy -}}
+{{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- $readPort := int (default 8444 $read.port) -}}
+{{- if and $read.enabled (eq $nvrReadPort $readPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.read.port (%d), which is restricted to serviceradar-web-ng playback reads: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $readPort) -}}
+{{- end -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestPort := int (default 8443 $ingest.port) -}}
+{{- if and $ingest.enabled (eq $nvrReadPort $ingestPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.ingest.port (%d), which is restricted to serviceradar-core ingest: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $ingestPort) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
@@ -211,7 +282,8 @@ issues for a NATS client, and the common name of its subject. One list feeds
 core's inventory projection, the subject list core reads, and the generator's
 required-files check, so the three cannot drift. The files that are copies of
 another identity's certificate (flowgger, otel, netflow-collector) are not
-identities and are not listed.
+identities and are not listed. Disabling the media worker removes it from this
+inventory even if the Secret still holds its certificate.
 */}}
 {{- define "serviceradar.natsChartIdentities" -}}
 - {file: "tools.pem", cn: "serviceradar-tools"}
@@ -227,6 +299,9 @@ identities and are not listed.
 - {file: "falcosidekick.pem", cn: "serviceradar-falcosidekick"}
 - {file: "trivy-sidecar.pem", cn: "serviceradar-trivy-sidecar"}
 - {file: "k8s-inventory.pem", cn: "serviceradar-k8s-inventory"}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+- {file: "media-worker.pem", cn: "serviceradar-media-worker"}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -1531,6 +1606,16 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
   (dict "id" "aranciniFallback" "stream" "ARANCINI_CAUSAL" "source" "core.eventWriter.streams.ARANCINI_CAUSAL.maxBytes" "value" $ewArancini.maxBytes "replicaSource" "core.eventWriter.streams.ARANCINI_CAUSAL.replicas" "replicaValue" $ewArancini.replicas "counted" false)
 ) -}}
 
+{{- /* The media worker creates its jobs and results streams itself at fixed sizes, one
+     replica each (rust/media-worker/src/worker.rs ensure_media_streams); the chart
+     cannot change them, so it counts them while the worker is enabled. */ -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- $entries = concat $entries (list
+  (dict "id" "cameraMediaJobs" "stream" "CAMERA_MEDIA_JOBS" "source" "fixed media worker jobs reservation" "value" "512Mi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "cameraMediaResults" "stream" "CAMERA_MEDIA_RESULTS" "source" "fixed media worker results reservation" "value" "2Gi" "replicaSource" "fixed media worker stream replicas" "replicaValue" 1 "counted" true)
+) -}}
+{{- end -}}
+
 {{- $sizes := dict -}}
 {{- $full := int64 0 -}}
 {{- $spread := int64 0 -}}
@@ -1861,15 +1946,26 @@ the leafnode listener by its public name. Renders a leading-comma list
 {{- end -}}
 
 {{/*
+The host:port the hub advertises to connected leaf servers for reconnecting:
+the same public endpoint leaves are told to dial. Empty when
+hostedRuntime.publicEndpoints.natsLeafHost is unset.
+*/}}
+{{- define "serviceradar.natsLeafAdvertise" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- with $endpoints.natsLeafHost -}}
+{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Effective upstream URL edge-site leaf servers dial, derived from the hosted
 public endpoint facts. Empty when hostedRuntime.publicEndpoints.natsLeafHost is
 unset, so web-ng keeps its configured default.
 */}}
 {{- define "serviceradar.natsLeafUpstreamUrl" -}}
-{{- $hosted := default (dict) .Values.hostedRuntime -}}
-{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
-{{- with $endpoints.natsLeafHost -}}
-tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- with include "serviceradar.natsLeafAdvertise" . -}}
+tls://{{ . }}
 {{- end -}}
 {{- end -}}
 
