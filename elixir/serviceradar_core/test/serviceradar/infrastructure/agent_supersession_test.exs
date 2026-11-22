@@ -12,6 +12,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Inventory.IdentityDecision
+  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -19,6 +20,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
 
@@ -146,6 +148,87 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       assert agent!(old_uid, actor).status == :connected
       assert agent!(new_uid, actor).status == :connected
+    end
+
+    test "transfers sweep groups and mapper jobs when superseding a quiet identity",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      went_quiet!(old_uid)
+
+      assert {:ok, %{superseded: superseded}} = AgentSupersession.sweep(actor: actor)
+      assert superseded >= 1
+
+      assert agent!(old_uid, actor).status == :superseded
+      assert agent!(old_uid, actor).superseded_by == new_uid
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "reconciles lingering assignments left on an already-superseded identity",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      # Simulate an agent that was marked superseded before assignment handoff ran.
+      {:ok, _} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:supersede, %{superseded_by: new_uid})
+        |> Ash.update(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == old_uid
+
+      assert {:ok, %{superseded: 0}} = AgentSupersession.sweep(actor: actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+  end
+
+  describe "on_agent_disconnected/2" do
+    test "supersedes a disconnected identity and transfers assignments when a live replacement exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid, device: device_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      sweep_group = create_sweep_group!(uniq, old_uid, actor)
+      mapper_job = create_mapper_job!(uniq, old_uid, actor)
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+      assert decision?(device_uid, "older_identity_on_device", old_uid, actor)
+
+      assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "leaves a disconnected identity alone when no live sibling exists",
+         %{uniq: uniq, actor: actor} do
+      ip = test_ip(uniq)
+      uid = "agent-solo-#{uniq}"
+      _device_uid = enroll!(uid, ip, "solo-#{uniq}", mac(uniq, 0))
+
+      {:ok, disconnected} =
+        uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert :noop = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert agent!(uid, actor).status == :disconnected
     end
   end
 
@@ -305,6 +388,47 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
     |> Ash.read!(actor: actor)
     |> Enum.map(& &1.agent_uid)
     |> Enum.sort()
+  end
+
+  defp create_sweep_group!(uniq, agent_uid, actor) do
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-sweep-#{uniq}",
+          partition: "default",
+          agent_ids: [agent_uid],
+          target_query: "in:devices",
+          static_targets: [test_ip(uniq)],
+          ports: [],
+          sweep_modes: ["icmp"]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    group
+  end
+
+  defp create_mapper_job!(uniq, agent_uid, actor) do
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-mapper-#{uniq}",
+          partition: "default",
+          agent_id: agent_uid,
+          discovery_mode: :snmp_api,
+          discovery_type: :full,
+          options: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    job
   end
 
   # 198.18.0.0/15 (benchmarking range), unique per test run.
