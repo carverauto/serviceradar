@@ -235,23 +235,11 @@ advisory and does not block admission; core exposes it in hub readiness under
 failed, or is unavailable). For `held_unrecorded` identities, `chart_identities`
 attaches `rotation_reason` when `RuntimeCertificateRotation` refused that
 certificate fingerprint (non-atom transient errors collapse to
-`transient_error`) or `rotation_unavailable` when the rotation process or
-manifest is unavailable.
-
-Core assembles hub readiness (`ServiceRadar.NATS.HubReadiness`) from
-`SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED` (`enforcement_configured`),
-`SERVICERADAR_NATS_LEAF_LISTENER_ENABLED` (`leaf_listener`), mounted signing
-seed status (`signing_keys_provisioned`), authorizer readiness
-(`authorizer_answering` and `authorizer_reason`, with
-`signing_keys_not_provisioned` taking precedence whenever mounted seeds are
-configured and incomplete or unreadable), and `chart_identities`. Web-ng adds
-`leaf_upstream_url` (`true` only when `SERVICERADAR_NATS_LEAF_UPSTREAM_URL` is
-explicitly configured as a non-empty value; the hard-coded hosted fallback is
-never reported as configured) and serves the combined object as `data.hub` on
-`GET /api/admin/managed-components/bootstrap` (`null` when core is unavailable)
-and as `{"schema_version": 1, "hub": ...}` on `GET /v1/hub/readiness` over the
-cluster-only control-plane runtime listener (`503` with
-`{"status": "core_unavailable"}` when core is unavailable).
+`transient_error`) or `rotation_unavailable` when the rotation process is
+unavailable or unreconciled or the rotation manifest is unreadable or invalid
+(an absent or unset manifest leaves `rotation_reason` omitted). See
+[Hub status API and CLI preflight](#hub-status-api-and-cli-preflight) for the
+full hub readiness payload and endpoints.
 
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
@@ -484,17 +472,27 @@ projection continues to follow `certs.generator.enabled` and
 
 ### Hub status API and CLI preflight
 
-- **Hub readiness payload (`GET /api/admin/managed-components/bootstrap`)**:
-  includes `data.hub` with `enforcement_configured`, `authorizer_answering`
-  (with `authorizer_reason` when false, such as `signing_keys_not_provisioned`,
-  `connecting`, or `authorizer_unavailable`), `signing_keys_provisioned`,
-  `chart_identities` (total, adopted, `legacy_certificates`, uncovered
-  identities with reasons and optional `rotation_reason`, and `unlisted` files;
-  or `null` when inventory reconciliation has not completed, failed, or is
-  unavailable), `leaf_listener`, and `leaf_upstream_url`. The cluster-only
-  control-plane runtime listener also exposes `GET /v1/hub/readiness` returning
-  `{"schema_version": 1, "hub": ...}` (`503` with
-  `{"status": "core_unavailable"}` when core is unavailable).
+- **Hub readiness payload (`GET /api/admin/managed-components/bootstrap` and
+  `GET /v1/hub/readiness`)**: core (`ServiceRadar.NATS.HubReadiness`) assembles
+  `enforcement_configured` (from
+  `SERVICERADAR_NATS_CERTIFICATE_AUTHORIZATION_ENABLED`), `leaf_listener` (from
+  `SERVICERADAR_NATS_LEAF_LISTENER_ENABLED`), `signing_keys_provisioned` (from
+  mounted signing seeds when configured, or authorizer state otherwise),
+  `authorizer_answering` and `authorizer_reason` (such as
+  `signing_keys_not_provisioned`, `connecting`, or `authorizer_unavailable`,
+  with `signing_keys_not_provisioned` taking precedence whenever mounted seeds
+  are configured and incomplete or unreadable), and `chart_identities` (`total`,
+  `adopted`, `legacy_certificates`, `not_adopted` entries with `subject`,
+  `reason`, `fingerprint`, optional `fingerprints`, and optional
+  `rotation_reason`, plus `unlisted` files; or `null` when inventory
+  reconciliation has not completed, failed, or is unavailable). Web-ng adds
+  `leaf_upstream_url` (`true` only when `SERVICERADAR_NATS_LEAF_UPSTREAM_URL` is
+  explicitly configured as a non-empty value; the hard-coded hosted fallback is
+  never reported as configured) and serves the combined object as `data.hub` on
+  `GET /api/admin/managed-components/bootstrap` (`null` when core is
+  unavailable) and as `{"schema_version": 1, "hub": ...}` on
+  `GET /v1/hub/readiness` over the cluster-only control-plane runtime listener
+  (`503` with `{"status": "core_unavailable"}` when core is unavailable).
 - **`serviceradar-cli edge hub status`**: reads `data.hub` under the CLI's
   existing `edge.manage` scope and prints hub readiness along with a warning
   and reason for each uncovered chart identity.
