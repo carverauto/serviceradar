@@ -3,6 +3,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
 
   import ExUnit.CaptureLog
 
+  alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
@@ -577,6 +578,80 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                           archive_state: :failed_terminal,
                           archive_attempts: 1,
                           archive_last_error_class: ^expected_class,
+                          archive_state_at: @fixed_now
+                        }}
+      end
+    end
+
+    test "transitions to failed_terminal and discards on Ash retained-receipt conflict errors from commit" do
+      parent = self()
+
+      transition_fn = fn _entry, attrs ->
+        send(parent, {:transitioned, attrs})
+        {:ok, entry(attrs)}
+      end
+
+      conflict_arg =
+        InvalidArgument.exception(
+          field: :receipt_bytes,
+          message: "nvr archive receipt conflicts with retained record"
+        )
+
+      conflict_shapes = [
+        # Exact shape rolled back by Ash.Changeset.with_hooks inside Repo.transaction
+        conflict_arg,
+        # Exact shape returned by Ash.create / Ash.Error.to_error_class
+        Ash.Error.to_error_class(conflict_arg),
+        # Exact shape rolled back by Ash.Actions.Helpers.rollback_if_in_transaction
+        Ash.Changeset.add_error(Ash.Changeset.new(NVRArchiveReceipt), conflict_arg)
+      ]
+
+      for error_shape <- conflict_shapes do
+        opts =
+          base_opts(entry(),
+            commit_verified_fn: fn _entry, _binding, _bytes, _now -> {:error, error_shape} end,
+            transition_entry_fn: transition_fn,
+            rand_fn: fn -> 0.0 end
+          )
+
+        {result, _log} = with_log(fn -> ArchiveBlockJob.run(@entry_id, opts) end)
+
+        assert {:discard, "archive_receipt_conflict"} = result
+
+        assert_receive {:transitioned,
+                        %{
+                          archive_state: :failed_terminal,
+                          archive_attempts: 1,
+                          archive_last_error_class: "archive_receipt_conflict",
+                          archive_state_at: @fixed_now
+                        }}
+      end
+
+      non_conflict_shapes = [
+        InvalidArgument.exception(field: :receipt_bytes, message: "must be 1..8192 bytes"),
+        Ash.Error.to_error_class(
+          InvalidArgument.exception(
+            field: :archive_binding_id,
+            message: "receipt destination fields do not match archive binding"
+          )
+        )
+      ]
+
+      for error_shape <- non_conflict_shapes do
+        opts =
+          base_opts(entry(),
+            commit_verified_fn: fn _entry, _binding, _bytes, _now -> {:error, error_shape} end,
+            transition_entry_fn: transition_fn,
+            rand_fn: fn -> 0.0 end
+          )
+
+        assert {:snooze, 30} = ArchiveBlockJob.run(@entry_id, opts)
+
+        assert_receive {:transitioned,
+                        %{
+                          archive_state: :failed_retryable,
+                          archive_attempts: 1,
+                          archive_last_error_class: "archive_commit_failed",
                           archive_state_at: @fixed_now
                         }}
       end

@@ -48,6 +48,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
 
   import Ash.Expr
 
+  alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.CameraRecordingPolicy
@@ -303,12 +304,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
         emit_outcome(:rearchive_refused, entry.id, "rearchive_retained_receipt_refused")
         :ok
 
-      {:error, :archive_receipt_conflict} ->
-        fail_terminal(entry, "archive_receipt_conflict", opts)
-
       {:error, reason} ->
-        error_class = sanitize_error_class(reason, "archive_commit_failed")
-        fail_retryable(entry, error_class, opts)
+        if receipt_conflict_error?(reason) do
+          fail_terminal(entry, "archive_receipt_conflict", opts)
+        else
+          error_class = sanitize_error_class(reason, "archive_commit_failed")
+          fail_retryable(entry, error_class, opts)
+        end
     end
   end
 
@@ -394,26 +396,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       recording_block_id: recording_block_id
     })
     |> Ash.create(actor: @system_actor)
-    |> case do
-      {:ok, receipt} ->
-        {:ok, receipt}
-
-      {:error, %Ash.Error.Invalid{errors: errors} = error} ->
-        if receipt_conflict_error?(errors),
-          do: {:error, :archive_receipt_conflict},
-          else: {:error, error}
-
-      {:error, _} = error ->
-        error
-    end
   end
 
-  defp receipt_conflict_error?(errors) when is_list(errors) do
-    Enum.any?(errors, fn error ->
-      msg = Map.get(error, :message)
-      is_binary(msg) and String.contains?(msg, "conflicts with retained record")
-    end)
+  defp receipt_conflict_error?(%InvalidArgument{field: :receipt_bytes, message: msg}) when is_binary(msg) do
+    String.contains?(msg, "conflicts with retained record")
   end
+
+  defp receipt_conflict_error?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &receipt_conflict_error?/1)
+  end
+
+  defp receipt_conflict_error?(_other), do: false
 
   defp lock_catalog_entry(entry_id) do
     RecordingCatalogEntry
