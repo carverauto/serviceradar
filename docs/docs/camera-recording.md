@@ -521,6 +521,44 @@ Above the bar, banners and markers surface timing and durability provenance:
   (`2,048` segments). As playback nears the end of the active window, the
   `CameraTimelinePlayer` hook automatically advances into the adjacent window.
 
+### Detections & Clips strip and coverage event markers
+
+In **Timeline** mode, `/cameras/:camera_source_id/recordings` projects event
+clips for the active coverage window and stream profile via
+`RecordingEventClips.list_clips/3`, pairing non-quarantined playable
+`RecordingCatalogEntry` blocks with `VisualFrame` detections (queried with
+separate bounded limits of `500` frames with detections and `500`
+non-suppressed motion-only frames per window, newest-first, so high motion
+volume never crowds out older smart detections):
+
+- **Coalescing & clip classification:** Adjacent observations of the same
+  category within a catalog entry (up to an `8 s` gap) coalesce into one clip:
+  - **Smart (`smart`):** `Person`, `Vehicle`, `Animal`, and `Package`
+    detections.
+  - **Basic (`basic`):** `Motion` (non-suppressed frames with empty detections)
+    and `Recording` fallback segments for playable blocks not covered by any
+    detection or motion clip. Quarantined entries and their frames are excluded.
+- **Coverage event markers:** Coalesced smart and motion clips (excluding
+  `Recording` fallbacks) render as color-coded clickable tick markers along the
+  Coverage bar.
+- **In-memory mode & category filters:** The **Detections & Clips** strip
+  provides an `All` / `Smart` / `Basic` mode toggle and category filter chips
+  (`All`, `Person`, `Vehicle`, `Animal`, `Package`, `Motion`) showing
+  full-window counts and filtering in memory without reloading from CNPG. Up to
+  `100` matching cards render at once (`Showing latest 100 of <total>` when
+  more match), and a zero-match filter shows a **Reset filters** action. Each
+  card displays a lazy-loaded thumbnail when `thumbnail_url` is present (or a
+  category-icon placeholder otherwise), relative age, duration, category,
+  confidence, dominant color tags, timestamp, and storage tier (`local+archive`,
+  `archive`, `local`, or `recorded`).
+- **Click-to-jump playback:** Selecting a clip card or coverage event marker
+  focuses playback on `[start - 5 s, end + 10 s]` (clamped to coverage bounds
+  and the `60`-minute playlist limit), seeks to the clip's peak timestamp,
+  highlights matching frame detection overlays when available, and marks the
+  card active until playback moves elsewhere (selecting a coverage bucket,
+  advancing to an adjacent window, jumping to a semantic search hit, or
+  changing span/profile outside the clip).
+
 ### Timeline HTTP API, copy resolution, and read bounds
 
 All timeline endpoints enforce `Cache-Control: private, no-store` and

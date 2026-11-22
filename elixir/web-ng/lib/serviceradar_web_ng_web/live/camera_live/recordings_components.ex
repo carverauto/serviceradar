@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Camera.RecordingEventClips
+
   attr :source, :any, required: true
   attr :items, :list, required: true
   attr :next_cursor, :string, default: nil
@@ -34,6 +36,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
+  attr :timeline_event_clips, :list, default: []
+  attr :timeline_clips_mode, :string, default: "all"
+  attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_selected_clip_id, :string, default: nil
   attr :hold_form, :any, default: nil
 
   def recordings(assigns) do
@@ -148,6 +154,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_jump_at={@timeline_jump_at}
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
+        timeline_event_clips={@timeline_event_clips}
+        timeline_clips_mode={@timeline_clips_mode}
+        timeline_clips_category={@timeline_clips_category}
+        timeline_selected_clip_id={@timeline_selected_clip_id}
         hold_form={@hold_form}
       />
     </div>
@@ -329,6 +339,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_jump_at, :string, default: ""
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
+  attr :timeline_event_clips, :list, default: []
+  attr :timeline_clips_mode, :string, default: "all"
+  attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_selected_clip_id, :string, default: nil
   attr :hold_form, :any, default: nil
 
   defp timeline_view(assigns) do
@@ -342,6 +356,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     cov_from_us = coverage_field(coverage, :from_us)
     cov_to_us = coverage_field(coverage, :to_us)
     hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
+    clip_counts = RecordingEventClips.category_counts(assigns.timeline_event_clips)
+
+    filtered_matches =
+      RecordingEventClips.filter_clips(assigns.timeline_event_clips, %{
+        mode: assigns.timeline_clips_mode,
+        category: assigns.timeline_clips_category
+      })
+
+    filtered_event_clip_total = length(filtered_matches)
+    filtered_event_clips = Enum.take(filtered_matches, RecordingEventClips.default_limit())
+
+    now_us = System.system_time(:microsecond)
+    event_markers = build_event_markers(assigns.timeline_event_clips, cov_from_us, cov_to_us, now_us)
 
     assigns =
       assigns
@@ -351,6 +378,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:gaps, gaps)
       |> assign(:reanchors, reanchors)
       |> assign(:hit_markers, hit_markers)
+      |> assign(:event_markers, event_markers)
+      |> assign(:clip_counts, clip_counts)
+      |> assign(:filtered_event_clip_total, filtered_event_clip_total)
+      |> assign(:filtered_event_clips, filtered_event_clips)
+      |> assign(:now_us, now_us)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
@@ -769,6 +801,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               <span class="sr-only">{bucket_title(bucket)}</span>
             </button>
           <% end %>
+
+          <button
+            :for={marker <- @event_markers}
+            id={"camera-timeline-event-marker-#{marker.idx}"}
+            type="button"
+            data-role="event-clip-marker"
+            data-clip-category={to_string(marker.category)}
+            phx-click="select_event_clip"
+            phx-value-clip_id={marker.clip_id}
+            title={marker.title}
+            style={"left: #{marker.left_pct}%"}
+            class={[
+              "absolute bottom-0 z-[5] h-2.5 w-1 -translate-x-1/2 rounded-t-full ring-1 ring-black/50 transition-transform hover:h-full hover:scale-x-150",
+              event_marker_color_class(marker.category)
+            ]}
+          >
+            <span class="sr-only">{marker.title}</span>
+          </button>
 
           <button
             :for={marker <- @hit_markers}
@@ -1275,6 +1325,236 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </ul>
         </section>
       </div>
+
+      <%!-- Detections & Event Clip Strip --%>
+      <section
+        id="camera-timeline-event-clips-section"
+        aria-label="Detections and clips"
+        class="space-y-4 rounded-xl border border-sr-line bg-sr-surface p-4"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <h2 class="font-semibold text-sr-ink">Detections &amp; Clips</h2>
+            <.ui_badge id="camera-clips-total-badge" variant="ghost" size="xs">
+              {@filtered_event_clip_total}
+            </.ui_badge>
+            <span
+              :if={@filtered_event_clip_total > length(@filtered_event_clips)}
+              id="camera-clips-display-cap-note"
+              class="text-xs text-sr-muted"
+            >
+              Showing latest {length(@filtered_event_clips)} of {@filtered_event_clip_total}
+            </span>
+          </div>
+
+          <div
+            id="camera-clips-mode-toggle"
+            role="group"
+            aria-label="Clip detection mode"
+            class="inline-flex items-center gap-1 rounded-lg border border-sr-line bg-sr-canvas p-1"
+          >
+            <button
+              :for={
+                {mode_val, mode_label, count_key} <- [
+                  {"all", "All", :all},
+                  {"smart", "Smart", :smart},
+                  {"basic", "Basic", :basic}
+                ]
+              }
+              id={"camera-clips-mode-#{mode_val}"}
+              type="button"
+              phx-click="filter_event_clips_mode"
+              phx-value-mode={mode_val}
+              aria-pressed={to_string(@timeline_clips_mode == mode_val)}
+              class={[
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                if(@timeline_clips_mode == mode_val,
+                  do: "bg-sr-ink text-sr-surface",
+                  else: "text-sr-muted hover:text-sr-ink"
+                )
+              ]}
+            >
+              <span>{mode_label}</span>
+              <span class="font-mono text-[10px] opacity-75">
+                {Map.get(@clip_counts, count_key, 0)}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="camera-clips-category-filters"
+          role="group"
+          aria-label="Clip category filters"
+          class="flex flex-wrap items-center gap-2"
+        >
+          <button
+            :for={{cat_val, cat_label, cat_icon, count_key} <- clip_category_filter_specs()}
+            id={"camera-clips-category-#{cat_val}"}
+            type="button"
+            phx-click="filter_event_clips_category"
+            phx-value-category={cat_val}
+            aria-pressed={to_string(@timeline_clips_category == cat_val)}
+            class={[
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              if(@timeline_clips_category == cat_val,
+                do: "border-sr-brand bg-sr-brand/10 text-sr-ink",
+                else:
+                  "border-sr-line bg-sr-canvas text-sr-muted hover:border-sr-ink/40 hover:text-sr-ink"
+              )
+            ]}
+          >
+            <.icon name={cat_icon} class="size-3.5 shrink-0" />
+            <span>{cat_label}</span>
+            <span
+              id={"camera-clips-category-count-#{cat_val}"}
+              class="rounded-full bg-sr-surface px-1.5 py-0.5 font-mono text-[10px] text-sr-muted"
+            >
+              {Map.get(@clip_counts, count_key, 0)}
+            </span>
+          </button>
+        </div>
+
+        <div
+          :if={@filtered_event_clips == []}
+          id="camera-clips-empty"
+          role="status"
+          class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sr-line bg-sr-canvas px-6 py-10 text-center"
+        >
+          <.icon name="hero-film" class="size-6 text-sr-muted" />
+          <p class="text-sm font-medium text-sr-ink">
+            {if(@timeline_event_clips == [],
+              do: "No detections or recorded clips in this coverage window.",
+              else: "No clips match the current filter."
+            )}
+          </p>
+          <p class="text-xs text-sr-muted">
+            {if(@timeline_event_clips == [],
+              do: "Try expanding the timeline span or checking recording status.",
+              else: "Switch mode or clear the category filter to see all clips in this window."
+            )}
+          </p>
+          <.ui_button
+            :if={@timeline_event_clips != []}
+            id="camera-clips-reset-filters"
+            type="button"
+            phx-click="reset_event_clip_filters"
+            variant="outline"
+            size="xs"
+            class="mt-1"
+          >
+            Reset filters
+          </.ui_button>
+        </div>
+
+        <div
+          :if={@filtered_event_clips != []}
+          id="camera-clips-grid"
+          class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+        >
+          <button
+            :for={clip <- @filtered_event_clips}
+            id={"camera-clip-card-#{clip.id}"}
+            type="button"
+            data-role="event-clip-card"
+            data-clip-category={to_string(clip.category)}
+            data-clip-smart-type={to_string(clip.smart_type)}
+            phx-click="select_event_clip"
+            phx-value-clip_id={clip.id}
+            aria-pressed={
+              to_string(
+                clip_selected?(
+                  clip,
+                  @timeline_selected_clip_id,
+                  @timeline_play_from_us,
+                  @timeline_play_to_us
+                )
+              )
+            }
+            class={[
+              "group flex flex-col overflow-hidden rounded-xl border bg-sr-canvas text-left transition-all hover:border-sr-brand/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sr-brand",
+              if(
+                clip_selected?(
+                  clip,
+                  @timeline_selected_clip_id,
+                  @timeline_play_from_us,
+                  @timeline_play_to_us
+                ),
+                do: "border-sr-brand ring-2 ring-sr-brand/70",
+                else: "border-sr-line"
+              )
+            ]}
+          >
+            <div class="relative aspect-video w-full overflow-hidden bg-zinc-950">
+              <%= if is_binary(clip.thumbnail_url) and clip.thumbnail_url != "" do %>
+                <img
+                  src={clip.thumbnail_url}
+                  alt={"#{clip.label} detection clip"}
+                  loading="lazy"
+                  class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                />
+              <% else %>
+                <div class="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 text-zinc-400">
+                  <.icon
+                    name={clip_category_icon(clip.category)}
+                    class="size-7 text-zinc-500 transition-transform duration-200 group-hover:scale-110 group-hover:text-zinc-300"
+                  />
+                  <span
+                    :if={clip.category == :recording}
+                    class="font-mono text-[10px] uppercase tracking-wider text-zinc-500"
+                  >
+                    Recorded segment
+                  </span>
+                </div>
+              <% end %>
+
+              <%!-- Top-left relative timestamp badge --%>
+              <span class="absolute top-2 left-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-xs">
+                {format_relative_age(clip.start_us, @now_us)}
+              </span>
+
+              <%!-- Top-right duration badge --%>
+              <span class="absolute top-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200 backdrop-blur-xs">
+                {format_clip_duration(clip.duration_seconds)}
+              </span>
+
+              <%!-- Bottom-left detection badge --%>
+              <div class="absolute right-2 bottom-2 left-2 flex flex-wrap items-center gap-1">
+                <span class={[
+                  "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-xs",
+                  clip_badge_bg_class(clip.category)
+                ]}>
+                  <.icon name={clip_category_icon(clip.category)} class="size-3 shrink-0" />
+                  <span>{clip.label}</span>
+                  <span :if={is_number(clip.confidence)} class="font-mono text-[10px] opacity-90">
+                    {format_hit_score(clip.confidence)}
+                  </span>
+                </span>
+                <span
+                  :for={color <- Enum.take(get_in(clip, [:attributes, :dominant_colors]) || [], 2)}
+                  class="rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] capitalize text-zinc-200 backdrop-blur-xs"
+                >
+                  {color}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 px-2.5 py-2 text-xs">
+              <span class="truncate text-sr-ink">
+                <.user_time
+                  id={"camera-clip-time-#{clip.id}"}
+                  value={clip.started_at}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </span>
+              <span class="shrink-0 font-mono text-[10px] text-sr-muted">
+                {clip_storage_badge(clip)}
+              </span>
+            </div>
+          </button>
+        </div>
+      </section>
     </div>
     """
   end
@@ -1509,4 +1789,116 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   end
 
   defp format_seek_offset_attr(_), do: "0.0"
+
+  defp clip_category_filter_specs do
+    [
+      {"all", "All", "hero-squares-2x2", :all},
+      {"person", "Person", "hero-user", :person},
+      {"vehicle", "Vehicle", "hero-truck", :vehicle},
+      {"animal", "Animal", "hero-sparkles", :animal},
+      {"package", "Package", "hero-cube", :package},
+      {"motion", "Motion", "hero-bolt", :motion}
+    ]
+  end
+
+  defp clip_category_icon(:person), do: "hero-user"
+  defp clip_category_icon(:vehicle), do: "hero-truck"
+  defp clip_category_icon(:animal), do: "hero-sparkles"
+  defp clip_category_icon(:package), do: "hero-cube"
+  defp clip_category_icon(:motion), do: "hero-bolt"
+  defp clip_category_icon(:recording), do: "hero-video-camera"
+  defp clip_category_icon(_), do: "hero-film"
+
+  defp clip_badge_bg_class(:person), do: "bg-sky-600/85"
+  defp clip_badge_bg_class(:vehicle), do: "bg-emerald-600/85"
+  defp clip_badge_bg_class(:animal), do: "bg-amber-600/85"
+  defp clip_badge_bg_class(:package), do: "bg-violet-600/85"
+  defp clip_badge_bg_class(:motion), do: "bg-zinc-700/85"
+  defp clip_badge_bg_class(_), do: "bg-black/75"
+
+  defp event_marker_color_class(:person), do: "bg-sky-400"
+  defp event_marker_color_class(:vehicle), do: "bg-emerald-400"
+  defp event_marker_color_class(:animal), do: "bg-amber-400"
+  defp event_marker_color_class(:package), do: "bg-violet-400"
+  defp event_marker_color_class(_), do: "bg-zinc-300"
+
+  defp build_event_markers(clips, from_us, to_us, now_us)
+       when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    span_us = to_us - from_us
+
+    clips
+    |> Enum.reject(&(&1.category == :recording))
+    |> Enum.filter(fn clip ->
+      ts = clip[:peak_ts_us] || clip[:start_us]
+      is_integer(ts) and ts >= from_us and ts <= to_us
+    end)
+    |> Enum.with_index()
+    |> Enum.map(fn {clip, idx} ->
+      ts = clip[:peak_ts_us] || clip[:start_us]
+      left_pct = Float.round(min(max((ts - from_us) / span_us * 100.0, 0.5), 99.5), 2)
+
+      conf_suffix =
+        if is_number(clip[:confidence]), do: " (#{format_hit_score(clip[:confidence])})", else: ""
+
+      age_label = format_relative_age(ts, now_us)
+
+      %{
+        idx: idx,
+        clip_id: clip.id,
+        category: clip.category,
+        left_pct: left_pct,
+        title: "#{clip.label}#{conf_suffix} — #{age_label}"
+      }
+    end)
+  end
+
+  defp build_event_markers(_clips, _from_us, _to_us, _now_us), do: []
+
+  defp clip_selected?(clip, selected_clip_id, play_from_us, play_to_us) do
+    cond do
+      is_binary(selected_clip_id) and selected_clip_id != "" ->
+        to_string(clip.id) == selected_clip_id
+
+      is_integer(play_from_us) and is_integer(play_to_us) and is_integer(clip[:start_us]) and
+          is_integer(clip[:end_us]) ->
+        play_from_us <= clip.start_us and play_to_us >= clip.end_us and
+          play_to_us - play_from_us <= clip.end_us - clip.start_us + 20_000_000
+
+      true ->
+        false
+    end
+  end
+
+  defp format_relative_age(start_us, now_us) when is_integer(start_us) and is_integer(now_us) do
+    diff_sec = max(div(now_us - start_us, 1_000_000), 0)
+
+    cond do
+      diff_sec < 60 -> "Just now"
+      diff_sec < 3_600 -> "#{div(diff_sec, 60)}m ago"
+      diff_sec < 86_400 -> "#{div(diff_sec, 3_600)}h ago"
+      true -> "#{div(diff_sec, 86_400)}d ago"
+    end
+  end
+
+  defp format_relative_age(_, _), do: "Recent"
+
+  defp format_clip_duration(seconds) when is_integer(seconds) and seconds >= 3_600 do
+    hours = div(seconds, 3_600)
+    mins = div(rem(seconds, 3_600), 60)
+    "#{hours}h #{mins}m"
+  end
+
+  defp format_clip_duration(seconds) when is_integer(seconds) and seconds >= 60 do
+    mins = div(seconds, 60)
+    secs = rem(seconds, 60)
+    "#{mins}m #{secs}s"
+  end
+
+  defp format_clip_duration(seconds) when is_integer(seconds) and seconds > 0, do: "#{seconds}s"
+  defp format_clip_duration(_), do: "1s"
+
+  defp clip_storage_badge(%{archive_state: :verified, local_state: :present}), do: "local+archive"
+  defp clip_storage_badge(%{archive_state: :verified}), do: "archive"
+  defp clip_storage_badge(%{local_state: :present}), do: "local"
+  defp clip_storage_badge(_), do: "recorded"
 end
