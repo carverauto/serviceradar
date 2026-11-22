@@ -17,7 +17,7 @@ import {join} from "node:path"
 
 import {fetchCollector} from "./collectors.js"
 import {encodeId, edgeRequest, rawRequest, requireEdgeSession, requireInstance, type EdgeSession} from "./http.js"
-import {positiveNumber} from "./sites.js"
+import {leafStatus, positiveNumber} from "./sites.js"
 import {decodePolicyPublicKey, installManagedConfiguration, installPolicyPublicKey, MANAGED_SERVICES, managedConfigurationFiles, POLICY_KEY_PATH, readEnrolledAgent, readManagedConfiguration, selectLeafAdvertiseURL, waitForManagedActivation, type ManagedComponent} from "./managed.js"
 
 export const DEFAULT_RELEASE_BASE_URL = "https://github.com/carverauto/serviceradar/releases/download"
@@ -155,7 +155,7 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
   // cannot read it.
   const sitePayload = await edgeRequest(session, "GET", `/api/admin/edge-sites/${encodeId(siteId)}`)
   const site = sitePayload?.data || sitePayload
-  console.log(`Edge site ${site?.name || siteId} (${site?.slug || siteId}); leaf status: ${site?.leaf_server?.status || "pending"}`)
+  console.log(`Edge site ${site?.name || siteId} (${site?.slug || siteId}); leaf status: ${leafStatus(site) || "pending"}`)
 
   const host = hostname()
   const addresses = Object.values(networkInterfaces()).flatMap((addresses) => addresses || []).filter((address) => !address.internal).map((address) => address.address)
