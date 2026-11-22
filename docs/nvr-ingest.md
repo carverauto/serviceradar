@@ -155,6 +155,26 @@ as uncertain: both blocks stay sealed on the NVR, but Core records neither as a
 completed capture. Keep `nvr.maxBlockFragments` at 150 or more while Core
 captures run at the 270-second ceiling.
 
+## Continuous recording
+
+`SERVICERADAR_CAMERA_RECORDING_ENABLED` (rendered from the Helm chart value
+`nvr.ingest.client.cameraRecordingEnabled`) is the single canonical switch
+enabling continuous recording in `core-elx` for cameras whose
+`CameraRecordingPolicy` has `mode == :continuous`. When enabled (and the
+database repo is enabled and durable `RecordingControl` stop is not active),
+`ServiceRadarCoreElx.CameraRecording.ContinuousManager` reconciles all
+`mode == :continuous` policies and supervises one
+`ServiceRadarCoreElx.CameraRecording.ContinuousRecorder` per
+`(camera_source_id, stream_profile_id)` pair. Cameras without a `:continuous`
+policy remain unaffected.
+
+Each continuous recorder holds one `RecorderOwnership` claim and one bounded
+`ServiceRadarRecording.Inbox` per run, performs keyframe-aligned block handovers
+at soft targets (`260,000 ms`, `7,800` frames, `10 MiB`) within the hard
+ceilings (`270,000 ms`, `8,100` frames, `12 MiB`), resolves uncertain outcomes
+through `POST /v1/blocks/lookup`, catalogs each sealed block before releasing
+the claim, and enqueues `ArchiveBlockJob` when required by policy.
+
 ## Finite stream contract
 
 Send `POST /v1/recordings/ingest` with exactly one

@@ -218,7 +218,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
   end
 
   describe "NVR refusal" do
-    test "records nvr_refused gap with detail_class and continues on next block" do
+    test "records nvr_refused gap with http status detail_class and continues on next block" do
       parent = self()
 
       send_fn = fn _cfg, header, stream, _timeout ->
@@ -227,7 +227,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
         send(parent, {:sent_block, block_key, units})
 
         if header["identity"]["block_sequence"] == 0 do
-          {:error, {:ingest_refused, 503, %{"error" => "nvr_inventory_limit"}}}
+          {:error, {:ingest_refused, 503}}
         else
           {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
         end
@@ -240,12 +240,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
       send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
 
-      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "nvr_inventory_limit"}}},
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}},
                      1_000
 
       assert_receive {:gap_recorded, gap}, 1_000
       assert gap.reason == :nvr_refused
-      assert gap.detail_class == "nvr_inventory_limit"
+      assert gap.detail_class == "http_503"
       assert gap.media_gap_ns == div(6_000 * 1_000_000_000, 90_000)
 
       # Next IDR succeeds on Block 1
@@ -260,6 +260,47 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
 
       ContinuousRecorder.stop(pid, :policy_disabled)
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "re-checks recovery gate on NVR refusal and stops run immediately when gate is closed" do
+      gate_open = start_supervised!(Supervisor.child_spec({Agent, fn -> true end}, id: :refusal_gate_agent))
+
+      send_fn = fn _cfg, _header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        Agent.update(gate_open, fn _ -> false end)
+        {:error, {:ingest_refused, 503}}
+      end
+
+      recovery_gate_fn = fn ->
+        if Agent.get(gate_open, & &1) do
+          {:ok, %{generation: @recovery_generation}}
+        else
+          {:error, :nvr_recovery_closed}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          send_recording_fn: send_fn,
+          recovery_gate_fn: recovery_gate_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "nvr_recovery_closed"}}},
+                     1_000
+
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :nvr_refused
+      assert gap.detail_class == "nvr_recovery_closed"
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :nvr_recovery_closed}}}, 1_000
+      assert_receive :claim_released, 1_000
+      assert_receive :relay_closed, 1_000
     end
   end
 
@@ -556,6 +597,596 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
     end
   end
 
+  describe "default handover sizing and non-blocking async catalog/lookup with real Inbox" do
+    test "defaults handover limits strictly below Inbox credit and keeps Inbox.offer flowing during slow catalog" do
+      parent = self()
+      gate = make_ref()
+      inbox_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> nil end}, id: :real_inbox_catalog_agent))
+
+      producer =
+        spawn_link(fn ->
+          real_inbox_producer_loop(parent)
+        end)
+
+      descriptor_fn = fn _cfg, block_key, _timeout ->
+        send(parent, {:descriptor_started, self(), block_key})
+
+        receive do
+          {^gate, :release_descriptor} ->
+            {:ok, %{"block_key" => block_key, "fragments" => [%{"start_ns" => 0, "duration_ns" => 2_000_000_000}]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 32},
+          pipeline_resolver: fn @relay_id, @media_ingest_id -> {:ok, producer} end,
+          inbox_new_fn: fn prod, relay_id, ingest_id, deadline_ms, inbox_opts ->
+            {:ok, inbox} = Inbox.new(prod, relay_id, ingest_id, deadline_ms, inbox_opts)
+            Agent.update(inbox_agent, fn _ -> inbox end)
+            {:ok, inbox}
+          end,
+          block_descriptor_fn: descriptor_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      status = ContinuousRecorder.status(pid)
+      assert {status.handover_max_samples, status.handover_max_bytes} == {32, 4_194_304}
+
+      inbox = Agent.get(inbox_agent, & &1)
+
+      # Block 0 takes seq 0..1, seq 2 (IDR) triggers soft cut -> seals and enters async :cataloging
+      assert :ok == offer_via_producer(producer, inbox, 0, 0, @idr_payload)
+      assert :ok == offer_via_producer(producer, inbox, 1, 3_000, @p_frame_payload)
+      assert :ok == offer_via_producer(producer, inbox, 2, 6_000, @idr_payload)
+
+      assert_receive {:descriptor_started, desc_pid, key0}, 1_000
+      assert ContinuousRecorder.status(pid).phase == :cataloging
+
+      # Feed 149 more frames (total > Inbox 128 default) while descriptor/catalog is blocked.
+      # Every Inbox.offer MUST return :ok because handover drops at 32 and releases Inbox credit immediately.
+      offer_results =
+        for seq <- 3..151 do
+          offer_via_producer(producer, inbox, seq, seq * 3_000, @p_frame_payload)
+        end
+
+      assert Enum.all?(offer_results, &(&1 == :ok))
+
+      # Sync with GenServer mailbox to ensure all frames were processed while cataloging
+      assert ContinuousRecorder.status(pid).handover_samples == 32
+
+      send(desc_pid, {gate, :release_descriptor})
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: ^key0, catalog: {:registered, _}}}},
+                     1_000
+
+      # Block 1 drains seq 2..33 (32 frames = max_frames) and seals
+      assert_receive {:descriptor_started, desc_pid1, _key1}, 1_000
+      send(desc_pid1, {gate, :release_descriptor})
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_000
+
+      assert :ok == offer_via_producer(producer, inbox, 152, 152 * 3_000, @idr_payload)
+
+      assert_receive {:gap_recorded, gap}, 1_000
+
+      # Dropped frames start at seq 34 (pts 102_000) through seq 152 (pts 456_000) = 354_000 ticks
+      assert {gap.reason, gap.detail_class, gap.media_gap_ns} ==
+               {:handover_overflow, "handover_queue_full", div((152 - 34) * 3_000 * 1_000_000_000, 90_000)}
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:descriptor_started, desc_pid2, _key2}, 1_000
+      send(desc_pid2, {gate, :release_descriptor})
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+      refute_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :inbox_overflow}}}, 50
+    end
+
+    test "keeps Inbox.offer flowing during slow async lookup_blocks resolution" do
+      parent = self()
+      gate = make_ref()
+      inbox_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> nil end}, id: :real_inbox_lookup_agent))
+      attempts_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: :lookup_async_attempts))
+
+      producer =
+        spawn_link(fn ->
+          real_inbox_producer_loop(parent)
+        end)
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+
+        if header["identity"]["block_sequence"] == 0 do
+          {:error, :outcome_unknown}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      lookup_fn = fn _cfg, [block_key], _timeout ->
+        attempt = Agent.get_and_update(attempts_agent, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          send(parent, {:lookup_blocked, self(), block_key})
+
+          receive do
+            {^gate, :release_lookup} -> {:error, :unavailable}
+          end
+        else
+          {:ok, %{storage_id: @storage_id, blocks: [%{block_id: block_key, state: :sealed}]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          lookup_max_attempts: 2,
+          lookup_retry_delay_ms: 5,
+          pipeline_resolver: fn @relay_id, @media_ingest_id -> {:ok, producer} end,
+          inbox_new_fn: fn prod, relay_id, ingest_id, deadline_ms, inbox_opts ->
+            {:ok, inbox} = Inbox.new(prod, relay_id, ingest_id, deadline_ms, inbox_opts)
+            Agent.update(inbox_agent, fn _ -> inbox end)
+            {:ok, inbox}
+          end,
+          send_recording_fn: send_fn,
+          lookup_blocks_fn: lookup_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+      inbox = Agent.get(inbox_agent, & &1)
+
+      assert :ok = offer_via_producer(producer, inbox, 0, 0, @idr_payload)
+      assert :ok = offer_via_producer(producer, inbox, 1, 3_000, @p_frame_payload)
+
+      assert_receive {:lookup_blocked, lookup_pid, key0}, 1_000
+      assert ContinuousRecorder.status(pid).phase == :resolving
+
+      for seq <- 2..60 do
+        payload = if seq == 2, do: @idr_payload, else: @p_frame_payload
+        assert :ok = offer_via_producer(producer, inbox, seq, seq * 3_000, payload)
+      end
+
+      assert ContinuousRecorder.status(pid).handover_samples == 32
+
+      send(lookup_pid, {gate, :release_lookup})
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: ^key0, catalog: {:registered, _}}}},
+                     1_000
+
+      assert :ok = offer_via_producer(producer, inbox, 61, 61 * 3_000, @idr_payload)
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :handover_overflow
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+  end
+
+  describe "gap origin and IDR alignment after discontinuities" do
+    test "sequence skip while streaming records true non-zero media_gap_ns and waits for IDR" do
+      harness = start_harness(bounds: %{soft_frames: 5, max_frames: 10})
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Admit units 10 (pts 30_000) and 11 (pts 33_000) -> last_unit_duration_ticks = 3_000
+      send_unit(pid, harness.inbox_id, 10, 30_000, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 11, 33_000, @base_utc_us + 33_333, @p_frame_payload)
+
+      # Skip units 12..19; unit 20 arrives as a P-frame (non-IDR) at pts 60_000
+      send_unit(pid, harness.inbox_id, 20, 60_000, @base_utc_us + 333_333, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key0}}}, 1_000
+      assert_receive {:sent_block, ^key0, block0_units}, 1_000
+      assert Enum.map(block0_units, & &1.sequence) == [10, 11]
+
+      # Unit 20 (P-frame) must NOT start Block 1; unit 21 (IDR, pts 63_000) starts Block 1
+      send_unit(pid, harness.inbox_id, 21, 63_000, @base_utc_us + 366_666, @idr_payload)
+
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :source_unavailable
+      assert gap.detail_class == "media_sequence_discontinuity"
+      # Gap starts at 33_000 + 3_000 = 36_000 ticks, ends at unit 21 pts 63_000 -> 27_000 ticks (300 ms)
+      assert gap.media_gap_ns == div(27_000 * 1_000_000_000, 90_000)
+      assert gap.end_us > gap.start_us
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1}}}, 1_000
+      assert_receive {:sent_block, ^key1, block1_units}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [21]
+      assert_receive {:cataloged, ^key1, attrs1}, 1_000
+      assert attrs1.contiguous_with_previous == false
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "sequence skip while idle records exact non-zero gap and requires IDR before starting next block" do
+      harness = start_harness(bounds: %{soft_frames: 2, max_frames: 2})
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Block 0 hits max_frames=2 on seq 1 -> seals and returns to :idle
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, _}}, 1_000
+      assert ContinuousRecorder.status(pid).phase == :idle
+
+      # Skip seq 2..9; seq 10 arrives as P-frame at pts 30_000, then seq 11 arrives as IDR at pts 33_000
+      send_unit(pid, harness.inbox_id, 10, 30_000, @base_utc_us + 333_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 11, 33_000, @base_utc_us + 366_666, @idr_payload)
+
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :source_unavailable
+      assert gap.detail_class == "media_sequence_discontinuity"
+      # Gap starts at 3_000 + 3_000 = 6_000 ticks, ends at seq 11 pts 33_000 -> 27_000 ticks
+      assert gap.media_gap_ns == div(27_000 * 1_000_000_000, 90_000)
+      assert gap.end_us > gap.start_us
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1}}}, 1_000
+      assert_receive {:sent_block, ^key1, block1_units}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [11]
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "in-block sequence mismatch after handover overflow drops non-IDR and waits for IDR" do
+      parent = self()
+      gate = make_ref()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        send(parent, {:sent_block, block_key, units})
+
+        if header["identity"]["block_sequence"] == 0 do
+          send(parent, {:block0_waiting, self()})
+
+          receive do
+            {^gate, :release} -> :ok
+          end
+        end
+
+        {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 4},
+          handover_max_samples: 2,
+          send_recording_fn: send_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
+      assert_receive {:block0_waiting, sender0}, 1_000
+
+      # Fill handover queue with seq 3, overflow seq 4 and 5
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 133_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 5, 15_000, @base_utc_us + 166_666, @p_frame_payload)
+
+      send(sender0, {gate, :release})
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, _}}, 1_000
+
+      # Seq 6 arrives as a P-frame (non-IDR) -> triggers in-block mismatch on Block 1 ([2, 3]),
+      # MUST NOT start Block 2; seq 7 (IDR) starts Block 2.
+      send_unit(pid, harness.inbox_id, 6, 18_000, @base_utc_us + 200_000, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1}}}, 1_000
+      assert_receive {:sent_block, ^key1, block1_units}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [2, 3]
+
+      send_unit(pid, harness.inbox_id, 7, 21_000, @base_utc_us + 233_333, @idr_payload)
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :handover_overflow
+      assert gap.media_gap_ns == div((21_000 - 12_000) * 1_000_000_000, 90_000)
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key2}}}, 1_000
+      assert_receive {:sent_block, ^key2, block2_units}, 1_000
+      assert Enum.map(block2_units, & &1.sequence) == [7]
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+  end
+
+  describe "startup failure cleanup, multi-replica ownership, and manager backoff" do
+    test "closes a newly opened relay on startup failure even when claim is nil" do
+      harness =
+        start_harness(
+          relay_open_fn: fn @camera_id, @profile_id, _actor ->
+            {:ok, {:new, %{id: @relay_id, status: :active, media_ingest_id: @media_ingest_id}}}
+          end,
+          pipeline_resolver: fn @relay_id, @media_ingest_id -> {:error, :recording_ingest_mismatch} end,
+          relay_host_fn: fn @relay_id -> nil end
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :source_unavailable
+
+      assert_receive {:continuous_recorder, ^pid,
+                      {:run_stopped,
+                       %{reason: :recording_ingest_mismatch, startup_failed?: true, startup_gap_recorded?: true}}},
+                     1_000
+
+      assert_receive :relay_closed, 1_000
+      refute_receive :claim_released, 100
+    end
+
+    test "does not close a reused relay or record a gap when another node owns the relay or claim" do
+      harness_remote =
+        start_harness(
+          relay_open_fn: fn @camera_id, @profile_id, _actor ->
+            {:ok, {:reuse, %{id: @relay_id, status: :active, media_ingest_id: @media_ingest_id}}}
+          end,
+          pipeline_resolver: fn @relay_id, @media_ingest_id -> {:error, :recording_ingest_mismatch} end,
+          relay_host_fn: fn @relay_id -> :"peer@127.0.0.1" end
+        )
+
+      {:ok, pid1} = ContinuousRecorder.start_link(harness_remote.opts)
+
+      assert_receive {:continuous_recorder, ^pid1,
+                      {:run_stopped,
+                       %{
+                         reason: {:remote_relay_host, :"peer@127.0.0.1"},
+                         startup_failed?: true,
+                         startup_gap_recorded?: false
+                       }}},
+                     1_000
+
+      refute_receive {:gap_recorded, _}, 100
+      refute_receive :relay_closed, 100
+
+      harness_owned =
+        start_harness(
+          relay_open_fn: fn @camera_id, @profile_id, _actor ->
+            {:ok, {:reuse, %{id: @relay_id, status: :active, media_ingest_id: @media_ingest_id}}}
+          end,
+          acquire_claim_fn: fn _owner, _token, _ingest_id, _storage_id, _ttl, _opts ->
+            {:error, :recorder_already_owned}
+          end
+        )
+
+      {:ok, pid2} = ContinuousRecorder.start_link(harness_owned.opts)
+
+      assert_receive {:continuous_recorder, ^pid2,
+                      {:run_stopped,
+                       %{
+                         reason: :recorder_already_owned,
+                         startup_failed?: true,
+                         startup_gap_recorded?: false
+                       }}},
+                     1_000
+
+      refute_receive {:gap_recorded, _}, 100
+      refute_receive :relay_closed, 100
+    end
+
+    test "ContinuousManager applies exponential backoff and records at most one startup gap per failure streak" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: :backoff_clock_agent))
+      fail_target = start_supervised!(Supervisor.child_spec({Agent, fn -> true end}, id: :fail_target_agent))
+      policy = base_policy()
+
+      base_harness =
+        start_harness(
+          policy: policy,
+          target_resolver: fn @member ->
+            if Agent.get(fail_target, & &1) do
+              {:error, :nvr_member_unconfigured}
+            else
+              {:ok,
+               %{
+                 member: @member,
+                 storage_id: @storage_id,
+                 client_config: %ClientConfig{
+                   host: "nvr-0.example.test",
+                   port: 8443,
+                   ca: "/nonexistent/ca.pem",
+                   cert: "/nonexistent/client.pem",
+                   key: "/nonexistent/client.key",
+                   token: "synthetic-continuous-recorder-token-0123456789"
+                 }
+               }}
+            end
+          end,
+          record_gap_fn: fn attrs, _opts ->
+            send(parent, {:streak_gap, attrs})
+            {:ok, attrs}
+          end
+        )
+
+      start_fn = fn pol, start_opts ->
+        opts = Keyword.merge(base_harness.opts, Keyword.put(start_opts, :policy, pol))
+        {:ok, pid} = ContinuousRecorder.start_link(opts)
+        send(parent, {:attempt_started, pid, Keyword.get(start_opts, :record_startup_gap?)})
+        {:ok, pid}
+      end
+
+      {:ok, manager} =
+        ContinuousManager.start_link(
+          name: nil,
+          interval_ms: 60_000,
+          initial_backoff_ms: 1_000,
+          max_backoff_ms: 8_000,
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          enabled_fn: fn -> true end,
+          control_stopped_fn: fn -> false end,
+          list_policies_fn: fn -> {:ok, [policy]} end,
+          start_recorder_fn: start_fn
+        )
+
+      # Attempt 1 at t=0 -> fails and records exactly ONE gap; backoff is 1_000 ms (next retry at t=1_000)
+      assert :ok = ContinuousManager.reconcile(manager)
+      assert_receive {:attempt_started, pid1, true}, 1_000
+      assert_receive {:streak_gap, %{reason: :source_unavailable}}, 1_000
+      ref1 = Process.monitor(pid1)
+      assert_receive {:DOWN, ^ref1, :process, ^pid1, reason1}, 1_000
+      assert reason1 in [:normal, :noproc]
+      # Let manager process DOWN before next reconcile
+      _ = ContinuousManager.running(manager)
+
+      # At t=500 (< 1_000): backoff suppresses restart
+      Agent.update(clock, fn _ -> 500 end)
+      assert :ok = ContinuousManager.reconcile(manager)
+      refute_receive {:attempt_started, _, _}, 50
+
+      # Attempt 2 at t=1_000 -> starts with record_startup_gap?: false, writes NO second gap;
+      # backoff doubles to 2_000 ms (next retry at t=3_000)
+      Agent.update(clock, fn _ -> 1_000 end)
+      assert :ok = ContinuousManager.reconcile(manager)
+      assert_receive {:attempt_started, pid2, false}, 1_000
+      ref2 = Process.monitor(pid2)
+      assert_receive {:DOWN, ^ref2, :process, ^pid2, reason2}, 1_000
+      assert reason2 in [:normal, :noproc]
+      refute_receive {:streak_gap, _}, 50
+      _ = ContinuousManager.running(manager)
+
+      # At t=2_500 (< 3_000): exponential backoff suppresses restart
+      Agent.update(clock, fn _ -> 2_500 end)
+      assert :ok = ContinuousManager.reconcile(manager)
+      refute_receive {:attempt_started, _, _}, 50
+
+      # At t=3_000 with target fixed: Attempt 3 succeeds and stays running!
+      Agent.update(fail_target, fn _ -> false end)
+      Agent.update(clock, fn _ -> 3_000 end)
+      assert :ok = ContinuousManager.reconcile(manager)
+      assert_receive {:attempt_started, pid3, false}, 1_000
+      Process.sleep(30)
+      assert Process.alive?(pid3)
+      assert Map.has_key?(ContinuousManager.running(manager), {@camera_id, @profile_id})
+
+      ContinuousRecorder.stop(pid3, :policy_disabled)
+    end
+  end
+
+  describe "catalog retry and claim release on catalog failure" do
+    test "retries transient catalog failure within bounded window and continues when retry succeeds" do
+      parent = self()
+      attempts = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: :catalog_retry_ok_agent))
+
+      descriptor_fn = fn _cfg, block_key, _timeout ->
+        attempt = Agent.get_and_update(attempts, fn n -> {n + 1, n + 1} end)
+        send(parent, {:descriptor_attempt, block_key, attempt})
+
+        if attempt < 3 do
+          {:error, {:descriptor_status, 503, "descriptor_unavailable"}}
+        else
+          {:ok, %{"block_key" => block_key, "fragments" => [%{"start_ns" => 0, "duration_ns" => 2_000_000_000}]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          catalog_max_attempts: 3,
+          catalog_retry_delay_ms: 5,
+          block_descriptor_fn: descriptor_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+      assert_receive {:descriptor_attempt, key0, 1}, 1_000
+      assert_receive {:descriptor_attempt, ^key0, 2}, 1_000
+      assert_receive {:descriptor_attempt, ^key0, 3}, 1_000
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: ^key0, catalog: {:registered, entry0}}}},
+                     1_000
+
+      assert_receive {:archive_enqueued, ^entry0}, 1_000
+      assert Process.alive?(pid)
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
+    test "stops run and releases claim cleanly when catalog fails after bounded retries" do
+      parent = self()
+      attempts = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: :catalog_retry_fail_agent))
+
+      freeze_fn = fn _owner, _claim, block, _descriptor, _catalog_attrs, _opts ->
+        attempt = Agent.get_and_update(attempts, fn n -> {n + 1, n + 1} end)
+        send(parent, {:freeze_attempt, block.block_key, attempt})
+        {:error, :db_timeout}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          catalog_max_attempts: 3,
+          catalog_retry_delay_ms: 5,
+          freeze_and_catalog_fn: freeze_fn
+        )
+
+      capture_log(fn ->
+        {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+        assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+        send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+        send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+        assert_receive {:freeze_attempt, key0, 1}, 1_000
+        assert_receive {:freeze_attempt, ^key0, 2}, 1_000
+        assert_receive {:freeze_attempt, ^key0, 3}, 1_000
+
+        assert_receive {:continuous_recorder, ^pid,
+                        {:block_sealed, %{block_key: ^key0, catalog: {:unregistered, :db_timeout}}}},
+                       1_000
+
+        assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: {:catalog_failed, :db_timeout}}}}, 1_000
+        assert_receive :claim_released, 1_000
+        assert_receive :relay_closed, 1_000
+      end)
+    end
+
+    test "stops run immediately without retrying and releases claim on :nvr_recovery_closed_after_freeze" do
+      parent = self()
+
+      freeze_fn = fn _owner, _claim, block, _descriptor, _catalog_attrs, _opts ->
+        send(parent, {:freeze_called, block.block_key})
+        {:error, :nvr_recovery_closed_after_freeze}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          catalog_max_attempts: 3,
+          catalog_retry_delay_ms: 5,
+          freeze_and_catalog_fn: freeze_fn
+        )
+
+      capture_log(fn ->
+        {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+        assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+        send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+        send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+        assert_receive {:freeze_called, key0}, 1_000
+        refute_receive {:freeze_called, _}, 50
+
+        expected_reason = :nvr_recovery_closed_after_freeze
+
+        assert_receive {:continuous_recorder, ^pid,
+                        {:block_sealed, %{block_key: ^key0, catalog: {:unregistered, ^expected_reason}}}},
+                       1_000
+
+        assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: ^expected_reason}}}, 1_000
+
+        assert_receive :claim_released, 1_000
+        assert_receive :relay_closed, 1_000
+      end)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Synthetic test harness
   # ---------------------------------------------------------------------------
@@ -577,7 +1208,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
 
   defp start_harness(overrides) do
     parent = self()
-    seq_agent = start_supervised!({Agent, fn -> 0 end})
+    seq_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: make_ref()))
     inbox_ref = make_ref()
 
     pipeline_pid =
@@ -668,6 +1299,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
         send(parent, :relay_closed)
         :ok
       end,
+      relay_host_fn: fn @relay_id -> nil end,
       pipeline_resolver: fn @relay_id, @media_ingest_id -> {:ok, pipeline_pid} end,
       ingest_owner_fn: fn @relay_id, _actor -> {:ok, owner} end,
       acquire_claim_fn: fn _owner, _token, _ingest_id, _storage_id, _ttl, _opts -> {:ok, claim} end,
@@ -728,5 +1360,38 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
     }
 
     send(worker, {:recording_media, inbox_id, unit})
+  end
+
+  defp real_inbox_producer_loop(_parent) do
+    receive do
+      {:offer, from, ref, inbox, chunk} ->
+        send(from, {ref, Inbox.offer(inbox, chunk)})
+        real_inbox_producer_loop(nil)
+
+      :stop_producer ->
+        :ok
+    end
+  end
+
+  defp offer_via_producer(producer, inbox, sequence, pts, payload) do
+    ref = make_ref()
+
+    chunk = %{
+      media_ingest_id: @media_ingest_id,
+      codec: "h264",
+      payload_format: "annexb",
+      payload: payload,
+      pts: pts,
+      dts: pts,
+      sequence: sequence
+    }
+
+    send(producer, {:offer, self(), ref, inbox, chunk})
+
+    receive do
+      {^ref, result} -> result
+    after
+      1_000 -> {:error, :producer_timeout}
+    end
   end
 end

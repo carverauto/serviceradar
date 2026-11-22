@@ -47,6 +47,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RelayHosts
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
@@ -69,10 +70,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   @default_lookup_attempts 3
   @default_lookup_retry_delay_ms 1_000
   @default_lookup_timeout_ms 15_000
+  @default_catalog_attempts 3
+  @default_catalog_retry_delay_ms 1_000
   @relay_poll_interval_ms 100
   @relay_open_timeout_ms 15_000
 
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
+  @default_handover_max_samples 32
+  @default_handover_max_bytes 4_194_304
 
   @default_bounds %{
     soft_frames: 7_800,
@@ -88,6 +93,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   @max_duration_ms_ceiling 270_000
 
   @definite_refusals [400, 401, 422, 503]
+  @non_retryable_catalog_errors [
+    :recorder_claim_lost,
+    :ownership_lost,
+    :recorder_ingest_mismatch,
+    :recording_descriptor_conflict,
+    :recording_block_mismatch,
+    :recording_block_not_found,
+    :invalid_recording_descriptor,
+    :invalid_catalog_attributes,
+    :ambient_transaction
+  ]
 
   @doc "Default soft and hard block bounds (`A.1.1`, `A.3.4`, design `A4`)."
   @spec default_bounds() :: map()
@@ -146,8 +162,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
          true <- hooks.enabled_fn.() || {:error, :recording_disabled},
          {:ok, bounds} <- normalize_bounds(Keyword.get(opts, :bounds, %{})) do
       inbox_opts = Keyword.merge(@inbox_defaults, Keyword.get(opts, :inbox_opts, []))
-      handover_max_samples = Keyword.get(opts, :handover_max_samples, Keyword.fetch!(inbox_opts, :max_samples))
-      handover_max_bytes = Keyword.get(opts, :handover_max_bytes, Keyword.fetch!(inbox_opts, :max_bytes))
+      {handover_max_samples, handover_max_bytes} = normalize_handover_limits(opts, inbox_opts)
 
       state = %{
         policy: policy,
@@ -155,6 +170,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         hooks: hooks,
         actor: Keyword.get_lazy(opts, :actor, fn -> SystemActor.system(:camera_recording) end),
         notify: Keyword.get(opts, :notify),
+        record_startup_gap?: Keyword.get(opts, :record_startup_gap?, true),
         inbox_opts: inbox_opts,
         handover_max_samples: handover_max_samples,
         handover_max_bytes: handover_max_bytes,
@@ -162,6 +178,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         lookup_max_attempts: Keyword.get(opts, :lookup_max_attempts, @default_lookup_attempts),
         lookup_retry_delay_ms: Keyword.get(opts, :lookup_retry_delay_ms, @default_lookup_retry_delay_ms),
         lookup_timeout_ms: Keyword.get(opts, :lookup_timeout_ms, @default_lookup_timeout_ms),
+        catalog_max_attempts: Keyword.get(opts, :catalog_max_attempts, @default_catalog_attempts),
+        catalog_retry_delay_ms: Keyword.get(opts, :catalog_retry_delay_ms, @default_catalog_retry_delay_ms),
         send_timeout_ms: Keyword.get(opts, :send_timeout_ms, block_send_timeout_ms(bounds)),
         lease_ms: Keyword.get(opts, :lease_ms, @lease_ms),
         member: policy.nvr_member,
@@ -204,9 +222,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         next_contiguous?: false,
         blocks_sealed: 0,
         gaps_recorded: 0,
-        # Active block state
+        # Active block & async task state
         phase: :starting,
         active_block: nil,
+        pending_task: nil,
         waiting_puller: nil
       }
 
@@ -224,8 +243,19 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         {:noreply, ready_state}
 
       {:error, reason, failed_state} ->
-        maybe_record_startup_gap(failed_state, reason)
-        notify(failed_state, {:run_stopped, %{reason: reason, run_id: failed_state.run_id}})
+        gap_recorded? = maybe_record_startup_gap(failed_state, reason)
+
+        notify(
+          failed_state,
+          {:run_stopped,
+           %{
+             reason: reason,
+             run_id: failed_state.run_id,
+             startup_failed?: true,
+             startup_gap_recorded?: gap_recorded?
+           }}
+        )
+
         {:stop, :normal, failed_state}
     end
   end
@@ -243,7 +273,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       gaps_recorded: state.gaps_recorded,
       anchor_id: state.anchor_id,
       stopping?: state.stopping?,
-      handover_samples: state.handover_samples
+      handover_samples: state.handover_samples,
+      handover_max_samples: state.handover_max_samples,
+      handover_max_bytes: state.handover_max_bytes
     }
 
     {:reply, reply, state}
@@ -333,6 +365,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     handle_sender_result(state, {:error, {:sender_crashed, reason}})
   end
 
+  def handle_info({task_ref, result}, %{pending_task: %{ref: task_ref} = task} = state) do
+    if task.monitor, do: Process.demonitor(task.monitor, [:flush])
+    handle_task_result(%{state | pending_task: nil}, task, result)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{pending_task: %{monitor: ref} = task} = state) do
+    handle_task_result(%{state | pending_task: nil}, task, {:error, {:task_crashed, reason}})
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{pipeline_monitor: ref} = state) do
     handle_relay_ended(%{state | detached?: true}, :source_unavailable, "pipeline_stopped")
   end
@@ -356,9 +397,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     if state.inbox, do: Inbox.cancel(state.inbox)
     if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
     stop_active_sender(state.active_block)
+    stop_pending_task(state.pending_task)
 
-    if state.claim != nil and not state.keep_claim_on_exit? do
-      release_clean_consumer(state)
+    if not state.keep_claim_on_exit? do
+      if state.claim != nil, do: release_claim(state)
+      if state.relay_origin == :new and is_binary(state.relay_session_id), do: close_opened_relay(state)
     end
 
     :ok
@@ -372,16 +415,42 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     request_start = now_ms()
 
     with {:ok, target} <- state.hooks.target_resolver.(state.member),
-         {:ok, gate} <- state.hooks.recovery_gate_fn.(),
-         {:ok, {origin, relay}} <- open_active_relay(state),
-         {:ok, pipeline} <- state.hooks.pipeline_resolver.(relay.id, relay.media_ingest_id),
-         {:ok, owner} <- state.hooks.ingest_owner_fn.(relay.id, state.actor),
+         {:ok, gate} <- state.hooks.recovery_gate_fn.() do
+      state = %{
+        state
+        | storage_id: target.storage_id,
+          client_config: target.client_config,
+          recovery_gate: gate
+      }
+
+      establish_relay_and_claim(state, request_start)
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp establish_relay_and_claim(state, request_start) do
+    case state.hooks.relay_open_fn.(state.policy.camera_source_id, state.policy.stream_profile_id, state.actor) do
+      {:ok, {origin, %{id: relay_id} = relay}} ->
+        state = %{state | relay_session_id: relay_id, relay_origin: origin}
+        finish_run_setup(state, relay, request_start)
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp finish_run_setup(state, relay, request_start) do
+    with {:ok, active_relay} <- ensure_active_relay(state, relay),
+         state = %{state | media_ingest_id: active_relay.media_ingest_id},
+         {:ok, pipeline} <- resolve_local_pipeline(state, active_relay),
+         {:ok, owner} <- state.hooks.ingest_owner_fn.(active_relay.id, state.actor),
          {:ok, claim} <-
            state.hooks.acquire_claim_fn.(
              owner,
              state.claim_token,
-             relay.media_ingest_id,
-             target.storage_id,
+             active_relay.media_ingest_id,
+             state.storage_id,
              state.lease_ms,
              actor: state.actor,
              timeout: @call_cap_ms
@@ -391,13 +460,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
       base_state = %{
         state
-        | storage_id: target.storage_id,
-          client_config: target.client_config,
-          recovery_gate: gate,
-          relay_session_id: relay.id,
-          relay_origin: origin,
-          media_ingest_id: relay.media_ingest_id,
-          owner: owner,
+        | owner: owner,
           claim: claim,
           lease_deadline: lease_deadline,
           run_id: run_id,
@@ -409,6 +472,25 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     else
       {:error, reason} ->
         {:error, reason, state}
+    end
+  end
+
+  defp resolve_local_pipeline(state, relay) do
+    case state.hooks.pipeline_resolver.(relay.id, relay.media_ingest_id) do
+      {:ok, pipeline} ->
+        {:ok, pipeline}
+
+      {:error, :recording_ingest_mismatch} ->
+        case state.hooks.relay_host_fn.(relay.id) do
+          host_node when is_atom(host_node) and not is_nil(host_node) and host_node != node() ->
+            {:error, {:remote_relay_host, host_node}}
+
+          _ ->
+            {:error, :recording_ingest_mismatch}
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -434,31 +516,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     end
   end
 
-  defp open_active_relay(state) do
-    case state.hooks.relay_open_fn.(state.policy.camera_source_id, state.policy.stream_profile_id, state.actor) do
-      {:ok, {origin, %{status: :active, media_ingest_id: ingest_id} = relay}}
-      when is_binary(ingest_id) and ingest_id != "" ->
-        {:ok, {origin, relay}}
-
-      {:ok, {origin, %{id: relay_id}}} ->
-        deadline = now_ms() + @relay_open_timeout_ms
-        await_active_relay(state, origin, relay_id, deadline)
-
-      {:error, _} = error ->
-        error
-    end
+  defp ensure_active_relay(_state, %{status: :active, media_ingest_id: ingest_id} = relay)
+       when is_binary(ingest_id) and ingest_id != "" do
+    {:ok, relay}
   end
 
-  defp await_active_relay(state, origin, relay_id, deadline) do
+  defp ensure_active_relay(state, %{id: relay_id}) do
+    deadline = now_ms() + @relay_open_timeout_ms
+    await_active_relay(state, relay_id, deadline)
+  end
+
+  defp await_active_relay(state, relay_id, deadline) do
     case state.hooks.relay_get_fn.(relay_id, state.actor) do
       {:ok, %{status: :active, media_ingest_id: ingest_id} = relay}
       when is_binary(ingest_id) and ingest_id != "" ->
-        {:ok, {origin, relay}}
+        {:ok, relay}
 
       {:ok, %{status: status}} when status in [:requested, :opening] ->
         if now_ms() < deadline do
           Process.sleep(@relay_poll_interval_ms)
-          await_active_relay(state, origin, relay_id, deadline)
+          await_active_relay(state, relay_id, deadline)
         else
           {:error, :relay_open_timeout}
         end
@@ -513,12 +590,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
   defp update_unit_duration(state, _unit), do: state
 
-  defp handle_sequence_skip(state, unit, _expected_seq) do
+  defp handle_sequence_skip(state, unit, expected_seq) do
+    {gap_start_pts, gap_start_us} = sequence_skip_gap_origin(state, unit)
+    first_skipped_seq = min(expected_seq, unit.sequence)
+
     state =
       state
-      |> note_gap_start(:source_unavailable, "media_sequence_discontinuity", unit)
+      |> note_gap_start_at(
+        :source_unavailable,
+        "media_sequence_discontinuity",
+        gap_start_pts,
+        gap_start_us,
+        first_skipped_seq
+      )
       |> record_last_admitted(unit)
-      |> Map.put(:next_contiguous?, false)
+      |> Map.merge(%{next_contiguous?: false, awaiting_keyframe?: true})
 
     case state.phase do
       :streaming ->
@@ -530,6 +616,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         route_valid_unit(state, unit)
     end
   end
+
+  defp sequence_skip_gap_origin(%{last_admitted_pts: prev_pts} = state, unit) when is_integer(prev_pts) do
+    gap_start_pts = min(unit.pts, prev_pts + state.last_unit_duration_ticks)
+
+    fallback_us =
+      if is_integer(state.last_admitted_at_us) do
+        state.last_admitted_at_us + ticks_to_us(state.last_unit_duration_ticks)
+      else
+        unit.admitted_at_us
+      end
+
+    {gap_start_pts, pts_to_anchored_us(state, gap_start_pts, fallback_us)}
+  end
+
+  defp sequence_skip_gap_origin(state, unit), do: gap_origin(state, unit)
 
   defp handle_timestamp_discontinuity(state, unit, detail_class) do
     state =
@@ -557,7 +658,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp route_valid_unit(%{phase: :idle} = state, unit) do
     state = record_last_admitted(state, unit)
 
-    if state.awaiting_keyframe? and not keyframe_unit?(unit) do
+    if needs_keyframe?(state, unit) and not keyframe_unit?(unit) do
       release_inbox_credit(state, byte_size(unit.payload))
       {:noreply, note_gap_start(state, :keyframe_wait, "awaiting_idr", unit)}
     else
@@ -571,7 +672,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     accept_unit_into_active_block(state, unit)
   end
 
-  defp route_valid_unit(%{phase: :sealing} = state, unit) do
+  defp route_valid_unit(%{phase: phase} = state, unit) when phase in [:sealing, :resolving, :cataloging] do
     state = record_last_admitted(state, unit)
     {:noreply, enqueue_handover_unit(state, unit)}
   end
@@ -580,6 +681,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     release_inbox_credit(state, byte_size(unit.payload))
     {:noreply, state}
   end
+
+  defp needs_keyframe?(%{awaiting_keyframe?: true}, _unit), do: true
+  defp needs_keyframe?(%{pending_gap: %{first_skipped_sequence: seq}}, unit) when unit.sequence >= seq, do: true
+  defp needs_keyframe?(_state, _unit), do: false
 
   defp record_last_admitted(state, unit) do
     %{
@@ -597,9 +702,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
     cond do
       # Sequence discontinuity relative to the active block (e.g. after handover overflow):
-      # close the current block and start the next block with this unit (or next IDR).
+      # close the current block and require an IDR before starting the next block.
       block.last_sequence != nil and unit.sequence != block.last_sequence + 1 ->
-        state = finish_active_block_input(%{state | next_contiguous?: false})
+        state = finish_active_block_input(%{state | next_contiguous?: false, awaiting_keyframe?: true})
         {:noreply, enqueue_handover_unit(state, unit)}
 
       # Soft target reached and an IDR arrived -> clean keyframe-aligned cut!
@@ -667,7 +772,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
       state
       |> note_gap_start(:handover_overflow, "handover_queue_full", unit)
-      |> Map.put(:awaiting_keyframe?, state.handover_samples == 0)
+      |> Map.put(:awaiting_keyframe?, true)
+      |> maybe_clear_contiguous_on_empty_handover()
     else
       %{
         state
@@ -677,6 +783,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       }
     end
   end
+
+  defp maybe_clear_contiguous_on_empty_handover(%{handover_samples: 0} = state), do: %{state | next_contiguous?: false}
+  defp maybe_clear_contiguous_on_empty_handover(state), do: state
 
   defp drain_handover_queue(%{stopping?: true} = state) do
     drain_and_release_handover(state)
@@ -698,19 +807,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     drain_one_handover_unit(state, unit)
   end
 
-  defp drain_one_handover_unit(%{phase: :idle, awaiting_keyframe?: true} = state, unit) do
-    if keyframe_unit?(unit) do
-      start_from_handover_unit(state, unit)
-    else
+  defp drain_one_handover_unit(%{phase: :idle} = state, unit) do
+    if needs_keyframe?(state, unit) and not keyframe_unit?(unit) do
       release_inbox_credit(state, byte_size(unit.payload))
 
       state
       |> note_gap_start(:keyframe_wait, "awaiting_idr", unit)
       |> drain_handover_queue()
+    else
+      start_from_handover_unit(state, unit)
     end
   end
-
-  defp drain_one_handover_unit(%{phase: :idle} = state, unit), do: start_from_handover_unit(state, unit)
 
   defp drain_one_handover_unit(%{phase: :streaming} = state, unit) do
     case accept_unit_into_active_block(state, unit) do
@@ -825,7 +932,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     next = %{state | phase: :streaming, active_block: active_block, next_contiguous?: true}
 
     if state.bounds.max_frames == 1 do
-      {:noreply, finish_active_block_input(next)}
+      {:noreply, finish_active_block_input(%{next | awaiting_keyframe?: true})}
     else
       {:noreply, next}
     end
@@ -912,39 +1019,96 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
     case send_result do
       {:ok, %{status: :sealed_local, storage_id: ^storage_id, block_ids: [^block_key]}} ->
-        handle_verified_seal(state, block)
+        start_catalog_task(state, block)
 
       {:error, {:ingest_refused, status}} when status in @definite_refusals ->
-        handle_nvr_refusal(state, block, status, nil)
-
-      {:error, {:ingest_refused, status, body}} when status in @definite_refusals ->
-        handle_nvr_refusal(state, block, status, body)
+        handle_nvr_refusal(state, block, status)
 
       other_result ->
-        handle_uncertain_outcome(state, block, other_result)
+        start_uncertain_lookup_task(state, block, other_result)
     end
   end
 
-  defp handle_verified_seal(state, block) do
-    {catalog_outcome, state} = catalog_sealed_block(state, block)
+  defp handle_task_result(state, %{kind: :catalog, block: block}, result) do
+    handle_catalog_result(state, block, result)
+  end
 
-    state = %{
-      state
-      | active_block: nil,
-        phase: :idle,
-        waiting_puller: nil,
-        blocks_sealed: state.blocks_sealed + 1,
-        prev_block_last_sequence: block.last_sequence,
-        prev_block_last_pts: block.last_pts,
-        next_contiguous?: true
+  defp handle_task_result(state, %{kind: :lookup, block: block, raw_result: raw_result}, result) do
+    handle_lookup_result(state, block, raw_result, result)
+  end
+
+  defp start_catalog_task(state, block) do
+    {time_attrs, anchored_state} = compute_time_basis_and_anchor(state, block)
+
+    catalog_attrs =
+      Map.merge(time_attrs, %{
+        policy_id: anchored_state.policy.id,
+        policy_storage: anchored_state.policy.storage
+      })
+
+    params = %{
+      client_config: anchored_state.client_config,
+      owner: anchored_state.owner,
+      claim: anchored_state.claim,
+      block_record: block.record,
+      catalog_attrs: catalog_attrs,
+      actor: anchored_state.actor,
+      descriptor_timeout_ms: ServiceRadarNVRClient.descriptor_timeout_ms(),
+      retry_delay_ms: anchored_state.catalog_retry_delay_ms
     }
 
-    notify(state, {:block_sealed, %{block_key: block.record.block_key, catalog: catalog_outcome}})
+    hooks = anchored_state.hooks
+    max_attempts = max(1, anchored_state.catalog_max_attempts)
+
+    task =
+      spawn_async_task(:catalog, %{block: block}, fn ->
+        run_catalog_task(hooks, params, max_attempts)
+      end)
+
+    next = %{
+      anchored_state
+      | active_block: nil,
+        waiting_puller: nil,
+        phase: :cataloging,
+        pending_task: task
+    }
+
+    {:noreply, next}
+  end
+
+  defp handle_catalog_result(state, block, {:ok, entry_id}) do
+    state = %{
+      state
+      | phase: :idle,
+        blocks_sealed: state.blocks_sealed + 1,
+        prev_block_last_sequence: block.last_sequence,
+        prev_block_last_pts: block.last_pts
+    }
+
+    notify(state, {:block_sealed, %{block_key: block.record.block_key, catalog: {:registered, entry_id}}})
     drain_handover_queue(state)
   end
 
-  defp handle_nvr_refusal(state, block, status, body) do
-    detail_class = refusal_detail_class(status, body)
+  defp handle_catalog_result(state, block, {:error, reason}) do
+    Logger.warning("ContinuousRecorder block #{block.record.block_key} catalog failed: #{inspect(reason, limit: 8)}")
+    notify(state, {:block_sealed, %{block_key: block.record.block_key, catalog: {:unregistered, reason}}})
+    state = record_immediate_gap(state, :run_stopped, sanitize_detail_class(reason, "catalog_failed"))
+    stop_reason = if recovery_closed_reason?(reason), do: reason, else: {:catalog_failed, reason}
+    handle_fatal_run_stop(%{state | keep_claim_on_exit?: false}, stop_reason)
+  end
+
+  defp handle_nvr_refusal(state, block, status) do
+    gate_result = state.hooks.recovery_gate_fn.()
+
+    {detail_class, stop_reason} =
+      case gate_result do
+        {:ok, _gate} ->
+          {"http_#{status}", nil}
+
+        {:error, gate_reason} ->
+          {sanitize_detail_class(gate_reason, "nvr_recovery_closed"), gate_reason}
+      end
+
     state = record_block_gap(state, block, :nvr_refused, detail_class)
 
     state = %{
@@ -960,139 +1124,200 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
     notify(state, {:nvr_refused, %{block_key: block.record.block_key, status: status, detail_class: detail_class}})
 
-    if detail_class == "nvr_recovery_closed" do
-      handle_fatal_run_stop(state, :nvr_recovery_closed)
-    else
+    if stop_reason == nil do
       drain_handover_queue(state)
+    else
+      handle_fatal_run_stop(state, stop_reason)
     end
   end
 
-  defp handle_uncertain_outcome(state, block, raw_result) do
+  defp start_uncertain_lookup_task(state, block, raw_result) do
+    lookup_fn = state.hooks.lookup_blocks_fn
+
+    params = %{
+      client_config: state.client_config,
+      storage_id: state.storage_id,
+      block_key: block.record.block_key,
+      retry_delay_ms: state.lookup_retry_delay_ms,
+      timeout_ms: state.lookup_timeout_ms
+    }
+
+    max_attempts = state.lookup_max_attempts
+
+    task =
+      spawn_async_task(:lookup, %{block: block, raw_result: raw_result}, fn ->
+        resolve_uncertain_via_lookup(lookup_fn, params, max_attempts)
+      end)
+
+    next = %{
+      state
+      | active_block: nil,
+        waiting_puller: nil,
+        phase: :resolving,
+        pending_task: task
+    }
+
+    {:noreply, next}
+  end
+
+  defp handle_lookup_result(state, block, _raw_result, {:ok, :sealed}) do
+    start_catalog_task(state, block)
+  end
+
+  defp handle_lookup_result(state, block, _raw_result, {:ok, :absent}) do
+    block_key = block.record.block_key
+    state = record_block_gap(state, block, :block_absent, "uncertain_resolved_absent")
+
+    state = %{
+      state
+      | active_block: nil,
+        phase: :idle,
+        waiting_puller: nil,
+        prev_block_last_sequence: nil,
+        prev_block_last_pts: nil,
+        next_contiguous?: false,
+        awaiting_keyframe?: true
+    }
+
+    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: :absent}})
+    drain_handover_queue(state)
+  end
+
+  defp handle_lookup_result(state, block, _raw_result, {:ok, unresolved_state})
+       when unresolved_state in [:incomplete, :unresolved] do
+    block_key = block.record.block_key
+    state = record_block_gap(state, block, :run_stopped, "block_#{unresolved_state}")
+
+    state = %{
+      state
+      | active_block: nil,
+        phase: :stopped,
+        waiting_puller: nil,
+        keep_claim_on_exit?: false
+    }
+
+    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: unresolved_state}})
+    notify(state, {:run_stopped, %{reason: {:unresolved_block, unresolved_state}, run_id: state.run_id}})
+    {:stop, :normal, state}
+  end
+
+  defp handle_lookup_result(state, block, raw_result, {:error, lookup_reason}) do
     block_key = block.record.block_key
 
-    case resolve_uncertain_via_lookup(state, block_key, state.lookup_max_attempts) do
-      {:ok, :sealed} ->
-        handle_verified_seal(state, block)
+    Logger.warning(
+      "ContinuousRecorder uncertain block #{block_key} lookup failed (#{inspect(lookup_reason, limit: 6)}, send=#{inspect(raw_result, limit: 6)})"
+    )
 
-      {:ok, :absent} ->
-        state = record_block_gap(state, block, :block_absent, "uncertain_resolved_absent")
+    state = record_block_gap(state, block, :run_stopped, "nvr_unreachable")
 
-        state = %{
-          state
-          | active_block: nil,
-            phase: :idle,
-            waiting_puller: nil,
-            prev_block_last_sequence: nil,
-            prev_block_last_pts: nil,
-            next_contiguous?: false,
-            awaiting_keyframe?: true
-        }
+    state = %{
+      state
+      | active_block: nil,
+        phase: :stopped,
+        waiting_puller: nil,
+        keep_claim_on_exit?: true
+    }
 
-        notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: :absent}})
-        drain_handover_queue(state)
-
-      {:ok, unresolved_state} when unresolved_state in [:incomplete, :unresolved] ->
-        state = record_block_gap(state, block, :run_stopped, "block_#{unresolved_state}")
-
-        state = %{
-          state
-          | active_block: nil,
-            phase: :stopped,
-            waiting_puller: nil,
-            keep_claim_on_exit?: false
-        }
-
-        notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: unresolved_state}})
-        notify(state, {:run_stopped, %{reason: {:unresolved_block, unresolved_state}, run_id: state.run_id}})
-        {:stop, :normal, state}
-
-      {:error, lookup_reason} ->
-        Logger.warning(
-          "ContinuousRecorder uncertain block #{block_key} lookup failed (#{inspect(lookup_reason, limit: 6)}, send=#{inspect(raw_result, limit: 6)})"
-        )
-
-        state = record_block_gap(state, block, :run_stopped, "nvr_unreachable")
-
-        state = %{
-          state
-          | active_block: nil,
-            phase: :stopped,
-            waiting_puller: nil,
-            keep_claim_on_exit?: true
-        }
-
-        notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: :unreachable}})
-        notify(state, {:run_stopped, %{reason: :nvr_unreachable, run_id: state.run_id}})
-        {:stop, :normal, state}
-    end
+    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: :unreachable}})
+    notify(state, {:run_stopped, %{reason: :nvr_unreachable, run_id: state.run_id}})
+    {:stop, :normal, state}
   end
 
-  defp resolve_uncertain_via_lookup(state, block_key, attempts_left) when attempts_left > 0 do
-    case state.hooks.lookup_blocks_fn.(state.client_config, [block_key], state.lookup_timeout_ms) do
-      {:ok, %{storage_id: storage_id, blocks: [%{block_id: ^block_key, state: block_state} | _]}}
-      when storage_id == state.storage_id and block_state in [:sealed, :absent, :incomplete, :unresolved] ->
+  defp spawn_async_task(kind, meta, fun) do
+    worker = self()
+    task_ref = make_ref()
+
+    {pid, monitor} =
+      spawn_monitor(fn ->
+        result = fun.()
+        send(worker, {task_ref, result})
+      end)
+
+    Map.merge(meta, %{kind: kind, pid: pid, monitor: monitor, ref: task_ref})
+  end
+
+  defp resolve_uncertain_via_lookup(lookup_fn, params, attempts_left) when attempts_left > 0 do
+    storage_id = params.storage_id
+    block_key = params.block_key
+
+    case lookup_fn.(params.client_config, [block_key], params.timeout_ms) do
+      {:ok, %{storage_id: ^storage_id, blocks: [%{block_id: ^block_key, state: block_state} | _]}}
+      when block_state in [:sealed, :absent, :incomplete, :unresolved] ->
         {:ok, block_state}
 
       {:ok, _unexpected} ->
         {:error, :invalid_lookup_response}
 
       {:error, reason} ->
-        retry_or_fail_lookup(state, block_key, attempts_left - 1, reason)
+        retry_or_fail_lookup(lookup_fn, params, attempts_left - 1, reason)
     end
   end
 
-  defp resolve_uncertain_via_lookup(_state, _block_key, _attempts_left), do: {:error, :nvr_unreachable}
+  defp resolve_uncertain_via_lookup(_lookup_fn, _params, _attempts_left), do: {:error, :nvr_unreachable}
 
-  defp retry_or_fail_lookup(_state, _block_key, 0, reason), do: {:error, reason}
+  defp retry_or_fail_lookup(_lookup_fn, _params, 0, reason), do: {:error, reason}
 
-  defp retry_or_fail_lookup(state, block_key, attempts_left, _reason) do
-    if state.lookup_retry_delay_ms > 0, do: Process.sleep(state.lookup_retry_delay_ms)
-    resolve_uncertain_via_lookup(state, block_key, attempts_left)
+  defp retry_or_fail_lookup(lookup_fn, params, attempts_left, _reason) do
+    if params.retry_delay_ms > 0, do: Process.sleep(params.retry_delay_ms)
+    resolve_uncertain_via_lookup(lookup_fn, params, attempts_left)
   end
 
   # ---------------------------------------------------------------------------
   # Cataloging, drift check & re-anchoring (A.3.5, design T)
   # ---------------------------------------------------------------------------
 
-  defp catalog_sealed_block(state, block) do
-    {time_attrs, next_state} = compute_time_basis_and_anchor(state, block)
+  defp run_catalog_task(hooks, params, attempts_left) when attempts_left > 0 do
+    case attempt_catalog_once(hooks, params) do
+      {:ok, entry_id} ->
+        {:ok, entry_id}
 
-    catalog_attrs =
-      Map.merge(time_attrs, %{
-        policy_id: state.policy.id,
-        policy_storage: state.policy.storage
-      })
+      {:error, reason} ->
+        retry_or_fail_catalog(hooks, params, attempts_left - 1, reason)
+    end
+  end
 
-    outcome =
-      with {:ok, _gate} <- state.hooks.recovery_gate_fn.(),
-           {:ok, descriptor} <-
-             state.hooks.block_descriptor_fn.(
-               state.client_config,
-               block.record.block_key,
-               ServiceRadarNVRClient.descriptor_timeout_ms()
-             ),
-           {:ok, entry} <-
-             state.hooks.freeze_and_catalog_fn.(
-               state.owner,
-               state.claim,
-               block.record,
-               descriptor,
-               catalog_attrs,
-               actor: state.actor,
-               timeout: @call_cap_ms
-             ) do
-        _ = state.hooks.enqueue_archive_fn.(entry)
-        {:registered, entry.id}
-      else
-        {:error, reason} ->
-          Logger.warning(
-            "ContinuousRecorder block #{block.record.block_key} catalog failed: #{inspect(reason, limit: 8)}"
-          )
+  defp retry_or_fail_catalog(hooks, params, attempts_left, reason) when attempts_left > 0 do
+    if retryable_catalog_error?(reason) do
+      if params.retry_delay_ms > 0, do: Process.sleep(params.retry_delay_ms)
+      run_catalog_task(hooks, params, attempts_left)
+    else
+      {:error, reason}
+    end
+  end
 
-          {:unregistered, reason}
-      end
+  defp retry_or_fail_catalog(_hooks, _params, _attempts_left, reason), do: {:error, reason}
 
-    {outcome, next_state}
+  defp attempt_catalog_once(hooks, params) do
+    with {:ok, _gate} <- hooks.recovery_gate_fn.(),
+         {:ok, descriptor} <-
+           hooks.block_descriptor_fn.(
+             params.client_config,
+             params.block_record.block_key,
+             params.descriptor_timeout_ms
+           ),
+         {:ok, entry} <-
+           hooks.freeze_and_catalog_fn.(
+             params.owner,
+             params.claim,
+             params.block_record,
+             descriptor,
+             params.catalog_attrs,
+             actor: params.actor,
+             timeout: @call_cap_ms
+           ) do
+      _ = hooks.enqueue_archive_fn.(entry)
+      {:ok, entry.id}
+    end
+  end
+
+  defp recovery_closed_reason?(reason) when is_atom(reason) do
+    reason == :nvr_recovery_closed or String.starts_with?(Atom.to_string(reason), "nvr_recovery_closed")
+  end
+
+  defp recovery_closed_reason?(_), do: false
+
+  defp retryable_catalog_error?(reason) do
+    not recovery_closed_reason?(reason) and reason not in @non_retryable_catalog_errors
   end
 
   @doc false
@@ -1178,7 +1403,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
   defp note_gap_start(%{pending_gap: nil} = state, reason, detail_class, unit) do
     {start_pts, start_us} = gap_origin(state, unit)
+    note_gap_start_at(state, reason, detail_class, start_pts, start_us, unit.sequence)
+  end
 
+  defp note_gap_start(state, _reason, _detail_class, _unit), do: state
+
+  defp note_gap_start_at(%{pending_gap: nil} = state, reason, detail_class, start_pts, start_us, first_skipped_sequence) do
     %{
       state
       | pending_gap: %{
@@ -1186,12 +1416,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
           detail_class: detail_class,
           start_pts: start_pts,
           start_us: start_us,
-          first_skipped_sequence: unit.sequence
+          first_skipped_sequence: first_skipped_sequence
         }
     }
   end
 
-  defp note_gap_start(state, _reason, _detail_class, _unit), do: state
+  defp note_gap_start_at(state, _reason, _detail_class, _start_pts, _start_us, _first_skipped_sequence), do: state
 
   defp gap_origin(state, unit) do
     {unit.pts, pts_to_anchored_us(state, unit.pts, unit.admitted_at_us)}
@@ -1253,12 +1483,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     })
   end
 
-  defp maybe_record_startup_gap(_state, reason) when reason in [:recording_disabled, :recording_stopped], do: :ok
+  defp peer_owned_startup_reason?(:recorder_already_owned), do: true
+  defp peer_owned_startup_reason?({:remote_relay_host, _host_node}), do: true
+  defp peer_owned_startup_reason?(_reason), do: false
+
+  defp maybe_record_startup_gap(_state, reason) when reason in [:recording_disabled, :recording_stopped], do: false
+  defp maybe_record_startup_gap(%{record_startup_gap?: false}, _reason), do: false
 
   defp maybe_record_startup_gap(state, reason) do
-    gap_reason = if reason == :nvr_recovery_closed, do: :nvr_refused, else: :source_unavailable
-    _ = record_immediate_gap(state, gap_reason, sanitize_detail_class(reason, "startup_failed"))
-    :ok
+    if peer_owned_startup_reason?(reason) do
+      false
+    else
+      gap_reason = if recovery_closed_reason?(reason), do: :nvr_refused, else: :source_unavailable
+      next = record_immediate_gap(state, gap_reason, sanitize_detail_class(reason, "startup_failed"))
+      next.gaps_recorded > state.gaps_recorded
+    end
   end
 
   defp persist_gap(state, attrs) do
@@ -1326,7 +1565,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       :streaming ->
         {:noreply, finish_active_block_input(state)}
 
-      :sealing ->
+      phase when phase in [:sealing, :resolving, :cataloging] ->
         {:noreply, state}
 
       _ ->
@@ -1337,8 +1576,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp complete_graceful_stop(state) do
     if state.inbox, do: Inbox.cancel(state.inbox)
     state = cancel_lease_timer(state)
+    stop_pending_task(state.pending_task)
     notify(state, {:run_stopped, %{reason: state.stop_reason || :stopped, run_id: state.run_id}})
-    {:stop, :normal, %{state | phase: :stopped}}
+    {:stop, :normal, %{state | phase: :stopped, pending_task: nil}}
   end
 
   defp handle_relay_ended(state, gap_reason, detail_class) do
@@ -1349,7 +1589,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         state = record_immediate_gap(state, gap_reason, detail_class)
         {:noreply, finish_active_block_input(state)}
 
-      :sealing ->
+      phase when phase in [:sealing, :resolving, :cataloging] ->
         state = record_immediate_gap(state, gap_reason, detail_class)
         {:noreply, state}
 
@@ -1363,9 +1603,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     if state.inbox, do: Inbox.cancel(state.inbox)
     state = cancel_lease_timer(state)
     stop_active_sender(state.active_block)
+    stop_pending_task(state.pending_task)
     drain_and_release_handover(state)
     notify(state, {:run_stopped, %{reason: reason, run_id: state.run_id}})
-    {:stop, :normal, %{state | active_block: nil, phase: :stopped, stopping?: true, stop_reason: reason}}
+
+    {:stop, :normal,
+     %{state | active_block: nil, pending_task: nil, phase: :stopped, stopping?: true, stop_reason: reason}}
   end
 
   defp stop_active_sender(%{sender_pid: pid}) when is_pid(pid) do
@@ -1374,6 +1617,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   end
 
   defp stop_active_sender(_), do: :ok
+
+  defp stop_pending_task(%{pid: pid, monitor: monitor}) when is_pid(pid) do
+    if monitor, do: Process.demonitor(monitor, [:flush])
+    if Process.alive?(pid), do: Process.exit(pid, :kill)
+    :ok
+  end
+
+  defp stop_pending_task(_), do: :ok
 
   defp drain_remaining_block_queue(state, queue) do
     case :queue.out(queue) do
@@ -1386,7 +1637,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     end
   end
 
-  defp release_clean_consumer(state) do
+  defp release_claim(state) do
     _ =
       state.hooks.release_claim_fn.(
         state.owner,
@@ -1395,10 +1646,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         timeout: RecorderRenewal.cleanup_timeout_ms()
       )
 
-    if state.relay_origin == :new and is_binary(state.relay_session_id) do
-      _ = state.hooks.relay_close_fn.(state.relay_session_id, "continuous recorder stopped", state.actor)
-    end
+    :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
+  defp close_opened_relay(state) do
+    _ = state.hooks.relay_close_fn.(state.relay_session_id, "continuous recorder stopped", state.actor)
     :ok
   catch
     _kind, _reason -> :ok
@@ -1435,10 +1689,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     }
   end
 
-  defp refusal_detail_class(_status, %{"error" => raw}) when is_binary(raw), do: sanitize_detail_class(raw, "nvr_refused")
-
-  defp refusal_detail_class(status, _body), do: "http_#{status}"
-
   defp sanitize_detail_class(value, fallback) when is_atom(value),
     do: value |> Atom.to_string() |> sanitize_detail_class(fallback)
 
@@ -1470,6 +1720,33 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp block_send_timeout_ms(bounds) do
     min(@block_send_timeout_ceiling_ms, bounds.max_duration_ms + @seal_headroom_ms)
   end
+
+  defp normalize_handover_limits(opts, inbox_opts) do
+    inbox_samples = Keyword.fetch!(inbox_opts, :max_samples)
+    inbox_bytes = Keyword.fetch!(inbox_opts, :max_bytes)
+
+    max_allowed_samples = max(1, inbox_samples - 1)
+    max_allowed_bytes = max(1, inbox_bytes - 1)
+
+    default_samples = min(@default_handover_max_samples, max(1, div(inbox_samples, 4)))
+    default_bytes = min(@default_handover_max_bytes, max(1, div(inbox_bytes, 4)))
+
+    samples =
+      opts
+      |> Keyword.get(:handover_max_samples, default_samples)
+      |> clamp_positive(max_allowed_samples, default_samples)
+
+    bytes =
+      opts
+      |> Keyword.get(:handover_max_bytes, default_bytes)
+      |> clamp_positive(max_allowed_bytes, default_bytes)
+
+    {samples, bytes}
+  end
+
+  defp clamp_positive(value, max_allowed, _fallback) when is_integer(value) and value >= 1, do: min(value, max_allowed)
+
+  defp clamp_positive(_value, max_allowed, fallback), do: min(fallback, max_allowed)
 
   defp validate_policy(
          %{camera_source_id: cam_id, stream_profile_id: prof_id, mode: :continuous, nvr_member: member} = policy
@@ -1558,6 +1835,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       relay_open_fn: Keyword.get(opts, :relay_open_fn, &default_relay_open/3),
       relay_get_fn: Keyword.get(opts, :relay_get_fn, &default_relay_get/2),
       relay_close_fn: Keyword.get(opts, :relay_close_fn, &default_relay_close/3),
+      relay_host_fn: Keyword.get(opts, :relay_host_fn, &RelayHosts.host_node/1),
       pipeline_resolver: Keyword.get(opts, :pipeline_resolver, &PipelineManager.recording_pipeline/2),
       ingest_owner_fn: Keyword.get(opts, :ingest_owner_fn, &default_ingest_owner/2),
       acquire_claim_fn: Keyword.get(opts, :acquire_claim_fn, &RecorderOwnership.acquire/6),

@@ -96,7 +96,7 @@ gate.
 
 ### A.3 serviceradar_core_elx
 - Note (2026-11-21, owner decision via coordinator): phase 1 builds the continuous recorder in core-elx, strictly behind the `ServiceRadarRecording.Inbox` and the NVR ingest contract; recording-plane task 2.3 later replaces only its media source. The NVR path is the only continuous recording path; the core-local spool (`add-persistent-camera-spool`, VMS 1.x) stays bounded capture and gets no continuous mode.
-- Note (2026-11-21, needs an owner decision): which switch enables continuous recording is claimed in three places: VMS 1.7 ("ship disabled"), `add-persistent-camera-spool` 5.4 ("keep continuous recording disabled") and the chart's `nvr.ingest.client.cameraRecordingEnabled` (documented as one-shot capture only). A.3.1 must name one.
+- Note (2026-11-22, owner decision): `SERVICERADAR_CAMERA_RECORDING_ENABLED` (rendered from the Helm chart value `nvr.ingest.client.cameraRecordingEnabled`) is the single canonical switch enabling continuous recording for cameras with a `CameraRecordingPolicy` where `mode == :continuous`. When enabled, `ContinuousManager` reconciles all `mode == :continuous` policies; cameras without a `:continuous` policy remain unaffected.
 - [x] A.3.1 `ContinuousRecorder` under the recording supervisor: relay open with recorder consumer lease, one claim per run, one inbox per run, block loop with soft and hard bounds (design A2, A3).
 - [x] A.3.2 Keyframe-aligned handover with bounded inbox; exact gap accounting by relay sequence and PTS; gap rows with reasons (design A4, A7).
 - [x] A.3.3 Uncertain outcome handling by lookup under the live claim (design A3 table).
