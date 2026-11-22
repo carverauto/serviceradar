@@ -90,8 +90,16 @@ impl MediaPipeline {
         &self.tracker
     }
 
+    pub fn tracker_mut(&mut self) -> &mut MultiObjectTracker {
+        &mut self.tracker
+    }
+
     pub fn all_track_summaries(&self) -> Vec<TrackSummary> {
         self.tracker.all_summaries()
+    }
+
+    pub fn take_closed_track_summaries(&mut self) -> Vec<TrackSummary> {
+        self.tracker.take_closed_summaries()
     }
 
     /// Evaluates Tier 0 on compressed bytes first. Only when Tier 0 admits does it invoke
@@ -109,13 +117,14 @@ impl MediaPipeline {
             .gate
             .evaluate_compressed(timestamp_ms, compressed_payload);
         if !tier0.is_admitted() {
+            let events = self.tracker.advance_time(timestamp_ms);
             return Ok(PipelineFrameOutput {
                 timestamp_ms,
                 gate_decision: tier0,
                 detections: Vec::new(),
                 attributes: Vec::new(),
                 assigned_track_ids: Vec::new(),
-                events: Vec::new(),
+                events,
                 thumbnail: None,
             });
         }
@@ -132,13 +141,14 @@ impl MediaPipeline {
     ) -> Result<PipelineFrameOutput, MediaCoreError> {
         let motion = self.gate.evaluate_rgb(timestamp_ms, frame)?;
         if !motion.decision.is_admitted() {
+            let events = self.tracker.advance_time(timestamp_ms);
             return Ok(PipelineFrameOutput {
                 timestamp_ms,
                 gate_decision: motion.decision,
                 detections: Vec::new(),
                 attributes: Vec::new(),
                 assigned_track_ids: Vec::new(),
-                events: Vec::new(),
+                events,
                 thumbnail: None,
             });
         }
@@ -191,17 +201,33 @@ impl MediaPipeline {
             });
         }
 
-        let needs_thumb = self.config.attach_thumbnails
-            && (!events.is_empty() || !step.improved_best_keyframe_tracks.is_empty());
-        let thumbnail = if needs_thumb {
+        let has_current_frame_event = events
+            .iter()
+            .any(|ev| ev.kind != DetectionEventKind::TrackExited);
+        let needs_current_frame_thumb = self.config.attach_thumbnails
+            && (has_current_frame_event || !step.improved_best_keyframe_tracks.is_empty());
+        let thumbnail = if needs_current_frame_thumb {
             Some(encode_jpeg_thumbnail(frame, &self.config.thumbnail)?)
         } else {
             None
         };
 
         if let Some(ref thumb) = thumbnail {
+            for &tid in &step.improved_best_keyframe_tracks {
+                self.tracker.set_best_keyframe_thumbnail(tid, thumb.clone());
+            }
             for ev in &mut events {
-                ev.thumbnail = Some(thumb.clone());
+                if ev.kind == DetectionEventKind::TrackExited {
+                    if ev.thumbnail.is_none()
+                        && ev
+                            .track_id
+                            .is_some_and(|tid| step.improved_best_keyframe_tracks.contains(&tid))
+                    {
+                        ev.thumbnail = Some(thumb.clone());
+                    }
+                } else {
+                    ev.thumbnail = Some(thumb.clone());
+                }
             }
         }
 
@@ -268,5 +294,158 @@ mod tests {
             .expect("JPEG thumbnail attached to TrackEntered event");
         assert!(thumb.jpeg_bytes.starts_with(&[0xFF, 0xD8]));
         assert!(thumb.jpeg_bytes.ends_with(&[0xFF, 0xD9]));
+    }
+
+    #[test]
+    fn exit_event_on_gate_skip_uses_stored_best_keyframe_thumbnail_without_waiting_for_heartbeat() {
+        let mut cfg = MediaPipelineConfig::for_camera("cam-synth-exit-thumb-01");
+        cfg.tier1_gate.max_skip_interval_ms = 60_000;
+        cfg.tracker.min_hits_to_activate = 2;
+        cfg.tracker.max_lost_frames = 30;
+        cfg.tracker.max_lost_ms = 5_000;
+
+        let detector: Arc<dyn ObjectDetector> = Arc::new(SyntheticDetector::default());
+        let mut pipeline = MediaPipeline::new(cfg, detector).expect("pipeline init");
+
+        let bg = RgbFrame::solid(320, 180, [190, 190, 190]);
+        pipeline.process_rgb_frame(0, &bg).unwrap();
+
+        // Frame 1: smaller person enters (New)
+        let mut f1 = bg.clone();
+        f1.fill_rect(60, 50, 92, 95, [220, 25, 25]);
+        f1.fill_rect(60, 95, 92, 135, [25, 65, 225]);
+        let r1 = pipeline.process_rgb_frame(1_000, &f1).unwrap();
+        assert!(r1.gate_decision.is_admitted());
+        let tid = r1.assigned_track_ids[0].expect("track id");
+
+        // Frame 2: larger person -> Active + improved best keyframe
+        let mut f2 = bg.clone();
+        f2.fill_rect(54, 30, 108, 90, [220, 25, 25]);
+        f2.fill_rect(54, 90, 108, 155, [25, 65, 225]);
+        let r2 = pipeline.process_rgb_frame(2_000, &f2).unwrap();
+        assert!(r2.gate_decision.is_admitted());
+        assert_eq!(r2.assigned_track_ids[0], Some(tid));
+        let best_thumb = r2
+            .thumbnail
+            .as_ref()
+            .expect("best keyframe thumbnail encoded on improvement")
+            .clone();
+
+        // Frame 3: person leaves -> admitted empty background, track becomes Lost
+        let r3 = pipeline.process_rgb_frame(3_000, &bg).unwrap();
+        assert!(r3.gate_decision.is_admitted());
+        assert!(r3.detections.is_empty());
+        let empty_thumb = r3
+            .thumbnail
+            .as_ref()
+            .expect("motion thumbnail encoded for departure")
+            .clone();
+        assert_ne!(best_thumb.sha256_hex, empty_thumb.sha256_hex);
+
+        // Frame 4 (t=4s): static empty scene -> skipped, not yet expired
+        let r4 = pipeline.process_rgb_frame(4_000, &bg).unwrap();
+        assert!(!r4.gate_decision.is_admitted());
+        assert!(r4.events.is_empty());
+
+        // Frame 5 (t=7s, 5s after last_seen=2s, well before 60s heartbeat):
+        // skipped by Tier 1, yet TrackExited fires promptly with the best-keyframe thumbnail!
+        let r5 = pipeline.process_rgb_frame(7_000, &bg).unwrap();
+        assert!(!r5.gate_decision.is_admitted());
+        assert!(r5.thumbnail.is_none());
+        assert_eq!(r5.events.len(), 1);
+        assert_eq!(r5.events[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(r5.events[0].track_id, Some(tid));
+        assert_eq!(r5.events[0].timestamp_ms, 7_000);
+        let exit_thumb = r5.events[0]
+            .thumbnail
+            .as_ref()
+            .expect("TrackExited must carry stored best-keyframe thumbnail");
+        assert_eq!(exit_thumb.sha256_hex, best_thumb.sha256_hex);
+        assert_ne!(exit_thumb.sha256_hex, empty_thumb.sha256_hex);
+    }
+
+    #[test]
+    fn exit_event_on_admitted_frame_preserves_best_keyframe_thumbnail_alongside_motion() {
+        let mut cfg = MediaPipelineConfig::for_camera("cam-synth-exit-admit-01");
+        cfg.tracker.min_hits_to_activate = 1;
+        cfg.tracker.max_lost_frames = 1;
+        cfg.tracker.max_lost_ms = 30_000;
+
+        let detector: Arc<dyn ObjectDetector> = Arc::new(SyntheticDetector::default());
+        let mut pipeline = MediaPipeline::new(cfg, detector).expect("pipeline init");
+
+        let bg = RgbFrame::solid(320, 180, [190, 190, 190]);
+        pipeline.process_rgb_frame(0, &bg).unwrap();
+
+        let mut f1 = bg.clone();
+        f1.fill_rect(60, 35, 112, 92, [220, 25, 25]);
+        f1.fill_rect(60, 92, 112, 150, [25, 65, 225]);
+        let r1 = pipeline.process_rgb_frame(1_000, &f1).unwrap();
+        let best_thumb = r1.thumbnail.as_ref().expect("best keyframe thumb").clone();
+
+        // Departure frame is admitted with PixelMotion, emitting both TrackExited and MotionDetected.
+        let r2 = pipeline.process_rgb_frame(2_000, &bg).unwrap();
+        let current_thumb = r2.thumbnail.as_ref().expect("current frame thumb").clone();
+        assert_ne!(best_thumb.sha256_hex, current_thumb.sha256_hex);
+
+        let exit_ev = r2
+            .events
+            .iter()
+            .find(|e| e.kind == DetectionEventKind::TrackExited)
+            .expect("TrackExited emitted");
+        let motion_ev = r2
+            .events
+            .iter()
+            .find(|e| e.kind == DetectionEventKind::MotionDetected)
+            .expect("MotionDetected emitted");
+
+        assert_eq!(
+            exit_ev.thumbnail.as_ref().unwrap().sha256_hex,
+            best_thumb.sha256_hex
+        );
+        assert_eq!(
+            motion_ev.thumbnail.as_ref().unwrap().sha256_hex,
+            current_thumb.sha256_hex
+        );
+    }
+
+    #[test]
+    fn process_compressed_tier0_skip_advances_tracker_without_decoding() {
+        let mut cfg = MediaPipelineConfig::for_camera("cam-synth-tier0-skip-01");
+        cfg.tier0_gate.max_skip_interval_ms = 60_000;
+        cfg.tracker.min_hits_to_activate = 1;
+        cfg.tracker.max_lost_frames = 30;
+        cfg.tracker.max_lost_ms = 5_000;
+
+        let detector: Arc<dyn ObjectDetector> = Arc::new(SyntheticDetector::default());
+        let mut pipeline = MediaPipeline::new(cfg, detector).expect("pipeline init");
+
+        let mut person_frame = RgbFrame::solid(320, 180, [190, 190, 190]);
+        person_frame.fill_rect(60, 35, 112, 92, [220, 25, 25]);
+        person_frame.fill_rect(60, 92, 112, 150, [25, 65, 225]);
+
+        let payload = vec![0xAAu8; 2_000];
+        let r0 = pipeline
+            .process_compressed(1_000, &payload, || Ok(person_frame.clone()))
+            .unwrap();
+        assert!(r0.gate_decision.is_admitted());
+        let tid = r0.assigned_track_ids[0].expect("track id");
+        let best_thumb = r0.thumbnail.as_ref().expect("best keyframe thumb").clone();
+
+        // Identical compressed payload 5s later (well before 60s Tier 0 heartbeat):
+        // must skip decode_rgb and still emit TrackExited with best_thumb.
+        let r1 = pipeline
+            .process_compressed(6_000, &payload, || {
+                panic!("decode_rgb must not be called on Tier 0 skip")
+            })
+            .unwrap();
+        assert!(!r1.gate_decision.is_admitted());
+        assert_eq!(r1.events.len(), 1);
+        assert_eq!(r1.events[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(r1.events[0].track_id, Some(tid));
+        assert_eq!(
+            r1.events[0].thumbnail.as_ref().unwrap().sha256_hex,
+            best_thumb.sha256_hex
+        );
     }
 }

@@ -9,7 +9,7 @@ use crate::thumbnail::EncodedThumbnail;
 use core::fmt::{self, Display, Formatter};
 use core::str::FromStr;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use trackforge::trackers::botsort::BotSort;
 use trackforge::trackers::byte_track::ByteTrack;
 use trackforge::trackers::deep_ocsort::DeepOcSortTracker;
@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 const DEFAULT_CONFIDENCE_THRESH: f32 = 0.35;
 const DEFAULT_TRACK_BUFFER_FRAMES: usize = 30;
+const DEFAULT_MAX_CLOSED_TRACKS: usize = 256;
 const DEFAULT_MATCH_IOU_DIST: f32 = 0.85;
 const DEFAULT_APPEARANCE_COSINE_DIST: f32 = 0.35;
 const BOTSORT_PROXIMITY_IOU_DIST: f32 = 0.90;
@@ -97,6 +98,10 @@ pub enum TrackState {
     Closed,
 }
 
+fn default_max_closed_tracks() -> usize {
+    DEFAULT_MAX_CLOSED_TRACKS
+}
+
 /// Configuration for [`MultiObjectTracker`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackerConfig {
@@ -109,6 +114,9 @@ pub struct TrackerConfig {
     pub max_lost_ms: u64,
     /// Hard cap on live tracked IDs retained in memory (default `128`).
     pub max_tracks: usize,
+    /// Maximum closed track summaries retained in the bounded ring buffer (default `256`).
+    #[serde(default = "default_max_closed_tracks")]
+    pub max_closed_tracks: usize,
     /// Minimum confidence passed to `trackforge` high-score association (default `0.35`).
     pub confidence_threshold: f32,
 }
@@ -121,6 +129,7 @@ impl Default for TrackerConfig {
             max_lost_frames: 30,
             max_lost_ms: 30_000,
             max_tracks: 128,
+            max_closed_tracks: DEFAULT_MAX_CLOSED_TRACKS,
             confidence_threshold: DEFAULT_CONFIDENCE_THRESH,
         }
     }
@@ -199,6 +208,7 @@ pub struct TrackerStepOutput {
 
 #[derive(Debug, Clone)]
 struct TrackRecord {
+    raw_track_id: u64,
     category: ObjectCategory,
     state: TrackState,
     first_seen_ms: u64,
@@ -208,6 +218,7 @@ struct TrackRecord {
     peak_confidence: f32,
     last_bbox: [f32; 4],
     best_keyframe: BestKeyframeSnapshot,
+    best_keyframe_thumbnail: Option<EncodedThumbnail>,
     entered_emitted: bool,
 }
 
@@ -240,8 +251,10 @@ pub struct MultiObjectTracker {
     camera_id: String,
     config: TrackerConfig,
     engine: TrackerEngine,
+    next_local_track_id: u64,
+    active_raw_to_local: HashMap<u64, u64>,
     tracks: BTreeMap<u64, TrackRecord>,
-    closed_tracks: Vec<TrackSummary>,
+    closed_tracks: VecDeque<TrackSummary>,
 }
 
 impl fmt::Debug for MultiObjectTracker {
@@ -298,8 +311,10 @@ impl MultiObjectTracker {
             camera_id: camera_id.into(),
             config,
             engine,
+            next_local_track_id: 1,
+            active_raw_to_local: HashMap::new(),
             tracks: BTreeMap::new(),
-            closed_tracks: Vec::new(),
+            closed_tracks: VecDeque::new(),
         }
     }
 
@@ -384,10 +399,12 @@ impl MultiObjectTracker {
         let mut seen_this_frame = HashSet::with_capacity(assigned.len());
         let min_hits = self.config.min_hits_to_activate.max(1);
 
-        for (idx, (det, maybe_tid)) in detections.iter().zip(assigned.iter()).enumerate() {
-            let Some(tid) = *maybe_tid else {
+        for (idx, (det, maybe_raw_tid)) in detections.iter().zip(assigned.iter_mut()).enumerate() {
+            let Some(raw_tid) = *maybe_raw_tid else {
                 continue;
             };
+            let tid = self.resolve_local_track_id(raw_tid);
+            *maybe_raw_tid = Some(tid);
             seen_this_frame.insert(tid);
             let attrs = attributes.and_then(|s| s.get(idx)).cloned();
             let sharpness = frame_for_sharpness
@@ -404,6 +421,7 @@ impl MultiObjectTracker {
             };
 
             let rec = self.tracks.entry(tid).or_insert_with(|| TrackRecord {
+                raw_track_id: raw_tid,
                 category: det.label,
                 state: if min_hits <= 1 {
                     TrackState::Active
@@ -417,6 +435,7 @@ impl MultiObjectTracker {
                 peak_confidence: det.confidence,
                 last_bbox: det.bbox,
                 best_keyframe: snapshot.clone(),
+                best_keyframe_thumbnail: None,
                 entered_emitted: false,
             });
 
@@ -432,6 +451,7 @@ impl MultiObjectTracker {
             }
             if rec.frame_count == 1 || quality > rec.best_keyframe.quality_score + 1e-6 {
                 rec.best_keyframe = snapshot;
+                rec.best_keyframe_thumbnail = None;
                 improved_best_keyframe_tracks.push(tid);
             }
 
@@ -472,7 +492,6 @@ impl MultiObjectTracker {
             if rec.missed_frames >= self.config.max_lost_frames
                 || (self.config.max_lost_ms > 0 && idle_ms >= self.config.max_lost_ms)
             {
-                rec.state = TrackState::Closed;
                 to_close.push(tid);
             } else {
                 rec.state = TrackState::Lost;
@@ -480,27 +499,7 @@ impl MultiObjectTracker {
         }
 
         for tid in to_close {
-            if let Some(rec) = self.tracks.remove(&tid) {
-                let summary = rec.to_summary(tid);
-                if rec.entered_emitted {
-                    events.push(DetectionEvent {
-                        event_id: Uuid::new_v4(),
-                        camera_id: self.camera_id.clone(),
-                        kind: DetectionEventKind::TrackExited,
-                        track_id: Some(tid),
-                        category: summary.category,
-                        confidence: summary.peak_confidence,
-                        bbox: summary.best_keyframe.bbox,
-                        attributes: summary.best_keyframe.attributes.clone(),
-                        timestamp_ms,
-                        first_seen_ms: summary.first_seen_ms,
-                        last_seen_ms: summary.last_seen_ms,
-                        dwell_ms: summary.dwell_ms,
-                        thumbnail: None,
-                    });
-                }
-                self.closed_tracks.push(summary);
-            }
+            self.close_track(tid, timestamp_ms, &mut events);
         }
 
         // Enforce bounded live track capacity by evicting oldest idle tracks
@@ -513,10 +512,7 @@ impl MultiObjectTracker {
             let Some(tid) = oldest_tid else {
                 break;
             };
-            if let Some(mut rec) = self.tracks.remove(&tid) {
-                rec.state = TrackState::Closed;
-                self.closed_tracks.push(rec.to_summary(tid));
-            }
+            self.close_track(tid, timestamp_ms, &mut events);
         }
 
         TrackerStepOutput {
@@ -524,6 +520,43 @@ impl MultiObjectTracker {
             events,
             improved_best_keyframe_tracks,
         }
+    }
+
+    /// Advances tracker time without stepping `trackforge` association (e.g. on gate-skipped
+    /// frames), closing any live tracks whose idle duration meets or exceeds `max_lost_ms`
+    /// and returning any emitted `TrackExited` events.
+    pub fn advance_time(&mut self, timestamp_ms: u64) -> Vec<DetectionEvent> {
+        if matches!(self.engine, TrackerEngine::Off) || self.config.max_lost_ms == 0 {
+            return Vec::new();
+        }
+
+        let to_close: Vec<u64> = self
+            .tracks
+            .iter()
+            .filter_map(|(&tid, rec)| {
+                let idle_ms = timestamp_ms.saturating_sub(rec.last_seen_ms);
+                (idle_ms >= self.config.max_lost_ms).then_some(tid)
+            })
+            .collect();
+
+        let mut events = Vec::new();
+        for tid in to_close {
+            self.close_track(tid, timestamp_ms, &mut events);
+        }
+        events
+    }
+
+    /// Stores the encoded thumbnail for a live track's current best keyframe.
+    pub fn set_best_keyframe_thumbnail(
+        &mut self,
+        track_id: u64,
+        thumbnail: EncodedThumbnail,
+    ) -> bool {
+        let Some(rec) = self.tracks.get_mut(&track_id) else {
+            return false;
+        };
+        rec.best_keyframe_thumbnail = Some(thumbnail);
+        true
     }
 
     /// Returns live (non-closed) track summaries ordered by `track_id`.
@@ -534,17 +567,72 @@ impl MultiObjectTracker {
             .collect()
     }
 
-    /// Returns closed track summaries.
-    pub fn closed_summaries(&self) -> &[TrackSummary] {
+    /// Returns retained closed track summaries (bounded by `max_closed_tracks`).
+    pub fn closed_summaries(&self) -> &VecDeque<TrackSummary> {
         &self.closed_tracks
     }
 
-    /// Returns all known tracks (live + closed) ordered by `track_id`.
+    /// Drains and returns all retained closed track summaries in close order.
+    pub fn take_closed_summaries(&mut self) -> Vec<TrackSummary> {
+        self.closed_tracks.drain(..).collect()
+    }
+
+    /// Returns all known tracks (live + retained closed) ordered by `track_id`.
     pub fn all_summaries(&self) -> Vec<TrackSummary> {
-        let mut all = self.closed_tracks.clone();
+        let mut all: Vec<TrackSummary> = self.closed_tracks.iter().cloned().collect();
         all.extend(self.live_summaries());
         all.sort_by_key(|s| s.track_id);
         all
+    }
+
+    fn resolve_local_track_id(&mut self, raw_tid: u64) -> u64 {
+        if let Some(&local_tid) = self.active_raw_to_local.get(&raw_tid) {
+            return local_tid;
+        }
+        let local_tid = self.next_local_track_id;
+        self.next_local_track_id = self.next_local_track_id.saturating_add(1);
+        self.active_raw_to_local.insert(raw_tid, local_tid);
+        local_tid
+    }
+
+    fn close_track(&mut self, tid: u64, exit_timestamp_ms: u64, events: &mut Vec<DetectionEvent>) {
+        let Some(mut rec) = self.tracks.remove(&tid) else {
+            return;
+        };
+        if self.active_raw_to_local.get(&rec.raw_track_id) == Some(&tid) {
+            self.active_raw_to_local.remove(&rec.raw_track_id);
+        }
+        rec.state = TrackState::Closed;
+        let summary = rec.to_summary(tid);
+        if rec.entered_emitted {
+            events.push(DetectionEvent {
+                event_id: Uuid::new_v4(),
+                camera_id: self.camera_id.clone(),
+                kind: DetectionEventKind::TrackExited,
+                track_id: Some(tid),
+                category: summary.category,
+                confidence: summary.peak_confidence,
+                bbox: summary.best_keyframe.bbox,
+                attributes: summary.best_keyframe.attributes.clone(),
+                timestamp_ms: exit_timestamp_ms,
+                first_seen_ms: summary.first_seen_ms,
+                last_seen_ms: summary.last_seen_ms,
+                dwell_ms: summary.dwell_ms,
+                thumbnail: rec.best_keyframe_thumbnail,
+            });
+        }
+        self.record_closed_summary(summary);
+    }
+
+    fn record_closed_summary(&mut self, summary: TrackSummary) {
+        let cap = self.config.max_closed_tracks;
+        if cap == 0 {
+            return;
+        }
+        while self.closed_tracks.len() >= cap {
+            self.closed_tracks.pop_front();
+        }
+        self.closed_tracks.push_back(summary);
     }
 }
 
@@ -604,6 +692,16 @@ fn tlwh_iou(a: [f32; 4], b: [f32; 4]) -> f32 {
 mod tests {
     use super::*;
 
+    fn synthetic_thumb(tag: &str) -> EncodedThumbnail {
+        EncodedThumbnail {
+            width: 32,
+            height: 18,
+            quality: 75,
+            jpeg_bytes: vec![0xFF, 0xD8, 0xFF, 0xD9],
+            sha256_hex: tag.to_string(),
+        }
+    }
+
     #[test]
     fn tracker_lifecycle_new_active_lost_closed_and_best_keyframe() {
         let mut tracker = MultiObjectTracker::new(
@@ -614,6 +712,7 @@ mod tests {
                 max_lost_frames: 2,
                 max_lost_ms: 10_000,
                 max_tracks: 32,
+                max_closed_tracks: 256,
                 confidence_threshold: 0.35,
             },
         );
@@ -664,5 +763,245 @@ mod tests {
         assert!(tracker.live_summaries().is_empty());
         assert_eq!(tracker.closed_summaries().len(), 1);
         assert_eq!(tracker.closed_summaries()[0].state, TrackState::Closed);
+    }
+
+    #[test]
+    fn closed_tracks_are_capped_and_take_closed_summaries_drains() {
+        let mut tracker = MultiObjectTracker::new(
+            "cam-synth-cap-01",
+            TrackerConfig {
+                mode: TrackerMode::ByteTrack,
+                min_hits_to_activate: 1,
+                max_lost_frames: 1,
+                max_lost_ms: 10_000,
+                max_tracks: 32,
+                max_closed_tracks: 3,
+                confidence_threshold: 0.35,
+            },
+        );
+
+        let mut closed_ids = Vec::new();
+        for i in 0..6u64 {
+            let x1 = 0.05 + (i as f32) * 0.14;
+            let det = vec![Detection::new(
+                0,
+                ObjectCategory::Person,
+                0.90,
+                [x1, 0.20, x1 + 0.10, 0.60],
+            )];
+            let appear = tracker.update((640, 360), i * 2_000 + 1_000, &det, None, None, None);
+            let tid = appear.assigned_track_ids[0].expect("track assigned");
+            let exit = tracker.update((640, 360), i * 2_000 + 2_000, &[], None, None, None);
+            assert_eq!(exit.events.len(), 1);
+            assert_eq!(exit.events[0].kind, DetectionEventKind::TrackExited);
+            assert_eq!(exit.events[0].track_id, Some(tid));
+            closed_ids.push(tid);
+        }
+
+        assert_eq!(tracker.closed_summaries().len(), 3);
+        let retained_ids: Vec<u64> = tracker
+            .closed_summaries()
+            .iter()
+            .map(|s| s.track_id)
+            .collect();
+        assert_eq!(retained_ids, closed_ids[3..6]);
+        assert_eq!(tracker.all_summaries().len(), 3);
+
+        let drained = tracker.take_closed_summaries();
+        let drained_ids: Vec<u64> = drained.iter().map(|s| s.track_id).collect();
+        assert_eq!(drained_ids, closed_ids[3..6]);
+        assert!(tracker.closed_summaries().is_empty());
+        assert!(tracker.take_closed_summaries().is_empty());
+
+        let mut zero_cap = MultiObjectTracker::new(
+            "cam-synth-cap-00",
+            TrackerConfig {
+                max_lost_frames: 1,
+                max_closed_tracks: 0,
+                ..TrackerConfig::default()
+            },
+        );
+        let det = vec![Detection::new(
+            0,
+            ObjectCategory::Person,
+            0.90,
+            [0.20, 0.20, 0.40, 0.70],
+        )];
+        zero_cap.update((640, 360), 1_000, &det, None, None, None);
+        zero_cap.update((640, 360), 2_000, &[], None, None, None);
+        assert!(zero_cap.closed_summaries().is_empty());
+    }
+
+    #[test]
+    fn reassociated_raw_track_id_after_close_gets_fresh_monotonic_local_id() {
+        let mut tracker = MultiObjectTracker::new(
+            "cam-synth-reentry-01",
+            TrackerConfig {
+                mode: TrackerMode::ByteTrack,
+                min_hits_to_activate: 1,
+                max_lost_frames: 30,
+                max_lost_ms: 5_000,
+                max_tracks: 32,
+                max_closed_tracks: 32,
+                confidence_threshold: 0.35,
+            },
+        );
+
+        let bbox = [0.20, 0.20, 0.40, 0.70];
+        let det = vec![Detection::new(0, ObjectCategory::Person, 0.92, bbox)];
+
+        let out0 = tracker.update((640, 360), 1_000, &det, None, None, None);
+        let tid1 = out0.assigned_track_ids[0].expect("first track assigned");
+        assert_eq!(out0.events.len(), 1);
+        assert_eq!(out0.events[0].kind, DetectionEventKind::TrackEntered);
+        assert_eq!(out0.events[0].track_id, Some(tid1));
+
+        // 1 missed frame moves trackforge's raw track into Lost (still buffered for 30 frames).
+        let out1 = tracker.update((640, 360), 2_000, &[], None, None, None);
+        assert!(out1.events.is_empty());
+
+        // Close locally via max_lost_ms while trackforge still retains raw ID 1.
+        let out2 = tracker.update((640, 360), 7_000, &[], None, None, None);
+        assert_eq!(out2.events.len(), 1);
+        assert_eq!(out2.events[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(out2.events[0].track_id, Some(tid1));
+
+        // Object reappears at identical position; trackforge re-associates raw ID 1.
+        let out3 = tracker.update((640, 360), 8_000, &det, None, None, None);
+        let tid2 = out3.assigned_track_ids[0].expect("second track assigned");
+        assert!(
+            tid2 > tid1,
+            "re-associated raw track ID must receive a fresh monotonic local ID ({tid2} <= {tid1})"
+        );
+        assert_eq!(out3.events.len(), 1);
+        assert_eq!(out3.events[0].kind, DetectionEventKind::TrackEntered);
+        assert_eq!(out3.events[0].track_id, Some(tid2));
+
+        let exit2 = tracker.advance_time(14_000);
+        assert_eq!(exit2.len(), 1);
+        assert_eq!(exit2[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(exit2[0].track_id, Some(tid2));
+
+        let closed_ids: Vec<u64> = tracker
+            .closed_summaries()
+            .iter()
+            .map(|s| s.track_id)
+            .collect();
+        assert_eq!(closed_ids, vec![tid1, tid2]);
+    }
+
+    #[test]
+    fn capacity_eviction_emits_track_exited_with_stored_best_keyframe_thumbnail() {
+        let mut tracker = MultiObjectTracker::new(
+            "cam-synth-evict-01",
+            TrackerConfig {
+                mode: TrackerMode::ByteTrack,
+                min_hits_to_activate: 1,
+                max_lost_frames: 30,
+                max_lost_ms: 60_000,
+                max_tracks: 2,
+                max_closed_tracks: 32,
+                confidence_threshold: 0.35,
+            },
+        );
+
+        let det_a = Detection::new(0, ObjectCategory::Person, 0.91, [0.05, 0.20, 0.20, 0.70]);
+        let det_b = Detection::new(0, ObjectCategory::Person, 0.90, [0.40, 0.20, 0.55, 0.70]);
+        let det_c = Detection::new(0, ObjectCategory::Person, 0.92, [0.75, 0.20, 0.90, 0.70]);
+
+        let out0 = tracker.update((640, 360), 1_000, &[det_a], None, None, None);
+        let tid_a = out0.assigned_track_ids[0].expect("track A");
+        let thumb_a = synthetic_thumb("best-keyframe-track-a");
+        assert!(tracker.set_best_keyframe_thumbnail(tid_a, thumb_a.clone()));
+
+        let out1 = tracker.update(
+            (640, 360),
+            2_000,
+            std::slice::from_ref(&det_b),
+            None,
+            None,
+            None,
+        );
+        let tid_b = out1.assigned_track_ids[0].expect("track B");
+        assert_ne!(tid_a, tid_b);
+
+        // Introducing track C pushes live count to 3 > max_tracks(2), evicting oldest idle track A.
+        let out2 = tracker.update((640, 360), 3_000, &[det_b, det_c], None, None, None);
+        let exit_ev = out2
+            .events
+            .iter()
+            .find(|e| e.kind == DetectionEventKind::TrackExited)
+            .expect("evicted entered track must emit TrackExited");
+        assert_eq!(exit_ev.track_id, Some(tid_a));
+        assert_eq!(exit_ev.timestamp_ms, 3_000);
+        assert_eq!(exit_ev.thumbnail.as_ref(), Some(&thumb_a));
+        assert_eq!(tracker.live_summaries().len(), 2);
+        assert_eq!(tracker.closed_summaries().len(), 1);
+        assert_eq!(tracker.closed_summaries()[0].track_id, tid_a);
+        assert_eq!(tracker.closed_summaries()[0].state, TrackState::Closed);
+
+        // Unconfirmed (New) tracks evicted before TrackEntered must not emit TrackExited.
+        let mut unconfirmed = MultiObjectTracker::new(
+            "cam-synth-evict-new",
+            TrackerConfig {
+                mode: TrackerMode::ByteTrack,
+                min_hits_to_activate: 3,
+                max_lost_frames: 30,
+                max_lost_ms: 60_000,
+                max_tracks: 1,
+                max_closed_tracks: 16,
+                confidence_threshold: 0.35,
+            },
+        );
+        let d1 = Detection::new(0, ObjectCategory::Person, 0.90, [0.05, 0.20, 0.20, 0.70]);
+        let d2 = Detection::new(0, ObjectCategory::Person, 0.90, [0.60, 0.20, 0.75, 0.70]);
+        unconfirmed.update((640, 360), 1_000, &[d1], None, None, None);
+        let evict_new = unconfirmed.update((640, 360), 2_000, &[d2], None, None, None);
+        assert!(
+            evict_new
+                .events
+                .iter()
+                .all(|e| e.kind != DetectionEventKind::TrackExited)
+        );
+        assert_eq!(unconfirmed.closed_summaries().len(), 1);
+    }
+
+    #[test]
+    fn advance_time_closes_expired_tracks_with_stored_thumbnail() {
+        let mut tracker = MultiObjectTracker::new(
+            "cam-synth-advance-01",
+            TrackerConfig {
+                mode: TrackerMode::ByteTrack,
+                min_hits_to_activate: 1,
+                max_lost_frames: 30,
+                max_lost_ms: 10_000,
+                max_tracks: 16,
+                max_closed_tracks: 16,
+                confidence_threshold: 0.35,
+            },
+        );
+
+        let det = vec![Detection::new(
+            0,
+            ObjectCategory::Person,
+            0.93,
+            [0.25, 0.20, 0.45, 0.75],
+        )];
+        let out = tracker.update((640, 360), 1_000, &det, None, None, None);
+        let tid = out.assigned_track_ids[0].expect("track assigned");
+        let thumb = synthetic_thumb("best-keyframe-advance");
+        assert!(tracker.set_best_keyframe_thumbnail(tid, thumb.clone()));
+
+        assert!(tracker.advance_time(10_999).is_empty());
+        assert_eq!(tracker.live_summaries().len(), 1);
+
+        let exit_events = tracker.advance_time(11_000);
+        assert_eq!(exit_events.len(), 1);
+        assert_eq!(exit_events[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(exit_events[0].track_id, Some(tid));
+        assert_eq!(exit_events[0].timestamp_ms, 11_000);
+        assert_eq!(exit_events[0].thumbnail.as_ref(), Some(&thumb));
+        assert!(tracker.live_summaries().is_empty());
+        assert_eq!(tracker.closed_summaries().len(), 1);
     }
 }
