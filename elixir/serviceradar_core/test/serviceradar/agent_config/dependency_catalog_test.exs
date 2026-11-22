@@ -214,6 +214,31 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.result == :ok
     end
 
+    test "plugin assignment reassign_agent dispatches only its replacement agent" do
+      notification = %Notification{
+        resource: PluginAssignment,
+        action: %{type: :update, name: :reassign_agent},
+        data: %{agent_uid: "agent-replacement"}
+      }
+
+      assert {:ok, [diagnostic]} =
+               DependencyDispatcher.dispatch(notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:push_config, "agent-replacement"}
+      assert_received {:diagnostic, ^diagnostic}
+      refute_received {:push_config_for_type, :agent}
+      refute_received {:invalidate, :agent}
+
+      assert diagnostic.dependency_id == :plugin_assignment_agent_config
+      assert diagnostic.affected_agents == ["agent-replacement"]
+      assert diagnostic.affected_agent_count == 1
+      assert diagnostic.result == :ok
+    end
+
     test "plugin package review actions dispatch fleet agent config refreshes" do
       approve_notification = %Notification{
         resource: PluginPackage,

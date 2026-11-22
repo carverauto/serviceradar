@@ -105,6 +105,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         action_names: [
           :create,
           :update,
+          :reassign_agent,
           :retract,
           :destroy,
           :apply_rollout_override,

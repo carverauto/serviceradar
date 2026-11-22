@@ -399,20 +399,13 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   end
 
   defp reconcile_mapper_jobs(jobs, superseded_by_map, actor) do
-    jobs
-    |> Enum.reduce(%{}, fn job, acc ->
-      case replacement_for_superseded(job.agent_id, superseded_by_map) do
-        {:ok, replacement_uid} ->
-          Map.update(acc, {job.agent_id, replacement_uid}, [job], &[job | &1])
-
-        :noop ->
-          acc
-      end
-    end)
-    |> Enum.each(fn {{agent_id, replacement_uid}, grouped_jobs} ->
-      result = update_agent_assignments(grouped_jobs, replacement_uid, actor)
-      log_assignment_transfer({:mapper_jobs, result}, agent_id, replacement_uid)
-    end)
+    reconcile_grouped_records(
+      jobs,
+      & &1.agent_id,
+      superseded_by_map,
+      :mapper_jobs,
+      &update_agent_assignments(&1, &2, actor)
+    )
   end
 
   defp reconcile_sweep_groups(groups, superseded_by_map, actor) do
