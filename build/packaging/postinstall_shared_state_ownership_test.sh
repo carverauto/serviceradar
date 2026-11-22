@@ -232,12 +232,15 @@ for installer in "$agent_postinstall" "$nats_postinstall" "$agent_spec"; do
             cp "$installer" "$test_root/body"
         fi
         sed -e "s|/var/lib/serviceradar|$test_root/var/lib/serviceradar|g" \
+            -e "s|/var/lib/nats|$test_root/var/lib/nats|g" \
+            -e "s|/var/log/nats|$test_root/var/log/nats|g" \
             -e "s|/etc/serviceradar|$test_root/etc/serviceradar|g" \
             -e "s|/usr/local/bin/|$test_root/usr/local/bin/|g" \
             -e "s|/usr/lib/serviceradar|$test_root/usr/lib/serviceradar|g" \
             -e "s|/etc/nats|$test_root/etc/nats|g" \
             -e "s|/lib/systemd/system|$test_root/lib/systemd/system|g" \
             -e "s|serviceradar:serviceradar|$service_owner|g" \
+            -e "s|nats:serviceradar|$runner_owner|g" \
             -e "s|root:serviceradar|$runner_owner|g" \
             -e "s|root:root|$runner_owner|g" \
             "$test_root/body" > "$test_root/installer"

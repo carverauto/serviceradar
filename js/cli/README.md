@@ -177,8 +177,9 @@ packaged enrollment published host-trust. A host enrolled before that record
 existed needs re-enrollment first
 ([Managed component certificates](../../docs/managed-component-certificates.md)).
 They register one managed component for that host service, pin the deployment
-policy public key, and wait until the agent has installed certificates and
-activated the service. Activation is separate from receiver enforcement.
+policy public key, wait until the agent has installed certificates and
+activated the service, and confirm the managed systemd unit stays active across
+three checks. Activation is separate from receiver enforcement.
 Certificate lifecycle and NATS readiness are in
 [Managed component certificates](../../docs/managed-component-certificates.md).
 A site-assigned collector requires that site's managed leaf, then stores the
@@ -206,14 +207,17 @@ srcloud nats account status
 srcloud edge site create --name "Branch office 1"
 #    → prints the site id; `srcloud edge site show <site-id>` reports the leaf status
 
-# 3. Create an agent package. This prints the package id and a one-time
-#    edgepkg-v3 onboarding token.
+# 3. Create an agent package. This prints the package id, a one-time
+#    edgepkg-v3 onboarding token, and (when returned by the instance) the
+#    deployment's onboarding token public key.
 srcloud edge package create --label branch-office-1 --component-type agent
 
 # 4. Install and enroll the agent: downloads serviceradar-agent, runs
-#    `dnf install`, runs `srctl enroll --core-url $SERVICERADAR_INSTANCE --token ...`,
-#    then enables and restarts serviceradar-agent.service.
-srcloud edge install agent --package <package-id> --token '<onboarding-token>' --version $SR_VERSION
+#    `dnf install`, runs `srctl enroll --core-url $SERVICERADAR_INSTANCE --token ...`
+#    with SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY set, then enables and
+#    restarts serviceradar-agent.service. Pass --token-public-key or export
+#    SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY.
+srcloud edge install agent --package <package-id> --token '<onboarding-token>' --token-public-key '<token-public-key>' --version $SR_VERSION
 srcloud agent list
 
 # 5. Install the local NATS leaf after the site's leaf server has an upstream
