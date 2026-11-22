@@ -164,18 +164,21 @@ function unwrap(payload: any): any {
 }
 
 /**
- * The state the Edge Sites page shows: the site's managed leaf deployment
- * (`deployment_status`). An instance that does not report it yet falls back to
- * the site record's own status.
+ * The site status shown in the Edge Sites page's Deployment column
+ * (`deployment_status`), falling back to the raw site status on instances that
+ * do not return it.
  */
 export function deploymentStatus(site: any): string {
   return site?.deployment_status || site?.status || ""
 }
 
-// A managed leaf has one state, its deployment. The leaf record's own status is
-// only meaningful for a site with no managed deployment reported.
+// Matches the Edge Sites page's NATS Leaf column: managed sites show their
+// deployment status, while unmanaged sites show the leaf record's own status.
 export function leafStatus(site: any): string {
-  return site?.deployment_status || site?.leaf_server?.status || (site?.leaf_server === null ? "pending" : "")
+  if (site?.managed === true && site?.deployment_status) {
+    return site.deployment_status
+  }
+  return site?.leaf_server?.status || (site?.leaf_server === null ? "pending" : "")
 }
 
 export function positiveNumber(value: unknown, fallback: number): number {

@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0, system_actor: 0]
 
+  alias ServiceRadar.Edge.ManagedCertificateOperation
+  alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.NatsLeafServer
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
   alias ServiceRadarWebNG.Auth.Guardian
@@ -52,18 +54,86 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteControllerTest do
 
     assert site["slug"] == "nyc-office-#{u}"
     assert site["status"] == "pending"
+    assert site["deployment_status"] == "pending"
+    assert site["managed"] == false
     assert %{"status" => "pending", "upstream_url" => "tls://" <> _} = site["leaf_server"]
     assert site["leaf_server"]["local_listen"] == "0.0.0.0:4222"
     assert site["leaf_server"]["client_url"] == "tls://127.0.0.1:4222"
 
     listed = conn |> get(~p"/api/admin/edge-sites") |> json_response(200)
-    assert Enum.any?(listed["data"], &(&1["id"] == site["id"]))
+    listed_site = Enum.find(listed["data"], &(&1["id"] == site["id"]))
+    assert listed_site["deployment_status"] == "pending"
+    assert listed_site["managed"] == false
 
     shown = conn |> get(~p"/api/admin/edge-sites/#{site["id"]}") |> json_response(200)
     assert shown["data"]["name"] == "NYC Office #{u}"
+    assert shown["data"]["deployment_status"] == "pending"
+    assert shown["data"]["managed"] == false
 
     assert conn |> delete(~p"/api/admin/edge-sites/#{site["id"]}") |> response(204)
     assert conn |> get(~p"/api/admin/edge-sites/#{site["id"]}") |> json_response(404)
+  end
+
+  test "reports managed deployment status for a site with a managed leaf component", %{conn: conn} do
+    u = System.unique_integer([:positive])
+    actor = system_actor()
+    host = "edge-site-api-host-#{u}"
+
+    ServiceRadar.Infrastructure.Agent
+    |> Ash.Changeset.for_create(:register, %{uid: host, name: host})
+    |> Ash.create!(actor: actor)
+
+    site = create_site(conn)
+
+    component =
+      ManagedComponent
+      |> Ash.Changeset.for_create(
+        :enroll,
+        %{
+          component_id: "edge-site-api-leaf-#{u}",
+          component_type: "nats-leaf",
+          host_agent_id: host,
+          partition_id: "default",
+          edge_site_id: site["id"]
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    operation =
+      ManagedCertificateOperation
+      |> Ash.Changeset.for_create(
+        :begin,
+        %{
+          component_id: component.component_id,
+          generation: component.generation,
+          host_agent_id: host,
+          partition_id: "default",
+          service: "nats-leaf",
+          requested_by: "edge-site-api-test"
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    operation
+    |> Ash.Changeset.for_update(
+      :progress,
+      %{status: :activated, receipt: %{"installed" => true, "activated" => true}},
+      actor: actor
+    )
+    |> Ash.update!(actor: actor)
+
+    listed = conn |> get(~p"/api/admin/edge-sites") |> json_response(200)
+    listed_site = Enum.find(listed["data"], &(&1["id"] == site["id"]))
+    assert listed_site["status"] == "pending"
+    assert listed_site["deployment_status"] == "installed"
+    assert listed_site["managed"] == true
+
+    shown = conn |> get(~p"/api/admin/edge-sites/#{site["id"]}") |> json_response(200)
+    assert shown["data"]["status"] == "pending"
+    assert shown["data"]["deployment_status"] == "installed"
+    assert shown["data"]["managed"] == true
   end
 
   test "accepts an explicit slug and rejects a missing name", %{conn: conn} do

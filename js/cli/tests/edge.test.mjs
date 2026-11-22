@@ -420,10 +420,11 @@ test("edge site create/list/show use the edge-sites contract", async () => {
 // The Edge Sites page shows a managed site by its deployment status. The site
 // record's own status stays "pending" for the life of a managed site, so the
 // CLI must report the same state the page does.
-test("edge site list and show report the managed deployment status the UI shows", async () => {
-  const managed = {...SITE, status: "pending", deployment_status: "installed", leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
+test("edge site list, show, and install leaf report deployment status for managed sites", async () => {
+  const managed = {...SITE, status: "pending", deployment_status: "installed", managed: true, leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
   await withServer(
     (req, res) => {
+      if (managedBootstrap(req, res)) return
       if (req.method === "GET" && req.path === "/api/admin/edge-sites") return json(res, 200, {data: [managed]})
       if (req.method === "GET" && req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: managed})
       return json(res, 404, {})
@@ -437,6 +438,38 @@ test("edge site list and show report the managed deployment status the UI shows"
       assert.match(show.stdout, /status:\s+installed/)
       assert.match(show.stdout, /leaf status:\s+installed/)
       assert.doesNotMatch(show.stdout, /pending|provisioned/)
+
+      const install = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      assert.equal(install.code, 0, install.stderr)
+      assert.match(install.stdout, /leaf status: installed/)
+    },
+  )
+})
+
+// An updated server always returns deployment_status (the site's own status when
+// unmanaged), alongside managed: false. Unmanaged sites must keep showing the
+// leaf record's own status in LEAF / leaf status, matching the Edge Sites page.
+test("edge site list, show, and install leaf keep the leaf record status for unmanaged sites", async () => {
+  const unmanaged = {...SITE, status: "pending", deployment_status: "pending", managed: false, leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
+  await withServer(
+    (req, res) => {
+      if (managedBootstrap(req, res)) return
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites") return json(res, 200, {data: [unmanaged]})
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: unmanaged})
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const list = await runCli(["edge", "site", "list", "--instance", instance], {env: TOKEN_ENV})
+      const rows = list.stdout.trim().split("\n").map((line) => line.split(/\s{2,}/))
+      assert.deepEqual(rows[1], ["site-1", "Branch 1", "branch-1", "pending", "provisioned", "2026-10-03T00:00:00Z"])
+
+      const show = await runCli(["edge", "site", "show", "site-1", "--instance", instance], {env: TOKEN_ENV})
+      assert.match(show.stdout, /status:\s+pending/)
+      assert.match(show.stdout, /leaf status:\s+provisioned/)
+
+      const install = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      assert.equal(install.code, 0, install.stderr)
+      assert.match(install.stdout, /leaf status: provisioned/)
     },
   )
 })

@@ -15,12 +15,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.EdgeSiteBundles
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.ManagedDeploymentComponents
 
   require Ash.Query
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @permission "settings.edge.manage"
+  @site_loads [:nats_leaf_server, :deployment_status, :managed_component]
 
   @doc "GET /api/admin/edge-sites"
   def index(conn, _params) do
@@ -28,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
       query =
         EdgeSite
         |> Ash.Query.for_read(:read)
-        |> Ash.Query.load([:nats_leaf_server, :deployment_status])
+        |> Ash.Query.load(@site_loads)
         |> Ash.Query.sort(inserted_at: :desc)
 
       with {:ok, sites} <- Ash.read(query, actor: actor(conn)) do
@@ -108,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
            EdgeSite
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.Query.load([:nats_leaf_server, :deployment_status])
+           |> Ash.Query.load(@site_loads)
            |> Ash.read_one(actor: actor(conn)) do
       {:ok, site}
     else
@@ -125,9 +127,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
       name: site.name,
       slug: site.slug,
       status: site.status,
-      # What the Edge Sites page shows: the state of the site's managed leaf
-      # deployment. Absent when the caller did not load it.
+      # Same deployment status and managed distinction the Edge Sites page renders.
       deployment_status: deployment_status(site),
+      managed: ManagedDeploymentComponents.managed?(site),
       nats_leaf_url: site.nats_leaf_url,
       leaf_server: leaf_server_to_json(site.nats_leaf_server),
       inserted_at: site.inserted_at
