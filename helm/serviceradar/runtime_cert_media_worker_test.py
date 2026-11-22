@@ -57,9 +57,9 @@ def generator_job(values):
 
 def preserve_decision_script(job_script):
     """The rendered Job's script up to where it would regenerate, ending there."""
-    head, sep, _ = job_script.partition("cat >/tmp/generate-certs.sh.b64")
+    head, sep, _ = job_script.partition("export FORCE_REGENERATE=true")
     if not sep:
-        raise AssertionError("generator step not found in the Job script")
+        raise AssertionError("regeneration step not found in the Job script")
     return head + "\necho REGENERATE\nexit 3\n"
 
 
@@ -174,8 +174,13 @@ class RuntimeCertMediaWorkerTest(unittest.TestCase):
         site = work / "site"
         site.mkdir()
         (site / "sitecustomize.py").write_text(FAKE_API)
-        script = preserve_decision_script(self.enabled_job).replace(
-            "/var/run/secrets/kubernetes.io/serviceaccount", str(sa))
+        job_tmp = work / "tmp"
+        job_tmp.mkdir()
+        script = (
+            preserve_decision_script(self.enabled_job)
+            .replace("/var/run/secrets/kubernetes.io/serviceaccount", str(sa))
+            .replace("/tmp/", f"{job_tmp}/")
+        )
         env = dict(
             os.environ,
             PYTHONPATH=str(site),

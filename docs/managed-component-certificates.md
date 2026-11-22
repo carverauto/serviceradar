@@ -263,15 +263,14 @@ pipeline and `settings.edge.manage` permission as adoption.
 
 When the [in-chart certificate generator](docs/tls-security.md#in-chart-certificate-generator)
 reissues runtime certificates (for example when `certs.runtimeLayoutVersion`
-changes, a required file is missing from core's projection, or a required leaf
-does not verify against `root.pem`), the pre-upgrade hook runs before core
-rolls. When the Secret passes those checks, any kept certificate that lacks a
-requested DNS, URI, or IPv4 name is reissued alone from the same root CA while
-every other certificate keeps its fingerprint. On any reissue, the generator
-writes `runtime-cert-rotation.json` into the runtime certificate Secret. For
-each
-reissued public certificate, that record holds the fingerprint it replaced, its
-own fingerprint, and its PEM with the root CA. It holds no key. The core
+changes, a required file is missing, or a required leaf does not verify against
+`root.pem`), the pre-upgrade hook runs before core rolls. When the Secret passes
+those checks, any kept certificate that lacks a requested DNS, URI, or IPv4 name
+is reissued alone from the same root CA while every other certificate keeps its
+fingerprint. On any reissue, the generator writes `runtime-cert-rotation.json`
+into the runtime certificate Secret. For each reissued public certificate, that
+record holds the fingerprint it replaced, its own fingerprint, and its PEM with
+the root CA. It holds no key. The core
 migrations pre-upgrade hook, and then core whenever the mounted record changes,
 records each replacement as the successor of the component that holds the
 replaced fingerprint. A replacement is recorded only when the replaced
