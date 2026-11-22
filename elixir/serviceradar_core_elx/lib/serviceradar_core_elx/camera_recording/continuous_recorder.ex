@@ -718,7 +718,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
   defp route_valid_unit(%{phase: :streaming} = state, unit) do
     state = record_last_admitted(state, unit)
-    accept_unit_into_active_block(state, unit)
+    accept_unit_into_active_block(state, unit, :tail)
   end
 
   defp route_valid_unit(%{phase: phase} = state, unit) when phase in [:sealing, :resolving, :cataloging] do
@@ -744,7 +744,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     }
   end
 
-  defp accept_unit_into_active_block(%{active_block: block} = state, unit) do
+  defp accept_unit_into_active_block(%{active_block: block} = state, unit, requeue_at) do
     unit_bytes = byte_size(unit.payload)
     next_bytes = block.bytes_accepted + unit_bytes
     soft_reached? = soft_bound_reached?(block, state.bounds)
@@ -760,16 +760,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
           |> apply_barrier_flags(%{reanchor?: reanchor?})
           |> finish_active_block_input()
 
-        {:noreply, enqueue_handover_unit(state, unit)}
+        {:noreply, requeue_handover_unit(state, unit, requeue_at)}
 
       # Soft target reached and an IDR arrived -> clean keyframe-aligned cut!
       soft_reached? and keyframe_unit?(unit) ->
         state = finish_active_block_input(state)
-        {:noreply, enqueue_handover_unit(state, unit)}
+        {:noreply, requeue_handover_unit(state, unit, requeue_at)}
 
       # Hard byte ceiling would be exceeded by this unit -> cut before this unit.
       next_bytes > state.bounds.max_bytes ->
-        handle_hard_byte_cut(state, unit)
+        handle_hard_byte_cut(state, unit, requeue_at)
 
       # Accept unit into the current block, then check hard frame/duration ceilings.
       true ->
@@ -797,16 +797,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     end
   end
 
-  defp handle_hard_byte_cut(state, unit) do
+  defp handle_hard_byte_cut(state, unit, requeue_at) do
     state = finish_active_block_input(state)
 
     if keyframe_unit?(unit) do
-      {:noreply, enqueue_handover_unit(state, unit)}
+      {:noreply, requeue_handover_unit(state, unit, requeue_at)}
     else
       release_inbox_credit(state, byte_size(unit.payload))
       state = note_gap_start(state, :keyframe_wait, "hard_byte_bound_non_idr", unit)
       {:noreply, %{state | awaiting_keyframe?: true, next_contiguous?: false}}
     end
+  end
+
+  defp requeue_handover_unit(state, unit, :head), do: restore_handover_unit(state, unit)
+  defp requeue_handover_unit(state, unit, :tail), do: enqueue_handover_unit(state, unit)
+
+  defp restore_handover_unit(state, unit) do
+    %{
+      state
+      | handover_queue: :queue.in_r(unit, state.handover_queue),
+        handover_samples: state.handover_samples + 1,
+        handover_bytes: state.handover_bytes + byte_size(unit.payload)
+    }
   end
 
   defp soft_bound_reached?(block, bounds) do
@@ -907,21 +919,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   end
 
   defp drain_one_handover_unit(%{phase: :streaming} = state, unit) do
-    case accept_unit_into_active_block(state, unit) do
+    case accept_unit_into_active_block(state, unit, :head) do
       {:noreply, %{phase: :streaming} = next} -> drain_handover_queue(next)
       other -> other
     end
   end
 
   defp drain_one_handover_unit(state, unit) do
-    restored = %{
-      state
-      | handover_queue: :queue.in_r(unit, state.handover_queue),
-        handover_samples: state.handover_samples + 1,
-        handover_bytes: state.handover_bytes + byte_size(unit.payload)
-    }
-
-    {:noreply, restored}
+    {:noreply, restore_handover_unit(state, unit)}
   end
 
   defp start_from_handover_unit(state, unit) do

@@ -849,6 +849,73 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
       refute_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :inbox_overflow}}}, 50
     end
+
+    test "restores drained unit to head of handover queue on mid-drain soft cut preserving order and IDR start" do
+      parent = self()
+      gate = make_ref()
+      desc_count = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: :mid_drain_cut_desc_agent))
+
+      descriptor_fn = fn _cfg, block_key, _timeout ->
+        call_num = Agent.get_and_update(desc_count, fn n -> {n + 1, n + 1} end)
+
+        if call_num == 1 do
+          send(parent, {:block0_mid_drain_paused, self()})
+
+          receive do
+            {^gate, :release_catalog} -> :ok
+          end
+        end
+
+        {:ok, %{"block_key" => block_key, "fragments" => [%{"start_ns" => 0, "duration_ns" => 2_000_000_000}]}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 10},
+          handover_max_samples: 5,
+          block_descriptor_fn: descriptor_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Block 0 takes seq 0..1; seq 2 (IDR) triggers soft cut into :cataloging
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
+      assert_receive {:block0_mid_drain_paused, catalog_pid}, 1_000
+
+      # Buffer 4 more units in handover_queue while Block 0 catalogs (5 total = handover_max_samples):
+      # [seq 2(IDR), seq 3(P), seq 4(IDR), seq 5(P), seq 6(P)].
+      # Draining hits soft_frames=2 at seq 4(IDR) while seq 5..6 are still queued.
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 133_333, @idr_payload)
+      send_unit(pid, harness.inbox_id, 5, 15_000, @base_utc_us + 166_666, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 6, 18_000, @base_utc_us + 200_000, @p_frame_payload)
+      assert ContinuousRecorder.status(pid).handover_samples == 5
+
+      send(catalog_pid, {gate, :release_catalog})
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key0}}}, 1_000
+      assert_receive {:sent_block, ^key0, _}, 1_000
+
+      # Block 1 must contain [2, 3], cut cleanly at seq 4(IDR)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1}}}, 1_000
+      assert_receive {:sent_block, ^key1, block1_units}, 1_000
+      assert_receive {:cataloged, ^key1, attrs1}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [2, 3]
+      assert attrs1.contiguous_with_previous == true
+
+      # Stop -> Block 2 must start on seq 4(IDR) followed by [5, 6] in exact order, contiguous with Block 1
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key2}}}, 1_000
+      assert_receive {:sent_block, ^key2, block2_units}, 1_000
+      assert_receive {:cataloged, ^key2, attrs2}, 1_000
+      assert Enum.map(block2_units, & &1.sequence) == [4, 5, 6]
+      assert ContinuousRecorder.keyframe_unit?(hd(block2_units))
+      assert attrs2.contiguous_with_previous == true
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+      refute_receive {:gap_recorded, _}, 50
+    end
   end
 
   describe "gap origin and IDR alignment after discontinuities" do
