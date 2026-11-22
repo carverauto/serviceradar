@@ -430,7 +430,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
           {"Nats-Expected-Stream", route.expected_stream},
           {"Sr-Edge-Delivery-Id", delivery_id},
           {"Sr-Edge-Transport-Provenance", provenance}
-        ] ++ gateway_header() ++ trace_context(publication)
+        ] ++ grant_header ++ gateway_header() ++ trace_context(publication)
 
       recovery_header_bound(headers, route, publication)
     else
