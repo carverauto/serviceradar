@@ -113,6 +113,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
             join_token: result.join_token,
             download_token: result.download_token,
             onboarding_token: signed_onboarding_token(result.package, result.download_token),
+            # The public key that verifies the token. The enrolling host needs
+            # it, and the operator's own authenticated response is where it can
+            # be trusted from, the same as the install command the UI shows.
+            onboarding_token_public_key: onboarding_token_public_key(),
             bundle_pem: ""
           })
 
@@ -833,6 +837,13 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   # The signed edgepkg token the CLI hands to the agent enroll and bundle
   # download flows, the same one the edge-package LiveView shows after create.
   # nil when this deployment has no onboarding signing key configured.
+  defp onboarding_token_public_key do
+    case Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key) do
+      key when is_binary(key) and key != "" -> key
+      _ -> nil
+    end
+  end
+
   defp signed_onboarding_token(package, download_token) do
     case ServiceRadarWebNG.Edge.encode_onboarding_token(
            package.id,

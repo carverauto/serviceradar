@@ -79,11 +79,13 @@ async function packageCreateCommand(options: Record<string, any>): Promise<void>
   const result = await edgeRequest(session, "POST", "/api/admin/edge-packages", body)
   const pkg = result?.package || {}
   const onboardingToken = onboardingTokenOf(result)
+  const tokenPublicKey = typeof result?.onboarding_token_public_key === "string" ? result.onboarding_token_public_key : ""
 
   if (wantsJson(options)) {
     printJson({
       package: pkg,
       onboarding_token: onboardingToken || null,
+      onboarding_token_public_key: tokenPublicKey || null,
       download_token: result?.download_token ?? null,
       join_token: result?.join_token ?? null,
     })
@@ -105,7 +107,7 @@ async function packageCreateCommand(options: Record<string, any>): Promise<void>
     if ((pkg.component_type || componentType) === "agent") {
       console.log("On the edge host, as root:")
       console.log(
-        `  serviceradar-cli edge install agent --instance ${session.instance} --package ${pkg.package_id} --token '<onboarding token>' --version <release>`,
+        `  serviceradar-cli edge install agent --instance ${session.instance} --package ${pkg.package_id} --token '<onboarding token>' --token-public-key ${tokenPublicKey || "<token public key>"} --version <release>`,
       )
     }
   } else {

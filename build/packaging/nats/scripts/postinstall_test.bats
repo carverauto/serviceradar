@@ -63,3 +63,31 @@ run_postinstall() {
     grep -q 'SERVICERADAR_OTX_PARTITION must match' <<<"$output"
     grep -q '__SERVICERADAR_PARTITION_ID__' "$TEST_ROOT/etc/nats/nats-server.conf"
 }
+
+@test "creates the store and log paths the nats user writes" {
+    write_nats_configs
+
+    run_postinstall
+
+    [ "$status" -eq 0 ]
+    [ -d "$TEST_ROOT/var/lib/nats/jetstream" ]
+    [ -f "$TEST_ROOT/var/log/nats/nats.log" ]
+    [ -f "$TEST_ROOT/var/log/nats/nats-error.log" ]
+    [ "$(stat -c %a "$TEST_ROOT/var/log/nats" 2>/dev/null || stat -f %Lp "$TEST_ROOT/var/log/nats")" = "750" ]
+}
+
+@test "keeps an existing log and refuses a symlinked log path" {
+    write_nats_configs
+    mkdir -p "$TEST_ROOT/var/log/nats"
+    printf 'earlier line\n' >"$TEST_ROOT/var/log/nats/nats.log"
+
+    run_postinstall
+    [ "$status" -eq 0 ]
+    grep -q 'earlier line' "$TEST_ROOT/var/log/nats/nats.log"
+
+    rm "$TEST_ROOT/var/log/nats/nats-error.log"
+    ln -s /dev/null "$TEST_ROOT/var/log/nats/nats-error.log"
+    run_postinstall
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"refusing symlinked /var/log/nats/nats-error.log"* ]]
+}
