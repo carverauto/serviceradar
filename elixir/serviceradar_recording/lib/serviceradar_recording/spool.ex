@@ -334,10 +334,9 @@ defmodule ServiceRadarRecording.Spool do
     do: build_fragment_entry(spool, byte_size(payload), digest(payload), timing)
 
   defp build_fragment_entry(spool, size, sha256, %{start_ns: start, duration_ns: duration} = timing)
-       when is_integer(size) and size > 0 and is_integer(start) and start >= 0 and
-              is_integer(duration) and duration > 0 and
-              start + duration <= 9_223_372_036_854_775_807 do
-    with {:ok, duration_source} <- tail_duration_source(timing),
+       when is_integer(size) and size > 0 do
+    with true <- valid_fragment_timing?(start, duration) || {:error, :invalid_timing},
+         {:ok, duration_source} <- tail_duration_source(timing),
          :ok <- check_capacity(spool, size, duration),
          true <- contiguous?(spool.entries, start) || {:error, :discontinuity} do
       {:ok,
@@ -357,6 +356,12 @@ defmodule ServiceRadarRecording.Spool do
   end
 
   defp build_fragment_entry(_spool, _size, _sha256, _timing), do: {:error, :invalid_timing}
+
+  defp valid_fragment_timing?(start, duration)
+       when is_integer(start) and start >= 0 and is_integer(duration) and duration > 0,
+       do: start + duration <= 9_223_372_036_854_775_807
+
+  defp valid_fragment_timing?(_start, _duration), do: false
 
   defp tail_duration_source(timing) do
     case Map.fetch(timing, :tail_duration_source) do
