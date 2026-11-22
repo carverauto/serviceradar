@@ -161,7 +161,7 @@ gate.
 - [x] D.1 Read listener: `GET /v1/blocks/<id>/init` and `/fragments/<n>` with expected descriptor digest; separate mTLS pin and read token; separate playback read pool (default 8); chart NetworkPolicy from web-ng to the read port.
 
 ### serviceradar_core_elx (parallel)
-- [ ] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
+- [x] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).
 
 ### web-ng
 - [x] D.3 Timeline API: coverage, playlist across blocks (design D2), init and fragment with copy resolution and digest check (design D3), `source` forcing, `X-Recording-Copy`, bounds (design D4); quarantined catalog entries never served; a `quarantined` gap only when that block's camera and its own media interval are known, otherwise the entry is only on the health tab's quarantine list (design R2).

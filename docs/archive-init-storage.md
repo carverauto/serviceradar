@@ -152,38 +152,58 @@ After expiry, status retains the historical `applied_revision` with
 
 `archiveReader.enabled` defaults to false. Enabling it installs the isolated
 reader and its Web client configuration together; it requires `webNg.enabled`,
-a nonempty `archiveReader.revision`, all six Secret references below, and explicit
-`archiveReader.providerEgress.cidrs`. It does not require the upload service to
-be running: historical reads use current archive proofs, independently of
-recording admission or expired upload grants.
+a nonempty `archiveReader.revision`, and explicit
+`archiveReader.providerEgress.cidrs`. `archiveReader.mode` selects either
+`"fixed"` (default, requiring all six Secret references below) or
+`"perRequest"` (for timeline archive playback using per-request CNPG reader
+credentials over mTLS + bearer auth, requiring `archiveReader.providerSecretName`
+to be empty and mounting only the five remaining Secrets). Neither mode requires
+the upload service to be running: historical reads use current archive proofs,
+independently of recording admission or expired upload grants.
 
 | Workload/value | Projected keys | Mount directory |
 | --- | --- | --- |
 | `archiveReader.configSecretName` | `config.json` | `/etc/serviceradar/archive-read-storage/config` |
-| `archiveReader.providerSecretName` | `credentials.json` | `/etc/serviceradar/archive-read-storage/provider` |
+| `archiveReader.providerSecretName` (`fixed` mode only) | `credentials.json` | `/etc/serviceradar/archive-read-storage/provider` |
 | `archiveReader.authSecretName` in reader | `reader-token` as `token` | `/etc/serviceradar/archive-read-storage/auth` |
 | `archiveReader.tlsSecretName` | `tls.crt`, `tls.key`, `ca.crt` | `/etc/serviceradar/archive-read-storage/tls` |
 | `archiveReader.client.configSecretName` in Web | `config.json` | `/etc/serviceradar/archive-reader/config` |
 | `archiveReader.authSecretName` in Web | `reader-token` as `token` | `/etc/serviceradar/archive-reader/auth` |
 | `archiveReader.client.tlsSecretName` in Web | `tls.crt`, `tls.key`, `ca.crt` | `/etc/serviceradar/archive-reader/tls` |
 
-The reader config contains exactly `schema_version: 1`, `binding_id`, the
-original immutable `destination` document, `provider_credentials_file` and
-`listener`. Set the credential path to
+In `"fixed"` mode, the reader config contains `schema_version: 1`, `binding_id`,
+the original immutable `destination` document, `provider_credentials_file`,
+`listener`, and optional `provider_transport` (`"http"` default or
+`"longshore"`). Set the credential path to
 `/etc/serviceradar/archive-read-storage/provider/credentials.json`. That file
 contains `reference`, integer `generation`, `access_key_id` and
-`secret_access_key`. The listener contains `port`, `certfile`, `keyfile`,
-`cacertfile`, `reader_certificate_sha256` and `token_file`; use the reader's
-mounted absolute paths. Its certificate pin is the SHA-256 of the Web client's
-DER certificate, not the server certificate.
+`secret_access_key`. In `"perRequest"` mode, the reader config contains exactly
+`schema_version: 1`, `mode: "per_request"`, and `listener`; the chart injects
+`SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY` (`archiveReader.maxConcurrency`,
+default `8`, range `1..64`), `SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT`
+(`archiveReader.providerTransport`, `"http"` default or `"longshore"`), and
+optionally `SERVICERADAR_ARCHIVE_READER_PORTABLE=true` (`archiveReader.portable`).
+In both modes, `listener` contains `port`, `certfile`, `keyfile`, `cacertfile`,
+`reader_certificate_sha256` and `token_file` using the reader's mounted absolute
+paths; its certificate pin is the SHA-256 of the Web client's DER certificate,
+not the server certificate.
 
-The Web config contains exactly `schema_version: 1`, the same `binding_id`, its
-canonical `destination_sha256` and `storage`. The storage connection contains
-`base_url`, `certfile`, `keyfile`, `cacertfile` and `token_file`, using Web's
-mounted absolute paths. With the default port, its base URL is
-`https://serviceradar-archive-reader:4444`. Web receives no provider credential
-file or provider endpoint. The chart owns `VMS_ARCHIVE_READER_CONFIG` and rejects
-attempts to supply it through `webNg.extraEnv` or `extraEnvValueFrom`.
+In `"fixed"` mode, the Web config contains exactly `schema_version: 1`, the same
+`binding_id`, its canonical `destination_sha256` and `storage`, and the chart
+sets `VMS_ARCHIVE_READER_CONFIG`. In `"perRequest"` mode, the Web config
+contains exactly `schema_version: 1` and `storage` (no static `binding_id` or
+`destination_sha256`), and the chart sets
+`SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG`, which installs
+`ServiceRadarWebNG.CameraTimelineReader.Archive` in `web-ng` runtime
+configuration. In both modes, `storage` contains `base_url`, `certfile`,
+`keyfile`, `cacertfile` and `token_file` using Web's mounted absolute paths
+(`https://serviceradar-archive-reader:4444` with the default port). Web mounts
+no provider credential file; in `"perRequest"` mode it resolves reader-role
+credentials per request from CNPG and sends the exact read plan to
+`POST /v1/timeline-archive-ranges` (whereas `"fixed"` mode uses
+`POST /v1/archive-ranges`). The chart owns both `VMS_ARCHIVE_READER_CONFIG` and
+`SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG` and rejects attempts to supply
+either through `webNg.extraEnv` or `extraEnvValueFrom`.
 
 Use separate reader server and Web client certificates. The server leaf must
 permit server authentication and contain the Service DNS name used by Web; the
@@ -193,7 +213,9 @@ Web share only the reader bearer token, whose file must contain exactly 32 to
 512 bytes without surrounding whitespace or a newline.
 
 The chart rejects using the same Secret name for reader server/client TLS, or
-reusing the configured writer provider, authentication or TLS Secret names.
+reusing the configured writer authentication or TLS Secret names (and writer
+`providerSecretName` in `"fixed"` mode; in `"perRequest"` mode
+`archiveReader.providerSecretName` must be empty).
 Distinct names do not prove distinct credential bytes or read-only IAM rights.
 Infrastructure custody must supply a dedicated read identity restricted to the
 qualified destination and required reads; it must deny writes and other
@@ -212,7 +234,8 @@ Service port or Gateway route is added.
 
 The reader's NetworkPolicy always limits ingress to Web on the reader port,
 and egress to DNS in `kube-system` plus the explicit provider or CONNECT proxy
-CIDRs/port. Set `archiveReader.egressProxy` only when a CONNECT proxy is needed.
+CIDRs/port. Set `archiveReader.egressProxy` only when a CONNECT proxy is needed;
+it is rejected when `archiveReader.providerTransport` is `"longshore"`.
 The chart excludes the reader from its broader Kubernetes and Calico policies,
 including custom match-all selectors. When ordinary Kubernetes network
 isolation is enabled, its existing egress policy gains the reader destination
@@ -225,8 +248,12 @@ enforcement still require inspection.
 Bump `archiveReader.revision` to coordinate reader and Web rollout after changing
 configuration or identity files. The reader loads its installation at startup;
 Web reloads its client configuration on each read request. A rollout is not a
-readiness handshake. The existing single read slot, ten-second deadline, exact
-range/digest checks and final human-authorization/proof check remain unchanged.
+readiness handshake. In `"fixed"` mode, the single read slot, ten-second
+deadline, exact range/digest checks and final human-authorization/proof check
+remain unchanged; in `"perRequest"` mode, concurrent reads are bounded by
+`archiveReader.maxConcurrency` (default `8`, range `1..64`; clamped to `4` for
+`"longshore"`), keeping the ten-second per-request deadline and exact
+range/digest/authorization checks.
 
 This chart wiring does not create a bucket, adopt an allocation, qualify a
 provider, start a recording or publish an archive. Production activation still

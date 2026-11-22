@@ -99,22 +99,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   def handle_info({:DOWN, monitor, :process, _pid, _}, state) do
     case Map.pop(state.by_monitor, monitor) do
       {{:owner, token}, by_monitor} ->
-        case Map.pop(state.slots, token) do
-          {nil, _} ->
-            {:noreply, %{state | by_monitor: by_monitor}}
-
-          {slot, slots} ->
-            by_monitor = stop_socket(slot.socket, by_monitor)
-            Process.cancel_timer(slot.timer)
-            by_owner = Map.delete(state.by_owner, slot.owner)
-            session = slot.longshore_session || Map.get(state.config.provider, :longshore_session)
-
-            next_state =
-              %{state | slots: slots, by_owner: by_owner, by_monitor: by_monitor}
-              |> hold_longshore_drain(slot.token, session)
-
-            {:noreply, next_state}
-        end
+        {:noreply, handle_owner_down(token, by_monitor, state)}
 
       {{:socket, token}, by_monitor} ->
         slots =
@@ -199,6 +184,25 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
       {:reply, {:ok, admitted_config}, %{state | slots: slots, by_owner: by_owner, by_monitor: by_monitor}}
     else
       {:reply, {:error, :archive_read_unavailable}, state}
+    end
+  end
+
+  defp handle_owner_down(token, by_monitor, state) do
+    case Map.pop(state.slots, token) do
+      {nil, _} ->
+        %{state | by_monitor: by_monitor}
+
+      {slot, slots} ->
+        by_monitor = stop_socket(slot.socket, by_monitor)
+        Process.cancel_timer(slot.timer)
+        by_owner = Map.delete(state.by_owner, slot.owner)
+        session = slot.longshore_session || Map.get(state.config.provider, :longshore_session)
+
+        hold_longshore_drain(
+          %{state | slots: slots, by_owner: by_owner, by_monitor: by_monitor},
+          slot.token,
+          session
+        )
     end
   end
 

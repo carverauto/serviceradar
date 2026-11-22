@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
   alias ServiceRadar.Camera.RecordingTimeline.RedactedCredential
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.CameraTimelineReader.Archive
+  alias ServiceRadarWebNG.CameraTimelineReader.NVRLocal
 
   @moduletag :db_free
   @moduletag :tmp_dir
@@ -166,7 +167,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
     configure(ctx, port)
 
     Application.put_env(:serviceradar_web_ng, :camera_timeline_readers,
-      local: ServiceRadarWebNG.CameraTimelineReader.NVRLocal,
+      local: NVRLocal,
       archive: Archive
     )
 
@@ -186,6 +187,32 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
              CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto,
                readers: %{local: fn _plan, _dl -> {:error, :not_found} end, archive: Archive}
              )
+  end
+
+  test "runtime.exs installs Archive timeline reader only when SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG is set" do
+    runtime = Path.expand("../../../config/runtime.exs", __DIR__)
+    prev_env = System.get_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
+
+    on_exit(fn ->
+      if prev_env,
+        do: System.put_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG", prev_env),
+        else: System.delete_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
+    end)
+
+    System.delete_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
+    unset_cfg = runtime |> Config.Reader.read!(env: :test, target: :host) |> Keyword.get(:serviceradar_web_ng, [])
+    refute Keyword.has_key?(unset_cfg, :timeline_archive_reader_config)
+    refute Keyword.has_key?(unset_cfg, :camera_timeline_readers)
+
+    path = "/etc/serviceradar/archive-reader/config/config.json"
+    System.put_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG", path)
+    set_cfg = runtime |> Config.Reader.read!(env: :test, target: :host) |> Keyword.get(:serviceradar_web_ng, [])
+    assert Keyword.get(set_cfg, :timeline_archive_reader_config) == path
+
+    assert Keyword.get(set_cfg, :camera_timeline_readers) == [
+             local: NVRLocal,
+             archive: Archive
+           ]
   end
 
   defp plan(bytes) do

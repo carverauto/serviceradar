@@ -10,7 +10,7 @@ S3 remains optional.
 | --- | --- | --- |
 | Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
 | Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
-| Playback | [Playback read listener](#playback-read-listener) and owner-routed local timeline playback in web-ng | Isolated archive reader (D.2) and end-to-end local-to-archive playback verification |
+| Playback | [Playback read listener](#playback-read-listener), owner-routed local timeline playback in web-ng, and [per-request isolated archive reader](archive-init-storage.md#separate-archive-reader-installation) (D.2) | End-to-end local-to-archive playback verification |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
 
 The listener below closes the network input boundary. It remains disabled by

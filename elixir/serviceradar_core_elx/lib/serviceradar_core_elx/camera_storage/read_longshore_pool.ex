@@ -49,11 +49,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadLongshorePool do
   end
 
   @impl true
-  def handle_call(
-        {:acquire, key, _ls_config, owner_token},
-        {caller_pid, _},
-        %{active: %{key: key} = active} = state
-      ) do
+  def handle_call({:acquire, key, _ls_config, owner_token}, {caller_pid, _}, %{active: %{key: key} = active} = state) do
     lease_ref = Process.monitor(caller_pid)
     active = %{active | callers: Map.put(active.callers, lease_ref, true)}
     by_caller = Map.put(state.by_caller, lease_ref, {:active, owner_token})
@@ -75,11 +71,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadLongshorePool do
     start_active_session(key, ls_config, caller_pid, owner_token, state)
   end
 
-  def handle_call(
-        {:acquire, key, ls_config, owner_token},
-        {caller_pid, _},
-        %{active: active, draining: nil} = state
-      ) do
+  def handle_call({:acquire, key, ls_config, owner_token}, {caller_pid, _}, %{active: active, draining: nil} = state) do
     state = rotate_active_to_draining(active, state)
     start_active_session(key, ls_config, caller_pid, owner_token, state)
   end
