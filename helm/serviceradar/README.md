@@ -589,8 +589,8 @@ dimensions and refuses a mismatched checkpoint.
 `media_worker_model_identity_test.py` fails when core and the chart drift.
 The chart sets `SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED` to match
 `mediaWorker.enabled` and reserves it in `core.extraEnv` and
-`core.extraEnvValueFrom`. Dispatch control requires a core image that reads
-the flag. The core source in this revision does not yet read it.
+`core.extraEnvValueFrom`, controlling whether core relays visual-index jobs and
+subscribes to `CAMERA_MEDIA_RESULTS`.
 
 The chart refuses to render, instead of producing a pod that crash-loops, when:
 
@@ -709,10 +709,11 @@ the worker's `_INBOX.>` publish), HEVC and multi-slice keyframe decoding, the
 NVR analysis-read listener, and a subject detector enabled by an explicit chart
 setting.
 
-With the worker on, core may also publish `media.jobs.visual_index.v1` and
-`media.jobs.visual_index.backfill.v1`, and web-ng may publish
-`media.rpc.visual_text_embed.v1.>`. With it off, the worker identity is refused
-everything and core and web-ng get neither grant. The first upgrade to a chart
+Core may publish `media.jobs.visual_index.v1` and
+`media.jobs.visual_index.backfill.v1` regardless of `mediaWorker.enabled`. With
+the worker on, web-ng may publish `media.rpc.visual_text_embed.v1.>`. With it
+off, the worker identity is refused everything and web-ng does not get the
+text-embed RPC grant. The first upgrade to a chart
 that includes this static user rolls the chart-managed NATS pods even with the
 worker disabled, because their configuration now includes the deny-all entry.
 

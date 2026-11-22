@@ -242,15 +242,14 @@ _INBOX.media-worker
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
-      {{- if $mediaWorkerEnabled }}
-      {{- /* Visual-index jobs for the media worker (Camera.VisualIndexDispatcher),
-           live and backfill, onto the worker's CAMERA_MEDIA_JOBS stream. The
-           results the worker returns on media.results.visual_index.v1 are read
-           through a JetStream consumer, which the API, ACK and inbox grants
-           below already cover. */}}
+      {{- /* Visual index jobs (Camera.VisualIndexDispatcher), relayed from the
+           camera_visual_index_jobs outbox onto CAMERA_MEDIA_JOBS, which the
+           media worker owns. The publish waits for a PubAck, so a missing
+           entry leaves every job pending. Results the worker returns on
+           media.results.visual_index.v1 are read through a JetStream consumer,
+           which the API, ACK and inbox grants below already cover. */}}
       - "media.jobs.visual_index.v1"
       - "media.jobs.visual_index.backfill.v1"
-      {{- end }}
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"

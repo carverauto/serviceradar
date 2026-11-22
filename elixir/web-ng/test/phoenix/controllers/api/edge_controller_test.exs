@@ -193,6 +193,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       result = conn |> post(~p"/api/admin/edge-packages", params) |> json_response(201)
 
       assert "edgepkg-v3:" <> _ = result["onboarding_token"]
+      assert result["onboarding_token_public_key"] == @public_key
 
       assert {:ok, decoded} = ServiceRadarWebNG.Edge.decode_onboarding_token(result["onboarding_token"])
       assert decoded.pkg == result["package"]["package_id"]

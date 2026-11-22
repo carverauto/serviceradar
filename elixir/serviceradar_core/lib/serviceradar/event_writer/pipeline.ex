@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   alias Broadway.Message
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Camera.VisualIndexResultProjector
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.EdgeRecordDeadLetter
   alias ServiceRadar.EventWriter.EdgeRecordDeferredError
@@ -53,6 +54,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.PowerDNS
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
+  alias ServiceRadar.EventWriter.TerminalMessageError
+  alias ServiceRadar.EventWriter.TransientMessageError
   alias ServiceRadar.NATS.PublishDeniedError
   alias ServiceRadar.Otel
   alias ServiceRadar.Otel.Propagation
@@ -191,9 +194,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
     # Retry failed messages until their final JetStream delivery, then terminally
     # ack and emit a dead-letter signal so operators see poison messages before
-    # the server discards them at max_deliver. An edge record is instead copied to
-    # its dead-letter stream at its threshold, and acknowledged only once the copy
-    # is stored (EdgeRecordDeadLetter).
+    # the server discards them at max_deliver. A message its processor marked
+    # terminal (TerminalMessageError) is handled so on the delivery that failed, and
+    # one it marked transient (TransientMessageError) is retried with backoff. An
+    # edge record is instead copied to its dead-letter stream at its threshold, and
+    # acknowledged only once the copy is stored (EdgeRecordDeadLetter).
     Enum.each(failed, &ack_failed_message/1)
 
     :ok
@@ -452,11 +457,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
                  @transient_log_interval_ms
                ) do
             {:log, suppressed} ->
-              {:warning, "Batch holds edge records that failed transiently; redelivering them",
+              {:warning, "Batch holds records that failed transiently; redelivering them",
                [suppressed_batches: suppressed]}
 
             :suppress ->
-              {:debug, "Batch holds edge records that failed transiently; redelivering them", []}
+              {:debug, "Batch holds records that failed transiently; redelivering them", []}
           end
 
         :error ->
@@ -475,7 +480,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     level
   end
 
-  defp batch_failure_level(%EdgeRecordTransientError{}), do: :transient
+  defp batch_failure_level(%struct{})
+       when struct in [EdgeRecordTransientError, TransientMessageError], do: :transient
 
   defp batch_failure_level(%struct{})
        when struct in [PublishDeniedError, EdgeRecordRefusedError, EdgeRecordDeferredError],
@@ -510,6 +516,13 @@ defmodule ServiceRadar.EventWriter.Pipeline do
           match?(%{status: {:failed, %EdgeRecordTransientError{}}}, message) ->
             {:debug, "Edge record failed transiently; redelivering it"}
 
+          transient_failure?(message) ->
+            {:debug, "Message failed transiently; redelivering it"}
+
+          # Its dead letter is logged as an error (`emit_dead_letter/1`).
+          terminal_failure?(message) ->
+            {:debug, "Message can never be stored; terminating it"}
+
           true ->
             {:warning, "Message failed"}
         end
@@ -533,11 +546,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       EdgeRecordDeadLetter.applies?(message) ->
         ack_failed_edge_record(message)
 
-      JetStreamAck.final_delivery?(message) ->
+      terminal_failure?(message) or JetStreamAck.final_delivery?(message) ->
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      edge_record_message?(message) ->
+      edge_record_message?(message) or transient_failure?(message) ->
         ack_message(message, {:nack, backoff_ms(message)})
 
       true ->
@@ -547,6 +560,12 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp deferred?(%{status: {:failed, %EdgeRecordDeferredError{}}}), do: true
   defp deferred?(_), do: false
+
+  defp terminal_failure?(%{status: {:failed, %TerminalMessageError{}}}), do: true
+  defp terminal_failure?(_message), do: false
+
+  defp transient_failure?(%{status: {:failed, %TransientMessageError{}}}), do: true
+  defp transient_failure?(_message), do: false
 
   defp recovery_message?(%{metadata: %{subject: "telemetry.edge-record-recovery.v1"}}), do: true
   defp recovery_message?(_), do: false
@@ -819,6 +838,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:k8s_inventory, &k8s_inventory_subject?/1},
       {:scan_results, &scan_results_subject?/1},
       {:mtr_results, &mtr_results_subject?/1},
+      {:camera_visual_index_results, &(&1 == VisualIndexResultProjector.result_subject())},
       {:availability_transitions, &String.starts_with?(&1, "availability.transitions.")},
       {:rum_beacons, &String.starts_with?(&1, "rum.beacons.")},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
@@ -930,6 +950,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:k8s_nodes), do: ServiceRadar.EventWriter.Processors.K8sNodes
   defp get_processor(:scan_results), do: ServiceRadar.EventWriter.Processors.AdhocScan
   defp get_processor(:mtr_results), do: ServiceRadar.EventWriter.Processors.Mtr
+
+  defp get_processor(:camera_visual_index_results),
+    do: ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+
   defp get_processor(:rum_beacons), do: ServiceRadar.EventWriter.Processors.RumBeacons
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals

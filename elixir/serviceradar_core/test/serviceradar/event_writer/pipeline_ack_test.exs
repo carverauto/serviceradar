@@ -9,7 +9,10 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.EdgeRecordRefusedError
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AdhocScan
+  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
   alias ServiceRadar.EventWriter.Processors.Mtr
+  alias ServiceRadar.EventWriter.TerminalMessageError
+  alias ServiceRadar.EventWriter.TransientMessageError
   alias ServiceRadar.NATS.PublishDeniedError
 
   @moduletag :db_free
@@ -208,6 +211,76 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     assert_receive :nacked
     refute_receive :termed, 50
+  end
+
+  test "a failure the processor marked terminal is terminated as a dead letter on its first delivery" do
+    parent = self()
+    handler_id = "pipeline-terminal-failure-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :dead_letter],
+      fn _event, measurements, metadata, _config ->
+        send(parent, {:dead_letter, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    message =
+      visual_index_result_failure(
+        %TerminalMessageError{reason: :descriptor_sha256_mismatch},
+        1,
+        parent
+      )
+
+    assert :ok == Pipeline.ack(:ack_ref, [], [message])
+
+    assert_receive {:ack_action, :term}
+    refute_receive {:ack_action, _}, 50
+
+    assert_receive {:dead_letter, %{delivery_count: 1, max_deliver: 10},
+                    %{reason_class: "descriptor_sha256_mismatch"}}
+  end
+
+  test "a failure the processor marked transient is NAKed with backoff" do
+    parent = self()
+
+    message =
+      visual_index_result_failure(%TransientMessageError{reason: :db_unavailable}, 2, parent)
+
+    assert :ok == Pipeline.ack(:ack_ref, [], [message])
+
+    assert_receive {:ack_action, {:nack, 20_000}}
+    refute_receive {:ack_action, _}, 50
+  end
+
+  defp visual_index_result_failure(reason, delivery_count, parent) do
+    Message.failed(
+      %Message{
+        data: "",
+        metadata: %{
+          subject: "media.results.visual_index.v1",
+          reply_to: "$JS.ACK.CAMERA_MEDIA_RESULTS.consumer.#{delivery_count}.9.8.0.0",
+          jetstream_ack: %{
+            stream: "CAMERA_MEDIA_RESULTS",
+            consumer: "consumer",
+            delivery_count: delivery_count
+          },
+          max_deliver: 10
+        },
+        acknowledger:
+          {Pipeline, :ack_ref,
+           %{
+             ack_fun: fn action ->
+               send(parent, {:ack_action, action})
+               :ok
+             end
+           }}
+      },
+      reason
+    )
   end
 
   describe "edge-record dead-letter" do
@@ -546,7 +619,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     end
   end
 
-  test "routes MTR and ad-hoc scan results to their own batchers" do
+  test "routes MTR, ad-hoc scan and visual index results to their own batchers" do
     config = %Config{
       enabled: true,
       nats: %{},
@@ -558,7 +631,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     routes = [
       {"mtr.results.ingest", :mtr_results, Mtr},
-      {"scans.results.run01", :scan_results, AdhocScan}
+      {"scans.results.run01", :scan_results, AdhocScan},
+      {"media.results.visual_index.v1", :camera_visual_index_results, CameraVisualIndexResults}
     ]
 
     for {subject, batcher, processor} <- routes do

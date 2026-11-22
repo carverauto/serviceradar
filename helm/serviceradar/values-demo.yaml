@@ -1189,6 +1189,11 @@ flowCollector:
         protocol: TCP
 
 certs:
+  # The demo Secret was reissued once at layout 7 to put the leaf host name on
+  # the broker certificate, before the generator learned to reissue a single
+  # certificate for a new name. Keep this until the chart default reaches 7:
+  # a lower value here would reissue every runtime certificate again.
+  runtimeLayoutVersion: "7"
   regenerator:
     # Leave disabled in demo so pre-upgrade cert preservation is stable and
     # upgrades do not rotate the runtime CA unexpectedly.
@@ -1237,8 +1242,22 @@ bmpCollector:
       metallb.universe.tf/address-pool: k3s-lan-pool
     loadBalancerIP: "192.168.6.92"
     externalTrafficPolicy: Local
+# The name edge leaf servers on the LAN dial. It is added to the broker
+# certificate and given to web-ng as the leaf upstream address. The LAN-only
+# LoadBalancer behind it lives in carverauto/gitops
+# (clusters/tonka01/demo-edge-leaf).
+hostedRuntime:
+  publicEndpoints:
+    natsLeafHost: nats-leaf-demo.serviceradar.cloud
+
 nats:
   replicas: 3
+  # Edge leaf servers connect here; the listener exists only with certificate
+  # authorization on.
+  leafnodes:
+    enabled: true
+  certificateAuthorization:
+    enabled: true
   jetstream:
     maxMemoryStore: 1G
     # maxFileStore is pinned: the small profile default rose to 36G but the

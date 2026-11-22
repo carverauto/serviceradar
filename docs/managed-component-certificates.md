@@ -58,8 +58,11 @@ the details view shows the renewal state and error separately. A blocked compone
 shows `revoked`, and re-enrollment shows `pending` until a new operation starts.
 An older enrollment's receipt cannot mark the new enrollment installed. Lists,
 details, and status filters use this same state and refresh every ten seconds.
-Unmanaged deployments retain their existing provisioning status. Use Service
-Certificates for managed rotation, revocation, and re-enrollment.
+Unmanaged deployments retain their existing provisioning status. The edge sites
+API (`/api/admin/edge-sites`) exposes this same `deployment_status` and `managed`
+distinction for `serviceradar-cli edge site list`, `edge site show`, and
+`edge install leaf` (falling back to raw site and leaf fields on older instances).
+Use Service Certificates for managed rotation, revocation, and re-enrollment.
 
 Core persists the operation before sending commands. Lost replies reuse the same
 preparation request, and the agent returns its durable CSR/installation receipt.

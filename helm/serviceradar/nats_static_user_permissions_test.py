@@ -147,6 +147,14 @@ class OpenIdentityTest(unittest.TestCase):
                         self.assertFalse(may(users[subject_dn], direction, subject))
 
 
+class VisualIndexJobPermissionsTest(unittest.TestCase):
+    def test_core_may_publish_live_and_backfill_jobs(self):
+        users = {user["user"].split(",")[0]: user for user in render_static_users()}
+        for subject in ("media.jobs.visual_index.v1", "media.jobs.visual_index.backfill.v1"):
+            with self.subTest(subject=subject):
+                self.assertTrue(may_publish(users["CN=serviceradar-core"], subject))
+
+
 class NormalizedLogSubjectTest(unittest.TestCase):
     def test_only_the_log_collector_may_publish_normalized_logs(self):
         for rendering, values in RENDERINGS.items():
@@ -291,7 +299,7 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             with self.subTest(subscribe=subject):
                 self.assertFalse(may(worker, "subscribe", subject))
 
-    def test_core_dispatches_and_web_ng_searches_only_while_the_worker_is_on(self):
+    def test_core_dispatches_jobs_and_web_ng_searches_only_while_the_worker_is_on(self):
         for rendering, users, expected in (
             ("enabled", self.enabled, True),
             ("disabled", self.disabled, False),
@@ -300,7 +308,7 @@ class MediaWorkerPermissionsTest(unittest.TestCase):
             web = users[WEB_NG]
             for subject in (LIVE_JOBS, BACKFILL_JOBS):
                 with self.subTest(rendering=rendering, core=subject):
-                    self.assertEqual(may_publish(core, subject), expected)
+                    self.assertTrue(may_publish(core, subject))
             with self.subTest(rendering=rendering, web=TEXT_EMBED_REQUEST):
                 self.assertEqual(may_publish(web, TEXT_EMBED_REQUEST), expected)
         self.assertFalse(may_publish(self.enabled[WEB_NG], LIVE_JOBS))

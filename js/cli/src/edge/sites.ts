@@ -65,7 +65,7 @@ async function siteListCommand(options: Record<string, any>): Promise<void> {
     {header: "ID", value: (s) => s.id},
     {header: "NAME", value: (s) => s.name},
     {header: "SLUG", value: (s) => s.slug},
-    {header: "STATUS", value: (s) => s.status},
+    {header: "STATUS", value: (s) => deploymentStatus(s)},
     {header: "LEAF", value: (s) => leafStatus(s)},
     {header: "CREATED", value: (s) => s.inserted_at},
   ], "No edge sites.")
@@ -82,7 +82,7 @@ async function siteShowCommand(options: Record<string, any>): Promise<void> {
   printRecord(`Edge site ${site?.id}`, [
     ["name", site?.name],
     ["slug", site?.slug],
-    ["status", site?.status],
+    ["status", deploymentStatus(site)],
     ["leaf status", leafStatus(site)],
     ["leaf upstream", site?.leaf_server?.upstream_url],
     ["leaf listen", site?.leaf_server?.local_listen],
@@ -163,7 +163,21 @@ function unwrap(payload: any): any {
   return payload && typeof payload === "object" && payload.data && !Array.isArray(payload.data) ? payload.data : payload
 }
 
-function leafStatus(site: any): string {
+/**
+ * The site status shown in the Edge Sites page's Deployment column
+ * (`deployment_status`), falling back to the raw site status on instances that
+ * do not return it.
+ */
+export function deploymentStatus(site: any): string {
+  return site?.deployment_status || site?.status || ""
+}
+
+// Matches the Edge Sites page's NATS Leaf column: managed sites show their
+// deployment status, while unmanaged sites show the leaf record's own status.
+export function leafStatus(site: any): string {
+  if (site?.managed === true && site?.deployment_status) {
+    return site.deployment_status
+  }
   return site?.leaf_server?.status || (site?.leaf_server === null ? "pending" : "")
 }
 

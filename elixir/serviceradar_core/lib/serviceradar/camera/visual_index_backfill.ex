@@ -54,9 +54,15 @@ defmodule ServiceRadar.Camera.VisualIndexBackfill do
       existing_jobs = load_existing_jobs_map(entries, filter_spec.model_cfg)
 
       summary =
-        Enum.reduce(
+        Enum.reduce_while(
           entries,
-          %{scanned_count: 0, enqueued_count: 0, skipped_existing_count: 0, job_ids: []},
+          %{
+            scanned_count: 0,
+            enqueued_count: 0,
+            skipped_existing_count: 0,
+            job_ids: [],
+            next_cursor_id: nil
+          },
           fn entry, acc ->
             process_backfill_entry(
               entry,
@@ -70,21 +76,16 @@ defmodule ServiceRadar.Camera.VisualIndexBackfill do
           end
         )
 
-      next_cursor =
-        case List.last(entries) do
-          %RecordingCatalogEntry{id: last_id} -> to_string(last_id)
-          _ -> nil
-        end
-
-      {:ok,
-       %{
-         scanned_count: summary.scanned_count,
-         enqueued_count: summary.enqueued_count,
-         skipped_existing_count: summary.skipped_existing_count,
-         job_ids: Enum.reverse(summary.job_ids),
-         next_cursor_id: if(length(entries) == filter_spec.limit, do: next_cursor)
-       }}
+      backfill_summary(summary, entries, filter_spec.limit)
     end
+  end
+
+  defp backfill_summary({:error, _} = error, _entries, _limit), do: error
+
+  defp backfill_summary(summary, entries, limit) do
+    next_cursor = if length(entries) == limit, do: to_string(List.last(entries).id)
+
+    {:ok, %{summary | job_ids: Enum.reverse(summary.job_ids), next_cursor_id: next_cursor}}
   end
 
   @doc """
@@ -146,11 +147,11 @@ defmodule ServiceRadar.Camera.VisualIndexBackfill do
 
     cond do
       not RecordingCatalogEntry.playable?(entry) ->
-        acc
+        {:cont, acc}
 
       not filter_spec.force? and not is_nil(existing) and
           existing.state in [:pending, :dispatched, :completed] ->
-        %{acc | skipped_existing_count: acc.skipped_existing_count + 1}
+        {:cont, %{acc | skipped_existing_count: acc.skipped_existing_count + 1}}
 
       true ->
         enqueue_entry_backfill_job(entry, blocks_by_id, policies_by_pair, filter_spec, opts, acc)
@@ -190,7 +191,7 @@ defmodule ServiceRadar.Camera.VisualIndexBackfill do
       end
 
     if sampled == [] do
-      acc
+      {:cont, acc}
     else
       persist_and_maybe_dispatch_backfill(entry, sampled, filter_spec, opts, acc)
     end
@@ -220,18 +221,27 @@ defmodule ServiceRadar.Camera.VisualIndexBackfill do
          |> Ash.Changeset.for_create(:enqueue, job_attrs)
          |> Ash.create(actor: @system_actor) do
       {:ok, %VisualIndexJob{} = job} ->
-        if filter_spec.dispatch_immediately? do
-          _ = VisualIndexDispatcher.dispatch_job(job, opts)
-        end
-
-        %{
+        enqueued = %{
           acc
           | enqueued_count: acc.enqueued_count + 1,
             job_ids: [to_string(job.id) | acc.job_ids]
         }
 
+        maybe_dispatch_backfill(filter_spec.dispatch_immediately?, job, opts, enqueued)
+
       {:error, _} ->
-        acc
+        {:cont, acc}
+    end
+  end
+
+  defp maybe_dispatch_backfill(false, _job, _opts, enqueued), do: {:cont, enqueued}
+
+  defp maybe_dispatch_backfill(true, job, opts, enqueued) do
+    case VisualIndexDispatcher.dispatch_job(job, opts) do
+      {:ok, _} -> {:cont, enqueued}
+      {:error, :dispatch_superseded} -> {:cont, enqueued}
+      {:error, {:publish_failed, _}} -> {:cont, enqueued}
+      {:error, _} = error -> {:halt, error}
     end
   end
 
