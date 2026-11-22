@@ -157,8 +157,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(all_doc, "#camera-clips-total-badge") == "106"
     assert text_of(all_doc, "#camera-clips-category-count-all") == "106"
     assert text_of(all_doc, "#camera-clips-category-count-person") == "1"
-    assert has_selector?(all_doc, "#camera-clips-display-cap-note")
-    assert Enum.count(LazyHTML.query(all_doc, "#camera-clips-grid [data-role='event-clip-card']")) == 100
+    assert text_of(all_doc, "#camera-clips-page-indicator") == "Page 1 / 9"
+    assert Enum.count(LazyHTML.query(all_doc, "#camera-clips-grid [data-role='event-clip-card']")) == 12
 
     person_doc =
       %{timeline_event_clips: clips, timeline_clips_category: "person"}
@@ -166,8 +166,56 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
       |> render_recordings_doc()
 
     assert text_of(person_doc, "#camera-clips-total-badge") == "1"
-    refute has_selector?(person_doc, "#camera-clips-display-cap-note")
+    assert text_of(person_doc, "#camera-clips-page-indicator") == "Page 1 / 1"
     assert has_selector?(person_doc, "#camera-clip-card-evt-old-person")
+  end
+
+  test "renders 3-pane scalable workspace with camera switcher, vertical timeline scrubber, transport controls, and manage drawer" do
+    cam_2 = %{
+      id: "22222222-2222-4222-8222-222222222222",
+      display_name: "Synthetic North Gate",
+      vendor: "unifi",
+      vendor_camera_id: "cam-north",
+      availability_status: "online",
+      metadata: %{"site" => "lab-a"}
+    }
+
+    doc =
+      %{
+        switcher_cameras: [cam_2],
+        switcher_total_count: 42,
+        switcher_page: 1,
+        switcher_total_pages: 3,
+        switcher_recording_ids: MapSet.new([cam_2.id]),
+        timeline_manage_drawer_open?: true,
+        timeline_playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2"
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    # Left rail: scalable camera switcher
+    assert has_selector?(doc, "#camera-switcher-rail")
+    assert has_selector?(doc, "#camera-switcher-search[phx-debounce='250']")
+    assert has_selector?(doc, "#camera-switcher-active")
+    assert has_selector?(doc, "#camera-switcher-item-#{cam_2.id}")
+    assert text_of(doc, "#camera-switcher-total") == "42"
+    assert text_of(doc, "#camera-switcher-page") == "1/3"
+
+    # Middle rail: vertical timeline scrubber with LIVE button, zoom +/-, and hook
+    assert has_selector?(doc, "#camera-timeline-live-button")
+    assert has_selector?(doc, "#camera-timeline-zoom-in")
+    assert has_selector?(doc, "#camera-timeline-zoom-out")
+    assert has_selector?(doc, "#camera-timeline-span-15m")
+    assert has_selector?(doc, "#camera-timeline-coverage-bar[phx-hook='CameraVerticalTimeline']")
+
+    # Main stage: compact transport controls + Manage/Holds drawer
+    assert has_selector?(doc, "#camera-timeline-back-10[data-role='transport-back-10']")
+    assert has_selector?(doc, "#camera-timeline-play-pause[data-role='transport-play-pause']")
+    assert has_selector?(doc, "#camera-timeline-fwd-10[data-role='transport-fwd-10']")
+    assert has_selector?(doc, "#camera-timeline-mute[data-role='transport-mute']")
+    assert has_selector?(doc, "#camera-timeline-fullscreen[data-role='transport-fullscreen']")
+    assert has_selector?(doc, "#camera-timeline-manage-drawer-toggle")
+    assert attr_of(doc, "#camera-timeline-manage-drawer", "aria-hidden") == ["false"]
   end
 
   test "clears clip card highlight when selected clip id is cleared and playback window moves elsewhere" do

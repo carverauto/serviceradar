@@ -380,11 +380,18 @@ const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 15
 export default {
   mounted() {
     this.video = this.el.querySelector("[data-role='timeline-video']")
+    this.videoContainer = this.el.querySelector("[data-role='timeline-video-container']")
     this.status = this.el.querySelector("[data-role='timeline-status']")
     this.retry = this.el.querySelector("[data-role='timeline-retry']")
     this.copyBadge = this.el.querySelector("[data-role='served-copy-badge']")
     this.overlay = this.el.querySelector("[data-role='semantic-bbox-overlay']")
     this.overlayToggle = this.el.querySelector("[data-role='toggle-bbox-overlay']")
+    this.btnBack10 = this.el.querySelector("[data-role='transport-back-10']")
+    this.btnPlayPause = this.el.querySelector("[data-role='transport-play-pause']")
+    this.btnFwd10 = this.el.querySelector("[data-role='transport-fwd-10']")
+    this.btnMute = this.el.querySelector("[data-role='transport-mute']")
+    this.btnFullscreen = this.el.querySelector("[data-role='transport-fullscreen']")
+    this.timeDisplay = this.el.querySelector("[data-role='transport-current-time']")
     this.listeners = new AbortController()
     this.advancingWindow = false
     this.overlayEnabled = true
@@ -396,6 +403,11 @@ export default {
     const options = {signal: this.listeners.signal}
     this.retry?.addEventListener("click", () => this.start(), options)
     this.overlayToggle?.addEventListener("click", () => this.toggleOverlay(), options)
+    this.btnBack10?.addEventListener("click", () => this.stepSeconds(-10), options)
+    this.btnPlayPause?.addEventListener("click", () => this.togglePlayPause(), options)
+    this.btnFwd10?.addEventListener("click", () => this.stepSeconds(10), options)
+    this.btnMute?.addEventListener("click", () => this.toggleMute(), options)
+    this.btnFullscreen?.addEventListener("click", () => this.toggleFullscreen(), options)
 
     this.video?.addEventListener(
       "loadedmetadata",
@@ -418,6 +430,7 @@ export default {
       "playing",
       () => {
         this.report("Playing")
+        this.syncTransportControls()
         this.renderOverlay()
       },
       options
@@ -427,6 +440,7 @@ export default {
       "seeked",
       () => {
         this.report(this.video.paused ? "Paused" : "Playing")
+        this.syncTransportControls()
         this.maybeAdvanceWindow()
         this.renderOverlay()
       },
@@ -435,6 +449,7 @@ export default {
     this.video?.addEventListener(
       "timeupdate",
       () => {
+        this.syncTransportControls()
         this.maybeAdvanceWindow()
         this.renderOverlay()
       },
@@ -444,7 +459,15 @@ export default {
       "pause",
       () => {
         if (this.player) this.report("Paused")
+        this.syncTransportControls()
         this.renderOverlay()
+      },
+      options
+    )
+    this.video?.addEventListener(
+      "volumechange",
+      () => {
+        this.syncTransportControls()
       },
       options
     )
@@ -474,6 +497,7 @@ export default {
 
     this.syncOverlayDataset()
     this.syncOverlayToggleButton()
+    this.syncTransportControls()
     this.start()
   },
 
@@ -616,6 +640,68 @@ export default {
     this.overlayEnabled = !this.overlayEnabled
     this.syncOverlayToggleButton()
     this.renderOverlay()
+  },
+
+  stepSeconds(delta) {
+    if (!this.video) return
+    const current = Number(this.video.currentTime) || 0
+    const duration = Number(this.video.duration)
+    const target = Math.max(0, current + delta)
+    this.video.currentTime = Number.isFinite(duration) && duration > 0 ? Math.min(target, duration) : target
+    this.syncTransportControls()
+  },
+
+  togglePlayPause() {
+    if (!this.video) return
+    if (this.video.paused) {
+      this.video.play?.()?.catch?.(() => {})
+    } else {
+      this.video.pause?.()
+    }
+    this.syncTransportControls()
+  },
+
+  toggleMute() {
+    if (!this.video) return
+    this.video.muted = !this.video.muted
+    this.syncTransportControls()
+  },
+
+  toggleFullscreen() {
+    const target = this.videoContainer || this.video
+    if (!target) return
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen?.()?.catch?.(() => {})
+    } else {
+      target.requestFullscreen?.()?.catch?.(() => {})
+    }
+  },
+
+  syncTransportControls() {
+    if (!this.video) return
+
+    if (this.btnPlayPause) {
+      const playing = !this.video.paused
+      this.btnPlayPause.setAttribute?.("aria-pressed", String(playing))
+      this.btnPlayPause.textContent = playing ? "Pause" : "Play"
+    }
+
+    if (this.btnMute) {
+      const muted = Boolean(this.video.muted)
+      this.btnMute.setAttribute?.("aria-pressed", String(muted))
+      this.btnMute.textContent = muted ? "Unmute" : "Mute"
+    }
+
+    if (this.timeDisplay) {
+      const cur = Math.max(0, Math.floor(Number(this.video.currentTime) || 0))
+      const dur = Number.isFinite(this.video.duration) && this.video.duration > 0 ? Math.floor(this.video.duration) : 0
+      const fmt = sec => {
+        const m = Math.floor(sec / 60)
+        const s = sec % 60
+        return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      }
+      this.timeDisplay.textContent = dur > 0 ? `${fmt(cur)} / ${fmt(dur)}` : fmt(cur)
+    }
   },
 
   syncOverlayDataset() {

@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         list_relay_profiles: fn _, _ -> flunk("disconnected mount/params must not list profiles") end,
         list_holds: fn _, _ -> flunk("disconnected mount/params must not list holds") end,
         list_event_clips: fn _, _, _ -> flunk("disconnected mount/params must not list clips") end,
+        list_cameras: fn _, _ -> flunk("disconnected mount/params must not list cameras") end,
         subscribe: fn _ -> flunk("disconnected mount/params must not subscribe to PubSub") end,
         unsubscribe: fn _ -> flunk("disconnected mount/params must not unsubscribe from PubSub") end
       }
@@ -1125,6 +1126,190 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
     loaded
   end
 
+  describe "3-pane workspace interactions (vertical seek, zoom, switcher, clips pagination, manage drawer)" do
+    test "seek_timeline_fraction maps vertical fraction (0.0 newest -> 1.0 oldest) to exact timestamp and seek offset" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      # 0.25 from top = 25% older than to_us = to_us - 15 minutes
+      {:noreply, sought} =
+        Recordings.handle_event("seek_timeline_fraction", %{"fraction" => 0.25}, socket)
+
+      expected_ts = round(to_us - 0.25 * @hour_us)
+      assert sought.assigns.timeline_seek_us == expected_ts
+      assert sought.assigns.timeline_user_selected_window? == true
+      assert_in_delta sought.assigns.timeline_seek_offset_seconds, 2700.0, 0.5
+    end
+
+    test "zoom_timeline_span steps through 15m/1h/6h/24h/7d and resets clip pagination" do
+      socket =
+        @camera_id
+        |> mount_connected(stub_deps(%{}), refresh_interval_ms: 0, debounce_ms: 0)
+        |> assign(:timeline_clips_page, 3)
+
+      on_exit(fn -> cancel_timers(socket) end)
+
+      {:noreply, zoomed_in} = Recordings.handle_event("zoom_timeline_span", %{"direction" => "in"}, socket)
+      assert zoomed_in.assigns.timeline_span == "15m"
+      assert zoomed_in.assigns.timeline_clips_page == 1
+
+      {:noreply, zoomed_out} = Recordings.handle_event("zoom_timeline_span", %{"direction" => "out"}, zoomed_in)
+      assert zoomed_out.assigns.timeline_span == "1h"
+
+      {:noreply, zoomed_out_2} = Recordings.handle_event("zoom_timeline_span", %{"direction" => "out"}, zoomed_out)
+      assert zoomed_out_2.assigns.timeline_span == "6h"
+    end
+
+    test "paginates event clips server-side and resets to page 1 on filter changes" do
+      parent = self()
+
+      all_clips =
+        for idx <- 1..25 do
+          start_us = @base_now_us - idx * 60_000_000
+          sample_clip("clip-#{idx}", start_us, start_us + 10_000_000)
+        end
+
+      deps =
+        stub_deps(%{
+          list_event_clips: fn _source_id, params, _scope ->
+            send(parent, {:clips_queried, params.page, params.per_page, params.mode, params.category})
+            {:ok, %{clips: all_clips}}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert_receive {:clips_queried, 1, 12, "all", "all"}
+      assert length(socket.assigns.timeline_event_clips) == 12
+      assert socket.assigns.timeline_clips_total_count == 25
+      assert socket.assigns.timeline_clips_total_pages == 3
+      assert socket.assigns.timeline_clips_page == 1
+
+      {:noreply, page2} = Recordings.handle_event("paginate_event_clips", %{"page" => "2"}, socket)
+      assert_receive {:clips_queried, 2, 12, "all", "all"}
+      assert page2.assigns.timeline_clips_page == 2
+      assert length(page2.assigns.timeline_event_clips) == 12
+
+      {:noreply, page3} = Recordings.handle_event("paginate_event_clips", %{"page" => "3"}, page2)
+      assert_receive {:clips_queried, 3, 12, "all", "all"}
+      assert page3.assigns.timeline_clips_page == 3
+      assert length(page3.assigns.timeline_event_clips) == 1
+
+      # Switching filter resets page back to 1
+      {:noreply, filtered} = Recordings.handle_event("filter_event_clips_mode", %{"mode" => "smart"}, page3)
+      assert_receive {:clips_queried, 1, 12, "smart", "all"}
+      assert filtered.assigns.timeline_clips_page == 1
+    end
+
+    test "camera switcher supports debounced search, status filter, and bounded pagination, and manage drawer toggles cleanly" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          list_cameras: fn _scope, opts ->
+            send(parent, {:cameras_queried, opts.search, opts.filter, opts.page, opts.per_page})
+
+            {:ok,
+             %{
+               cameras: [synthetic_source(@other_camera_id)],
+               recording_ids: MapSet.new([@other_camera_id]),
+               total_count: 45,
+               page: opts.page,
+               per_page: opts.per_page,
+               total_pages: 3
+             }}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert_receive {:cameras_queried, "", "all", 1, 20}
+      assert socket.assigns.switcher_total_count == 45
+      assert socket.assigns.switcher_total_pages == 3
+
+      {:noreply, searched} = Recordings.handle_event("switcher_search", %{"search" => "gate"}, socket)
+      assert_receive {:cameras_queried, "gate", "all", 1, 20}
+      assert searched.assigns.switcher_search == "gate"
+
+      {:noreply, filtered} = Recordings.handle_event("switcher_filter", %{"filter" => "recording"}, searched)
+      assert_receive {:cameras_queried, "gate", "recording", 1, 20}
+      assert filtered.assigns.switcher_filter == "recording"
+
+      {:noreply, page2} = Recordings.handle_event("switcher_paginate", %{"page" => "2"}, filtered)
+      assert_receive {:cameras_queried, "gate", "recording", 2, 20}
+      assert page2.assigns.switcher_page == 2
+
+      {:noreply, opened} = Recordings.handle_event("toggle_manage_drawer", %{}, page2)
+      assert opened.assigns.timeline_manage_drawer_open? == true
+
+      {:noreply, closed} = Recordings.handle_event("close_manage_drawer", %{}, opened)
+      assert closed.assigns.timeline_manage_drawer_open? == false
+    end
+
+    test "select_event_clip uses exact [start_us, end_us] for :recording segments and pads smart/motion detections" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+
+      rec_start = from_us + 600_000_000
+      rec_end = rec_start + 110_000_000
+
+      recording_clip =
+        "rec-seg-exact"
+        |> sample_clip(rec_start, rec_end)
+        |> Map.merge(%{
+          category: :recording,
+          smart_type: :basic,
+          label: "Recording",
+          peak_ts_us: rec_start
+        })
+
+      det_start = from_us + 1_200_000_000
+      det_end = det_start + 4_000_000
+      person_clip = sample_clip("evt-person-pad", det_start, det_end)
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn _source_id, _params, _scope ->
+            {:ok, %{clips: [recording_clip, person_clip]}}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      # Recording segment opens exact [start_us, end_us] without pre/post-roll padding
+      {:noreply, rec_selected} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-exact"}, socket)
+
+      assert rec_selected.assigns.timeline_play_from_us == rec_start
+      assert rec_selected.assigns.timeline_play_to_us == rec_end
+
+      # Smart detection clip retains 5s pre-roll and 10s post-roll context padding
+      {:noreply, det_selected} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-person-pad"}, socket)
+
+      assert det_selected.assigns.timeline_play_from_us == det_start - 5_000_000
+      assert det_selected.assigns.timeline_play_to_us == det_end + 10_000_000
+    end
+  end
+
   defp base_socket(opts) do
     connected? = Keyword.get(opts, :connected?, false)
 
@@ -1161,6 +1346,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         list_relay_profiles: fn _scope, _source_id -> [] end,
         list_holds: fn _source_id, _scope -> {:ok, []} end,
         list_event_clips: fn _source_id, _params, _scope -> {:ok, %{clips: []}} end,
+        list_cameras: fn _scope, _opts ->
+          {:ok,
+           %{
+             cameras: [],
+             recording_ids: MapSet.new(),
+             total_count: 0,
+             page: 1,
+             per_page: 20,
+             total_pages: 1
+           }}
+        end,
         subscribe: &RecordingPubSub.subscribe/1,
         unsubscribe: &RecordingPubSub.unsubscribe/1,
         now_us: fn -> @base_now_us end
