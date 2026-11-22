@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Repo
@@ -430,6 +431,70 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     archive_only_view |> element("#camera-timeline-refresh") |> render_click()
     assert playlist_query_source(player_playlist_path(archive_only_view)) == "auto"
     refute has_element?(archive_only_view, "#camera-timeline-archive-only")
+  end
+
+  test "renders event clip strip with detection & recorded fallback cards, filters by mode/category, and jumps playback on clip click",
+       %{viewer: viewer, actor: actor} do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    ctx = seed_rich_timeline_camera(actor, now)
+
+    entry = ctx.local_and_archived_entry
+
+    {:ok, person_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          fragment_sequence: 0,
+          media_pts_ns: entry.media_start_ns + 1_000_000_000,
+          timeline_ts_us: entry.timeline_start_us + 1_000_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "synthetic-detector",
+          detector_model_version: "v1",
+          detections: [
+            %{
+              "object_class" => "person",
+              "confidence" => 0.92,
+              "bbox" => %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.4, "y2" => 0.8},
+              "dominant_colors" => ["navy"]
+            }
+          ]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
+
+    person_clip_id = "evt-#{person_frame.id}-person"
+    assert has_element?(view, "#camera-timeline-event-clips-section")
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
+    assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
+    assert has_element?(view, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
+
+    # Filter to Smart -> hides recording fallback, keeps person detection
+    view |> element("#camera-clips-mode-smart") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
+    refute has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
+
+    # Filter to Animal -> empty state + reset filters button
+    view |> element("#camera-clips-category-animal") |> render_click()
+    assert has_element?(view, "#camera-clips-empty")
+    assert has_element?(view, "#camera-clips-reset-filters")
+
+    # Reset filters restores full strip
+    view |> element("#camera-clips-reset-filters") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
+    assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
+
+    # Clicking the person clip card jumps playback window to [started_at - 5s, ended_at + 10s] and selects the card
+    view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
+    assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
+    assert is_binary(player_playlist_path(view))
   end
 
   defp player_playlist_path(view) do

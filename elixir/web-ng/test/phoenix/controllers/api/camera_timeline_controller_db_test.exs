@@ -390,6 +390,49 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
     assert json_response(subsequent_conn, 403) == %{"error" => "forbidden"}
   end
 
+  test "serves RBAC-protected JPEG keyframe thumbnails with private caching and rejects invalid bytes",
+       %{viewer: viewer, denied: denied, actor: actor} do
+    ctx = create_timeline_fixture(actor)
+    frame_id = Ecto.UUID.generate()
+    jpeg_bytes = <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0xFF, 0xD9>>
+
+    # Unauthorized viewer is refused (403)
+    denied_conn =
+      denied
+      |> authed_conn()
+      |> put_private(:camera_thumbnail_reader, fn _cam, _fid -> {:ok, jpeg_bytes} end)
+      |> get(~p"/api/cameras/#{ctx.source.id}/timeline/frames/#{frame_id}/thumbnail.jpg")
+
+    assert json_response(denied_conn, 403) == %{"error" => "forbidden"}
+
+    # Authorized viewer receives valid JPEG with Cache-Control: private, max-age=300
+    ok_conn =
+      viewer
+      |> authed_conn()
+      |> put_private(:camera_thumbnail_reader, fn cam, fid ->
+        assert cam == ctx.source.id
+        assert fid == frame_id
+        {:ok, jpeg_bytes}
+      end)
+      |> get(~p"/api/cameras/#{ctx.source.id}/timeline/frames/#{frame_id}/thumbnail.jpg")
+
+    assert ok_conn.status == 200
+    assert ok_conn.resp_body == jpeg_bytes
+    assert get_resp_header(ok_conn, "content-type") == ["image/jpeg"]
+    assert get_resp_header(ok_conn, "cache-control") == ["private, max-age=300"]
+    assert get_resp_header(ok_conn, "x-content-type-options") == ["nosniff"]
+
+    # Non-JPEG bytes are rejected with 404 thumbnail_not_found
+    bad_bytes_conn =
+      viewer
+      |> authed_conn()
+      |> put_private(:camera_thumbnail_reader, fn _cam, _fid -> {:ok, "<html>not-jpeg</html>"} end)
+      |> get(~p"/api/cameras/#{ctx.source.id}/timeline/frames/#{frame_id}/thumbnail.jpg")
+
+    assert json_response(bad_bytes_conn, 404) == %{"error" => "thumbnail_not_found"}
+    assert get_resp_header(bad_bytes_conn, "cache-control") == ["private, no-store"]
+  end
+
   defp authed_conn(user), do: log_in_user(build_conn(), user)
 
   defp create_timeline_fixture(actor) do

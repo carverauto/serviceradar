@@ -8,13 +8,19 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   use ServiceRadarWebNGWeb, :controller
 
   alias Ash.Error.Forbidden
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingTimeline
+  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadarWebNG.CameraTimelineAdmission
   alias ServiceRadarWebNG.CameraTimelinePlaylist
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
 
+  require Ash.Query
+
   @request_deadline_ms 12_000
+  @max_thumbnail_bytes 2_097_152
 
   def coverage(conn, %{"camera_source_id" => source_id} = params) do
     conn = private_media(conn)
@@ -82,6 +88,24 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
       end
 
     read_object(conn, params, selector)
+  end
+
+  def frame_thumbnail(conn, %{"camera_source_id" => source_id, "frame_id" => frame_id}) do
+    conn = private_media(conn)
+    thumbnail_reader = Map.get(conn.private, :camera_thumbnail_reader)
+
+    with {:ok, _scope, source} <-
+           CameraArchiveAccess.source(conn.assigns[:current_scope], source_id),
+         {:ok, frame_uuid} <- cast_uuid(frame_id),
+         {:ok, bytes} <- fetch_frame_thumbnail(source.id, frame_uuid, thumbnail_reader),
+         :ok <- validate_jpeg_bytes(bytes) do
+      conn
+      |> put_resp_header("cache-control", "private, max-age=300")
+      |> put_resp_content_type("image/jpeg", nil)
+      |> send_resp(200, bytes)
+    else
+      {:error, reason} -> timeline_error(conn, reason)
+    end
   end
 
   defp read_object(conn, %{"camera_source_id" => source_id, "entry_id" => entry_id} = params, selector) do
@@ -161,6 +185,38 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   end
 
   defp decimal(_, _, _), do: {:error, :invalid_id}
+
+  defp cast_uuid(val) when is_binary(val) do
+    case Ecto.UUID.cast(String.trim(val)) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_id}
+    end
+  end
+
+  defp cast_uuid(_), do: {:error, :invalid_id}
+
+  defp fetch_frame_thumbnail(camera_source_id, frame_uuid, reader) when is_function(reader, 2) do
+    reader.(camera_source_id, frame_uuid)
+  end
+
+  defp fetch_frame_thumbnail(camera_source_id, frame_uuid, _reader) do
+    actor = SystemActor.system(:camera_recording_timeline)
+
+    with {:ok, %VisualFrame{} = frame} <-
+           VisualFrame
+           |> Ash.Query.filter(id == ^frame_uuid and camera_source_id == ^camera_source_id)
+           |> Ash.Query.load(:catalog_entry)
+           |> Ash.read_one(actor: actor),
+         true <- RecordingCatalogEntry.playable?(frame.catalog_entry) do
+      {:error, :thumbnail_not_found}
+    else
+      _ -> {:error, :thumbnail_not_found}
+    end
+  end
+
+  defp validate_jpeg_bytes(<<0xFF, 0xD8, 0xFF, _::binary>> = bytes) when byte_size(bytes) <= @max_thumbnail_bytes, do: :ok
+
+  defp validate_jpeg_bytes(_), do: {:error, :thumbnail_not_found}
 
   defp private_media(conn) do
     conn
@@ -317,6 +373,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   defp timeline_error(conn, reason)
        when reason in [:recording_block_not_found, :catalog_entry_not_found, :fragment_not_found],
        do: error(conn, :not_found, "recording_not_found")
+
+  defp timeline_error(conn, :thumbnail_not_found), do: error(conn, :not_found, "thumbnail_not_found")
 
   defp timeline_error(conn, :recording_integrity_failed), do: error(conn, :conflict, "recording_integrity_failed")
 

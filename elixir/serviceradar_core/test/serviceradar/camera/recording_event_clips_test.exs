@@ -1,0 +1,359 @@
+defmodule ServiceRadar.Camera.RecordingEventClipsTest do
+  use ExUnit.Case, async: true
+
+  alias Ash.Error.Forbidden
+  alias ServiceRadar.Camera.RecordingEventClips
+
+  @camera_id "11111111-1111-4111-8111-111111111111"
+  @profile_id "22222222-2222-4222-8222-222222222222"
+  @entry_1_id "33333333-3333-4333-8333-333333333333"
+  @entry_2_id "44444444-4444-4444-8444-444444444444"
+  @quarantined_entry_id "55555555-5555-4555-8555-555555555555"
+  @block_1_id "66666666-6666-4666-8666-666666666666"
+  @block_2_id "77777777-7777-4777-8777-777777777777"
+  @frame_1_id "88888888-8888-4888-8888-888888888881"
+  @frame_2_id "88888888-8888-4888-8888-888888888882"
+  @frame_3_id "88888888-8888-4888-8888-888888888883"
+  @frame_4_id "88888888-8888-4888-8888-888888888884"
+  @frame_q_id "88888888-8888-4888-8888-888888888885"
+
+  @base_us 1_760_000_000_000_000
+
+  describe "list_clips/3 coalescing, classification, and fallback" do
+    test "coalesces adjacent detections, excludes quarantined entries, and adds recording fallback segments" do
+      entries = [
+        playable_entry(
+          @entry_1_id,
+          @block_1_id,
+          @base_us,
+          @base_us + 120_000_000,
+          :present,
+          :verified
+        ),
+        playable_entry(
+          @entry_2_id,
+          @block_2_id,
+          @base_us + 180_000_000,
+          @base_us + 300_000_000,
+          :present,
+          :not_required
+        ),
+        %{
+          id: @quarantined_entry_id,
+          recording_block_id: nil,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          timeline_start_us: @base_us + 310_000_000,
+          timeline_end_us: @base_us + 360_000_000,
+          local_state: :quarantined,
+          archive_state: :not_required,
+          quarantine_reason: :unrecoverable_journal
+        }
+      ]
+
+      frames = [
+        # Two adjacent person frames within 4s -> coalesced into one :person smart clip
+        %{
+          id: @frame_1_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 1,
+          timeline_ts_us: @base_us + 10_000_000,
+          scene_suppressed: false,
+          detections: [
+            %{
+              "object_class" => "person",
+              "confidence" => 0.82,
+              "bbox" => %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.4, "y2" => 0.8},
+              "dominant_colors" => ["blue"]
+            }
+          ]
+        },
+        %{
+          id: @frame_2_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 2,
+          timeline_ts_us: @base_us + 14_000_000,
+          scene_suppressed: false,
+          detections: [
+            %{
+              "object_class" => "person",
+              "confidence" => 0.95,
+              "bbox" => %{"x1" => 0.15, "y1" => 0.1, "x2" => 0.45, "y2" => 0.85},
+              "dominant_colors" => ["red", "blue"]
+            },
+            %{
+              "object_class" => "car",
+              "confidence" => 0.88,
+              "bbox" => %{"x1" => 0.5, "y1" => 0.3, "x2" => 0.9, "y2" => 0.8},
+              "dominant_colors" => ["white"]
+            }
+          ]
+        },
+        # Non-suppressed frame with empty detections -> :motion (:basic) clip
+        %{
+          id: @frame_3_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 5,
+          timeline_ts_us: @base_us + 60_000_000,
+          scene_suppressed: false,
+          detections: []
+        },
+        # Scene-suppressed frame with empty detections -> ignored
+        %{
+          id: @frame_4_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 6,
+          timeline_ts_us: @base_us + 70_000_000,
+          scene_suppressed: true,
+          detections: []
+        },
+        # Frame belonging to quarantined entry -> excluded
+        %{
+          id: @frame_q_id,
+          catalog_entry_id: @quarantined_entry_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 1,
+          timeline_ts_us: @base_us + 320_000_000,
+          scene_suppressed: false,
+          detections: [
+            %{"object_class" => "package", "confidence" => 0.91, "dominant_colors" => []}
+          ]
+        }
+      ]
+
+      loaders = %{
+        catalog_loader: fn -> {:ok, entries} end,
+        visual_frames_loader: fn -> {:ok, frames} end
+      }
+
+      thumb_builder = fn cam_id, clip ->
+        if clip.visual_frame_id do
+          "/api/cameras/#{cam_id}/timeline/frames/#{clip.visual_frame_id}/thumbnail.jpg"
+        end
+      end
+
+      assert {:ok, result} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: @base_us, to_us: @base_us + 400_000_000},
+                 loaders: loaders,
+                 thumbnail_url_builder: thumb_builder
+               )
+
+      # Expect: 1 coalesced :person, 1 :vehicle, 1 :motion (all from entry_1),
+      # and 1 :recording fallback segment for entry_2 (uncovered by detections).
+      # Quarantined entry + its package frame are strictly excluded.
+      assert result.total == 4
+
+      assert result.counts == %{
+               all: 4,
+               smart: 2,
+               basic: 2,
+               person: 1,
+               vehicle: 1,
+               animal: 0,
+               package: 0,
+               motion: 1,
+               recording: 1
+             }
+
+      person_clip = Enum.find(result.all_clips, &(&1.category == :person))
+      assert person_clip.smart_type == :smart
+      assert person_clip.label == "Person"
+      assert person_clip.confidence == 0.95
+      assert person_clip.visual_frame_id == @frame_2_id
+      assert person_clip.attributes.frame_count == 2
+      assert Enum.sort(person_clip.attributes.dominant_colors) == ["blue", "red"]
+      assert person_clip.archive_state == :verified
+
+      assert person_clip.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/frames/#{@frame_2_id}/thumbnail.jpg"
+
+      vehicle_clip = Enum.find(result.all_clips, &(&1.category == :vehicle))
+      assert vehicle_clip.smart_type == :smart
+      assert vehicle_clip.confidence == 0.88
+      assert vehicle_clip.attributes.dominant_colors == ["white"]
+
+      motion_clip = Enum.find(result.all_clips, &(&1.category == :motion))
+      assert motion_clip.smart_type == :basic
+      assert motion_clip.confidence == nil
+
+      rec_clip = Enum.find(result.all_clips, &(&1.category == :recording))
+      assert rec_clip.id == "rec-#{@entry_2_id}"
+      assert rec_clip.smart_type == :basic
+      assert rec_clip.catalog_entry_id == @entry_2_id
+      assert rec_clip.duration_seconds == 120
+      assert rec_clip.thumbnail_url == nil
+
+      # Ordered most-recent first
+      starts = Enum.map(result.all_clips, & &1.start_us)
+      assert starts == Enum.sort(starts, :desc)
+    end
+
+    test "supports mode and category filtering" do
+      entries = [
+        playable_entry(
+          @entry_1_id,
+          @block_1_id,
+          @base_us,
+          @base_us + 60_000_000,
+          :present,
+          :not_required
+        ),
+        playable_entry(
+          @entry_2_id,
+          @block_2_id,
+          @base_us + 70_000_000,
+          @base_us + 130_000_000,
+          :present,
+          :not_required
+        )
+      ]
+
+      frames = [
+        %{
+          id: @frame_1_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 1,
+          timeline_ts_us: @base_us + 10_000_000,
+          scene_suppressed: false,
+          detections: [
+            %{"object_class" => "dog", "confidence" => 0.9, "dominant_colors" => ["brown"]},
+            %{"object_class" => "parcel", "confidence" => 0.77, "dominant_colors" => []}
+          ]
+        }
+      ]
+
+      loaders = %{
+        catalog_loader: fn -> {:ok, entries} end,
+        visual_frames_loader: fn -> {:ok, frames} end
+      }
+
+      {:ok, smart_only} =
+        RecordingEventClips.list_clips(
+          @camera_id,
+          %{from_us: @base_us, to_us: @base_us + 200_000_000, mode: :smart},
+          loaders: loaders
+        )
+
+      assert smart_only.clips |> Enum.map(& &1.category) |> Enum.sort() == [:animal, :package]
+
+      {:ok, basic_only} =
+        RecordingEventClips.list_clips(
+          @camera_id,
+          %{from_us: @base_us, to_us: @base_us + 200_000_000, mode: :basic},
+          loaders: loaders
+        )
+
+      assert Enum.map(basic_only.clips, & &1.category) == [:recording]
+
+      {:ok, animal_only} =
+        RecordingEventClips.list_clips(
+          @camera_id,
+          %{from_us: @base_us, to_us: @base_us + 200_000_000, category: "animal"},
+          loaders: loaders
+        )
+
+      assert Enum.map(animal_only.clips, & &1.category) == [:animal]
+    end
+  end
+
+  describe "authorization and validation" do
+    test "rejects unauthorized actors and allows recordings viewers" do
+      loaders = %{catalog_loader: fn -> {:ok, []} end, visual_frames_loader: fn -> {:ok, []} end}
+      params = %{from_us: @base_us, to_us: @base_us + 60_000_000}
+
+      denied_actor = %{
+        id: Ecto.UUID.generate(),
+        role: :viewer,
+        permissions: MapSet.new(["devices.view"])
+      }
+
+      assert {:error, %Forbidden{}} =
+               RecordingEventClips.list_clips(@camera_id, params,
+                 actor: denied_actor,
+                 loaders: loaders
+               )
+
+      allowed_actor = %{
+        id: Ecto.UUID.generate(),
+        role: :viewer,
+        permissions: MapSet.new(["devices.cameras.recordings.view"])
+      }
+
+      assert {:ok, %{clips: [], total: 0}} =
+               RecordingEventClips.list_clips(@camera_id, params,
+                 actor: allowed_actor,
+                 loaders: loaders
+               )
+    end
+
+    test "validates camera UUID, window bounds, mode, category, and limit" do
+      loaders = %{catalog_loader: fn -> {:ok, []} end, visual_frames_loader: fn -> {:ok, []} end}
+
+      assert {:error, :invalid_camera_source_id} =
+               RecordingEventClips.list_clips("not-a-uuid", %{from_us: 1, to_us: 2},
+                 loaders: loaders
+               )
+
+      assert {:error, :invalid_timeline_window} =
+               RecordingEventClips.list_clips(@camera_id, %{from_us: 100, to_us: 100},
+                 loaders: loaders
+               )
+
+      assert {:error, :timeline_window_too_large} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: 0, to_us: 32 * 86_400 * 1_000_000},
+                 loaders: loaders
+               )
+
+      assert {:error, :invalid_clip_mode} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: 1, to_us: 2, mode: "unknown"},
+                 loaders: loaders
+               )
+
+      assert {:error, :invalid_clip_category} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: 1, to_us: 2, category: "spaceship"},
+                 loaders: loaders
+               )
+
+      assert {:error, :invalid_limit} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: 1, to_us: 2, limit: 0},
+                 loaders: loaders
+               )
+    end
+  end
+
+  defp playable_entry(id, block_id, start_us, end_us, local_state, archive_state) do
+    %{
+      id: id,
+      recording_block_id: block_id,
+      camera_source_id: @camera_id,
+      stream_profile_id: @profile_id,
+      timeline_start_us: start_us,
+      timeline_end_us: end_us,
+      local_state: local_state,
+      archive_state: archive_state,
+      quarantine_reason: nil,
+      fragment_count: 10
+    }
+  end
+end
