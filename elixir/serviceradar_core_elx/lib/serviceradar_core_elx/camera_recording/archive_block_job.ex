@@ -23,12 +23,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
      re-archive request (Transition 8: entry already carries `nvr_archive_receipt_id`),
      a retained receipt matching the previously recorded receipt is refused and
      returns the entry to `:missing`.
-  6. On 503 `archive_busy`, snoozes without consuming an attempt. On transient
-     failures (502, other 503s, `:outcome_unknown`, credential or NVR target
-     unavailability), transitions the entry to `:failed_retryable` and retries
-     with jittered exponential backoff (30 s doubling to 30 min). On terminal
-     refusals (409 `archive_receipt_conflict`, 422, 400, 404), transitions the
-     entry to `:failed_terminal` and discards the job.
+  6. On 503 `archive_busy`, snoozes without consuming an attempt. On retryable
+     failures (502, other 503s, 400, 404, non-conflict 409s, `:outcome_unknown`,
+     binding/request shape errors, credential or NVR target unavailability),
+     transitions the entry to `:failed_retryable` and returns `{:snooze, backoff}`
+     with jittered exponential backoff (30 s doubling to 30 min) so the job retries
+     indefinitely while the block exists without exhausting Oban `max_attempts`,
+     stopping cleanly if `local_state != :present` or `archive_state` is no longer
+     eligible. On terminal refusals (409 `archive_receipt_conflict`, Core receipt
+     conflict, receipt identity mismatch, and 422), transitions the entry to
+     `:failed_terminal` and discards the job.
   """
 
   # ServiceRadar runs OSS Oban (Oban.Engines.Basic), not Oban Pro.
@@ -55,6 +59,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarCoreElx.CameraRecording.NVRArchive
   alias ServiceRadarCoreElx.CameraRecording.NVRTargetConfig
+  alias ServiceRadarRecordingMetadata.CanonicalJSON
 
   require Ash.Query
   require Logger
@@ -126,8 +131,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   def enqueue(_catalog_entry_id, _opts), do: {:error, :invalid_catalog_entry_id}
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"catalog_entry_id" => catalog_entry_id}}) do
-    run(catalog_entry_id)
+  def perform(%Oban.Job{args: %{"catalog_entry_id" => catalog_entry_id}} = job) do
+    run(catalog_entry_id, attempt: retry_attempt_from_job(job))
   end
 
   def perform(%Oban.Job{}) do
@@ -155,7 +160,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   `opts` for hermetic unit testing without a live database or NVR daemon.
   """
   @spec run(String.t(), keyword()) ::
-          :ok | {:snooze, pos_integer()} | {:error, term()} | {:discard, term()} | {:cancel, term()}
+          :ok | {:snooze, pos_integer()} | {:discard, term()} | {:cancel, term()}
   def run(catalog_entry_id, opts \\ [])
 
   def run(catalog_entry_id, opts) when is_binary(catalog_entry_id) and is_list(opts) do
@@ -182,7 +187,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:error, reason} ->
         error_class = sanitize_error_class(reason, "catalog_load_failed")
         emit_outcome(:failed_retryable, entry_id, error_class)
-        {:error, error_class}
+        {:snooze, retry_backoff_seconds(fallback_attempt(opts), rand_fn(opts))}
     end
   end
 
@@ -212,21 +217,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
     else
       :not_owed ->
         transition_not_required(entry, opts)
-        emit_outcome(:skipped, entry.id, nil)
-        :ok
 
       {:held, reason} ->
         emit_outcome(:snoozed, entry.id, sanitize_error_class(reason, "archive_held"))
         {:snooze, held_snooze_seconds(opts)}
-
-      {:error, :archive_binding_missing} ->
-        fail_terminal(entry, "archive_binding_missing", opts)
-
-      {:error, :archive_binding_not_found} ->
-        fail_retryable(entry, "archive_binding_not_found", opts)
-
-      {:error, :archive_credential_unavailable} ->
-        fail_retryable(entry, "archive_credential_unavailable", opts)
 
       {:error, reason} ->
         classify_and_handle_error(entry, reason, opts)
@@ -289,10 +283,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   end
 
   defp commit_verified_receipt(entry, binding, receipt, opts) do
-    with :ok <- verify_receipt_identity(entry, receipt),
-         {:ok, receipt_bytes} <- encode_receipt(receipt) do
-      persist_verified(entry, binding, receipt_bytes, opts)
-    else
+    case verify_receipt_identity(entry, receipt) do
+      :ok ->
+        case encode_receipt(receipt) do
+          {:ok, receipt_bytes} ->
+            persist_verified(entry, binding, receipt_bytes, opts)
+
+          {:error, error_class} ->
+            fail_retryable(entry, error_class, opts)
+        end
+
       {:error, error_class} ->
         fail_terminal(entry, error_class, opts)
     end
@@ -310,7 +310,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   end
 
   defp encode_receipt(receipt) do
-    case Jason.encode(receipt) do
+    case CanonicalJSON.encode(receipt) do
       {:ok, bytes} when byte_size(bytes) in 1..8_192 -> {:ok, bytes}
       _ -> {:error, "invalid_archive_receipt"}
     end
@@ -484,16 +484,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   def classify_error({:archive_status, 409, %{"error" => "archive_receipt_conflict"}}),
     do: {:terminal, "archive_receipt_conflict"}
 
-  def classify_error({:archive_status, 409, body}), do: {:terminal, body_error_class(body, "archive_conflict")}
-
   def classify_error({:archive_status, 422, body}), do: {:terminal, body_error_class(body, "archive_unprocessable")}
 
-  def classify_error({:archive_status, 400, body}), do: {:terminal, body_error_class(body, "invalid_archive_request")}
+  def classify_error({:archive_status, 400, body}), do: {:retryable, body_error_class(body, "invalid_archive_request")}
 
-  def classify_error({:archive_status, 404, body}), do: {:terminal, body_error_class(body, "block_not_found")}
+  def classify_error({:archive_status, 404, body}), do: {:retryable, body_error_class(body, "block_not_found")}
 
-  def classify_error(reason) when reason in [:invalid_block_id, :invalid_archive_binding, :invalid_archive_request],
-    do: {:terminal, sanitize_error_class(reason, "invalid_archive_request")}
+  def classify_error({:archive_status, 409, body}), do: {:retryable, body_error_class(body, "archive_conflict")}
 
   def classify_error({:archive_status, 502, body}), do: {:retryable, body_error_class(body, "archive_provider_error")}
 
@@ -501,6 +498,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
 
   def classify_error({:archive_status, status, body}) when is_integer(status) and status >= 500,
     do: {:retryable, body_error_class(body, "archive_server_error")}
+
+  def classify_error({:archive_status, status, body}) when is_integer(status),
+    do: {:retryable, body_error_class(body, "archive_http_error")}
 
   def classify_error(:outcome_unknown), do: {:retryable, "outcome_unknown"}
 
@@ -520,61 +520,77 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
 
   defp fail_retryable(entry, error_class, opts) do
     now = now_fn(opts).()
+    next_attempt = (entry.archive_attempts || 0) + 1
 
-    _ =
-      transition_entry(
-        entry,
-        %{
-          archive_state: :failed_retryable,
-          archive_state_at: now,
-          archive_attempts: entry.archive_attempts + 1,
-          archive_last_error_class: error_class
-        },
-        opts
-      )
+    backoff_attempt =
+      case transition_entry(
+             entry,
+             %{
+               archive_state: :failed_retryable,
+               archive_state_at: now,
+               archive_attempts: next_attempt,
+               archive_last_error_class: error_class
+             },
+             opts
+           ) do
+        {:ok, _updated} -> next_attempt
+        {:error, _reason} -> max(next_attempt, fallback_attempt(opts))
+      end
 
     emit_outcome(:failed_retryable, entry.id, error_class)
-    {:error, error_class}
+    {:snooze, retry_backoff_seconds(backoff_attempt, rand_fn(opts))}
   end
 
   defp fail_terminal(entry, error_class, opts) do
     now = now_fn(opts).()
+    next_attempt = (entry.archive_attempts || 0) + 1
 
-    _ =
-      transition_entry(
-        entry,
-        %{
-          archive_state: :failed_terminal,
-          archive_state_at: now,
-          archive_attempts: entry.archive_attempts + 1,
-          archive_last_error_class: error_class
-        },
-        opts
-      )
+    case transition_entry(
+           entry,
+           %{
+             archive_state: :failed_terminal,
+             archive_state_at: now,
+             archive_attempts: next_attempt,
+             archive_last_error_class: error_class
+           },
+           opts
+         ) do
+      {:ok, _updated} ->
+        Logger.warning(
+          "NVR archive block #{entry.block_key} reached failed_terminal (#{error_class}) for catalog entry #{entry.id}"
+        )
 
-    Logger.warning(
-      "NVR archive block #{entry.block_key} reached failed_terminal (#{error_class}) for catalog entry #{entry.id}"
-    )
+        emit_outcome(:failed_terminal, entry.id, error_class)
+        {:discard, error_class}
 
-    emit_outcome(:failed_terminal, entry.id, error_class)
-    {:discard, error_class}
+      {:error, reason} ->
+        retry_class = sanitize_error_class(reason, "catalog_update_failed")
+        emit_outcome(:failed_retryable, entry.id, retry_class)
+        {:snooze, retry_backoff_seconds(max(next_attempt, fallback_attempt(opts)), rand_fn(opts))}
+    end
   end
 
   defp transition_not_required(entry, opts) do
     now = now_fn(opts).()
 
-    _ =
-      transition_entry(
-        entry,
-        %{
-          archive_state: :not_required,
-          archive_state_at: now,
-          archive_last_error_class: nil
-        },
-        opts
-      )
+    case transition_entry(
+           entry,
+           %{
+             archive_state: :not_required,
+             archive_state_at: now,
+             archive_last_error_class: nil
+           },
+           opts
+         ) do
+      {:ok, _updated} ->
+        emit_outcome(:skipped, entry.id, nil)
+        :ok
 
-    :ok
+      {:error, reason} ->
+        retry_class = sanitize_error_class(reason, "catalog_update_failed")
+        emit_outcome(:failed_retryable, entry.id, retry_class)
+        {:snooze, retry_backoff_seconds(fallback_attempt(opts), rand_fn(opts))}
+    end
   end
 
   defp transition_entry(entry, attrs, opts) do
@@ -585,7 +601,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   defp update_catalog_archive_state(entry, attrs) do
     entry
     |> Ash.Changeset.for_update(:transition_archive_state, attrs)
-    |> Ash.Changeset.filter(expr(archive_state in ^@eligible_archive_states))
+    |> Ash.Changeset.filter(expr(archive_state in ^@eligible_archive_states and local_state == :present))
     |> Ash.update(actor: @system_actor)
   end
 
@@ -679,14 +695,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
         seconds
 
       _ ->
-        rand_fn = Keyword.get(opts, :rand_fn, &:rand.uniform/0)
-        @busy_snooze_base_seconds + trunc(@busy_snooze_jitter_seconds * rand_fn.())
+        @busy_snooze_base_seconds + trunc(@busy_snooze_jitter_seconds * rand_fn(opts).())
     end
   end
 
   defp held_snooze_seconds(opts) do
     Keyword.get(opts, :held_snooze_seconds, @held_snooze_seconds)
   end
+
+  defp retry_attempt_from_job(%Oban.Job{attempt: attempt, meta: meta}) do
+    base = if is_integer(attempt) and attempt > 0, do: attempt, else: 1
+    snoozed = if is_map(meta) and is_integer(meta["snoozed"]) and meta["snoozed"] > 0, do: meta["snoozed"], else: 0
+    base + snoozed
+  end
+
+  defp fallback_attempt(opts) do
+    case Keyword.get(opts, :attempt, 1) do
+      attempt when is_integer(attempt) and attempt > 0 -> attempt
+      _ -> 1
+    end
+  end
+
+  defp rand_fn(opts), do: Keyword.get(opts, :rand_fn, &:rand.uniform/0)
 
   defp now_fn(opts), do: Keyword.get(opts, :now_fn, &DateTime.utc_now/0)
 
