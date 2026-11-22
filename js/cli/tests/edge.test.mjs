@@ -562,9 +562,10 @@ test("edge install agent --dry-run plans the release RPM, dnf, and srctl enroll 
 })
 
 // srctl verifies the token signature with the deployment's public key, read
-// from its environment. Without it enrollment cannot succeed, so the install
-// must refuse before touching the host and must hand the key to srctl.
-test("edge install agent hands the token public key to srctl and refuses to run without one", async () => {
+// from its environment. Dry-run verifies the plan includes the key, the env
+// var is accepted, and missing or malformed keys are refused before touching
+// the host.
+test("edge install agent plans the token public key, accepts it from env, and refuses missing or malformed keys", async () => {
   const token = edgepkgToken("pkg-1")
   const base = ["--instance", "https://tenant.example", "--package", "pkg-1", "--token", token, "--version", "1.4.81", ...DRY]
   // Bytes whose base64 uses '+' and '/' and whose base64url uses '-' and '_' in both halves.
