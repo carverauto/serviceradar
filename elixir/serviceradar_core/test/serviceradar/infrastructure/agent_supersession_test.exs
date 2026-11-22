@@ -11,6 +11,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadar.Edge.PipelineSetting
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.StateMonitor
@@ -29,6 +30,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPProfile
+  alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -362,6 +364,76 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+    end
+
+    test "transfers integration sources when the live replacement is degraded and no connected agent exists",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+      integration_source = create_integration_source!(uniq, old_uid, actor)
+
+      {:ok, _degraded} =
+        new_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:degrade, %{})
+        |> Ash.update(actor: actor)
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      Repo.query!(
+        "UPDATE platform.ocsf_agents SET status = 'disconnected' WHERE status = 'connected'"
+      )
+
+      assert {:error, _} =
+               integration_source
+               |> Ash.Changeset.for_update(:update, %{agent_id: new_uid}, actor: actor)
+               |> Ash.update()
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+      assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == new_uid
+    end
+
+    test "continues transferring remaining SNMP profiles when one profile exceeds the replacement target limit",
+         %{uniq: uniq, actor: actor} do
+      %{old: old_uid, new: new_uid} = reenroll!(uniq, actor, old_state: :live)
+
+      blocked_first = create_snmp_profile!("#{uniq}-blocked-1", old_uid, actor)
+      add_snmp_targets!(blocked_first, uniq, 1..2, actor)
+
+      valid_first = create_snmp_profile!("#{uniq}-valid-1", old_uid, actor)
+
+      blocked_second = create_snmp_profile!("#{uniq}-blocked-2", old_uid, actor)
+      add_snmp_targets!(blocked_second, uniq, 3..4, actor)
+
+      valid_second = create_snmp_profile!("#{uniq}-valid-2", old_uid, actor)
+
+      PipelineSetting
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{scope: :agent, scope_key: new_uid, snmp_max_targets: 1},
+        actor: actor
+      )
+      |> Ash.create!()
+
+      {:ok, disconnected} =
+        old_uid
+        |> agent!(actor)
+        |> Ash.Changeset.for_update(:lose_connection, %{})
+        |> Ash.update(actor: actor)
+
+      assert {:ok, superseded} = AgentSupersession.on_agent_disconnected(disconnected, actor)
+      assert superseded.status == :superseded
+      assert superseded.superseded_by == new_uid
+
+      assert Ash.get!(SNMPProfile, blocked_first.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(SNMPProfile, blocked_second.id, actor: actor).agent_ids == [old_uid]
+      assert Ash.get!(SNMPProfile, valid_first.id, actor: actor).agent_ids == [new_uid]
+      assert Ash.get!(SNMPProfile, valid_second.id, actor: actor).agent_ids == [new_uid]
     end
 
     test "leaves a disconnected identity alone when no live sibling exists",
@@ -698,6 +770,24 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       |> Ash.create(actor: actor)
 
     profile
+  end
+
+  defp add_snmp_targets!(profile, uniq, indices, actor) do
+    for index <- indices do
+      SNMPTarget
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "supersession-target-#{uniq}-#{index}",
+          host: test_ip(uniq + index),
+          version: :v2c,
+          community: "example-community",
+          snmp_profile_id: profile.id
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+    end
   end
 
   defp create_integration_source!(uniq, agent_uid, actor) do
