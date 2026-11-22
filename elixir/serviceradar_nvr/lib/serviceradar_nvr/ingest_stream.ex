@@ -7,6 +7,7 @@ defmodule ServiceRadarNVR.IngestStream do
 
   @max_request_bytes 67_108_864
   @max_unit_bytes 1_048_576
+  @read_timeout_ms 15_000
 
   def new(conn), do: %{conn: conn, buffer: <<>>, eof?: false, bytes: 0}
 
@@ -78,7 +79,9 @@ defmodule ServiceRadarNVR.IngestStream do
   defp take(%{eof?: true} = stream, _count), do: {:error, :end_of_body, stream}
 
   defp take(stream, count) do
-    case read_body(stream.conn, length: count - byte_size(stream.buffer), read_length: 65_536, read_timeout: 1000) do
+    opts = [length: count - byte_size(stream.buffer), read_length: 65_536, read_timeout: @read_timeout_ms]
+
+    case read_body(stream.conn, opts) do
       {status, bytes, conn} when status in [:ok, :more] and stream.bytes + byte_size(bytes) <= @max_request_bytes ->
         take(
           %{
