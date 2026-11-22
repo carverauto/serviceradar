@@ -332,9 +332,9 @@ claim. No cache or catalog is created by these reads.
 
 ## Read admission and lifetime
 
-Inventory, sealed-block inspection, descriptor generation, intent inspection,
-archive verification and same-VM `read_block/3` share four supervised task slots
-per replica (`ServiceRadarNVR.ReadTasks`). The playback read listener uses a
+Inventory, block lookups, ledger pages, sealed-block inspection, descriptor
+generation, intent inspection, archive verification and same-VM `read_block/3`
+share four supervised task slots per replica (`ServiceRadarNVR.ReadTasks`). The playback read listener uses a
 separate pool (`ServiceRadarNVR.PlaybackReadTasks`, configured by
 `SERVICERADAR_NVR_PLAYBACK_READ_SLOTS`, default 8, 1 through 64) so playback
 cannot starve the shared pool. A full pool returns
@@ -487,13 +487,6 @@ worker. Losing the capacity owner retires publication tasks and recording
 workers before the replacement owner accepts reservations, and the replacement
 rebuilds the ledger from the retained volume.
 
-## Status, lookup and block pages
-
-The ingest listener, with the ingest pin and token, also answers three bounded
-observations for Core's coordinators. None reserves, repairs or deletes. See
-[member status and block state](../../docs/nvr-ingest.md#member-status-and-block-state)
-for the wire contract.
-
 Linux hosts need GNU coreutils `/usr/bin/stat` and `/usr/bin/timeout`, supplied by
 the Ubuntu image. Available space uses non-root available blocks and fundamental
 block size, with a two-second probe deadline and one-second kill grace. Every
@@ -512,6 +505,13 @@ partition or protection against other applications consuming the volume. The
 publication allowances are logical byte bounds, not filesystem allocation or
 node-loss qualification. Reserve filesystem metadata, explicit recovery and
 future hold/disposition headroom when sizing the dedicated PVC.
+
+## Status, lookup and block pages
+
+The ingest listener, with the ingest pin and token, also answers three bounded
+observations for Core's coordinators. None reserves, repairs or deletes. See
+[member status and block state](../../docs/nvr-ingest.md#member-status-and-block-state)
+for the wire contract.
 
 ## Persistent storage and replicas
 

@@ -2,8 +2,9 @@ defmodule ServiceRadarNVRClient do
   @moduledoc """
   Sends one finite, already-authorized H264 capture to one installed NVR endpoint,
   asks that endpoint to archive one sealed local block, reads one sealed
-  block's canonical descriptor, or reads one sealed block's initialization bytes
-  or a fragment for playback.
+  block's canonical descriptor, queries member status, block states and ledger
+  pages, or reads one sealed block's initialization bytes or a fragment for
+  playback.
 
   The lazy enumerable yields maps containing `payload`, `sequence`, `pts` and
   `dts`. It runs in a separate, bounded process: do not pass a caller-owned socket
@@ -27,10 +28,11 @@ defmodule ServiceRadarNVRClient do
   `archive_block/4` sends one small JSON request that carries a bucket
   credential. No returned error contains that credential.
 
-  `block_descriptor/3` and `read_block/6` are reads with no effect on the NVR,
-  so they can be repeated freely. `read_block/6` talks to the NVR's separate
-  read listener, so its configuration carries the read-purpose token and
-  client certificate rather than the ingest ones.
+  `block_descriptor/3`, `status/2`, `lookup_blocks/3`, `block_page/4` and
+  `read_block/6` are reads with no effect on the NVR, so they can be repeated
+  freely. `read_block/6` talks to the NVR's separate read listener, so its
+  configuration carries the read-purpose token and client certificate rather
+  than the ingest ones.
   """
 
   alias ServiceRadarNVRClient.Config
@@ -165,10 +167,11 @@ defmodule ServiceRadarNVRClient do
   Returns `{:ok, %{storage_id: uuid, blocks: [entry]}}` with one entry per
   requested ID, in order: `:block_id`, `:state` (`:sealed`, `:incomplete`,
   `:unresolved` or `:absent`), `:writing` (an admitted writer holds it now),
-  `:bytes` (charged on disk; nil when absent), `:descriptor_sha256` (exactly when
-  sealed) and `:reason` (exactly when unresolved). The state comes from the
-  block's journal, not its media: fetch the descriptor before freezing a sealed
-  block. `:absent` is not proof the block never existed. Errors:
+  `:bytes` (charged on disk; nil when absent or unmeasurable),
+  `:descriptor_sha256` (exactly when sealed) and `:reason` (exactly when
+  unresolved). The state comes from the block's journal, not its media: fetch
+  the descriptor before freezing a sealed block. `:absent` is not proof the
+  block never existed. Errors:
   `{:error, {:lookup_status, status, error}}` for a non-200 answer (503 is a
   busy read pool or a closed recovery gate), `{:error, :invalid_response}`,
   `{:error, :unavailable}`, and `{:error, :invalid_lookup_request}` before

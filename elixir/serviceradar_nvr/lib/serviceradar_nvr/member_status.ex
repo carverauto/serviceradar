@@ -4,9 +4,9 @@ defmodule ServiceRadarNVR.MemberStatus do
 
   Reports the provisioned storage UUID, the recovery gate's state and pinned
   generation, the block ledger's state (`ready`, `rebuilding`, `mismatch` or
-  `unavailable`), capacity measurements when the ledger is ready, whether the
-  member's one archive slot is busy, its recording session limit and the
-  release version. A closed gate or an unbuilt ledger is reported, not refused.
+  `unavailable`), capacity measurements when the ledger is ready or mismatched,
+  whether the member's one archive slot is busy, its recording session limit and
+  the release version. A closed gate or an unbuilt ledger is reported, not refused.
   """
 
   alias ServiceRadarNVR.Capacity

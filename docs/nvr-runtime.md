@@ -74,9 +74,10 @@ one block. Back-to-back captures make about 320 blocks per camera per day below
 about 370 kbit/s; a higher-bitrate stream reaches the byte bound sooner and
 makes more blocks (about 860 a day at 1 Mbit/s). Each active session reserves
 one maximum block: 18,453,856 bytes at 150 fragments, 586,744 bytes more than
-at the earlier fixed 8. The 4096-block volume cap is unchanged and nothing
-reclaims blocks yet, so a volume fills; size `nvr.maxSpoolBytes` for the
-retention you need until reclamation exists. Lowering `nvr.maxBlockFragments`
+at the earlier fixed 8. The volume cap is `SERVICERADAR_NVR_MAX_BLOCKS`
+(default 131,072, ceiling 262,144) and nothing reclaims blocks yet, so a volume
+fills; size `nvr.maxSpoolBytes` for the retention you need until reclamation
+exists. Lowering `nvr.maxBlockFragments`
 affects new blocks only: reads accept up to 256 fragments, so retained blocks
 stay readable. The ceiling is 256 because a block's publication intent embeds
 one descriptor entry per fragment and is capped at 64 KiB.
@@ -98,9 +99,11 @@ acknowledgement or permission to discard records. Pages share the existing read
 admission/deadline; reduce the page size after a timeout and preserve unresolved
 entries for reconciliation.
 
-The inventory is intentionally limited to 4096 block directories and known spool
-file names. Unrecognized or unreadable entries stop admission for operator
-reconciliation. This is not journal reconciliation, archival, retention or a
+Admission tracks retained blocks in an incremental block ledger (rebuilt in
+1,024-directory pages and checked by a bounded rotating audit) capped at
+`SERVICERADAR_NVR_MAX_BLOCKS` (default 131,072, ceiling 262,144), and accepts
+only known spool, publication and archive-receipt file names. Unrecognized,
+unreadable or mismatched entries stop admission for operator reconciliation. This is not journal reconciliation, archival, retention or a
 long-running recording capacity qualification. The free-space floor uses GNU
 coreutils probes, refreshed at admission and at most once per second by write
 guards. Admission needs the floor plus all full reservations free; an admitted
@@ -411,10 +414,10 @@ increment it. `delay_ms` is the last scheduled delay, not a countdown. Counters
 and cursors reset on restart; this status contains no intent, token or certificate
 bytes. Disabled or restarting coordinators return `:nvr_scheduler_unavailable`.
 
-Each verified page inventories up to 4,096 directories and rehashes the selected
-media; pending delivery verifies it again. This conservative first scheduler has
-not qualified large-backlog catch-up throughput. Even without errors, a full
-4,096-entry cycle takes over an hour at this cadence. A block that cannot pass
+Each verified page inventories every block directory on the volume and rehashes
+the selected media; pending delivery verifies it again. This conservative first
+scheduler has not qualified large-backlog catch-up throughput. Even without
+errors, a 4,096-entry backlog takes over an hour at this cadence. A block that cannot pass
 verification remains unresolved; no background repair or destructive cleanup is
 implied. Publication acceptance is still not playable local-copy availability.
 

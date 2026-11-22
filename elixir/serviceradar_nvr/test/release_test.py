@@ -1796,7 +1796,8 @@ class NVRReleaseTest(unittest.TestCase):
         malformed = self.root / "delivery.json"
         malformed.write_text("{}")
         settings = [({"SERVICERADAR_NVR_" + key: "0"}, b"invalid_nvr_limit")
-                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]]
+                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES", "MAX_BLOCKS"]]
+        settings += [({"SERVICERADAR_NVR_MAX_BLOCKS": "262145"}, b"invalid_nvr_limit")]
         settings += [({"SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": value}, b"invalid_nvr_limit")
                      for value in ["7", "257"]]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
@@ -2079,7 +2080,7 @@ class NVRReleaseTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(b"invalid_nvr_read_config", result.stdout + result.stderr)
 
-    def member_request(self, method, path, body=None, content_type=None, token=None):
+    def member_request_with_headers(self, method, path, body=None, content_type=None, token=None):
         connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
         headers = {"Authorization": "Bearer " + (token or self.ingest_token)}
         if content_type:
@@ -2087,9 +2088,14 @@ class NVRReleaseTest(unittest.TestCase):
         try:
             connection.request(method, path, body=body, headers=headers)
             response = connection.getresponse()
-            return response.status, response.read()
+            resp_headers = {k.lower(): v for k, v in response.getheaders()}
+            return response.status, response.read(), resp_headers
         finally:
             connection.close()
+
+    def member_request(self, method, path, body=None, content_type=None, token=None):
+        status, body, _headers = self.member_request_with_headers(method, path, body, content_type, token)
+        return status, body
 
     def lookup(self, block_ids, content_type="application/vnd.serviceradar.nvr-lookup.v1+json"):
         return self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": block_ids}), content_type)
@@ -2155,7 +2161,53 @@ class NVRReleaseTest(unittest.TestCase):
         status, body = self.lookup([block_id])
         self.assertEqual(json.loads(body)["blocks"],
                          [{"block_id": block_id, "state": "incomplete", "writing": False, "bytes": stored - (len(journal) - last)}])
+
+        # A corrupt journal digest is reported as unresolved with its error class and no digest.
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        unresolved = {"block_id": block_id, "state": "unresolved", "writing": False, "bytes": stored,
+                      "reason": "invalid_journal_record"}
+        status, body = self.lookup([block_id])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        status, body = self.member_request("GET", "/v1/blocks?limit=10")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}]}})
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}], "next_after": None}})
         (block / "journal").write_bytes(journal)
+
+        # A closed recovery gate is reported on /v1/status (200) and refuses lookup/pages with 503 + retry-after.
+        self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+        closed_report = self.member_status()
+        self.assertEqual(
+            {key: closed_report[key] for key in ("recovery", "inventory", "capacity")},
+            {"recovery": {"state": "closed", "generation": self.generation},
+             "inventory": "unavailable", "capacity": None},
+        )
+        closed_client = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual(
+            (closed_client["recovery"], closed_client["inventory"], closed_client["capacity"]),
+            ({"state": "closed", "generation": self.generation}, "unavailable", None),
+        )
+        status, body, headers = self.member_request_with_headers(
+            "POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+            "application/vnd.serviceradar.nvr-lookup.v1+json",
+        )
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"lookup_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"error": "lookup_status", "status": 503, "body": {"error": "lookup_unavailable"}})
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=10")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"error": "inventory_status", "status": 503, "body": {"error": "inventory_unavailable"}})
+        self.recovery.write_bytes(self.ready)
+        self.assertEqual(self.member_status()["inventory"], "ready")
 
         # Malformed requests are refused before any read; the ingest token is required.
         for ids in ([], ["0" * 64] * 2, ["x"], ["%064x" % index for index in range(51)]):
@@ -2166,7 +2218,11 @@ class NVRReleaseTest(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertEqual(self.member_request("GET", "/v1/blocks" + query),
                                  (400, b'{"error":"invalid_inventory_request"}'))
-        self.assertEqual(self.member_request("GET", "/v1/status", token="incorrect-token-for-the-ingest-listener")[0], 401)
+        bad_token = "incorrect-token-for-the-ingest-listener"
+        self.assertEqual(self.member_request("GET", "/v1/status", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+                                             "application/vnd.serviceradar.nvr-lookup.v1+json", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("GET", "/v1/blocks?limit=1", token=bad_token)[0], 401)
 
     def test_lookup_and_ledger_page_enforce_storage_gate_and_active_block_guards(self):
         self.make_media()
@@ -2210,6 +2266,31 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertTrue(stray.is_dir())
         self.assertEqual(before, {str(path.relative_to(self.spool)): path.read_bytes()
                                   for path in self.spool.rglob("*") if path.is_file()})
+
+    def test_member_status_and_ledger_page_report_rebuilding_over_http(self):
+        self.ingest_installation()
+        for index in range(1025):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+
+        # First /v1/blocks call on a >1024-block volume triggers step 1 and reports 503 inventory_rebuilding.
+        proc = self.start_ingest_release()
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=1")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_rebuilding"}', "1"))
+        self.stop_ingest_release(proc)
+
+        # Fresh restart: first /v1/status call via packaged client reports 200 inventory=rebuilding, capacity=null.
+        self.start_ingest_release()
+        rebuilding = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual((rebuilding["inventory"], rebuilding["capacity"]), ("rebuilding", None))
+        deadline = time.monotonic() + 15
+        while True:
+            report = self.member_status()
+            if report["inventory"] == "ready":
+                break
+            self.assertLess(time.monotonic(), deadline, "ledger rebuild did not finish")
+            time.sleep(0.1)
+        self.assertEqual(report["capacity"]["blocks"], 1025)
 
 
 def canonical(value):

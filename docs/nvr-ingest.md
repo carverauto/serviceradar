@@ -316,12 +316,12 @@ nothing on disk. Each request is bounded by 15 seconds.
 - `GET /v1/blocks?after=<block_id>&limit=<1..100>` pages the block ledger in
   ascending ID order (`limit` defaults to 100). 200 adds `next_after`: the last
   ID when the page is full, null on the last page. Blocks created behind the
-  cursor appear on the next walk. 503 `inventory_rebuilding` while the ledger is
-  built.
+  cursor appear on the next walk. 503 `inventory_rebuilding` (with
+  `retry-after: 1`) while the ledger is built.
 
 Each block entry has `block_id`, `state`, `writing` (an admitted writer holds
-the block now) and `bytes` (charged on disk; null when absent), plus
-`descriptor_sha256` exactly when `state` is `sealed` and `reason` (an error
+the block now) and `bytes` (charged on disk; null when absent or unmeasurable),
+plus `descriptor_sha256` exactly when `state` is `sealed` and `reason` (an error
 class) exactly when it is `unresolved`:
 
 | `state` | Meaning |
