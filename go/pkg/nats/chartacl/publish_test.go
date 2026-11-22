@@ -244,6 +244,59 @@ AUTH: {
 	writeFile(t, filepath.Join(pki.dir, "nats-callout-accounts.conf"), []byte(accounts), 0o600)
 }
 
+// A hub advertises reconnect addresses to every leaf. Its own pod address is
+// unreachable from an edge host, so the rendered listener must advertise the
+// public leaf endpoint when one is configured and nothing otherwise.
+func TestLeafListenerAdvertisesOnlyThePublicEndpoint(t *testing.T) {
+	leafValues := map[string]any{
+		"certificateAuthorization": map[string]any{"enabled": true},
+		"leafnodes":                map[string]any{"enabled": true},
+	}
+
+	for _, tc := range []struct {
+		name          string
+		other         map[string]any
+		wantAdvertise string
+		wantNone      bool
+	}{
+		{
+			name: "public leaf host",
+			other: map[string]any{"hostedRuntime": map[string]any{
+				"publicEndpoints": map[string]any{"natsLeafHost": "leaf.example.com"},
+			}},
+			wantAdvertise: "leaf.example.com:7422",
+		},
+		{name: "no public leaf host", wantNone: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pki := newTestPKI(t)
+			writeCalloutFragments(t, pki,
+				publicKey(t, newKey(t, nkeys.CreateAccount)),
+				publicKey(t, newKey(t, nkeys.CreateUser)),
+				publicKey(t, newKey(t, nkeys.CreateUser)))
+
+			rendered := renderChartWith(t, pki, leafValues, tc.other)
+
+			opts, err := server.ProcessConfigFile(rendered.conf)
+			if err != nil {
+				t.Fatalf("process rendered config: %v", err)
+			}
+
+			if opts.LeafNode.Port == 0 {
+				t.Fatal("rendered config has no leafnode listener")
+			}
+
+			if opts.LeafNode.Advertise != tc.wantAdvertise {
+				t.Errorf("leafnode advertise = %q, want %q", opts.LeafNode.Advertise, tc.wantAdvertise)
+			}
+
+			if opts.LeafNode.NoAdvertise != tc.wantNone {
+				t.Errorf("leafnode no_advertise = %v, want %v", opts.LeafNode.NoAdvertise, tc.wantNone)
+			}
+		})
+	}
+}
+
 func assertChartPublishers(t *testing.T, srv *server.Server, pki *testPKI) {
 	t.Helper()
 
@@ -585,6 +638,13 @@ type renderedChart struct {
 func renderChart(t *testing.T, pki *testPKI, natsValues map[string]any) renderedChart {
 	t.Helper()
 
+	return renderChartWith(t, pki, natsValues, nil)
+}
+
+// renderChartWith also sets chart values outside the nats subtree.
+func renderChartWith(t *testing.T, pki *testPKI, natsValues, otherValues map[string]any) renderedChart {
+	t.Helper()
+
 	chartYAML := runfile(t, chartYAMLEnv)
 	untt := runfile(t, unttEnv)
 
@@ -598,6 +658,9 @@ func renderChart(t *testing.T, pki *testPKI, natsValues map[string]any) rendered
 	}
 
 	set := map[string]any{"nats": nats}
+	for key, value := range otherValues {
+		set[key] = value
+	}
 	selector := func(kind string) map[string]any { return map[string]any{"path": "kind", "value": kind} }
 
 	suite, err := yaml.Marshal(map[string]any{

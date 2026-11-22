@@ -1873,6 +1873,19 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- end -}}
 {{- end -}}
 
+{{/*
+The host:port the hub advertises to connected leaf servers for reconnecting:
+the same public endpoint leaves are told to dial. Empty when no public leaf
+host is set, and the hub then advertises nothing.
+*/}}
+{{- define "serviceradar.natsLeafAdvertise" -}}
+{{- $hosted := default (dict) .Values.hostedRuntime -}}
+{{- $endpoints := default (dict) $hosted.publicEndpoints -}}
+{{- with $endpoints.natsLeafHost -}}
+{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
+{{- end -}}
+{{- end -}}
+
 {{/* Neutral workload identity and CNPG helpers. */}}
 {{- define "serviceradar.componentServiceAccount" -}}
 {{- $component := .component -}}
