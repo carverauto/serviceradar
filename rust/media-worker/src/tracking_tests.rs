@@ -618,3 +618,86 @@ async fn config_and_http_probes_expose_tracker_mode_and_dedup_setting() {
 
     let _ = shutdown_tx.send(true);
 }
+
+#[test]
+fn vision_pipeline_bridges_into_media_core_stage_pipeline() {
+    let config = WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub);
+    let backend: Arc<dyn InferenceBackend> = Arc::new(
+        crate::backend::DeterministicStubBackend::new(config.models().clone()),
+    );
+    let vision = VisionPipeline::with_backend(config.models().clone(), true, backend);
+
+    let mut mc_cfg = crate::MediaPipelineConfig::for_camera("cam-synth-worker-01");
+    mc_cfg.tracker.min_hits_to_activate = 1;
+    mc_cfg.tracker.max_lost_frames = 30;
+    mc_cfg.tracker.max_lost_ms = 5_000;
+    let mut stage_pipeline = vision
+        .build_media_core_pipeline(mc_cfg)
+        .expect("build media-core stage pipeline");
+
+    let bg = RgbFrame::solid(320, 180, [190, 190, 190])
+        .to_media_core_frame()
+        .expect("convert bg frame");
+    let r0 = stage_pipeline
+        .process_rgb_frame(0, &bg)
+        .expect("process anchor");
+    assert!(r0.gate_decision.is_admitted());
+
+    let r1 = stage_pipeline
+        .process_rgb_frame(1_000, &bg)
+        .expect("process static");
+    assert!(!r1.gate_decision.is_admitted());
+
+    let mut moved = bg.clone();
+    moved.fill_rect(60, 40, 100, 90, [220, 25, 25]);
+    moved.fill_rect(60, 90, 100, 140, [25, 65, 225]);
+    let r2 = stage_pipeline
+        .process_rgb_frame(2_000, &moved)
+        .expect("process moving person");
+    assert!(r2.gate_decision.is_admitted());
+    assert!(!r2.detections.is_empty());
+    let tid = r2.assigned_track_ids[0].expect("track id assigned");
+    assert_eq!(
+        r2.attributes[0].upper_body_colors,
+        vec![crate::ColorName::Red]
+    );
+    assert_eq!(
+        r2.attributes[0].lower_body_colors,
+        vec![crate::ColorName::Blue]
+    );
+    let best_thumb = r2
+        .thumbnail
+        .as_ref()
+        .expect("best-keyframe JPEG thumbnail")
+        .clone();
+    assert!(best_thumb.jpeg_bytes.starts_with(&[0xFF, 0xD8]));
+    assert!(best_thumb.jpeg_bytes.ends_with(&[0xFF, 0xD9]));
+    assert!(
+        r2.events
+            .iter()
+            .any(|e| e.kind == crate::DetectionEventKind::TrackEntered && e.track_id == Some(tid))
+    );
+
+    // Person departs -> admitted empty scene marks track Lost
+    let r3 = stage_pipeline
+        .process_rgb_frame(3_000, &bg)
+        .expect("process departure");
+    assert!(r3.gate_decision.is_admitted());
+    assert!(r3.detections.is_empty());
+
+    // Static empty scene past max_lost_ms -> skipped by Tier 1 yet TrackExited fires with best_thumb
+    let r4 = stage_pipeline
+        .process_rgb_frame(8_000, &bg)
+        .expect("process skipped post-departure");
+    assert!(!r4.gate_decision.is_admitted());
+    assert_eq!(r4.events.len(), 1);
+    assert_eq!(r4.events[0].kind, crate::DetectionEventKind::TrackExited);
+    assert_eq!(r4.events[0].track_id, Some(tid));
+    assert_eq!(
+        r4.events[0].thumbnail.as_ref().unwrap().sha256_hex,
+        best_thumb.sha256_hex
+    );
+    let closed = stage_pipeline.take_closed_track_summaries();
+    assert_eq!(closed.len(), 1);
+    assert_eq!(closed[0].track_id, tid);
+}

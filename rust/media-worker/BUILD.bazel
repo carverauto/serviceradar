@@ -18,6 +18,7 @@ rust_library(
         normal = True,
     ) + [
         "//rust/cert-policy:cert_policy",
+        "//rust/media-core:serviceradar_media_core",
     ],
 )
 
@@ -30,6 +31,7 @@ rust_binary(
         normal = True,
     ) + [
         "//rust/cert-policy:cert_policy",
+        "//rust/media-core:serviceradar_media_core",
     ],
 )
 
@@ -50,5 +52,6 @@ rust_test(
         normal_dev = True,
     ) + [
         "//rust/cert-policy:cert_policy",
+        "//rust/media-core:serviceradar_media_core",
     ],
 )
