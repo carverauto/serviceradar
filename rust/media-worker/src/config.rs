@@ -1,6 +1,6 @@
 //! Configuration types and CLI/environment parsing for `serviceradar-media-worker`.
 
-use crate::backend::{InferenceBackendKind, InferenceDevicePreference};
+use crate::backend::{InferenceBackendKind, InferenceDevicePreference, InferencePrecision};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::CapabilityError;
 use crate::tracking::TrackerMode;
@@ -11,10 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-/// Supported execution providers (`design.md` Section 1.3).
+/// Execution provider configuration (`design.md` Section 1.3).
 ///
-/// When `TensorRt` or `Cuda` is selected, startup capability verification MUST
-/// confirm hardware and runtime availability and NEVER silently fall back to CPU.
+/// `Cuda` requires verified GPU hardware and runtime availability with zero
+/// silent CPU fallback. `Tensorrt` is parsed so startup admission fails closed
+/// rather than falling back to CPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionProvider {
@@ -52,7 +53,7 @@ impl FromStr for ExecutionProvider {
             "cuda" => Ok(Self::Cuda),
             "cpu_explicit" => Ok(Self::CpuExplicit),
             other => Err(CapabilityError::invalid_configuration(format!(
-                "unsupported execution_provider '{other}'; expected 'tensorrt', 'cuda', or 'cpu_explicit'"
+                "unsupported execution_provider '{other}'; expected 'cuda' or 'cpu_explicit'"
             ))),
         }
     }
@@ -262,6 +263,7 @@ pub struct WorkerConfig {
     backend_kind: InferenceBackendKind,
     model_dir: Option<PathBuf>,
     device_preference: InferenceDevicePreference,
+    precision: InferencePrecision,
     execution_provider: ExecutionProvider,
     declared_gpu_sharing_mode: Option<GpuSharingMode>,
     min_gpu_vram_mb: u64,
@@ -293,9 +295,10 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             listen_addr: SocketAddr::from(([0, 0, 0, 0], 8096)),
-            backend_kind: InferenceBackendKind::Stub,
+            backend_kind: InferenceBackendKind::Candle,
             model_dir: None,
             device_preference: InferenceDevicePreference::Auto,
+            precision: InferencePrecision::Auto,
             execution_provider: ExecutionProvider::Cuda,
             declared_gpu_sharing_mode: None,
             min_gpu_vram_mb: 1024,
@@ -443,6 +446,10 @@ impl WorkerConfig {
         self.device_preference
     }
 
+    pub fn precision(&self) -> InferencePrecision {
+        self.precision
+    }
+
     pub fn execution_provider(&self) -> ExecutionProvider {
         self.execution_provider
     }
@@ -555,14 +562,18 @@ pub struct CliArgs {
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_PORT", default_value_t = 8096)]
     port: u16,
 
-    #[arg(long, env = "MEDIA_WORKER_BACKEND")]
-    backend: Option<String>,
+    #[arg(long, env = "MEDIA_WORKER_BACKEND", default_value = "candle")]
+    backend: InferenceBackendKind,
 
     #[arg(long, env = "MEDIA_WORKER_MODEL_DIR")]
     model_dir: Option<PathBuf>,
 
     #[arg(long, env = "MEDIA_WORKER_DEVICE", default_value = "auto")]
     device: String,
+
+    /// SigLIP compute precision: `auto` (f16 on CUDA, f32 on CPU), `f32`, or `f16`.
+    #[arg(long, env = "MEDIA_WORKER_DTYPE", default_value = "auto")]
+    dtype: String,
 
     #[arg(long, env = "SERVICERADAR_MEDIA_WORKER_EXECUTION_PROVIDER")]
     execution_provider: Option<String>,
@@ -756,18 +767,8 @@ impl CliArgs {
             _ => SocketAddr::from(([0, 0, 0, 0], self.port)),
         };
 
-        let model_dir = non_empty_path(self.model_dir);
-        let backend_kind = match non_empty_opt(self.backend) {
-            Some(raw) => InferenceBackendKind::from_str(&raw)?,
-            None => {
-                if model_dir.is_some() {
-                    InferenceBackendKind::Candle
-                } else {
-                    InferenceBackendKind::Stub
-                }
-            }
-        };
         let device_preference = InferenceDevicePreference::from_str(&self.device)?;
+        let precision = InferencePrecision::from_str(&self.dtype)?;
         let tracker_mode = TrackerMode::from_str(&self.tracker)?;
 
         let raw_provider = self
@@ -776,7 +777,9 @@ impl CliArgs {
             .or(self.execution_backend.as_deref())
             .unwrap_or("cuda");
         let execution_provider = ExecutionProvider::from_str(raw_provider)?;
+        device_preference.validate_provider(execution_provider.requires_gpu())?;
 
+        let model_dir = non_empty_path(self.model_dir);
         let declared_gpu_sharing_mode = match self
             .gpu_sharing_mode
             .as_deref()
@@ -818,9 +821,10 @@ impl CliArgs {
 
         Ok(WorkerConfig {
             listen_addr,
-            backend_kind,
+            backend_kind: self.backend,
             model_dir,
             device_preference,
+            precision,
             execution_provider,
             declared_gpu_sharing_mode,
             min_gpu_vram_mb: self.min_gpu_vram_mb,

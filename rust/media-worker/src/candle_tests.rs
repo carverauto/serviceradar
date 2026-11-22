@@ -4,11 +4,15 @@
 //! All model weights, configs, tokenizers, and images in this module are 100% synthetic
 //! and programmatically generated in temporary directories.
 
+use crate::backend::InferencePrecision;
 use crate::backend::{
     DeterministicStubBackend, InferenceBackend, InferenceBackendKind, InferenceDevicePreference,
     build_inference_backend,
 };
-use crate::candle_backend::{CandleBackend, resolve_candle_device};
+use crate::candle_backend::{
+    CandleBackend, CandleBackendOptions, cuda_jit_cache_dir, preprocess_siglip_batch,
+    probe_writable_dir, resolve_candle_device,
+};
 use crate::capability::{
     GpuEnvironmentObservation, GpuEnvironmentProbe, verify_startup_capabilities_with_backend,
 };
@@ -23,6 +27,7 @@ use crate::yolo_v8::{YoloV8Config, coco_class_to_object_class, coco_name_to_obje
 use clap::Parser;
 use safetensors::tensor::{Dtype as StDtype, TensorView};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -416,6 +421,32 @@ fn write_tiny_siglip_fixture(dir: &Path) {
         (vec![1], const_f32_bytes(1, -10.0)),
     );
 
+    let delta = 1.0_f32 / 4096.0;
+    for (head, biases) in [
+        ("vision_model.head.attention.out_proj", &[1.0, 1.0, 0.0][..]),
+        ("vision_model.head.mlp.fc1", &[8.0, 8.0]),
+        ("vision_model.head.mlp.fc2", &[0.0, delta, -8.0]),
+        ("text_model.head", &[1.0, 1.0 + delta, -8.0]),
+    ] {
+        let (shape, weights) = t.get_mut(&format!("{head}.weight")).expect("head weights");
+        let row_bytes = shape[1] * size_of::<f32>();
+        weights[..biases.len() * row_bytes].fill(0);
+        if matches!(head, "vision_model.head.mlp.fc2" | "text_model.head") {
+            let third_row = &mut weights[2 * row_bytes..3 * row_bytes];
+            third_row[..4].copy_from_slice(&1.0_f32.to_le_bytes());
+            third_row[4..8].copy_from_slice(&delta.to_le_bytes());
+        }
+        let (_, bias) = t.get_mut(&format!("{head}.bias")).expect("head bias");
+        for (slot, value) in bias.as_chunks_mut::<4>().0.iter_mut().zip(biases) {
+            slot.copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    for (parameter, value) in [("weight", 0.0), ("bias", 8.0_f32)] {
+        let (_, data) = t
+            .get_mut(&format!("text_model.final_layer_norm.{parameter}"))
+            .expect("text output normalization");
+        data[..8].copy_from_slice(&const_f32_bytes(2, value));
+    }
     write_safetensors_file(&dir.join("model.safetensors"), &t);
 }
 
@@ -519,12 +550,10 @@ fn candle_backend_synthetic_siglip_end_to_end_and_scene_only_fallback() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
 
-    let backend = CandleBackend::load_from_dir(
+    let backend = CandleBackend::load(
         dir.path(),
-        InferenceDevicePreference::Cpu,
-        false,
-        Some("siglip-tiny-synth:1".to_string()),
-        None,
+        &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32)
+            .with_model_revision("siglip-tiny-synth:1"),
     )
     .expect("load synthetic SigLIP CandleBackend");
 
@@ -606,12 +635,10 @@ fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
     write_tiny_yolov8_fixture(dir.path());
 
     let backend = Arc::new(
-        CandleBackend::load_from_dir(
+        CandleBackend::load(
             dir.path(),
-            InferenceDevicePreference::Auto,
-            false,
-            Some("siglip-yolo-synth:1".to_string()),
-            None,
+            &CandleBackendOptions::new(InferenceDevicePreference::Auto, false, 32)
+                .with_model_revision("siglip-yolo-synth:1"),
         )
         .expect("load SigLIP + YOLOv8 CandleBackend"),
     );
@@ -689,38 +716,18 @@ fn coco_class_mapping_covers_all_required_surveillance_classes() {
 
 #[test]
 fn candle_backend_error_handling_for_missing_or_corrupt_artifacts_and_gpu_fail_closed() {
+    let cpu_options = || CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32);
     let missing = Path::new("/nonexistent/serviceradar/synthetic/model_dir");
-    assert!(
-        CandleBackend::load_from_dir(missing, InferenceDevicePreference::Cpu, false, None, None)
-            .is_err()
-    );
+    assert!(CandleBackend::load(missing, &cpu_options()).is_err());
 
     let dir = TempDir::new().expect("temp dir");
     // Missing config.json
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Valid config.json but missing model.safetensors
     write_tiny_siglip_fixture(dir.path());
     std::fs::remove_file(dir.path().join("model.safetensors")).expect("remove weights");
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Corrupted safetensors bytes
     std::fs::write(
@@ -728,40 +735,39 @@ fn candle_backend_error_handling_for_missing_or_corrupt_artifacts_and_gpu_fail_c
         b"not-a-safetensors-file",
     )
     .expect("write corrupt weights");
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
+
+    // A checkpoint whose towers emit a different width than the configured index
+    // (the fixture declares 32-d towers) must be refused at load, not indexed.
+    write_tiny_siglip_fixture(dir.path());
+    let width_err = CandleBackend::load(
+        dir.path(),
+        &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 768),
+    )
+    .expect_err("a 32-d checkpoint must not load as a 768-d embedder");
     assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
+        width_err.to_string().contains("32-d image and 32-d text"),
+        "unexpected width error: {width_err}"
     );
 
     // Valid weights + config, missing tokenizer.json
     write_tiny_siglip_fixture(dir.path());
     std::fs::remove_file(dir.path().join("tokenizer.json")).expect("remove tokenizer");
-    assert!(
-        CandleBackend::load_from_dir(
-            dir.path(),
-            InferenceDevicePreference::Cpu,
-            false,
-            None,
-            None
-        )
-        .is_err()
-    );
+    assert!(CandleBackend::load(dir.path(), &cpu_options()).is_err());
 
     // Device policy: GPU strictly required with CPU preference must fail closed!
     assert!(resolve_candle_device(InferenceDevicePreference::Cpu, true).is_err());
 
-    // Without the `cuda` Cargo feature, explicit CUDA must fail closed (never silent CPU).
+    // cpu_explicit never picks up a GPU, in any build: `cuda` is a conflict and `auto`
+    // follows the provider to the CPU.
+    assert!(resolve_candle_device(InferenceDevicePreference::Cuda, false).is_err());
+    let (_, auto_cpu) = resolve_candle_device(InferenceDevicePreference::Auto, false)
+        .expect("auto with cpu_explicit resolves to the CPU");
+    assert_eq!(auto_cpu, "cpu");
+
+    // Without the `cuda` Cargo feature, a GPU provider must fail closed (never silent CPU).
     #[cfg(not(feature = "cuda"))]
-    {
-        assert!(resolve_candle_device(InferenceDevicePreference::Cuda, false).is_err());
-        assert!(resolve_candle_device(InferenceDevicePreference::Auto, true).is_err());
-    }
+    assert!(resolve_candle_device(InferenceDevicePreference::Auto, true).is_err());
 }
 
 #[tokio::test]
@@ -769,9 +775,49 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
 
-    // 1. Default without model dir selects stub.
+    let conflict = CliArgs::try_parse_from([
+        "serviceradar-media-worker",
+        "--device",
+        "cuda",
+        "--execution-provider",
+        "cpu_explicit",
+    ])
+    .expect("parse conflicting arguments")
+    .into_worker_config()
+    .expect_err("conflicting device and provider must fail before choosing the backend");
+    assert!(
+        conflict
+            .to_string()
+            .contains("execution_provider=cpu_explicit")
+    );
+
+    let default = CliArgs::try_parse_from(["serviceradar-media-worker"])
+        .expect("parse default cli")
+        .into_worker_config()
+        .expect("default config");
+    assert_eq!(default.backend_kind(), InferenceBackendKind::Candle);
+    let error = build_inference_backend(&default)
+        .err()
+        .expect("Candle requires a checkpoint");
+    assert!(error.to_string().contains("MEDIA_WORKER_MODEL_DIR"));
+
+    for value in ["CANDLE", "  cAnDlE  ", "", "   "] {
+        let config = CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", value])
+            .expect("accepted Candle spelling")
+            .into_worker_config()
+            .expect("worker config");
+        assert_eq!(config.backend_kind(), InferenceBackendKind::Candle);
+    }
+    for value in ["deterministic", "STUB", " stub ", "other"] {
+        assert!(
+            CliArgs::try_parse_from(["serviceradar-media-worker", "--backend", value]).is_err()
+        );
+    }
+
     let cli_stub = CliArgs::try_parse_from([
         "serviceradar-media-worker",
+        "--backend",
+        "stub",
         "--execution-provider",
         "cpu_explicit",
     ])
@@ -782,7 +828,6 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     assert_eq!(stub_backend.info().backend(), InferenceBackendKind::Stub);
     assert_eq!(stub_backend.info().device(), "cpu");
 
-    // 2. Setting --model-dir defaults backend to candle.
     let cli_auto_candle = CliArgs::try_parse_from([
         "serviceradar-media-worker",
         "--execution-provider",
@@ -801,6 +846,21 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
         cfg_candle.device_preference(),
         InferenceDevicePreference::Cpu
     );
+    assert_eq!(cfg_candle.precision(), InferencePrecision::Auto);
+    for (raw, expected) in [
+        ("f16", Some(InferencePrecision::F16)),
+        ("auto", Some(InferencePrecision::Auto)),
+        ("f32", Some(InferencePrecision::F32)),
+        ("F32", None),
+        (" f16 ", None),
+        ("bf16", None),
+    ] {
+        let parsed = CliArgs::try_parse_from(["serviceradar-media-worker", "--dtype", raw])
+            .expect("parse dtype cli")
+            .into_worker_config()
+            .map(|cfg| cfg.precision());
+        assert_eq!(parsed.ok(), expected, "MEDIA_WORKER_DTYPE={raw}");
+    }
 
     let candle_backend = build_inference_backend(&cfg_candle).expect("build candle backend");
     assert_eq!(
@@ -861,6 +921,7 @@ async fn backend_selection_and_http_probes_expose_active_backend_and_device() {
     .expect("join readyz");
     assert_eq!(readyz_json["inference_backend"], "candle");
     assert_eq!(readyz_json["inference_device"], "cpu");
+    assert_eq!(readyz_json["inference_dtype"], "f32");
     assert_eq!(readyz_json["detector_enabled"], false);
     assert_eq!(readyz_json["embedding_dim"], 32);
 
@@ -921,4 +982,408 @@ fn pure_rust_tokenizer_supports_bpe_and_wordpiece_formats() {
     let wp = PureRustTokenizer::from_bytes(&serde_json::to_vec(&wp_json).unwrap())
         .expect("parse WordPiece tokenizer");
     assert_eq!(wp.encode_raw("vans"), vec![3, 4]);
+}
+
+/// Synthetic frames of assorted sizes (including non-square and odd ones) with
+/// per-pixel gradients, so bilinear sampling differs per output position.
+fn gradient_frames() -> Vec<RgbFrame> {
+    [(32u32, 24u32), (7, 5), (64, 48), (16, 16), (33, 17)]
+        .iter()
+        .enumerate()
+        .map(|(i, &(w, h))| {
+            let mut px = Vec::with_capacity((w * h * 3) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    px.extend_from_slice(&[
+                        ((x * 37 + y * 11 + i as u32 * 5) % 256) as u8,
+                        ((x * 3 + y * 91) % 256) as u8,
+                        ((x ^ y) * 13 % 256) as u8,
+                    ]);
+                }
+            }
+            RgbFrame::from_rgb8(w, h, px).expect("synthetic gradient frame")
+        })
+        .collect()
+}
+
+#[test]
+fn parallel_siglip_preprocessing_matches_single_threaded_output_bit_for_bit() {
+    let red_blue = RgbFrame::from_rgb8(2, 1, vec![255, 0, 0, 0, 0, 255]).unwrap();
+    let green = RgbFrame::solid(1, 1, [0, 255, 0]);
+    let pixels = preprocess_siglip_batch(&[&red_blue, &green], 3, 2);
+    let planes = [
+        [1., 0., -1.],
+        [-1.; 3],
+        [-1., 0., 1.],
+        [-1.; 3],
+        [1.; 3],
+        [-1.; 3],
+    ];
+    let expected: Vec<f32> = planes.iter().flat_map(|row| row.repeat(3)).collect();
+    assert_eq!(pixels, expected);
+
+    let frames = gradient_frames();
+    let refs: Vec<&RgbFrame> = frames.iter().collect();
+    let target = 12;
+    let sequential = preprocess_siglip_batch(&refs, target, 1);
+    assert_eq!(sequential.len(), refs.len() * 3 * target * target);
+
+    // Thread counts that divide the batch evenly, unevenly, and exceed it.
+    for threads in [2, 3, 4, 64] {
+        let parallel = preprocess_siglip_batch(&refs, target, threads);
+        let identical = sequential.len() == parallel.len()
+            && sequential
+                .iter()
+                .zip(&parallel)
+                .all(|(a, b)| a.to_bits() == b.to_bits());
+        assert!(
+            identical,
+            "{threads} preprocessing threads changed the output"
+        );
+    }
+}
+
+#[tokio::test]
+async fn nats_worker_entry_points_refuse_failed_admission_before_connecting() {
+    let config = WorkerConfig::default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_execution_provider(crate::ExecutionProvider::CpuExplicit)
+        .with_concurrency(3, 1)
+        .with_nats_url("invalid://");
+    let backend = build_inference_backend(&config).expect("load CPU stub");
+    let metrics = Arc::new(WorkerMetrics::new());
+    let (_shutdown, rx) = tokio::sync::watch::channel(false);
+    let configured =
+        crate::run_nats_worker_loops(config.clone(), metrics.clone(), rx.clone()).await;
+    let supplied = crate::run_nats_worker_loops_with_backend(config, backend, metrics, rx).await;
+    for result in [configured, supplied] {
+        let error = result.expect_err("invalid CPU worker must fail before NATS setup");
+        assert!(
+            error.to_string().contains("index_concurrency <= 2"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn candle_f16_embeddings_stay_in_the_f32_vector_space() {
+    let dir = TempDir::new().expect("temp dir");
+    write_tiny_siglip_fixture(dir.path());
+    let identity = ("synthetic-siglip", "rounding-fixture-v1", 32);
+    let load = |dtype| {
+        let config = CliArgs::try_parse_from([
+            "serviceradar-media-worker",
+            "--backend",
+            "candle",
+            "--execution-provider",
+            "cpu_explicit",
+            "--model-dir",
+            dir.path().to_str().expect("checkpoint path"),
+            "--dtype",
+            dtype,
+            "--embedder-model-id",
+            identity.0,
+            "--embedder-model-version",
+            identity.1,
+            "--embedding-dim",
+            "32",
+        ])
+        .expect("parse precision configuration")
+        .into_worker_config()
+        .expect("worker config");
+        let backend = build_inference_backend(&config).expect("load configured synthetic SigLIP");
+        let manifest = verify_startup_capabilities_with_backend(
+            &config,
+            &StaticProbe(GpuEnvironmentObservation::no_gpu()),
+            Arc::clone(&backend),
+        )
+        .expect("admit configured synthetic SigLIP");
+        assert_eq!(
+            (
+                manifest.embedder_model_id(),
+                manifest.embedder_model_version(),
+                manifest.embedding_dim()
+            ),
+            identity
+        );
+        backend
+    };
+    let f32_backend = load("auto");
+    let f16_backend = load("f16");
+    // `auto` is f32 on the CPU; an explicit f16 is honoured and reported.
+    assert_eq!(f32_backend.info().dtype(), InferencePrecision::F32);
+    assert_eq!(f16_backend.info().dtype(), InferencePrecision::F16);
+    // The model identity must not depend on precision (search interchangeability).
+    assert_eq!(
+        f32_backend.info().model_revision(),
+        f16_backend.info().model_revision()
+    );
+
+    let frames = gradient_frames();
+    let refs: Vec<&RgbFrame> = frames.iter().collect();
+    let full_images = f32_backend.encode_images(&refs).expect("f32 images");
+    let half_images = f16_backend.encode_images(&refs).expect("f16 images");
+    assert_eq!(full_images.len(), frames.len());
+    assert_eq!(half_images.len(), frames.len());
+    let mut pairs: Vec<_> = full_images.into_iter().zip(half_images).collect();
+    for query in ["person in red jacket", "white van"] {
+        pairs.push((
+            f32_backend.encode_text(query).expect("f32 text"),
+            f16_backend.encode_text(query).expect("f16 text"),
+        ));
+    }
+
+    // The real SigLIP base model measured a minimum f16-vs-f32 cosine of 0.9999983 on
+    // GPU; this tiny checkpoint lands near 0.99999. The 0.9999 bar sits clear of f16
+    // rounding noise and far above what a wrong cast or a missing upcast produces.
+    for (full, half) in &pairs {
+        assert_eq!(full.len(), 32);
+        assert_eq!(half.len(), 32);
+        assert!(half[0] > 0.0);
+        assert_eq!(half[0], half[1], "binary16 rounds 1 + 2^-12 to 1");
+        assert!((full[1] / full[0] - (1.0 + 1.0 / 4096.0)).abs() < 1e-6);
+        assert_eq!(
+            half[2], 0.0,
+            "binary16 rounds 8 + 2^-9 to 8 before subtracting 8"
+        );
+        assert!((full[2] / full[0] - 1.0 / 512.0).abs() < 1e-7);
+        let norm: f32 = half.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 1e-4,
+            "f16 output must be L2-normalised f32"
+        );
+        let cos = cosine_similarity(full, half);
+        assert!(cos > 0.9999, "f16 drifted from f32: cosine {cos}");
+    }
+}
+
+#[test]
+fn cuda_jit_cache_location_follows_cuda_driver_rules_and_unwritable_is_reported() {
+    type EnvVars = &'static [(&'static str, &'static str)];
+    let env = |pairs: EnvVars| {
+        move |key: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| OsString::from(v))
+        }
+    };
+    let cases: [(EnvVars, Option<&str>); 5] = [
+        (
+            &[("CUDA_CACHE_PATH", "/cache/cuda"), ("HOME", "/home/worker")],
+            Some("/cache/cuda"),
+        ),
+        (
+            &[("HOME", "/home/worker")],
+            Some("/home/worker/.nv/ComputeCache"),
+        ),
+        (
+            &[("CUDA_CACHE_PATH", ""), ("HOME", "/home/worker")],
+            Some("/home/worker/.nv/ComputeCache"),
+        ),
+        (
+            &[
+                ("CUDA_CACHE_DISABLE", "1"),
+                ("CUDA_CACHE_PATH", "/cache/cuda"),
+            ],
+            None,
+        ),
+        (&[], None),
+    ];
+    for (vars, expected) in cases {
+        assert_eq!(
+            cuda_jit_cache_dir(&env(vars)),
+            expected.map(std::path::PathBuf::from),
+            "{vars:?}"
+        );
+    }
+
+    let dir = TempDir::new().expect("temp dir");
+    let writable = dir.path().join("cuda-cache");
+    probe_writable_dir(&writable).expect("a fresh directory is writable");
+    assert_eq!(
+        std::fs::read_dir(&writable).expect("cache dir").count(),
+        0,
+        "the probe must not leave files behind"
+    );
+    let existing = writable.join(format!(".serviceradar-write-probe-{}", std::process::id()));
+    std::fs::write(&existing, b"existing").expect("create existing cache file");
+    probe_writable_dir(&writable).expect("probe shared cache");
+    assert_eq!(
+        std::fs::read(existing).expect("preserved file"),
+        b"existing"
+    );
+    // A path under a regular file cannot be created, whoever runs the test.
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, b"").expect("write blocker file");
+    assert!(probe_writable_dir(&blocker.join("cuda-cache")).is_err());
+}
+
+/// Delegates to the stub backend and records which towers ran.
+pub(super) struct RecordingBackend {
+    info: crate::InferenceBackendInfo,
+    inner: DeterministicStubBackend,
+    image_batches: std::sync::atomic::AtomicUsize,
+    text_queries: std::sync::atomic::AtomicUsize,
+}
+
+impl RecordingBackend {
+    pub(super) fn new(models: &ModelPinConfig, info: crate::InferenceBackendInfo) -> Self {
+        Self {
+            info,
+            inner: DeterministicStubBackend::new(models.clone()),
+            image_batches: Default::default(),
+            text_queries: Default::default(),
+        }
+    }
+}
+
+impl InferenceBackend for RecordingBackend {
+    fn detect_objects(
+        &self,
+        frame: &RgbFrame,
+        min_confidence: f32,
+    ) -> Result<Vec<crate::backend::RawDetection>, crate::errors::MediaWorkerError> {
+        self.inner.detect_objects(frame, min_confidence)
+    }
+
+    fn encode_images(
+        &self,
+        frames: &[&RgbFrame],
+    ) -> Result<Vec<Vec<f32>>, crate::errors::MediaWorkerError> {
+        self.image_batches
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.encode_images(frames)
+    }
+
+    fn encode_text(&self, query: &str) -> Result<Vec<f32>, crate::errors::MediaWorkerError> {
+        self.text_queries
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.encode_text(query)
+    }
+
+    fn info(&self) -> crate::backend::InferenceBackendInfo {
+        self.info.clone()
+    }
+}
+
+#[test]
+fn cpu_explicit_refuses_a_supplied_cuda_backend_before_warmup() {
+    use std::sync::atomic::Ordering;
+    let config = WorkerConfig::cpu_explicit_default();
+    let info = crate::InferenceBackendInfo::new(
+        InferenceBackendKind::Candle,
+        "cuda:0",
+        config.models().embedding_dim(),
+        "synthetic",
+        false,
+    );
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
+    let probe = StaticProbe(GpuEnvironmentObservation::no_gpu());
+    let err = verify_startup_capabilities_with_backend(&config, &probe, backend.clone())
+        .expect_err("CUDA under cpu_explicit");
+    assert!(err.to_string().contains("cpu_explicit"));
+    assert_eq!(backend.image_batches.load(Ordering::SeqCst), 0);
+    assert_eq!(backend.text_queries.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn admission_refuses_mismatched_precision_before_either_warmup() {
+    use std::sync::atomic::Ordering;
+
+    let probe = StaticProbe(GpuEnvironmentObservation::new(
+        1,
+        false,
+        false,
+        None,
+        Some(24_576),
+        OrtRuntimeProbeResult::synthetic("test", true, false),
+    ));
+    for (provider, device, requested, active) in [
+        ("cpu_explicit", "cpu", "auto", InferencePrecision::F16),
+        ("cuda", "cuda:0", "auto", InferencePrecision::F32),
+        ("cpu_explicit", "cpu", "f16", InferencePrecision::F32),
+        ("cuda", "cuda:0", "f32", InferencePrecision::F16),
+    ] {
+        let config = CliArgs::try_parse_from([
+            "serviceradar-media-worker",
+            "--execution-provider",
+            provider,
+            "--dtype",
+            requested,
+        ])
+        .expect("parse requested precision")
+        .into_worker_config()
+        .expect("worker config");
+        let info = crate::InferenceBackendInfo::new(
+            InferenceBackendKind::Candle,
+            device,
+            config.models().embedding_dim(),
+            "synthetic",
+            false,
+        )
+        .with_dtype(active);
+        let backend = Arc::new(RecordingBackend::new(config.models(), info));
+        let err = verify_startup_capabilities_with_backend(&config, &probe, backend.clone())
+            .expect_err("mismatched precision");
+        assert!(err.to_string().contains("precision"));
+        assert_eq!(backend.image_batches.load(Ordering::SeqCst), 0);
+        assert_eq!(backend.text_queries.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
+fn admission_refuses_an_advertised_width_that_differs_from_the_tower_outputs() {
+    let config = WorkerConfig::cpu_explicit_default().with_models(ModelPinConfig::new(
+        "synthetic-detector",
+        "v1",
+        "synthetic-embedder",
+        "v1",
+        768,
+    ));
+    let info = crate::InferenceBackendInfo::new(
+        InferenceBackendKind::Candle,
+        "cpu",
+        512,
+        "synthetic",
+        false,
+    );
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
+    let err = verify_startup_capabilities_with_backend(
+        &config,
+        &StaticProbe(GpuEnvironmentObservation::no_gpu()),
+        backend,
+    )
+    .expect_err("advertised width must match the configured index");
+    assert!(err.to_string().contains("embedding_dim"));
+}
+
+#[test]
+fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
+    // Readiness (and therefore job claims and text-embedding RPCs, which start only
+    // after admission) must wait for both towers to have run once: on CUDA that first
+    // pass is where the PTX JIT compile happens.
+    let config = WorkerConfig::cpu_explicit_default().with_backend_kind(InferenceBackendKind::Stub);
+    let info = build_inference_backend(&config).expect("CPU stub").info();
+    let backend = Arc::new(RecordingBackend::new(config.models(), info));
+    let probe = StaticProbe(GpuEnvironmentObservation::no_gpu());
+    let manifest = verify_startup_capabilities_with_backend(
+        &config,
+        &probe,
+        Arc::clone(&backend) as Arc<dyn InferenceBackend>,
+    )
+    .expect("startup admission");
+    assert_eq!(manifest.status(), "ready");
+    assert!(
+        backend
+            .image_batches
+            .load(std::sync::atomic::Ordering::SeqCst)
+            >= 1
+    );
+    assert!(
+        backend
+            .text_queries
+            .load(std::sync::atomic::Ordering::SeqCst)
+            >= 1
+    );
 }

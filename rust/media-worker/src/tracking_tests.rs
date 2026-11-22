@@ -5,7 +5,7 @@ use crate::backend::{InferenceBackend, InferenceBackendInfo, InferenceBackendKin
 use crate::capability::{
     GpuEnvironmentObservation, GpuEnvironmentProbe, verify_startup_capabilities_with_backend,
 };
-use crate::config::{CliArgs, ExecutionProvider, ModelPinConfig, WorkerConfig};
+use crate::config::{CliArgs, ModelPinConfig, WorkerConfig};
 use crate::errors::{CapabilityError, MediaWorkerError};
 use crate::http_server::{ReadinessState, serve_http_probes};
 use crate::metrics::WorkerMetrics;
@@ -566,7 +566,7 @@ async fn config_and_http_probes_expose_tracker_mode_and_dedup_setting() {
 
     // Verify /healthz and /readyz expose tracker and dedup_track_crops.
     let config = WorkerConfig::cpu_explicit_default()
-        .with_execution_provider(ExecutionProvider::CpuExplicit)
+        .with_backend_kind(InferenceBackendKind::Stub)
         .with_tracker_mode(TrackerMode::DeepOcSort)
         .with_dedup_track_crops(true);
     let backend: Arc<dyn InferenceBackend> = Arc::new(

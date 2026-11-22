@@ -8,9 +8,7 @@
 //!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
 //!   `embed_query_text`.
 
-use crate::backend::{
-    DeterministicStubBackend, InferenceBackend, InferenceBackendInfo, RawDetection,
-};
+use crate::backend::{InferenceBackend, InferenceBackendInfo, RawDetection};
 use crate::config::ModelPinConfig;
 use crate::errors::MediaWorkerError;
 use crate::tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
@@ -361,19 +359,6 @@ impl core::fmt::Debug for VisionPipeline {
 }
 
 impl VisionPipeline {
-    /// Constructs a pipeline using the deterministic reference stub backend.
-    pub fn new(models: ModelPinConfig, skip_unchanged_empty_scenes: bool) -> Self {
-        let backend: Arc<dyn InferenceBackend> =
-            Arc::new(DeterministicStubBackend::new(models.clone()));
-        Self {
-            models,
-            skip_unchanged_empty_scenes,
-            tracker_mode: TrackerMode::ByteTrack,
-            dedup_track_crops: true,
-            backend,
-        }
-    }
-
     /// Constructs a pipeline backed by an explicit `InferenceBackend` (e.g. `CandleBackend`).
     pub fn with_backend(
         models: ModelPinConfig,

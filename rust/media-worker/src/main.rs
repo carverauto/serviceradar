@@ -1,8 +1,7 @@
 use clap::Parser;
 use serviceradar_media_worker::{
-    CliArgs, ReadinessState, SystemGpuEnvironmentProbe, WorkerMetrics, build_inference_backend,
-    run_nats_worker_loops_with_backend, serve_http_probes,
-    verify_startup_capabilities_with_backend,
+    CliArgs, ReadinessState, WorkerMetrics, load_and_admit_worker, run_admitted_nats_worker,
+    serve_http_probes,
 };
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -41,34 +40,16 @@ async fn main() -> ExitCode {
             }
         };
 
-    let backend = match build_inference_backend(&config) {
-        Ok(b) => b,
+    // Loading the weights and the warm-up forward passes (which absorb the CUDA PTX JIT
+    // compile) block for seconds. Run them off the async workers so /healthz keeps
+    // answering the liveness probe; /readyz stays 503 until admission completes, and
+    // no job or text-embedding RPC is served before then.
+    readiness.mark_not_ready("loading model and running warm-up inference");
+    let (worker, manifest) = match load_and_admit_worker(config).await {
+        Ok(admitted) => admitted,
         Err(err) => {
+            error!(error = %err, "media worker startup admission failed");
             readiness.mark_not_ready(err.to_string());
-            error!(
-                error = %err,
-                backend = %config.backend_kind(),
-                "failed initializing inference backend; refusing to pull visual indexing jobs"
-            );
-            let _ = shutdown_tx.send(true);
-            return ExitCode::from(1);
-        }
-    };
-
-    let manifest = match verify_startup_capabilities_with_backend(
-        &config,
-        &SystemGpuEnvironmentProbe,
-        Arc::clone(&backend),
-    ) {
-        Ok(man) => man,
-        Err(err) => {
-            // Fail closed with zero silent CPU fallback (`2.2`).
-            readiness.mark_not_ready(err.to_string());
-            error!(
-                error = %err,
-                execution_provider = %config.execution_provider(),
-                "startup capability admission failed; refusing to pull visual indexing jobs"
-            );
             let _ = shutdown_tx.send(true);
             return ExitCode::from(1);
         }
@@ -80,6 +61,8 @@ async fn main() -> ExitCode {
         architecture = %manifest.architecture(),
         inference_backend = %manifest.inference_backend(),
         inference_device = %manifest.inference_device(),
+        inference_dtype = %manifest.inference_dtype(),
+        warmup_ms = manifest.warmup_ms(),
         detector_enabled = manifest.detector_enabled(),
         tracker = %manifest.tracker(),
         dedup_track_crops = manifest.dedup_track_crops(),
@@ -90,12 +73,7 @@ async fn main() -> ExitCode {
         "serviceradar-media-worker startup capability admission verified"
     );
 
-    let worker_task = tokio::spawn(run_nats_worker_loops_with_backend(
-        config,
-        backend,
-        metrics,
-        shutdown_rx,
-    ));
+    let worker_task = tokio::spawn(run_admitted_nats_worker(worker, metrics, shutdown_rx));
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {

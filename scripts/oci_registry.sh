@@ -75,3 +75,19 @@ oci_registry_config() {
   # oras 1.3 blob fetch refuses to write to stdout unless --output is set.
   oras blob fetch --output - "${ref%@*}@${config_digest}"
 }
+
+oci_check_native_image() {
+  python3 - "$1" "$2" <<'PYTHON'
+import ast
+import sys
+from pathlib import Path
+
+inventory, image = sys.argv[1:]
+for node in ast.parse(Path(inventory).read_text()).body:
+    if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "NATIVE_BUILD_IMAGES" for t in node.targets):
+        if any(entry["repository"] == image for entry in ast.literal_eval(node.value)):
+            break
+else:
+    raise SystemExit(f"unknown native-build image: {image}")
+PYTHON
+}

@@ -3,3 +3,4 @@ self-hosted-runner:
   labels:
     - arc-runner-set
     - serviceradar-signing
+    - serviceradar-arm64-build

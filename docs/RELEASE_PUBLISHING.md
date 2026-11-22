@@ -105,6 +105,24 @@ cleanup still runs if the upload fails. Receipts retained from a failed run are
 diagnostic evidence only: deployment requires a successful run with mandatory
 signature verification before and after promotion.
 
+### Images built outside Bazel
+
+Two kinds of image are published one at a time, never by a release, and only when
+listed in `docker/images/image_inventory.bzl`:
+
+- `DOCKERFILE_IMAGES`, built from a Dockerfile by `publish-dockerfile-image.yml`
+  and signed with `SERVICERADAR_DOCKERFILE_IMAGE`;
+- `NATIVE_BUILD_IMAGES`, assembled with crane around a binary built natively on a
+  credential-less runner and signed with `SERVICERADAR_NATIVE_IMAGE`. The only one
+  is `serviceradar-media-worker-cuda`
+  ([media-worker-cuda-image.md](media-worker-cuda-image.md)).
+
+The Dockerfile workflow resolves the published tag. The native workflow passes
+the verified build digest directly through signing and promotion. Both use the same
+`sign-oci-publish.sh` path and OpenBao role as `publish-oci.yml`, and are
+promoted like any other image. The Dockerfile workflow publishes only from
+`staging`. The CUDA workflow also admits branches matching `test/demo-test-<digits>`.
+
 ### Publishing the promotion tool
 
 `scripts/ci/harbor-publish.py` pins the shared promoter
@@ -316,8 +334,8 @@ The sidecars are not signed separately. Their lines also appear in the signed
 `SHA256SUMS`.
 
 The image workflow verifies every repository in `PUBLISHABLE_IMAGES` in
-`docker/images/image_inventory.bzl` (`DOCKERFILE_IMAGES` are never published by
-a release). It requires the release tag and `latest` to match the immutable
+`docker/images/image_inventory.bzl` (`DOCKERFILE_IMAGES` and `NATIVE_BUILD_IMAGES`
+are never published by a release). It requires the release tag and `latest` to match the immutable
 `sha-<commit>` digest before and after publishing. Signatures are verified
 before release finalization.
 
@@ -463,8 +481,8 @@ line per event, written by `scripts/cosign_receipt.py`):
 - `reused`: an existing verified signature was reused instead of signing.
 
 Every release-key signing workflow (`release.yml`, `publish-oci.yml`,
-`wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml` and
-`publish-dockerfile-image.yml`) uploads its ledger with `if: always()` as the
+`wasm-plugins.yml`, `native-addons.yml`, `external-wasm-plugin.yml`,
+`publish-dockerfile-image.yml` and `publish-media-worker-cuda.yml`) uploads its ledger with `if: always()` as the
 artifact `signing-ledger-<workflow>-<job>-<run id>-<attempt>`, retained 90 days.
 Tag runs also attach it to the draft GitHub release
 (`scripts/ci/attach-signing-ledger.sh`).

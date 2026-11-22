@@ -11,6 +11,7 @@ import hashlib
 import http.server
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -79,8 +80,9 @@ class World:
         self.other_key, self.other_pub = openssl_key(root, "other")
         self.served_key = self.log_pub.read_text()
         self.bodies = []
-        self.runs = {workflow: [] for workflow in monitor.SIGNING_WORKFLOWS}
+        self.runs = {}
         self.ledgers = {}
+        self.deployments = {}
         self.issues = []
         self.labels = {"security"}
         self.discord = []
@@ -89,6 +91,7 @@ class World:
         self.truncated_ledgers = set()
         self.filler_artifacts = 0
         self.blob_requests_with_auth = 0
+        self.graphql_requests = 0
         self.artifact_accepts = []
         self.failing_paths = {}
 
@@ -106,11 +109,18 @@ class World:
     def uuid(self, index):
         return "0000000000000001" + hashlib.sha256(b"\x00" + self.bodies[index][0]).hexdigest()
 
-    def add_run(self, workflow, run_id, start, end, ledger=None):
-        self.runs[workflow].insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
-                                    "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
-                                    "status": "completed" if end else "in_progress",
-                                    "html_url": f"https://github.example/run/{run_id}"})
+    def add_run(self, workflow, run_id, start, end, ledger=None, ref="refs/heads/staging", attempts=(True,)):
+        runs = self.runs.setdefault(workflow, [])
+        suite = f"synthetic-suite-{run_id}"
+        prefix, name = ref.split("/", 2)[1:]
+        deployment = {"originalEnvironment": "release", "ref": {"prefix": f"refs/{prefix}/", "name": name}}
+        self.deployments[suite] = [deployment if deployed else None for deployed in attempts]
+        runs.insert(0, {"id": run_id, "created_at": f"{start:%Y-%m-%dT%H:%M:%SZ}",
+                        "updated_at": f"{(end or NOW):%Y-%m-%dT%H:%M:%SZ}",
+                        "status": "completed" if end else "in_progress",
+                        "head_branch": name, "display_title": "refs/heads/staging", "check_suite_node_id": suite,
+                        "run_attempt": len(attempts),
+                        "html_url": f"https://github.example/run/{run_id}"})
         if ledger is not None:
             self.ledgers[run_id] = ledger
 
@@ -234,6 +244,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
         payload = self.body()
         if self.injected_failure(path) or self.github_rejects():
             return None
+        if path == "/graphql":
+            world.graphql_requests += 1
+            query_text = payload.get("query", "")
+            variables = payload.get("variables") or {}
+            header_match = re.search(r"query\s*\(([^)]*)\)\s*\{(.*)\}\s*$", query_text, re.DOTALL)
+            if not header_match:
+                return self.reply(200, {"errors": [{"message": "invalid GraphQL query"}]})
+            declared_vars = re.findall(r"\$([A-Za-z_][A-Za-z0-9_]*)", header_match.group(1))
+            query_body = header_match.group(2)
+            unused = [name for name in declared_vars if not re.search(rf"\${name}\b", query_body)]
+            if unused:
+                return self.reply(200, {"errors": [{"message": f"Variable ${unused[0]} is never used"}]})
+            node_match = re.search(r"node\s*\(\s*id\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*\)", query_body)
+            checks_match = re.search(r"checkRuns\s*\(([^)]*)\)", query_body)
+            if not node_match or not checks_match:
+                return self.reply(200, {"errors": [{"message": "unsupported GraphQL selection"}]})
+            suite_id = variables[node_match.group(1)[1:]]
+            args_text = checks_match.group(1)
+            first_match = re.search(r"\bfirst\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*|\d+)", args_text)
+            if not first_match:
+                return self.reply(200, {"errors": [{"message": "checkRuns requires first argument"}]})
+            first_raw = first_match.group(1)
+            first = variables[first_raw[1:]] if first_raw.startswith("$") else int(first_raw)
+            filter_match = re.search(r"\bfilterBy\s*:\s*(\$[A-Za-z_][A-Za-z0-9_]*|\{[^}]*\})", args_text)
+            if not filter_match:
+                selection = {}
+            else:
+                filter_raw = filter_match.group(1)
+                if filter_raw.startswith("$"):
+                    selection = variables[filter_raw[1:]]
+                else:
+                    selection = {}
+                    name_m = re.search(r'\bcheckName\s*:\s*"([^"]*)"', filter_raw)
+                    type_m = re.search(r"\bcheckType\s*:\s*([A-Z_]+)", filter_raw)
+                    if name_m:
+                        selection["checkName"] = name_m.group(1)
+                    if type_m:
+                        selection["checkType"] = type_m.group(1)
+            deployments = world.deployments[suite_id]
+            if selection.get("checkName") != "publish":
+                deployments = []
+            if selection.get("checkType") != "ALL":
+                deployments = deployments[-1:]
+            nodes = [{"deployment": deployment} for deployment in deployments[:first]]
+            return self.reply(200, {"data": {"node": {"checkRuns": {"nodes": nodes}}}})
         if path == "/api/v1/log/entries/retrieve":
             return self.reply(200, [world.entry(index) for index in payload["logIndexes"]])
         if path == prefix + "/labels":
@@ -380,12 +435,92 @@ class MonitorTest(unittest.TestCase):
         self.assertIn("certificate cannot be decoded", self.world.discord[-1])
 
     def test_entry_in_a_finished_runs_ledger_is_explained(self):
-        entry = self.world.add_entry(b"release payload")
-        self.world.add_run("release.yml", 7, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
-                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}])
-        self.assertEqual(self.run_monitor(), 0)
+        entries = {}
+        for run_id, workflow, ref, attempts in [
+                (7, "release.yml", "refs/tags/v1", (True,)),
+                (8, "publish-media-worker-cuda.yml", "refs/heads/staging", (False, True)),
+                (9, "publish-media-worker-cuda.yml", "refs/heads/test/demo-test-12", (True, False))]:
+            entry = self.world.add_entry(f"synthetic payload {run_id}".encode())
+            entries[entry["uuid"]] = run_id
+            self.world.add_run(workflow, run_id, NOW - timedelta(hours=4), NOW - timedelta(hours=2),
+                               [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                               ref=ref, attempts=attempts)
+        checkpoint = self.state.read_bytes()
+        for title in ("refs/heads/staging", "synthetic build-only title"):
+            for run in self.world.runs["publish-media-worker-cuda.yml"]:
+                run["display_title"] = title
+            self.state.write_bytes(checkpoint)
+            self.assertEqual(self.run_monitor(), 0)
+            state = json.loads(self.state.read_text())
+            for uuid, run_id in entries.items():
+                self.assertEqual(state["decisions"][uuid]["status"], "explained")
+                self.assertIn(str(run_id), state["canary_checked"])
         self.assertEqual(self.world.issues, [])
         self.assertEqual(self.world.blob_requests_with_auth, 0, "the GitHub token followed the artifact redirect")
+        # Once both completed CUDA runs are checked and all signatures are explained,
+        # a subsequent scan does not re-query GraphQL deployment evidence.
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.world.graphql_requests, 0, "already-checked CUDA runs triggered GraphQL lookups")
+
+    def test_build_only_cuda_runs_cannot_explain_or_defer_an_alert(self):
+        entry = self.world.add_entry(b"unexplained during CUDA builds")
+        workflow = "publish-media-worker-cuda.yml"
+        start = NOW - timedelta(hours=4)
+        for run_id, ref in enumerate(("refs/heads/feature", "refs/heads/test/demo-test-x",
+                                      "refs/tags/staging", "refs/tags/test/demo-test-7"), start=10):
+            self.world.add_run(workflow, run_id, start, None, ref=ref)
+        self.world.add_run(workflow, 14, start, NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/heads/feature")
+        self.world.add_run(workflow, 16, start, NOW - timedelta(hours=2),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/tags/staging")
+        self.world.add_run(workflow, 15, start, None, ref="refs/heads/staging", attempts=(False, False))
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.titles(), [f"Unexplained release-key signature in Rekor: {entry['uuid']}"])
+        checked = json.loads(self.state.read_text())["canary_checked"]
+        self.assertNotIn("14", checked)
+        self.assertNotIn("16", checked)
+
+    def test_failed_cuda_runs_without_release_deployment_skip_repeat_graphql_lookups(self):
+        workflow = "publish-media-worker-cuda.yml"
+        self.world.add_run(workflow, 31, NOW - timedelta(hours=5), NOW - timedelta(hours=3),
+                           ref="refs/heads/staging", attempts=(False,))
+        self.world.add_run(workflow, 32, NOW - timedelta(hours=5), NOW - timedelta(hours=3),
+                           ref="refs/heads/test/demo-test-14", attempts=(False, False))
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW), 0)
+        self.assertEqual(self.world.graphql_requests, 2)
+        state = json.loads(self.state.read_text())
+        self.assertNotIn("31", state["canary_checked"])
+        self.assertNotIn("32", state["canary_checked"])
+        self.assertIn("31", state["cuda_no_release"])
+        self.assertIn("32", state["cuda_no_release"])
+
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=1)), 0)
+        self.assertEqual(self.world.graphql_requests, 0,
+                         "completed CUDA runs without a release deployment triggered repeat GraphQL lookups")
+
+        entry = self.world.add_entry(b"rerun cuda signature", when=NOW + timedelta(minutes=30))
+        self.world.runs[workflow] = [run for run in self.world.runs[workflow] if run["id"] != 31]
+        self.world.add_run(workflow, 31, NOW - timedelta(hours=5), NOW + timedelta(hours=1),
+                           [{"event": "sign", "payload_sha256": entry["payload_sha256"]}],
+                           ref="refs/heads/staging", attempts=(False, True))
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=3)), 0)
+        self.assertEqual(self.world.graphql_requests, 1)
+        state = json.loads(self.state.read_text())
+        self.assertEqual(state["decisions"][entry["uuid"]]["status"], "explained")
+        self.assertIn("31", state["canary_checked"])
+        self.assertNotIn("31", state["cuda_no_release"])
+        self.assertIn("32", state["cuda_no_release"])
+        self.assertEqual(self.world.issues, [])
+
+        self.world.graphql_requests = 0
+        self.assertEqual(self.run_monitor(now=NOW + timedelta(hours=4)), 0)
+        self.assertEqual(self.world.graphql_requests, 0)
 
     def test_an_explained_entry_stays_explained_after_its_run_ages_out(self):
         entry = self.world.add_entry(b"release payload")

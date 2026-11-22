@@ -29,6 +29,8 @@ concurrency:
 permissions:
   contents: read
   actions: read
+  checks: read
+  deployments: read
   issues: write
 
 jobs:

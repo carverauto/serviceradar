@@ -10,7 +10,10 @@ if [[ "${OCI_PROJECT}" != "serviceradar-builds" ]]; then
   exit 2
 fi
 capacity_tool="${HARBOR_LIFECYCLE_DIR:?Run harbor-publish.py setup through the GitHub publishing workflow}/tool/k8s/harbor/promote-artifacts.py"
-python3 "${capacity_tool}" --check-capacity-only
+(
+  unset "${!VAULT_@}" "${!OPENBAO_@}" "${!BAO_@}"
+  exec python3 "${capacity_tool}" --check-capacity-only
+)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1090,SC1091
@@ -45,6 +48,22 @@ SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"
 if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" && -z "${SIGN_REGISTRY_TAG}" ]]; then
   echo "error: a Dockerfile image is signed by its published tag" >&2
   exit 1
+fi
+if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+  if [[ -n "${SERVICERADAR_DOCKERFILE_IMAGE:-}" ]]; then
+    echo "error: sign one Dockerfile image or one native-build image, not both" >&2
+    exit 1
+  fi
+  if [[ $# != 1 || ! "$1" =~ ^sha256:[0-9a-f]{64}$ || -n "${SIGN_REGISTRY_TAG}" ]]; then
+    echo "error: a native-build image requires one verified digest" >&2
+    exit 1
+  fi
+  # shellcheck source=scripts/oci_registry.sh
+  source "${SCRIPT_DIR}/oci_registry.sh"
+  oci_check_native_image "${REPO_ROOT}/docker/images/image_inventory.bzl" "${SERVICERADAR_NATIVE_IMAGE}"
+  cosign_init_sign_args
+  attach_legacy_signature "${REGISTRY_HOST}/${OCI_PROJECT}/${SERVICERADAR_NATIVE_IMAGE}@$1"
+  exit 0
 fi
 
 if [[ -n "${SIGN_REGISTRY_TAG}" ]]; then

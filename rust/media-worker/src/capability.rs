@@ -2,12 +2,17 @@
 //!
 //! Enforces:
 //! - SHA-256 verification of pinned detector, vision, and text model files on disk;
-//! - Execution provider verification (`tensorrt`, `cuda`, `cpu_explicit`) with
+//! - Execution provider verification (`cuda`, `cpu_explicit`; `tensorrt` refused) with
 //!   **zero silent fallback to CPU** when GPU acceleration is configured;
 //! - GPU sharing classification (`physical`, `mig`, `time_sliced`, `cpu_explicit`);
 //! - Synthetic vision + text forward-pass warmup self-test before `/readyz` turns `200 OK`.
+//!   On CUDA the first forward pass JIT-compiles the PTX kernels (seconds with a cold
+//!   `CUDA_CACHE_PATH`), so the warm-up absorbs that cost before any job is claimed
+//!   or text-embedding RPC is answered.
 
-use crate::backend::{InferenceBackend, InferenceBackendKind, build_inference_backend};
+use crate::backend::{
+    InferenceBackend, InferenceBackendKind, InferencePrecision, build_inference_backend,
+};
 use crate::config::{ExecutionProvider, GpuSharingMode, ModelPinConfig, WorkerConfig};
 use crate::errors::CapabilityError;
 use crate::ort_loader::{OrtRuntimeProbeResult, discover_default_ort_dylib, probe_ort_dylib};
@@ -17,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Hardware and runtime environment facts observed during startup admission.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +147,7 @@ pub struct CapabilityManifest {
     os: String,
     inference_backend: InferenceBackendKind,
     inference_device: String,
+    inference_dtype: InferencePrecision,
     detector_enabled: bool,
     tracker: TrackerMode,
     dedup_track_crops: bool,
@@ -160,6 +167,7 @@ pub struct CapabilityManifest {
     text_sha256: Option<String>,
     index_concurrency: usize,
     text_embed_concurrency: usize,
+    warmup_ms: u64,
 }
 
 impl CapabilityManifest {
@@ -177,6 +185,15 @@ impl CapabilityManifest {
 
     pub fn inference_device(&self) -> &str {
         &self.inference_device
+    }
+
+    pub fn inference_dtype(&self) -> InferencePrecision {
+        self.inference_dtype
+    }
+
+    /// Wall time of the synthetic warm-up forward passes (includes any CUDA JIT compile).
+    pub fn warmup_ms(&self) -> u64 {
+        self.warmup_ms
     }
 
     pub fn detector_enabled(&self) -> bool {
@@ -231,15 +248,16 @@ impl CapabilityManifest {
 /// Verifies pinned model SHA-256 digests, execution provider hardware/runtime
 /// availability, GPU sharing classification, and synthetic forward-pass warmup.
 ///
-/// Fails closed (`Err(CapabilityError::GpuUnavailable)`) with ZERO silent CPU
-/// fallback whenever `execution_provider` is `cuda` or `tensorrt` and GPU or
-/// ONNX Runtime acceleration is unavailable.
+/// GPU admission requires a supported execution provider and a CUDA backend device.
 pub fn verify_startup_capabilities<P: GpuEnvironmentProbe>(
     config: &WorkerConfig,
     probe: &P,
 ) -> Result<CapabilityManifest, CapabilityError> {
     validate_worker_bounds(config)?;
     verify_all_model_digests(config.models())?;
+    config
+        .backend_kind()
+        .validate_provider(config.execution_provider())?;
 
     let backend = build_inference_backend(config).map_err(|err| {
         CapabilityError::invalid_configuration(format!(
@@ -261,10 +279,39 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
     verify_all_model_digests(config.models())?;
 
     let backend_info = backend.info();
+    backend_info
+        .backend()
+        .validate_provider(config.execution_provider())?;
+    if config.backend_kind() != backend_info.backend() {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured backend {} differs from active backend {}",
+            config.backend_kind(),
+            backend_info.backend()
+        )));
+    }
     let obs = probe.observe(config)?;
     let sharing_mode = verify_provider_and_classify_sharing(config, &obs, &backend_info)?;
 
+    let precision = config
+        .precision()
+        .resolve(config.execution_provider().requires_gpu());
+    if backend_info.dtype() != precision {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured precision resolves to {precision}, but the active backend uses {}",
+            backend_info.dtype()
+        )));
+    }
+
+    let expected_dim = config.models().embedding_dim();
+    if backend_info.embedding_dim() != expected_dim {
+        return Err(CapabilityError::invalid_configuration(format!(
+            "configured embedding_dim is {expected_dim}, but the active backend advertises {}",
+            backend_info.embedding_dim()
+        )));
+    }
+    let warmup_started = Instant::now();
     run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
+    let warmup_ms = u64::try_from(warmup_started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     Ok(CapabilityManifest {
         status: "ready".to_string(),
@@ -272,6 +319,7 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         os: std::env::consts::OS.to_string(),
         inference_backend: backend_info.backend(),
         inference_device: backend_info.device().to_string(),
+        inference_dtype: backend_info.dtype(),
         detector_enabled: backend_info.detector_enabled(),
         tracker: config.tracker_mode(),
         dedup_track_crops: config.dedup_track_crops(),
@@ -291,10 +339,14 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         text_sha256: config.models().text_sha256().map(str::to_string),
         index_concurrency: config.index_concurrency(),
         text_embed_concurrency: config.text_embed_concurrency(),
+        warmup_ms,
     })
 }
 
 fn validate_worker_bounds(config: &WorkerConfig) -> Result<(), CapabilityError> {
+    config
+        .device_preference()
+        .validate_provider(config.execution_provider().requires_gpu())?;
     let dim = config.models().embedding_dim();
     if config.backend_kind() == InferenceBackendKind::Stub && dim != 512 && dim != 768 {
         return Err(CapabilityError::invalid_configuration(format!(
@@ -391,64 +443,46 @@ fn verify_provider_and_classify_sharing(
     obs: &GpuEnvironmentObservation,
     backend_info: &crate::backend::InferenceBackendInfo,
 ) -> Result<GpuSharingMode, CapabilityError> {
-    match config.execution_provider() {
-        ExecutionProvider::CpuExplicit => {
-            if let Some(declared) = config.declared_gpu_sharing_mode()
-                && declared != GpuSharingMode::CpuExplicit
-            {
-                return Err(CapabilityError::invalid_configuration(format!(
-                    "cpu_explicit execution_provider cannot declare gpu_sharing_mode '{declared}'"
-                )));
-            }
-            Ok(GpuSharingMode::CpuExplicit)
+    if config.execution_provider() == ExecutionProvider::CpuExplicit {
+        if backend_info.device() != "cpu" {
+            return Err(CapabilityError::invalid_configuration(format!(
+                "cpu_explicit execution_provider requires a CPU backend, got '{}'",
+                backend_info.device()
+            )));
         }
-        ExecutionProvider::Cuda => {
-            verify_nvidia_hardware_present(config, obs, "cuda")?;
-            match backend_info.backend() {
-                InferenceBackendKind::Candle => {
-                    if !backend_info.device().starts_with("cuda") {
-                        return Err(CapabilityError::gpu_unavailable(format!(
-                            "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
-                            backend_info.device()
-                        )));
-                    }
-                }
-                InferenceBackendKind::Stub => {
-                    if !obs.ort_probe().loaded() || !obs.ort_probe().cuda_ep_available() {
-                        return Err(CapabilityError::gpu_unavailable(
-                            "ONNX Runtime CUDAExecutionProvider unavailable; refusing silent CPU fallback",
-                        ));
-                    }
-                }
-            }
-            classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
+        if let Some(declared) = config.declared_gpu_sharing_mode()
+            && declared != GpuSharingMode::CpuExplicit
+        {
+            return Err(CapabilityError::invalid_configuration(format!(
+                "cpu_explicit execution_provider cannot declare gpu_sharing_mode '{declared}'"
+            )));
         }
-        ExecutionProvider::Tensorrt => {
-            verify_nvidia_hardware_present(config, obs, "tensorrt")?;
-            if !obs.ort_probe().loaded() || !obs.ort_probe().tensorrt_ep_available() {
-                return Err(CapabilityError::gpu_unavailable(
-                    "ONNX Runtime TensorRTExecutionProvider unavailable; refusing silent CPU fallback",
-                ));
-            }
-            classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
-        }
+        return Ok(GpuSharingMode::CpuExplicit);
     }
+
+    verify_nvidia_hardware_present(config, obs)?;
+    if !backend_info.device().starts_with("cuda") {
+        return Err(CapabilityError::gpu_unavailable(format!(
+            "Candle backend resolved device '{}' instead of CUDA; refusing silent CPU fallback",
+            backend_info.device()
+        )));
+    }
+    classify_gpu_sharing(config.declared_gpu_sharing_mode(), obs)
 }
 
 fn verify_nvidia_hardware_present(
     config: &WorkerConfig,
     obs: &GpuEnvironmentObservation,
-    provider_name: &str,
 ) -> Result<(), CapabilityError> {
     if obs.nvidia_device_count() == 0 {
-        return Err(CapabilityError::gpu_unavailable(format!(
-            "execution_provider='{provider_name}' requires at least 1 NVIDIA GPU device, found 0; refusing silent CPU fallback"
-        )));
+        return Err(CapabilityError::gpu_unavailable(
+            "execution_provider='cuda' requires at least 1 NVIDIA GPU device, found 0; refusing silent CPU fallback",
+        ));
     }
     let observed_vram = obs.available_vram_mb().unwrap_or(0);
     if observed_vram < config.min_gpu_vram_mb() {
         return Err(CapabilityError::gpu_unavailable(format!(
-            "execution_provider='{provider_name}' requires >= {} MiB VRAM, observed {} MiB; refusing silent CPU fallback",
+            "execution_provider='cuda' requires >= {} MiB VRAM, observed {} MiB; refusing silent CPU fallback",
             config.min_gpu_vram_mb(),
             observed_vram
         )));
@@ -481,7 +515,9 @@ fn run_synthetic_warmup_self_test(
     models: &ModelPinConfig,
     backend: Arc<dyn InferenceBackend>,
 ) -> Result<(), CapabilityError> {
-    let expected_dim = backend.info().embedding_dim();
+    // The configured index width, not the backend's own claim: the warm-up vectors are
+    // real model output, so this proves the towers emit what the index stores.
+    let expected_dim = models.embedding_dim();
     let pipeline = VisionPipeline::with_backend(models.clone(), true, Arc::clone(&backend));
     let warmup_frame = RgbFrame::solid(64, 64, [32, 40, 48]);
     let output = pipeline

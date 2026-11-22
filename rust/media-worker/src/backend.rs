@@ -5,8 +5,8 @@
 //! (`MEDIA_WORKER_BACKEND=stub`) and the live pure-Rust HuggingFace `candle`
 //! backend (`MEDIA_WORKER_BACKEND=candle`) share one `Send + Sync` contract.
 
-use crate::candle_backend::CandleBackend;
-use crate::config::{ModelPinConfig, WorkerConfig};
+use crate::candle_backend::{CandleBackend, CandleBackendOptions, preprocess_thread_budget};
+use crate::config::{ExecutionProvider, ModelPinConfig, WorkerConfig};
 use crate::errors::{CapabilityError, MediaWorkerError};
 use crate::vision::{
     ObjectClass, RgbFrame, classify_dominant_colors, detect_stub_objects, embed_query_text,
@@ -26,6 +26,23 @@ pub enum InferenceBackendKind {
 }
 
 impl InferenceBackendKind {
+    pub(crate) fn validate_provider(
+        self,
+        provider: ExecutionProvider,
+    ) -> Result<(), CapabilityError> {
+        if self == Self::Stub && provider.requires_gpu() {
+            return Err(CapabilityError::gpu_unavailable(
+                "MEDIA_WORKER_BACKEND=stub requires execution_provider=cpu_explicit",
+            ));
+        }
+        if self == Self::Candle && provider == ExecutionProvider::Tensorrt {
+            return Err(CapabilityError::gpu_unavailable(
+                "Candle does not support the tensorrt execution provider",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Stub => "stub",
@@ -44,9 +61,9 @@ impl FromStr for InferenceBackendKind {
     type Err = CapabilityError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "stub" | "deterministic" => Ok(Self::Stub),
-            "candle" => Ok(Self::Candle),
+        match s {
+            "stub" => Ok(Self::Stub),
+            _ if s.trim().is_empty() || s.trim().eq_ignore_ascii_case("candle") => Ok(Self::Candle),
             other => Err(CapabilityError::invalid_configuration(format!(
                 "unsupported MEDIA_WORKER_BACKEND '{other}'; expected 'candle' or 'stub'"
             ))),
@@ -64,6 +81,18 @@ pub enum InferenceDevicePreference {
 }
 
 impl InferenceDevicePreference {
+    pub(crate) fn validate_provider(self, require_gpu: bool) -> Result<(), CapabilityError> {
+        match (self, require_gpu) {
+            (Self::Cpu, true) => Err(CapabilityError::invalid_configuration(
+                "MEDIA_WORKER_DEVICE=cpu conflicts with GPU execution provider",
+            )),
+            (Self::Cuda, false) => Err(CapabilityError::invalid_configuration(
+                "MEDIA_WORKER_DEVICE=cuda conflicts with execution_provider=cpu_explicit",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -94,11 +123,64 @@ impl FromStr for InferenceDevicePreference {
     }
 }
 
+/// Requested numeric precision for the SigLIP towers (`MEDIA_WORKER_DTYPE=auto|f32|f16`).
+///
+/// `auto` resolves to `f16` on a CUDA device and `f32` on the CPU. Embeddings are
+/// always returned as L2-normalised `f32` in the same vector space, whatever the
+/// compute precision, so the reported model identity does not depend on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferencePrecision {
+    Auto,
+    F32,
+    F16,
+}
+
+impl InferencePrecision {
+    pub(crate) fn resolve(self, cuda: bool) -> Self {
+        match self {
+            Self::Auto if cuda => Self::F16,
+            Self::Auto => Self::F32,
+            explicit => explicit,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::F32 => "f32",
+            Self::F16 => "f16",
+        }
+    }
+}
+
+impl Display for InferencePrecision {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for InferencePrecision {
+    type Err = CapabilityError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "auto" => Ok(Self::Auto),
+            "f32" => Ok(Self::F32),
+            "f16" => Ok(Self::F16),
+            other => Err(CapabilityError::invalid_configuration(format!(
+                "unsupported MEDIA_WORKER_DTYPE '{other}'; expected 'auto', 'f32', or 'f16'"
+            ))),
+        }
+    }
+}
+
 /// Metadata describing an instantiated `InferenceBackend`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceBackendInfo {
     backend: InferenceBackendKind,
     device: String,
+    dtype: InferencePrecision,
     embedding_dim: usize,
     model_revision: String,
     detector_enabled: bool,
@@ -115,10 +197,17 @@ impl InferenceBackendInfo {
         Self {
             backend,
             device: device.into(),
+            dtype: InferencePrecision::F32,
             embedding_dim,
             model_revision: model_revision.into(),
             detector_enabled,
         }
+    }
+
+    /// Records the resolved compute precision (never `Auto`) of the embedding towers.
+    pub fn with_dtype(mut self, dtype: InferencePrecision) -> Self {
+        self.dtype = dtype;
+        self
     }
 
     pub fn backend(&self) -> InferenceBackendKind {
@@ -127,6 +216,10 @@ impl InferenceBackendInfo {
 
     pub fn device(&self) -> &str {
         &self.device
+    }
+
+    pub fn dtype(&self) -> InferencePrecision {
+        self.dtype
     }
 
     pub fn embedding_dim(&self) -> usize {
@@ -295,6 +388,12 @@ impl InferenceBackend for DeterministicStubBackend {
 pub fn build_inference_backend(
     config: &WorkerConfig,
 ) -> Result<Arc<dyn InferenceBackend>, MediaWorkerError> {
+    config
+        .device_preference()
+        .validate_provider(config.execution_provider().requires_gpu())?;
+    config
+        .backend_kind()
+        .validate_provider(config.execution_provider())?;
     match config.backend_kind() {
         InferenceBackendKind::Stub => Ok(Arc::new(DeterministicStubBackend::new(
             config.models().clone(),
@@ -305,19 +404,25 @@ pub fn build_inference_backend(
                     "MEDIA_WORKER_BACKEND=candle requires MEDIA_WORKER_MODEL_DIR to be set",
                 ))
             })?;
-            let require_gpu = config.execution_provider().requires_gpu();
+            // The model identity deliberately excludes the compute precision: f16 and
+            // f32 embeddings stay interchangeable for search (README "Precision").
             let revision = format!(
                 "{}:{}",
                 config.models().embedder_model_id(),
                 config.models().embedder_model_version()
             );
-            let backend = CandleBackend::load_from_dir(
-                model_dir,
+            let mut options = CandleBackendOptions::new(
                 config.device_preference(),
-                require_gpu,
-                Some(revision),
-                config.models().detector_path(),
-            )?;
+                config.execution_provider().requires_gpu(),
+                config.models().embedding_dim(),
+            )
+            .with_precision(config.precision())
+            .with_model_revision(revision)
+            .with_preprocess_threads(preprocess_thread_budget(config.index_concurrency()));
+            if let Some(detector) = config.models().detector_path() {
+                options = options.with_detector_path(detector);
+            }
+            let backend = CandleBackend::load(model_dir, &options)?;
             Ok(Arc::new(backend))
         }
     }

@@ -341,36 +341,56 @@ pathlib.Path({str(registry)!r}).write_text(json.dumps(state))
                 self.assertIn("not-in-inventory", result.stderr)
                 self.assertFalse(lookups.exists())
 
-    def test_a_dockerfile_image_is_signed_only_when_declared_and_by_its_tag(self):
+    def test_out_of_bazel_signing_binds_each_inventory_to_its_published_reference(self):
         (self.bin / "jq").symlink_to(pinned_jq())
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.write_text('PUBLISHABLE_IMAGES = [\n'
                              '  {"image":"worker","repository":"registry.carverauto.dev/serviceradar/example-worker"},\n]\n\n'
                              'DOCKERFILE_IMAGES = [\n'
-                             '  {"repository":"example-runner","dockerfile":"Dockerfile","context":"."},\n]\n\n')
+                             '  {"repository":"example-runner","dockerfile":"Dockerfile","context":"."},\n]\n\n'
+                             'NATIVE_BUILD_IMAGES = [\n'
+                             '  {"repository":"example-native"},\n]\n')
         lookups = self.root / "lookups"
         self.fake("oras", f"open({str(lookups)!r}, 'a').write(sys.argv[-1] + '\\n')\nraise SystemExit(1)\n")
-        for tool in ("cosign", "curl"):
-            self.fake(tool, "raise SystemExit(1)\n")
-        self.env.update(SERVICERADAR_SIGN_REGISTRY_TAG="v1.2.3", COSIGN_KEY_REF="hashivault://example",
-                        SERVICERADAR_DOCKERFILE_IMAGE="example-runner")
-        # The fake registry resolves nothing, so the signer stops at the lookup: exactly the
-        # declared image under its tag, and no Bazel-built image.
+        self.fake("cosign", f"open({str(lookups)!r}, 'a').write(sys.argv[-1] + '\\n') if sys.argv[1] == 'triangulate' else None\n"
+                            "raise SystemExit(1)\n")
+        self.fake("curl", "raise SystemExit(1)\n")
+        self.env["COSIGN_KEY_REF"] = "hashivault://example"
+        signer = str(REPO / "scripts/sign-oci-publish.sh")
+        for variable, image, kind, other, args, suffix in (
+                ("SERVICERADAR_DOCKERFILE_IMAGE", "example-runner", "Dockerfile", "example-native", [], ":v1.2.3"),
+                ("SERVICERADAR_NATIVE_IMAGE", "example-native", "native-build", "example-runner",
+                 [SYNTHETIC_DIGEST], "@" + SYNTHETIC_DIGEST)):
+            with self.subTest(mode=variable):
+                if not args:
+                    self.env["SERVICERADAR_SIGN_REGISTRY_TAG"] = "v1.2.3"
+                self.env[variable] = image
+                result = self.call("build", signer, *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(lookups.read_text().splitlines(),
+                                 [f"registry.carverauto.dev/serviceradar-builds/{image}{suffix}"])
+                lookups.unlink()
+                for candidate in ("example-worker", other, "not-declared"):
+                    self.env[variable] = candidate
+                    result = self.call("build", signer, *args)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"unknown {kind} image: {candidate}", result.stderr)
+                    self.assertFalse(lookups.exists())
+                self.env[variable] = image
+                self.env.pop("SERVICERADAR_SIGN_REGISTRY_TAG", None)
+                result = self.call("build", signer)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("verified digest" if args else "by its published tag", result.stderr)
+                self.assertFalse(lookups.exists())
+                del self.env[variable]
+
+        self.env.update(SERVICERADAR_DOCKERFILE_IMAGE="example-runner",
+                        SERVICERADAR_NATIVE_IMAGE="example-native",
+                        SERVICERADAR_SIGN_REGISTRY_TAG="v1.2.3")
         result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(lookups.read_text().splitlines(),
-                         ["registry.carverauto.dev/serviceradar-builds/example-runner:v1.2.3"])
-
-        lookups.unlink()
-        for image, tag, reason in (("example-worker", "v1.2.3", "unknown Dockerfile image: example-worker"),
-                                   ("not-declared", "v1.2.3", "unknown Dockerfile image: not-declared"),
-                                   ("example-runner", "", "a Dockerfile image is signed by its published tag")):
-            with self.subTest(image=image, tag=tag):
-                self.env.update(SERVICERADAR_DOCKERFILE_IMAGE=image, SERVICERADAR_SIGN_REGISTRY_TAG=tag)
-                result = self.call("build", str(REPO / "scripts/sign-oci-publish.sh"))
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(reason, result.stderr)
-                self.assertFalse(lookups.exists())
+        self.assertIn("not both", result.stderr)
+        self.assertFalse(lookups.exists())
 
     def setup_environment(self):
         runner = self.root / "runner"
@@ -513,6 +533,21 @@ class ImagePromotionTagsTest(unittest.TestCase):
                 self.assertEqual(json.loads(self.bundle.read_text())["artifacts"], [
                     {"repository": "example-db", "digest": self.NEW, "required_referrers": [],
                      "legacy_signature": signed}])
+
+    def test_explicit_digest_promotes_the_verified_build_when_the_source_tag_moves(self):
+        tag = "sha-example"
+        self.state.write_text(json.dumps({"serviceradar-builds/example-db": {tag: self.NEW}}))
+        command = [sys.executable, str(SCRIPT), "promote", "--repositories", "example-db",
+                   "--tag", tag, "--digest", self.OLD]
+        refused = subprocess.run([*command, "--unsigned"], env=self.env, text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 2, refused.stderr)
+        self.assertFalse(self.bundle.exists())
+        result = subprocess.run(command, env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        artifact, = json.loads(self.bundle.read_text())["artifacts"]
+        self.assertEqual(artifact["digest"], self.OLD)
+        self.assertTrue(artifact["legacy_signature"])
+        self.assertEqual(json.loads(self.state.read_text())["serviceradar/example-db"][tag], self.OLD)
 
     def test_existing_static_tag_with_another_image_is_kept_while_release_tags_publish(self):
         result, registry, published = self.promote({self.STATIC: self.OLD, "latest": self.OLD})
@@ -713,7 +748,8 @@ class PublicationVerificationTest(unittest.TestCase):
         (sigstore / "pre-cutover-first-party-digests.json").write_text(json.dumps({"digests": ["sha256:" + "a" * 64]}))
         inventory = self.root / "docker/images/image_inventory.bzl"
         inventory.parent.mkdir(parents=True)
-        inventory.write_text('PUBLISHABLE_IMAGES = [{"repository":"registry.example/serviceradar/example"}]\n\n')
+        inventory.write_text('PUBLISHABLE_IMAGES = [{"repository":"registry.example/serviceradar/example"}]\n\n'
+                             'NATIVE_BUILD_IMAGES = [{"repository":"example"}]\n')
         metadata = self.root / "metadata"
         metadata.mkdir()
         (metadata / "example.metadata.json").write_text(json.dumps({
@@ -759,7 +795,10 @@ class PublicationVerificationTest(unittest.TestCase):
                   "elif '/manifests/sha256-' not in url: raise SystemExit(9)\n")
         self.fake("oras", "digest = 'sha256:' + 'a'*64\n"
                   "if sys.argv[1:3] == ['manifest', 'fetch']:\n"
-                  " if '--descriptor' in sys.argv: print(json.dumps({'digest': digest}))\n"
+                  " if '--descriptor' in sys.argv:\n"
+                  "  if os.getenv('ADVANCE_TAG') and 'triangulate' in pathlib.Path(os.environ['CALL_LOG']).read_text().splitlines():\n"
+                  "   digest = 'sha256:' + 'b'*64\n"
+                  "  print(json.dumps({'digest': digest}))\n"
                   " else: print(json.dumps({'mediaType': 'application/vnd.oci.image.manifest.v1+json', "
                   "'artifactType': 'application/example', 'config': {'digest': digest}, 'layers': ["
                   "{'digest': digest, 'mediaType': media, 'annotations': {'org.opencontainers.image.title': title}} "
@@ -767,8 +806,9 @@ class PublicationVerificationTest(unittest.TestCase):
                   "('application/vnd.serviceradar.native-addon.artifact.v1+gzip','example.tar.gz'), "
                   "('application/vnd.serviceradar.native-addon.artifact-signature.v1+hex','example.tar.gz.sig')]]}))\n"
                   "elif sys.argv[1:3] == ['blob', 'fetch']:\n"
-                  " if '--output' in sys.argv: pathlib.Path(sys.argv[sys.argv.index('--output')+1]).write_text('synthetic')\n"
-                  " else: print('{\"config\":{}}')\n"
+                  " dest = sys.argv[sys.argv.index('--output')+1]\n"
+                  " if dest == '-': print('{\"config\":{}}')\n"
+                  " else: pathlib.Path(dest).write_text('synthetic')\n"
                   "else: raise SystemExit(9)\n")
 
     def fake(self, name, body):
@@ -777,12 +817,15 @@ class PublicationVerificationTest(unittest.TestCase):
         path.chmod(0o755)
 
     def test_all_verifiers_fail_unless_the_classic_signature_verifies(self):
-        for script in ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh"):
+        cases = [("verify-oci-publish.sh", "sha256:" + "a" * 64, {"SERVICERADAR_NATIVE_IMAGE": "example"})]
+        cases.extend((script, "sha-example", {}) for script in
+                     ("verify-oci-publish.sh", "verify-native-addon-publish.sh", "verify-wasm-plugin-publish.sh"))
+        for script, subject, selection in cases:
             for mode in ("key-unavailable", "rejected", "only-bundle-verifies", "valid"):
-                with self.subTest(script=script, mode=mode):
+                with self.subTest(script=script, subject=subject, mode=mode):
                     self.calls.unlink(missing_ok=True)
-                    result = subprocess.run(["bash", str(self.root / "scripts" / script), "sha-example"],
-                                            env=self.env | {"VERIFY_MODE": mode}, text=True, capture_output=True)
+                    result = subprocess.run(["bash", str(self.root / "scripts" / script), subject],
+                                            env=self.env | selection | {"VERIFY_MODE": mode}, text=True, capture_output=True)
                     calls = self.calls.read_text().splitlines()
                     self.assertIn("public-key", calls, result.stderr)
                     if mode == "valid":
@@ -796,9 +839,29 @@ class PublicationVerificationTest(unittest.TestCase):
                         else:
                             self.assertIn("verify", calls)
 
-    def test_list_mode_reads_inventory_without_cosign(self):
-        environment = self.env | {"VERIFY_MODE": "key-unavailable"}
-        result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "--list-image-specs"],
+    def test_legacy_tag_advanced_before_final_verification_requires_its_own_ledger_entry(self):
+        self.calls.touch()
+        result = subprocess.run(["bash", str(self.root / "scripts/verify-oci-publish.sh"), "latest"],
+                                env=self.env | {"ADVANCE_TAG": "1", "VERIFY_MODE": "valid"},
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sha256:" + "b" * 64, result.stderr)
+        self.assertIn("no signing-ledger record", result.stderr)
+
+    def test_registry_config_returns_oras_blob_bytes_on_stdout(self):
+        result = subprocess.run(["bash", "-c", 'source "$1"; oci_registry_config "$2"', "test",
+                                 str(self.root / "scripts/oci_registry.sh"), "registry.example/serviceradar/example:latest"],
+                                env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, b'{"config":{}}\n')
+
+    def test_list_mode_reads_checkout_inventory_from_copied_verifier_without_cosign(self):
+        copied = self.root / "runner-temp" / "bin" / "verify.sh"
+        copied.parent.mkdir(parents=True)
+        shutil.copy2(self.root / "scripts/verify-oci-publish.sh", copied)
+        environment = self.env | {"VERIFY_MODE": "key-unavailable", "SERVICERADAR_REPO_ROOT": str(self.root),
+                                  "SERVICERADAR_COSIGN_COMMON": str(self.root / "scripts/cosign_common.sh")}
+        result = subprocess.run(["bash", str(copied), "--list-image-specs"],
                                 env=environment, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "registry.example/serviceradar/example|single\n")
