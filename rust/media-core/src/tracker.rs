@@ -213,6 +213,7 @@ struct TrackRecord {
     state: TrackState,
     first_seen_ms: u64,
     last_seen_ms: u64,
+    lost_since_ms: Option<u64>,
     frame_count: u32,
     missed_frames: u32,
     peak_confidence: f32,
@@ -430,6 +431,7 @@ impl MultiObjectTracker {
                 },
                 first_seen_ms: timestamp_ms,
                 last_seen_ms: timestamp_ms,
+                lost_since_ms: None,
                 frame_count: 0,
                 missed_frames: 0,
                 peak_confidence: det.confidence,
@@ -441,6 +443,7 @@ impl MultiObjectTracker {
 
             rec.frame_count = rec.frame_count.saturating_add(1);
             rec.missed_frames = 0;
+            rec.lost_since_ms = None;
             rec.first_seen_ms = rec.first_seen_ms.min(timestamp_ms);
             rec.last_seen_ms = rec.last_seen_ms.max(timestamp_ms);
             rec.last_bbox = det.bbox;
@@ -488,9 +491,10 @@ impl MultiObjectTracker {
                 continue;
             }
             rec.missed_frames = rec.missed_frames.saturating_add(1);
-            let idle_ms = timestamp_ms.saturating_sub(rec.last_seen_ms);
+            let lost_since_ms = *rec.lost_since_ms.get_or_insert(timestamp_ms);
+            let lost_elapsed_ms = timestamp_ms.saturating_sub(lost_since_ms);
             if rec.missed_frames >= self.config.max_lost_frames
-                || (self.config.max_lost_ms > 0 && idle_ms >= self.config.max_lost_ms)
+                || (self.config.max_lost_ms > 0 && lost_elapsed_ms >= self.config.max_lost_ms)
             {
                 to_close.push(tid);
             } else {
@@ -523,9 +527,10 @@ impl MultiObjectTracker {
     }
 
     /// Advances tracker time without stepping `trackforge` association (e.g. on gate-skipped
-    /// frames), closing any `Lost` tracks whose idle duration meets or exceeds `max_lost_ms`
-    /// and returning any emitted `TrackExited` events. Tracks present on the last admitted
-    /// frame (`New`/`Active`, `missed_frames == 0`) remain open across skipped static scenes.
+    /// frames), closing any `Lost` tracks whose elapsed absence since first miss meets or
+    /// exceeds `max_lost_ms` and returning any emitted `TrackExited` events. Tracks present on
+    /// the last admitted frame (`New`/`Active`, `missed_frames == 0`) remain open across
+    /// skipped static scenes.
     pub fn advance_time(&mut self, timestamp_ms: u64) -> Vec<DetectionEvent> {
         if matches!(self.engine, TrackerEngine::Off) || self.config.max_lost_ms == 0 {
             return Vec::new();
@@ -538,8 +543,9 @@ impl MultiObjectTracker {
                 if rec.state != TrackState::Lost || rec.missed_frames == 0 {
                     return None;
                 }
-                let idle_ms = timestamp_ms.saturating_sub(rec.last_seen_ms);
-                (idle_ms >= self.config.max_lost_ms).then_some(tid)
+                let lost_since_ms = rec.lost_since_ms?;
+                let lost_elapsed_ms = timestamp_ms.saturating_sub(lost_since_ms);
+                (lost_elapsed_ms >= self.config.max_lost_ms).then_some(tid)
             })
             .collect();
 
@@ -1007,22 +1013,72 @@ mod tests {
         assert_eq!(tracker.live_summaries()[0].state, TrackState::Active);
         assert!(tracker.closed_summaries().is_empty());
 
-        // Record a missed admitted frame so the track transitions to Lost.
+        // Record a missed admitted frame at t=2_000 so the track transitions to Lost.
         let miss = tracker.update((640, 360), 2_000, &[], None, None, None);
         assert!(miss.events.is_empty());
         assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
 
-        assert!(tracker.advance_time(10_999).is_empty());
+        assert!(tracker.advance_time(11_999).is_empty());
         assert_eq!(tracker.live_summaries().len(), 1);
 
-        let exit_events = tracker.advance_time(11_000);
+        let exit_events = tracker.advance_time(12_000);
         assert_eq!(exit_events.len(), 1);
         assert_eq!(exit_events[0].kind, DetectionEventKind::TrackExited);
         assert_eq!(exit_events[0].track_id, Some(tid));
-        assert_eq!(exit_events[0].timestamp_ms, 11_000);
+        assert_eq!(exit_events[0].timestamp_ms, 12_000);
         assert_eq!(exit_events[0].thumbnail.as_ref(), Some(&thumb));
         assert!(tracker.live_summaries().is_empty());
         assert_eq!(tracker.closed_summaries().len(), 1);
+    }
+
+    #[test]
+    fn single_miss_after_long_static_gap_marks_lost_and_honors_max_lost_ms_from_first_absence() {
+        let mut tracker = MultiObjectTracker::new("cam-synth-flicker-01", TrackerConfig::default());
+
+        let det = [Detection::new(
+            0,
+            ObjectCategory::Vehicle,
+            0.91,
+            [0.20, 0.35, 0.55, 0.72],
+        )];
+        let out0 = tracker.update((640, 360), 0, &det, None, None, None);
+        let tid = out0.assigned_track_ids[0].expect("track assigned");
+        assert!(out0.events.is_empty());
+
+        let out1 = tracker.update((640, 360), 1_000, &det, None, None, None);
+        assert_eq!(out1.assigned_track_ids[0], Some(tid));
+        assert_eq!(out1.events.len(), 1);
+        assert_eq!(out1.events[0].kind, DetectionEventKind::TrackEntered);
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Active);
+
+        // Single missed admitted frame at t=+45s (past default 30s max_lost_ms since last_seen_ms)
+        // must transition to Lost rather than immediately closing.
+        let miss = tracker.update((640, 360), 46_000, &[], None, None, None);
+        assert!(miss.events.is_empty());
+        assert_eq!(tracker.live_summaries().len(), 1);
+        assert_eq!(tracker.live_summaries()[0].track_id, tid);
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
+        assert!(tracker.closed_summaries().is_empty());
+
+        // Re-detecting on the next admitted frame recovers the same track and clears lost_since_ms.
+        let recover = tracker.update((640, 360), 47_000, &det, None, None, None);
+        assert_eq!(recover.assigned_track_ids[0], Some(tid));
+        assert!(recover.events.is_empty());
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Active);
+
+        // A later miss after another +48s static stretch again starts the 30s grace from first miss.
+        let miss2 = tracker.update((640, 360), 95_000, &[], None, None, None);
+        assert!(miss2.events.is_empty());
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
+
+        assert!(tracker.advance_time(124_999).is_empty());
+        assert_eq!(tracker.live_summaries().len(), 1);
+
+        let exit = tracker.advance_time(125_000);
+        assert_eq!(exit.len(), 1);
+        assert_eq!(exit[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(exit[0].track_id, Some(tid));
+        assert_eq!(exit[0].timestamp_ms, 125_000);
     }
 
     #[test]

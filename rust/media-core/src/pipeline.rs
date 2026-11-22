@@ -348,20 +348,20 @@ mod tests {
             .clone();
         assert_ne!(best_thumb.sha256_hex, empty_thumb.sha256_hex);
 
-        // Frame 4 (t=4s): static empty scene -> skipped, not yet expired
-        let r4 = pipeline.process_rgb_frame(4_000, &bg).unwrap();
+        // Frame 4 (t=7.999s): static empty scene, 4.999s after first miss at t=3s -> still Lost
+        let r4 = pipeline.process_rgb_frame(7_999, &bg).unwrap();
         assert!(!r4.gate_decision.is_admitted());
         assert!(r4.events.is_empty());
 
-        // Frame 5 (t=7s, 5s after last_seen=2s, well before 60s heartbeat):
+        // Frame 5 (t=8s, 5s after first miss at t=3s, well before 60s heartbeat):
         // skipped by Tier 1, yet TrackExited fires promptly with the best-keyframe thumbnail!
-        let r5 = pipeline.process_rgb_frame(7_000, &bg).unwrap();
+        let r5 = pipeline.process_rgb_frame(8_000, &bg).unwrap();
         assert!(!r5.gate_decision.is_admitted());
         assert!(r5.thumbnail.is_none());
         assert_eq!(r5.events.len(), 1);
         assert_eq!(r5.events[0].kind, DetectionEventKind::TrackExited);
         assert_eq!(r5.events[0].track_id, Some(tid));
-        assert_eq!(r5.events[0].timestamp_ms, 7_000);
+        assert_eq!(r5.events[0].timestamp_ms, 8_000);
         let exit_thumb = r5.events[0]
             .thumbnail
             .as_ref()
@@ -452,10 +452,10 @@ mod tests {
             crate::TrackState::Lost
         );
 
-        // Identical empty compressed payload 5s after last_seen (well before 60s Tier 0 heartbeat):
-        // must skip decode_rgb and still emit TrackExited with best_thumb.
+        // Identical empty compressed payload 5s after first miss at t=2s (well before 60s Tier 0
+        // heartbeat): must skip decode_rgb and still emit TrackExited with best_thumb.
         let r2 = pipeline
-            .process_compressed(6_000, &payload_empty, || {
+            .process_compressed(7_000, &payload_empty, || {
                 panic!("decode_rgb must not be called on Tier 0 skip")
             })
             .unwrap();
