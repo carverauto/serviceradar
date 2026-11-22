@@ -1149,7 +1149,8 @@ class NVRReleaseTest(unittest.TestCase):
         self.assertTrue((block / "media.m4s").is_symlink())
         self.assertEqual(target.read_bytes(), b"invented retained media")
 
-    def test_inventory_limit_refuses_even_empty_retained_blocks(self):
+    def test_block_cap_refuses_admission_but_keeps_the_volume_listable(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "4096"
         marker = self.spool / ".storage-id"
         marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
         marker.chmod(0o600)
@@ -1160,6 +1161,14 @@ class NVRReleaseTest(unittest.TestCase):
         (self.spool / f"{4096:064x}").mkdir(mode=0o700)
         self.run_probe("discovery_limit")
         self.assertEqual(len(list(self.spool.iterdir())), 4098)
+
+    def test_multipage_rebuild_reports_later_failure_settles_exits_and_rejects_invalid_ids(self):
+        marker = self.spool / ".storage-id"
+        marker.write_text(self.env["NVR_TEST_EXPECTED_STORAGE_ID"] + "\n")
+        marker.chmod(0o600)
+        for index in range(2100):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+        self.run_probe("multipage_rebuild")
 
     def ingest_installation(self):
         self.run_probe("delivery_certificates")
@@ -1787,7 +1796,8 @@ class NVRReleaseTest(unittest.TestCase):
         malformed = self.root / "delivery.json"
         malformed.write_text("{}")
         settings = [({"SERVICERADAR_NVR_" + key: "0"}, b"invalid_nvr_limit")
-                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES"]]
+                    for key in ["MAX_SESSIONS", "MAX_SPOOL_BYTES", "RESERVE_BYTES", "MAX_BLOCKS"]]
+        settings += [({"SERVICERADAR_NVR_MAX_BLOCKS": "262145"}, b"invalid_nvr_limit")]
         settings += [({"SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": value}, b"invalid_nvr_limit")
                      for value in ["7", "257"]]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
@@ -2069,6 +2079,218 @@ class NVRReleaseTest(unittest.TestCase):
                                         env=env, capture_output=True, timeout=20)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(b"invalid_nvr_read_config", result.stdout + result.stderr)
+
+    def member_request_with_headers(self, method, path, body=None, content_type=None, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
+        headers = {"Authorization": "Bearer " + (token or self.ingest_token)}
+        if content_type:
+            headers["Content-Type"] = content_type
+        try:
+            connection.request(method, path, body=body, headers=headers)
+            response = connection.getresponse()
+            resp_headers = {k.lower(): v for k, v in response.getheaders()}
+            return response.status, response.read(), resp_headers
+        finally:
+            connection.close()
+
+    def member_request(self, method, path, body=None, content_type=None, token=None):
+        status, body, _headers = self.member_request_with_headers(method, path, body, content_type, token)
+        return status, body
+
+    def lookup(self, block_ids, content_type="application/vnd.serviceradar.nvr-lookup.v1+json"):
+        return self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": block_ids}), content_type)
+
+    def member_status(self):
+        status, body = self.member_request("GET", "/v1/status")
+        self.assertEqual(status, 200, body)
+        return json.loads(body)
+
+    def block_bytes(self, block_id):
+        return sum(path.stat().st_size for path in (self.spool / block_id).iterdir())
+
+    def test_member_status_lookup_and_ledger_pages_report_local_block_state(self):
+        _proc, block_id = self.sealed_network_block()
+        status, descriptor = self.descriptor_request(block_id)
+        self.assertEqual(status, 200)
+        digest = hashlib.sha256(descriptor).hexdigest()
+        stored = self.block_bytes(block_id)
+
+        report = self.member_status()
+        self.assertEqual({key: report[key] for key in ("version", "storage_id", "recovery", "inventory", "archive_busy",
+                                                       "max_sessions")},
+                         {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                          "recovery": {"state": "ready", "generation": self.generation}, "inventory": "ready",
+                          "archive_busy": False, "max_sessions": 2})
+        self.assertEqual({key: report["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes", "reservations")},
+                         {"blocks": 1, "max_blocks": 131072, "used_bytes": stored, "reservations": 0})
+
+        sealed = {"block_id": block_id, "state": "sealed", "writing": False, "bytes": stored, "descriptor_sha256": digest}
+        absent = {"block_id": "0" * 64, "state": "absent", "writing": False, "bytes": None}
+        status, body = self.lookup([block_id, "0" * 64])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body), {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                            "blocks": [sealed, absent]})
+
+        pages = {"?limit=100": ([sealed], None), "?limit=1": ([sealed], block_id), f"?after={block_id}": ([], None)}
+        for query, (blocks, next_after) in pages.items():
+            with self.subTest(query=query):
+                status, body = self.member_request("GET", "/v1/blocks" + query)
+                self.assertEqual(status, 200, body)
+                self.assertEqual(json.loads(body), {"version": 1, "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                                    "blocks": blocks, "next_after": next_after})
+
+        # The packaged client returns the same observations, checked against the request.
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id, "0" * 64], "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [sealed | {"reason": None}, absent | {"descriptor_sha256": None, "reason": None}]}})
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 1, "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [sealed | {"reason": None}], "next_after": block_id}})
+        status_result = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual((status_result["storage_id"], status_result["inventory"], status_result["capacity"]["blocks"]),
+                         (self.env["NVR_TEST_EXPECTED_STORAGE_ID"], "ready", 1))
+
+        # A journal without its seal record is incomplete and has no descriptor digest.
+        block = self.spool / block_id
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        status, body = self.lookup([block_id])
+        self.assertEqual(json.loads(body)["blocks"],
+                         [{"block_id": block_id, "state": "incomplete", "writing": False, "bytes": stored - (len(journal) - last)}])
+
+        # A corrupt journal digest is reported as unresolved with its error class and no digest.
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        unresolved = {"block_id": block_id, "state": "unresolved", "writing": False, "bytes": stored,
+                      "reason": "invalid_journal_record"}
+        status, body = self.lookup([block_id])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        status, body = self.member_request("GET", "/v1/blocks?limit=10")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [unresolved])
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}]}})
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"ok": {"storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+                                 "blocks": [unresolved | {"descriptor_sha256": None}], "next_after": None}})
+        (block / "journal").write_bytes(journal)
+
+        # A closed recovery gate is reported on /v1/status (200) and refuses lookup/pages with 503 + retry-after.
+        self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+        closed_report = self.member_status()
+        self.assertEqual(
+            {key: closed_report[key] for key in ("recovery", "inventory", "capacity")},
+            {"recovery": {"state": "closed", "generation": self.generation},
+             "inventory": "unavailable", "capacity": None},
+        )
+        closed_client = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual(
+            (closed_client["recovery"], closed_client["inventory"], closed_client["capacity"]),
+            ({"state": "closed", "generation": self.generation}, "unavailable", None),
+        )
+        status, body, headers = self.member_request_with_headers(
+            "POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+            "application/vnd.serviceradar.nvr-lookup.v1+json",
+        )
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"lookup_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+                         {"error": "lookup_status", "status": 503, "body": {"error": "lookup_unavailable"}})
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=10")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_unavailable"}', "1"))
+        self.assertEqual(self.run_client({"mode": "page", "after": None, "limit": 10, "timeout_ms": 15000}),
+                         {"error": "inventory_status", "status": 503, "body": {"error": "inventory_unavailable"}})
+        self.recovery.write_bytes(self.ready)
+        self.assertEqual(self.member_status()["inventory"], "ready")
+
+        # Malformed requests are refused before any read; the ingest token is required.
+        for ids in ([], ["0" * 64] * 2, ["x"], ["%064x" % index for index in range(51)]):
+            with self.subTest(ids=len(ids)):
+                self.assertEqual(self.lookup(ids), (400, b'{"error":"invalid_lookup_request"}'))
+        self.assertEqual(self.lookup([block_id], content_type="application/json")[0], 400)
+        for query in ("?limit=0", "?limit=101", "?limit=01", "?after=XYZ", "?after[a]=1", "?limit=1&extra=1"):
+            with self.subTest(query=query):
+                self.assertEqual(self.member_request("GET", "/v1/blocks" + query),
+                                 (400, b'{"error":"invalid_inventory_request"}'))
+        bad_token = "incorrect-token-for-the-ingest-listener"
+        self.assertEqual(self.member_request("GET", "/v1/status", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("POST", "/v1/blocks/lookup", canonical({"block_ids": [block_id]}),
+                                             "application/vnd.serviceradar.nvr-lookup.v1+json", token=bad_token)[0], 401)
+        self.assertEqual(self.member_request("GET", "/v1/blocks?limit=1", token=bad_token)[0], 401)
+
+    def test_lookup_and_ledger_page_enforce_storage_gate_and_active_block_guards(self):
+        self.make_media()
+        self.run_probe("lookup_page_guards")
+
+    def test_block_ledger_caps_admission_rebuilds_on_restart_and_closes_admission_on_mismatch(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "1"
+        proc, block_id = self.sealed_network_block()
+        stored = self.block_bytes(block_id)
+        units = b"".join(self.ingest_units()) + struct.pack("!I", 0)
+        identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1}
+
+        # At the cap a new recording is refused; reads and lookups keep working.
+        status, body = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 1}) + units)
+        self.assertEqual((status, body), (503, {"error": "ingest_unavailable"}))
+        self.assertEqual(self.descriptor_request(block_id)[0], 200)
+        self.assertEqual(json.loads(self.lookup([block_id])[1])["blocks"][0]["state"], "sealed")
+        self.assertEqual({key: self.member_status()["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes")},
+                         {"blocks": 1, "max_blocks": 1, "used_bytes": stored})
+
+        # After a restart the ledger is rebuilt from the volume with the same charge.
+        self.stop_ingest_release(proc)
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "8"
+        self.start_ingest_release()
+        self.assertEqual({key: self.member_status()["capacity"][key] for key in ("blocks", "max_blocks", "used_bytes")},
+                         {"blocks": 1, "max_blocks": 8, "used_bytes": stored})
+        status, receipt = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 1}) + units)
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(self.member_status()["capacity"]["blocks"], 2)
+
+        # A directory the ledger did not record closes admission; nothing is repaired or removed.
+        before = {str(path.relative_to(self.spool)): path.read_bytes() for path in self.spool.rglob("*") if path.is_file()}
+        stray = self.spool / ("c" * 64)
+        stray.mkdir(mode=0o700)
+        deadline = time.monotonic() + 15
+        while self.member_status()["inventory"] != "mismatch":
+            self.assertLess(time.monotonic(), deadline, "the audit did not report the unrecorded directory")
+            time.sleep(0.2)
+        status, body = self.ingest_request(self.ingest_header(identity=identity | {"block_sequence": 2}) + units)
+        self.assertEqual((status, body), (503, {"error": "ingest_unavailable"}))
+        self.assertTrue(stray.is_dir())
+        self.assertEqual(before, {str(path.relative_to(self.spool)): path.read_bytes()
+                                  for path in self.spool.rglob("*") if path.is_file()})
+
+    def test_member_status_and_ledger_page_report_rebuilding_over_http(self):
+        self.ingest_installation()
+        for index in range(1025):
+            (self.spool / f"{index:064x}").mkdir(mode=0o700)
+
+        # First /v1/blocks call on a >1024-block volume triggers step 1 and reports 503 inventory_rebuilding.
+        proc = self.start_ingest_release()
+        status, body, headers = self.member_request_with_headers("GET", "/v1/blocks?limit=1")
+        self.assertEqual((status, body, headers.get("retry-after")),
+                         (503, b'{"error":"inventory_rebuilding"}', "1"))
+        self.stop_ingest_release(proc)
+
+        # Fresh restart: first /v1/status call via packaged client reports 200 inventory=rebuilding, capacity=null.
+        self.start_ingest_release()
+        rebuilding = self.run_client({"mode": "status", "timeout_ms": 15000})["ok"]
+        self.assertEqual((rebuilding["inventory"], rebuilding["capacity"]), ("rebuilding", None))
+        deadline = time.monotonic() + 15
+        while True:
+            report = self.member_status()
+            if report["inventory"] == "ready":
+                break
+            self.assertLess(time.monotonic(), deadline, "ledger rebuild did not finish")
+            time.sleep(0.1)
+        self.assertEqual(report["capacity"]["blocks"], 1025)
 
 
 def canonical(value):

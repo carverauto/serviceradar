@@ -6,6 +6,8 @@ defmodule ServiceRadarNVRClient.HTTP do
 
   @max_body 67_108_864
   @max_response 32_768
+  # A ledger page of 100 blocks or a 50-block lookup, with room to spare.
+  @max_member_response 262_144
   @empty_response %{status: nil, body: "", done: false, limit: @max_response}
 
   def send_recording(config, header, bytes, units, deadline, owner) do
@@ -20,6 +22,16 @@ defmodule ServiceRadarNVRClient.HTTP do
     path = "/v1/blocks/" <> block_id <> "/descriptor"
     finish = &descriptor_result(&1, &2, block_id)
     connect(config, deadline, owner, &get(&1, config.token, path, Descriptor.max_json_bytes(), finish, deadline, owner))
+  end
+
+  # Bounded JSON exchanges on the ingest listener: member status, block lookup
+  # and ledger pages. `finish` decodes and checks a 200 body.
+  def get_json(config, path, finish, deadline, owner) do
+    connect(config, deadline, owner, &get(&1, config.token, path, @max_member_response, finish, deadline, owner))
+  end
+
+  def post_json(config, path, content_type, body, finish, deadline, owner) do
+    connect(config, deadline, owner, &post(&1, config.token, path, content_type, body, finish, deadline, owner))
   end
 
   # The body may be at most `expected.length` bytes; `Wire.media` checks it exactly.
@@ -141,6 +153,21 @@ defmodule ServiceRadarNVRClient.HTTP do
     do: {:error, {:archive_status, status, Wire.error_body(body)}}
 
   defp archive_result(_status, _body, _block_id, _request), do: {:error, :outcome_unknown}
+
+  defp post(connection, token, path, content_type, body, finish, deadline, owner) do
+    headers = [
+      {"authorization", "Bearer " <> token},
+      {"content-type", content_type},
+      {"content-length", Integer.to_string(byte_size(body))}
+    ]
+
+    with :ok <- current(deadline, owner),
+         {:ok, connection, ref} <- Mint.HTTP1.request(connection, "POST", path, headers, body) do
+      response(connection, ref, deadline, owner, finish, %{@empty_response | limit: @max_member_response})
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
 
   defp get(connection, token, path, limit, finish, deadline, owner) do
     headers = [{"authorization", "Bearer " <> token}]

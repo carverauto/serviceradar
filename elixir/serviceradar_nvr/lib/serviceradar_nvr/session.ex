@@ -6,6 +6,7 @@ defmodule ServiceRadarNVR.Session do
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecording.Packaging
   alias ServiceRadarRecording.Writer
+  alias ServiceRadarRecordingMetadata.Descriptor
 
   def start_link(config, {producer, identity, clock}) do
     with {:ok, key} <- source_key(identity) do
@@ -22,7 +23,7 @@ defmodule ServiceRadarNVR.Session do
     Process.flag(:trap_exit, true)
     deadline = System.monotonic_time(:millisecond) + config.max_duration_ms
 
-    with {:ok, reservation, storage, limits} <- Capacity.reserve(),
+    with {:ok, reservation, storage, limits} <- Capacity.reserve(block_id(identity)),
          {:ok, inbox} <- Inbox.new(producer, identity.source_id, identity, deadline),
          {:ok, writer} <- Writer.open(storage, identity, clock, limits, wait_for_keyframe?: true) do
       timer = Process.send_after(self(), :deadline, max(0, deadline - System.monotonic_time(:millisecond)))
@@ -112,9 +113,11 @@ defmodule ServiceRadarNVR.Session do
     fn snapshot, init_format ->
       send(state.inbox.producer, {:nvr_block_sealed, self(), %{snapshot: snapshot, init_format: init_format}})
 
-      with :ok <- Capacity.next_block(state.reservation),
+      next = %{state.writer.identity | block_sequence: snapshot.identity["block_sequence"] + 1}
+
+      with :ok <- Capacity.next_block(state.reservation, block_id(next)),
            :ok <- Inbox.usable(state.inbox) do
-        {:ok, %{state.writer.identity | block_sequence: snapshot.identity["block_sequence"] + 1}}
+        {:ok, next}
       end
     end
   end
@@ -123,6 +126,16 @@ defmodule ServiceRadarNVR.Session do
     with :ok <- Inbox.usable(state.inbox),
          :ok <- Capacity.check(state.reservation),
          do: Inbox.usable(state.inbox)
+  end
+
+  # The directory the writer creates for this identity (the block key).
+  defp block_id(identity) do
+    Descriptor.block_key(%{
+      "source_id" => identity.source_id,
+      "profile" => identity.profile,
+      "recorder_epoch" => identity.recorder_epoch,
+      "block_sequence" => identity.block_sequence
+    })
   end
 
   defp continuous(nil, _sequence), do: :ok

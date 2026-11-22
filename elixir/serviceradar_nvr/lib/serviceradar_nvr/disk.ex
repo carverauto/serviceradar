@@ -4,20 +4,13 @@ defmodule ServiceRadarNVR.Disk do
   alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Storage
 
-  @max_blocks 4096
   # An interrupted receipt write may leave its temporary file; both are charged.
   @block_files ~w(init.mp4 media.m4s journal publication.json publication-ack.json archive-receipt.json archive-receipt.json.tmp)
 
   # Inspect metadata only. Incomplete and sealed blocks are equally charged;
   # this is neither journal recovery nor permission to remove anything.
   def inventory(storage) do
-    with :ok <- Storage.verify(storage),
-         {:ok, entries} <- File.ls(storage.root),
-         true <-
-           Enum.all?([".bootstrap-preparation.json", ".bootstrap-acknowledgement.json"], &(&1 not in entries)) ||
-             {:error, :nvr_history_bootstrap_incomplete},
-         blocks = List.delete(entries, ".storage-id"),
-         true <- length(blocks) <= @max_blocks || {:error, :nvr_inventory_limit},
+    with {:ok, blocks} <- block_names(storage),
          {:ok, bytes, pending} <- sum_blocks(storage.root, blocks),
          :ok <- Storage.verify(storage) do
       {:ok,
@@ -25,9 +18,31 @@ defmodule ServiceRadarNVR.Disk do
          used_bytes: bytes,
          publication_reserved_bytes: pending,
          blocks: length(blocks),
-         max_blocks: @max_blocks,
          block_ids: blocks
        }}
+    end
+  end
+
+  @doc false
+  # Root entry names that must be block directories; refuses an unfinished
+  # bootstrap. The names are not validated here.
+  def block_names(storage) do
+    with :ok <- Storage.verify(storage),
+         {:ok, entries} <- File.ls(storage.root),
+         true <-
+           Enum.all?([".bootstrap-preparation.json", ".bootstrap-acknowledgement.json"], &(&1 not in entries)) ||
+             {:error, :nvr_history_bootstrap_incomplete} do
+      {:ok, List.delete(entries, ".storage-id")}
+    end
+  end
+
+  @doc false
+  # Charged bytes and missing publication allowances of one block directory;
+  # `{:error, :enoent}` when it does not exist.
+  def block_usage(root, key) do
+    case File.lstat(Path.join(root, key)) do
+      {:error, :enoent} -> {:error, :enoent}
+      _ -> block_bytes(root, key)
     end
   end
 

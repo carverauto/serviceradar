@@ -98,6 +98,20 @@ is `{:error, :descriptor_unavailable}`. A malformed block id is refused before
 connecting with `{:error, :invalid_descriptor_request}`. The read changes
 nothing, so it can be repeated.
 
+## Member status, block lookup and ledger pages
+
+`status/2`, `lookup_blocks/3` and `block_page/4` read the member's observations
+over the ingest listener with the ingest credentials. Each answer is checked
+before it is returned: a lookup must report exactly the requested IDs in order;
+a ledger page must hold ascending IDs after the cursor and name the last one as
+`next_after` only when full; a block carries a descriptor digest exactly when
+sealed and a reason exactly when unresolved. A failed check is
+`{:error, :invalid_response}`; a non-200 answer is `{:error, {tag, status,
+error}}` with tag `:member_status`, `:lookup_status` or `:inventory_status`; a
+lost or late answer is `{:error, :unavailable}`. Callers compare the returned
+`storage_id` with the member's configured storage. See
+[member status and block state](../../docs/nvr-ingest.md#member-status-and-block-state).
+
 ## Reading media for playback
 
 `ServiceRadarNVRClient.read_block/6` reads a sealed block's initialization bytes
@@ -130,6 +144,7 @@ reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
 with the request file's `block_id` and `archive_request`; its `descriptor` mode
-calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `read` mode calls
+calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `status`,
+`lookup` and `page` modes call `status/2`, `lookup_blocks/3` and `block_page/4`; its `read` mode calls
 `read_block/6` and reports the length and SHA-256 of what it returned; its `paced` mode
 sleeps `pace_ms` before each unit and reports how many units were pulled.

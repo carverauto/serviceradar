@@ -541,14 +541,17 @@ invalid_request`):
   timeout) via `CameraTimelineReader.NVRLocal` (configured by
   `SERVICERADAR_NVR_READ_CLIENT_CONFIG_FILE` and
   `SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE`, or Helm `nvr.read.enabled`). When
-  an archive reader is installed, falls back automatically to a `verified`
-  archive copy on timeout, unavailability, or not-found. Until an archive reader
-  is installed, the Timeline UI requests `source=local` in `Auto` mode; direct
-  API requests for archive-only entries return `409
-  archive_playback_not_available`, while a local read failure on an entry with
-  an archive copy returns the local error (`409 recording_unavailable` on
-  not-found, `409 recording_integrity_failed` on mismatch, `503
-  recording_read_unavailable` on reader unavailability).
+  an archive reader is installed (`CameraTimelineReader.Archive`, configured by
+  `SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG` or Helm `archiveReader.enabled:
+  true` with `archiveReader.mode: perRequest`; see
+  [Separate archive reader installation](https://github.com/carverauto/serviceradar/blob/staging/docs/archive-init-storage.md#separate-archive-reader-installation)),
+  falls back automatically to a `verified` archive copy on timeout,
+  unavailability, or not-found. Until an archive reader is installed, the
+  Timeline UI requests `source=local` in `Auto` mode; direct API requests for
+  archive-only entries return `409 archive_playback_not_available`, while a
+  local read failure on an entry with an archive copy returns the local error
+  (`409 recording_unavailable` on not-found, `409 recording_integrity_failed`
+  on mismatch, `503 recording_read_unavailable` on reader unavailability).
 - **`source=local` / `source=archive` (forced source):** Reads **only** the
   requested copy and never falls back (`409 recording_unavailable` when absent,
   or `409 archive_playback_not_available` for `source=archive` when no archive
@@ -663,9 +666,12 @@ and background runtime workers in `core-elx` and `serviceradar-nvr`:
     init/fragment playback uses the opt-in NVR read listener (`nvr.read.enabled`
     in Helm) and `CameraTimelineReader.NVRLocal` (returning `503
     recording_read_unavailable` when the read client is unconfigured or
-    unreachable); archive-only playback requires the pending per-request
-    isolated archive reader (`D.2`) and currently returns `409
-    archive_playback_not_available`.
+    unreachable); archive-only playback and local-to-archive fallback use the
+    opt-in per-request isolated archive reader (`archiveReader.enabled: true`
+    with `archiveReader.mode: perRequest` in Helm, wiring
+    `SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG` and
+    `CameraTimelineReader.Archive`), returning `409
+    archive_playback_not_available` when no archive reader is installed.
 
 ## Related pages
 
