@@ -778,6 +778,17 @@ which on a first CUDA start takes about ten seconds plus the model load;
 `/readyz` answers 503 until then while `/healthz` (liveness) stays healthy, so
 the pod simply stays unready meanwhile.
 
+If you switch an existing `serviceradar-media-worker` Deployment from
+`RollingUpdate` (`executionProvider: cpu_explicit`, or a Deployment created by
+an earlier chart) to a GPU provider (`Recreate`) using Server-Side Apply
+(Helm 4 default or Argo CD `ServerSideApply=true`), the API server rejects the
+update while its defaulted `spec.strategy.rollingUpdate` fields remain set.
+Run this one-time merge patch first (or delete the Deployment before applying):
+
+```bash
+kubectl -n <namespace> patch deployment serviceradar-media-worker --type=merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+```
+
 **Rotating the read-grant token.** Both workloads read it from their
 environment, so a new token reaches a pod only when it restarts, and a worker
 holding a different token than web-ng gets no grants. Update the Secret, then

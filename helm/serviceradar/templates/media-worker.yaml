@@ -275,12 +275,7 @@ spec:
        update's surge pod can never schedule. The worker is stateless and unacknowledged
        jobs are redelivered, so a GPU worker is replaced with a brief gap instead. */}}
   strategy:
-    {{- if $gpu }}
-    type: Recreate
-    rollingUpdate: null
-    {{- else }}
-    type: RollingUpdate
-    {{- end }}
+    type: {{ ternary "Recreate" "RollingUpdate" $gpu }}
   selector:
     matchLabels:
       app: serviceradar-media-worker
