@@ -8,7 +8,7 @@ S3 remains optional.
 
 | Milestone boundary | Current evidence | Remaining integration |
 | --- | --- | --- |
-| Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
+| Camera to NVR | Bounded relay-to-NVR coordinator and [continuous recorder](#continuous-recording) stream a shared relay session into a configured NVR replica over mTLS | Automatic pool assignment across NVR replicas and real-camera acceptance |
 | Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
 | Playback | [Playback read listener](#playback-read-listener), owner-routed local timeline playback in web-ng, and [per-request isolated archive reader](archive-init-storage.md#separate-archive-reader-installation) (D.2) | End-to-end local-to-archive playback verification |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
@@ -155,6 +155,26 @@ as uncertain: both blocks stay sealed on the NVR, but Core records neither as a
 completed capture. Keep `nvr.maxBlockFragments` at 150 or more while Core
 captures run at the 270-second ceiling.
 
+## Continuous recording
+
+`SERVICERADAR_CAMERA_RECORDING_ENABLED` (rendered from the Helm chart value
+`nvr.ingest.client.cameraRecordingEnabled`) is the single canonical switch
+enabling continuous recording in `core-elx` for cameras whose
+`CameraRecordingPolicy` has `mode == :continuous`. When enabled (and the
+database repo is enabled and durable `RecordingControl` stop is not active),
+`ServiceRadarCoreElx.CameraRecording.ContinuousManager` reconciles all
+`mode == :continuous` policies and supervises one
+`ServiceRadarCoreElx.CameraRecording.ContinuousRecorder` per
+`(camera_source_id, stream_profile_id)` pair. Cameras without a `:continuous`
+policy remain unaffected.
+
+Each continuous recorder holds one `RecorderOwnership` claim and one bounded
+`ServiceRadarRecording.Inbox` per run, performs keyframe-aligned block handovers
+at soft targets (`260,000 ms`, `7,800` frames, `10 MiB`) within the hard
+ceilings (`270,000 ms`, `8,100` frames, `12 MiB`), resolves uncertain outcomes
+through `POST /v1/blocks/lookup`, catalogs each sealed block before releasing
+the claim, and enqueues `ArchiveBlockJob` when required by policy.
+
 ## Finite stream contract
 
 Send `POST /v1/recordings/ingest` with exactly one
@@ -224,8 +244,9 @@ returns `{:error, {:ingest_status, status}}` instead, because it does not rule
 out a seal. A 200 before the end marker, or an answer that is lost, cut short or
 malformed, is `:outcome_unknown`. See the [client API and configuration](../elixir/serviceradar_nvr_client/README.md).
 This is a library for the media bridge; installing it enables no consumer. The
-[bounded relay coordinator](#bounded-relay-coordinator) is its only caller and
-performs source ownership and recorder admission before sending.
+[bounded relay coordinator](#bounded-relay-coordinator) and
+[continuous recorder](#continuous-recording) are its callers and perform source
+ownership and recorder admission before sending.
 
 ## Outcomes and preservation
 
