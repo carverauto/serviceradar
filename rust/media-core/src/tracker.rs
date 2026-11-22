@@ -94,7 +94,7 @@ pub enum TrackState {
     Active,
     /// Track was previously active/new but missed on the most recent frame(s).
     Lost,
-    /// Track exceeded `max_lost_frames` or `max_lost_ms` and has exited.
+    /// Track exceeded `max_lost_frames`/`max_lost_ms` or was capacity-evicted and has exited.
     Closed,
 }
 
@@ -722,7 +722,7 @@ mod tests {
         );
 
         // Frame 0: small person bbox -> New (no TrackEntered yet)
-        let d0 = vec![Detection::new(
+        let d0 = [Detection::new(
             0,
             ObjectCategory::Person,
             0.70,
@@ -734,7 +734,7 @@ mod tests {
         assert_eq!(tracker.live_summaries()[0].state, TrackState::New);
 
         // Frame 1: larger, higher-confidence bbox -> Active + TrackEntered + new best keyframe
-        let d1 = vec![Detection::new(
+        let d1 = [Detection::new(
             0,
             ObjectCategory::Person,
             0.94,
@@ -787,7 +787,7 @@ mod tests {
         let mut closed_ids = Vec::new();
         for i in 0..6u64 {
             let x1 = 0.05 + (i as f32) * 0.14;
-            let det = vec![Detection::new(
+            let det = [Detection::new(
                 0,
                 ObjectCategory::Person,
                 0.90,
@@ -825,7 +825,7 @@ mod tests {
                 ..TrackerConfig::default()
             },
         );
-        let det = vec![Detection::new(
+        let det = [Detection::new(
             0,
             ObjectCategory::Person,
             0.90,
@@ -852,7 +852,7 @@ mod tests {
         );
 
         let bbox = [0.20, 0.20, 0.40, 0.70];
-        let det = vec![Detection::new(0, ObjectCategory::Person, 0.92, bbox)];
+        let det = [Detection::new(0, ObjectCategory::Person, 0.92, bbox)];
 
         let out0 = tracker.update((640, 360), 1_000, &det, None, None, None);
         let tid1 = out0.assigned_track_ids[0].expect("first track assigned");
@@ -989,7 +989,7 @@ mod tests {
             },
         );
 
-        let det = vec![Detection::new(
+        let det = [Detection::new(
             0,
             ObjectCategory::Person,
             0.93,
@@ -1023,5 +1023,84 @@ mod tests {
         assert_eq!(exit_events[0].thumbnail.as_ref(), Some(&thumb));
         assert!(tracker.live_summaries().is_empty());
         assert_eq!(tracker.closed_summaries().len(), 1);
+    }
+
+    #[test]
+    fn tracker_modes_botsort_deep_ocsort_and_off_handle_lifecycle_and_embeddings() {
+        use crate::error::MediaCoreErrorKind;
+
+        assert!(matches!(
+            TrackerMode::from_str("unknown_tracker").unwrap_err().kind(),
+            MediaCoreErrorKind::InvalidConfiguration(_)
+        ));
+        assert_eq!(
+            TrackerMode::from_str("botsort").unwrap(),
+            TrackerMode::BotSort
+        );
+        assert_eq!(
+            TrackerMode::from_str("deep_ocsort").unwrap(),
+            TrackerMode::DeepOcSort
+        );
+
+        let emb = [vec![1.0f32, 0.0, 0.0, 0.0]];
+        let d0 = [Detection::new(
+            0,
+            ObjectCategory::Person,
+            0.90,
+            [0.10, 0.20, 0.25, 0.70],
+        )];
+        let d1 = [Detection::new(
+            0,
+            ObjectCategory::Person,
+            0.92,
+            [0.13, 0.20, 0.28, 0.70],
+        )];
+
+        // BotSort & DeepOcSort both track consistently across movement and close cleanly on departure
+        for mode in [TrackerMode::BotSort, TrackerMode::DeepOcSort] {
+            let mut tracker = MultiObjectTracker::new(
+                "cam-synth-mode-01",
+                TrackerConfig {
+                    mode,
+                    min_hits_to_activate: 2,
+                    max_lost_frames: 2,
+                    max_lost_ms: 10_000,
+                    max_tracks: 16,
+                    max_closed_tracks: 16,
+                    confidence_threshold: 0.35,
+                },
+            );
+
+            let out0 = tracker.update((640, 360), 1_000, &d0, None, Some(emb.as_slice()), None);
+            let tid = out0.assigned_track_ids[0].expect("mode must assign track id");
+            assert_eq!(tracker.live_summaries()[0].state, TrackState::New);
+
+            let out1 = tracker.update((640, 360), 2_000, &d1, None, Some(emb.as_slice()), None);
+            assert_eq!(out1.assigned_track_ids[0], Some(tid));
+            assert_eq!(out1.events.len(), 1);
+            assert_eq!(out1.events[0].kind, DetectionEventKind::TrackEntered);
+
+            // Departure -> Lost -> Closed
+            let _ = tracker.update((640, 360), 3_000, &[], None, None, None);
+            assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
+            let exit = tracker.update((640, 360), 4_000, &[], None, None, None);
+            assert_eq!(exit.events.len(), 1);
+            assert_eq!(exit.events[0].kind, DetectionEventKind::TrackExited);
+            assert_eq!(exit.events[0].track_id, Some(tid));
+        }
+
+        // TrackerMode::Off emits no IDs, no events, and retains no tracks
+        let mut off = MultiObjectTracker::new(
+            "cam-synth-off-01",
+            TrackerConfig {
+                mode: TrackerMode::Off,
+                ..TrackerConfig::default()
+            },
+        );
+        let out = off.update((640, 360), 1_000, &d0, None, None, None);
+        assert_eq!(out.assigned_track_ids, vec![None]);
+        assert!(out.events.is_empty());
+        assert!(off.advance_time(50_000).is_empty());
+        assert!(off.all_summaries().is_empty());
     }
 }

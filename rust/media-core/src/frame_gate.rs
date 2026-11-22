@@ -785,4 +785,121 @@ mod tests {
             }
         ));
     }
+
+    #[test]
+    fn tier1_roi_include_and_exclude_and_config_or_frame_validation() {
+        use crate::error::MediaCoreErrorKind;
+
+        // Invalid Tier 0 configs
+        for bad_ratio in [-0.01, 1.01, f32::NAN, f32::INFINITY] {
+            let err = CompressedFrameGate::new(CompressedFrameGateConfig {
+                min_byte_delta_ratio: bad_ratio,
+                ..CompressedFrameGateConfig::default()
+            })
+            .unwrap_err();
+            assert!(matches!(
+                err.kind(),
+                MediaCoreErrorKind::InvalidConfiguration(_)
+            ));
+        }
+
+        // Invalid Tier 1 configs
+        let bad_grid = PixelMotionGate::new(PixelMotionGateConfig {
+            grid_cols: 0,
+            ..PixelMotionGateConfig::default()
+        })
+        .unwrap_err();
+        assert!(matches!(
+            bad_grid.kind(),
+            MediaCoreErrorKind::InvalidConfiguration(_)
+        ));
+
+        let bad_thresh = PixelMotionGate::new(PixelMotionGateConfig {
+            block_delta_threshold: f32::NAN,
+            ..PixelMotionGateConfig::default()
+        })
+        .unwrap_err();
+        assert!(matches!(
+            bad_thresh.kind(),
+            MediaCoreErrorKind::InvalidConfiguration(_)
+        ));
+
+        // Tier 0 size-only metadata evaluation (no hash, e.g. CMAF trun sample size)
+        let mut t0 = CompressedFrameGate::new(CompressedFrameGateConfig {
+            min_byte_delta_ratio: 0.10,
+            max_skip_interval_ms: 60_000,
+            skip_identical_payload_hash: true,
+        })
+        .unwrap();
+        assert!(t0.evaluate_with_metadata(0, 1000, None).is_admitted());
+        assert!(!t0.evaluate_with_metadata(1_000, 1050, None).is_admitted());
+        assert!(matches!(
+            t0.evaluate_with_metadata(2_000, 1120, None),
+            GateDecision::Admit {
+                reason: GateAdmitReason::CompressedDelta,
+                ..
+            }
+        ));
+
+        // Combined include + exclude ROI: only cells inside [0.25, 0.25, 0.75, 0.75] and
+        // outside [0.50, 0.25, 0.75, 0.50] are scored.
+        let mut gate = PixelMotionGate::new(PixelMotionGateConfig {
+            grid_cols: 16,
+            grid_rows: 16,
+            block_delta_threshold: 0.08,
+            max_block_admit_threshold: 0.12,
+            changed_block_ratio_threshold: 0.05,
+            max_skip_interval_ms: 60_000,
+            roi: RoiMask {
+                include_rects: vec![[0.25, 0.25, 0.75, 0.75]],
+                exclude_rects: vec![[0.50, 0.25, 0.75, 0.50]],
+            },
+        })
+        .unwrap();
+
+        let base = LumaPlane::solid(160, 160, 40);
+        assert!(
+            gate.evaluate_luma(0, base.as_slice())
+                .unwrap()
+                .decision
+                .is_admitted()
+        );
+
+        // Motion outside include_rects (top-left corner) -> Skip with score 0
+        let mut outside = base.clone();
+        outside.fill_rect(0, 0, 32, 32, 230);
+        let m_out = gate.evaluate_luma(1_000, outside.as_slice()).unwrap();
+        assert!(!m_out.decision.is_admitted());
+        assert_eq!(m_out.score, 0.0);
+
+        // Motion inside exclude_rects (upper-right of included box) -> Skip with score 0
+        let mut excluded = base.clone();
+        excluded.fill_rect(84, 44, 116, 76, 230);
+        let m_exc = gate.evaluate_luma(2_000, excluded.as_slice()).unwrap();
+        assert!(!m_exc.decision.is_admitted());
+        assert_eq!(m_exc.score, 0.0);
+
+        // Motion inside included & non-excluded quadrant (lower-left of included box) -> Admit
+        let mut active = base.clone();
+        active.fill_rect(44, 84, 76, 116, 230);
+        let m_act = gate.evaluate_luma(3_000, active.as_slice()).unwrap();
+        assert!(matches!(
+            m_act.decision,
+            GateDecision::Admit {
+                reason: GateAdmitReason::PixelMotion,
+                ..
+            }
+        ));
+        let bbox = m_act.motion_bbox.expect("active ROI motion bbox");
+        assert!(bbox[0] >= 0.25 && bbox[1] >= 0.50 && bbox[2] <= 0.50 && bbox[3] <= 0.75);
+
+        // Invalid luma slice length returns InvalidFrame
+        let bad_view = LumaPlaneView {
+            width: 16,
+            height: 16,
+            y: &[0u8; 10],
+        };
+        let err = gate.evaluate_luma(4_000, bad_view).unwrap_err();
+        assert!(matches!(err.kind(), MediaCoreErrorKind::InvalidFrame(_)));
+    }
 }

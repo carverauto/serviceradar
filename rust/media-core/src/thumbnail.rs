@@ -586,7 +586,7 @@ mod tests {
         let mut pixels = Vec::with_capacity(320 * 180 * 3);
         for y in 0..180u32 {
             for x in 0..320u32 {
-                let v = if ((x / 2) + (y / 2)) % 2 == 0 {
+                let v = if ((x / 2) + (y / 2)).is_multiple_of(2) {
                     240u8
                 } else {
                     15u8
@@ -606,5 +606,122 @@ mod tests {
         assert!(thumb.jpeg_bytes.len() <= 4096);
         let dims = parse_sof0_dimensions(&thumb.jpeg_bytes).expect("valid JPEG");
         assert_eq!(dims, (thumb.width as u16, thumb.height as u16));
+    }
+
+    #[test]
+    fn validates_config_and_encodes_worst_case_quality_100_jfif_structure() {
+        use crate::error::MediaCoreErrorKind;
+
+        let tiny = RgbFrame::solid(16, 16, [100, 120, 140]);
+        for bad in [
+            ThumbnailConfig {
+                max_width: 0,
+                ..ThumbnailConfig::default()
+            },
+            ThumbnailConfig {
+                quality: 0,
+                ..ThumbnailConfig::default()
+            },
+            ThumbnailConfig {
+                quality: 50,
+                min_quality: 60,
+                ..ThumbnailConfig::default()
+            },
+            ThumbnailConfig {
+                max_bytes: 256,
+                ..ThumbnailConfig::default()
+            },
+        ] {
+            assert!(matches!(
+                encode_jpeg_thumbnail(&tiny, &bad).unwrap_err().kind(),
+                MediaCoreErrorKind::InvalidConfiguration(_)
+            ));
+        }
+
+        // Worst-case high-contrast u=4 DCT basis pattern at quality=100 (quant=1)
+        let mut pixels = Vec::with_capacity(64 * 64 * 3);
+        let pat = [255u8, 0, 0, 255, 255, 0, 0, 255];
+        for y in 0..64usize {
+            for x in 0..64usize {
+                let v = if (y / 8).is_multiple_of(2) {
+                    pat[x % 8]
+                } else {
+                    255 - pat[x % 8]
+                };
+                pixels.extend_from_slice(&[v, 255 - v, v]);
+            }
+        }
+        let frame = RgbFrame::from_rgb8(64, 64, pixels).unwrap();
+        let cfg = ThumbnailConfig {
+            max_width: 64,
+            max_height: 64,
+            quality: 100,
+            min_quality: 100,
+            max_bytes: 64 * 1024,
+        };
+        let thumb = encode_jpeg_thumbnail(&frame, &cfg).expect("q=100 worst-case encode ok");
+        assert_eq!(thumb.quality, 100);
+        assert_eq!(
+            thumb.sha256_hex,
+            hex::encode(Sha256::digest(&thumb.jpeg_bytes))
+        );
+
+        // Independently walk every JFIF marker and verify valid byte-stuffing in the entropy scan
+        let b = &thumb.jpeg_bytes;
+        assert_eq!(&b[0..2], &[0xFF, 0xD8]);
+        assert_eq!(&b[b.len() - 2..], &[0xFF, 0xD9]);
+        let mut i = 2usize;
+        let mut saw_app0_jfif = false;
+        let mut dqt_count = 0usize;
+        let mut dht_count = 0usize;
+        let mut sof0_dims = None;
+        let mut sos_scan_start = None;
+        while i + 2 < b.len() {
+            assert_eq!(b[i], 0xFF, "expected JPEG marker at offset {i}");
+            let marker = b[i + 1];
+            i += 2;
+            let seg_len = u16::from_be_bytes([b[i], b[i + 1]]) as usize;
+            assert!(seg_len >= 2 && i + seg_len <= b.len() - 2);
+            match marker {
+                0xE0 => {
+                    if &b[i + 2..i + 7] == b"JFIF\0" {
+                        saw_app0_jfif = true;
+                    }
+                }
+                0xDB => dqt_count += 1,
+                0xC4 => dht_count += 1,
+                0xC0 => {
+                    let h = u16::from_be_bytes([b[i + 3], b[i + 4]]);
+                    let w = u16::from_be_bytes([b[i + 5], b[i + 6]]);
+                    sof0_dims = Some((w, h));
+                }
+                0xDA => {
+                    sos_scan_start = Some(i + seg_len);
+                    break;
+                }
+                _ => {}
+            }
+            i += seg_len;
+        }
+        assert!(saw_app0_jfif, "missing JFIF APP0 header");
+        assert_eq!(dqt_count, 2, "expected lum + chrom DQT tables");
+        assert_eq!(dht_count, 4, "expected 4 Baseline DHT tables");
+        assert_eq!(sof0_dims, Some((64, 64)));
+        let scan_start = sos_scan_start.expect("missing SOS marker");
+        // Verify entropy-coded scan has zero unstuffed markers before EOI
+        let mut j = scan_start;
+        while j < b.len() - 2 {
+            if b[j] == 0xFF {
+                assert_eq!(
+                    b[j + 1],
+                    0x00,
+                    "unstuffed 0xFF {:02X} inside JPEG entropy scan at {j}",
+                    b[j + 1]
+                );
+                j += 2;
+            } else {
+                j += 1;
+            }
+        }
     }
 }

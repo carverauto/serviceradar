@@ -102,8 +102,10 @@ impl MediaPipeline {
         self.tracker.take_closed_summaries()
     }
 
-    /// Evaluates Tier 0 on compressed bytes first. Only when Tier 0 admits does it invoke
-    /// `decode_rgb` and run Tier 1 -> detect -> attributes -> track -> thumbnail.
+    /// Evaluates Tier 0 on compressed bytes first. When Tier 0 skips, `decode_rgb` is not
+    /// called and `tracker.advance_time(timestamp_ms)` closes any expired `Lost` tracks.
+    /// When Tier 0 admits, it invokes `decode_rgb` and runs Tier 1 -> detect -> attributes ->
+    /// track -> thumbnail.
     pub fn process_compressed<F>(
         &mut self,
         timestamp_ms: u64,
@@ -134,6 +136,10 @@ impl MediaPipeline {
 
     /// Runs Tier 1 pixel motion gate -> YOLOX/object detector -> HSV sub-crop attributes ->
     /// `trackforge` multi-object tracker -> bounded JPEG keyframe thumbnail.
+    ///
+    /// On a Tier 1 skip, detection and thumbnail encoding are skipped while
+    /// `tracker.advance_time(timestamp_ms)` closes any expired `Lost` tracks with their stored
+    /// best-keyframe thumbnails.
     pub fn process_rgb_frame(
         &mut self,
         timestamp_ms: u64,

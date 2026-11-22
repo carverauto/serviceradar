@@ -639,4 +639,102 @@ mod tests {
         assert!(dets.iter().any(|d| d.label == ObjectCategory::Person));
         assert!(dets.iter().any(|d| d.label == ObjectCategory::Vehicle));
     }
+
+    #[test]
+    fn yolox_decode_raw_logits_sigmoid_max_detections_and_error_guards() {
+        use crate::error::MediaCoreErrorKind;
+
+        // Invalid stride not dividing input dimensions
+        let bad_cfg = YoloxConfig {
+            input_width: 64,
+            input_height: 64,
+            strides: vec![7],
+            ..YoloxConfig::yolox_s()
+        };
+        assert!(matches!(
+            YoloxPostProcessor::new(bad_cfg).unwrap_err().kind(),
+            MediaCoreErrorKind::InvalidConfiguration(_)
+        ));
+
+        // Zero-dimension letterbox rejected
+        assert!(matches!(
+            LetterboxTransform::compute(0, 64, 64, 64)
+                .unwrap_err()
+                .kind(),
+            MediaCoreErrorKind::InvalidFrame(_)
+        ));
+
+        // Valid raw-logit config (Candle/PyTorch head) with max_detections = 2
+        let cfg = YoloxConfig {
+            input_width: 32,
+            input_height: 32,
+            strides: vec![8],
+            num_classes: 80,
+            nms_iou_threshold: 0.45,
+            max_detections: 2,
+            apply_sigmoid: true,
+        };
+        let post = YoloxPostProcessor::new(cfg).expect("valid raw-logit yolox cfg");
+        let lb = LetterboxTransform::compute(32, 32, 32, 32).unwrap();
+
+        // Wrong raw tensor length rejected
+        assert!(matches!(
+            post.decode(&[0.0; 10], lb, 0.35).unwrap_err().kind(),
+            MediaCoreErrorKind::Detector(_)
+        ));
+
+        let cols = 5 + 80;
+        // Initialize all logits strongly negative so sigmoid(~ -10) ~= 4.5e-5
+        let mut raw = vec![-10.0f32; post.grid_len() * cols];
+
+        // Cell (1, 1) => idx 5: Person (COCO 0) with obj_logit=2.0, cls_logit=1.5
+        // Independent oracle: sigmoid(2.0) * sigmoid(1.5)
+        let expected_p1 = (1.0 / (1.0 + (-2.0f32).exp())) * (1.0 / (1.0 + (-1.5f32).exp()));
+        let r1 = 5 * cols;
+        raw[r1] = 0.0;
+        raw[r1 + 1] = 0.0;
+        raw[r1 + 2] = 1.0f32.ln();
+        raw[r1 + 3] = 2.0f32.ln();
+        raw[r1 + 4] = 2.0;
+        raw[r1 + 5] = 1.5;
+
+        // Cell (3, 1) => idx 7: Vehicle (COCO 2 = car) with obj_logit=3.0, cls_logit=2.5 (highest)
+        let expected_v = (1.0 / (1.0 + (-3.0f32).exp())) * (1.0 / (1.0 + (-2.5f32).exp()));
+        let r2 = 7 * cols;
+        raw[r2] = 0.0;
+        raw[r2 + 1] = 0.0;
+        raw[r2 + 2] = 1.5f32.ln();
+        raw[r2 + 3] = 1.0f32.ln();
+        raw[r2 + 4] = 3.0;
+        raw[r2 + 5 + 2] = 2.5;
+
+        // Cell (1, 3) => idx 13: Bicycle (COCO 1) with lower confidence -> trimmed by max_detections=2
+        let r3 = 13 * cols;
+        raw[r3] = 0.0;
+        raw[r3 + 1] = 0.0;
+        raw[r3 + 2] = 1.0f32.ln();
+        raw[r3 + 3] = 1.0f32.ln();
+        raw[r3 + 4] = 0.5;
+        raw[r3 + 5 + 1] = 0.5;
+
+        // Cell (3, 3) => idx 15: Unmapped COCO class 40 (wine glass) with high logits -> filtered out
+        let r4 = 15 * cols;
+        raw[r4] = 0.0;
+        raw[r4 + 1] = 0.0;
+        raw[r4 + 2] = 1.0f32.ln();
+        raw[r4 + 3] = 1.0f32.ln();
+        raw[r4 + 4] = 5.0;
+        raw[r4 + 5 + 40] = 5.0;
+
+        let dets = post.decode(&raw, lb, 0.35).expect("raw logit decode ok");
+        assert_eq!(
+            dets.len(),
+            2,
+            "must filter unmapped COCO class and cap at max_detections"
+        );
+        assert_eq!(dets[0].label, ObjectCategory::Vehicle);
+        assert!((dets[0].confidence - expected_v).abs() < 1e-4);
+        assert_eq!(dets[1].label, ObjectCategory::Person);
+        assert!((dets[1].confidence - expected_p1).abs() < 1e-4);
+    }
 }
