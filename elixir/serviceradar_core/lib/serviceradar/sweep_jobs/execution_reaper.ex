@@ -16,6 +16,10 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
     * its sweep group is disabled and it has made no progress for
       `disabled_grace_seconds` (agents still in flight may deliver a last chunk
       just after the config change), or
+    * it belongs to a leased `SweepExecutionSlot` whose `collection_expires`
+      passed at least `lease_grace_seconds` ago (defaulting to
+      `ServiceRadar.SweepJobs.LeaseMisses.grace_seconds/0`) and it has made no
+      progress for `lease_grace_seconds`, or
     * it has made no progress for the group's bound: three times the group's
       interval, clamped to `[min_stale_seconds, max_stale_seconds]`. A
       cron-scheduled group has no interval to scale by, so it uses
@@ -31,6 +35,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.LeaseMisses
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
@@ -41,7 +46,6 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
   @actor_component :sweep_execution_reaper
   @default_batch_size 200
   @default_disabled_grace_seconds 600
-  @default_lease_grace_seconds 60
   @default_min_stale_seconds 1_800
   @default_max_stale_seconds 21_600
   @interval_multiplier 3
@@ -61,7 +65,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
 
     bounds = %{
       disabled_grace: Keyword.get(opts, :disabled_grace_seconds, @default_disabled_grace_seconds),
-      lease_grace: Keyword.get(opts, :lease_grace_seconds, @default_lease_grace_seconds),
+      lease_grace: Keyword.get_lazy(opts, :lease_grace_seconds, &LeaseMisses.grace_seconds/0),
       min_stale: Keyword.get(opts, :min_stale_seconds, @default_min_stale_seconds),
       max_stale: Keyword.get(opts, :max_stale_seconds, @default_max_stale_seconds)
     }
@@ -83,7 +87,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionReaper do
   @spec abandon_reason(map(), DateTime.t(), map()) :: String.t() | nil
   def abandon_reason(%{updated_at: updated_at} = candidate, now, bounds) do
     idle_seconds = DateTime.diff(now, updated_at, :second)
-    lease_grace = Map.get(bounds, :lease_grace, @default_lease_grace_seconds)
+    lease_grace = Map.get_lazy(bounds, :lease_grace, &LeaseMisses.grace_seconds/0)
 
     cond do
       candidate.group_enabled == false and idle_seconds >= bounds.disabled_grace ->
