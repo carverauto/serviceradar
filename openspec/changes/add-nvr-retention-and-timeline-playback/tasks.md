@@ -97,11 +97,11 @@ gate.
 ### A.3 serviceradar_core_elx
 - Note (2026-11-21, owner decision via coordinator): phase 1 builds the continuous recorder in core-elx, strictly behind the `ServiceRadarRecording.Inbox` and the NVR ingest contract; recording-plane task 2.3 later replaces only its media source. The NVR path is the only continuous recording path; the core-local spool (`add-persistent-camera-spool`, VMS 1.x) stays bounded capture and gets no continuous mode.
 - Note (2026-11-21, needs an owner decision): which switch enables continuous recording is claimed in three places: VMS 1.7 ("ship disabled"), `add-persistent-camera-spool` 5.4 ("keep continuous recording disabled") and the chart's `nvr.ingest.client.cameraRecordingEnabled` (documented as one-shot capture only). A.3.1 must name one.
-- [ ] A.3.1 `ContinuousRecorder` under the recording supervisor: relay open with recorder consumer lease, one claim per run, one inbox per run, block loop with soft and hard bounds (design A2, A3).
-- [ ] A.3.2 Keyframe-aligned handover with bounded inbox; exact gap accounting by relay sequence and PTS; gap rows with reasons (design A4, A7).
-- [ ] A.3.3 Uncertain outcome handling by lookup under the live claim (design A3 table).
-- [ ] A.3.4 Continuous path uses the A.1.1 ceilings as hard bounds with soft targets 260 s / 7,800 frames / 10 MiB for keyframe cuts (design A4).
-- [ ] A.3.5 Drift check and re-anchoring (design T).
+- [x] A.3.1 `ContinuousRecorder` under the recording supervisor: relay open with recorder consumer lease, one claim per run, one inbox per run, block loop with soft and hard bounds (design A2, A3).
+- [x] A.3.2 Keyframe-aligned handover with bounded inbox; exact gap accounting by relay sequence and PTS; gap rows with reasons (design A4, A7).
+- [x] A.3.3 Uncertain outcome handling by lookup under the live claim (design A3 table).
+- [x] A.3.4 Continuous path uses the A.1.1 ceilings as hard bounds with soft targets 260 s / 7,800 frames / 10 MiB for keyframe cuts (design A4).
+- [x] A.3.5 Drift check and re-anchoring (design T).
 
 ### A.4 serviceradar_core_elx archive scheduler
 - [ ] A.4.1 `ArchiveBlockJob` (Oban, unique per entry, queue `nvr_archive`): state guard, receipt recording and catalog transition in one transaction, busy snooze, backoff, terminal classes (design A6); a re-archive request (design A6 transition 8) never takes a retained receipt as success: it checks the local bytes, HEAD absence and the recorded binding, PUTs, and records `verified` only on a read-back match; a refused request returns the entry to `missing`, while provider errors, unknown outcomes and `archive_busy` retry or snooze and 409 `archive_receipt_conflict` or 422 are `failed_terminal`, as in the job steps. (First-time upload, atomic receipt recording + `:verified` transition, busy/held snooze, indefinite retryable snooze backoff, narrow terminal classes, Transition 8 identical-receipt refusal, and best-effort `NVRWorker` enqueue are implemented; full Transition 8 re-archive supersession with local byte check, HEAD absence, retained-binding check, and NVR re-archive PUT remains deferred.)
@@ -118,7 +118,7 @@ gate.
 - [ ] A.7.2 Archive slot count beyond one per member (the library maximum is two live clients per VM, including draining ones), after throughput measurement.
 
 ### Verification
-- [ ] A.6 Synthetic continuous run across several blocks: contiguous handovers, forced overflow produces an exact gap, NVR refusal produces a gap, archive retries until verified. Real camera acceptance only after synthetic success and explicit approval.
+- [ ] A.6 Synthetic continuous run across several blocks: contiguous handovers, forced overflow produces an exact gap, NVR refusal produces a gap, archive retries until verified. Real camera acceptance only after synthetic success and explicit approval. (Synthetic unit tests for multi-block contiguous handovers, soft/hard bounds, forced handover overflow gap, NVR refusal gap, uncertain lookup resolution, drift re-anchoring, policy/control stop, and `ArchiveBlockJob` enqueue are passing in `continuous_recorder_test.exs`; real camera acceptance remains gated on explicit approval.)
 
 ## C. Retention and reclaim (design C)
 
