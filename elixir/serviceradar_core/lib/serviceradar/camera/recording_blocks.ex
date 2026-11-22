@@ -31,6 +31,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingDisposition
   alias ServiceRadar.Camera.RecordingGap
+  alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadar.Camera.VisualIndexDispatcher
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -99,6 +100,9 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   Exact retries with identical descriptor and catalog attributes return the
   existing `RecordingCatalogEntry` without touching copy states; conflicting
   descriptors or catalog attributes return `{:error, :recording_descriptor_conflict}`.
+
+  After a successful commit, broadcasts a best-effort `:block_cataloged`
+  notification via `ServiceRadar.Camera.RecordingPubSub`.
   """
   def freeze_and_catalog(ingest, claim, block, descriptor, catalog_attrs, opts \\ []) do
     with {:ok, bytes} <- Descriptor.encode(descriptor),
@@ -123,9 +127,20 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
         end
       end
 
-      with_recovery(:nvr_recovery_closed_after_freeze, fn ->
-        RecorderOwnership.with_current(ingest, claim, freeze, opts)
-      end)
+      result =
+        with_recovery(:nvr_recovery_closed_after_freeze, fn ->
+          RecorderOwnership.with_current(ingest, claim, freeze, opts)
+        end)
+
+      case result do
+        {:ok, %RecordingCatalogEntry{camera_source_id: camera_source_id}} ->
+          RecordingPubSub.broadcast_updated(camera_source_id, :block_cataloged)
+
+        _ ->
+          :ok
+      end
+
+      result
     end
   end
 
