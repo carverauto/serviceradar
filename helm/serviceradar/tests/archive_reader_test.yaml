@@ -473,7 +473,7 @@ tests:
       - failedTemplate:
           errorMessage: archiveReader.providerSecretName must be empty in perRequest mode
 
-  - it: rejects invalid archiveReader mode and transport values
+  - it: rejects invalid archiveReader mode values
     template: templates/archive-reader.yaml
     set:
       archiveReader.enabled: true
@@ -481,3 +481,48 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: archiveReader.mode must be "fixed" or "perRequest"
+
+  - it: rejects invalid archiveReader providerTransport values in perRequest mode
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+      archiveReader.providerTransport: s3
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.providerTransport must be "http" or "longshore"
+
+  - it: rejects out-of-range archiveReader maxConcurrency values in perRequest mode
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+      archiveReader.maxConcurrency: 0
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.maxConcurrency must be between 1 and 64
+
+  - it: rejects archiveReader maxConcurrency above 64 in perRequest mode
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+      archiveReader.maxConcurrency: 65
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.maxConcurrency must be between 1 and 64
+
+  - it: rejects longshore transport with egressProxy in perRequest mode
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.mode: perRequest
+      archiveReader.providerSecretName: ""
+      archiveReader.providerTransport: longshore
+      archiveReader.egressProxy: http://proxy.example.test:3128
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.egressProxy cannot be set when archiveReader.providerTransport is "longshore"

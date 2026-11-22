@@ -102,14 +102,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.Archive do
   end
 
   defp config_path do
-    path =
-      Application.get_env(:serviceradar_web_ng, :timeline_archive_reader_config) ||
-        System.get_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
-
-    if is_binary(path) and path != "" do
-      {:ok, path}
-    else
-      {:error, :timeline_archive_reader_not_configured}
+    case Application.get_env(:serviceradar_web_ng, :timeline_archive_reader_config) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> {:error, :timeline_archive_reader_not_configured}
     end
   end
 
@@ -122,13 +117,6 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.Archive do
 
   defp extract_credential(%RedactedCredential{} = cred) do
     build_credential_map(cred.access_key_id, cred.secret_access_key, cred.session_token)
-  end
-
-  defp extract_credential(cred) when is_map(cred) do
-    access_key = Map.get(cred, :access_key_id) || Map.get(cred, "access_key_id")
-    secret_key = Map.get(cred, :secret_access_key) || Map.get(cred, "secret_access_key")
-    session_token = Map.get(cred, :session_token) || Map.get(cred, "session_token")
-    build_credential_map(access_key, secret_key, session_token)
   end
 
   defp extract_credential(_), do: {:error, :invalid_credential}
@@ -153,7 +141,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.Archive do
     destination = Map.get(plan, :destination)
     storage_id = Map.get(plan, :storage_id)
     block_key = Map.get(plan, :block_key)
-    object_key = Map.get(plan, :object_key) || Map.get(plan, :key)
+    object_key = Map.get(plan, :object_key)
     first = Map.get(plan, :first)
     last = Map.get(plan, :last)
     size = Map.get(plan, :object_size)

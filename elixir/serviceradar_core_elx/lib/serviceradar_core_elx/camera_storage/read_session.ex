@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   @default_max_slots 8
+  @max_longshore_slots 4
 
   def start_link(config) do
     name = Map.get(config, :session_name, __MODULE__)
@@ -14,27 +15,31 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
 
   def reserve(deadline, server \\ __MODULE__), do: GenServer.call(server, {:reserve, deadline})
 
+  def attach_longshore_session(session_pid, server \\ __MODULE__, timeout \\ 5_000) do
+    GenServer.call(server, {:longshore_session, self(), session_pid}, timeout)
+  catch
+    :exit, _ -> {:error, :archive_read_unavailable}
+  end
+
   @impl true
   def init(config) do
     provider = Map.merge(config.provider, %{socket_owner: self(), task_supervisor: ReadTasks})
-    default_slots = if Map.get(config, :mode) == :fixed, do: 1, else: @default_max_slots
-    max_slots = Map.get(config, :max_concurrency, default_slots)
+    max_slots = effective_max_slots(config)
 
     {:ok,
      %{
        config: %{config | provider: provider},
        max_slots: max_slots,
        slots: %{},
-       slot: nil,
        by_owner: %{},
        by_monitor: %{},
-       draining_tokens: MapSet.new()
+       draining_tokens: %{}
      }}
   end
 
   @impl true
   def handle_call({:reserve, deadline}, {owner, _}, state) do
-    in_use = map_size(state.slots) + MapSet.size(state.draining_tokens)
+    in_use = map_size(state.slots) + map_size(state.draining_tokens)
 
     cond do
       in_use >= state.max_slots ->
@@ -56,13 +61,26 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
       updated_slot = %{slot | socket: {socket, sock_mon}}
       slots = Map.put(state.slots, token, updated_slot)
       by_monitor = Map.put(state.by_monitor, sock_mon, {:socket, token})
-      {:reply, :ok, put_slots(%{state | by_monitor: by_monitor}, slots)}
+      {:reply, :ok, %{state | slots: slots, by_monitor: by_monitor}}
     else
       _ -> {:reply, {:error, :archive_read_unavailable}, state}
     end
   end
 
   def handle_call({:http_socket_owner, _, _}, _, state), do: {:reply, {:error, :archive_read_unavailable}, state}
+
+  def handle_call({:longshore_session, owner, session_pid}, {owner, _}, state) when is_pid(session_pid) do
+    with {:ok, token} <- Map.fetch(state.by_owner, owner),
+         {:ok, %{owner: ^owner} = slot} <- Map.fetch(state.slots, token),
+         true <- System.monotonic_time(:millisecond) < slot.deadline do
+      slots = Map.put(state.slots, token, %{slot | longshore_session: session_pid})
+      {:reply, :ok, %{state | slots: slots}}
+    else
+      _ -> {:reply, {:error, :archive_read_unavailable}, state}
+    end
+  end
+
+  def handle_call({:longshore_session, _, _}, _, state), do: {:reply, {:error, :archive_read_unavailable}, state}
 
   @impl true
   def handle_info({:deadline, token}, state) do
@@ -71,7 +89,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
         by_monitor = stop_socket(slot.socket, state.by_monitor)
         Process.exit(slot.owner, :kill)
         slots = Map.put(state.slots, token, %{slot | socket: nil})
-        {:noreply, put_slots(%{state | by_monitor: by_monitor}, slots)}
+        {:noreply, %{state | slots: slots, by_monitor: by_monitor}}
 
       :error ->
         {:noreply, state}
@@ -89,11 +107,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
             by_monitor = stop_socket(slot.socket, by_monitor)
             Process.cancel_timer(slot.timer)
             by_owner = Map.delete(state.by_owner, slot.owner)
+            session = slot.longshore_session || Map.get(state.config.provider, :longshore_session)
 
             next_state =
-              %{state | by_owner: by_owner, by_monitor: by_monitor}
-              |> put_slots(slots)
-              |> hold_longshore_drain(slot.token)
+              %{state | slots: slots, by_owner: by_owner, by_monitor: by_monitor}
+              |> hold_longshore_drain(slot.token, session)
 
             {:noreply, next_state}
         end
@@ -105,7 +123,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
             :error -> state.slots
           end
 
-        {:noreply, put_slots(%{state | by_monitor: by_monitor}, slots)}
+        {:noreply, %{state | slots: slots, by_monitor: by_monitor}}
+
+      {{:drain, token}, by_monitor} ->
+        draining_tokens = Map.delete(state.draining_tokens, token)
+        {:noreply, %{state | draining_tokens: draining_tokens, by_monitor: by_monitor}}
 
       {nil, _} ->
         {:noreply, state}
@@ -113,7 +135,15 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   end
 
   def handle_info({:token_drained, token}, state) do
-    {:noreply, %{state | draining_tokens: MapSet.delete(state.draining_tokens, token)}}
+    case Map.pop(state.draining_tokens, token) do
+      {nil, _} ->
+        {:noreply, state}
+
+      {drain_mon, draining_tokens} ->
+        Process.demonitor(drain_mon, [:flush])
+        by_monitor = Map.delete(state.by_monitor, drain_mon)
+        {:noreply, %{state | draining_tokens: draining_tokens, by_monitor: by_monitor}}
+    end
   end
 
   def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
@@ -121,7 +151,23 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
   def handle_info(_, state), do: {:noreply, state}
 
   @impl true
-  def format_status(_), do: %{state: :redacted}
+  def format_status(status), do: Map.put(status, :state, :redacted)
+
+  defp effective_max_slots(config) do
+    case Map.get(config, :mode, :fixed) do
+      :fixed ->
+        1
+
+      :per_request ->
+        configured = max(Map.get(config, :max_concurrency, @default_max_slots), 1)
+
+        if Map.get(config.provider, :transport, :http) == :longshore do
+          min(configured, @max_longshore_slots)
+        else
+          configured
+        end
+    end
+  end
 
   defp admit_slot(owner, deadline, state) do
     remaining = deadline - System.monotonic_time(:millisecond)
@@ -137,7 +183,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
         timer: timer,
         token: token,
         deadline: deadline,
-        socket: nil
+        socket: nil,
+        longshore_session: nil
       }
 
       admitted_config = %{
@@ -149,39 +196,34 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadSession do
       by_owner = Map.put(state.by_owner, owner, token)
       by_monitor = Map.put(state.by_monitor, owner_mon, {:owner, token})
 
-      {:reply, {:ok, admitted_config}, put_slots(%{state | by_owner: by_owner, by_monitor: by_monitor}, slots)}
+      {:reply, {:ok, admitted_config}, %{state | slots: slots, by_owner: by_owner, by_monitor: by_monitor}}
     else
       {:reply, {:error, :archive_read_unavailable}, state}
     end
   end
 
-  defp put_slots(state, slots) do
-    first_slot =
-      case Map.values(slots) do
-        [slot | _] -> slot
-        [] -> nil
-      end
+  defp hold_longshore_drain(state, _token, nil), do: state
 
-    %{state | slots: slots, slot: first_slot}
-  end
+  defp hold_longshore_drain(state, token, session) do
+    case resolve_pid(session) do
+      pid when is_pid(pid) ->
+        drain_mon = Process.monitor(pid)
+        ObjectStorageSession.await_token_drain(pid, token, self())
 
-  defp hold_longshore_drain(state, token) do
-    case Map.get(state.config.provider, :longshore_session) do
-      session when not is_nil(session) ->
-        if server_alive?(session) do
-          ObjectStorageSession.await_token_drain(session, token, self())
-          %{state | draining_tokens: MapSet.put(state.draining_tokens, token)}
-        else
+        %{
           state
-        end
+          | draining_tokens: Map.put(state.draining_tokens, token, drain_mon),
+            by_monitor: Map.put(state.by_monitor, drain_mon, {:drain, token})
+        }
 
       nil ->
         state
     end
   end
 
-  defp server_alive?(pid) when is_pid(pid), do: Process.alive?(pid)
-  defp server_alive?(name) when is_atom(name), do: Process.whereis(name) != nil
+  defp resolve_pid(pid) when is_pid(pid), do: if(Process.alive?(pid), do: pid)
+  defp resolve_pid(name) when is_atom(name), do: Process.whereis(name)
+  defp resolve_pid(_), do: nil
 
   defp stop_socket(nil, by_monitor), do: by_monitor
 

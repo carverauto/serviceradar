@@ -1,9 +1,15 @@
 defmodule ServiceRadarCoreElx.CameraStorage.Read do
-  @moduledoc false
+  @moduledoc """
+  Verified S3 range-read execution for fixed-binding and per-request archive readers.
+
+  `provider.transport` selects `:http` (default) or `:longshore` (opt-in); HTTP is
+  a selectable transport and not an automatic runtime fallback from Longshore.
+  """
 
   alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadarCoreElx.CameraStorage.ReadLongshorePool
+  alias ServiceRadarCoreElx.CameraStorage.ReadSession
   alias ServiceRadarObjectStorage.Session, as: ObjectStorageSession
 
   @fields ~w(schema_version binding_id destination_sha256 descriptor_sha256 manifest_verification_sha256 block_id object_key first last size etag version_id sha256)
@@ -36,6 +42,20 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
     end
   end
 
+  @doc false
+  def longshore_target(provider, destination) do
+    case Map.fetch(provider, :longshore_loopback_peer) do
+      {:ok, {ip, port}} when is_binary(ip) and is_integer(port) and port in 1..65_535 ->
+        {:ok, ip, port, false}
+
+      :error ->
+        longshore_https_target(destination["endpoint"])
+
+      _ ->
+        {:error, :invalid_longshore_loopback_peer}
+    end
+  end
+
   defp fetch(provider, plan, timeout) do
     case Map.get(provider, :transport, :http) do
       :longshore -> fetch_longshore(provider, plan, timeout)
@@ -57,36 +77,23 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
   end
 
   defp fetch_http(provider, plan, timeout) do
-    url =
-      provider.destination["endpoint"] <>
-        "/" <> provider.destination["bucket"] <> "/" <> plan["object_key"]
+    case request_http_range(provider, plan, timeout) do
+      {{:ok, %{status: 206, body: bytes}}, size} ->
+        if valid_payload?(bytes, size, plan["sha256"]),
+          do: {:ok, bytes},
+          else: {:error, :archive_read_unavailable}
 
-    url =
-      if plan["version_id"],
-        do: url <> "?versionId=" <> URI.encode_www_form(plan["version_id"]),
-        else: url
-
-    headers =
-      maybe_add_session_token(
-        [{"range", "bytes=#{plan["first"]}-#{plan["last"]}"}, {"if-match", plan["etag"]}],
-        provider.credential
-      )
-
-    signed = HTTP.sign(provider, :get, url, headers, nil)
-    size = plan["last"] - plan["first"] + 1
-    interval = {plan["first"], plan["last"], plan["size"], plan["etag"], plan["version_id"]}
-
-    with {:ok, %{status: 206, body: bytes}} <-
-           HTTP.request(provider, :get, url, signed, nil, timeout, size, interval),
-         true <- byte_size(bytes) == size,
-         true <- Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == plan["sha256"] do
-      {:ok, bytes}
-    else
-      _ -> {:error, :archive_read_unavailable}
+      _ ->
+        {:error, :archive_read_unavailable}
     end
   end
 
   defp fetch_per_request_http(provider, plan, timeout) do
+    {result, size} = request_http_range(provider, plan, timeout)
+    handle_per_request_http_response(result, size, plan["sha256"])
+  end
+
+  defp request_http_range(provider, plan, timeout) do
     url =
       provider.destination["endpoint"] <>
         "/" <> provider.destination["bucket"] <> "/" <> plan["object_key"]
@@ -106,92 +113,85 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
     size = plan["last"] - plan["first"] + 1
     interval = {plan["first"], plan["last"], plan["size"], plan["etag"], plan["version_id"]}
 
-    provider
-    |> HTTP.request(:get, url, signed, nil, timeout, size, interval)
-    |> handle_per_request_http_response(size, plan["sha256"])
+    {HTTP.request(provider, :get, url, signed, nil, timeout, size, interval), size}
   end
 
   defp handle_per_request_http_response({:ok, %{status: 206, body: bytes}}, size, expected_sha) do
-    if byte_size(bytes) == size and
-         Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == expected_sha do
-      {:ok, bytes}
-    else
-      {:error, :integrity_mismatch}
-    end
+    if valid_payload?(bytes, size, expected_sha),
+      do: {:ok, bytes},
+      else: {:error, :integrity_mismatch}
   end
 
-  defp handle_per_request_http_response({:ok, %{status: 404}}, _size, _sha), do: {:error, :not_found}
   defp handle_per_request_http_response({:error, {:http_status, 404}}, _size, _sha), do: {:error, :not_found}
-
-  defp handle_per_request_http_response({:ok, %{status: 412}}, _size, _sha), do: {:error, :integrity_mismatch}
 
   defp handle_per_request_http_response({:error, {:http_status, 412}}, _size, _sha), do: {:error, :integrity_mismatch}
 
   defp handle_per_request_http_response(_other, _size, _sha), do: {:error, :archive_read_unavailable}
 
-  defp fetch_longshore(provider, plan, timeout) do
-    first = plan["first"]
-    last = plan["last"]
-    size = last - first + 1
-    expect = %{etag: plan["etag"], version: plan["version_id"]}
+  defp valid_payload?(bytes, size, expected_sha) do
+    is_binary(bytes) and byte_size(bytes) == size and
+      Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == expected_sha
+  end
 
-    with {:ok, %{end: {:answered, %{status: 206, malformed: false} = answer}}, _stats} <-
-           ObjectStorageSession.get(
-             provider.longshore_session,
-             plan["object_key"],
-             {first, last},
-             expect,
-             budget: %{timeout_ms: timeout},
-             owner_token: Map.get(provider, :owner_token)
-           ),
-         true <- answer.etag == plan["etag"],
-         true <- normalize_version(answer.version) == {:ok, plan["version_id"]},
-         true <- answer.content_range == %{first: first, last: last, size: plan["size"]},
-         true <-
-           is_binary(answer.body) and byte_size(answer.body) == size and answer.body_len == size,
-         true <-
-           Base.encode16(:crypto.hash(:sha256, answer.body), case: :lower) == plan["sha256"] do
-      {:ok, answer.body}
-    else
-      _ -> {:error, :archive_read_unavailable}
+  defp fetch_longshore(provider, plan, timeout) do
+    case execute_longshore_get(provider.longshore_session, plan, timeout, Map.get(provider, :owner_token)) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, _} -> {:error, :archive_read_unavailable}
     end
   end
 
   defp fetch_per_request_longshore(config, dest_attrs, destination, credential, plan, timeout) do
     pool = Map.get(config.provider, :longshore_pool, ReadLongshorePool)
     key = {dest_attrs.destination_sha256, credential_fingerprint(credential)}
+    owner_token = Map.get(config.provider, :owner_token)
 
     with {:ok, ls_config} <- build_per_request_longshore_config(config, destination, credential),
-         {:ok, session_pid, lease_ref} <- ReadLongshorePool.acquire(pool, key, ls_config) do
+         {:ok, session_pid, lease_ref} <-
+           ReadLongshorePool.acquire(pool, key, ls_config, owner_token: owner_token) do
       try do
-        first = plan["first"]
-        last = plan["last"]
-        size = last - first + 1
-        expect = %{etag: plan["etag"], version: plan["version_id"]}
-
-        case ObjectStorageSession.get(
-               session_pid,
-               plan["object_key"],
-               {first, last},
-               expect,
-               budget: %{timeout_ms: timeout},
-               owner_token: Map.get(config.provider, :owner_token)
-             ) do
-          {:ok, %{end: {:answered, %{status: 206, malformed: false} = answer}}, _stats} ->
-            verify_longshore_answer(answer, plan, first, last, size)
-
-          {:ok, %{end: {:answered, %{status: 404}}}, _stats} ->
-            {:error, :not_found}
-
-          {:ok, %{end: {:answered, %{status: 412}}}, _stats} ->
-            {:error, :integrity_mismatch}
-
-          _ ->
-            {:error, :archive_read_unavailable}
+        with :ok <- attach_longshore_session(config.provider, session_pid, timeout) do
+          execute_longshore_get(session_pid, plan, timeout, owner_token)
         end
       after
         ReadLongshorePool.release(pool, lease_ref)
       end
+    end
+  end
+
+  defp attach_longshore_session(%{socket_owner: owner}, session_pid, timeout) when not is_nil(owner) do
+    ReadSession.attach_longshore_session(session_pid, owner, timeout)
+  end
+
+  defp attach_longshore_session(_provider, _session_pid, _timeout), do: :ok
+
+  defp execute_longshore_get(session, plan, timeout, owner_token) do
+    first = plan["first"]
+    last = plan["last"]
+    size = last - first + 1
+    expect = %{etag: plan["etag"], version: plan["version_id"]}
+
+    case ObjectStorageSession.get(
+           session,
+           plan["object_key"],
+           {first, last},
+           expect,
+           budget: %{timeout_ms: timeout},
+           owner_token: owner_token
+         ) do
+      {:ok, %{end: {:answered, %{status: 206, malformed: false} = answer}}, _stats} ->
+        verify_longshore_answer(answer, plan, first, last, size)
+
+      {:ok, %{end: {:answered, %{status: 404}}}, _stats} ->
+        {:error, :not_found}
+
+      {:ok, %{end: {:answered, %{status: 412}}}, _stats} ->
+        {:error, :integrity_mismatch}
+
+      {:error, :busy} ->
+        {:error, :archive_read_busy}
+
+      _ ->
+        {:error, :archive_read_unavailable}
     end
   end
 
@@ -200,49 +200,40 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
       answer.etag == plan["etag"] and
         normalize_version(answer.version) == {:ok, plan["version_id"]} and
         answer.content_range == %{first: first, last: last, size: plan["size"]} and
-        is_binary(answer.body) and byte_size(answer.body) == size and answer.body_len == size and
-        Base.encode16(:crypto.hash(:sha256, answer.body), case: :lower) == plan["sha256"]
+        answer.body_len == size and
+        valid_payload?(answer.body, size, plan["sha256"])
 
     if valid?, do: {:ok, answer.body}, else: {:error, :integrity_mismatch}
   end
 
   defp build_per_request_longshore_config(config, destination, credential) do
-    with {:ok, host, port, tls} <- longshore_target(config.provider, destination) do
-      concurrency = min(Map.get(config, :max_concurrency, 8), @max_longshore_concurrency)
+    case longshore_target(config.provider, destination) do
+      {:ok, host, port, tls} ->
+        concurrency = min(Map.get(config, :max_concurrency, 8), @max_longshore_concurrency)
 
-      base = %{
-        host: host,
-        port: port,
-        region: destination["region"],
-        bucket: destination["bucket"],
-        access_key: credential["access_key_id"],
-        secret_key: credential["secret_access_key"],
-        session_token: Map.get(credential, "session_token"),
-        tls: tls,
-        concurrency: max(concurrency, 1),
-        buffer_size: @read_buffer_bytes
-      }
+        base = %{
+          host: host,
+          port: port,
+          region: destination["region"],
+          bucket: destination["bucket"],
+          access_key: credential["access_key_id"],
+          secret_key: credential["secret_access_key"],
+          session_token: Map.get(credential, "session_token"),
+          tls: tls,
+          concurrency: max(concurrency, 1),
+          buffer_size: @read_buffer_bytes
+        }
 
-      ls_config =
-        if Map.get(config.provider, :portable, false) do
-          Map.put(base, :portable, true)
-        else
-          base
-        end
+        ls_config =
+          if Map.get(config.provider, :portable, false) do
+            Map.put(base, :portable, true)
+          else
+            base
+          end
 
-      {:ok, ls_config}
-    end
-  end
+        {:ok, ls_config}
 
-  defp longshore_target(provider, destination) do
-    case Map.fetch(provider, :longshore_loopback_peer) do
-      {:ok, {ip, port}} when is_binary(ip) and is_integer(port) and port in 1..65_535 ->
-        {:ok, ip, port, false}
-
-      :error ->
-        longshore_https_target(destination["endpoint"])
-
-      _ ->
+      {:error, _} ->
         {:error, :archive_read_unavailable}
     end
   end
@@ -254,11 +245,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Read do
         {:ok, host, port, true}
 
       _ ->
-        {:error, :archive_read_unavailable}
+        {:error, :invalid_longshore_endpoint}
     end
   end
 
-  defp longshore_https_target(_), do: {:error, :archive_read_unavailable}
+  defp longshore_https_target(_), do: {:error, :invalid_longshore_endpoint}
 
   defp credential_fingerprint(credential) do
     :crypto.hash(

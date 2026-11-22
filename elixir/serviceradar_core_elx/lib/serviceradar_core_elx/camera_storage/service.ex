@@ -10,6 +10,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Service do
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config
   alias ServiceRadarCoreElx.CameraStorage.LongshoreSession
+  alias ServiceRadarCoreElx.CameraStorage.Read
   alias ServiceRadarCoreElx.CameraStorage.ReadLongshorePool
   alias ServiceRadarCoreElx.CameraStorage.ReadLongshoreSession
   alias ServiceRadarCoreElx.CameraStorage.ReadRouter
@@ -203,7 +204,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Service do
     destination = provider.destination
     credential = provider.credential
 
-    with {:ok, host, port, tls} <- longshore_target(provider, destination),
+    with {:ok, host, port, tls} <- Read.longshore_target(provider, destination),
          bucket when is_binary(bucket) and bucket != "" <- destination["bucket"],
          region when is_binary(region) and region != "" <- destination["region"],
          access_key when is_binary(access_key) and access_key != "" <- credential["access_key_id"],
@@ -226,32 +227,6 @@ defmodule ServiceRadarCoreElx.CameraStorage.Service do
       _ -> {:error, :invalid_longshore_configuration}
     end
   end
-
-  defp longshore_target(provider, destination) do
-    case Map.fetch(provider, :longshore_loopback_peer) do
-      {:ok, {ip, port}} when is_binary(ip) and is_integer(port) and port in 1..65_535 ->
-        {:ok, ip, port, false}
-
-      :error ->
-        longshore_https_target(destination["endpoint"])
-
-      _ ->
-        {:error, :invalid_longshore_loopback_peer}
-    end
-  end
-
-  defp longshore_https_target(endpoint) when is_binary(endpoint) do
-    case URI.parse(endpoint) do
-      %URI{scheme: "https", host: host, port: port, userinfo: nil, query: nil, fragment: nil}
-      when is_binary(host) and host != "" and is_integer(port) and port in 1..65_535 ->
-        {:ok, host, port, true}
-
-      _ ->
-        {:error, :invalid_longshore_endpoint}
-    end
-  end
-
-  defp longshore_https_target(_), do: {:error, :invalid_longshore_endpoint}
 
   defp isolated do
     started = Enum.map(Application.started_applications(), &elem(&1, 0))

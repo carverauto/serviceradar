@@ -2,9 +2,11 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   @moduledoc """
   Loads one infrastructure-installed storage configuration and its secret files.
 
-  Write credentials are checked against the desired authority; read credentials
-  are fixed by the installation. No request selects a credential file, provider
-  endpoint or installed identity.
+  Write credentials are checked against the desired authority. Read storage runs
+  either in fixed-binding mode (credentials fixed by installation, single-slot)
+  or per-request mode (credentials supplied per request over mTLS + bearer auth).
+  `provider_transport` selects `:http` (default) or `:longshore` (opt-in); HTTP
+  is a selectable transport, not an automatic runtime fallback from Longshore.
   """
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveDestination
@@ -13,7 +15,6 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
 
   @fields ~w(schema_version deployment_ref generation provider_credentials_file listener runtime)
   @optional_storage_fields ~w(provider_transport)
-  @optional_read_storage_fields ~w(mode provider_transport max_concurrency portable)
   @listener_fields ~w(port certfile keyfile cacertfile recorder_certificate_sha256 token_file)
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
@@ -55,9 +56,9 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   def load_read_storage(path) do
     with {:ok, document} <- read_json(path, 8192),
          true <- document["schema_version"] === 1 do
-      case Map.get(document, "mode", "fixed") do
-        "fixed" -> load_fixed_read_storage(document)
-        "per_request" -> load_per_request_read_storage(document)
+      case Map.fetch(document, "mode") do
+        :error -> load_fixed_read_storage(document)
+        {:ok, "per_request"} -> load_per_request_read_storage(document)
         _ -> {:error, :invalid_archive_read_storage_configuration}
       end
     else
@@ -67,24 +68,14 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
     _ -> {:error, :invalid_archive_read_storage_configuration}
   end
 
-  @doc "Loads a per-request isolated timeline archive read listener configuration."
-  def load_timeline_read_storage(path) do
-    case load_read_storage(path) do
-      {:ok, %{mode: :per_request} = config} -> {:ok, config}
-      _ -> {:error, :invalid_archive_read_storage_configuration}
-    end
-  end
-
   defp load_fixed_read_storage(document) do
     with true <-
            exact_with_optional?(
              document,
              ~w(schema_version binding_id destination provider_credentials_file listener),
-             @optional_read_storage_fields
+             @optional_storage_fields
            ),
          {:ok, transport} <- provider_transport(document),
-         {:ok, portable} <- provider_portable(document),
-         {:ok, max_concurrency} <- read_max_concurrency(document, 1),
          {:ok, proxy} <- provider_proxy(transport),
          {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
          {:ok, destination} <- ArchiveDestination.attributes(document["destination"]),
@@ -94,13 +85,12 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
       {:ok,
        %{
          mode: :fixed,
-         max_concurrency: max_concurrency,
+         max_concurrency: 1,
          binding_id: id,
          destination_sha256: destination.destination_sha256,
          listener: listener,
          provider: %{
            transport: transport,
-           portable: portable,
            proxy: proxy,
            cacerts: :public_key.cacerts_get(),
            credential: credential,
@@ -113,15 +103,10 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   end
 
   defp load_per_request_read_storage(document) do
-    with true <-
-           exact_with_optional?(
-             document,
-             ~w(schema_version mode listener),
-             ~w(provider_transport max_concurrency portable)
-           ),
-         {:ok, transport} <- per_request_provider_transport(document),
-         {:ok, portable} <- per_request_provider_portable(document),
-         {:ok, max_concurrency} <- per_request_max_concurrency(document, 8),
+    with true <- exact?(document, ~w(schema_version mode listener)),
+         {:ok, transport} <- per_request_provider_transport(),
+         {:ok, portable} <- per_request_provider_portable(),
+         {:ok, max_concurrency} <- per_request_max_concurrency(8),
          {:ok, proxy} <- provider_proxy(transport),
          {:ok, listener} <- listener(document["listener"], "reader_certificate_sha256") do
       {:ok,
@@ -366,72 +351,38 @@ defmodule ServiceRadar.Camera.ArchiveStorageConfig do
     end
   end
 
-  defp per_request_provider_transport(document) when is_map(document) do
-    case Map.fetch(document, "provider_transport") do
-      {:ok, _} ->
-        provider_transport(document)
-
-      :error ->
-        case System.get_env("SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT") do
-          nil -> {:ok, :http}
-          "" -> {:ok, :http}
-          "http" -> {:ok, :http}
-          "longshore" -> {:ok, :longshore}
-          _ -> {:error, :invalid_provider_transport}
-        end
+  defp per_request_provider_transport do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT") do
+      nil -> {:ok, :http}
+      "" -> {:ok, :http}
+      "http" -> {:ok, :http}
+      "longshore" -> {:ok, :longshore}
+      _ -> {:error, :invalid_provider_transport}
     end
   end
 
-  defp provider_portable(document) when is_map(document) do
-    case Map.fetch(document, "portable") do
-      :error -> {:ok, false}
-      {:ok, value} when is_boolean(value) -> {:ok, value}
-      {:ok, _} -> {:error, :invalid_portable_flag}
+  defp per_request_provider_portable do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_PORTABLE") do
+      nil -> {:ok, false}
+      "" -> {:ok, false}
+      "false" -> {:ok, false}
+      "true" -> {:ok, true}
+      _ -> {:error, :invalid_portable_flag}
     end
   end
 
-  defp per_request_provider_portable(document) when is_map(document) do
-    case Map.fetch(document, "portable") do
-      {:ok, _} ->
-        provider_portable(document)
+  defp per_request_max_concurrency(default) do
+    case System.get_env("SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY") do
+      nil ->
+        {:ok, default}
 
-      :error ->
-        case System.get_env("SERVICERADAR_ARCHIVE_READER_PORTABLE") do
-          nil -> {:ok, false}
-          "" -> {:ok, false}
-          "false" -> {:ok, false}
-          "true" -> {:ok, true}
-          _ -> {:error, :invalid_portable_flag}
-        end
-    end
-  end
+      "" ->
+        {:ok, default}
 
-  defp read_max_concurrency(document, default) when is_map(document) do
-    case Map.fetch(document, "max_concurrency") do
-      :error -> {:ok, default}
-      {:ok, value} when is_integer(value) and value in 1..@max_read_concurrency -> {:ok, value}
-      {:ok, _} -> {:error, :invalid_max_concurrency}
-    end
-  end
-
-  defp per_request_max_concurrency(document, default) when is_map(document) do
-    case Map.fetch(document, "max_concurrency") do
-      {:ok, _} ->
-        read_max_concurrency(document, default)
-
-      :error ->
-        case System.get_env("SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY") do
-          nil ->
-            {:ok, default}
-
-          "" ->
-            {:ok, default}
-
-          raw ->
-            case Integer.parse(raw) do
-              {value, ""} when value in 1..@max_read_concurrency -> {:ok, value}
-              _ -> {:error, :invalid_max_concurrency}
-            end
+      raw ->
+        case Integer.parse(raw) do
+          {value, ""} when value in 1..@max_read_concurrency -> {:ok, value}
+          _ -> {:error, :invalid_max_concurrency}
         end
     end
   end

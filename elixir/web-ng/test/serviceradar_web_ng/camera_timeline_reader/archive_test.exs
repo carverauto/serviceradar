@@ -74,6 +74,43 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
     refute_leaked_secrets(log)
   end
 
+  test "rejects plain map credentials, missing object_key, and unconfigured app env", ctx do
+    port = start_reader_peer(ctx.certs, 200, "unused")
+    config_file = configure(ctx, port)
+
+    plain_map_plan = %{
+      plan("x")
+      | credential: %{access_key_id: @access_key_id, secret_access_key: @secret_access_key}
+    }
+
+    key_alias_only_plan =
+      "x"
+      |> plan()
+      |> Map.delete(:object_key)
+      |> Map.put(:key, "recordings/v1/#{@storage_id}/#{@block_key}/media.m4s")
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:error, :reader_unavailable} = Archive.fetch_archive(plain_map_plan, deadline())
+        assert {:error, :reader_unavailable} = Archive.fetch_archive(key_alias_only_plan, deadline())
+
+        Application.delete_env(:serviceradar_web_ng, :timeline_archive_reader_config)
+        prev_env = System.get_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
+        System.put_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG", config_file)
+
+        try do
+          assert {:error, :reader_unavailable} = Archive.fetch_archive(plan("x"), deadline())
+        after
+          if prev_env,
+            do: System.put_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG", prev_env),
+            else: System.delete_env("SERVICERADAR_TIMELINE_ARCHIVE_READER_CONFIG")
+        end
+      end)
+
+    refute_receive {:archive_reader_request, _}, 100
+    refute_leaked_secrets(log)
+  end
+
   test "maps 404, 409, digest mismatch, 503, and timeout without logging credentials", ctx do
     fragment = "invented-s3-archived-fragment-bytes"
 
@@ -209,6 +246,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
     )
 
     Application.put_env(:serviceradar_web_ng, :timeline_archive_reader_config, config_file)
+    config_file
   end
 
   defp write_certs(dir) do

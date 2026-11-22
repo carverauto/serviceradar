@@ -10,17 +10,23 @@
 {{- $revision := required "archiveReader.revision is required" $archiveReader.revision -}}
 {{- $configSecret := required "archiveReader.configSecretName is required" $archiveReader.configSecretName -}}
 {{- $providerSecret := "" -}}
+{{- $transport := default "http" $archiveReader.providerTransport -}}
+{{- $maxConcurrency := 8 -}}
+{{- if not (kindIs "invalid" $archiveReader.maxConcurrency) -}}
+{{- $maxConcurrency = int $archiveReader.maxConcurrency -}}
+{{- end -}}
 {{- if eq $mode "fixed" -}}
 {{- $providerSecret = required "archiveReader.providerSecretName is required" $archiveReader.providerSecretName -}}
 {{- else -}}
 {{- if $archiveReader.providerSecretName -}}
 {{- fail "archiveReader.providerSecretName must be empty in perRequest mode" -}}
 {{- end -}}
-{{- $transport := default "http" $archiveReader.providerTransport -}}
 {{- if and (ne $transport "http") (ne $transport "longshore") -}}
 {{- fail "archiveReader.providerTransport must be \"http\" or \"longshore\"" -}}
 {{- end -}}
-{{- $maxConcurrency := int (default 8 $archiveReader.maxConcurrency) -}}
+{{- if and (eq $transport "longshore") $archiveReader.egressProxy -}}
+{{- fail "archiveReader.egressProxy cannot be set when archiveReader.providerTransport is \"longshore\"" -}}
+{{- end -}}
 {{- if or (lt $maxConcurrency 1) (gt $maxConcurrency 64) -}}
 {{- fail "archiveReader.maxConcurrency must be between 1 and 64" -}}
 {{- end -}}
@@ -118,9 +124,9 @@ spec:
               value: /tmp
             {{- if eq $mode "perRequest" }}
             - name: SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY
-              value: {{ int (default 8 $archiveReader.maxConcurrency) | quote }}
+              value: {{ $maxConcurrency | quote }}
             - name: SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT
-              value: {{ default "http" $archiveReader.providerTransport | quote }}
+              value: {{ $transport | quote }}
             {{- if $archiveReader.portable }}
             - name: SERVICERADAR_ARCHIVE_READER_PORTABLE
               value: "true"

@@ -79,15 +79,27 @@ defmodule ServiceRadarCoreElx.CameraStoragePerRequestReadTest do
     config_doc = %{
       "schema_version" => 1,
       "mode" => "per_request",
-      "max_concurrency" => ctx[:max_concurrency] || 2,
-      "provider_transport" => "http",
       "listener" => listener_doc
     }
 
     config_path = write_file(ctx.tmp_dir, "per-request-read.json", Jason.encode!(config_doc))
-    assert {:ok, config} = Config.load_timeline_read_storage(config_path)
+    expected_concurrency = ctx[:max_concurrency] || 2
+
+    config =
+      with_env(
+        %{
+          "SERVICERADAR_ARCHIVE_READER_MAX_CONCURRENCY" => Integer.to_string(expected_concurrency),
+          "SERVICERADAR_ARCHIVE_READER_PROVIDER_TRANSPORT" => "http",
+          "SERVICERADAR_ARCHIVE_READER_PORTABLE" => nil
+        },
+        fn ->
+          assert {:ok, loaded} = Config.load_read_storage(config_path)
+          loaded
+        end
+      )
+
     assert config.mode == :per_request
-    assert config.max_concurrency == (ctx[:max_concurrency] || 2)
+    assert config.max_concurrency == expected_concurrency
 
     config =
       put_in(config.provider, Map.merge(config.provider, %{proxy: Fixture.proxy(provider_port), cacerts: roots}))
@@ -253,13 +265,18 @@ defmodule ServiceRadarCoreElx.CameraStoragePerRequestReadTest do
     assert_receive {:fake_session_started, ^s2, _}
     refute s1 == s2
 
+    # Alternating back to dest1 while s1 is still alive (not stopping) reuses s1 instead of returning busy.
+    assert {:ok, ^s1, l2b} = ReadLongshorePool.acquire(pool, {"dest1", "cred1"}, ls_cfg)
+    refute_receive {:fake_session_started, _, _}
+
     # A third distinct key while s1 is still draining is refused with :archive_read_busy (max 2 live clients!).
     assert {:error, :archive_read_busy} = ReadLongshorePool.acquire(pool, {"dest3", "cred3"}, ls_cfg)
 
     # Releasing s1's leases triggers shutdown of s1.
     ReadLongshorePool.release(pool, l1)
-    refute_receive {:fake_session_stopping, ^s1}, 50
     ReadLongshorePool.release(pool, l2)
+    refute_receive {:fake_session_stopping, ^s1}, 50
+    ReadLongshorePool.release(pool, l2b)
     assert_receive {:fake_session_stopping, ^s1}, 1_000
 
     # Once s1 finishes draining and exits, a third key can rotate s2 to draining and start s3.
@@ -270,13 +287,208 @@ defmodule ServiceRadarCoreElx.CameraStoragePerRequestReadTest do
 
     assert {:ok, s3, l4} = ReadLongshorePool.acquire(pool, {"dest3", "cred3"}, ls_cfg)
     assert_receive {:fake_session_started, ^s3, _}
-    assert ReadLongshorePool.format_status(%{}) == %{state: :redacted}
+
+    status_text = inspect(:sys.get_status(pool))
+    assert status_text =~ ":redacted"
+    refute_leaked_secrets(status_text)
+    refute status_text =~ "dest3"
 
     ReadLongshorePool.release(pool, l3)
     assert_receive {:fake_session_stopping, ^s2}, 1_000
     send(s2, :finish_drain)
     ReadLongshorePool.release(pool, l4)
     send(s3, :finish_drain)
+  end
+
+  @tag skip_service: true
+  test "Read.run_per_request executes Longshore pool path, verifies answers, maps 404/412/busy, and releases leases",
+       ctx do
+    test_pid = self()
+    slice = binary_part(ctx.media_bytes, 10, 16)
+    req = build_request("media.m4s", 10, 25, ctx.media_bytes, slice)
+    {:ok, response_agent} = Agent.start_link(fn -> :ok end)
+
+    starter = fn [config: ls_config] ->
+      send(test_pid, {:ls_started, ls_config})
+
+      pid =
+        spawn_link(fn ->
+          Process.flag(:trap_exit, true)
+          fake_object_storage_session_loop(test_pid, response_agent, %{}, %{})
+        end)
+
+      {:ok, pid}
+    end
+
+    pool = start_supervised!({ReadLongshorePool, name: :test_ls_exec_pool, session_starter: starter})
+
+    config = %{
+      mode: :per_request,
+      max_concurrency: 12,
+      provider: %{
+        transport: :longshore,
+        portable: true,
+        longshore_pool: pool
+      }
+    }
+
+    deadline = System.monotonic_time(:millisecond) + 5_000
+
+    # 206 verified range succeeds and clamps Longshore client concurrency to 4.
+    valid_answer = %{
+      status: 206,
+      malformed: false,
+      etag: ~s("synthetic-etag"),
+      version: "v1",
+      content_range: %{first: 10, last: 25, size: byte_size(ctx.media_bytes)},
+      body: slice,
+      body_len: byte_size(slice)
+    }
+
+    Agent.update(response_agent, fn _ -> {:ok, %{end: {:answered, valid_answer}}, {1, 2}} end)
+    assert {:ok, ^slice} = Read.run_per_request(config, req, deadline)
+    assert_receive {:ls_started, ls_cfg}, 1_000
+    assert ls_cfg.concurrency == 4
+    assert ls_cfg.portable == true
+    assert map_size(:sys.get_state(pool).active.callers) == 0
+
+    # 404 maps to :not_found and releases lease.
+    Agent.update(response_agent, fn _ -> {:ok, %{end: {:answered, %{status: 404}}}, {1, 2}} end)
+    assert {:error, :not_found} = Read.run_per_request(config, req, deadline)
+    assert map_size(:sys.get_state(pool).active.callers) == 0
+
+    # 412 maps to :integrity_mismatch and releases lease.
+    Agent.update(response_agent, fn _ -> {:ok, %{end: {:answered, %{status: 412}}}, {1, 2}} end)
+    assert {:error, :integrity_mismatch} = Read.run_per_request(config, req, deadline)
+    assert map_size(:sys.get_state(pool).active.callers) == 0
+
+    # Mismatched body/etag/version/content_range all map to :integrity_mismatch via verify_longshore_answer.
+    for tampered <- [
+          %{valid_answer | body: String.duplicate("Z", byte_size(slice))},
+          %{valid_answer | etag: ~s("wrong-etag")},
+          %{valid_answer | version: "v2"},
+          %{valid_answer | content_range: %{first: 10, last: 24, size: byte_size(ctx.media_bytes)}}
+        ] do
+      Agent.update(response_agent, fn _ -> {:ok, %{end: {:answered, tampered}}, {1, 2}} end)
+      assert {:error, :integrity_mismatch} = Read.run_per_request(config, req, deadline)
+      assert map_size(:sys.get_state(pool).active.callers) == 0
+    end
+
+    # Longshore NIF :busy maps to :archive_read_busy and releases lease.
+    Agent.update(response_agent, fn _ -> {:error, :busy} end)
+    assert {:error, :archive_read_busy} = Read.run_per_request(config, req, deadline)
+    assert map_size(:sys.get_state(pool).active.callers) == 0
+
+    # Pool session_starter returning {:error, :busy} also maps to :archive_read_busy.
+    busy_pool =
+      start_supervised!(
+        {ReadLongshorePool, name: :test_ls_busy_pool, session_starter: fn _ -> {:error, :busy} end},
+        id: :test_ls_busy_pool
+      )
+
+    busy_config = put_in(config.provider.longshore_pool, busy_pool)
+    assert {:error, :archive_read_busy} = Read.run_per_request(busy_config, req, deadline)
+  end
+
+  @tag skip_service: true
+  test "ReadSession clamps per-request Longshore slots to 4 and holds drain until native completion on owner kill",
+       ctx do
+    test_pid = self()
+    slice = binary_part(ctx.media_bytes, 10, 16)
+    req = build_request("media.m4s", 10, 25, ctx.media_bytes, slice)
+    {:ok, response_agent} = Agent.start_link(fn -> :hold end)
+
+    starter = fn [config: _ls_config] ->
+      pid =
+        spawn_link(fn ->
+          Process.flag(:trap_exit, true)
+          fake_object_storage_session_loop(test_pid, response_agent, %{}, %{})
+        end)
+
+      {:ok, pid}
+    end
+
+    pool = start_supervised!({ReadLongshorePool, name: :test_ls_drain_pool, session_starter: starter})
+
+    session =
+      start_supervised!(
+        {ReadSession,
+         %{
+           session_name: :test_ls_clamped_session,
+           mode: :per_request,
+           max_concurrency: 12,
+           provider: %{transport: :longshore, longshore_pool: pool}
+         }}
+      )
+
+    assert :sys.get_state(session).max_slots == 4
+
+    deadline = System.monotonic_time(:millisecond) + 5_000
+
+    # Reserve 4 slots: 5th must be rejected with :archive_read_busy despite max_concurrency: 12.
+    holders =
+      for i <- 1..4 do
+        spawn(fn ->
+          send(test_pid, {:reserved, i, ReadSession.reserve(deadline, session)})
+          Process.sleep(:infinity)
+        end)
+      end
+
+    for i <- 1..4, do: assert_receive({:reserved, ^i, {:ok, _}}, 1_000)
+    assert {:error, :archive_read_busy} = ReadSession.reserve(deadline, session)
+
+    Enum.each(holders, fn pid ->
+      mon = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^mon, :process, ^pid, _}, 1_000
+    end)
+
+    _ = :sys.get_state(session)
+
+    # Single-slot session to observe hold_longshore_drain blocking admission while native I/O drains.
+    drain_session =
+      start_supervised!(
+        {ReadSession,
+         %{
+           session_name: :test_ls_single_drain_session,
+           mode: :per_request,
+           max_concurrency: 1,
+           provider: %{transport: :longshore, longshore_pool: pool}
+         }},
+        id: :test_ls_single_drain_session
+      )
+
+    worker =
+      spawn(fn ->
+        {:ok, admitted} = ReadSession.reserve(System.monotonic_time(:millisecond) + 5_000, drain_session)
+        send(test_pid, {:admitted, admitted.provider.owner_token})
+        Read.run_per_request(admitted, req, System.monotonic_time(:millisecond) + 5_000)
+      end)
+
+    assert_receive {:admitted, owner_token}, 1_000
+    assert_receive {:held_longshore_get, ls_pid, ^owner_token}, 1_000
+
+    # Kill the worker mid-flight (simulating deadline expiry).
+    worker_mon = Process.monitor(worker)
+    Process.exit(worker, :kill)
+    assert_receive {:DOWN, ^worker_mon, :process, ^worker, :killed}, 1_000
+    _ = :sys.get_state(drain_session)
+    _ = :sys.get_state(pool)
+
+    # Both ReadSession and ReadLongshorePool must hold capacity until native drain completes.
+    assert {:error, :archive_read_busy} =
+             ReadSession.reserve(System.monotonic_time(:millisecond) + 5_000, drain_session)
+
+    assert map_size(:sys.get_state(pool).active.callers) == 1
+
+    # Complete the native in-flight request; both ReadSession and ReadLongshorePool release capacity.
+    send(ls_pid, {:complete_inflight, owner_token, {:error, :closed}, test_pid})
+    assert_receive :inflight_completed, 1_000
+    _ = :sys.get_state(drain_session)
+    _ = :sys.get_state(pool)
+
+    assert map_size(:sys.get_state(pool).active.callers) == 0
+    assert {:ok, _} = ReadSession.reserve(System.monotonic_time(:millisecond) + 5_000, drain_session)
   end
 
   @tag skip_service: true
@@ -464,6 +676,60 @@ defmodule ServiceRadarCoreElx.CameraStoragePerRequestReadTest do
   end
 
   defp write_pem(dir, name, entries), do: write_file(dir, name, :public_key.pem_encode(entries))
+
+  defp fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters) do
+    receive do
+      {:"$gen_call", from, {:submit, {:get, _key, _range, _expect}, _budget, owner_token}} ->
+        case Agent.get(response_agent, & &1) do
+          :hold ->
+            send(test_pid, {:held_longshore_get, self(), owner_token})
+            in_flight = Map.put(in_flight, owner_token, from)
+            fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters)
+
+          reply ->
+            GenServer.reply(from, reply)
+            fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters)
+        end
+
+      {:await_token_drain, token, reply_to} ->
+        if Map.has_key?(in_flight, token) do
+          waiters = Map.update(waiters, token, [reply_to], &[reply_to | &1])
+          fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters)
+        else
+          send(reply_to, {:token_drained, token})
+          fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters)
+        end
+
+      {:complete_inflight, token, reply, ack_to} ->
+        {from, in_flight} = Map.pop(in_flight, token)
+        if from, do: GenServer.reply(from, reply)
+        {recipients, waiters} = Map.pop(waiters, token, [])
+        Enum.each(recipients, &send(&1, {:token_drained, token}))
+        send(ack_to, :inflight_completed)
+        fake_object_storage_session_loop(test_pid, response_agent, in_flight, waiters)
+
+      {:EXIT, _from, :shutdown} ->
+        :ok
+    end
+  end
+
+  defp with_env(vars, fun) when is_map(vars) do
+    previous = Map.new(vars, fn {k, _} -> {k, System.get_env(k)} end)
+
+    try do
+      Enum.each(vars, fn
+        {k, nil} -> System.delete_env(k)
+        {k, v} -> System.put_env(k, v)
+      end)
+
+      fun.()
+    after
+      Enum.each(previous, fn
+        {k, nil} -> System.delete_env(k)
+        {k, v} -> System.put_env(k, v)
+      end)
+    end
+  end
 
   defp free_port do
     {:ok, socket} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}])
