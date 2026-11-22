@@ -15,8 +15,8 @@
   by the instance, or points to `Settings -> Edge onboarding` when an older
   instance omits it.
 - `edge install agent` requires `--token-public-key` (or
-  `SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY`) in base64, base64url, or
-  64-character hex and passes it to `srctl enroll` in the child environment.
+  `SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY`) in base64 or base64url and passes
+  it to `srctl enroll` in the child environment.
 - `edge install leaf` and `edge install collector` require an enrolled host
   agent. They register a managed component and wait for agent certificate
   installation and service activation, then confirm the managed unit stays

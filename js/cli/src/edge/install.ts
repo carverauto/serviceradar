@@ -96,7 +96,7 @@ async function installAgent(options: Record<string, any>): Promise<void> {
     )
   }
   if (!isValidTokenPublicKey(tokenPublicKey)) {
-    throw new Error("--token-public-key must be a 32-byte Ed25519 public key (base64, base64url, or 64-character hex)")
+    throw new Error("--token-public-key must be a 32-byte Ed25519 public key (base64 or base64url)")
   }
 
   const ctx = installContext(options)
@@ -116,9 +116,8 @@ async function installAgent(options: Record<string, any>): Promise<void> {
   }
 }
 
-/** Validate a 32-byte Ed25519 public key in base64, base64url, or 64-character hex. */
+/** Validate a 32-byte Ed25519 public key in base64 or base64url. */
 function isValidTokenPublicKey(key: string): boolean {
-  if (/^[0-9A-Fa-f]{64}$/.test(key)) return true
   if (/^[A-Za-z0-9+/]{43}=?$/.test(key)) {
     const bytes = Buffer.from(key, "base64")
     const canonical = bytes.toString("base64")

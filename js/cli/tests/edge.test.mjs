@@ -574,8 +574,6 @@ test("edge install agent hands the token public key to srctl and refuses to run 
     rawKey.toString("base64").replace(/=+$/, ""),
     rawKey.toString("base64url"),
     `${rawKey.toString("base64url")}=`,
-    rawKey.toString("hex"),
-    rawKey.toString("hex").toUpperCase(),
   ]
 
   for (const key of validKeys) {
@@ -594,15 +592,15 @@ test("edge install agent hands the token public key to srctl and refuses to run 
   assert.match(missing.stderr, /Settings -> Edge onboarding/)
   assert.doesNotMatch(missing.stderr, /`edge package create` prints it with the install command/)
 
-  for (const key of [TOKEN_PUBLIC_KEY, rawKey.toString("hex")]) {
+  for (const key of [TOKEN_PUBLIC_KEY, rawKey.toString("base64url")]) {
     const fromEnvironment = await runCli(["edge", "install", "agent", ...base], {env: {SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY: key}})
     assert.equal(fromEnvironment.code, 0, `${key}: ${fromEnvironment.stderr}`)
   }
 
   const malformedKeys = [
     "not-a-key",
-    rawKey.toString("hex").slice(0, 62),
-    `${rawKey.toString("hex")}00`,
+    rawKey.toString("hex"),
+    rawKey.toString("hex").toUpperCase(),
     Buffer.alloc(31, 9).toString("base64"),
     `${"A".repeat(42)}B=`,
     `${rawKey.toString("base64").slice(0, 20)}${rawKey.toString("base64url").slice(20)}`,
@@ -610,7 +608,7 @@ test("edge install agent hands the token public key to srctl and refuses to run 
   for (const badKey of malformedKeys) {
     const malformed = await runCli(["edge", "install", "agent", "--token-public-key", badKey, ...base])
     assert.notEqual(malformed.code, 0, `expected ${badKey} to be rejected`)
-    assert.match(malformed.stderr, /must be a 32-byte Ed25519 public key/)
+    assert.match(malformed.stderr, /must be a 32-byte Ed25519 public key \(base64 or base64url\)/)
   }
 })
 
