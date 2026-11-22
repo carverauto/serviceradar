@@ -24,8 +24,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
 
   @max_window_us 31 * 86_400 * 1_000_000
   @default_limit 100
-  @max_limit 240
-  @visual_frames_query_limit 500
+  @detection_frames_query_limit 500
+  @motion_frames_query_limit 500
   @default_coalesce_gap_us 8_000_000
   @default_detection_clip_duration_us 4_000_000
 
@@ -81,9 +81,6 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
          {:ok, camera_uuid} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
          {:ok, profile_uuid} <- parse_optional_profile_id(attrs),
          {:ok, from_us, to_us} <- parse_window(attrs),
-         {:ok, mode} <- parse_mode(fetch_val(attrs, :mode)),
-         {:ok, category} <- parse_category(fetch_val(attrs, :category)),
-         {:ok, limit} <- parse_limit(fetch_val(attrs, :limit)),
          {:ok, catalog_entries} <-
            load_playable_catalog_entries(
              camera_uuid,
@@ -115,25 +112,15 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
         end)
         |> Enum.map(&build_recording_segment_clip(&1, camera_uuid))
 
-      all_clips =
+      clips =
         Enum.sort_by(detection_clips ++ fallback_clips, fn clip -> {-clip.start_us, clip.id} end)
-
-      counts = category_counts(all_clips)
-
-      filtered =
-        all_clips
-        |> filter_clips(%{mode: mode, category: category})
-        |> Enum.take(limit)
 
       {:ok,
        %{
          camera_source_id: camera_uuid,
          from_us: from_us,
          to_us: to_us,
-         clips: filtered,
-         all_clips: all_clips,
-         counts: counts,
-         total: length(all_clips)
+         clips: clips
        }}
     end
   end
@@ -283,21 +270,34 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
         loader.(camera_uuid, profile_uuid, from_us, to_us)
 
       nil ->
-        query =
+        base =
           VisualFrame
           |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
           |> Ash.Query.filter(
             camera_source_id == ^camera_uuid and
               timeline_ts_us >= ^from_us and
-              timeline_ts_us <= ^to_us and
-              (scene_suppressed == false or
-                 fragment("coalesce(cardinality(?), 0) > 0", detections))
+              timeline_ts_us <= ^to_us
           )
           |> maybe_filter_profile_query(profile_uuid)
           |> Ash.Query.sort(timeline_ts_us: :desc, fragment_sequence: :desc)
-          |> Ash.Query.limit(@visual_frames_query_limit)
 
-        Ash.read(query, actor: @system_actor)
+        detection_query =
+          base
+          |> Ash.Query.filter(fragment("coalesce(cardinality(?), 0) > 0", detections))
+          |> Ash.Query.limit(@detection_frames_query_limit)
+
+        motion_query =
+          base
+          |> Ash.Query.filter(
+            scene_suppressed == false and
+              fragment("coalesce(cardinality(?), 0) = 0", detections)
+          )
+          |> Ash.Query.limit(@motion_frames_query_limit)
+
+        with {:ok, detection_frames} <- Ash.read(detection_query, actor: @system_actor),
+             {:ok, motion_frames} <- Ash.read(motion_query, actor: @system_actor) do
+          {:ok, detection_frames ++ motion_frames}
+        end
     end
   end
 
@@ -654,52 +654,25 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
 
   defp parse_non_neg_int(_), do: :error
 
-  defp parse_mode(val) when val in [nil, "", :all, "all"], do: {:ok, :all}
-  defp parse_mode(val) when val in [:smart, "smart"], do: {:ok, :smart}
-  defp parse_mode(val) when val in [:basic, "basic"], do: {:ok, :basic}
-  defp parse_mode(_), do: {:error, :invalid_clip_mode}
-
   defp normalize_mode_value(val) when val in [:smart, "smart"], do: :smart
   defp normalize_mode_value(val) when val in [:basic, "basic"], do: :basic
   defp normalize_mode_value(_), do: :all
 
-  defp parse_category(val) when val in [nil, "", :all, "all"], do: {:ok, :all}
-  defp parse_category(val) when val in @all_categories, do: {:ok, val}
+  defp normalize_category_value(val) when val in @all_categories, do: val
 
-  defp parse_category(val) when is_binary(val) do
+  defp normalize_category_value(val) when is_binary(val) do
     case String.downcase(String.trim(val)) do
-      "all" -> {:ok, :all}
-      "person" -> {:ok, :person}
-      "vehicle" -> {:ok, :vehicle}
-      "animal" -> {:ok, :animal}
-      "package" -> {:ok, :package}
-      "motion" -> {:ok, :motion}
-      "recording" -> {:ok, :recording}
-      _ -> {:error, :invalid_clip_category}
+      "person" -> :person
+      "vehicle" -> :vehicle
+      "animal" -> :animal
+      "package" -> :package
+      "motion" -> :motion
+      "recording" -> :recording
+      _ -> :all
     end
   end
 
-  defp parse_category(_), do: {:error, :invalid_clip_category}
-
-  defp normalize_category_value(val) do
-    case parse_category(val) do
-      {:ok, cat} -> cat
-      {:error, _} -> :all
-    end
-  end
-
-  defp parse_limit(val) when val in [nil, ""], do: {:ok, @default_limit}
-
-  defp parse_limit(val) when is_integer(val) and val >= 1 and val <= @max_limit, do: {:ok, val}
-
-  defp parse_limit(val) when is_binary(val) do
-    case Integer.parse(String.trim(val)) do
-      {n, ""} when n >= 1 and n <= @max_limit -> {:ok, n}
-      _ -> {:error, :invalid_limit}
-    end
-  end
-
-  defp parse_limit(_), do: {:error, :invalid_limit}
+  defp normalize_category_value(_), do: :all
 
   defp normalize_confidence(val) when is_number(val) and val >= 0.0 and val <= 1.0 do
     Float.round(val * 1.0, 4)

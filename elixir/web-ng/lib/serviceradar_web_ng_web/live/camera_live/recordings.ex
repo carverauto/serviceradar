@@ -1680,7 +1680,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     }
 
     case RecordingEventClips.list_clips(source_id, params, actor: scope.user) do
-      {:ok, %{all_clips: clips}} when is_list(clips) -> clips
+      {:ok, %{clips: clips}} when is_list(clips) -> clips
       _ -> []
     end
   end

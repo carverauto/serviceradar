@@ -145,9 +145,9 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       # Expect: 1 coalesced :person, 1 :vehicle, 1 :motion (all from entry_1),
       # and 1 :recording fallback segment for entry_2 (uncovered by detections).
       # Quarantined entry + its package frame are strictly excluded.
-      assert result.total == 4
+      assert length(result.clips) == 4
 
-      assert result.counts == %{
+      assert RecordingEventClips.category_counts(result.clips) == %{
                all: 4,
                smart: 2,
                basic: 2,
@@ -159,7 +159,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
                recording: 1
              }
 
-      person_clip = Enum.find(result.all_clips, &(&1.category == :person))
+      person_clip = Enum.find(result.clips, &(&1.category == :person))
       assert person_clip.smart_type == :smart
       assert person_clip.label == "Person"
       assert person_clip.confidence == 0.95
@@ -169,16 +169,16 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert person_clip.archive_state == :verified
       assert person_clip.thumbnail_url == nil
 
-      vehicle_clip = Enum.find(result.all_clips, &(&1.category == :vehicle))
+      vehicle_clip = Enum.find(result.clips, &(&1.category == :vehicle))
       assert vehicle_clip.smart_type == :smart
       assert vehicle_clip.confidence == 0.88
       assert vehicle_clip.attributes.dominant_colors == ["white"]
 
-      motion_clip = Enum.find(result.all_clips, &(&1.category == :motion))
+      motion_clip = Enum.find(result.clips, &(&1.category == :motion))
       assert motion_clip.smart_type == :basic
       assert motion_clip.confidence == nil
 
-      rec_clip = Enum.find(result.all_clips, &(&1.category == :recording))
+      rec_clip = Enum.find(result.clips, &(&1.category == :recording))
       assert rec_clip.id == "rec-#{@entry_2_id}"
       assert rec_clip.smart_type == :basic
       assert rec_clip.catalog_entry_id == @entry_2_id
@@ -186,11 +186,11 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert rec_clip.thumbnail_url == nil
 
       # Ordered most-recent first
-      starts = Enum.map(result.all_clips, & &1.start_us)
+      starts = Enum.map(result.clips, & &1.start_us)
       assert starts == Enum.sort(starts, :desc)
     end
 
-    test "supports mode and category filtering" do
+    test "supports in-memory mode and category filtering via filter_clips/2" do
       entries = [
         playable_entry(
           @entry_1_id,
@@ -231,35 +231,24 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
         visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, frames} end
       }
 
-      {:ok, smart_only} =
+      {:ok, %{clips: clips}} =
         RecordingEventClips.list_clips(
           @camera_id,
-          %{from_us: @base_us, to_us: @base_us + 200_000_000, mode: :smart},
+          %{from_us: @base_us, to_us: @base_us + 200_000_000},
           loaders: loaders
         )
 
-      assert smart_only.clips |> Enum.map(& &1.category) |> Enum.sort() == [:animal, :package]
+      smart_only = RecordingEventClips.filter_clips(clips, %{mode: :smart})
+      assert smart_only |> Enum.map(& &1.category) |> Enum.sort() == [:animal, :package]
 
-      {:ok, basic_only} =
-        RecordingEventClips.list_clips(
-          @camera_id,
-          %{from_us: @base_us, to_us: @base_us + 200_000_000, mode: :basic},
-          loaders: loaders
-        )
+      basic_only = RecordingEventClips.filter_clips(clips, %{mode: :basic})
+      assert Enum.map(basic_only, & &1.category) == [:recording]
 
-      assert Enum.map(basic_only.clips, & &1.category) == [:recording]
-
-      {:ok, animal_only} =
-        RecordingEventClips.list_clips(
-          @camera_id,
-          %{from_us: @base_us, to_us: @base_us + 200_000_000, category: "animal"},
-          loaders: loaders
-        )
-
-      assert Enum.map(animal_only.clips, & &1.category) == [:animal]
+      animal_only = RecordingEventClips.filter_clips(clips, %{category: "animal"})
+      assert Enum.map(animal_only, & &1.category) == [:animal]
     end
 
-    test "computes full window counts and filters before applying limit so older smart clips are never hidden" do
+    test "returns full uncapped coalesced clips so older smart clips remain countable and filterable" do
       older_entry =
         playable_entry(
           @entry_1_id,
@@ -302,40 +291,25 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
         visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, [older_person_frame]} end
       }
 
-      window = %{from_us: @base_us, to_us: @base_us + 15_000_000_000, limit: 100}
+      window = %{from_us: @base_us, to_us: @base_us + 15_000_000_000}
 
-      assert {:ok, unfiltered} =
+      assert {:ok, %{clips: clips}} =
                RecordingEventClips.list_clips(@camera_id, window, loaders: loaders)
 
-      assert unfiltered.total == 111
-      assert length(unfiltered.all_clips) == 111
-      assert length(unfiltered.clips) == 100
-      assert unfiltered.counts.all == 111
-      assert unfiltered.counts.smart == 1
-      assert unfiltered.counts.basic == 110
-      assert unfiltered.counts.person == 1
-      assert unfiltered.counts.recording == 110
+      assert length(clips) == 111
 
-      assert {:ok, smart_result} =
-               RecordingEventClips.list_clips(
-                 @camera_id,
-                 Map.put(window, :mode, :smart),
-                 loaders: loaders
-               )
+      counts = RecordingEventClips.category_counts(clips)
+      assert counts.all == 111
+      assert counts.smart == 1
+      assert counts.basic == 110
+      assert counts.person == 1
+      assert counts.recording == 110
 
-      assert smart_result.counts.smart == 1
-      assert smart_result.counts.person == 1
-      assert Enum.map(smart_result.clips, & &1.visual_frame_id) == [@frame_1_id]
+      smart_clips = RecordingEventClips.filter_clips(clips, %{mode: :smart})
+      assert Enum.map(smart_clips, & &1.visual_frame_id) == [@frame_1_id]
 
-      assert {:ok, person_result} =
-               RecordingEventClips.list_clips(
-                 @camera_id,
-                 Map.put(window, :category, :person),
-                 loaders: loaders
-               )
-
-      assert person_result.counts.person == 1
-      assert Enum.map(person_result.clips, & &1.visual_frame_id) == [@frame_1_id]
+      person_clips = RecordingEventClips.filter_clips(clips, %{category: :person})
+      assert Enum.map(person_clips, & &1.visual_frame_id) == [@frame_1_id]
     end
   end
 
@@ -372,14 +346,14 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
         permissions: MapSet.new(["devices.cameras.recordings.view"])
       }
 
-      assert {:ok, %{clips: [], total: 0}} =
+      assert {:ok, %{clips: []}} =
                RecordingEventClips.list_clips(@camera_id, params,
                  actor: allowed_actor,
                  loaders: loaders
                )
     end
 
-    test "validates camera UUID, canonical window params, mode, category, and limit" do
+    test "validates camera UUID, stream profile UUID, and canonical window params" do
       loaders = %{
         catalog_loader: fn _cam, _prof, _from, _to -> {:ok, []} end,
         visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, []} end
@@ -387,6 +361,13 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
 
       assert {:error, :invalid_camera_source_id} =
                RecordingEventClips.list_clips("not-a-uuid", %{from_us: 1, to_us: 2},
+                 loaders: loaders
+               )
+
+      assert {:error, :invalid_stream_profile_id} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: 1, to_us: 2, stream_profile_id: "not-a-uuid"},
                  loaders: loaders
                )
 
@@ -402,27 +383,6 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
                RecordingEventClips.list_clips(
                  @camera_id,
                  %{from_us: 0, to_us: 32 * 86_400 * 1_000_000},
-                 loaders: loaders
-               )
-
-      assert {:error, :invalid_clip_mode} =
-               RecordingEventClips.list_clips(
-                 @camera_id,
-                 %{from_us: 1, to_us: 2, mode: "unknown"},
-                 loaders: loaders
-               )
-
-      assert {:error, :invalid_clip_category} =
-               RecordingEventClips.list_clips(
-                 @camera_id,
-                 %{from_us: 1, to_us: 2, category: "spaceship"},
-                 loaders: loaders
-               )
-
-      assert {:error, :invalid_limit} =
-               RecordingEventClips.list_clips(
-                 @camera_id,
-                 %{from_us: 1, to_us: 2, limit: 0},
                  loaders: loaders
                )
     end

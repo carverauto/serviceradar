@@ -468,7 +468,7 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
       )
       |> Ash.create(actor: actor)
 
-    {:ok, _suppressed_frame} =
+    {:ok, motion_frame} =
       VisualFrame
       |> Ash.Changeset.for_create(
         :upsert_frame,
@@ -477,8 +477,29 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
           camera_source_id: ctx.source.id,
           stream_profile_id: ctx.profile.id,
           fragment_sequence: 1,
-          media_pts_ns: entry.media_start_ns + 2_000_000_000,
-          timeline_ts_us: entry.timeline_start_us + 2_000_000,
+          media_pts_ns: entry.media_start_ns + 500_000_000,
+          timeline_ts_us: entry.timeline_start_us + 500_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "synthetic-detector",
+          detector_model_version: "v1",
+          detections: []
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, suppressed_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          fragment_sequence: 2,
+          media_pts_ns: entry.media_start_ns + 9_500_000_000,
+          timeline_ts_us: entry.timeline_start_us + 9_500_000,
           time_basis: :received,
           scene_suppressed: true,
           detector_model_id: "synthetic-detector",
@@ -492,16 +513,20 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
 
     person_clip_id = "evt-#{person_frame.id}-person"
+    motion_clip_id = "evt-#{motion_frame.id}-motion"
+    suppressed_clip_id = "evt-#{suppressed_frame.id}-motion"
     assert has_element?(view, "#camera-timeline-event-clips-section")
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     refute has_element?(view, "#camera-clip-card-#{person_clip_id} img")
-    refute has_element?(view, "#camera-clips-grid [data-clip-category='motion']")
+    assert has_element?(view, "#camera-clip-card-#{motion_clip_id}")
+    refute has_element?(view, "#camera-clip-card-#{suppressed_clip_id}")
     assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
     assert has_element?(view, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
 
-    # Filter to Smart -> hides recording fallback, keeps person detection
+    # Filter to Smart -> hides motion and recording fallbacks, keeps person detection
     view |> element("#camera-clips-mode-smart") |> render_click()
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
+    refute has_element?(view, "#camera-clip-card-#{motion_clip_id}")
     refute has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
 
     # Filter to Animal -> empty state + reset filters button
