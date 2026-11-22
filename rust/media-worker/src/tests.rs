@@ -1141,6 +1141,53 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         assert!(envelope.frames()[2].scene_suppressed());
         assert_eq!(envelope.frames()[2].embeddings().len(), 0);
 
+        // Bounded JFIF JPEG keyframe thumbnails:
+        // - block_thumbnail_jpeg_b64 is present and valid JFIF <= 48 KiB
+        // - non-suppressed frames (0, 1) carry valid JFIF thumbnail_jpeg_b64 <= 48 KiB
+        // - static suppressed frame (2) omits thumbnail_jpeg_b64 in both struct and JSON
+        use base64::Engine as _;
+        let block_b64 = envelope
+            .block_thumbnail_jpeg_b64()
+            .expect("block_thumbnail_jpeg_b64 present on indexed block");
+        let block_jpeg = base64::engine::general_purpose::STANDARD
+            .decode(block_b64)
+            .expect("valid base64 block thumbnail");
+        assert!(block_jpeg.starts_with(&[0xFF, 0xD8]));
+        assert!(block_jpeg.ends_with(&[0xFF, 0xD9]));
+        assert!(block_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+        assert_eq!(
+            raw_json["block_thumbnail_jpeg_b64"].as_str(),
+            Some(block_b64)
+        );
+
+        for idx in [0usize, 1usize] {
+            let f_b64 = envelope.frames()[idx]
+                .thumbnail_jpeg_b64()
+                .expect("non-suppressed frame should carry thumbnail_jpeg_b64");
+            let f_jpeg = base64::engine::general_purpose::STANDARD
+                .decode(f_b64)
+                .expect("valid base64 frame thumbnail");
+            assert!(f_jpeg.starts_with(&[0xFF, 0xD8]));
+            assert!(f_jpeg.ends_with(&[0xFF, 0xD9]));
+            assert!(f_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+        }
+        assert!(envelope.frames()[2].thumbnail_jpeg_b64().is_none());
+        assert!(raw_json["frames"][2].get("thumbnail_jpeg_b64").is_none());
+
+        // Track summaries carry their best-keyframe JPEG thumbnail.
+        assert!(!envelope.tracks().is_empty());
+        for track in envelope.tracks() {
+            let t_b64 = track
+                .thumbnail_jpeg_b64()
+                .expect("track summary should carry best-keyframe thumbnail_jpeg_b64");
+            let t_jpeg = base64::engine::general_purpose::STANDARD
+                .decode(t_b64)
+                .expect("valid base64 track thumbnail");
+            assert!(t_jpeg.starts_with(&[0xFF, 0xD8]));
+            assert!(t_jpeg.ends_with(&[0xFF, 0xD9]));
+            assert!(t_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+        }
+
         // Fragment 0 has 1 `:scene` + 2 `:crop` embeddings (`person` in `red`, `vehicle` in `white`).
         let f0 = &envelope.frames()[0];
         assert_eq!(f0.detections().len(), 2);

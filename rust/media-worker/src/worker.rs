@@ -266,6 +266,8 @@ pub struct TrackSummaryPayload {
     dwell_ms: u64,
     frame_count: u32,
     peak_confidence: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thumbnail_jpeg_b64: Option<String>,
 }
 
 impl TrackSummaryPayload {
@@ -296,6 +298,10 @@ impl TrackSummaryPayload {
     pub fn peak_confidence(&self) -> f32 {
         self.peak_confidence
     }
+
+    pub fn thumbnail_jpeg_b64(&self) -> Option<&str> {
+        self.thumbnail_jpeg_b64.as_deref()
+    }
 }
 
 /// Per-keyframe entry inside `VisualIndexResultEnvelope.frames`.
@@ -306,6 +312,8 @@ pub struct FrameResultPayload {
     scene_suppressed: bool,
     detections: Vec<DetectionPayload>,
     embeddings: Vec<EmbeddingPayload>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thumbnail_jpeg_b64: Option<String>,
 }
 
 impl FrameResultPayload {
@@ -327,6 +335,10 @@ impl FrameResultPayload {
 
     pub fn embeddings(&self) -> &[EmbeddingPayload] {
         &self.embeddings
+    }
+
+    pub fn thumbnail_jpeg_b64(&self) -> Option<&str> {
+        self.thumbnail_jpeg_b64.as_deref()
     }
 }
 
@@ -384,6 +396,9 @@ pub struct VisualIndexResultEnvelope {
     /// Sampled keyframes that could not be decoded; absent when every keyframe decoded.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     undecodable_keyframes: Vec<UndecodableKeyframePayload>,
+    /// Optional bounded JFIF JPEG keyframe thumbnail (base64, <= 48 KiB raw) for this block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    block_thumbnail_jpeg_b64: Option<String>,
 }
 
 impl VisualIndexResultEnvelope {
@@ -433,6 +448,10 @@ impl VisualIndexResultEnvelope {
 
     pub fn undecodable_keyframes(&self) -> &[UndecodableKeyframePayload] {
         &self.undecodable_keyframes
+    }
+
+    pub fn block_thumbnail_jpeg_b64(&self) -> Option<&str> {
+        self.block_thumbnail_jpeg_b64.as_deref()
     }
 }
 
@@ -920,6 +939,7 @@ where
             self.metrics.observe_stage2_latency(secs);
         }
 
+        let block_thumbnail_jpeg_b64 = clip_analysis.block_thumbnail_jpeg_b64().map(str::to_string);
         let (frame_analyses, track_summaries) = clip_analysis.into_parts();
         let mut frame_payloads = Vec::with_capacity(frame_analyses.len());
         for ((sequence, media_pts_ns, _), analysis) in sampled_frames
@@ -960,6 +980,7 @@ where
                 scene_suppressed: analysis.scene_suppressed(),
                 detections: det_payloads,
                 embeddings: emb_payloads,
+                thumbnail_jpeg_b64: analysis.thumbnail_jpeg_b64().map(str::to_string),
             });
         }
 
@@ -973,6 +994,7 @@ where
                 dwell_ms: t.dwell_ms(),
                 frame_count: t.frame_count(),
                 peak_confidence: t.peak_confidence(),
+                thumbnail_jpeg_b64: t.thumbnail_jpeg_b64().map(str::to_string),
             })
             .collect();
 
@@ -1002,6 +1024,7 @@ where
                 frames: frame_payloads,
                 tracks: track_payloads,
                 undecodable_keyframes,
+                block_thumbnail_jpeg_b64,
             },
         )))
     }

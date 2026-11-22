@@ -522,9 +522,15 @@ fn tracker_mode_off_preserves_untracked_per_frame_behavior_and_wire_compat() {
     assert_eq!(det.track_id(), None);
     assert_eq!(emb_p.track_id(), None);
 
-    // Re-serializing omits empty `tracks` and `None` `track_id`.
+    // Re-serializing omits empty `tracks`, `None` `track_id`, and `None` thumbnails.
     let reserialized = serde_json::to_value(&parsed).expect("reserialize");
     assert!(reserialized.get("tracks").is_none());
+    assert!(reserialized.get("block_thumbnail_jpeg_b64").is_none());
+    assert!(
+        reserialized["frames"][0]
+            .get("thumbnail_jpeg_b64")
+            .is_none()
+    );
     assert!(
         reserialized["frames"][0]["detections"][0]
             .get("track_id")
@@ -700,4 +706,123 @@ fn vision_pipeline_bridges_into_media_core_stage_pipeline() {
     let closed = stage_pipeline.take_closed_track_summaries();
     assert_eq!(closed.len(), 1);
     assert_eq!(closed[0].track_id, tid);
+}
+
+#[test]
+fn production_vision_pipeline_uses_media_core_motion_gate_and_emits_bounded_jfif_thumbnails() {
+    use base64::Engine as _;
+
+    struct CountingDetectBackend {
+        inner: crate::backend::DeterministicStubBackend,
+        detect_calls: AtomicUsize,
+    }
+
+    impl InferenceBackend for CountingDetectBackend {
+        fn info(&self) -> InferenceBackendInfo {
+            self.inner.info()
+        }
+
+        fn detect_objects(
+            &self,
+            frame: &RgbFrame,
+            min_confidence: f32,
+        ) -> Result<Vec<RawDetection>, MediaWorkerError> {
+            self.detect_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.detect_objects(frame, min_confidence)
+        }
+
+        fn encode_annotated_images(
+            &self,
+            regions: &[(&RgbFrame, Option<ObjectClass>, &[String])],
+        ) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            self.inner.encode_annotated_images(regions)
+        }
+
+        fn encode_images(&self, images: &[&RgbFrame]) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            self.inner.encode_images(images)
+        }
+
+        fn encode_text(&self, text: &str) -> Result<Vec<f32>, MediaWorkerError> {
+            self.inner.encode_text(text)
+        }
+    }
+
+    let models = ModelPinConfig::new("yolox-s", "2026.1", "siglip-b16-384", "2026.1", 768);
+    let backend = Arc::new(CountingDetectBackend {
+        inner: crate::backend::DeterministicStubBackend::new(models.clone()),
+        detect_calls: AtomicUsize::new(0),
+    });
+    let pipeline = VisionPipeline::with_backend(
+        models,
+        true,
+        Arc::clone(&backend) as Arc<dyn InferenceBackend>,
+    )
+    .with_tracking(TrackerMode::ByteTrack, true);
+
+    let bg = RgbFrame::solid(320, 180, [46, 50, 56]);
+    let mut person_frame = bg.clone();
+    for y in 30..150u32 {
+        for x in 40..90u32 {
+            person_frame.set_pixel(x, y, [220, 30, 30]);
+        }
+    }
+
+    // Sequence:
+    // 0: empty anchor -> admitted (Stage 1 called, 0 dets, thumbnail emitted)
+    // 1: identical static empty -> skipped BEFORE Stage 1 by media-core motion gate (suppressed, no thumbnail)
+    // 2: identical static empty -> skipped BEFORE Stage 1 (suppressed, no thumbnail)
+    // 3: red person enters -> motion admitted (Stage 1 called, 1 det, red color via media-core, thumbnail emitted)
+    let frames = [&bg, &bg, &bg, &person_frame];
+    let keyframes: Vec<ClipKeyframe<'_>> = frames
+        .iter()
+        .enumerate()
+        .map(|(i, f)| ClipKeyframe::new((i as u64) * 1_000, f))
+        .collect();
+
+    let clip = pipeline
+        .process_clip_keyframes(&keyframes)
+        .expect("process clip through media-core stages");
+
+    // Stage 1 detector was only invoked for frames 0 and 3 (skipped on static empty frames 1 & 2).
+    assert_eq!(backend.detect_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(clip.frames().len(), 4);
+
+    assert!(!clip.frames()[0].scene_suppressed());
+    assert!(clip.frames()[0].thumbnail_jpeg_b64().is_some());
+
+    for suppressed_idx in [1usize, 2usize] {
+        assert!(clip.frames()[suppressed_idx].scene_suppressed());
+        assert!(clip.frames()[suppressed_idx].detections().is_empty());
+        assert!(clip.frames()[suppressed_idx].embeddings().is_empty());
+        assert!(clip.frames()[suppressed_idx].thumbnail_jpeg_b64().is_none());
+    }
+
+    let f3 = &clip.frames()[3];
+    assert!(!f3.scene_suppressed());
+    assert_eq!(f3.detections().len(), 1);
+    assert_eq!(f3.detections()[0].object_class(), ObjectClass::Person);
+    assert!(
+        f3.detections()[0]
+            .dominant_colors()
+            .contains(&"red".to_string()),
+        "media-core HSV attribute extraction should classify red subject"
+    );
+    assert!(f3.detections()[0].track_id().is_some());
+
+    let f3_b64 = f3
+        .thumbnail_jpeg_b64()
+        .expect("detected frame must emit thumbnail_jpeg_b64");
+    let f3_jpeg = base64::engine::general_purpose::STANDARD
+        .decode(f3_b64)
+        .expect("decode frame 3 JPEG");
+    assert!(f3_jpeg.starts_with(&[0xFF, 0xD8]));
+    assert!(f3_jpeg.ends_with(&[0xFF, 0xD9]));
+    assert!(f3_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+
+    // Block-level thumbnail prefers the detected keyframe (frame 3) over the empty anchor (frame 0).
+    assert_eq!(clip.block_thumbnail_jpeg_b64(), Some(f3_b64));
+
+    // Track summary carries the best-keyframe JPEG thumbnail.
+    assert_eq!(clip.tracks().len(), 1);
+    assert_eq!(clip.tracks()[0].thumbnail_jpeg_b64(), Some(f3_b64));
 }

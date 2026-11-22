@@ -85,8 +85,8 @@ pub use tokenizer::PureRustTokenizer;
 pub use tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
 pub use vision::{
     BackendObjectDetector, ClipAnalysis, ClipKeyframe, DetectedSubject, GeneratedEmbedding,
-    KeyframeAnalysis, ObjectClass, RgbFrame, VisionPipeline, classify_dominant_colors,
-    cosine_similarity, embed_query_text,
+    KeyframeAnalysis, MAX_THUMBNAIL_JPEG_BYTES, ObjectClass, RgbFrame, VisionPipeline,
+    classify_dominant_colors, cosine_similarity, embed_query_text,
 };
 pub use worker::{
     AdmittedWorker, DetectionPayload, EmbeddingPayload, FrameResultPayload, JetStreamJobDelivery,
