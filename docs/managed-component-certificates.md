@@ -227,11 +227,10 @@ subject and the inventory fingerprint is absent from the record. Copies of the
 same certificate count once. If several distinct fingerprints name one subject,
 core skips first adoption for that subject and reports it as adopted only when
 the authority allows them all. Files with an unlisted subject or an undecodable
-certificate appear under `unlisted` in the reconciliation report. Inventory
-coverage is advisory for leaf installation and is exposed through
-`GET /api/admin/managed-components/bootstrap` (`data.hub.chart_identities`),
-`GET /v1/hub/readiness` (`hub.chart_identities`), and
-`serviceradar-cli edge hub status`.
+certificate appear under `unlisted` in the reconciliation report.
+Coverage is advisory and is not exposed by the readiness API.
+(Planned: once hub readiness reporting ships, `GET /api/admin/managed-components/bootstrap`
+will expose coverage under `data.hub.chart_identities` for `serviceradar-cli edge hub status`.)
 
 `POST /api/admin/managed-components/adopt` records one existing public
 infrastructure certificate. The JSON body carries `component_id`,
@@ -336,11 +335,12 @@ admission:
   `legacy_certificates_without_subject`. Re-record each legacy certificate by
   submitting its original PEM to `POST /api/admin/managed-components/adopt` for
   the same component, or remove the obsolete component.
-- **Verify coverage**: run `serviceradar-cli edge hub status` (or query
-  `GET /api/admin/managed-components/bootstrap` or `GET /v1/hub/readiness`) and
-  review `chart_identities`. Hand-adopted inventory certificates that are
+- **Verify coverage**: on current builds, inspect core's reconciliation logs
+  (`Chart identity <subject> is adopted...` and
+  `Chart identity <subject> is not adopted: <reason>`) because coverage is not
+  yet exposed by the readiness API. Hand-adopted inventory certificates that are
   recorded and unrevoked count toward coverage even if their legacy row has no
-  stored subject, while omitted chart identities produce a warning even if
+  stored subject, while omitted chart identities log a warning even if
   previously hand-adopted. Alias static users (`serviceradar-flowgger`,
   `serviceradar-otel`, `serviceradar-netflow-collector`) and `O=ServiceRadar`
   are not chart identities and are excluded from coverage.
@@ -410,19 +410,19 @@ Note these chart value rules:
 
 ### 4. Verify readiness and troubleshoot
 
-Run `serviceradar-cli edge hub status` (or `serviceradar-cli edge hub status --json`)
-and verify that `enforcement_configured`, `signing_keys_provisioned`,
-`authorizer_answering` (with `authorizer_reason: null`), `leaf_listener` (for
-leaves), and `leaf_upstream_url` (for leaves) are all true, and review any
-`chart_identities` warnings.
+On current builds, query `GET /api/admin/managed-components/bootstrap` and
+verify that `data.nats` reports `auth_mode: "static_mtls"`, `ready: true`, and
+`reason: null`, and review core's reconciliation logs for any uncovered chart
+identities.
 
 Common failure modes and checks:
 
 - **`signing_keys_not_provisioned`**: Core mounts the three `.seed` keys from
   the issuer Secret with `optional: true`, so core starts even if a seed is
-  missing or unreadable and reports `signing_keys_not_provisioned` (even during
-  a broker outage or when a broker fragment is also missing). Provision or
-  restore the missing seed(s) in the issuer Secret (or delete all remaining
+  missing or unreadable and reports `reason: "signing_keys_not_provisioned"` in
+  `data.nats` on `GET /api/admin/managed-components/bootstrap` (even during a
+  broker outage or when a broker fragment is also missing). Provision or restore
+  the missing seed(s) in the issuer Secret (or delete all remaining
   `nats-callout-*` entries if using the generator to mint a fresh set).
 - **NATS pod mount failures for `nats-callout-*.conf`**: NATS mounts
   `nats-callout-authorization.conf` and `nats-callout-accounts.conf` as required
@@ -440,29 +440,12 @@ Common failure modes and checks:
 - **Surviving broker vs. disconnected authorizer**: In a multi-replica NATS
   StatefulSet, if one broker pod fails to start due to a missing `.conf`
   fragment while core has all three seeds mounted and continues answering
-  through a surviving broker, an otherwise ready hub stays ready and leaf
-  installation can proceed. If all three seeds are mounted on core but core
-  loses its authorizer connection to NATS, hub status reports
-  `authorizer_answering: false` with the readiness reason (such as `connecting`
-  or `authorizer_unavailable`) and `edge install leaf` stops before host changes
-  with advice to check NATS and core health.
-- **`edge install leaf` preflight stop checks**: Before installing packages or
-  writing host files, `serviceradar-cli edge install leaf` evaluates `data.hub`
-  from `GET /api/admin/managed-components/bootstrap` in this exact order and
-  stops on the first failing check, naming the cause and its resolver:
-  1. Hub status missing or unreadable -> wait and retry, and check core's health.
-  2. Enforcement not configured (`enforcement_configured` is not `true`) ->
-     enable `nats.certificateAuthorization.enabled`.
-  3. Signing keys not provisioned (`signing_keys_provisioned` is `false` or
-     `authorizer_reason` is `signing_keys_not_provisioned`) -> provision the
-     missing signing seeds in the issuer Secret (or remove remaining
-     `nats-callout-*` entries for generator-owned provisioning).
-  4. Authorizer otherwise not answering (`authorizer_answering` is not `true`) ->
-     check NATS and core health, then retry (displays `authorizer_reason`).
-  5. Leaf listener not configured (`leaf_listener` is not `true`) -> enable
-     `nats.leafnodes.enabled`.
-  6. Leaf upstream URL not configured (`leaf_upstream_url` is not `true`) -> set
-     `hostedRuntime.publicEndpoints.natsLeafHost`.
+  through a surviving broker, `data.nats.ready` remains `true`. If all three
+  seeds are mounted on core but core loses its authorizer connection to NATS,
+  `data.nats.ready` becomes `false` with the readiness reason (such as
+  `connecting`, `auth_connection_unavailable`, `auth_subscription_failed`, or
+  `authorizer_unavailable`); inspect NATS pod events and core health before
+  retrying.
 
 ### 5. Disable enforcement
 
@@ -474,6 +457,50 @@ Existing adopted components, recorded certificates, and
 `runtime-cert-rotation.json` records remain intact, and core's inventory
 projection continues to follow `certs.generator.enabled` and
 `certs.inventoryCertificates`.
+
+### Planned hub status API and CLI preflight (not yet shipped)
+
+The `data.hub` readiness payload, `serviceradar-cli edge hub status`, and
+`edge install leaf` preflight blocking below are not yet present in current
+core, web-ng, or `serviceradar-cli` builds (tracked in OpenSpec
+`add-zero-touch-hub-certificate-authorization`, tasks 2.6, 3.5-3.6, and
+4.1-4.3). They apply once a core/web-ng and `serviceradar-cli` release carrying
+those changes ships.
+
+- **Hub readiness payload (`GET /api/admin/managed-components/bootstrap`)**:
+  will add a `data.hub` object with `enforcement_configured`,
+  `authorizer_answering` (with the readiness reason when false, such as
+  `signing_keys_not_provisioned`, `connecting`, or `authorizer_unavailable`),
+  `chart_identities` (total, adopted, and uncovered identities with reasons),
+  `leaf_listener`, and `leaf_upstream_url`.
+- **`serviceradar-cli edge hub status`**: will read `data.hub` under the CLI's
+  existing `edge.manage` scope and print hub readiness along with a warning and
+  reason for each uncovered chart identity.
+- **`serviceradar-cli edge install leaf` preflight stop checks**: before
+  installing packages or writing host files, `edge install leaf` will evaluate
+  `data.hub` in this exact order and stop on the first failing check, naming
+  the cause and its resolver:
+  1. Hub status missing or unreadable -> wait and retry, and check core's health.
+  2. Enforcement not configured (`enforcement_configured` is not `true`) ->
+     enable `nats.certificateAuthorization.enabled`.
+  3. Enforcement configured, but any of the three mounted seeds is absent
+     (`signing_keys_not_provisioned`) -> provision the missing signing seeds in
+     the issuer Secret (or remove remaining `nats-callout-*` entries for
+     generator-owned provisioning).
+  4. Enforcement configured, but the authorizer is otherwise not answering
+     (`authorizer_answering` is not `true`) -> check NATS and core health, then
+     retry (showing the readiness reason).
+  5. Leaf listener not configured (`leaf_listener` is not `true`) -> enable
+     `nats.leafnodes.enabled`.
+  6. Leaf upstream URL not configured (`leaf_upstream_url` is not `true`) -> set
+     `hostedRuntime.publicEndpoints.natsLeafHost`.
+
+  In a multi-replica NATS cluster where core has all three seeds mounted and
+  continues answering through a surviving broker, an otherwise ready hub will
+  stay ready and leaf installation will proceed; if core loses its authorizer
+  connection, `authorizer_answering` will be `false` and `edge install leaf`
+  will stop before host changes. `chart_identities` coverage warnings will
+  remain advisory only and will not block leaf installation.
 
 ## Non-chart bootstrap and `serviceradar-cli edge install`
 
@@ -490,9 +517,9 @@ and the session is not remembered. A matching account is still decided from the
 certificate policy. On chart installs with mounted seeds, core ignores this
 stored database record.
 
-`serviceradar-cli edge install collector` keeps local onboarding resilience and
-continues when the hub authorizer is disconnected (`static_mtls` with an empty
-reason, or with reason `connecting`, `auth_connection_unavailable`,
+On current builds, `serviceradar-cli edge install` for both a leaf and a
+collector continues when the hub authorizer is disconnected (`static_mtls` with
+an empty reason, or with reason `connecting`, `auth_connection_unavailable`,
 `auth_subscription_failed`, `policy_unavailable`, `not_configured`,
 `authorizer_unavailable`, or `core_unavailable`). An unset mode continues while
 the hub is not configured. `static_mtls` still requires the deployment account
@@ -501,11 +528,11 @@ stops before package installation for `jwt_account_signer_unconfigured`,
 `unsupported_auth_mode`, `nats_account_mismatch`, `signing_keys_not_provisioned`,
 any other authentication mode, and `nats.ready` without `static_mtls`.
 
-By contrast, `serviceradar-cli edge install leaf` does not proceed when the hub
-authorizer is disconnected or unconfigured. It requires all six ordered
-preflight checks above to pass before making any host change, while
-`chart_identities` coverage remains advisory only and does not block leaf
-installation.
+Once the planned hub status API and `serviceradar-cli` release ship,
+`serviceradar-cli edge install collector` will keep this local onboarding
+resilience, whereas `serviceradar-cli edge install leaf` will require all six
+ordered `data.hub` preflight checks above to pass before making any host change
+(with `chart_identities` coverage remaining advisory only).
 
 When core uses a stored `operator_jwt` configuration, it reports readiness
 reason `jwt_account_signer_unconfigured`. The authorizer does not open a broker

@@ -92,17 +92,18 @@ identities. To deliberately provision new identities, remove every remaining
 `nats-callout-*` entry before retrying.
 
 Certificate authorization is off by default. Before setting
-`nats.certificateAuthorization.enabled` to `true`, verify with
-`serviceradar-cli edge hub status` that core has adopted each chart identity
-and that the signing keys are provisioned. The chart does not check adoption
-when rendering.
+`nats.certificateAuthorization.enabled` to `true`, check core's reconciliation
+logs to confirm that core has adopted each chart identity and confirm that the
+signing keys are provisioned in the issuer and runtime Secrets. The chart does
+not check adoption when rendering.
 
 With enforcement enabled:
 
 - Core mounts only the three `*.seed` keys from the issuer Secret with
   `optional: true`. If any seed is missing or undecodable, core still starts
-  and its authorizer reports `signing_keys_not_provisioned` (even during a
-  broker outage or when a bootstrap record exists in the database).
+  and its authorizer reports `signing_keys_not_provisioned` in `data.nats.reason`
+  on `GET /api/admin/managed-components/bootstrap` (even during a broker outage
+  or when a bootstrap record exists in the database).
 - NATS mounts `nats-callout-authorization.conf` and `nats-callout-accounts.conf`
   from the runtime Secret as required items (without `optional: true`). If
   either `.conf` fragment is missing, Kubernetes blocks the affected NATS pod
@@ -118,10 +119,11 @@ With enforcement enabled:
 
 - In a multi-replica NATS cluster, if one NATS pod fails to start due to a
   missing fragment while core has all three seeds mounted and continues
-  answering through a surviving broker, an otherwise ready hub stays ready. If
+  answering through a surviving broker, `data.nats.ready` remains `true`. If
   all three seeds are mounted on core but core loses its authorizer connection
-  to NATS, hub status reports the authorizer as not answering and `edge install leaf`
-  stops before making host changes.
+  to NATS, `data.nats.ready` becomes `false` with the connection readiness
+  reason (such as `connecting` or `auth_connection_unavailable`); inspect NATS
+  pod events and core health before retrying.
 
 ### Dgraph server TLS (separate path)
 
