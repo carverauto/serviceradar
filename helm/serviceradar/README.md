@@ -589,8 +589,12 @@ dimensions and refuses a mismatched checkpoint.
 `media_worker_model_identity_test.py` fails when core and the chart drift.
 The chart sets `SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED` to match
 `mediaWorker.enabled` and reserves it in `core.extraEnv` and
-`core.extraEnvValueFrom`, controlling whether core relays visual-index jobs and
-subscribes to `CAMERA_MEDIA_RESULTS`.
+`core.extraEnvValueFrom`. Core relays visual-index jobs and subscribes to
+`CAMERA_MEDIA_RESULTS` only when both
+`SERVICERADAR_CAMERA_VISUAL_INDEXING_ENABLED=true` and
+`SERVICERADAR_CAMERA_RECORDING_ENABLED=true` (emitted when `nvr.enabled`,
+`nvr.ingest.enabled`, and `nvr.ingest.client.cameraRecordingEnabled` are all
+true).
 
 The chart refuses to render, instead of producing a pod that crash-loops, when:
 
@@ -770,7 +774,11 @@ neither:
    ```
 
 Then set `mediaWorker.enabled` and `webNg.controlPlaneRuntime.mediaWorker.enabled`
-together, select the CUDA image for `cuda`, and, since the published CUDA image is arm64-only, place the
+together, ensure camera recording is enabled on core so it relays jobs and
+subscribes to `CAMERA_MEDIA_RESULTS` (`nvr.enabled`, `nvr.ingest.enabled`, and
+`nvr.ingest.client.cameraRecordingEnabled` all true, which emits
+`SERVICERADAR_CAMERA_RECORDING_ENABLED=true`), select the CUDA image for `cuda`,
+and, since the published CUDA image is arm64-only, place the
 worker on arm64 GPU nodes (`mediaWorker.nodeSelector` with
 `kubernetes.io/arch: arm64`, or equivalent affinity, as `values-demo.yaml`
 does; a site-built amd64 image needs no such selector). Make sure the
@@ -828,7 +836,10 @@ run there:
   upgrade, even if it retains the certificate in the Secret, or template
   rendering fails because `media-worker.pem` is only an allowed inventory name
   while the worker is enabled;
-- `mediaWorker.enabled` together with `webNg.controlPlaneRuntime.mediaWorker.enabled`;
+- `mediaWorker.enabled` together with `webNg.controlPlaneRuntime.mediaWorker.enabled`,
+  plus `nvr.enabled`, `nvr.ingest.enabled`, and
+  `nvr.ingest.client.cameraRecordingEnabled` (so core receives
+  `SERVICERADAR_CAMERA_RECORDING_ENABLED=true` and relays visual-index jobs);
 - `mediaWorker.backend` and `device`;
 - the weights PVC: provisioning it with the SigLIP files (with `ReadOnlyMany`
   or `ReadWriteMany` when running multiple replicas across nodes) and setting
