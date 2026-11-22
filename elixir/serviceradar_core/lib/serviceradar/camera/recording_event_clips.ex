@@ -3,9 +3,12 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   Query and projection service for per-camera event clips over `VisualFrame`
   detections and playable `RecordingCatalogEntry` segments.
 
-  Returns UniFi Protect-style event clips (`:person`, `:vehicle`, `:animal`,
-  `:package`, `:motion`, and `:recording` fallback segments) with counts and
-  mode (`:all | :smart | :basic`) and category filtering.
+  `list_clips/3` projects coalesced event clips (`:person`, `:vehicle`,
+  `:animal`, `:package`, `:motion`, and `:recording` fallback segments) for a
+  camera coverage window using separate bounded queries for detection and
+  motion-only frames. `category_counts/1` and `filter_clips/2` provide
+  in-memory mode (`:all | :smart | :basic`) and category counting and
+  filtering.
 
   Supports both live CNPG execution and `:loaders` injection for `:db_free`
   unit test suites in `serviceradar_core` and `web-ng`.
