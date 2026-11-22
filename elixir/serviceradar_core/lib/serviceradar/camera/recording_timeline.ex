@@ -504,6 +504,7 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
               timeline_start_us < ^to_us
           )
           |> maybe_filter_profile_query(profile_uuid)
+          |> Ash.Query.load([:has_thumbnail])
           |> Ash.Query.sort(timeline_start_us: :asc, block_key: :asc)
 
         query =
@@ -808,6 +809,7 @@ defmodule ServiceRadar.Camera.RecordingTimeline do
           time_basis: Atom.to_string(t_basis),
           time_uncertainty: format_time_uncertainty(t_basis, t_unc_us),
           time_uncertainty_us: if(t_basis == :received, do: nil, else: t_unc_us),
+          has_thumbnail: fetch_val(entry, :has_thumbnail) == true,
           hold_summary: hold_summary
         }
 

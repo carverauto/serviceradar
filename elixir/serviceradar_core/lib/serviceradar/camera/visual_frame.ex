@@ -14,6 +14,7 @@ defmodule ServiceRadar.Camera.VisualFrame do
 
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Camera.Validations.ThumbnailJpeg
   alias ServiceRadar.Camera.VisualEmbedding
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -56,6 +57,9 @@ defmodule ServiceRadar.Camera.VisualFrame do
         btrim(detector_model_id) <> '' AND
         btrim(detector_model_version) <> ''
         """
+
+      check_constraint :thumbnail_jpeg, "camera_visual_frames_thumbnail_jpeg_size",
+        check: "thumbnail_jpeg IS NULL OR octet_length(thumbnail_jpeg) <= 65536"
     end
   end
 
@@ -86,7 +90,8 @@ defmodule ServiceRadar.Camera.VisualFrame do
         :scene_suppressed,
         :detector_model_id,
         :detector_model_version,
-        :detections
+        :detections,
+        :thumbnail_jpeg
       ]
 
       upsert? true
@@ -98,8 +103,11 @@ defmodule ServiceRadar.Camera.VisualFrame do
         :time_basis,
         :scene_suppressed,
         :detections,
+        :thumbnail_jpeg,
         :updated_at
       ]
+
+      validate {ThumbnailJpeg, []}
 
       validate present([
                  :catalog_entry_id,
@@ -197,6 +205,13 @@ defmodule ServiceRadar.Camera.VisualFrame do
       public? true
     end
 
+    attribute :thumbnail_jpeg, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      select_by_default? false
+    end
+
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -220,6 +235,10 @@ defmodule ServiceRadar.Camera.VisualFrame do
       public? true
       destination_attribute :visual_frame_id
     end
+  end
+
+  calculations do
+    calculate :has_thumbnail, :boolean, expr(not is_nil(thumbnail_jpeg))
   end
 
   identities do

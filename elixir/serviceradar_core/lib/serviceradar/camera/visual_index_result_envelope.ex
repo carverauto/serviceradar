@@ -15,6 +15,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
   and `model_id`/`model_version` must agree when supplied together. Unknown fields are ignored.
   """
 
+  alias ServiceRadar.Camera.Thumbnail
+
   @max_bigint 9_223_372_036_854_775_807
   @max_u32 4_294_967_295
   @invalid {:error, :invalid_result_envelope}
@@ -37,12 +39,17 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
              {:embedding_dim, &dimension/1}
            ]) do
       body =
-        object(envelope, [
-          {:schema, &literal(&1, result_subject())},
-          {:schema_version, &literal(&1, 1)},
-          {:tracks, fn items -> array(items, :infinity, &track/1) end, []},
-          {:frames, &array(&1, 512, fn item -> frame(item, identity.embedding_dim) end)}
-        ])
+        with {:ok, parsed} <-
+               object(envelope, [
+                 {:schema, &literal(&1, result_subject())},
+                 {:schema_version, &literal(&1, 1)},
+                 {:tracks, fn items -> array(items, :infinity, &track/1) end, []},
+                 {:block_thumbnail_jpeg_b64, fn v -> nullable(v, &thumbnail_jpeg_b64/1) end, nil},
+                 {:frames, &array(&1, 512, fn item -> frame(item, identity.embedding_dim) end)}
+               ]) do
+          {block_thumbnail_jpeg, rest} = Map.pop(parsed, :block_thumbnail_jpeg_b64)
+          {:ok, Map.put(rest, :block_thumbnail_jpeg, block_thumbnail_jpeg)}
+        end
 
       {:ok, identity, body}
     end
@@ -61,13 +68,25 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
   end
 
   defp frame(value, dim) do
-    object(value, [
-      {:fragment_sequence, &uint(&1, @max_u32)},
-      {:media_pts_ns, &uint(&1, @max_bigint)},
-      {:scene_suppressed, &boolean/1},
-      {:detections, fn items -> array(items, 64, &detection/1) end},
-      {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end)}
-    ])
+    with {:ok, parsed} <-
+           object(value, [
+             {:fragment_sequence, &uint(&1, @max_u32)},
+             {:media_pts_ns, &uint(&1, @max_bigint)},
+             {:scene_suppressed, &boolean/1},
+             {:detections, fn items -> array(items, 64, &detection/1) end},
+             {:embeddings, &array(&1, 16, fn item -> embedding(item, dim) end)},
+             {:thumbnail_jpeg_b64, fn v -> nullable(v, &thumbnail_jpeg_b64/1) end, nil}
+           ]) do
+      {thumbnail_jpeg, rest} = Map.pop(parsed, :thumbnail_jpeg_b64)
+      {:ok, Map.put(rest, :thumbnail_jpeg, thumbnail_jpeg)}
+    end
+  end
+
+  defp thumbnail_jpeg_b64(value) do
+    case Thumbnail.decode_base64_jpeg(value) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, _} -> @invalid
+    end
   end
 
   defp detection(value) do

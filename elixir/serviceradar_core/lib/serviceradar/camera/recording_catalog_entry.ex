@@ -31,6 +31,7 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.Validations.ThumbnailJpeg
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   require Ash.Query
@@ -230,6 +231,9 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
         ((timeline_start_us IS NULL AND timeline_end_us IS NULL) OR
          (timeline_start_us IS NOT NULL AND timeline_end_us IS NOT NULL AND timeline_end_us >= timeline_start_us))
         """
+
+      check_constraint :thumbnail_jpeg, "camera_recording_catalog_thumbnail_jpeg_size",
+        check: "thumbnail_jpeg IS NULL OR octet_length(thumbnail_jpeg) <= 65536"
     end
   end
 
@@ -280,10 +284,13 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
         :archive_state,
         :archive_state_at,
         :archive_binding_id,
-        :sealed_at
+        :sealed_at,
+        :thumbnail_jpeg
       ]
 
       change set_attribute(:local_state, :present)
+
+      validate {ThumbnailJpeg, []}
 
       validate present([
                  :recording_block_id,
@@ -423,6 +430,11 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       ]
 
       validate present([:archive_state, :archive_state_at])
+    end
+
+    update :set_thumbnail do
+      accept [:thumbnail_jpeg]
+      validate {ThumbnailJpeg, []}
     end
   end
 
@@ -675,6 +687,13 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       public? true
     end
 
+    attribute :thumbnail_jpeg, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      select_by_default? false
+    end
+
     create_timestamp :inserted_at, public?: true
     update_timestamp :updated_at, public?: true
   end
@@ -707,6 +726,10 @@ defmodule ServiceRadar.Camera.RecordingCatalogEntry do
       define_attribute? false
       source_attribute :nvr_archive_receipt_id
     end
+  end
+
+  calculations do
+    calculate :has_thumbnail, :boolean, expr(not is_nil(thumbnail_jpeg))
   end
 
   identities do

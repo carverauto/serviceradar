@@ -21,6 +21,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadar.Camera.VisualEmbedding
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Camera.VisualIndexBackfill
@@ -587,11 +588,24 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       ]
     }
 
+    block_jpeg =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x09, 0xFF, 0xD9>>
+
+    auth_result_envelope_with_thumb =
+      Map.put(auth_result_envelope, "block_thumbnail_jpeg_b64", Base.encode64(block_jpeg))
+
     assert {:ok, %{frame_count: 2, embedding_count: 3}} =
-             VisualIndexResultProjector.ingest_result(auth_result_envelope)
+             VisualIndexResultProjector.ingest_result(auth_result_envelope_with_thumb)
 
     assert {:ok, %{frame_count: 0, embedding_count: 0}} =
-             VisualIndexResultProjector.ingest_result(auth_result_envelope)
+             VisualIndexResultProjector.ingest_result(auth_result_envelope_with_thumb)
+
+    assert {:ok, ^block_jpeg} =
+             Thumbnail.fetch_for_camera(
+               to_string(cam_allowed.id),
+               :block,
+               to_string(entry_auth.id)
+             )
 
     assert 2 ==
              VisualFrame
@@ -614,6 +628,13 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
     assert {:ok, %{frame_count: 2, embedding_count: 3}} =
              VisualIndexResultProjector.ingest_result(forb_result_envelope)
+
+    assert {:error, :thumbnail_not_found} =
+             Thumbnail.fetch_for_camera(
+               to_string(cam_forbidden.id),
+               :block,
+               to_string(entry_forb.id)
+             )
 
     scoped_investigator = %{
       user: %{id: "investigator-e2e", email: "inv@example.test"},

@@ -20,6 +20,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingTimeline
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -347,6 +348,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
                 timeline_start_us < ^to_us
             )
             |> maybe_filter_profile_query(profile_uuid)
+            |> Ash.Query.load([:has_thumbnail])
             |> Ash.Query.sort(timeline_start_us: :asc, block_key: :asc)
 
           with {:ok, rows} <- Ash.read(query, actor: @system_actor) do
@@ -371,6 +373,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
               timeline_ts_us <= ^to_us
           )
           |> maybe_filter_profile_query(profile_uuid)
+          |> Ash.Query.load([:has_thumbnail])
           |> Ash.Query.sort(timeline_ts_us: :desc, fragment_sequence: :desc)
 
         detection_query =
@@ -431,7 +434,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
 
   defp build_detection_clips(frames, camera_uuid, playable_by_id, coalesce_gap_us) do
     frames
-    |> Enum.flat_map(&expand_frame_observations/1)
+    |> Enum.flat_map(&expand_frame_observations(&1, camera_uuid))
     |> Enum.sort_by(fn obs -> {obs.catalog_entry_id, obs.category, obs.timeline_ts_us} end)
     |> coalesce_observations(coalesce_gap_us)
     |> Enum.map(fn cluster ->
@@ -440,9 +443,10 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     end)
   end
 
-  defp expand_frame_observations(frame) do
+  defp expand_frame_observations(frame, camera_uuid) do
     detections = List.wrap(fetch_val(frame, :detections))
     scene_suppressed? = fetch_val(frame, :scene_suppressed) == true
+    thumbnail_url = frame_thumbnail_url(frame, camera_uuid)
 
     cond do
       detections != [] ->
@@ -479,7 +483,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
             confidence: normalize_confidence(fetch_val(best, :confidence)),
             bbox: fetch_val(best, :bbox),
             dominant_colors: colors,
-            thumbnail_url: fetch_val(frame, :thumbnail_url)
+            thumbnail_url: thumbnail_url
           }
         end)
 
@@ -496,7 +500,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
             confidence: nil,
             bbox: nil,
             dominant_colors: [],
-            thumbnail_url: fetch_val(frame, :thumbnail_url)
+            thumbnail_url: thumbnail_url
           }
         ]
 
@@ -630,7 +634,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       archive_state: archive_state,
       local_state: local_state,
       copy_state: copy_state,
-      thumbnail_url: cluster.thumbnail_url
+      thumbnail_url: cluster.thumbnail_url || entry_thumbnail_url(entry, camera_uuid)
     }
   end
 
@@ -667,8 +671,36 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       archive_state: archive_state,
       local_state: local_state,
       copy_state: copy_state,
-      thumbnail_url: fetch_val(entry, :thumbnail_url)
+      thumbnail_url: entry_thumbnail_url(entry, camera_uuid)
     }
+  end
+
+  defp frame_thumbnail_url(frame, camera_uuid) do
+    case fetch_val(frame, :thumbnail_url) do
+      url when is_binary(url) and url != "" ->
+        url
+
+      _ ->
+        frame_id = fetch_val(frame, :id)
+
+        if fetch_val(frame, :has_thumbnail) == true and not is_nil(frame_id) do
+          Thumbnail.frame_url(camera_uuid, frame_id)
+        end
+    end
+  end
+
+  defp entry_thumbnail_url(entry, camera_uuid) do
+    case fetch_val(entry, :thumbnail_url) do
+      url when is_binary(url) and url != "" ->
+        url
+
+      _ ->
+        eid = entry_id(entry)
+
+        if fetch_val(entry, :has_thumbnail) == true and not is_nil(eid) do
+          Thumbnail.block_url(camera_uuid, eid)
+        end
+    end
   end
 
   # ---------------------------------------------------------------------------
