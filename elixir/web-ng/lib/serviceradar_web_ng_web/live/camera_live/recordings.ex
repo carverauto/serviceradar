@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadarWebNGWeb.CameraSemanticSearch
 
   require Ash.Query
+  require Logger
 
   @recording_view_permissions ["devices.view", "devices.cameras.recordings.view"]
   @recording_hold_permissions [
@@ -92,9 +93,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_mode: "all",
         timeline_clips_category: "all",
         timeline_selected_clip_id: nil,
+        timeline_user_selected_window?: false,
         recording_subscribed_source_id: nil,
         recording_refresh_timer_ref: nil,
+        recording_refresh_token: nil,
         recording_debounce_timer_ref: nil,
+        recording_debounce_token: nil,
         hold_form: to_form(default_hold_form_params(nil, nil, "Etc/UTC", false), as: :hold),
         error: nil,
         loading: true
@@ -152,6 +156,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_seek_us: seek_us,
         timeline_highlight_frame_id: highlight_frame_id,
         timeline_selected_clip_id: nil,
+        timeline_user_selected_window?: false,
         timeline_search_query:
           if(Map.has_key?(params, "q"), do: search_query, else: socket.assigns.timeline_search_query),
         timeline_search_object_class:
@@ -451,13 +456,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           socket.assigns.timeline_search_results
         )
 
-      has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us)
+      has_adjacent? = adjacent_window_available?(play_to_us, cov_to_us, socket)
 
       {:noreply,
        assign(socket,
          current_scope: scope,
          source: source,
          timeline_selected_clip_id: nil,
+         timeline_user_selected_window?: true,
          timeline_play_from_us: play_from_us,
          timeline_play_to_us: play_to_us,
          timeline_playlist_origin_us: playlist_origin_us,
@@ -556,12 +562,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         if is_map(cov) and seek_us >= cov.from_us and seek_us <= cov.to_us do
           focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us)
         else
-          socket
-          |> assign(
-            timeline_custom_from_us: max(clip_start_us - 30_000_000, 0),
-            timeline_anchor_to_us: clip_end_us + 30_000_000
-          )
-          |> load_timeline_for_authorized(scope, source)
+          reloaded =
+            socket
+            |> assign(
+              timeline_custom_from_us: max(clip_start_us - 30_000_000, 0),
+              timeline_anchor_to_us: clip_end_us + 30_000_000
+            )
+            |> load_timeline_for_authorized(scope, source)
+
+          if is_nil(reloaded.assigns.error) do
+            assign(reloaded, timeline_user_selected_window?: true)
+          else
+            reloaded
+          end
         end
 
       {:noreply, socket}
@@ -691,22 +704,30 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  def handle_info(:debounced_recording_refresh, socket) do
-    socket = assign(socket, recording_debounce_timer_ref: nil)
+  def handle_info({:debounced_recording_refresh, token}, socket) do
+    if connected?(socket) and is_reference(token) and
+         token == socket.assigns.recording_debounce_token do
+      socket =
+        assign(socket,
+          recording_debounce_timer_ref: nil,
+          recording_debounce_token: nil
+        )
 
-    if connected?(socket) do
       {:noreply, perform_live_refresh(socket)}
     else
       {:noreply, socket}
     end
   end
 
-  def handle_info(:refresh_timeline_tick, socket) do
-    socket = assign(socket, recording_refresh_timer_ref: nil)
-
-    if connected?(socket) do
+  def handle_info({:refresh_timeline_tick, token}, socket) do
+    if connected?(socket) and is_reference(token) and
+         token == socket.assigns.recording_refresh_token do
       socket =
         socket
+        |> assign(
+          recording_refresh_timer_ref: nil,
+          recording_refresh_token: nil
+        )
         |> perform_live_refresh()
         |> maybe_reschedule_periodic_refresh()
 
@@ -763,6 +784,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         items: inventory.items,
         next_cursor: inventory.next_cursor,
         selected: nil,
+        timeline_user_selected_window?: false,
         error: nil,
         loading: false
       )
@@ -905,6 +927,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_holds: all_holds,
         timeline_event_clips: event_clips,
         timeline_selected_clip_id: selected_clip_id,
+        timeline_user_selected_window?: false,
         hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
         error: nil,
         loading: false
@@ -977,6 +1000,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     assign(socket,
       timeline_selected_clip_id: nil,
+      timeline_user_selected_window?: is_nil(socket.assigns.error),
       timeline_play_from_us: next_from,
       timeline_play_to_us: next_to,
       timeline_playlist_origin_us: playlist_origin_us,
@@ -991,7 +1015,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           true
         ),
       timeline_playlist_path: playlist_path,
-      timeline_has_adjacent_window: adjacent_window_available?(next_to, cov_to_us),
+      timeline_has_adjacent_window: adjacent_window_available?(next_to, cov_to_us, socket),
       hold_form:
         to_form(
           default_hold_form_params(
@@ -1097,9 +1121,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   # A verified archive copy plays only through an installed archive reader (D.2).
   defp archive_playable?(block), do: block.archive_state == :verified and CameraTimelineReader.archive_reader_installed?()
 
-  defp adjacent_window_available?(play_to_us, cov_to_us, socket \\ nil) do
-    current_now_us = if socket, do: now_us(socket), else: System.system_time(:microsecond)
-    play_to_us < cov_to_us or cov_to_us < current_now_us - 1_000_000
+  defp adjacent_window_available?(play_to_us, cov_to_us, socket) do
+    play_to_us < cov_to_us or cov_to_us < now_us(socket) - 1_000_000
   end
 
   defp load_enriched_camera_holds(socket, camera_source_id, coverage, scope) do
@@ -1415,6 +1438,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_holds: [],
       timeline_event_clips: [],
       timeline_selected_clip_id: nil,
+      timeline_user_selected_window?: false,
       loading: false,
       error: message(reason)
     )
@@ -1423,6 +1447,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp ensure_live_refresh(socket, source_id) do
     socket
     |> ensure_recording_subscription(source_id)
+    |> cancel_debounced_refresh()
     |> schedule_periodic_refresh()
   end
 
@@ -1457,7 +1482,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     assign(socket,
       recording_subscribed_source_id: nil,
       recording_refresh_timer_ref: nil,
-      recording_debounce_timer_ref: nil
+      recording_refresh_token: nil,
+      recording_debounce_timer_ref: nil,
+      recording_debounce_token: nil
+    )
+  end
+
+  defp cancel_debounced_refresh(socket) do
+    cancel_timer_ref(socket.assigns.recording_debounce_timer_ref)
+
+    assign(socket,
+      recording_debounce_timer_ref: nil,
+      recording_debounce_token: nil
     )
   end
 
@@ -1465,12 +1501,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     cancel_timer_ref(socket.assigns.recording_refresh_timer_ref)
     interval_ms = socket.assigns.recording_refresh_interval_ms
 
-    timer_ref =
+    {timer_ref, token} =
       if is_integer(interval_ms) and interval_ms > 0 do
-        Process.send_after(self(), :refresh_timeline_tick, interval_ms)
+        token = make_ref()
+        {Process.send_after(self(), {:refresh_timeline_tick, token}, interval_ms), token}
+      else
+        {nil, nil}
       end
 
-    assign(socket, recording_refresh_timer_ref: timer_ref)
+    assign(socket,
+      recording_refresh_timer_ref: timer_ref,
+      recording_refresh_token: token
+    )
   end
 
   defp maybe_reschedule_periodic_refresh(socket) do
@@ -1488,8 +1530,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       debounce_ms = socket.assigns.recording_debounce_ms
 
       if is_integer(debounce_ms) and debounce_ms > 0 do
-        timer_ref = Process.send_after(self(), :debounced_recording_refresh, debounce_ms)
-        assign(socket, recording_debounce_timer_ref: timer_ref)
+        token = make_ref()
+        timer_ref = Process.send_after(self(), {:debounced_recording_refresh, token}, debounce_ms)
+
+        assign(socket,
+          recording_debounce_timer_ref: timer_ref,
+          recording_debounce_token: token
+        )
       else
         perform_live_refresh(socket)
       end
@@ -1511,8 +1558,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp perform_live_refresh(socket) do
-    cancel_timer_ref(socket.assigns.recording_debounce_timer_ref)
-    socket = assign(socket, recording_debounce_timer_ref: nil)
+    socket = cancel_debounced_refresh(socket)
 
     case socket.assigns.mode do
       :timeline ->
@@ -1521,7 +1567,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             refresh_timeline_live(socket, scope, source)
 
           {:error, reason} ->
-            unavailable(socket, reason)
+            handle_live_refresh_error(socket, reason)
         end
 
       :published ->
@@ -1533,15 +1579,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     case authorize_timeline_view(socket) do
       {:ok, scope, source} ->
         if deps(socket).has_timeline_data?.(source.id, scope) do
-          socket
-          |> assign(current_scope: scope, source: source, mode: :timeline)
-          |> load_timeline_for_authorized(scope, source)
+          refresh_timeline_live(socket, scope, source)
         else
           socket
         end
 
       {:error, reason} ->
-        unavailable(socket, reason)
+        handle_live_refresh_error(socket, reason)
     end
   end
 
@@ -1573,20 +1617,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         )
 
       if preserve_playback_window?(socket) do
-        play_to_us = socket.assigns.timeline_play_to_us || cov_to_us
-
-        assign(socket,
-          current_scope: scope,
-          source: source,
-          mode: :timeline,
-          stream_profiles: profiles,
-          timeline_coverage: coverage,
-          timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov_to_us, socket),
-          timeline_holds: all_holds,
-          timeline_event_clips: event_clips,
-          error: nil,
-          loading: false
-        )
+        assign_live_refresh_preserving_window(socket, scope, source, %{
+          profiles: profiles,
+          coverage: coverage,
+          cov_to_us: cov_to_us,
+          all_holds: all_holds,
+          event_clips: event_clips
+        })
       else
         assign_live_refresh_without_active_playback(socket, scope, source, %{
           profiles: profiles,
@@ -1598,17 +1635,100 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         })
       end
     else
-      {:error, reason} -> unavailable(socket, reason)
+      {:error, reason} -> handle_live_refresh_error(socket, reason)
     end
   end
 
+  defp handle_live_refresh_error(socket, reason) do
+    if fatal_live_refresh_error?(reason) do
+      unavailable(socket, reason)
+    else
+      Logger.warning(
+        "Transient camera recordings live refresh error for source #{current_source_id(socket)}: #{inspect(reason)}"
+      )
+
+      socket
+    end
+  end
+
+  defp fatal_live_refresh_error?(%Forbidden{}), do: true
+
+  defp fatal_live_refresh_error?(reason)
+       when reason in [
+              :unauthorized,
+              :forbidden,
+              :permission_revoked,
+              :not_found,
+              :recording_block_not_found,
+              :camera_source_not_found,
+              :invalid_id
+            ], do: true
+
+  defp fatal_live_refresh_error?(_reason), do: false
+
   defp preserve_playback_window?(socket) do
-    has_active_playlist? =
-      is_binary(socket.assigns.timeline_playlist_path) and
-        is_integer(socket.assigns.timeline_play_from_us) and
+    has_window? =
+      is_integer(socket.assigns.timeline_play_from_us) and
         is_integer(socket.assigns.timeline_play_to_us)
 
-    has_active_playlist? or not is_nil(socket.assigns.timeline_selected_clip_id)
+    has_active_playlist? = is_binary(socket.assigns.timeline_playlist_path) and has_window?
+
+    has_active_playlist? or
+      not is_nil(socket.assigns.timeline_selected_clip_id) or
+      (socket.assigns.timeline_user_selected_window? == true and has_window?)
+  end
+
+  defp assign_live_refresh_preserving_window(socket, scope, source, %{
+         profiles: profiles,
+         coverage: coverage,
+         cov_to_us: cov_to_us,
+         all_holds: all_holds,
+         event_clips: event_clips
+       }) do
+    play_from_us = socket.assigns.timeline_play_from_us
+    play_to_us = socket.assigns.timeline_play_to_us
+
+    base_assigns = [
+      current_scope: scope,
+      source: source,
+      mode: :timeline,
+      stream_profiles: profiles,
+      timeline_coverage: coverage,
+      timeline_has_adjacent_window: adjacent_window_available?(play_to_us || cov_to_us, cov_to_us, socket),
+      timeline_holds: all_holds,
+      timeline_event_clips: event_clips,
+      error: nil,
+      loading: false
+    ]
+
+    extra_assigns =
+      with nil <- socket.assigns.timeline_playlist_path,
+           true <- is_integer(play_from_us) and is_integer(play_to_us),
+           playlist_path when is_binary(playlist_path) <-
+             build_playlist_path_if_playable(
+               source.id,
+               coverage,
+               play_from_us,
+               play_to_us,
+               socket.assigns.timeline_profile_id,
+               socket.assigns.timeline_source
+             ) do
+        playlist_origin_us =
+          compute_playlist_origin_us(coverage, play_from_us, play_to_us, socket.assigns.timeline_source)
+
+        seek_offset_seconds =
+          compute_seek_offset_seconds(socket.assigns.timeline_seek_us, playlist_origin_us, play_to_us)
+
+        [
+          timeline_playlist_path: playlist_path,
+          timeline_playlist_origin_us: playlist_origin_us,
+          timeline_seek_offset_seconds: seek_offset_seconds
+        ]
+      else
+        _ -> []
+      end
+
+    assign(socket, base_assigns ++ extra_assigns)
   end
 
   defp assign_live_refresh_without_active_playback(socket, scope, source, %{
@@ -1856,6 +1976,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
     assign(socket,
       timeline_selected_clip_id: nil,
+      timeline_user_selected_window?: true,
       timeline_play_from_us: play_from_us,
       timeline_play_to_us: play_to_us,
       timeline_playlist_origin_us: playlist_origin_us,
@@ -1863,7 +1984,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_overlay_detections: overlay_detections,
       timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
       timeline_playlist_path: playlist_path,
-      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov.to_us),
+      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov.to_us, socket),
       hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold)
     )
   end
@@ -2115,6 +2236,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       current_scope: scope,
       source: source,
       timeline_selected_clip_id: clip.id,
+      timeline_user_selected_window?: true,
       timeline_play_from_us: play_from_us,
       timeline_play_to_us: play_to_us,
       timeline_playlist_origin_us: playlist_origin_us,
@@ -2124,7 +2246,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_overlay_detections: overlay_detections,
       timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
       timeline_playlist_path: playlist_path,
-      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov_to_us),
+      timeline_has_adjacent_window: adjacent_window_available?(play_to_us, cov_to_us, socket),
       hold_form: to_form(default_hold_form_params(play_from_us, play_to_us, tz, true), as: :hold),
       error: nil
     )
@@ -2175,12 +2297,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp hold_error_message(:hold_already_released), do: "This hold has already been released."
   defp hold_error_message(_), do: "Unable to complete recording hold action. Check hold inputs."
 
-  defp message(reason) when reason in [:unauthorized, :permission_revoked],
+  defp message(reason) when reason in [:unauthorized, :permission_revoked, :forbidden],
     do: "You no longer have permission to view camera recordings."
 
   defp message(%Forbidden{}), do: message(:permission_revoked)
   defp message(:invalid_id), do: "The camera or recording identifier is invalid."
-  defp message(:recording_block_not_found), do: "The camera or recording could not be found."
+
+  defp message(reason) when reason in [:recording_block_not_found, :camera_source_not_found, :not_found],
+    do: "The camera or recording could not be found."
+
   defp message(:archive_unavailable), do: "This recording is no longer available for playback."
 
   defp message(reason)

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Phoenix.Component, only: [assign: 2, assign: 3]
 
   alias Phoenix.LiveView.Socket
@@ -124,7 +125,9 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       {:noreply, after_first} = Recordings.handle_info(msg1, socket)
       debounce_ref = after_first.assigns.recording_debounce_timer_ref
+      debounce_token = after_first.assigns.recording_debounce_token
       assert is_reference(debounce_ref)
+      assert is_reference(debounce_token)
       refute_received {:coverage_loaded, _, _}
 
       # Second rapid event reuses the same debounce timer (coalesced).
@@ -135,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         )
 
       assert after_second.assigns.recording_debounce_timer_ref == debounce_ref
+      assert after_second.assigns.recording_debounce_token == debounce_token
 
       # Event for another camera is ignored.
       {:noreply, after_other} =
@@ -146,9 +150,118 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert after_other.assigns.recording_debounce_timer_ref == nil
 
       # Delivering the debounced tick triggers exactly one refresh.
-      {:noreply, refreshed} = Recordings.handle_info(:debounced_recording_refresh, after_second)
+      {:noreply, refreshed} =
+        Recordings.handle_info({:debounced_recording_refresh, debounce_token}, after_second)
+
       assert refreshed.assigns.recording_debounce_timer_ref == nil
+      assert refreshed.assigns.recording_debounce_token == nil
       assert_receive {:coverage_loaded, @camera_id, @base_now_us}
+      refute_received {:coverage_loaded, _, _}
+    end
+
+    test "ignores stale periodic tick tokens after handle_params so timers never multiply" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            send(parent, {:coverage_loaded, source_id, params.to_us})
+            {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 500)
+      on_exit(fn -> cancel_timers(socket) end)
+      assert_receive {:coverage_loaded, @camera_id, @base_now_us}
+
+      first_timer = socket.assigns.recording_refresh_timer_ref
+      first_token = socket.assigns.recording_refresh_token
+      assert is_reference(first_timer)
+      assert is_reference(first_token)
+
+      {:noreply, patched} =
+        Recordings.handle_params(
+          %{"camera_source_id" => @camera_id, "mode" => "timeline", "span" => "6h"},
+          "/cameras/#{@camera_id}/recordings?mode=timeline&span=6h",
+          socket
+        )
+
+      on_exit(fn -> cancel_timers(patched) end)
+      assert_receive {:coverage_loaded, @camera_id, @base_now_us}
+
+      second_timer = patched.assigns.recording_refresh_timer_ref
+      second_token = patched.assigns.recording_refresh_token
+      assert is_reference(second_timer)
+      assert is_reference(second_token)
+      refute second_timer == first_timer
+      refute second_token == first_token
+
+      {:noreply, after_stale} = Recordings.handle_info({:refresh_timeline_tick, first_token}, patched)
+      assert after_stale.assigns.recording_refresh_timer_ref == second_timer
+      assert after_stale.assigns.recording_refresh_token == second_token
+      assert Process.read_timer(second_timer) != false
+      refute_received {:coverage_loaded, _, _}
+
+      no_token_socket = assign(patched, recording_refresh_token: nil)
+      {:noreply, after_nil} = Recordings.handle_info({:refresh_timeline_tick, nil}, no_token_socket)
+      assert after_nil.assigns.recording_refresh_timer_ref == second_timer
+      refute_received {:coverage_loaded, _, _}
+    end
+
+    test "ignores stale debounced refresh tokens after a refresh or handle_params reset" do
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            send(parent, {:coverage_loaded, source_id, params.to_us})
+            {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 500)
+      on_exit(fn -> cancel_timers(socket) end)
+      assert_receive {:coverage_loaded, @camera_id, @base_now_us}
+
+      {:noreply, with_debounce} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :block_cataloged}},
+          socket
+        )
+
+      stale_debounce_token = with_debounce.assigns.recording_debounce_token
+      assert is_reference(stale_debounce_token)
+
+      tick_token = with_debounce.assigns.recording_refresh_token
+      {:noreply, after_tick} = Recordings.handle_info({:refresh_timeline_tick, tick_token}, with_debounce)
+      on_exit(fn -> cancel_timers(after_tick) end)
+      assert_receive {:coverage_loaded, @camera_id, @base_now_us}
+      assert after_tick.assigns.recording_debounce_timer_ref == nil
+      assert after_tick.assigns.recording_debounce_token == nil
+
+      {:noreply, after_stale_debounce} =
+        Recordings.handle_info({:debounced_recording_refresh, stale_debounce_token}, after_tick)
+
+      assert after_stale_debounce.assigns.recording_debounce_timer_ref == nil
+      refute_received {:coverage_loaded, _, _}
+
+      {:noreply, with_new_debounce} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :archive_verified}},
+          after_stale_debounce
+        )
+
+      on_exit(fn -> cancel_timers(with_new_debounce) end)
+      new_debounce_ref = with_new_debounce.assigns.recording_debounce_timer_ref
+      new_debounce_token = with_new_debounce.assigns.recording_debounce_token
+      assert is_reference(new_debounce_token)
+      refute new_debounce_token == stale_debounce_token
+
+      {:noreply, still_pending} =
+        Recordings.handle_info({:debounced_recording_refresh, stale_debounce_token}, with_new_debounce)
+
+      assert still_pending.assigns.recording_debounce_timer_ref == new_debounce_ref
+      assert still_pending.assigns.recording_debounce_token == new_debounce_token
       refute_received {:coverage_loaded, _, _}
     end
   end
@@ -265,7 +378,12 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       Agent.update(clock, fn _ -> later_now_us end)
       Agent.update(phase, fn _ -> :updated end)
 
-      {:noreply, refreshed} = Recordings.handle_info(:refresh_timeline_tick, selected_socket)
+      {:noreply, refreshed} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, selected_socket.assigns.recording_refresh_token},
+          selected_socket
+        )
+
       on_exit(fn -> cancel_timers(refreshed) end)
 
       # Playback window and selected clip are preserved intact.
@@ -353,11 +471,322 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       Agent.update(allowed?, fn _ -> false end)
 
-      {:noreply, revoked} = Recordings.handle_info(:refresh_timeline_tick, socket)
+      {:noreply, revoked} =
+        Recordings.handle_info({:refresh_timeline_tick, socket.assigns.recording_refresh_token}, socket)
+
       assert_receive {:unsubscribed, @camera_id}
       assert revoked.assigns.recording_subscribed_source_id == nil
       assert revoked.assigns.recording_refresh_timer_ref == nil
+      assert revoked.assigns.recording_refresh_token == nil
       assert revoked.assigns.error =~ "permission"
+    end
+
+    test "keeps active playback intact and reschedules ticks on transient refresh errors" do
+      {:ok, clock} = Agent.start_link(fn -> @base_now_us end)
+      {:ok, fault} = Agent.start_link(fn -> :ok end)
+
+      first_block = playable_block(@base_now_us - 600_000_000, @base_now_us - 300_000_000, :pending)
+      later_now_us = @base_now_us + 30_000_000
+      second_block = playable_block(later_now_us - 20_000_000, later_now_us, :pending)
+
+      deps =
+        stub_deps(%{
+          now_us: fn -> Agent.get(clock, & &1) end,
+          authorize_timeline_view: fn socket ->
+            case Agent.get(fault, & &1) do
+              :auth_timeout ->
+                {:error, :db_connection_timeout}
+
+              _ ->
+                {:ok, socket.assigns.current_scope, synthetic_source(socket.assigns.camera_source_id)}
+            end
+          end,
+          coverage: fn source_id, params, _scope ->
+            case Agent.get(fault, & &1) do
+              :coverage_timeout ->
+                {:error, :timeout}
+
+              :recovered ->
+                {:ok, populated_coverage(source_id, params.from_us, params.to_us, [first_block, second_block])}
+
+              _ ->
+                {:ok, populated_coverage(source_id, params.from_us, params.to_us, [first_block])}
+            end
+          end,
+          list_holds: fn _source_id, _scope ->
+            case Agent.get(fault, & &1) do
+              :holds_pool_error -> {:error, :checkout_timeout}
+              _ -> {:ok, []}
+            end
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      orig_playlist_path = socket.assigns.timeline_playlist_path
+      orig_coverage = socket.assigns.timeline_coverage
+      orig_play_from = socket.assigns.timeline_play_from_us
+      orig_play_to = socket.assigns.timeline_play_to_us
+      assert is_binary(orig_playlist_path)
+
+      for transient_fault <- [:coverage_timeout, :holds_pool_error, :auth_timeout] do
+        Agent.update(fault, fn _ -> transient_fault end)
+
+        {result, log} =
+          with_log(fn ->
+            Recordings.handle_info(
+              {:refresh_timeline_tick, socket.assigns.recording_refresh_token},
+              socket
+            )
+          end)
+
+        {:noreply, after_error} = result
+        on_exit(fn -> cancel_timers(after_error) end)
+
+        assert log =~ "Transient camera recordings live refresh error"
+        assert after_error.assigns.error == nil
+        assert after_error.assigns.timeline_playlist_path == orig_playlist_path
+        assert after_error.assigns.timeline_coverage == orig_coverage
+        assert after_error.assigns.timeline_play_from_us == orig_play_from
+        assert after_error.assigns.timeline_play_to_us == orig_play_to
+        assert after_error.assigns.recording_subscribed_source_id == @camera_id
+        assert is_reference(after_error.assigns.recording_refresh_timer_ref)
+        assert is_reference(after_error.assigns.recording_refresh_token)
+        refute after_error.assigns.recording_refresh_token == socket.assigns.recording_refresh_token
+      end
+
+      Agent.update(fault, fn _ -> :coverage_timeout end)
+
+      {result, _log} =
+        with_log(fn ->
+          Recordings.handle_info(
+            {:refresh_timeline_tick, socket.assigns.recording_refresh_token},
+            socket
+          )
+        end)
+
+      {:noreply, after_transient} = result
+      on_exit(fn -> cancel_timers(after_transient) end)
+
+      Agent.update(clock, fn _ -> later_now_us end)
+      Agent.update(fault, fn _ -> :recovered end)
+
+      {:noreply, recovered} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, after_transient.assigns.recording_refresh_token},
+          after_transient
+        )
+
+      on_exit(fn -> cancel_timers(recovered) end)
+
+      assert recovered.assigns.error == nil
+      assert recovered.assigns.timeline_playlist_path == orig_playlist_path
+      assert recovered.assigns.timeline_coverage.to_us == later_now_us
+      assert length(recovered.assigns.timeline_coverage.blocks) == 2
+    end
+
+    test "handles transient vs fatal errors when checking published-to-timeline auto-switch" do
+      {:ok, state} = Agent.start_link(fn -> :ok end)
+      parent = self()
+
+      deps =
+        stub_deps(%{
+          authorize_timeline_view: fn socket ->
+            case Agent.get(state, & &1) do
+              :auth_transient -> {:error, :db_timeout}
+              :forbidden -> {:error, :forbidden}
+              :not_found -> {:error, :not_found}
+              _ -> {:ok, socket.assigns.current_scope, synthetic_source(socket.assigns.camera_source_id)}
+            end
+          end,
+          has_timeline_data?: fn _source_id, _scope -> true end,
+          coverage: fn _source_id, _params, _scope ->
+            case Agent.get(state, & &1) do
+              :coverage_transient -> {:error, :timeout}
+              _ -> {:ok, empty_coverage(@camera_id, @base_now_us - @hour_us, @base_now_us)}
+            end
+          end,
+          unsubscribe: fn id ->
+            send(parent, {:unsubscribed, id})
+            :ok
+          end
+        })
+
+      base =
+        @camera_id
+        |> mount_connected(deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+        |> assign(
+          mode: :published,
+          requested_mode: nil,
+          timeline_coverage: nil,
+          timeline_playlist_path: nil,
+          timeline_user_selected_window?: false
+        )
+
+      on_exit(fn -> cancel_timers(base) end)
+      assert is_reference(base.assigns.recording_refresh_token)
+
+      for transient_state <- [:auth_transient, :coverage_transient] do
+        Agent.update(state, fn _ -> transient_state end)
+
+        {result, log} =
+          with_log(fn ->
+            Recordings.handle_info({:refresh_timeline_tick, base.assigns.recording_refresh_token}, base)
+          end)
+
+        {:noreply, after_transient} = result
+        on_exit(fn -> cancel_timers(after_transient) end)
+
+        assert log =~ "Transient camera recordings live refresh error"
+        assert after_transient.assigns.mode == :published
+        assert after_transient.assigns.error == nil
+        assert after_transient.assigns.recording_subscribed_source_id == @camera_id
+        assert is_reference(after_transient.assigns.recording_refresh_timer_ref)
+      end
+
+      for {fatal_state, expected_substring} <- [{:forbidden, "permission"}, {:not_found, "not be found"}] do
+        Agent.update(state, fn _ -> fatal_state end)
+
+        {:noreply, after_fatal} =
+          Recordings.handle_info({:refresh_timeline_tick, base.assigns.recording_refresh_token}, base)
+
+        assert_receive {:unsubscribed, @camera_id}
+        assert after_fatal.assigns.recording_subscribed_source_id == nil
+        assert after_fatal.assigns.recording_refresh_timer_ref == nil
+        assert after_fatal.assigns.error =~ expected_substring
+      end
+    end
+
+    test "preserves user-selected empty bucket window across ticks and activates playback in place when a block seals" do
+      {:ok, clock} = Agent.start_link(fn -> @base_now_us end)
+      {:ok, phase} = Agent.start_link(fn -> :initial end)
+
+      span_from_us = @base_now_us - 6 * @hour_us
+      early_block = playable_block(span_from_us + 60_000_000, span_from_us + 180_000_000, :pending)
+
+      bucket_start_us = @base_now_us - 2 * @hour_us
+      bucket_end_us = bucket_start_us + 180_000_000
+      sealed_in_bucket = playable_block(bucket_start_us + 30_000_000, bucket_start_us + 120_000_000, :pending)
+      later_now_us = @base_now_us + 30_000_000
+      newer_block = playable_block(later_now_us - 15_000_000, later_now_us, :pending)
+
+      deps =
+        stub_deps(%{
+          now_us: fn -> Agent.get(clock, & &1) end,
+          coverage: fn source_id, params, _scope ->
+            blocks =
+              case Agent.get(phase, & &1) do
+                :initial -> [early_block]
+                :sealed_in_bucket -> [early_block, sealed_in_bucket]
+                :sealed_later -> [early_block, sealed_in_bucket, newer_block]
+              end
+
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, blocks)}
+          end
+        })
+
+      socket =
+        mount_connected(@camera_id, deps,
+          params: %{"camera_source_id" => @camera_id, "mode" => "timeline", "span" => "6h"},
+          refresh_interval_ms: 15_000,
+          debounce_ms: 0
+        )
+
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert socket.assigns.timeline_user_selected_window? == false
+      assert socket.assigns.timeline_play_from_us == early_block.timeline_start_us
+
+      {:noreply, bucket_socket} =
+        Recordings.handle_event(
+          "select_timeline_bucket",
+          %{
+            "start_us" => Integer.to_string(bucket_start_us),
+            "end_us" => Integer.to_string(bucket_end_us)
+          },
+          socket
+        )
+
+      chosen_from = bucket_socket.assigns.timeline_play_from_us
+      chosen_to = bucket_socket.assigns.timeline_play_to_us
+      assert chosen_from == bucket_start_us
+      assert chosen_to == bucket_start_us + @hour_us
+      assert bucket_socket.assigns.timeline_playlist_path == nil
+      assert bucket_socket.assigns.timeline_user_selected_window? == true
+
+      Agent.update(clock, fn _ -> @base_now_us + 15_000_000 end)
+
+      {:noreply, after_empty_tick} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, bucket_socket.assigns.recording_refresh_token},
+          bucket_socket
+        )
+
+      on_exit(fn -> cancel_timers(after_empty_tick) end)
+
+      assert after_empty_tick.assigns.timeline_play_from_us == chosen_from
+      assert after_empty_tick.assigns.timeline_play_to_us == chosen_to
+      assert after_empty_tick.assigns.timeline_playlist_path == nil
+      assert after_empty_tick.assigns.timeline_user_selected_window? == true
+
+      Agent.update(phase, fn _ -> :sealed_in_bucket end)
+
+      {:noreply, after_sealed_tick} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, after_empty_tick.assigns.recording_refresh_token},
+          after_empty_tick
+        )
+
+      on_exit(fn -> cancel_timers(after_sealed_tick) end)
+
+      assert after_sealed_tick.assigns.timeline_play_from_us == chosen_from
+      assert after_sealed_tick.assigns.timeline_play_to_us == chosen_to
+      assert is_binary(after_sealed_tick.assigns.timeline_playlist_path)
+      assert after_sealed_tick.assigns.timeline_playlist_path =~ "from=#{chosen_from}&to=#{chosen_to}"
+      assert after_sealed_tick.assigns.timeline_playlist_origin_us == sealed_in_bucket.timeline_start_us
+
+      active_playlist_path = after_sealed_tick.assigns.timeline_playlist_path
+      Agent.update(clock, fn _ -> later_now_us end)
+      Agent.update(phase, fn _ -> :sealed_later end)
+
+      {:noreply, after_later_tick} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, after_sealed_tick.assigns.recording_refresh_token},
+          after_sealed_tick
+        )
+
+      on_exit(fn -> cancel_timers(after_later_tick) end)
+
+      assert after_later_tick.assigns.timeline_play_from_us == chosen_from
+      assert after_later_tick.assigns.timeline_play_to_us == chosen_to
+      assert after_later_tick.assigns.timeline_playlist_path == active_playlist_path
+
+      {:noreply, after_span_reset} =
+        Recordings.handle_event("select_timeline_span", %{"span" => "1h"}, after_later_tick)
+
+      assert after_span_reset.assigns.timeline_user_selected_window? == false
+
+      {:noreply, after_bucket_again} =
+        Recordings.handle_event(
+          "select_timeline_bucket",
+          %{
+            "start_us" => Integer.to_string(bucket_start_us),
+            "end_us" => Integer.to_string(bucket_end_us)
+          },
+          after_later_tick
+        )
+
+      assert after_bucket_again.assigns.timeline_user_selected_window? == true
+
+      {:noreply, after_profile_reset} =
+        Recordings.handle_event(
+          "select_timeline_profile",
+          %{"stream_profile_id" => @profile_id},
+          after_bucket_again
+        )
+
+      assert after_profile_reset.assigns.timeline_user_selected_window? == false
     end
   end
 
