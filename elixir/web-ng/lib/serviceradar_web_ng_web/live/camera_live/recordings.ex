@@ -1540,7 +1540,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp maybe_reschedule_periodic_refresh(socket) do
-    if is_nil(socket.assigns.error) and is_binary(socket.assigns.recording_subscribed_source_id) do
+    if is_binary(socket.assigns.recording_subscribed_source_id) do
       schedule_periodic_refresh(socket)
     else
       socket

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
   import ExUnit.CaptureLog
   import Phoenix.Component, only: [assign: 2, assign: 3]
+  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Phoenix.LiveView.Socket
   alias ServiceRadar.Camera.RecordingPubSub
@@ -940,6 +941,166 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert is_reference(recovered.assigns.recording_refresh_timer_ref)
       assert is_reference(recovered.assigns.recording_refresh_token)
     end
+
+    test "keeps periodic refresh ticks alive across consecutive transient errors after non-fatal unavailable" do
+      {:ok, mode} = Agent.start_link(fn -> :ok end)
+      block = playable_block(@base_now_us - 120_000_000, @base_now_us - 60_000_000, :pending)
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            case Agent.get(mode, & &1) do
+              :timeout -> {:error, :timeout}
+              :recovered -> {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+              :ok -> {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+            end
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      Agent.update(mode, fn _ -> :timeout end)
+      {:noreply, after_non_fatal} = Recordings.handle_event("refresh_timeline", %{}, socket)
+      assert after_non_fatal.assigns.error =~ "temporarily unavailable"
+      assert after_non_fatal.assigns.recording_subscribed_source_id == @camera_id
+      assert is_reference(after_non_fatal.assigns.recording_refresh_token)
+
+      # Next periodic tick hits the same transient timeout while error is still populated.
+      {tick_result, log} =
+        with_log(fn ->
+          Recordings.handle_info(
+            {:refresh_timeline_tick, after_non_fatal.assigns.recording_refresh_token},
+            after_non_fatal
+          )
+        end)
+
+      {:noreply, after_still_failing_tick} = tick_result
+      on_exit(fn -> cancel_timers(after_still_failing_tick) end)
+
+      assert log =~ "Transient camera recordings live refresh error"
+      assert after_still_failing_tick.assigns.recording_subscribed_source_id == @camera_id
+      assert is_reference(after_still_failing_tick.assigns.recording_refresh_timer_ref)
+      assert is_reference(after_still_failing_tick.assigns.recording_refresh_token)
+      refute after_still_failing_tick.assigns.recording_refresh_token == after_non_fatal.assigns.recording_refresh_token
+
+      # Following tick succeeds once the backend recovers and clears the error automatically.
+      Agent.update(mode, fn _ -> :recovered end)
+
+      {:noreply, auto_recovered} =
+        Recordings.handle_info(
+          {:refresh_timeline_tick, after_still_failing_tick.assigns.recording_refresh_token},
+          after_still_failing_tick
+        )
+
+      on_exit(fn -> cancel_timers(auto_recovered) end)
+
+      assert auto_recovered.assigns.error == nil
+      assert length(auto_recovered.assigns.timeline_coverage.blocks) == 1
+      assert is_binary(auto_recovered.assigns.timeline_playlist_path)
+      assert is_reference(auto_recovered.assigns.recording_refresh_timer_ref)
+    end
+
+    test "renders newly sealed block, archive copy-state transition, and event clip while keeping player playlist path stable" do
+      {:ok, clock} = Agent.start_link(fn -> @base_now_us end)
+      {:ok, phase} = Agent.start_link(fn -> :initial end)
+
+      first_block_id = "00000000-0000-4000-8000-000000000711"
+      second_block_id = "00000000-0000-4000-8000-000000000712"
+      later_now_us = @base_now_us + 45_000_000
+
+      first_pending =
+        (@base_now_us - 600_000_000)
+        |> playable_block(@base_now_us - 300_000_000, :pending)
+        |> Map.merge(%{id: first_block_id, copy_state: :pending_archive})
+
+      first_archived =
+        Map.merge(first_pending, %{archive_state: :verified, copy_state: :local_and_archived})
+
+      second_sealed =
+        (later_now_us - 30_000_000)
+        |> playable_block(later_now_us, :pending)
+        |> Map.merge(%{id: second_block_id, copy_state: :pending_archive})
+
+      initial_clip = sample_clip("clip-initial-1", @base_now_us - 500_000_000, @base_now_us - 485_000_000)
+      new_clip = sample_clip("clip-live-new", later_now_us - 25_000_000, later_now_us - 10_000_000)
+
+      deps =
+        stub_deps(%{
+          now_us: fn -> Agent.get(clock, & &1) end,
+          coverage: fn source_id, params, _scope ->
+            blocks =
+              if Agent.get(phase, & &1) == :initial do
+                [first_pending]
+              else
+                [first_archived, second_sealed]
+              end
+
+            opts = [continuous_recording_active?: true]
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, blocks, opts)}
+          end,
+          list_event_clips: fn _source_id, _params, _scope ->
+            clips =
+              if Agent.get(phase, & &1) == :initial do
+                [initial_clip]
+              else
+                [initial_clip, new_clip]
+              end
+
+            {:ok, %{clips: clips}}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      before_doc = LazyHTML.from_fragment(render_component(&Recordings.render/1, socket.assigns))
+
+      [orig_playlist_path] =
+        before_doc |> LazyHTML.query("#camera-timeline-player") |> LazyHTML.attribute("data-playlist-path")
+
+      assert is_binary(orig_playlist_path) and orig_playlist_path != ""
+
+      assert before_doc
+             |> LazyHTML.query("#camera-timeline-player")
+             |> LazyHTML.attribute("data-has-adjacent-window") == ["false"]
+
+      assert before_doc
+             |> LazyHTML.query("#camera-timeline-block-#{first_block_id}")
+             |> LazyHTML.attribute("data-copy-state") == ["pending_archive"]
+
+      assert before_doc |> LazyHTML.query("#camera-timeline-block-#{second_block_id}") |> Enum.to_list() == []
+      assert before_doc |> LazyHTML.query("#camera-clip-card-clip-live-new") |> Enum.to_list() == []
+
+      Agent.update(clock, fn _ -> later_now_us end)
+      Agent.update(phase, fn _ -> :updated end)
+
+      {:noreply, refreshed} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :block_cataloged}},
+          socket
+        )
+
+      after_doc = LazyHTML.from_fragment(render_component(&Recordings.render/1, refreshed.assigns))
+
+      assert after_doc |> LazyHTML.query("#camera-timeline-player") |> LazyHTML.attribute("data-playlist-path") == [
+               orig_playlist_path
+             ]
+
+      assert after_doc
+             |> LazyHTML.query("#camera-timeline-player")
+             |> LazyHTML.attribute("data-has-adjacent-window") == ["true"]
+
+      assert after_doc
+             |> LazyHTML.query("#camera-timeline-block-#{first_block_id}")
+             |> LazyHTML.attribute("data-copy-state") == ["local_and_archived"]
+
+      assert after_doc
+             |> LazyHTML.query("#camera-timeline-block-#{second_block_id}")
+             |> LazyHTML.attribute("data-copy-state") == ["pending_archive"]
+
+      assert length(Enum.to_list(LazyHTML.query(after_doc, "#camera-clip-card-clip-live-new"))) == 1
+    end
   end
 
   defp mount_connected(camera_id, deps, opts) do
@@ -1073,10 +1234,20 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       id: id,
       start_us: start_us,
       end_us: end_us,
+      started_at: DateTime.from_unix!(start_us, :microsecond),
+      ended_at: DateTime.from_unix!(end_us, :microsecond),
       peak_ts_us: start_us + div(end_us - start_us, 2),
-      category: "person",
+      duration_seconds: max(div(end_us - start_us, 1_000_000), 1),
+      category: :person,
+      smart_type: :smart,
       mode: "smart",
-      visual_frame_id: nil
+      label: "Person",
+      confidence: 0.91,
+      local_state: :present,
+      archive_state: :pending,
+      thumbnail_url: nil,
+      visual_frame_id: nil,
+      attributes: %{dominant_colors: ["navy"]}
     }
   end
 

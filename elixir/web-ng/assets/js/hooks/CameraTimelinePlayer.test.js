@@ -472,4 +472,44 @@ describe("CameraTimelinePlayer hook", () => {
     expect(parsed[0].offsetSeconds).toBe(8)
     expect(buildOverlaySvgMarkup(parsed, letterbox)).toContain("package 75% · received")
   })
+
+  it("does not interrupt active HLS playback when live refresh updates hasAdjacentWindow without changing playlistPath", () => {
+    vi.stubGlobal("window", {addEventListener: vi.fn()})
+
+    const {el, video, copyBadge} = makeElement({
+      hasAdjacentWindow: "false",
+      seekOffsetSeconds: "0",
+    })
+    const {FakeHls, instances} = makeFakeHls()
+    const pushedEvents = []
+
+    const hook = Object.create(CameraTimelinePlayer)
+    hook.el = el
+    hook.hlsClass = FakeHls
+    hook.pushEvent = vi.fn((event, payload) => pushedEvents.push([event, payload]))
+
+    hook.mounted()
+    expect(instances).toHaveLength(1)
+
+    video.currentTime = 24.5
+    video.emit("loadedmetadata")
+    copyBadge.textContent = "Serving: local"
+    copyBadge.dataset.servedCopy = "local"
+
+    // Live refresh slides coverage forward and exposes an adjacent window while keeping playlistPath stable.
+    el.dataset.hasAdjacentWindow = "true"
+    hook.updated()
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].destroyed).toBe(false)
+    expect(video.currentTime).toBe(24.5)
+    expect(copyBadge.textContent).toBe("Serving: local")
+
+    // Advancing near window end now triggers advance_timeline_window because hasAdjacentWindow became true.
+    video.currentTime = 50
+    video.emit("timeupdate")
+    expect(pushedEvents).toEqual([["advance_timeline_window", {window_end_us: "2000"}]])
+
+    hook.destroyed()
+  })
 })

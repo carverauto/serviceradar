@@ -19,10 +19,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   4. Resolves the NVR member from `storage_id` and delegates upload + readback
      verification to `NVRArchive.archive_block/5`.
   5. On verified receipt, records `NVRArchiveReceipt` and transitions
-     `RecordingCatalogEntry` to `:verified` atomically in one transaction. For a
-     re-archive request (Transition 8: entry already carries `nvr_archive_receipt_id`),
-     a retained receipt matching the previously recorded receipt is refused and
-     returns the entry to `:missing`.
+     `RecordingCatalogEntry` to `:verified` atomically in one transaction, then
+     broadcasts a best-effort `:archive_verified` update via
+     `ServiceRadar.Camera.RecordingPubSub`. For a re-archive request
+     (Transition 8: entry already carries `nvr_archive_receipt_id`), a retained
+     receipt matching the previously recorded receipt is refused and returns
+     the entry to `:missing`.
   6. On 503 `archive_busy`, snoozes without consuming an attempt. On retryable
      failures (502, other 503s, 400, 404, non-conflict 409s, `:outcome_unknown`,
      binding/request shape errors, credential or NVR target unavailability),
@@ -31,8 +33,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
      indefinitely while the block exists without exhausting Oban `max_attempts`,
      stopping cleanly if `local_state != :present` or `archive_state` is no longer
      eligible. On terminal refusals (409 `archive_receipt_conflict`, Core receipt
-     conflict, and 422), transitions the entry to `:failed_terminal` and discards
-     the job.
+     conflict, and 422), transitions the entry to `:failed_terminal`, broadcasts
+     a best-effort `:archive_failed_terminal` update via
+     `ServiceRadar.Camera.RecordingPubSub`, and discards the job.
   """
 
   # ServiceRadar runs OSS Oban (Oban.Engines.Basic), not Oban Pro.

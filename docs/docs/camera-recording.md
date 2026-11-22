@@ -474,7 +474,10 @@ The page header provides a mode toggle between two distinct recording catalogs:
   through the legacy `ArchiveUploads` workflow
   (`/api/cameras/:camera_source_id/recordings/:id/playlist.m3u8`), labelled
   explicitly so operators never confuse `ArchiveUploads` publication times with
-  NVR catalog receipts.
+  NVR catalog receipts. When opened without an explicit `mode` parameter and the
+  published list is empty and idle, live refresh switches automatically to
+  **Timeline** mode once timeline data arrives without interrupting active
+  published browsing or playback.
 
 ### Coverage bar, time basis, and playback controls
 
@@ -520,6 +523,18 @@ Above the bar, banners and markers surface timing and durability provenance:
 - **Adjacent-window loading:** Each HLS VOD playlist covers up to `60` minutes
   (`2,048` segments). As playback nears the end of the active window, the
   `CameraTimelinePlayer` hook automatically advances into the adjacent window.
+- **Live timeline refresh:** Connected `/cameras/:camera_source_id/recordings`
+  sessions subscribe to per-camera `ServiceRadar.Camera.RecordingPubSub`
+  updates (`camera:recordings:<camera_source_id>`, coalesced with a `500 ms`
+  debounce) alongside a `15 s` periodic fallback tick. Newly sealed blocks
+  (`:block_cataloged`), archive copy-state transitions (`:archive_verified`,
+  `:archive_failed_terminal`), holds, and event clips appear automatically
+  without manual refresh and without interrupting active HLS playback: the
+  active playback window (including any user-selected window or clip) and
+  current playlist path stay intact while coverage, adjacent-window
+  availability, and clips update in place. Transient refresh errors keep active
+  playback running and retry on the next tick, while fatal authorization or
+  not-found errors tear down live refresh until the view recovers.
 
 ### Detections & Clips strip and coverage event markers
 

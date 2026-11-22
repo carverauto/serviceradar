@@ -100,6 +100,9 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   Exact retries with identical descriptor and catalog attributes return the
   existing `RecordingCatalogEntry` without touching copy states; conflicting
   descriptors or catalog attributes return `{:error, :recording_descriptor_conflict}`.
+
+  After a successful commit, broadcasts a best-effort `:block_cataloged`
+  notification via `ServiceRadar.Camera.RecordingPubSub`.
   """
   def freeze_and_catalog(ingest, claim, block, descriptor, catalog_attrs, opts \\ []) do
     with {:ok, bytes} <- Descriptor.encode(descriptor),
