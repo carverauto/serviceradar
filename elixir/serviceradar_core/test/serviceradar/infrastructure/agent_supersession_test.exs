@@ -19,6 +19,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -168,6 +169,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
 
       sweep_group = create_sweep_group!(uniq, old_uid, actor)
       mapper_job = create_mapper_job!(uniq, old_uid, actor)
+      mtr_policy = create_mtr_policy!(uniq, old_uid, actor)
 
       went_quiet!(old_uid)
 
@@ -178,6 +180,9 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       assert agent!(old_uid, actor).superseded_by == new_uid
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(MapperJob, mapper_job.id, actor: actor).agent_id == new_uid
+
+      assert Ash.get!(MtrPolicy, mtr_policy.id, actor: actor).target_selector["agent_id"] ==
+               new_uid
     end
 
     test "reconciles lingering assignments left on an already-superseded identity",
@@ -195,6 +200,7 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       snmp_profile = create_snmp_profile!(uniq, old_uid, actor)
       integration_source = create_integration_source!(uniq, old_uid, actor)
       service_check = create_service_check!(uniq, old_uid, actor)
+      mtr_policy = create_mtr_policy!(uniq, old_uid, actor)
 
       # Simulate an agent that was marked superseded before assignment handoff ran.
       {:ok, _} =
@@ -216,6 +222,9 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == old_uid
       assert Ash.get!(ServiceCheck, service_check.id, actor: actor).agent_uid == old_uid
 
+      assert Ash.get!(MtrPolicy, mtr_policy.id, actor: actor).target_selector["agent_id"] ==
+               old_uid
+
       assert {:ok, _} = AgentSupersession.sweep(actor: actor)
 
       assert Ash.get!(SweepGroup, sweep_group.id, actor: actor).agent_ids == [new_uid]
@@ -230,6 +239,11 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       assert Ash.get!(SNMPProfile, snmp_profile.id, actor: actor).agent_ids == [new_uid]
       assert Ash.get!(IntegrationSource, integration_source.id, actor: actor).agent_id == new_uid
       assert Ash.get!(ServiceCheck, service_check.id, actor: actor).agent_uid == new_uid
+
+      reconciled_mtr = Ash.get!(MtrPolicy, mtr_policy.id, actor: actor)
+      assert reconciled_mtr.target_selector["agent_id"] == new_uid
+      assert reconciled_mtr.target_selector["limit"] == 25
+      assert reconciled_mtr.target_selector["srql_query"] == "in:devices"
     end
 
     test "reconciles lingering assignments across a multi-hop supersession chain",
@@ -825,6 +839,25 @@ defmodule ServiceRadar.Infrastructure.AgentSupersessionTest do
       |> Ash.create(actor: actor)
 
     check
+  end
+
+  defp create_mtr_policy!(uniq, agent_uid, actor) do
+    {:ok, policy} =
+      MtrPolicy.create_policy(
+        %{
+          name: "supersession-mtr-#{uniq}",
+          enabled: true,
+          scope: "managed_devices",
+          target_selector: %{
+            "agent_id" => agent_uid,
+            "limit" => 25,
+            "srql_query" => "in:devices"
+          }
+        },
+        actor: actor
+      )
+
+    policy
   end
 
   # 198.18.0.0/15 (benchmarking range), unique per test run.
