@@ -84,6 +84,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.RecorderRenewal
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarNVRClient.Config, as: ClientConfig
@@ -757,7 +758,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     if remaining < @min_call_timeout_ms, do: {:error, :registration_deadline}, else: {:ok, min(remaining, cap)}
   end
 
-  defp freeze_outcome({:ok, entry}), do: {:registered, entry.id}
+  defp freeze_outcome({:ok, entry}) do
+    _ = ArchiveBlockJob.enqueue_for_entry(entry)
+    {:registered, entry.id}
+  end
 
   defp freeze_outcome({:error, reason})
        when reason in [

@@ -97,7 +97,7 @@ gate.
 - [ ] A.3.5 Drift check and re-anchoring (design T).
 
 ### A.4 serviceradar_core_elx archive scheduler
-- [ ] A.4.1 `ArchiveBlockJob` (Oban, unique per entry, queue `nvr_archive`): state guard, receipt recording and catalog transition in one transaction, busy snooze, backoff, terminal classes (design A6); a re-archive request (design A6 transition 8) never takes a retained receipt as success: it checks the local bytes, HEAD absence and the recorded binding, PUTs, and records `verified` only on a read-back match; a refused request returns the entry to `missing`, while provider errors, unknown outcomes and `archive_busy` retry or snooze and 409 `archive_receipt_conflict` or 422 are `failed_terminal`, as in the job steps.
+- [x] A.4.1 `ArchiveBlockJob` (Oban, unique per entry, queue `nvr_archive`): state guard, receipt recording and catalog transition in one transaction, busy snooze, backoff, terminal classes (design A6); a re-archive request (design A6 transition 8) never takes a retained receipt as success: it checks the local bytes, HEAD absence and the recorded binding, PUTs, and records `verified` only on a read-back match; a refused request returns the entry to `missing`, while provider errors, unknown outcomes and `archive_busy` retry or snooze and 409 `archive_receipt_conflict` or 422 are `failed_terminal`, as in the job steps.
 - [ ] A.4.2 Backlog numbers from catalog and jobs for the settings change's backlog telemetry (JetStream, EventWriter).
 
 ### A.5 helm and docs

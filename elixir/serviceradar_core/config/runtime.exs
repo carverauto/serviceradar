@@ -1746,7 +1746,8 @@ if config_env() == :prod do
       # forever and catalog/pulse/retention never executed.
       ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
       ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
-      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
+      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1"),
+      nvr_archive: String.to_integer(System.get_env("OBAN_QUEUE_NVR_ARCHIVE") || "2")
     ],
     plugins: [
       Oban.Plugins.Pruner,
