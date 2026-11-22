@@ -181,6 +181,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       validate CompositeExport
     end
 
+    update :reassign_agent do
+      description "System only: move an integration source from a superseded agent identity to its replacement"
+      accept [:agent_id]
+      validate present(:agent_id)
+    end
+
     update :enable do
       change set_attribute(:enabled, true)
     end
@@ -381,6 +387,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     system_bypass()
     read_viewer_plus()
     admin_action_type([:create, :update, :destroy])
+
+    policy action(:reassign_agent) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
   end
 
   changes do
