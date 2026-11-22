@@ -146,6 +146,9 @@ spec:
         app.kubernetes.io/part-of: serviceradar
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
+        {{- with (include "serviceradar.natsLeafCertSans" .) }}
+        checksum/nats-leaf-cert-sans: {{ . | sha256sum | quote }}
+        {{- end }}
     spec:
       {{- include "serviceradar.podDnsConfig" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-nats") | nindent 6 }}

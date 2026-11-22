@@ -32,7 +32,11 @@ certificate generator that issues the runtime mTLS certificates for you:
   404 starts generation of a CA and per-service certificates. Any other read
   failure stops the hook before generation or upload so the Job can retry.
   When the existing certificates pass the layout and certificate checks, the
-  hook keeps them.
+  hook keeps them. If a kept certificate lacks a DNS, URI, or IPv4 name it is
+  now asked to carry (for example, a newly added NATS leafnode host name), the
+  hook reissues only that certificate from the same root CA, records the
+  replacement in `runtime-cert-rotation.json`, and updates the Secret while
+  leaving every other certificate unchanged.
 - `certs.runtimeLayoutVersion` tracks the certificate layout. When it changes,
   the generator re-issues the runtime certificates.
 - `cert-regenerator-job` provides an explicit rotation path. It is gated by
