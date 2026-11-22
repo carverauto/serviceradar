@@ -177,8 +177,9 @@ packaged enrollment published host-trust. A host enrolled before that record
 existed needs re-enrollment first
 ([Managed component certificates](../../docs/managed-component-certificates.md)).
 They register one managed component for that host service, pin the deployment
-policy public key, and wait until the agent has installed certificates and
-activated the service. Activation is separate from receiver enforcement.
+policy public key, wait until the agent has installed certificates and
+activated the service, and confirm the managed systemd unit stays active across
+three checks. Activation is separate from receiver enforcement.
 Certificate lifecycle and NATS readiness are in
 [Managed component certificates](../../docs/managed-component-certificates.md).
 A site-assigned collector requires that site's managed leaf, then stores the
