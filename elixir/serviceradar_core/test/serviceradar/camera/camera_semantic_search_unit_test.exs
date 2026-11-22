@@ -8,7 +8,12 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
   alias ServiceRadar.Camera.RecordingHealth
   alias ServiceRadar.Camera.SemanticSearch
   alias ServiceRadar.Camera.VisualIndexDispatcher
+  alias ServiceRadar.Camera.VisualIndexDispatchWorker
+  alias ServiceRadar.Camera.VisualIndexJob
+  alias ServiceRadar.Camera.VisualIndexResultEnvelope
   alias ServiceRadar.Camera.VisualWorkerReadGrants
+  alias ServiceRadar.EventWriter.Processors.CameraVisualIndexResults
+  alias ServiceRadar.EventWriter.TerminalMessageError
   alias ServiceRadar.Storage.StorageEntitlement
   alias ServiceRadar.Storage.StorageEntitlements
 
@@ -288,6 +293,55 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       refute Map.has_key?(decoded, "media_bytes")
     end
 
+    test "a catalog lookup failure prevents live and backfill publication on initial dispatch and retry" do
+      now = ~U[2026-01-05 00:00:00Z]
+      expired = ~U[2026-01-01 00:00:00Z]
+      publisher = fn _, _, _ -> flunk("published without checking the catalog entry") end
+      loaders = %{entry_loader: fn @catalog_id -> {:error, :catalog_unavailable} end}
+
+      for kind <- [:live, :backfill], state <- [:pending, :dispatched] do
+        job = %VisualIndexJob{
+          id: @job_id,
+          catalog_entry_id: @catalog_id,
+          job_kind: kind,
+          state: state,
+          attempt_count: 1,
+          max_attempts: 5,
+          deadline_at: expired,
+          updated_at: expired,
+          dispatched_at: expired
+        }
+
+        assert {:error, :catalog_unavailable} =
+                 VisualIndexDispatcher.dispatch_job(job,
+                   loaders: loaders,
+                   publisher: publisher,
+                   now: now
+                 )
+      end
+    end
+
+    test "legacy dispatch start cannot expire a job before its acknowledged update ages out" do
+      start = ~U[2026-01-01 00:00:00Z]
+      ack = DateTime.shift(start, second: 3)
+      tick = DateTime.shift(start, day: 3, second: 1)
+
+      for max_attempts <- [1, 2] do
+        job = %VisualIndexJob{
+          id: @job_id,
+          catalog_entry_id: @catalog_id,
+          state: :dispatched,
+          attempt_count: 1,
+          max_attempts: max_attempts,
+          dispatched_at: start,
+          updated_at: ack,
+          deadline_at: DateTime.shift(start, minute: 1)
+        }
+
+        assert {:ok, ^job} = VisualIndexDispatcher.dispatch_job(job, now: tick)
+      end
+    end
+
     test "RecordingHealth.summary/1 aggregates visual_indexing queue states and active model" do
       now = ~U[2026-11-17 16:30:00Z]
       oldest_pending = ~U[2026-11-17 16:25:00Z]
@@ -350,6 +404,17 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       assert vi.worker_health_status == :healthy
       assert vi.active_model.embedder_model_id == "siglip-b16-384"
       assert vi.active_model.embedding_dim == 768
+    end
+
+    test "VisualIndexDispatchWorker coalesces pending ticks without blocking on executing jobs" do
+      changeset = VisualIndexDispatchWorker.new(%{})
+      unique = Ecto.Changeset.get_change(changeset, :unique)
+
+      assert Ecto.Changeset.get_field(changeset, :queue) == "maintenance"
+      assert Ecto.Changeset.get_field(changeset, :max_attempts) == 1
+      assert unique.period == :infinity
+      assert Enum.sort(unique.states) == [:available, :scheduled]
+      refute :executing in unique.states
     end
   end
 
@@ -813,9 +878,206 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
     end
   end
 
+  test "every worker payload field rejects an invalid value before disposition" do
+    envelope = worker_result()
+    frame = [:frames, Access.at(0)]
+    detection = frame ++ [:detections, Access.at(0)]
+    crop = frame ++ [:embeddings, Access.at(0)]
+    track = [:tracks, Access.at(0)]
+
+    for {path, value} <- [
+          {[:schema], nil},
+          {[:schema_version], 1.0},
+          {[:job_id], nil},
+          {[:catalog_entry_id], <<0::128>>},
+          {[:descriptor_sha256], 123},
+          {[:detector_model_id], false},
+          {[:detector_model_version], "a\0b"},
+          {[:embedder_model_id], nil},
+          {[:embedder_model_version], 1},
+          {[:model_id], false},
+          {[:model_version], nil},
+          {[:embedding_dim], 512.0},
+          {[:frames], %{}},
+          {[:tracks], nil},
+          {[:tracks, Access.at(0)], false},
+          {frame ++ [:fragment_sequence], 4_294_967_296},
+          {frame ++ [:media_pts_ns], -1},
+          {frame ++ [:scene_suppressed], "false"},
+          {frame ++ [:detections], false},
+          {frame ++ [:embeddings], false},
+          {detection ++ [:object_class], false},
+          {detection ++ [:confidence], "0.5"},
+          {detection ++ [:bbox], [1.0, 0.0, 0.5, 1.0]},
+          {detection ++ [:dominant_colors], [123]},
+          {detection ++ [:track_id], -1},
+          {crop ++ [:region_kind], :crop},
+          {crop ++ [:region_index], 0.5},
+          {crop ++ [:object_class], false},
+          {crop ++ [:confidence], 1},
+          {crop ++ [:bbox], %{}},
+          {crop ++ [:dominant_colors], false},
+          {crop ++ [:track_id], "1"},
+          {crop ++ [:embedding], unit_vec(768)},
+          {crop ++ [:embedding, Access.at(0)], 1},
+          {track ++ [:track_id], -1},
+          {track ++ [:object_class], ""},
+          {track ++ [:first_seen_offset_ms], "0"},
+          {track ++ [:last_seen_offset_ms], 0.5},
+          {track ++ [:dwell_ms], 9_223_372_036_854_775_808},
+          {track ++ [:frame_count], -1},
+          {track ++ [:peak_confidence], 1.1}
+        ] do
+      outcome = VisualIndexResultEnvelope.validate(put_in(envelope, path, value))
+
+      assert match?({:error, _}, outcome) or match?({:ok, _, {:error, _}}, outcome),
+             "accepted invalid value at #{inspect(path)}"
+    end
+
+    assert {:ok, _, {:ok, %{frames: [parsed], tracks: [summary]}}} =
+             VisualIndexResultEnvelope.validate(Map.put(envelope, :future_field, %{}))
+
+    assert summary.track_id == 1
+    assert [%{region_kind: :crop, embedding: vector}] = parsed.embeddings
+    assert Ash.Vector.to_list(vector) == unit_vec(512)
+
+    assert [stored_detection] = parsed.detections
+
+    assert stored_detection |> Map.keys() |> Enum.sort() == [
+             "bbox",
+             "confidence",
+             "dominant_colors",
+             "object_class"
+           ]
+
+    optional_omitted =
+      envelope
+      |> Map.drop([:job_id, :tracks])
+      |> update_in(detection, &Map.delete(&1, :track_id))
+
+    assert {:ok, %{job_id: nil}, {:ok, %{frames: [parsed_no_track], tracks: []}}} =
+             VisualIndexResultEnvelope.validate(optional_omitted)
+
+    assert [no_track_detection] = parsed_no_track.detections
+    refute Map.has_key?(no_track_detection, "track_id")
+
+    for {parent, key} <- [
+          {[], :schema},
+          {[], :schema_version},
+          {frame, :scene_suppressed},
+          {frame, :detections},
+          {frame, :embeddings},
+          {detection, :dominant_colors},
+          {crop, :region_index},
+          {crop, :dominant_colors}
+        ] do
+      omitted =
+        case parent do
+          [] -> Map.delete(envelope, key)
+          path -> update_in(envelope, path, &Map.delete(&1, key))
+        end
+
+      assert {:ok, _, {:error, :invalid_result_envelope}} =
+               VisualIndexResultEnvelope.validate(omitted),
+             "accepted omitted required field #{inspect(parent ++ [key])}"
+    end
+
+    for {parent, canonical, alias_key, alias_value} <- [
+          {frame, :fragment_sequence, :fragment_index, 1},
+          {frame, :media_pts_ns, :media_offset_ns, 0},
+          {detection, :object_class, :class, "parcel"},
+          {detection, :object_class, :label, "parcel"},
+          {detection, :confidence, :score, 0.75},
+          {detection, :bbox, :bbox_norm, [0.0, 0.1, 0.5, 0.9]},
+          {crop, :region_kind, :embedding_kind, "crop"},
+          {crop, :region_index, :crop_index, 1},
+          {crop, :dominant_colors, :attributes, %{dominant_colors: ["blue"]}},
+          {crop, :embedding, :vector, unit_vec(512)}
+        ] do
+      aliased =
+        update_in(envelope, parent, fn map ->
+          map |> Map.delete(canonical) |> Map.put(alias_key, alias_value)
+        end)
+
+      assert {:ok, _, {:error, :invalid_result_envelope}} =
+               VisualIndexResultEnvelope.validate(aliased),
+             "accepted legacy alias #{inspect(alias_key)} for #{inspect(parent ++ [canonical])}"
+    end
+
+    aliased_optional =
+      update_in(envelope, crop, fn map ->
+        map
+        |> Map.drop([:confidence, :bbox])
+        |> Map.merge(%{detector_confidence: 0.75, bbox_norm: [0.0, 0.1, 0.5, 0.9]})
+      end)
+
+    assert {:ok, _, {:ok, %{frames: [%{embeddings: [parsed_crop]}]}}} =
+             VisualIndexResultEnvelope.validate(aliased_optional)
+
+    assert parsed_crop.confidence == nil
+    assert parsed_crop.bbox == nil
+  end
+
+  test "a bare job ID cannot authorize a terminal job update" do
+    message = %Broadway.Message{
+      data: Jason.encode!(%{"job_id" => @job_id}),
+      acknowledger: Broadway.NoopAcknowledger.init()
+    }
+
+    assert {:incomplete, 0, [{^message, %TerminalMessageError{reason: :invalid_result_envelope}}]} =
+             CameraVisualIndexResults.process_batch([message])
+  end
+
   # ---------------------------------------------------------------------------
   # Synthetic fixture helpers (zero live/captured values, low-entropy digests)
   # ---------------------------------------------------------------------------
+
+  defp worker_result do
+    detection = %{
+      object_class: "parcel",
+      confidence: 0.75,
+      bbox: [0.0, 0.1, 0.5, 0.9],
+      dominant_colors: ["blue"],
+      track_id: 1
+    }
+
+    crop = Map.merge(detection, %{region_kind: "crop", region_index: 1, embedding: unit_vec(512)})
+
+    frame = %{
+      fragment_sequence: 1,
+      media_pts_ns: 0,
+      scene_suppressed: false,
+      detections: [detection],
+      embeddings: [crop]
+    }
+
+    track = %{
+      track_id: 1,
+      object_class: "parcel",
+      first_seen_offset_ms: 0,
+      last_seen_offset_ms: 5,
+      dwell_ms: 5,
+      frame_count: 1,
+      peak_confidence: 0.75
+    }
+
+    %{
+      schema: "media.results.visual_index.v1",
+      schema_version: 1,
+      job_id: @job_id,
+      catalog_entry_id: @catalog_id,
+      descriptor_sha256: @desc_sha,
+      detector_model_id: "detector",
+      detector_model_version: "1",
+      embedder_model_id: "embedder",
+      embedder_model_version: "1",
+      model_id: "embedder",
+      model_version: "1",
+      embedding_dim: 512,
+      frames: [frame],
+      tracks: [track]
+    }
+  end
 
   defp policy_loaders(entitlement, existing_policies) do
     %{

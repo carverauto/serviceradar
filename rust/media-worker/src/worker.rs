@@ -207,7 +207,7 @@ impl DetectionPayload {
 
 /// Embedding entry inside `VisualIndexResultEnvelope.frames[*].embeddings`.
 ///
-/// Matches `VisualIndexResultProjector.parse_single_embedding/2`:
+/// Matches `ServiceRadar.Camera.VisualIndexResultEnvelope`:
 /// `:scene` embeddings carry `object_class: null`, `confidence: null`, `bbox: null`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingPayload {

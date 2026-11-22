@@ -220,6 +220,12 @@ Add or change a built-in identity's subjects only here.
       - "telemetry.edge-record-dlq.v1.bulk.>"
       - "telemetry.edge-record.v1.bulk.>"
       - "telemetry.edge-record-audit.v1.bulk.>"
+      {{- /* Visual index jobs (Camera.VisualIndexDispatcher), relayed from the
+           camera_visual_index_jobs outbox onto CAMERA_MEDIA_JOBS, which the
+           media worker owns. The publish waits for a PubAck, so a missing
+           entry leaves every job pending. */}}
+      - "media.jobs.visual_index.v1"
+      - "media.jobs.visual_index.backfill.v1"
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
            the bucket through the JetStream API and writes each bundle here. */}}
       - "$KV.{{ $zenRuleBucket }}.>"

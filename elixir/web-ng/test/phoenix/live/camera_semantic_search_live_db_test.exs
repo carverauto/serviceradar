@@ -325,6 +325,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
 
     assert {:ok, _} =
              VisualIndexResultProjector.ingest_result(%{
+               "schema" => "media.results.visual_index.v1",
                "schema_version" => 1,
                "catalog_entry_id" => entry.id,
                "descriptor_sha256" => entry.descriptor_sha256,
@@ -337,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
                  %{
                    "fragment_sequence" => 1,
                    "media_pts_ns" => 2_000_000_000,
+                   "scene_suppressed" => false,
                    "detections" => [
                      %{
                        "object_class" => "person",
@@ -347,10 +349,10 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchLiveDBTest do
                    ],
                    "embeddings" => [
                      %{
-                       "embedding_kind" => "crop",
-                       "crop_index" => 1,
+                       "region_kind" => "crop",
+                       "region_index" => 1,
                        "object_class" => "person",
-                       "detector_confidence" => 0.94,
+                       "confidence" => 0.94,
                        "bbox" => [0.25, 0.2, 0.55, 0.88],
                        "dominant_colors" => ["red"],
                        "embedding" => basis_vector(dim, 0)
