@@ -7,9 +7,18 @@ defmodule ServiceRadar.Infrastructure.AgentSupersession do
   independent. An identity that is still heartbeating (connected or degraded,
   and seen within the StateMonitor agent timeout) is left in place.
 
-  The check-in path records that decision immediately. `sweep/1` is the hourly
-  backfill for a replacement that enrolled while the previous identity still
-  looked live, and for rows that were already quiet when this rule shipped.
+  Every supersession path marks the replaced row `:superseded`, cancels its
+  non-terminal release targets, sets its `release_rollout_state` to `:canceled`,
+  and transfers its `SweepGroup` and `MapperJob` assignments to the replacement:
+
+  - `on_check_in/3` runs at enrollment/check-in and supersedes quiet siblings
+    immediately while keeping live ones.
+  - `on_agent_disconnected/2` runs when `StateMonitor` times out an agent to
+    `:disconnected` and supersedes it immediately if a live sibling exists on
+    the same device.
+  - `sweep/1` runs hourly as backfill for quiet siblings on a shared device and
+    reconciles any lingering assignments or active release targets left on
+    already-superseded identities (including across multi-hop chains).
   """
 
   import Ash.Expr
