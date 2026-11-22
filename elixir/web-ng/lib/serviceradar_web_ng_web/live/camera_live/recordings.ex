@@ -777,7 +777,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
            ArchiveUploads.archive_inventory(source.id, [limit: 10, cursor: cursor],
              actor: SystemActor.system(:camera_archive_metadata)
            ) do
-      assign(socket,
+      socket
+      |> maybe_rearm_live_refresh(source.id)
+      |> assign(
         current_scope: scope,
         source: source,
         mode: :published,
@@ -910,7 +912,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
             nil
         end
 
-      assign(socket,
+      socket
+      |> maybe_rearm_live_refresh(source.id)
+      |> assign(
         current_scope: scope,
         source: source,
         mode: :timeline,
@@ -1423,9 +1427,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   end
 
   defp unavailable(socket, reason) do
-    socket
-    |> teardown_live_refresh()
-    |> assign(
+    socket =
+      if fatal_live_refresh_error?(reason) do
+        teardown_live_refresh(socket)
+      else
+        socket
+      end
+
+    assign(socket,
       source: nil,
       items: [],
       next_cursor: nil,
@@ -1442,6 +1451,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       loading: false,
       error: message(reason)
     )
+  end
+
+  defp maybe_rearm_live_refresh(socket, source_id) do
+    needs_subscription? = socket.assigns.recording_subscribed_source_id != source_id
+
+    needs_periodic_timer? =
+      is_integer(socket.assigns.recording_refresh_interval_ms) and
+        socket.assigns.recording_refresh_interval_ms > 0 and
+        not is_reference(socket.assigns.recording_refresh_timer_ref)
+
+    if connected?(socket) and (needs_subscription? or needs_periodic_timer?) do
+      ensure_live_refresh(socket, source_id)
+    else
+      socket
+    end
   end
 
   defp ensure_live_refresh(socket, source_id) do
@@ -1575,7 +1599,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp maybe_switch_empty_published_to_timeline(%{assigns: %{requested_mode: nil}} = socket) do
+  defp maybe_switch_empty_published_to_timeline(%{assigns: %{requested_mode: nil, items: [], selected: nil}} = socket) do
     case authorize_timeline_view(socket) do
       {:ok, scope, source} ->
         if deps(socket).has_timeline_data?.(source.id, scope) do

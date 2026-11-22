@@ -788,6 +788,158 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       assert after_profile_reset.assigns.timeline_user_selected_window? == false
     end
+
+    test "only auto-switches from published to timeline when published items are empty and nothing is playing" do
+      block = playable_block(@base_now_us - 120_000_000, @base_now_us - 60_000_000, :pending)
+
+      deps =
+        stub_deps(%{
+          has_timeline_data?: fn _source_id, _scope -> true end,
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end
+        })
+
+      published_item = %{block_id: "pub-block-1", started_at: @base_now_us - 300_000_000}
+
+      selected_recording = %{
+        block_id: "pub-block-1",
+        window: %{index: 0, first: 0, count: 10},
+        playlist_path: "/api/cameras/#{@camera_id}/recordings/pub-block-1/playlist.m3u8?first=0&count=10"
+      }
+
+      base =
+        @camera_id
+        |> mount_connected(deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+        |> assign(
+          mode: :published,
+          requested_mode: nil,
+          timeline_coverage: nil,
+          timeline_playlist_path: nil,
+          timeline_user_selected_window?: false
+        )
+
+      on_exit(fn -> cancel_timers(base) end)
+
+      with_items = assign(base, items: [published_item], selected: nil)
+
+      {:noreply, after_items_tick} =
+        Recordings.handle_info({:refresh_timeline_tick, with_items.assigns.recording_refresh_token}, with_items)
+
+      on_exit(fn -> cancel_timers(after_items_tick) end)
+      assert after_items_tick.assigns.mode == :published
+      assert after_items_tick.assigns.items == [published_item]
+      assert is_reference(after_items_tick.assigns.recording_refresh_timer_ref)
+
+      playing_published = assign(base, items: [published_item], selected: selected_recording)
+
+      {:noreply, after_playing_pubsub} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :block_cataloged}},
+          playing_published
+        )
+
+      assert after_playing_pubsub.assigns.mode == :published
+      assert after_playing_pubsub.assigns.selected == selected_recording
+
+      selected_only = assign(base, items: [], selected: selected_recording)
+
+      {:noreply, after_selected_only} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :block_cataloged}},
+          selected_only
+        )
+
+      assert after_selected_only.assigns.mode == :published
+      assert after_selected_only.assigns.selected == selected_recording
+
+      empty_idle = assign(base, items: [], selected: nil)
+
+      {:noreply, switched} =
+        Recordings.handle_info(
+          {:camera_recording_updated, %{camera_source_id: @camera_id, reason: :block_cataloged}},
+          empty_idle
+        )
+
+      assert switched.assigns.mode == :timeline
+      assert is_binary(switched.assigns.timeline_playlist_path)
+    end
+
+    test "preserves live refresh on non-fatal unavailable errors and re-arms after recovery from teardown" do
+      parent = self()
+      {:ok, mode} = Agent.start_link(fn -> :ok end)
+
+      deps =
+        stub_deps(%{
+          subscribe: fn id ->
+            send(parent, {:subscribed, id})
+            :ok
+          end,
+          unsubscribe: fn id ->
+            send(parent, {:unsubscribed, id})
+            :ok
+          end,
+          authorize_timeline_view: fn socket ->
+            case Agent.get(mode, & &1) do
+              :fatal_auth -> {:error, :permission_revoked}
+              _ -> {:ok, socket.assigns.current_scope, synthetic_source(socket.assigns.camera_source_id)}
+            end
+          end,
+          coverage: fn source_id, params, _scope ->
+            case Agent.get(mode, & &1) do
+              :non_fatal_timeout -> {:error, :timeout}
+              _ -> {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+            end
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+      assert_receive {:subscribed, @camera_id}
+
+      Agent.update(mode, fn _ -> :non_fatal_timeout end)
+      {:noreply, non_fatal_socket} = Recordings.handle_event("refresh_timeline", %{}, socket)
+
+      assert non_fatal_socket.assigns.error =~ "temporarily unavailable"
+      refute_received {:unsubscribed, @camera_id}
+      assert non_fatal_socket.assigns.recording_subscribed_source_id == @camera_id
+      assert is_reference(non_fatal_socket.assigns.recording_refresh_timer_ref)
+      assert is_reference(non_fatal_socket.assigns.recording_refresh_token)
+
+      dropped_timer_socket =
+        assign(non_fatal_socket, recording_refresh_timer_ref: nil, recording_refresh_token: nil)
+
+      Agent.update(mode, fn _ -> :ok end)
+      {:noreply, rearmed_timer} = Recordings.handle_event("refresh_timeline", %{}, dropped_timer_socket)
+      on_exit(fn -> cancel_timers(rearmed_timer) end)
+
+      assert rearmed_timer.assigns.error == nil
+      assert rearmed_timer.assigns.recording_subscribed_source_id == @camera_id
+      assert is_reference(rearmed_timer.assigns.recording_refresh_timer_ref)
+      assert is_reference(rearmed_timer.assigns.recording_refresh_token)
+      refute_received {:subscribed, @camera_id}
+
+      Agent.update(mode, fn _ -> :fatal_auth end)
+      {:noreply, torn_down} = Recordings.handle_event("refresh_timeline", %{}, rearmed_timer)
+
+      assert_receive {:unsubscribed, @camera_id}
+      assert torn_down.assigns.recording_subscribed_source_id == nil
+      assert torn_down.assigns.recording_refresh_timer_ref == nil
+      assert torn_down.assigns.recording_refresh_token == nil
+
+      Agent.update(mode, fn _ -> :ok end)
+
+      {:noreply, recovered} =
+        Recordings.handle_event("switch_recordings_mode", %{"mode" => "timeline"}, torn_down)
+
+      on_exit(fn -> cancel_timers(recovered) end)
+
+      assert_receive {:subscribed, @camera_id}
+      assert recovered.assigns.error == nil
+      assert recovered.assigns.recording_subscribed_source_id == @camera_id
+      assert is_reference(recovered.assigns.recording_refresh_timer_ref)
+      assert is_reference(recovered.assigns.recording_refresh_token)
+    end
   end
 
   defp mount_connected(camera_id, deps, opts) do
