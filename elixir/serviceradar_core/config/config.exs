@@ -61,8 +61,7 @@ config :serviceradar_core, Oban,
     declarative_checks: 5,
     ansible_pulse: 5,
     ansible_catalog: 3,
-    ansible_retention: 1,
-    nvr_archive: 2
+    ansible_retention: 1
   ],
   plugins: [
     Oban.Plugins.Pruner,

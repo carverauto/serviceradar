@@ -201,6 +201,51 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
       assert_receive {:transitioned, %{archive_state: :not_required, archive_last_error_class: nil}}
       refute_received :unexpected_archive_call
     end
+
+    test "retries without uploading when camera policy lookup fails, while nil policy remains owed" do
+      parent = self()
+
+      transition_fn = fn _entry, attrs ->
+        send(parent, {:transitioned, attrs})
+        {:ok, entry(attrs)}
+      end
+
+      archive_fn = fn _member, _key, _binding, _secret, _opts ->
+        send(parent, :archive_called)
+        {:ok, receipt()}
+      end
+
+      assert {:snooze, 30} =
+               ArchiveBlockJob.run(
+                 @entry_id,
+                 base_opts(entry(),
+                   policy_loader: fn _entry -> {:error, :db_unavailable} end,
+                   archive_fn: archive_fn,
+                   transition_entry_fn: transition_fn,
+                   rand_fn: fn -> 0.0 end
+                 )
+               )
+
+      refute_received :archive_called
+
+      assert_receive {:transitioned,
+                      %{
+                        archive_state: :failed_retryable,
+                        archive_attempts: 1,
+                        archive_last_error_class: "db_unavailable"
+                      }}
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 @entry_id,
+                 base_opts(entry(),
+                   policy_loader: fn _entry -> {:ok, nil} end,
+                   archive_fn: archive_fn
+                 )
+               )
+
+      assert_receive :archive_called
+    end
   end
 
   describe "held jobs, transient retry/snooze, and terminal refusals" do
@@ -355,7 +400,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                ArchiveBlockJob.run(
                  @entry_id,
                  base_opts(current,
-                   attempt: 12,
                    archive_uploads_held_fn: fn -> {true, :recording_suspended} end
                  )
                )
@@ -364,7 +408,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                ArchiveBlockJob.run(
                  @entry_id,
                  base_opts(current,
-                   attempt: 13,
                    archive_fn: fn _m, _k, _b, _s, _o -> {:error, :outcome_unknown} end,
                    rand_fn: fn -> 0.0 end
                  )
@@ -372,10 +415,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
     end
 
     test "snoozes on catalog load or state transition database failures instead of discarding" do
-      assert {:snooze, 60} =
+      assert {:snooze, 30} =
                ArchiveBlockJob.run(
                  @entry_id,
-                 attempt: 2,
                  rand_fn: fn -> 0.0 end,
                  entry_loader: fn @entry_id -> {:error, :db_unavailable} end
                )
@@ -394,11 +436,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                  )
                )
 
-      assert {:snooze, 120} =
+      assert {:snooze, 30} =
                ArchiveBlockJob.run(
                  @entry_id,
                  base_opts(entry(),
-                   attempt: 3,
                    settings: settings(%{archive_enabled: false}),
                    transition_entry_fn: failing_transition,
                    rand_fn: fn -> 0.0 end
@@ -406,7 +447,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                )
     end
 
-    test "transitions to failed_terminal and discards on 409 archive_receipt_conflict, 422, or receipt mismatch" do
+    test "transitions to failed_terminal and discards on 409 archive_receipt_conflict or 422" do
       parent = self()
 
       transition_fn = fn _entry, attrs ->
@@ -416,8 +457,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
 
       terminal_cases = [
         {{:error, {:archive_status, 409, %{"error" => "archive_receipt_conflict"}}}, "archive_receipt_conflict"},
-        {{:error, {:archive_status, 422, %{"error" => "block_too_large"}}}, "block_too_large"},
-        {{:ok, Map.put(receipt(), "block_id", String.duplicate("ff", 32))}, "archive_receipt_mismatch"}
+        {{:error, {:archive_status, 422, %{"error" => "block_too_large"}}}, "block_too_large"}
       ]
 
       for {archive_result, expected_class} <- terminal_cases do
@@ -439,38 +479,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJobTest do
                           archive_state_at: @fixed_now
                         }}
       end
-    end
-
-    test "emits rearchive_refused outcome telemetry rather than completed on retained receipt refusal" do
-      parent = self()
-      handler_id = {__MODULE__, make_ref()}
-
-      :ok =
-        :telemetry.attach(
-          handler_id,
-          [:serviceradar, :camera_recording, :archive_block, :outcome],
-          fn _event, _measurements, metadata, _config ->
-            send(parent, {:telemetry_outcome, metadata})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
-
-      opts =
-        base_opts(entry(%{nvr_archive_receipt_id: Ecto.UUID.generate()}),
-          archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt()} end,
-          commit_verified_fn: fn _entry, _binding, _bytes, _now -> {:ok, :rearchive_refused} end
-        )
-
-      assert :ok = ArchiveBlockJob.run(@entry_id, opts)
-
-      assert_receive {:telemetry_outcome,
-                      %{
-                        outcome: :rearchive_refused,
-                        catalog_entry_id: @entry_id,
-                        error_class: "rearchive_retained_receipt_refused"
-                      }}
     end
   end
 

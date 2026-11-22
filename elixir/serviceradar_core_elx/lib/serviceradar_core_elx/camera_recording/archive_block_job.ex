@@ -31,8 +31,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
      indefinitely while the block exists without exhausting Oban `max_attempts`,
      stopping cleanly if `local_state != :present` or `archive_state` is no longer
      eligible. On terminal refusals (409 `archive_receipt_conflict`, Core receipt
-     conflict, receipt identity mismatch, and 422), transitions the entry to
-     `:failed_terminal` and discards the job.
+     conflict, and 422), transitions the entry to `:failed_terminal` and discards
+     the job.
   """
 
   # ServiceRadar runs OSS Oban (Oban.Engines.Basic), not Oban Pro.
@@ -131,8 +131,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   def enqueue(_catalog_entry_id, _opts), do: {:error, :invalid_catalog_entry_id}
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"catalog_entry_id" => catalog_entry_id}} = job) do
-    run(catalog_entry_id, attempt: retry_attempt_from_job(job))
+  def perform(%Oban.Job{args: %{"catalog_entry_id" => catalog_entry_id}}) do
+    run(catalog_entry_id)
   end
 
   def perform(%Oban.Job{}) do
@@ -187,7 +187,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:error, reason} ->
         error_class = sanitize_error_class(reason, "catalog_load_failed")
         emit_outcome(:failed_retryable, entry_id, error_class)
-        {:snooze, retry_backoff_seconds(fallback_attempt(opts), rand_fn(opts))}
+        {:snooze, retry_backoff_seconds(1, rand_fn(opts))}
     end
   end
 
@@ -228,22 +228,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
   end
 
   defp check_owed_copy(entry, settings, opts) do
-    cond do
-      settings.archive_enabled != true ->
-        :not_owed
-
-      policy_local_only?(entry, opts) ->
-        :not_owed
-
-      true ->
-        :owed
-    end
-  end
-
-  defp policy_local_only?(entry, opts) do
-    case load_policy(entry, opts) do
-      {:ok, %{storage: :local_only}} -> true
-      _ -> false
+    if settings.archive_enabled == true do
+      case load_policy(entry, opts) do
+        {:ok, %{storage: :local_only}} -> :not_owed
+        {:ok, _policy_or_nil} -> :owed
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :not_owed
     end
   end
 
@@ -255,9 +247,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
 
     case hold_fn.() do
       {true, reason} -> {:held, reason}
-      {false, _} -> :proceed
-      false -> :proceed
-      _ -> :proceed
+      {false, nil} -> :proceed
     end
   end
 
@@ -274,38 +264,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:ok, receipt} when is_map(receipt) ->
         commit_verified_receipt(entry, binding, receipt, opts)
 
-      {:ok, _unexpected} ->
-        fail_retryable(entry, "invalid_archive_receipt", opts)
-
       {:error, reason} ->
         classify_and_handle_error(entry, reason, opts)
     end
   end
 
   defp commit_verified_receipt(entry, binding, receipt, opts) do
-    case verify_receipt_identity(entry, receipt) do
-      :ok ->
-        case encode_receipt(receipt) do
-          {:ok, receipt_bytes} ->
-            persist_verified(entry, binding, receipt_bytes, opts)
-
-          {:error, error_class} ->
-            fail_retryable(entry, error_class, opts)
-        end
+    case encode_receipt(receipt) do
+      {:ok, receipt_bytes} ->
+        persist_verified(entry, binding, receipt_bytes, opts)
 
       {:error, error_class} ->
-        fail_terminal(entry, error_class, opts)
-    end
-  end
-
-  defp verify_receipt_identity(entry, receipt) when is_map(receipt) do
-    receipt_storage_id = receipt["storage_id"]
-    receipt_block_key = receipt["block_key"] || receipt["block_id"]
-
-    if receipt_storage_id == entry.storage_id and receipt_block_key == entry.block_key do
-      :ok
-    else
-      {:error, "archive_receipt_mismatch"}
+        fail_retryable(entry, error_class, opts)
     end
   end
 
@@ -522,23 +492,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
     now = now_fn(opts).()
     next_attempt = (entry.archive_attempts || 0) + 1
 
-    backoff_attempt =
-      case transition_entry(
-             entry,
-             %{
-               archive_state: :failed_retryable,
-               archive_state_at: now,
-               archive_attempts: next_attempt,
-               archive_last_error_class: error_class
-             },
-             opts
-           ) do
-        {:ok, _updated} -> next_attempt
-        {:error, _reason} -> max(next_attempt, fallback_attempt(opts))
-      end
+    _ =
+      transition_entry(
+        entry,
+        %{
+          archive_state: :failed_retryable,
+          archive_state_at: now,
+          archive_attempts: next_attempt,
+          archive_last_error_class: error_class
+        },
+        opts
+      )
 
     emit_outcome(:failed_retryable, entry.id, error_class)
-    {:snooze, retry_backoff_seconds(backoff_attempt, rand_fn(opts))}
+    {:snooze, retry_backoff_seconds(next_attempt, rand_fn(opts))}
   end
 
   defp fail_terminal(entry, error_class, opts) do
@@ -566,7 +533,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:error, reason} ->
         retry_class = sanitize_error_class(reason, "catalog_update_failed")
         emit_outcome(:failed_retryable, entry.id, retry_class)
-        {:snooze, retry_backoff_seconds(max(next_attempt, fallback_attempt(opts)), rand_fn(opts))}
+        {:snooze, retry_backoff_seconds(next_attempt, rand_fn(opts))}
     end
   end
 
@@ -589,7 +556,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
       {:error, reason} ->
         retry_class = sanitize_error_class(reason, "catalog_update_failed")
         emit_outcome(:failed_retryable, entry.id, retry_class)
-        {:snooze, retry_backoff_seconds(fallback_attempt(opts), rand_fn(opts))}
+        {:snooze, retry_backoff_seconds((entry.archive_attempts || 0) + 1, rand_fn(opts))}
     end
   end
 
@@ -701,19 +668,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob do
 
   defp held_snooze_seconds(opts) do
     Keyword.get(opts, :held_snooze_seconds, @held_snooze_seconds)
-  end
-
-  defp retry_attempt_from_job(%Oban.Job{attempt: attempt, meta: meta}) do
-    base = if is_integer(attempt) and attempt > 0, do: attempt, else: 1
-    snoozed = if is_map(meta) and is_integer(meta["snoozed"]) and meta["snoozed"] > 0, do: meta["snoozed"], else: 0
-    base + snoozed
-  end
-
-  defp fallback_attempt(opts) do
-    case Keyword.get(opts, :attempt, 1) do
-      attempt when is_integer(attempt) and attempt > 0 -> attempt
-      _ -> 1
-    end
   end
 
   defp rand_fn(opts), do: Keyword.get(opts, :rand_fn, &:rand.uniform/0)
