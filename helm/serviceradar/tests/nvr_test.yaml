@@ -345,6 +345,51 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: nvr.read must use a read token Secret distinct from the ingest token
+  - it: refuses shared server and client TLS secrets for private NVR read
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.read.enabled: true
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-shared-read-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-shared-read-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.read server and client TLS Secrets must be distinct
+  - it: refuses a read client TLS Secret shared with ingest
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-server-tls
+      nvr.ingest.client.configSecretName: example-nvr-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-client-tls
+      nvr.read.enabled: true
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-client-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.read.client.tlsSecretName must be distinct from the ingest TLS Secrets
   - it: opens the read listener to web-ng only and mounts the read client on web-ng
     set:
       nvr.enabled: true
