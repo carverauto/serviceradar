@@ -2082,7 +2082,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert table_text =~ "main (h264)"
       assert table_text =~ "2000 kbit/s (observed)"
       assert table_text =~ "blocks/day"
-      assert table_text =~ "continuous"
+      # The policy asks for continuous recording, but no recorder is running for it.
+      assert table_text =~ "continuous: not recording yet"
+
+      recording_text =
+        viewer_scope
+        |> mounted_with_runtime(installed_open_runtime(), %{
+          list_policies: fn _ -> [existing_policy] end,
+          recording_now: fn _ -> MapSet.new([{camera_id, profile_id}]) end
+        })
+        |> assign(:active_tab, "policy")
+        |> render_mounted()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#policy-recording-state-#{policy_id}")
+        |> LazyHTML.text()
+        |> normalize_ws()
+
+      assert recording_text == "continuous: recording"
       assert table_text =~ "nvr-0"
       assert table_text =~ "local_and_archive"
       assert table_text =~ "limited (14 days)"
@@ -3672,6 +3688,85 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       assert doc |> LazyHTML.query("#camera-timeline-empty-state") |> LazyHTML.text() =~
                "No playable footage in selected window"
 
+      # A continuous policy with no recorder running says so, instead of implying recording.
+      assert doc |> LazyHTML.query("#camera-timeline-recorder-state") |> LazyHTML.text() |> normalize_ws() ==
+               "Continuous policy set: not recording yet"
+
+      assert doc |> LazyHTML.query("#camera-timeline-not-recording") |> LazyHTML.text() =~
+               "no recorder is running for it"
+
+      render_timeline = fn coverage, archive_playback_available, timeline_source ->
+        (&RecordingsComponents.recordings/1)
+        |> render_component(
+          source: source,
+          items: [],
+          mode: :timeline,
+          timezone: "America/Chicago",
+          can_view_recording_settings: true,
+          can_manage_holds: true,
+          timeline_source: timeline_source,
+          timeline_coverage: Map.merge(%{blocks: [], buckets: [], gaps: [], scheduled_continuous?: true}, coverage),
+          archive_playback_available: archive_playback_available,
+          timeline_jump_at: "2026-11-16T15:00:00",
+          timeline_playlist_path: nil,
+          timeline_holds: [],
+          hold_form: hold_form
+        )
+        |> LazyHTML.from_fragment()
+      end
+
+      recording = render_timeline.(%{continuous_recording_active?: true}, false, "auto")
+
+      assert recording |> LazyHTML.query("#camera-timeline-recorder-state") |> LazyHTML.text() |> normalize_ws() ==
+               "Recording"
+
+      assert recording |> LazyHTML.query("#camera-timeline-not-recording") |> Enum.count() == 0
+
+      archived = %{id: "00000000-0000-4000-8000-000000000611", local_state: :reclaimed, archive_state: :verified}
+
+      missing_no_archive = %{
+        id: "00000000-0000-4000-8000-000000000612",
+        local_state: :missing,
+        archive_state: :not_required
+      }
+
+      deleted_block = %{id: "00000000-0000-4000-8000-000000000613", local_state: :reclaimed, archive_state: :deleted}
+      local_and_archived = %{id: "00000000-0000-4000-8000-000000000614", local_state: :present, archive_state: :verified}
+
+      archive_only = render_timeline.(%{blocks: [archived]}, false, "auto")
+
+      assert archive_only |> LazyHTML.query("#camera-timeline-archive-only") |> LazyHTML.text() |> normalize_ws() =~
+               "Archive copies cannot be played yet"
+
+      assert %{blocks: [archived]}
+             |> render_timeline.(true, "auto")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 0
+
+      assert %{blocks: [archived]}
+             |> render_timeline.(false, "local")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 0
+
+      assert %{blocks: [local_and_archived]}
+             |> render_timeline.(false, "archive")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 1
+
+      assert %{blocks: [local_and_archived]}
+             |> render_timeline.(false, "auto")
+             |> LazyHTML.query("#camera-timeline-archive-only")
+             |> Enum.count() == 0
+
+      for unarchived <- [missing_no_archive, deleted_block], mode <- ["auto", "archive", "local"] do
+        rendered = render_timeline.(%{blocks: [unarchived]}, false, mode)
+
+        assert rendered |> LazyHTML.query("#camera-timeline-archive-only") |> Enum.count() == 0
+
+        assert rendered |> LazyHTML.query("#camera-timeline-empty-state") |> LazyHTML.text() =~
+                 "No playable footage in selected window"
+      end
+
       [video_class] = LazyHTML.attribute(LazyHTML.query(doc, "#camera-timeline-player"), "class")
       assert video_class =~ "hidden"
 
@@ -3735,6 +3830,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLiveUnitTest do
       load_retention_usage_summary: fn _ -> CameraRecordingSettings.default_usage_summary() end,
       list_camera_sources: fn _ -> {:ok, []} end,
       list_policies: fn _ -> [] end,
+      recording_now: fn _ -> MapSet.new() end,
       what_if_policy_preview: &db_free_what_if_preview/3,
       list_storage_settings: fn _ -> [] end,
       load_recording_health: fn _ -> CameraRecordingSettings.default_health_summary() end

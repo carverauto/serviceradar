@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_span, :string, default: "1h"
   attr :timeline_source, :string, default: "auto"
   attr :timeline_coverage, :map, default: nil
+  attr :archive_playback_available, :boolean, default: false
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
@@ -130,6 +131,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
         timeline_coverage={@timeline_coverage}
+        archive_playback_available={@archive_playback_available}
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
@@ -310,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_span, :string, required: true
   attr :timeline_source, :string, required: true
   attr :timeline_coverage, :map, default: nil
+  attr :archive_playback_available, :boolean, default: false
   attr :timeline_playlist_path, :string, default: nil
   attr :timeline_play_from_us, :integer, default: nil
   attr :timeline_play_to_us, :integer, default: nil
@@ -353,6 +356,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
       |> assign(:has_local_only_after_archive?, any_local_only_after_archive?(buckets, blocks))
       |> assign(:scheduled_continuous?, coverage_field(coverage, :scheduled_continuous?) == true)
+      |> assign(:recorder_running?, coverage_field(coverage, :continuous_recording_active?) == true)
+      |> assign(
+        :archive_only_unplayable?,
+        archive_only_unplayable?(blocks, assigns.timeline_source, assigns.archive_playback_available)
+      )
 
     ~H"""
     <div id="camera-timeline-view" class="space-y-6">
@@ -382,6 +390,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             size="sm"
           >
             Clock re-anchored ({length(@reanchors)})
+          </.ui_badge>
+          <%!-- A continuous policy says recording is wanted; only a live recorder records. --%>
+          <.ui_badge
+            :if={@scheduled_continuous?}
+            id="camera-timeline-recorder-state"
+            variant={if(@recorder_running?, do: "success", else: "warning")}
+            size="sm"
+          >
+            {if @recorder_running?, do: "Recording", else: "Continuous policy set: not recording yet"}
           </.ui_badge>
         </div>
         <p class="text-xs text-sr-muted">
@@ -905,48 +922,65 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               role="status"
               class="rounded-xl border border-dashed border-sr-line bg-sr-canvas p-6 text-sm space-y-2"
             >
-              <%= if @scheduled_continuous? do %>
-                <div class="flex items-center gap-2 font-semibold text-sr-ink">
-                  <.icon name="hero-clock" class="size-4 text-sr-muted" />
-                  <span>No playable footage in selected window</span>
-                </div>
-                <p class="text-xs text-sr-muted">
-                  A <code class="font-mono">continuous</code>
-                  recording policy is configured for this camera,
-                  and <strong class="text-sr-ink">0</strong>
-                  sealed catalog blocks
-                  (<code class="font-mono">RecordingCatalogEntry</code>) exist in the selected window yet.
-                  Try a wider span (<code class="font-mono">24h</code>
-                  / <code class="font-mono">7d</code>) or
-                  check recorder and reconciliation status.
-                </p>
-                <div :if={@can_view_recording_settings} class="pt-1">
-                  <.link
-                    id="camera-timeline-empty-health-link"
-                    navigate={~p"/settings/recording?tab=health"}
-                    class="text-xs font-medium text-sr-brand underline"
+              <%= cond do %>
+                <% @archive_only_unplayable? -> %>
+                  <div class="flex items-center gap-2 font-semibold text-sr-ink">
+                    <.icon name="hero-archive-box" class="size-4 text-sr-muted" />
+                    <span>Archive playback not available yet</span>
+                  </div>
+                  <p id="camera-timeline-archive-only" class="text-xs text-sr-muted">
+                    Archive copies cannot be played yet, so footage stored only in the archive
+                    shows on the timeline but does not play. Local copies play as they are recorded.
+                  </p>
+                <% @scheduled_continuous? -> %>
+                  <div class="flex items-center gap-2 font-semibold text-sr-ink">
+                    <.icon name="hero-clock" class="size-4 text-sr-muted" />
+                    <span>No playable footage in selected window</span>
+                  </div>
+                  <p
+                    :if={not @recorder_running?}
+                    id="camera-timeline-not-recording"
+                    class="text-xs text-sr-muted"
                   >
-                    Inspect Recording &amp; Storage health
-                  </.link>
-                </div>
-              <% else %>
-                <div class="flex items-center gap-2 font-semibold text-sr-ink">
-                  <.icon name="hero-video-camera-slash" class="size-4 text-sr-muted" />
-                  <span>No continuous recording policy active</span>
-                </div>
-                <p class="text-xs text-sr-muted">
-                  No <code class="font-mono">continuous</code> recording policy is active for this
-                  camera/profile, and no playable catalog blocks exist in the selected window.
-                </p>
-                <div :if={@can_view_recording_settings} class="pt-1">
-                  <.link
-                    id="camera-timeline-empty-policy-link"
-                    navigate={~p"/settings/recording?tab=policy"}
-                    class="text-xs font-medium text-sr-brand underline"
-                  >
-                    Configure recording policy
-                  </.link>
-                </div>
+                    A <code class="font-mono">continuous</code>
+                    recording policy is configured for this camera, but no recorder is running for it,
+                    so no new footage is being captured. Footage appears here once recording runs.
+                  </p>
+                  <p :if={@recorder_running?} class="text-xs text-sr-muted">
+                    A recorder is running for this camera, and <strong class="text-sr-ink">0</strong>
+                    sealed catalog blocks
+                    (<code class="font-mono">RecordingCatalogEntry</code>) exist in the selected window yet.
+                    Try a wider span (<code class="font-mono">24h</code>
+                    / <code class="font-mono">7d</code>) or
+                    check recorder and reconciliation status.
+                  </p>
+                  <div :if={@can_view_recording_settings} class="pt-1">
+                    <.link
+                      id="camera-timeline-empty-health-link"
+                      navigate={~p"/settings/recording?tab=health"}
+                      class="text-xs font-medium text-sr-brand underline"
+                    >
+                      Inspect Recording &amp; Storage health
+                    </.link>
+                  </div>
+                <% true -> %>
+                  <div class="flex items-center gap-2 font-semibold text-sr-ink">
+                    <.icon name="hero-video-camera-slash" class="size-4 text-sr-muted" />
+                    <span>No continuous recording policy active</span>
+                  </div>
+                  <p class="text-xs text-sr-muted">
+                    No <code class="font-mono">continuous</code> recording policy is active for this
+                    camera/profile, and no playable catalog blocks exist in the selected window.
+                  </p>
+                  <div :if={@can_view_recording_settings} class="pt-1">
+                    <.link
+                      id="camera-timeline-empty-policy-link"
+                      navigate={~p"/settings/recording?tab=policy"}
+                      class="text-xs font-medium text-sr-brand underline"
+                    >
+                      Configure recording policy
+                    </.link>
+                  </div>
               <% end %>
             </div>
 
@@ -1369,6 +1403,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     Enum.any?(buckets, &(bucket_state_name(&1) == "local_only_after_archive")) or
       Enum.any?(blocks, &(block_copy_state_name(&1) == "local_only_after_archive"))
   end
+
+  defp archive_only_unplayable?(_blocks, _source, true), do: false
+
+  defp archive_only_unplayable?(blocks, source, false) do
+    has_verified_archive? = Enum.any?(blocks, &block_archive_verified?/1)
+
+    case source do
+      "archive" -> has_verified_archive?
+      "local" -> false
+      _auto -> has_verified_archive? and not Enum.any?(blocks, &block_local_present?/1)
+    end
+  end
+
+  defp block_local_present?(block), do: coverage_field(block, :local_state) in [:present, "present"]
+  defp block_archive_verified?(block), do: coverage_field(block, :archive_state) in [:verified, "verified"]
 
   defp extract_reanchors(coverage, blocks) do
     case coverage_list(coverage, :reanchors) do

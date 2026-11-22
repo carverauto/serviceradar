@@ -25,6 +25,7 @@ defmodule ServiceRadarNVR.Ingest do
   alias ServiceRadarNVR.Archive
   alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.IngestStream
+  alias ServiceRadarNVR.ListenerConfig
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
@@ -42,15 +43,9 @@ defmodule ServiceRadarNVR.Ingest do
     {:ok, timer} = :timer.exit_after(deadline_ms(conn, config), :kill)
 
     try do
-      with :https <- conn.scheme,
-           %{ssl_cert: certificate} when is_binary(certificate) <- get_peer_data(conn),
-           true <- :crypto.hash(:sha256, certificate) == config.ingest.client_sha256,
-           ["Bearer " <> token] when byte_size(token) <= 512 <- get_req_header(conn, "authorization"),
-           true <- Plug.Crypto.secure_compare(:crypto.hash(:sha256, token), config.ingest.token_sha256) do
-        route(conn, config)
-      else
-        _ -> respond(conn, 401, %{error: "unauthorized"})
-      end
+      if ListenerConfig.authorized?(conn, config.ingest),
+        do: route(conn, config),
+        else: respond(conn, 401, %{error: "unauthorized"})
     catch
       :exit, _ -> respond(conn, 503, %{error: "ingest_unavailable"})
     after

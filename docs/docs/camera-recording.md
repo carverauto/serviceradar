@@ -235,7 +235,10 @@ and `archive_binding_id` they were recorded under.
   `(camera_source_id, stream_profile_id)` pair. The form displays each profile's
   codec hint, observed bitrate, estimated daily storage bytes, and estimated
   daily block count (`unknown until recorded` when a profile has never streamed).
-- **Recording mode (`mode`):** `off` (default) or `continuous`.
+- **Recording mode (`mode`):** `off` (default) or `continuous`. In the policies
+  table, `continuous` policies show live recorder-claim status
+  (`continuous: recording` when an active non-expired recorder claim exists, or
+  `continuous: not recording yet` when no recorder is currently running).
 - **Assigned NVR member (`nvr_member`):** Target StatefulSet member name (for
   example `serviceradar-nvr-0`), required when `mode` is `continuous`.
 - **Storage tier (`storage`):**
@@ -464,7 +467,8 @@ The page header provides a mode toggle between two distinct recording catalogs:
 - **Timeline (`?mode=timeline`):** Selected automatically whenever the camera
   has any `RecordingCatalogEntry`, `RecordingGap`, `RecordingHold`, or
   `CameraRecordingPolicy` rows (`RecordingTimeline.has_timeline_data?/2`). Plays
-  seamlessly across consecutive NVR blocks from local NVR storage and verified
+  across consecutive NVR blocks from local NVR storage (through the opt-in NVR
+  read listener) and, once an archive reader is installed, from verified
   object-archive copies.
 - **Published (`?mode=published`):** Lists single-block recordings published
   through the legacy `ArchiveUploads` workflow
@@ -486,7 +490,7 @@ API) using eight states:
 | Coverage state | Meaning |
 | --- | --- |
 | **Local + archived** (`local_and_archived`) | Present on the owning NVR spool and verified in object archive storage. |
-| **Archive only** (`archive_only`) | Local copy reclaimed or absent; playable from the verified object archive copy. |
+| **Archive only** (`archive_only`) | Local copy reclaimed or absent; plays once an archive reader is installed (otherwise shows `Archive playback not available yet`). |
 | **Pending archive** (`pending_archive`) | Present locally (`awaiting_binding`, `pending`, `failed_retryable`, `failed_terminal`, `deleting`, or `missing`); playable from the local copy while pinned in `P1`. |
 | **Local-only footage** (`local_only`) | Recorded under a `local_only` policy or with archiving disabled (`archive_state = not_required` with no archive binding). |
 | **Local only (archive expired/reaped)** (`local_only_after_archive`) | Archive copy was deleted by object retention or capacity reaping while the local NVR copy remains present and evictable under local retention. |
@@ -506,6 +510,13 @@ Above the bar, banners and markers surface timing and durability provenance:
   clock drift triggered a timeline re-anchor without a media gap.
 - **`provisional` badge:** Indicates local copies on NVR storage lifetimes that
   do not yet have `LocalStorageBinding` registration and current qualification.
+- **Live recorder status badge & empty states:** When a `continuous` policy is
+  configured, the banner reports **`Recording`** (active non-expired recorder
+  claim) or **`Continuous policy set: not recording yet`** (no active recorder
+  claim), and the empty state distinguishes a running recorder with no sealed
+  blocks yet from a policy with no active recorder. Windows containing only
+  verified archive copies (or `Force archive` mode) display
+  **`Archive playback not available yet`** until an archive reader is installed.
 - **Adjacent-window loading:** Each HLS VOD playlist covers up to `60` minutes
   (`2,048` segments). As playback nears the end of the active window, the
   `CameraTimelinePlayer` hook automatically advances into the adjacent window.
@@ -527,10 +538,21 @@ invalid_request`):
 #### Source modes, SHA-256 verification, and `X-Recording-Copy`
 
 - **`source=auto` (default):** Attempts a `present` local NVR copy first (`2 s`
-  timeout). On timeout, unavailability, or not-found, falls back automatically to
-  a `verified` archive copy.
+  timeout) via `CameraTimelineReader.NVRLocal` (configured by
+  `SERVICERADAR_NVR_READ_CLIENT_CONFIG_FILE` and
+  `SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE`, or Helm `nvr.read.enabled`). When
+  an archive reader is installed, falls back automatically to a `verified`
+  archive copy on timeout, unavailability, or not-found. Until an archive reader
+  is installed, the Timeline UI requests `source=local` in `Auto` mode; direct
+  API requests for archive-only entries return `409
+  archive_playback_not_available`, while a local read failure on an entry with
+  an archive copy returns the local error (`409 recording_unavailable` on
+  not-found, `409 recording_integrity_failed` on mismatch, `503
+  recording_read_unavailable` on reader unavailability).
 - **`source=local` / `source=archive` (forced source):** Reads **only** the
-  requested copy and never falls back (`409 recording_unavailable` when absent).
+  requested copy and never falls back (`409 recording_unavailable` when absent,
+  or `409 archive_playback_not_available` for `source=archive` when no archive
+  reader is installed).
 - **Cryptographic digest verification:** Before releasing any init or fragment
   bytes, `CameraTimelineReader` verifies exact byte length and lowercase SHA-256
   against the block's frozen descriptor, and `CameraTimelineController`
@@ -637,10 +659,13 @@ and background runtime workers in `core-elx` and `serviceradar-nvr`:
     expired object deletion (`ArchiveRetentionJob`), and self-hosted capacity
     reaping (gated behind the disabled Phase 1 reaper flag) run as background
     jobs; until local reclamation is active, NVR spools retain sealed blocks and
-    refuse new capture admission once spool budget is reached. Similarly,
-    timeline init/fragment streaming requires the NVR local read listener and
-    per-request isolated archive reader (`CameraTimelineReader` returns `503
-    recording_read_unavailable` when neither reader is configured).
+    refuse new capture admission once spool budget is reached. Local timeline
+    init/fragment playback uses the opt-in NVR read listener (`nvr.read.enabled`
+    in Helm) and `CameraTimelineReader.NVRLocal` (returning `503
+    recording_read_unavailable` when the read client is unconfigured or
+    unreachable); archive-only playback requires the pending per-request
+    isolated archive reader (`D.2`) and currently returns `409
+    archive_playback_not_available`.
 
 ## Related pages
 

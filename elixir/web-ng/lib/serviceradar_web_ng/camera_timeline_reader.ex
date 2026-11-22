@@ -11,9 +11,16 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
   - per-request/per-test options (`opts[:readers]`, e.g. from
     `conn.private[:camera_timeline_readers]`), accepting `%{local: fun_or_mod, archive: fun_or_mod}`
     or a module implementing `@behaviour ServiceRadarWebNG.CameraTimelineReader`;
-  - application configuration (`Application.get_env(:serviceradar_web_ng, :camera_timeline_readers, [])`);
-  - default implementations returning `{:error, :reader_unavailable}` when neither
-    reader is installed.
+  - application configuration (`Application.get_env(:serviceradar_web_ng, :camera_timeline_readers, [])`),
+    which installs `ServiceRadarWebNG.CameraTimelineReader.NVRLocal` as the local reader;
+  - default implementations: `fetch_local/2` returns `{:error, :reader_unavailable}`,
+    and `fetch_archive/2` returns `{:error, :archive_reader_not_installed}`, which
+    `execute_plans/3` passes through so archive-only footage is reported as not
+    playable yet rather than as a transient failure.
+
+  A local reader that detects itself that the local copy is not the cataloged
+  block returns `{:error, :integrity_mismatch}`; that is handled exactly like
+  local bytes that fail the digest check.
   """
 
   @behaviour __MODULE__
@@ -41,7 +48,14 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
   def fetch_local(_plan, _deadline_ms), do: {:error, :reader_unavailable}
 
   @impl true
-  def fetch_archive(_plan, _deadline_ms), do: {:error, :reader_unavailable}
+  def fetch_archive(_plan, _deadline_ms), do: {:error, :archive_reader_not_installed}
+
+  @doc """
+  True when application configuration installs an archive reader, so verified
+  archive copies can be played. Until then (D.2) only local copies play.
+  """
+  @spec archive_reader_installed?() :: boolean()
+  def archive_reader_installed?, do: resolve_archive_reader([]) != __MODULE__
 
   @doc """
   Executes ordered candidate plans returned by `RecordingTimeline.resolve_read_plans/5`
@@ -120,13 +134,25 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
         {:ok, result}
 
       {:integrity_failed, true} ->
-        read_and_verify_archive(archive_plan, opts)
+        archive_fallback(archive_plan, opts, :recording_integrity_failed)
 
       {:integrity_failed, false} ->
         {:error, :recording_integrity_failed}
 
+      {:error, :not_found} ->
+        archive_fallback(archive_plan, opts, :recording_unavailable)
+
       {:error, _recoverable_local_failure} ->
-        read_and_verify_archive(archive_plan, opts)
+        archive_fallback(archive_plan, opts, :reader_unavailable)
+    end
+  end
+
+  # Without an archive reader the local failure is the answer, not the
+  # fallback's absence.
+  defp archive_fallback(archive_plan, opts, local_failure) do
+    case read_and_verify_archive(archive_plan, opts) do
+      {:error, :archive_reader_not_installed} -> {:error, local_failure}
+      result -> result
     end
   end
 
@@ -161,6 +187,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
           end
         end
 
+      {:error, :integrity_mismatch} ->
+        {:integrity_failed, handle_local_integrity_failure(local_plan, opts)}
+
       {:error, reason} ->
         {:error, reason}
 
@@ -172,40 +201,35 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
   defp read_and_verify_archive(archive_plan, opts) do
     archive_timeout_ms = Keyword.get(opts, :archive_timeout_ms, @default_archive_timeout_ms)
     deadline_ms = compute_deadline_ms(archive_timeout_ms, opts)
-    {reader_fn, custom?} = resolve_archive_reader(opts)
 
-    if not custom? and not is_nil(Map.get(archive_plan, :credential_error)) do
-      {:error, :reader_unavailable}
-    else
-      case invoke_reader(reader_fn, :fetch_archive, archive_plan, deadline_ms) do
-        {:ok, bytes} when is_binary(bytes) ->
-          cond do
-            System.monotonic_time(:millisecond) > deadline_ms ->
-              {:error, :reader_unavailable}
+    case invoke_reader(resolve_archive_reader(opts), :fetch_archive, archive_plan, deadline_ms) do
+      {:ok, bytes} when is_binary(bytes) ->
+        cond do
+          System.monotonic_time(:millisecond) > deadline_ms ->
+            {:error, :reader_unavailable}
 
-            valid_digest_and_length?(bytes, archive_plan) ->
-              {:ok,
-               %{
-                 bytes: bytes,
-                 copy: :archive,
-                 provisional?: false,
-                 copy_header: "archive",
-                 plan: archive_plan
-               }}
+          valid_digest_and_length?(bytes, archive_plan) ->
+            {:ok,
+             %{
+               bytes: bytes,
+               copy: :archive,
+               provisional?: false,
+               copy_header: "archive",
+               plan: archive_plan
+             }}
 
-            true ->
-              {:error, :recording_integrity_failed}
-          end
+          true ->
+            {:error, :recording_integrity_failed}
+        end
 
-        {:error, :not_found} ->
-          {:error, :recording_unavailable}
+      {:error, :not_found} ->
+        {:error, :recording_unavailable}
 
-        {:error, _reason} ->
-          {:error, :reader_unavailable}
+      {:error, :archive_reader_not_installed} ->
+        {:error, :archive_reader_not_installed}
 
-        _ ->
-          {:error, :reader_unavailable}
-      end
+      _ ->
+        {:error, :reader_unavailable}
     end
   end
 
@@ -259,11 +283,9 @@ defmodule ServiceRadarWebNG.CameraTimelineReader do
     readers = Keyword.get(opts, :readers)
     app_cfg = Application.get_env(:serviceradar_web_ng, :camera_timeline_readers, [])
 
-    case pick_reader(readers, [:archive, :archive_reader]) ||
-           pick_reader(app_cfg, [:archive, :archive_reader]) do
-      nil -> {__MODULE__, false}
-      custom -> {custom, true}
-    end
+    pick_reader(readers, [:archive, :archive_reader]) ||
+      pick_reader(app_cfg, [:archive, :archive_reader]) ||
+      __MODULE__
   end
 
   defp pick_reader(nil, _keys), do: nil

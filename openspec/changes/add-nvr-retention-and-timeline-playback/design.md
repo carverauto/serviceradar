@@ -767,6 +767,18 @@ for what it is, without touching the block's immutable clock identity:
   already supports (`descriptor.ex:108-125`). Blocks reserved earlier stay
   `received`. A basis is never upgraded after the fact.
 
+**Run and anchor identity (convention).** A run is one recorder claim epoch, so
+`run_id` is the run's clock epoch, `relay_session_id:recorder_epoch`, and
+`anchor_id` is `<run_id>:<block_sequence>` of the block at which the run
+anchored, or re-anchored after a drift beyond the tolerance above. The bounded
+`NVRWorker` capture is a one-block run anchored at its first admitted unit, so
+its block's window starts at that unit's receipt time and spans the
+descriptor's media duration. The continuous coordinator (A3) reuses this
+convention, so entries from both writers group and align the same way. Until
+it is verified that each block's fMP4 timestamps keep the input PTS origin (A4),
+the anchoring block starts at its anchor's receipt time, not at an offset
+computed from its descriptor timestamps.
+
 Timeline queries and cross-camera alignment use the stored basis and say which
 one they used. Investigators see "aligned by receipt time" when cameras are
 compared.
@@ -811,7 +823,13 @@ entry, with its archive state set by transition 1 of the archive state machine
 
 Blocks whose original claim is gone (uncertain outcomes, a crashed
 coordinator, blocks recorded before this change, or a block the NVR rotated
-into) cannot be frozen by this path. The reconciler (section R) adopts them
+into) cannot be frozen by this path. This includes the accepted
+`verified-seal-lost-before-finalization` limit: if a late interrupt kills the
+worker's sender before `NVRWorker` receives the NVR's `sealed_local` reply, the
+worker cannot observe the seal and finalizes the capture as uncertain. Once a
+verified `sealed_local` reply reaches finalization, registration is gated only
+by the recovery gate, cleanup reserve and capture deadline, not by a prior
+stream abort. The reconciler (section R) adopts uncataloged sealed blocks
 under the authority stated there, or quarantines them, with a gap only by the
 quarantined-gap rule (R2). They
 are never left as unexplained local bytes.

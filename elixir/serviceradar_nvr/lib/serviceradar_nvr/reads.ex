@@ -2,18 +2,22 @@ defmodule ServiceRadarNVR.Reads do
   @moduledoc """
   Admission and lifetime limits for local read work, independent of recording slots.
 
-  The task supervisor admits at most four operations without a waiting queue.
-  Each admitted task expires after ten seconds, including when its caller exits.
-  Returned bytes belong to the caller; this does not budget downstream buffers.
+  Two pools admit reads without a waiting queue: `ServiceRadarNVR.ReadTasks`
+  (four slots) for discovery, inspection, archive and descriptor reads, and
+  `ServiceRadarNVR.PlaybackReadTasks` (`SERVICERADAR_NVR_PLAYBACK_READ_SLOTS`,
+  default 8) for the playback read listener, so playback cannot starve the
+  others. Each admitted task expires after ten seconds, including when its
+  caller exits. Returned bytes belong to the caller; this does not budget
+  downstream buffers.
   """
 
   @timeout 10_000
 
-  def run(operation) when is_function(operation, 0) do
+  def run(operation, pool \\ ServiceRadarNVR.ReadTasks) when is_function(operation, 0) do
     reply = :erlang.alias([:reply])
 
     try do
-      case Task.Supervisor.start_child(ServiceRadarNVR.ReadTasks, fn -> execute(reply, operation) end) do
+      case Task.Supervisor.start_child(pool, fn -> execute(reply, operation) end) do
         {:ok, pid} -> await(pid, reply)
         {:error, :max_children} -> {:error, :nvr_read_capacity}
         {:error, _} -> {:error, :nvr_read_unavailable}

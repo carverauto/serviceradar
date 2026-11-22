@@ -49,6 +49,98 @@
 {{- end -}}
 {{- end }}
 
+{{- /* The playback read listener (D5): its own port, pin and read-purpose token,
+web-ng as its only client. Distinct from every ingest input so a playback
+credential can neither record nor archive. */ -}}
+{{- define "serviceradar.validateNvrRead" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- if and $nvr.enabled $read.enabled -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestClient := default (dict) $ingest.client -}}
+{{- $port := int (default 8444 $read.port) -}}
+{{- if or (lt $port 1) (gt $port 65535) (eq $port 8095) (and $ingest.enabled (eq $port (int (default 8443 $ingest.port)))) -}}
+{{- fail "nvr.read.port must be in 1..65535 and distinct from the health (8095) and ingest ports" -}}
+{{- end -}}
+{{- $slots := int (default 8 $read.playbackReadSlots) -}}
+{{- if or (lt $slots 1) (gt $slots 64) -}}
+{{- fail "nvr.read.playbackReadSlots must be from 1 through 64" -}}
+{{- end -}}
+{{- $_ := required "nvr.read.configSecretName is required when nvr.read.enabled" $read.configSecretName -}}
+{{- $token := required "nvr.read.tokenSecretName is required when nvr.read.enabled" $read.tokenSecretName -}}
+{{- $serverTLS := required "nvr.read.tlsSecretName is required when nvr.read.enabled" $read.tlsSecretName -}}
+{{- $client := default (dict) $read.client -}}
+{{- $_ := required "nvr.read.client.configSecretName is required when nvr.read.enabled" $client.configSecretName -}}
+{{- $clientToken := required "nvr.read.client.tokenSecretName is required when nvr.read.enabled" $client.tokenSecretName -}}
+{{- $clientTLS := required "nvr.read.client.tlsSecretName is required when nvr.read.enabled" $client.tlsSecretName -}}
+{{- if eq $serverTLS $clientTLS -}}
+{{- fail "nvr.read server and client TLS Secrets must be distinct" -}}
+{{- end -}}
+{{- $ingestTokens := list $ingest.tokenSecretName $ingestClient.tokenSecretName -}}
+{{- if or (has $token $ingestTokens) (has $clientToken $ingestTokens) -}}
+{{- fail "nvr.read must use a read token Secret distinct from the ingest token" -}}
+{{- end -}}
+{{- if has $clientTLS (list $ingest.tlsSecretName $ingestClient.tlsSecretName) -}}
+{{- fail "nvr.read.client.tlsSecretName must be distinct from the ingest TLS Secrets" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "serviceradar.nvrReadClientEnv" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- if and $nvr.enabled $read.enabled }}
+- name: SERVICERADAR_NVR_READ_CLIENT_CONFIG_FILE
+  value: /etc/serviceradar/nvr-read-client/config/config.json
+- name: SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE
+  value: /etc/serviceradar/nvr-read-client/auth/read-token
+{{- end }}
+{{- end }}
+
+{{- define "serviceradar.nvrReadClientMounts" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- if and $nvr.enabled $read.enabled }}
+- name: nvr-read-client-config
+  mountPath: /etc/serviceradar/nvr-read-client/config
+  readOnly: true
+- name: nvr-read-client-auth
+  mountPath: /etc/serviceradar/nvr-read-client/auth
+  readOnly: true
+- name: nvr-read-client-tls
+  mountPath: /etc/serviceradar/nvr-read-client/tls
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "serviceradar.nvrReadClientVolumes" -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- if and $nvr.enabled $read.enabled }}
+{{- $client := default (dict) $read.client }}
+- name: nvr-read-client-config
+  secret:
+    secretName: {{ $client.configSecretName | quote }}
+    defaultMode: 0440
+    items:
+      - {key: config.json, path: config.json}
+- name: nvr-read-client-auth
+  secret:
+    secretName: {{ $client.tokenSecretName | quote }}
+    defaultMode: 0440
+    items:
+      - {key: read-token, path: read-token}
+- name: nvr-read-client-tls
+  secret:
+    secretName: {{ $client.tlsSecretName | quote }}
+    defaultMode: 0440
+    items:
+      - {key: tls.crt, path: tls.crt}
+      - {key: tls.key, path: tls.key}
+      - {key: ca.crt, path: ca.crt}
+{{- end }}
+{{- end }}
+
 {{- define "serviceradar.nvrClientEnv" -}}
 {{- $nvr := default (dict) .Values.nvr -}}
 {{- $ingest := default (dict) $nvr.ingest -}}

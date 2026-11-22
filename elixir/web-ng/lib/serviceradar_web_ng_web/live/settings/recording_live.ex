@@ -77,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
         |> assign(:blocks_filtered_more?, false)
         |> assign(:blocks_next_cursor, nil)
         |> assign(:policies, [])
+        |> assign(:recording_now, MapSet.new())
         |> assign(:policy_profiles, [])
         |> assign(:policy_form, CameraRecordingSettings.default_policy_form(:local_only))
         |> assign(:policy_editing_revision, nil)
@@ -953,6 +954,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
             sources={@sources}
             sources_forbidden?={@sources_forbidden?}
             policies={@policies}
+            recording_now={@recording_now}
             policy_profiles={@policy_profiles}
             policy_form={@policy_form}
             policy_editing_revision={@policy_editing_revision}
@@ -1014,6 +1016,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
       list_relay_profiles: &CameraRecordingSettings.list_relay_profiles/2,
       list_camera_blocks_page: &CameraRecordingSettings.list_camera_blocks_page/3,
       list_policies: &CameraRecordingSettings.list_policies/1,
+      recording_now: &CameraRecordingSettings.recording_now/1,
       save_policy: &CameraRecordingSettings.save_policy/2,
       what_if_policy_preview: &CameraRecordingSettings.what_if_policy_preview/3,
       list_storage_settings: &CameraRecordingSettings.list_storage_settings/1,
@@ -1185,6 +1188,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive do
     socket =
       socket
       |> assign(:policies, policies)
+      |> assign(:recording_now, dependencies.recording_now.(scope))
       |> assign(:policy_profiles, policy_profiles)
       |> assign(:policy_form, next_form)
 

@@ -1946,6 +1946,130 @@ class NVRReleaseTest(unittest.TestCase):
                                  else {"error": ":descriptor_unavailable"})
                 self.assertEqual(requests, [(f"/v1/blocks/{block_id}/descriptor", "Bearer " + self.ingest_token)])
 
+    def read_installation(self):
+        """A read listener with its own certificates, pin, token and port."""
+        self.run_probe("read_certificates")
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.read_port = sock.getsockname()[1]
+        pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert((self.root / "read-client.pem").read_text())).hexdigest()
+        config = {"port": self.read_port, "client_sha256": pin,
+                  "cert_file": str(self.root / "read-server.pem"), "key_file": str(self.root / "read-server-key.pem"),
+                  "ca_file": str(self.root / "read-server-ca.pem")}
+        path = self.root / "read.json"
+        path.write_text(json.dumps(config))
+        token = self.root / "read-token"
+        self.read_token = "synthetic-nvr-playback-reader-token-0123"
+        token.write_text(self.read_token)
+        self.env.update(SERVICERADAR_NVR_READ_CONFIG_FILE=str(path), SERVICERADAR_NVR_READ_TOKEN_FILE=str(token))
+        self.read_tls = ssl.create_default_context(cafile=str(self.root / "read-client-ca.pem"))
+        self.read_tls.load_cert_chain(str(self.root / "read-client.pem"), str(self.root / "read-client-key.pem"))
+
+    def media_request(self, path, token=None):
+        connection = http.client.HTTPSConnection("localhost", self.read_port, context=self.read_tls, timeout=20)
+        try:
+            connection.request("GET", path, headers={"Authorization": "Bearer " + (token or self.read_token)})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def read_with_client(self, block_id, digest, selector, length, sha256):
+        return self.run_client({"mode": "read", "block_id": block_id, "descriptor_sha256": digest,
+                                "selector": selector, "length": length, "sha256": sha256, "timeout_ms": 15000,
+                                "token_path": str(self.root / "read-token")},
+                               config_changes={"port": self.read_port, "ca_file": str(self.root / "read-client-ca.pem"),
+                                               "cert_file": str(self.root / "read-client.pem"),
+                                               "key_file": str(self.root / "read-client-key.pem")})
+
+    def test_read_listener_serves_verified_init_and_fragments_that_decode(self):
+        self.read_installation()
+        _proc, block_id = self.sealed_network_block()
+        block = self.spool / block_id
+        status, body = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, body)
+        descriptor = json.loads(body)
+        digest = hashlib.sha256(body).hexdigest()
+        query = "?descriptor_sha256=" + digest
+
+        init = (block / "init.mp4").read_bytes()
+        media = (block / "media.m4s").read_bytes()
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (200, init))
+        played = bytearray(init)
+        for fragment in descriptor["fragments"]:
+            status, data = self.media_request(f"/v1/blocks/{block_id}/fragments/{fragment['sequence']}{query}")
+            self.assertEqual(status, 200)
+            self.assertEqual(data, media[fragment["offset"]:fragment["offset"] + fragment["length"]])
+            self.assertEqual(hashlib.sha256(data).hexdigest(), fragment["sha256"])
+            played.extend(data)
+        # An independent decoder plays init plus the fragments as the captured frames.
+        output = self.root / "played.mp4"
+        output.write_bytes(bytes(played))
+        self.assertEqual(self.decode(str(output)), self.decode(self.env["NVR_TEST_H264"]))
+
+        # The packaged client returns exactly the selected bytes, and refuses others.
+        first = descriptor["fragments"][0]
+        self.assertEqual(self.read_with_client(block_id, digest, first["sequence"], first["length"], first["sha256"]),
+                         {"ok": {"length": first["length"], "sha256": first["sha256"]}})
+        self.assertEqual(self.read_with_client(block_id, digest, "init", len(init), hashlib.sha256(init).hexdigest()),
+                         {"ok": {"length": len(init), "sha256": hashlib.sha256(init).hexdigest()}})
+        self.assertEqual(self.read_with_client(block_id, digest, first["sequence"], first["length"], "0" * 64),
+                         {"error": ":integrity_mismatch"})
+        self.assertEqual(self.read_with_client(block_id, "0" * 64, first["sequence"], first["length"], first["sha256"]),
+                         {"error": ":integrity_mismatch"})
+        self.assertEqual(self.read_with_client("0" * 64, digest, first["sequence"], first["length"], first["sha256"]),
+                         {"error": ":not_found"})
+
+        # Refusals: wrong descriptor, malformed request, unknown block or fragment, wrong token.
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init?descriptor_sha256=" + "0" * 64),
+                         (409, b'{"error":"descriptor_mismatch"}'))
+        for path in (f"/v1/blocks/{block_id}/init", f"/v1/blocks/{block_id}/init{query}&extra=1",
+                     f"/v1/blocks/{block_id}/init?descriptor_sha256=XYZ"):
+            self.assertEqual(self.media_request(path), (400, b'{"error":"invalid_read_request"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/fragments/{len(descriptor['fragments'])}{query}"),
+                         (404, b'{"error":"fragment_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/fragments/01{query}"),
+                         (404, b'{"error":"fragment_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{'0' * 64}/init{query}"), (404, b'{"error":"block_not_found"}'))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}", token=self.ingest_token)[0], 401)
+        # The read token opens nothing on the ingest listener.
+        self.assertEqual(self.descriptor_request(block_id, token=self.read_token)[0], 401)
+
+        # A block whose seal no longer verifies is not served.
+        journal = (block / "journal").read_bytes()
+        offset = 0
+        while offset < len(journal):
+            last = offset
+            offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
+        (block / "journal").write_bytes(journal[:last])
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        self.assertEqual(
+            self.read_with_client(block_id, digest, "init", len(init), hashlib.sha256(init).hexdigest()),
+            {"error": ":integrity_mismatch"},
+        )
+        (block / "journal").write_bytes(journal)
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (200, init))
+
+    def test_read_listener_refuses_ingest_credentials_at_boot(self):
+        self.ingest_installation()
+        self.read_installation()
+        ingest = json.loads(Path(self.env["SERVICERADAR_NVR_INGEST_CONFIG_FILE"]).read_text())
+        read = json.loads(Path(self.env["SERVICERADAR_NVR_READ_CONFIG_FILE"]).read_text())
+        shared = self.root / "read-shared.json"
+        for changes, token in (({"port": ingest["port"]}, self.env["SERVICERADAR_NVR_READ_TOKEN_FILE"]),
+                               ({"client_sha256": ingest["client_sha256"]}, self.env["SERVICERADAR_NVR_READ_TOKEN_FILE"]),
+                               ({}, self.env["SERVICERADAR_NVR_INGEST_TOKEN_FILE"])):
+            with self.subTest(changes=changes, token=token):
+                shared.write_text(json.dumps(read | changes))
+                env = self.env | {"SERVICERADAR_NVR_READ_CONFIG_FILE": str(shared),
+                                  "SERVICERADAR_NVR_READ_TOKEN_FILE": token}
+                result = subprocess.run([self.binary, "eval", "{:ok, _} = Application.ensure_all_started(:serviceradar_nvr)"],
+                                        env=env, capture_output=True, timeout=20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b"invalid_nvr_read_config", result.stdout + result.stderr)
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
