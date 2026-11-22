@@ -1384,7 +1384,10 @@ if config_env() == :prod do
       # ansible job sat `available` forever and runs never advanced.
       ansible_catalog: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_CATALOG") || "4"),
       ansible_pulse: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_PULSE") || "4"),
-      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1")
+      ansible_retention: String.to_integer(System.get_env("OBAN_QUEUE_ANSIBLE_RETENTION") || "1"),
+      # NVR block archive uploads (ArchiveBlockJob). Bounded concurrency keeps
+      # core-to-NVR archive traffic aligned with the NVR's single archive slot per member.
+      nvr_archive: String.to_integer(System.get_env("OBAN_QUEUE_NVR_ARCHIVE") || "2")
     ],
     plugins: [
       Oban.Plugins.Pruner,

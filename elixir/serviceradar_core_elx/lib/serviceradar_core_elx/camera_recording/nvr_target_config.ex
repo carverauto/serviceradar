@@ -32,6 +32,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfig do
 
   def resolve(_member, _opts), do: {:error, :invalid_nvr_member}
 
+  @spec resolve_by_storage_id(String.t(), keyword()) :: {:ok, resolved_target()} | {:error, atom()}
+  def resolve_by_storage_id(storage_id, opts \\ [])
+
+  def resolve_by_storage_id(storage_id, opts) when is_binary(storage_id) and is_list(opts) do
+    with {:ok, normalized} <- cast_uuid(storage_id),
+         {:ok, config_path, token_path} <- config_paths(opts),
+         {:ok, members} <- Members.load(config_path, token_path) do
+      Members.by_storage_id(members, normalized)
+    end
+  end
+
+  def resolve_by_storage_id(_storage_id, _opts), do: {:error, :invalid_nvr_storage_id}
+
+  defp cast_uuid(storage_id) do
+    case Ecto.UUID.cast(storage_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_nvr_storage_id}
+    end
+  end
+
   defp config_paths(opts) do
     config_file =
       Keyword.get_lazy(opts, :config_file, fn ->

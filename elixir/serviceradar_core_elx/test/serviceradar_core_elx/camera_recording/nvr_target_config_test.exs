@@ -110,6 +110,31 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
              )
   end
 
+  test "resolves installed member credentials by storage ID", ctx do
+    files = write_client_fixture(ctx.tmp_dir)
+
+    assert {:ok, by_storage} =
+             NVRTargetConfig.resolve_by_storage_id("00000000-0000-4000-8000-000000000012",
+               config_file: files.config,
+               token_file: files.token
+             )
+
+    assert by_storage.member == "serviceradar-nvr-1"
+    assert by_storage.storage_id == "00000000-0000-4000-8000-000000000012"
+
+    assert {:error, :unknown_nvr_storage} =
+             NVRTargetConfig.resolve_by_storage_id("00000000-0000-4000-8000-000000000099",
+               config_file: files.config,
+               token_file: files.token
+             )
+
+    assert {:error, :invalid_nvr_storage_id} =
+             NVRTargetConfig.resolve_by_storage_id("not-a-uuid",
+               config_file: files.config,
+               token_file: files.token
+             )
+  end
+
   test "coordinator and supervisor reject disabled or malformed capture requests before database work", ctx do
     Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, false)
     assert {:error, :recording_disabled} = RecordingSupervisor.start_nvr_recorder([])

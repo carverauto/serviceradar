@@ -20,9 +20,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   On a verified seal for its reserved block, the worker reads the canonical NVR
   descriptor and the camera's recording policy before calling
   `ServiceRadar.Camera.RecordingBlocks.freeze_and_catalog/6` under its live
-  claim. Each step runs at most once. Registration leaves lease time for claim
-  release and relay close. The first admitted unit anchors the run, identified
-  by the clock epoch. Its anchor ID combines the epoch and block sequence.
+  claim. When registration returns an entry with `archive_state: :pending`, it
+  best-effort enqueues `ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob`.
+  Each step runs at most once. Registration leaves lease time for claim release
+  and relay close. The first admitted unit anchors the run, identified by the
+  clock epoch. Its anchor ID combines the epoch and block sequence.
 
   The worker attempts claim release and requests relay close before reporting a
   verified seal, including when registration was refused or its outcome is
@@ -84,6 +86,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelaySessionManager
+  alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.RecorderRenewal
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarNVRClient.Config, as: ClientConfig
@@ -757,7 +760,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
     if remaining < @min_call_timeout_ms, do: {:error, :registration_deadline}, else: {:ok, min(remaining, cap)}
   end
 
-  defp freeze_outcome({:ok, entry}), do: {:registered, entry.id}
+  defp freeze_outcome({:ok, entry}) do
+    _ = ArchiveBlockJob.enqueue_for_entry(entry)
+    {:registered, entry.id}
+  end
 
   defp freeze_outcome({:error, reason})
        when reason in [

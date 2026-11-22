@@ -1097,4 +1097,14 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert ServiceRadar.NetworkConfig in domains
     assert ServiceRadar.NetworkChanges in domains
   end
+
+  test "prod Oban configures the dedicated nvr_archive queue with env override" do
+    with_env("OBAN_QUEUE_NVR_ARCHIVE", nil)
+    queues = read_prod_config()[:serviceradar_core][Oban][:queues]
+    assert queues[:nvr_archive] == 2
+
+    with_env("OBAN_QUEUE_NVR_ARCHIVE", "4")
+    queues_override = read_prod_config()[:serviceradar_core][Oban][:queues]
+    assert queues_override[:nvr_archive] == 4
+  end
 end

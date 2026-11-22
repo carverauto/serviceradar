@@ -6,6 +6,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.NVRArchiveReceipt
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
@@ -19,8 +20,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Credentials.CredentialSecretBuilder
+  alias ServiceRadar.Credentials.NativeDescriptors
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+  alias ServiceRadarCoreElx.CameraRecording.ArchiveBlockJob
   alias ServiceRadarCoreElx.CameraRecording.Capture
   alias ServiceRadarCoreElx.CameraRecording.NVRCapture
   alias ServiceRadarCoreElx.CameraRecording.NVRWorker
@@ -32,6 +37,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
+  alias ServiceRadarRecordingMetadata.CanonicalJSON
   alias ServiceRadarRecordingMetadata.Descriptor
 
   require Ash.Query
@@ -3425,6 +3431,351 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       "content-type: application/json\r\ncontent-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n"
 
     :ok = :ssl.send(ssl_sock, ["HTTP/1.1 #{status} Answer\r\n", headers, body])
+  end
+
+  describe "ArchiveBlockJob transactional commit" do
+    test "records NVRArchiveReceipt and marks RecordingCatalogEntry verified in one transaction",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+      {:ok, expected_bytes} = CanonicalJSON.encode(receipt)
+      expected_sha = :sha256 |> :crypto.hash(expected_bytes) |> Base.encode16(case: :lower)
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn sid ->
+                   assert sid == entry.storage_id
+                   {:ok, "serviceradar-nvr-0"}
+                 end,
+                 archive_fn: fn "serviceradar-nvr-0",
+                                block_key,
+                                passed_binding,
+                                _secret_id,
+                                _opts ->
+                   assert block_key == entry.block_key
+                   assert passed_binding.id == binding.id
+                   {:ok, receipt}
+                 end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [persisted_receipt] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert persisted_receipt.recording_block_id == entry.recording_block_id
+      assert persisted_receipt.destination_sha256 == binding.destination_sha256
+      assert persisted_receipt.receipt_sha256 == expected_sha
+      assert length(persisted_receipt.objects) == 3
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :verified
+      assert reloaded.archive_binding_id == binding.id
+      assert reloaded.nvr_archive_receipt_id == persisted_receipt.id
+      assert reloaded.archived_at == persisted_receipt.verified_at
+      assert reloaded.archive_attempts == 1
+      assert is_nil(reloaded.archive_last_error_class)
+    end
+
+    test "rolls back NVRArchiveReceipt atomically when the catalog verified update fails", ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+
+      Repo.query!("""
+      CREATE OR REPLACE FUNCTION platform.test_fail_catalog_verified_update()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.archive_state = 'verified' THEN
+          RAISE EXCEPTION 'synthetic catalog verified update failure'
+            USING ERRCODE = 'check_violation',
+                  CONSTRAINT = 'synthetic_catalog_verified_update_failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      """)
+
+      Repo.query!("""
+      CREATE TRIGGER trg_test_fail_catalog_verified_update
+      BEFORE UPDATE ON platform.camera_recording_catalog
+      FOR EACH ROW
+      EXECUTE FUNCTION platform.test_fail_catalog_verified_update();
+      """)
+
+      assert {:snooze, 30} =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [] ==
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :failed_retryable
+      assert is_nil(reloaded.nvr_archive_receipt_id)
+      assert is_nil(reloaded.archived_at)
+      assert reloaded.archive_attempts == 1
+    end
+
+    test "refuses an identical retained receipt on Transition 8 re-archive and returns entry to missing",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      receipt = synthetic_archive_receipt(entry, binding)
+      {:ok, receipt_bytes} = CanonicalJSON.encode(receipt)
+
+      {:ok, retained_receipt} =
+        NVRArchiveReceipt
+        |> Ash.Changeset.for_create(:record, %{
+          archive_binding_id: binding.id,
+          receipt_bytes: receipt_bytes,
+          recording_block_id: entry.recording_block_id
+        })
+        |> Ash.create(actor: ctx.actor)
+
+      now = DateTime.utc_now()
+
+      {:ok, verified_entry} =
+        entry
+        |> Ash.Changeset.for_update(:transition_archive_state, %{
+          archive_state: :verified,
+          archive_state_at: now,
+          nvr_archive_receipt_id: retained_receipt.id,
+          archived_at: retained_receipt.verified_at
+        })
+        |> Ash.update(actor: ctx.actor)
+
+      {:ok, pending_rearchive} =
+        verified_entry
+        |> Ash.Changeset.for_update(:transition_archive_state, %{
+          archive_state: :pending,
+          archive_state_at: now
+        })
+        |> Ash.update(actor: ctx.actor)
+
+      parent = self()
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :camera_recording, :archive_block, :outcome],
+          fn _event, _measurements, metadata, _config ->
+            send(parent, {:archive_outcome, metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert :ok =
+               ArchiveBlockJob.run(
+                 pending_rearchive.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, receipt} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert_receive {:archive_outcome,
+                      %{
+                        outcome: :rearchive_refused,
+                        catalog_entry_id: catalog_entry_id,
+                        error_class: "rearchive_retained_receipt_refused"
+                      }}
+
+      assert catalog_entry_id == pending_rearchive.id
+
+      assert [only_receipt] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert only_receipt.id == retained_receipt.id
+
+      reloaded = Ash.get!(RecordingCatalogEntry, pending_rearchive.id, actor: ctx.actor)
+      assert reloaded.archive_state == :missing
+      assert reloaded.nvr_archive_receipt_id == retained_receipt.id
+      assert reloaded.archive_last_error_class == "rearchive_retained_receipt_refused"
+      assert reloaded.archive_attempts == 1
+    end
+
+    test "marks entry failed_terminal and discards when NVRArchiveReceipt conflicts with retained receipt",
+         ctx do
+      %{entry: entry, binding: binding} = setup_pending_archive_catalog_entry(ctx)
+      retained_map = synthetic_archive_receipt(entry, binding, etag: ~s("retained-etag"))
+      {:ok, retained_bytes} = CanonicalJSON.encode(retained_map)
+
+      {:ok, retained_receipt} =
+        NVRArchiveReceipt
+        |> Ash.Changeset.for_create(:record, %{
+          archive_binding_id: binding.id,
+          receipt_bytes: retained_bytes,
+          recording_block_id: entry.recording_block_id
+        })
+        |> Ash.create(actor: ctx.actor)
+
+      conflicting_map = synthetic_archive_receipt(entry, binding, etag: ~s("conflicting-etag"))
+
+      assert {:discard, "archive_receipt_conflict"} =
+               ArchiveBlockJob.run(
+                 entry.id,
+                 member_resolver: fn _sid -> {:ok, "serviceradar-nvr-0"} end,
+                 archive_fn: fn _m, _k, _b, _s, _o -> {:ok, conflicting_map} end,
+                 rand_fn: fn -> 0.0 end
+               )
+
+      assert [still_retained] =
+               NVRArchiveReceipt
+               |> Ash.Query.filter(
+                 storage_id == ^entry.storage_id and block_key == ^entry.block_key and
+                   archive_binding_id == ^binding.id
+               )
+               |> Ash.read!(actor: ctx.actor)
+
+      assert still_retained.id == retained_receipt.id
+      assert still_retained.receipt_sha256 == retained_receipt.receipt_sha256
+
+      reloaded = Ash.get!(RecordingCatalogEntry, entry.id, actor: ctx.actor)
+      assert reloaded.archive_state == :failed_terminal
+      assert reloaded.archive_last_error_class == "archive_receipt_conflict"
+      assert is_nil(reloaded.nvr_archive_receipt_id)
+      assert reloaded.archive_attempts == 1
+    end
+  end
+
+  defp setup_pending_archive_catalog_entry(ctx) do
+    {:ok, binding} =
+      ArchiveBinding.register(
+        Fixtures.archive_destination("archive-job-#{Ecto.UUID.generate()}"),
+        actor: ctx.actor
+      )
+
+    {:ok, built_secret} =
+      CredentialSecretBuilder.build(
+        NativeDescriptors.s3_compatible(),
+        "access_key",
+        %{
+          "access_key_id" => "SYNTHETICARCHIVEWRITER01",
+          "secret_access_key" => "invented-archive-writer-secret-material"
+        },
+        %{name: "Archive Writer #{System.unique_integer([:positive])}"}
+      )
+
+    writer_secret = NetworkCredentialSecret.create_secret!(built_secret, actor: ctx.actor)
+
+    {:ok, _settings} =
+      RecordingArchiveSettings.save_settings(
+        %{
+          archive_enabled: true,
+          active_archive_binding_id: binding.id,
+          writer_credential_secret_id: writer_secret.id
+        },
+        actor: ctx.actor
+      )
+
+    {:ok, _profile} =
+      StreamProfile.update_profile(ctx.profile, %{relay_eligible: true}, actor: ctx.actor)
+
+    {:ok, policy} =
+      CameraRecordingPolicy
+      |> Ash.Changeset.for_create(:create, %{
+        camera_source_id: ctx.source.id,
+        stream_profile_id: ctx.profile.id,
+        storage: :local_and_archive
+      })
+      |> Ash.create(actor: ctx.actor)
+
+    ingest = owner(ctx, 30_000)
+
+    {:ok, claim} =
+      RecorderOwnership.acquire(
+        ingest,
+        Ecto.UUID.generate(),
+        ctx.relay.media_ingest_id,
+        Ecto.UUID.generate(),
+        30_000,
+        actor: ctx.actor
+      )
+
+    clock = %{
+      "clock_epoch" => "#{ctx.relay.id}:#{claim.recorder_epoch}",
+      "timebase" => 90_000,
+      "dts_source" => "pts_no_reordering",
+      "utc_mapping" => "unknown"
+    }
+
+    {:ok, block} = RecorderOwnership.reserve_block(ingest, claim, clock, actor: ctx.actor)
+    descriptor = Fixtures.recording_descriptor(block)
+
+    {:ok, entry} =
+      RecordingBlocks.freeze_and_catalog(
+        ingest,
+        claim,
+        block,
+        descriptor,
+        %{
+          policy_id: policy.id,
+          policy_storage: :local_and_archive,
+          first_unit_pts: 90_000,
+          first_unit_received_at: ~U[2026-11-22 05:00:00.000000Z],
+          run_id: "#{ctx.relay.id}:#{claim.recorder_epoch}",
+          anchor_id: "#{ctx.relay.id}:#{claim.recorder_epoch}:0",
+          reanchored: false,
+          contiguous_with_previous: false
+        },
+        actor: ctx.actor
+      )
+
+    assert entry.archive_state == :pending
+    assert entry.archive_binding_id == binding.id
+    assert is_nil(entry.nvr_archive_receipt_id)
+
+    %{entry: entry, binding: binding, writer_secret: writer_secret}
+  end
+
+  defp synthetic_archive_receipt(entry, binding, opts \\ []) do
+    etag = Keyword.get(opts, :etag, ~s("example-etag"))
+    prefix = "#{binding.namespace}/#{entry.storage_id}/#{entry.block_key}/"
+
+    %{
+      "version" => 1,
+      "storage_id" => entry.storage_id,
+      "block_id" => entry.block_key,
+      "destination" => %{
+        "host" => URI.parse(binding.endpoint).host,
+        "region" => binding.region,
+        "bucket" => binding.bucket,
+        "object_prefix" => binding.namespace
+      },
+      "objects" =>
+        Enum.map(["init.mp4", "media.m4s", "descriptor.json"], fn name ->
+          %{
+            "name" => name,
+            "key" => prefix <> name,
+            "length" => 4_096,
+            "sha256" => String.duplicate("ab", 32),
+            "etag" => etag
+          }
+        end),
+      "verified_at_ms" => 1_763_164_800_000
+    }
   end
 
   defp decode_rawvideo(path) do
