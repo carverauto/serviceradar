@@ -71,7 +71,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     consumer consumer_name contract_id controller_id controller_index count count_per_minute
     credential_secret_id cutoff cve_id database_bytes dataset deleted delivery_count delivery_id
     demoted_manifest_rows desktop_session_id dest device_count device_id device_ids device_uid
-    diagnostics dir discarded_count discarded_jobs discovered_stream dlq_sequence drop_point
+    diagnostics dir discarded_count discarded_jobs discovered_stream dispatched dlq_sequence drop_point
     dropped_chunks dropped_total durable endpoint_key endpoint_role ensure_reason episode_uid error
     error_count errors event_id event_type exception execution_id expected_agent_id
     expected_command_type expected_gateway_node expired_inflight expired_sequences failed
@@ -91,7 +91,7 @@ defmodule ServiceRadar.Logging.ConsoleFormatter do
     query queue reason reason_class reasons received_agent_id received_gateway_node recorded recovered
     recovery_errors registry_epoch relay_session_id release_tag released_stream remote_ip
     repo_url reported_command_type repository_id request_id requested_stream rescued_count
-    rescued_jobs resource resource_key response result results retention_days retry_in_ms
+    rescued_jobs resource resource_key response result results retention_days retried retry_in_ms
     retrying rollout_id root_span_ratio root_spans route_id route_ids row_count rows rule_id
     rule_name run_id running sample sampler_address scan_id schedule_id schema scoped_series
     section_count series_key service_name services session_agent_id session_id
