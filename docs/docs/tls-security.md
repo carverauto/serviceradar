@@ -49,31 +49,79 @@ certificate generator that issues the runtime mTLS certificates for you:
   The regenerator also issues a new root CA, so the chart refuses it while
   `nats.certificateAuthorization.enabled` is `true`.
 
-By default, `certs.issuerSecretName` resolves to the runtime Secret. When the
-two names match on a non-hosted install with `certs.generator.enabled=true`,
-the hook also provisions the NATS authorization callout signing set. The first
-upgrade of a Secret with valid certificates and no signing entries adds the
-three seeds and two public configuration fragments in one write, even with
-enforcement disabled. In other configurations, the issuer Secret's supplier
-provides the three `nats-callout-*.seed` files and the runtime Secret's
-supplier provides the two matching `nats-callout-*.conf` fragments.
+By default, `certs.issuerSecretName` resolves to the runtime Secret
+(`certs.runtimeSecretName`, default `serviceradar-runtime-certs`). When the two
+names resolve to the same Secret on a non-hosted install with
+`certs.generator.enabled=true`, the hook owns and provisions the NATS
+authorization callout signing set. The first upgrade of a Secret with valid
+certificates and no signing entries adds all five `nats-callout-*` entries in
+one write, even with enforcement disabled.
 
-The hook reuses all three seeds and rebuilds any missing or stale fragment
-from them. If both certificates and signing entries are current, it skips the
-Secret write. If a seed is missing from an existing set or is unreadable, the
-hook reports the affected file and fails before updating the Secret. Restore
-the named seeds to keep the same identities. To deliberately provision new
-identities, remove every remaining `nats-callout-*` entry before retrying.
+In every other configuration -- including a distinct `certs.issuerSecretName`,
+a hosted install, or a self-managed install with `certs.generator.enabled=false`
+even when `certs.issuerSecretName` is unset or equal to
+`certs.runtimeSecretName` (a shared Secret) -- any running generator leaves all
+five entries untouched, and the Secret supplier owns the complete signing set:
+
+- **Issuer Secret (`certs.issuerSecretName`, or the shared runtime Secret when unset):**
+  - `nats-callout-issuer.seed`: NATS account nkey seed (`SA...`) used by core
+    to sign authorization callout JWT responses.
+  - `nats-callout-auth.seed`: NATS user nkey seed (`SU...`) for core's auth
+    callout subscriber connection in the `AUTH` account.
+  - `nats-callout-system.seed`: NATS user nkey seed (`SU...`) for core's
+    system-account connection in the `SYS` account.
+- **Runtime certificate Secret (`certs.runtimeSecretName`):**
+  - `nats-callout-authorization.conf`: top-level broker
+    `authorization: {auth_callout: ...}` configuration fragment containing the
+    public nkeys derived from `issuer`, `auth`, and `system`.
+  - `nats-callout-accounts.conf`: broker `SYS` and `AUTH` account definitions
+    containing the derived public user nkeys and required system/callout
+    permissions.
+
+When `certs.generator.enabled=false` and `certs.issuerSecretName` is unset or
+equal to `certs.runtimeSecretName`, the Secret supplier must populate all five
+`nats-callout-*` keys in that shared Secret before setting
+`nats.certificateAuthorization.enabled` to `true`.
+
+When the generator owns the signing set, the hook reuses all three seeds and
+rebuilds any missing or stale fragment from them. If both certificates and
+signing entries are current, it skips the Secret write. If a seed is missing
+from an existing set or is unreadable, the hook reports the affected file and
+fails before updating the Secret. Restore the named seeds to keep the same
+identities. To deliberately provision new identities, remove every remaining
+`nats-callout-*` entry before retrying.
 
 Certificate authorization is off by default. Before setting
-`nats.certificateAuthorization.enabled` to `true`, check that core has
-adopted each chart identity. The chart does not check adoption when rendering.
-With enforcement enabled, only core mounts the signing seeds. If a seed is
-missing or undecodable, core can start and its authorizer reports
-`signing_keys_not_provisioned` even if a bootstrap record exists.
-NATS reads the public fragments at startup.
-A missing fragment prevents the Secret volume from mounting. An empty
-fragment stops the container before it starts the broker.
+`nats.certificateAuthorization.enabled` to `true`, verify with
+`serviceradar-cli edge hub status` that core has adopted each chart identity
+and that the signing keys are provisioned. The chart does not check adoption
+when rendering.
+
+With enforcement enabled:
+
+- Core mounts only the three `*.seed` keys from the issuer Secret with
+  `optional: true`. If any seed is missing or undecodable, core still starts
+  and its authorizer reports `signing_keys_not_provisioned` (even during a
+  broker outage or when a bootstrap record exists in the database).
+- NATS mounts `nats-callout-authorization.conf` and `nats-callout-accounts.conf`
+  from the runtime Secret as required items (without `optional: true`). If
+  either `.conf` fragment is missing, Kubernetes blocks the affected NATS pod
+  from mounting its certificate volume and starting, naming the missing key in
+  the pod events regardless of core's mounted seeds. An empty fragment stops the
+  container before it starts `nats-server`. Inspect pod mount errors and events
+  with:
+
+  ```bash
+  kubectl describe pod -n <namespace> <nats-pod>
+  kubectl get events -n <namespace> --field-selector involvedObject.name=<nats-pod> --sort-by=.lastTimestamp
+  ```
+
+- In a multi-replica NATS cluster, if one NATS pod fails to start due to a
+  missing fragment while core has all three seeds mounted and continues
+  answering through a surviving broker, an otherwise ready hub stays ready. If
+  all three seeds are mounted on core but core loses its authorizer connection
+  to NATS, hub status reports the authorizer as not answering and `edge install leaf`
+  stops before making host changes.
 
 ### Dgraph server TLS (separate path)
 
