@@ -636,7 +636,7 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @doc """
   Decodes an `Sr-Edge-Late-Admission-Grant` value: canonical base64url(no-pad), bounded, and a
   protobuf `EdgeSignedCapabilityV1`. It only parses; what the grant authorizes is checked by
-  `ServiceRadar.Edge.LateAdmission.verify_delivered/4`.
+  `ServiceRadar.Edge.LateAdmission.verify_delivered/3`.
   """
   @spec decode_late_admission_grant(binary()) ::
           {:ok, EdgeSignedCapabilityV1.t()} | {:error, :late_admission_grant}

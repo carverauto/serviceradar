@@ -10,15 +10,15 @@ never reach the stream an authoritative projector reads.
 | audit | `telemetry.edge-record-audit.v1.bulk.pNN` | `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `ACCEPTED_AUDIT_ONLY` | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
 | security quarantine | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `ACCEPTED_QUARANTINE` | EventWriter `EDGE_RECORD_SECURITY_QUARANTINE`: a log line and a counter, nothing written |
 
-- **Audit** is a valid historical record delivered under its delivery grant
-  after its producer assignment's epoch moved on (a stale fence). An exact
-  registered rollover may also drain to audit when the original assignment
-  has been deleted and no current fence remains. Ordinary renewal cannot grant
-  that exception; original mapping evidence and retained valid signing keys are
-  still required. The gateway
-  stamps it `LATE_FENCED_DELIVERY`; EventWriter records its ledger row and
-  delivery slot and writes no domain rows. EventWriter refuses a record on the
-  audit subject that is not stamped late-fenced.
+- **Audit** is either a valid historical record delivered under its delivery
+  grant after its producer assignment's epoch moved on (a stale fence, or an
+  exact registered rollover whose original assignment was deleted and has no
+  current fence; ordinary renewal cannot grant that exception, and original
+  mapping evidence and retained valid signing keys are still required), stamped
+  `LATE_FENCED_DELIVERY`, or a late-admission record whose signed core grant
+  decided AUDIT, stamped `LATE_ADMISSION` with `Sr-Edge-Late-Admission-Grant`.
+  EventWriter records its ledger row and delivery slot and writes no domain
+  rows, and refuses any other record on the audit subject.
 - **Security quarantine** is a record signed by a production or source key the
   trust snapshot marks compromise-revoked (`historically_revoked`). It needs no
   delivery grant. It is a dead-letter stream: `MaxAge` is disabled and
