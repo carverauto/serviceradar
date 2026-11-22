@@ -437,6 +437,33 @@ historical decision instead of `OutputGrants.check_current`. A current-state
 projector SHALL apply a late record only when it is newer, by `produced_at`,
 than the state it holds; time-series rows SHALL be written at their own time.
 
+The gateway SHALL send the signed late-admission grant with a `LATE_ADMISSION`
+record in the `Sr-Edge-Late-Admission-Grant` header, and with no other
+delivery mode. EventWriter SHALL act on a `LATE_ADMISSION` record only when
+that grant digests to the transport provenance's delivery proof, is signed by
+core's issuer key for the `delivery` purpose, binds the record's event id,
+record digest, spool, sequence, `produced_at` and authority epoch, and decided
+the publication of the route it arrived on (PRIMARY on the primary route,
+AUDIT on the audit route); it SHALL refuse the record otherwise, and SHALL
+refuse a grant on any other delivery. The audit trail's publication, reason
+and issuer key id SHALL come from the verified grant. EventWriter SHALL refuse
+a late PRIMARY record whose `(producer_assignment_id, authority_epoch)` has an
+interval that ended `certificate_revoked` or `revoked_cause_unknown`, even
+under a grant issued before that revocation.
+
+"The state it holds" SHALL be the newest `produced_at` applied for the record's
+`(contract, network scope, producer_assignment_id)`, kept in a watermark that
+every primary record of a current-state contract, live or late, raises inside
+its ledger transaction. A late PRIMARY record older than that watermark SHALL be
+settled as history (`superseded_by_newer_state`): its ledger row and audit
+trail are committed, not its payload. A contract that writes both time-series
+rows and current state SHALL write its time-series rows at their own time and
+skip only its current-state writes for such a record. A late PRIMARY sweep
+observation SHALL be authorized by its grant in place of the check that its
+sweep assignment is active at the record's epoch, and SHALL still match its
+execution slot, lease and plan. A late PRIMARY recovery control SHALL be
+authorized by its grant.
+
 #### Scenario: A late primary record is not dead-lettered for a moved grant
 - **GIVEN** a late record published PRIMARY under a late grant whose interval has since ended
 - **WHEN** its projector runs
@@ -446,6 +473,41 @@ than the state it holds; time-series rows SHALL be written at their own time.
 - **GIVEN** a current-state contract whose stored state was produced on day 5
 - **WHEN** a late record of that contract produced on day 3 is applied
 - **THEN** the stored state SHALL remain the day 5 state and the late record SHALL be retained as history
+- **AND** its ledger row SHALL record the reason `superseded_by_newer_state`
+
+#### Scenario: A late record newer than the stored state is applied
+- **GIVEN** a current-state contract whose newest applied record of a producer was produced on day 3, and whose assignment has since been deleted
+- **WHEN** that producer's late PRIMARY record produced on day 4 arrives
+- **THEN** EventWriter SHALL project it and raise the producer's watermark to day 4
+
+#### Scenario: A mixed contract keeps its time series but not its old state
+- **GIVEN** a scheduled MTR trace contract whose newest applied state for a producer was produced on day 5
+- **WHEN** a late PRIMARY trace of that producer produced on day 3 arrives
+- **THEN** its trace rows SHALL be written at their own time
+- **AND** the service state SHALL remain the day 5 state
+
+#### Scenario: The grant a late record is stored under is verified, not trusted
+- **WHEN** a `LATE_ADMISSION` record arrives without `Sr-Edge-Late-Admission-Grant`, or with a grant that does not digest to its delivery proof, is not signed by core's issuer key, or binds another record
+- **THEN** EventWriter SHALL refuse it and SHALL NOT write its ledger row
+
+#### Scenario: A grant's publication must match its route
+- **WHEN** a record under an AUDIT grant arrives on the primary route, or one under a PRIMARY grant on the audit route
+- **THEN** EventWriter SHALL refuse it
+
+#### Scenario: A late record's ledger row records its admission
+- **WHEN** EventWriter stores a late record under a verified grant
+- **THEN** its ledger row SHALL record admission `late`, its `produced_at`, the grant's publication, reason and issuer key id, and the gateway that published it
+- **AND** a live record's ledger row SHALL record admission `live`
+
+#### Scenario: A certificate revocation after the grant beats it at EventWriter
+- **GIVEN** a late record published PRIMARY under a grant issued before its interval ended `certificate_revoked`
+- **WHEN** EventWriter receives it
+- **THEN** EventWriter SHALL refuse it and SHALL NOT project it
+
+#### Scenario: A late sweep observation does not need its assignment to be current
+- **GIVEN** a late PRIMARY sweep observation whose sweep assignment has since moved to a newer epoch
+- **WHEN** its execution slot, lease and plan still match
+- **THEN** it SHALL be projected under its grant
 
 ### Requirement: A live-lane record that needs late admission moves to the late generation
 On a live session whose `EdgeRecordLaneOpen.late_admission_protocol_version` is at least 1, the gateway SHALL immediately resolve any live-lane record whose fence is stale or missing at the gateway, or whose origin principal is not the authenticated agent, with a `REJECTED_PERMANENT` disposition carrying rejection code `LATE_ADMISSION_REQUIRED`, whatever its production window and in place of `identity_conflict`, and the agent SHALL append the exact record bytes durably to the late generation for that lane key, or to the hold for `(lane key, origin principal)` when the origin principal is not the authenticated agent, before it persists that resolution.

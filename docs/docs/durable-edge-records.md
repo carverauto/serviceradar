@@ -93,7 +93,7 @@ flowchart LR
 
   TX -->|"EdgeRecordIngestService.Stream (mTLS)"| AU
   AU -->|"authorized: publish, wait for PubAck"| PRI
-  AU -->|"or, late-fenced delivery"| AUD
+  AU -->|"or, audit delivery"| AUD
   AU -->|"or, compromise-revoked key"| QUA
   AU -.->|"resolved watermark"| TX
   AU -->|"authoritative recovery control"| REC
@@ -172,7 +172,7 @@ session, so the agent must obtain signed recovery completion before proceeding.
 
 The gateway selects an authoritative, audit or security-quarantine publication.
 Authoritative recovery controls use the dedicated recovery stream; other
-authoritative records use the primary stream. Late-fenced delivery uses audit,
+authoritative records use the primary stream. Late-fenced deliveries and late-admission records core decided AUDIT use audit,
 and records signed by a compromise-revoked key use security quarantine. The
 gateway waits for the PubAck before reporting the sequence as resolved. Acks carry a
 contiguous **resolved watermark**: the first sequence a session cannot resolve
@@ -185,7 +185,7 @@ rejected, and the agent moves it to a local spool quarantine.
 | Stream | Subject | What it holds | Read by |
 | --- | --- | --- | --- |
 | `TELEMETRY_EDGE_RECORD_V1_BULK` | `telemetry.edge-record.v1.bulk.pNN` | authoritative records | EventWriter `EDGE_RECORD`: ledger and domain rows |
-| `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
+| `TELEMETRY_EDGE_RECORD_AUDIT_V1_BULK` | `telemetry.edge-record-audit.v1.bulk.pNN` | valid records delivered after their producer's fence moved (`LATE_FENCED_DELIVERY`), and late records core's late-admission grant decided AUDIT (`LATE_ADMISSION`) | EventWriter `EDGE_RECORD_AUDIT`: ledger row only |
 | `TELEMETRY_EDGE_RECORD_SECURITY_QUARANTINE_V1_BULK` | `telemetry.edge-record-security-quarantine.v1.bulk.pNN` | records signed by a compromise-revoked key | logged and counted, nothing written |
 | `TELEMETRY_EDGE_RECORD_DLQ_V1_BULK` | `telemetry.edge-record-dlq.v1.bulk.pNN.<contract>.v<version>` | records whose projection kept failing | replay only |
 | `TELEMETRY_EDGE_RECORD_RECOVERY_V1` | `telemetry.edge-record-recovery.v1` | frozen recovery pages and tombstones | EventWriter recovery consumer: durable receipt and repair effects |
@@ -595,7 +595,7 @@ contract it shows, summed across every connected gateway and core node:
 | --- | --- |
 | Gateway admitted / refused / withheld | primary records JetStream stored as a new message (audit and security-quarantine deliveries are not counted), records rejected permanently, or records held back for the agent to send again |
 | Dup / retry | publishes JetStream answered as a duplicate of a message it already stored (an agent replay), and publish attempts that did not store; neither moves Gateway admitted or Last admitted |
-| Projected / Projector refused | first primary deliveries EventWriter committed (a replay or late-fenced audit delivery is not counted), or records acknowledged without projecting |
+| Projected / Projector refused | first primary deliveries EventWriter committed (a replay or audit delivery is not counted), or records acknowledged without projecting |
 | Failed attempts | projections that raised; JetStream redelivers each one |
 | Dead-lettered | records stored on the dead-letter stream |
 | Last admitted | how long ago JetStream last stored a new primary record of the contract; recent admissions with an old Last projected mean records are stuck between the gateway and EventWriter |
@@ -662,6 +662,15 @@ ledger's disk use. Rows pruned before the raise stay pruned:
 `platform.edge_ledger_coverage.complete_since` records how far back the ledger
 is complete, and a late record produced earlier than that (plus the tolerance)
 is delivered as AUDIT rather than PRIMARY.
+
+A late record reaches EventWriter with core's signed late-admission grant in the
+`Sr-Edge-Late-Admission-Grant` header. EventWriter verifies that grant before it
+stores the record, and refuses a late PRIMARY record whose authority a
+certificate revocation has ended since the grant was issued. The ledger row a
+late record claims records it: `admission` is `late`, and `late_produced_at`,
+`late_publication`, `late_reason`, `late_grant_issuer_key_id` and
+`late_gateway_id` hold its production time, core's decision and the gateway
+that published it. Every other row is `admission = 'live'`.
 
 There are no Helm values for these settings. The only pipeline sizes Helm
 controls are the JetStream stream byte limits described under

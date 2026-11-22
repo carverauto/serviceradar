@@ -23,6 +23,11 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   There is NO separate `Sr-Edge-Route-Map-Version` header -- route_map_version travels only in
   the provenance envelope. `Sr-Edge-Gateway-Id` is not part of that grammar: the publishing
   gateway stamps it, and `extract_header_set/1` returns it when one non-empty value is present.
+
+  `Sr-Edge-Late-Admission-Grant` is not part of the grammar either. A `LATE_ADMISSION` delivery
+  carries core's signed late-admission grant in it (`encode_late_admission_grant/1`), so
+  EventWriter can verify the decision the provenance proof only digests; every other delivery
+  omits it.
   """
 
   alias ServiceRadar.Edge.CapabilitySigning
@@ -50,6 +55,10 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   @header_delivery_id "sr-edge-delivery-id"
   @header_provenance "sr-edge-transport-provenance"
   @header_gateway_id "sr-edge-gateway-id"
+  @header_late_admission_grant "sr-edge-late-admission-grant"
+  # A signed delivery capability is a few hundred bytes; the bound only keeps a hostile header
+  # from reaching the protobuf decoder.
+  @max_late_admission_grant_header 4_096
 
   # Slot-kind discriminant (0 is never emitted; a received 0 is rejected fail-closed).
   @slot_edge 1
@@ -76,6 +85,9 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
 
   @doc "Header the publishing gateway stamps with its own id. Not part of the identity grammar."
   def header_gateway_id, do: "Sr-Edge-Gateway-Id"
+
+  @doc "Header carrying core's signed grant on a `LATE_ADMISSION` delivery. Not part of the identity grammar."
+  def header_late_admission_grant, do: "Sr-Edge-Late-Admission-Grant"
 
   @doc "Delivery-mode constants for callers building provenance inputs."
   def mode_fresh, do: @mode_fresh
@@ -579,9 +591,10 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
   CASE-INSENSITIVELY and requiring EXACTLY ONE non-empty value each. A missing, empty, or duplicate
   (repeated under one key OR under case-variant keys) header is rejected fail-closed -- the scalar
   validator cannot see duplicates, so this boundary catches them. There is NO
-  Sr-Edge-Route-Map-Version header. `Sr-Edge-Gateway-Id` is optional: one non-empty value is
-  returned as `gateway_id`, and a missing or empty value is `nil`. A repeated non-empty value
-  is `:duplicate_header`. Returns `{:ok, %{nats_msg_id, delivery_id, provenance, gateway_id}}`.
+  Sr-Edge-Route-Map-Version header. `Sr-Edge-Gateway-Id` and `Sr-Edge-Late-Admission-Grant` are
+  optional: one non-empty value is returned as `gateway_id` / `late_admission_grant`, and a
+  missing or empty value is `nil`. A repeated non-empty value is `:duplicate_header`. Returns
+  `{:ok, %{nats_msg_id, delivery_id, provenance, gateway_id, late_admission_grant}}`.
   """
   @spec extract_header_set(map() | list()) :: {:ok, map()} | {:error, atom()}
   def extract_header_set(headers) when is_map(headers) or is_list(headers) do
@@ -595,13 +608,55 @@ defmodule ServiceRadar.Edge.PublicationIdentity do
       with {:ok, msg} <- one_header(by_lower, @header_nats_msg_id),
            {:ok, del} <- one_header(by_lower, @header_delivery_id),
            {:ok, prov} <- one_header(by_lower, @header_provenance),
-           {:ok, gateway_id} <- optional_header(by_lower, @header_gateway_id) do
-        {:ok, %{nats_msg_id: msg, delivery_id: del, provenance: prov, gateway_id: gateway_id}}
+           {:ok, gateway_id} <- optional_header(by_lower, @header_gateway_id),
+           {:ok, late_grant} <- optional_header(by_lower, @header_late_admission_grant) do
+        {:ok,
+         %{
+           nats_msg_id: msg,
+           delivery_id: del,
+           provenance: prov,
+           gateway_id: gateway_id,
+           late_admission_grant: late_grant
+         }}
       end
     end
   end
 
   def extract_header_set(_), do: {:error, :headers}
+
+  @doc """
+  The `Sr-Edge-Late-Admission-Grant` value for a signed late-admission grant: base64url(no-pad) of
+  its protobuf encoding. The gateway sends it unchanged from the frame that carried it.
+  """
+  @spec encode_late_admission_grant(EdgeSignedCapabilityV1.t()) :: String.t()
+  def encode_late_admission_grant(%EdgeSignedCapabilityV1{} = grant) do
+    grant |> EdgeSignedCapabilityV1.encode() |> b64url()
+  end
+
+  @doc """
+  Decodes an `Sr-Edge-Late-Admission-Grant` value: canonical base64url(no-pad), bounded, and a
+  protobuf `EdgeSignedCapabilityV1`. It only parses; what the grant authorizes is checked by
+  `ServiceRadar.Edge.LateAdmission.verify_delivered/3`.
+  """
+  @spec decode_late_admission_grant(binary()) ::
+          {:ok, EdgeSignedCapabilityV1.t()} | {:error, :late_admission_grant}
+  def decode_late_admission_grant(header)
+      when is_binary(header) and byte_size(header) <= @max_late_admission_grant_header do
+    with {:ok, raw} <- strict_b64_decode(header),
+         {:ok, %EdgeSignedCapabilityV1{} = grant} <- protobuf_decode(raw) do
+      {:ok, grant}
+    else
+      _ -> {:error, :late_admission_grant}
+    end
+  end
+
+  def decode_late_admission_grant(_header), do: {:error, :late_admission_grant}
+
+  defp protobuf_decode(raw) do
+    {:ok, EdgeSignedCapabilityV1.decode(raw)}
+  rescue
+    _ -> {:error, :late_admission_grant}
+  end
 
   defp normalize_headers(headers) when is_map(headers) do
     Enum.flat_map(headers, fn {name, values} ->

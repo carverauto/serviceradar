@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.Projectors.RecoveryControl do
   @moduledoc """
   Projects authenticated recovery controls through the EdgeRecord ledger transaction.
   Exact incomplete receipts may ACK; mapping work deferred after commit must redeliver.
-  A ledger replay revisits durable operation state, while a late-fenced delivery remains
+  A ledger replay revisits durable operation state, while an audit delivery remains
   ledger-only. The operation owner validates declared cost against the entire manifest.
   """
   @behaviour ServiceRadar.Edge.Projector
@@ -24,9 +24,9 @@ defmodule ServiceRadar.Edge.Projectors.RecoveryControl do
   def decode(_record), do: {:error, :contract_dispatch}
 
   @impl true
-  def project(_repo, _record, _body, %{late_fenced?: true}), do: :ok
+  def project(_repo, _record, _body, %{audit?: true}), do: :ok
 
-  def project(_repo, record, %{bytes: bytes}, %{late_fenced?: false}) do
+  def project(_repo, record, %{bytes: bytes}, %{audit?: false}) do
     cost = %{rows: record.projected_row_count, bytes: record.projected_write_bytes}
 
     case RecoveryOperations.consume_control(

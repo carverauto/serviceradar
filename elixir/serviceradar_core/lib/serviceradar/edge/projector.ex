@@ -12,14 +12,15 @@ defmodule ServiceRadar.Edge.Projector do
       `:settled`; `{:refused, reason}` refuses the record; `{:error, reason}` fails the batch so
       JetStream redelivers it.
     * `project/4` (optional) writes domain state inside the ledger transaction. `primary?` is
-      true only for a fresh delivery that is not late-fenced. `{:settled, reason}` commits the
+      true only for a fresh delivery that is not an audit delivery. `{:settled, reason}` commits the
       ledger and records `:settled`. `{:refused, reason}` rolls the transaction back and
       dead-letters on first delivery. An `{:error, reason}` rolls the transaction back: a
       `reason` that is an atom or a tuple tagged with one refuses the record, whereas an
       exception or Ash changeset (a failed write) is redelivered.
       `{:defer, :pending | :blocked}` commits the ledger and domain writes, then keeps the
       delivery retryable. A projector using defer must revisit its durable state on ledger
-      replay. `late_fenced?` distinguishes a non-authoritative delivery from a replay.
+      replay. `audit?` distinguishes an audit delivery (a late-fenced drain, or a late-admission
+      record core decided AUDIT), which never writes domain state, from a replay.
     * `committed/3` (optional) runs after the ledger transaction commits for a fresh primary
       delivery, so commit-gated telemetry and staged-artifact cleanup run only when the ledger
       row is durable.
@@ -32,7 +33,7 @@ defmodule ServiceRadar.Edge.Projector do
   @type context :: %{
           required(:ledger) => :inserted | :replay,
           required(:primary?) => boolean(),
-          required(:late_fenced?) => boolean(),
+          required(:audit?) => boolean(),
           required(:gateway_id) => String.t() | nil,
           optional(:projection) => :projected | :settled,
           optional(:projector_opts) => keyword()

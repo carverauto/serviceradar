@@ -1077,14 +1077,15 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
-  The audit route for edge records (unify-sweep-results-proto task 3.5, narrowed): a valid
-  historical record delivered under a stale fence, which the gateway publishes stamped
-  `LATE_FENCED_DELIVERY` and resolves ACCEPTED_AUDIT_ONLY on this stream's PubAck.
+  The audit route for edge records (unify-sweep-results-proto task 3.5, narrowed; extended by
+  add-edge-production-time-admission Decision 7): a valid historical record delivered under a
+  stale fence (`LATE_FENCED_DELIVERY`) or a `LATE_ADMISSION` record whose signed core grant
+  decided AUDIT (`Sr-Edge-Late-Admission-Grant`), which the gateway resolves
+  ACCEPTED_AUDIT_ONLY on this stream's PubAck.
 
   The same `EdgeRecord` processor consumes it, so the record claims its delivery slot and ledger
-  row and nothing else: a late-fenced delivery is never projected. The processor also refuses a
-  record on this subject that is not stamped late-fenced. Shape and replication follow the
-  primary stream.
+  row and nothing else: an audit delivery is never projected. The processor refuses any record
+  on this subject that is not an audit delivery. Shape and replication follow the primary stream.
   """
   @spec edge_record_audit_stream() :: stream_config()
   def edge_record_audit_stream do

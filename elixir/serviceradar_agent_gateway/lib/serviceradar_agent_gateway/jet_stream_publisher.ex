@@ -79,6 +79,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     * `:record_bytes` — the exact `EdgeDeliveryFrameV1.record_bytes`, published UNCHANGED.
     * `:record_sha256`, `:semantic_envelope_sha256` — 32-byte digests.
     * `:delivery_mode` — defaults to fresh; a non-fresh mode requires `:delivery_proof`.
+    * `:late_admission_grant` — core's signed late-admission grant, required with the
+      `LATE_ADMISSION` mode and refused with any other. The proof must digest it; it is sent as
+      `Sr-Edge-Late-Admission-Grant` so EventWriter can verify the decision itself.
     * `:publication` — the authorization decision, `:primary` (default), `:audit` or
       `:security_quarantine`, which selects the route family (`StreamRoute.resolve/1`). An
       audit publication must carry the `LATE_FENCED_DELIVERY` or `LATE_ADMISSION` mode its
@@ -410,6 +413,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
     with {:ok, msg_id} <- PublicationIdentity.nats_msg_id(slot, semantic_sha, record_sha),
          {:ok, delivery_id} <- PublicationIdentity.delivery_id(slot),
+         {:ok, grant_header} <- late_admission_grant_header(mode, proof, publication),
          {:ok, provenance} <-
            PublicationIdentity.transport_provenance(%{
              edge: slot,
@@ -426,7 +430,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
           {"Nats-Expected-Stream", route.expected_stream},
           {"Sr-Edge-Delivery-Id", delivery_id},
           {"Sr-Edge-Transport-Provenance", provenance}
-        ] ++ gateway_header() ++ trace_context(publication)
+        ] ++ grant_header ++ gateway_header() ++ trace_context(publication)
 
       recovery_header_bound(headers, route, publication)
     else
@@ -458,6 +462,32 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   end
 
   defp recovery_header_bound(headers, _route, _publication), do: {:ok, headers}
+
+  # A LATE_ADMISSION publication carries core's grant, the one its proof digests, so EventWriter
+  # can verify the decision itself. No other mode carries one.
+  defp late_admission_grant_header(mode, proof, publication) do
+    grant = Map.get(publication, :late_admission_grant)
+
+    cond do
+      mode != PublicationIdentity.mode_late_admission() and is_nil(grant) ->
+        {:ok, []}
+
+      mode != PublicationIdentity.mode_late_admission() ->
+        {:error, :late_admission_grant_unexpected}
+
+      is_nil(grant) ->
+        {:error, :late_admission_grant_missing}
+
+      PublicationIdentity.delivery_proof_digest(grant, mode) == {:ok, proof} ->
+        {:ok,
+         [
+           {PublicationIdentity.header_late_admission_grant(), PublicationIdentity.encode_late_admission_grant(grant)}
+         ]}
+
+      true ->
+        {:error, :late_admission_grant_proof}
+    end
+  end
 
   defp gateway_header do
     case Config.get(:gateway_id, nil) do
