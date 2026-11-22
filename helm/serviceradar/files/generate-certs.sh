@@ -74,6 +74,12 @@ was_reissued() {
   case "$REISSUED" in *" $1 "*) return 0 ;; esac
   return 1
 }
+should_copy() {
+  local dst=$1; local component="${2:-}"
+  [ "$FORCE_REGENERATE" = "true" ] && return 0
+  [ -n "$component" ] && was_reissued "$component" && return 0
+  [ "$NAMES_ONLY" != "true" ] && [ ! -f "$dst" ]
+}
 generate_cert() {
   local component=$1; local cn=$2; local san=$3
   if [ -f "$CERT_DIR/$component.pem" ] && [ "$FORCE_REGENERATE" != "true" ]; then
@@ -120,49 +126,49 @@ generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-tri
 generate_cert "k8s-inventory" "serviceradar-k8s-inventory" "DNS:serviceradar-k8s-inventory,DNS:k8s-inventory,DNS:k8s-inventory.serviceradar,DNS:serviceradar-k8s-inventory.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "tools" "serviceradar-tools" "DNS:serviceradar-tools,DNS:tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
-if [ -f "$CERT_DIR/root.pem" ] && { [ ! -f "$CERT_DIR/ca.crt" ] || [ "$FORCE_REGENERATE" = "true" ]; }; then
+if [ -f "$CERT_DIR/root.pem" ] && should_copy "$CERT_DIR/ca.crt"; then
   cp "$CERT_DIR/root.pem" "$CERT_DIR/ca.crt"
   chmod 644 "$CERT_DIR/ca.crt"
 fi
-if [ -f "$CERT_DIR/tools.pem" ] && { [ ! -f "$CERT_DIR/client.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued tools; }; then
+if [ -f "$CERT_DIR/tools.pem" ] && should_copy "$CERT_DIR/client.pem" tools; then
   cp "$CERT_DIR/tools.pem" "$CERT_DIR/client.pem"
   chmod 644 "$CERT_DIR/client.pem"
 fi
-if [ -f "$CERT_DIR/tools-key.pem" ] && { [ ! -f "$CERT_DIR/client-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued tools; }; then
+if [ -f "$CERT_DIR/tools-key.pem" ] && should_copy "$CERT_DIR/client-key.pem" tools; then
   cp "$CERT_DIR/tools-key.pem" "$CERT_DIR/client-key.pem"
   chmod 640 "$CERT_DIR/client-key.pem"
 fi
 if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then
-  if [ ! -f "$CERT_DIR/flow-client.crt" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued flow-collector; then
+  if should_copy "$CERT_DIR/flow-client.crt" flow-collector; then
     cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/flow-client.crt"
     chmod 644 "$CERT_DIR/flow-client.crt"
   fi
-  if [ ! -f "$CERT_DIR/flow-client.key" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued flow-collector; then
+  if should_copy "$CERT_DIR/flow-client.key" flow-collector; then
     cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/flow-client.key"
     chmod 600 "$CERT_DIR/flow-client.key"
   fi
 fi
-if [ -f "$CERT_DIR/flow-collector.pem" ] && { [ ! -f "$CERT_DIR/netflow-collector.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued flow-collector; }; then
+if [ -f "$CERT_DIR/flow-collector.pem" ] && should_copy "$CERT_DIR/netflow-collector.pem" flow-collector; then
   cp "$CERT_DIR/flow-collector.pem" "$CERT_DIR/netflow-collector.pem"
   chmod 644 "$CERT_DIR/netflow-collector.pem"
 fi
-if [ -f "$CERT_DIR/flow-collector-key.pem" ] && { [ ! -f "$CERT_DIR/netflow-collector-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued flow-collector; }; then
+if [ -f "$CERT_DIR/flow-collector-key.pem" ] && should_copy "$CERT_DIR/netflow-collector-key.pem" flow-collector; then
   cp "$CERT_DIR/flow-collector-key.pem" "$CERT_DIR/netflow-collector-key.pem"
   chmod 600 "$CERT_DIR/netflow-collector-key.pem"
 fi
-if [ -f "$CERT_DIR/log-collector.pem" ] && { [ ! -f "$CERT_DIR/flowgger.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued log-collector; }; then
+if [ -f "$CERT_DIR/log-collector.pem" ] && should_copy "$CERT_DIR/flowgger.pem" log-collector; then
   cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/flowgger.pem"
   chmod 644 "$CERT_DIR/flowgger.pem"
 fi
-if [ -f "$CERT_DIR/log-collector-key.pem" ] && { [ ! -f "$CERT_DIR/flowgger-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued log-collector; }; then
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && should_copy "$CERT_DIR/flowgger-key.pem" log-collector; then
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/flowgger-key.pem"
   chmod 600 "$CERT_DIR/flowgger-key.pem"
 fi
-if [ -f "$CERT_DIR/log-collector.pem" ] && { [ ! -f "$CERT_DIR/otel.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued log-collector; }; then
+if [ -f "$CERT_DIR/log-collector.pem" ] && should_copy "$CERT_DIR/otel.pem" log-collector; then
   cp "$CERT_DIR/log-collector.pem" "$CERT_DIR/otel.pem"
   chmod 644 "$CERT_DIR/otel.pem"
 fi
-if [ -f "$CERT_DIR/log-collector-key.pem" ] && { [ ! -f "$CERT_DIR/otel-key.pem" ] || [ "$FORCE_REGENERATE" = "true" ] || was_reissued log-collector; }; then
+if [ -f "$CERT_DIR/log-collector-key.pem" ] && should_copy "$CERT_DIR/otel-key.pem" log-collector; then
   cp "$CERT_DIR/log-collector-key.pem" "$CERT_DIR/otel-key.pem"
   chmod 600 "$CERT_DIR/otel-key.pem"
 fi

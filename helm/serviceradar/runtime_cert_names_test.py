@@ -112,7 +112,23 @@ class RuntimeCertNamesTest(unittest.TestCase):
         self.assertEqual(digests(self.certs), settled)
 
     def test_the_pass_creates_nothing_that_is_missing(self):
-        for name in ("bmp-collector.pem", "bmp-collector-key.pem", "cnpg-client.pem", "api-key"):
+        for name in (
+            "bmp-collector.pem",
+            "bmp-collector-key.pem",
+            "cnpg-client.pem",
+            "api-key",
+            "ca.crt",
+            "client.pem",
+            "client-key.pem",
+            "flow-client.crt",
+            "flow-client.key",
+            "netflow-collector.pem",
+            "netflow-collector-key.pem",
+            "flowgger.pem",
+            "flowgger-key.pem",
+            "otel.pem",
+            "otel-key.pem",
+        ):
             (self.certs / name).unlink()
         remaining = digests(self.certs)
 

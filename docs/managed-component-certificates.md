@@ -264,8 +264,11 @@ pipeline and `settings.edge.manage` permission as adoption.
 The chart's runtime certificate generator reissues the runtime certificates when
 `certs.runtimeLayoutVersion` changes. If an older generator-owned Secret lacks
 even one certificate in core's projection, the pre-upgrade hook also reissues
-the full runtime certificate set before core rolls. On reissue, the generator
-writes `runtime-cert-rotation.json` into the runtime certificate Secret. For each
+the full runtime certificate set before core rolls. When the Secret passes
+those checks, any kept certificate that lacks a requested DNS, URI, or IPv4
+name is reissued alone from the same root CA while every other certificate
+keeps its fingerprint. On any reissue, the generator writes
+`runtime-cert-rotation.json` into the runtime certificate Secret. For each
 reissued public certificate, that record holds the fingerprint it replaced, its
 own fingerprint, and its PEM with the root CA. It holds no key. The core
 migrations pre-upgrade hook, and then core whenever the mounted record changes,
