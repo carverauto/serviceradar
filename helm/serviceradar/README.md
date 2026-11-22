@@ -576,7 +576,7 @@ access.
 | `mediaWorker.nodeSelector`, `tolerations`, `affinity`, `resources` | Placement and size | |
 | `mediaWorker.image.repository`, `tag`, `digest` | Empty selects the release's CPU build (`serviceradar-media-worker` at the release tag, or `image.digests.mediaWorker`), which runs only `cpu_explicit`. The GPU build is the separate repository `<image.registry>/serviceradar-media-worker-cuda` (arm64), published only under `sha-<commit>` tags by a manually dispatched workflow and never under a release tag: set `repository` to it and `tag` to the tag that workflow produced, or `digest`. The image must include the worker's dedicated NATS inbox support (`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX`, added with this chart change): an older build ignores it, uses the account-wide `_INBOX`, and the broker denies its JetStream replies and pull deliveries. Any repository other than the release's needs its own `tag` or `digest` and never inherits `image.digests.mediaWorker`, which the published chart sets to the CPU build | `""` |
 | `mediaWorker.auth.existingSecret`, `tokenKey`, `deploymentRef`, `generation` | The worker's read-grant credential. When using this release's web-ng, both workloads must use the same Secret, key, deployment reference and generation | `""`, `media-worker-token`, `""`, `"1"` |
-| `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail | `false`, `8444` |
+| `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail. When `nvr.enabled` and `allowNvrRead` are true, `nvrReadPort` must target a dedicated analysis-read port distinct from web-ng's enabled playback read port (`nvr.read.port`, default `8444`) and core's enabled ingest port (`nvr.ingest.port`, default `8443`); the chart refuses a collision | `false`, `8444` |
 
 The model identity is not configurable. Core stamps its compiled identity
 (embedder `siglip-b16-384` `2026.1`, detector `rtdetr-r18` `2026.1`, 768
@@ -636,6 +636,10 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   non-release repository has neither a tag nor a digest;
 - `mediaWorker.networkPolicy.enabled` is false without
   `mediaWorker.networkPolicy.operatorManaged: true`;
+- `mediaWorker.networkPolicy.allowNvrRead` is true while `nvr.enabled` is true
+  and `mediaWorker.networkPolicy.nvrReadPort` equals an enabled `nvr.read.port`
+  (default `8444`, reserved for web-ng playback reads) or `nvr.ingest.port`
+  (default `8443`, reserved for core ingest);
 - an enabled web-ng control-plane listener's `webNg.controlPlaneRuntime.port`
   collides with another web-ng listener (the
   public listener 4000, the metrics port, or Erlang distribution 4369 and

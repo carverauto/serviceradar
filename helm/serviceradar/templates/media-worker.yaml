@@ -207,6 +207,7 @@
 {{- $npEnabled := eq (include "serviceradar.mediaWorkerNetworkPolicyEnabled" .) "true" -}}
 {{- $allowNvrRead := eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true" -}}
 {{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
 {{- $s3Cidrs := list "0.0.0.0/0" -}}
 {{- if hasKey $np "s3EgressCidrs" -}}
 {{- $s3Cidrs = default (list) $np.s3EgressCidrs -}}

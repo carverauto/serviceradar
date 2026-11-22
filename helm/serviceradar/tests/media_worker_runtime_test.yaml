@@ -432,6 +432,104 @@ tests:
           path: spec.ingress
           value: []
 
+  - it: refuses NVR ingress when allowNvrRead collides with enabled nvr.read.port
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+      mediaWorker.networkPolicy.allowNvrRead: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.nvrReadPort \\(8444\\) collides with nvr.read.port \\(8444\\)"
+
+  - it: refuses NVR ingress when allowNvrRead collides with enabled nvr.ingest.port
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.port: 8443
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-ingest-server-tls
+      nvr.ingest.client.configSecretName: example-nvr-ingest-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-ingest-client-tls
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8443
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.nvrReadPort \\(8443\\) collides with nvr.ingest.port \\(8443\\)"
+
+  - it: allows NVR analysis reads on a dedicated port distinct from nvr.read.port and nvr.ingest.port
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.ingest.enabled: true
+      nvr.ingest.port: 8443
+      nvr.ingest.configSecretName: example-nvr-ingest-config
+      nvr.ingest.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.tlsSecretName: example-nvr-ingest-server-tls
+      nvr.ingest.client.configSecretName: example-nvr-ingest-client-config
+      nvr.ingest.client.tokenSecretName: example-nvr-ingest-token
+      nvr.ingest.client.tlsSecretName: example-nvr-ingest-client-tls
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8555
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-core
+              ports:
+                - {protocol: TCP, port: 8443}
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-web-ng
+              ports:
+                - {protocol: TCP, port: 8444}
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app: serviceradar-media-worker
+              ports:
+                - {protocol: TCP, port: 8555}
+
   # The worker creates CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi)
 
   # itself; the 2 GB tenant profile cannot hold them.

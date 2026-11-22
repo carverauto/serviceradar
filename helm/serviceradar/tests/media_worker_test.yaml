@@ -379,6 +379,55 @@ tests:
           path: kind
           value: NetworkPolicy
 
+  - it: fails rendering media-worker when allowNvrRead collides with enabled nvr.read.port
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cuda
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: "sha-0123456789abcdef0123456789abcdef01234567"
+      mediaWorker.runtimeClassName: nvidia
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+      nvr.enabled: true
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      mediaWorker.networkPolicy.allowNvrRead: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.nvrReadPort \\(8444\\) collides with nvr.read.port \\(8444\\)"
+
+  - it: fails rendering media-worker when allowNvrRead collides with enabled nvr.ingest.port
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cuda
+      mediaWorker.image.repository: registry.carverauto.dev/serviceradar/serviceradar-media-worker-cuda
+      mediaWorker.image.tag: "sha-0123456789abcdef0123456789abcdef01234567"
+      mediaWorker.runtimeClassName: nvidia
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000002"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+      nvr.enabled: true
+      nvr.ingest.enabled: true
+      nvr.ingest.port: 8443
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8443
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.networkPolicy.nvrReadPort \\(8443\\) collides with nvr.ingest.port \\(8443\\)"
+
   - it: fails rendering when executionProvider is tensorrt
     template: templates/media-worker.yaml
     set:

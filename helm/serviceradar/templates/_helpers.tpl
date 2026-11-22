@@ -201,6 +201,26 @@ the worker's egress and the NVR's ingress for analysis reads.
 {{- include "serviceradar.strictBool" (dict "name" "mediaWorker.networkPolicy.allowNvrRead" "value" (default (dict) (default (dict) .Values.mediaWorker).networkPolicy).allowNvrRead "default" false) -}}
 {{- end -}}
 
+{{- define "serviceradar.validateMediaWorkerNvrReadPort" -}}
+{{- if and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
+{{- $nvr := default (dict) .Values.nvr -}}
+{{- if $nvr.enabled -}}
+{{- $np := default (dict) (default (dict) .Values.mediaWorker).networkPolicy -}}
+{{- $nvrReadPort := int (default 8444 $np.nvrReadPort) -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- $readPort := int (default 8444 $read.port) -}}
+{{- if and $read.enabled (eq $nvrReadPort $readPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.read.port (%d), which is restricted to serviceradar-web-ng playback reads: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $readPort) -}}
+{{- end -}}
+{{- $ingest := default (dict) $nvr.ingest -}}
+{{- $ingestPort := int (default 8443 $ingest.port) -}}
+{{- if and $ingest.enabled (eq $nvrReadPort $ingestPort) -}}
+{{- fail (printf "mediaWorker.networkPolicy.nvrReadPort (%d) collides with nvr.ingest.port (%d), which is restricted to serviceradar-core ingest: set a dedicated analysis-read port or disable mediaWorker.networkPolicy.allowNvrRead" $nvrReadPort $ingestPort) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
