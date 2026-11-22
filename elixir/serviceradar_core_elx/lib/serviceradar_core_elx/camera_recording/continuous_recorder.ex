@@ -613,7 +613,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         first_skipped_seq
       )
       |> record_last_admitted(unit)
-      |> Map.merge(%{next_contiguous?: false, awaiting_keyframe?: true})
+      |> record_discontinuity_boundary(false)
 
     case state.phase do
       :streaming ->
@@ -648,11 +648,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       state
       |> note_gap_start(:source_unavailable, detail_class, unit)
       |> record_last_admitted(unit)
-      |> Map.merge(%{
-        next_contiguous?: false,
-        awaiting_keyframe?: true,
-        force_reanchor?: true
-      })
+      |> record_discontinuity_boundary(true)
 
     case state.phase do
       :streaming -> {:noreply, finish_active_block_input(state)}
@@ -665,11 +661,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       state
       |> note_gap_start_at(:source_unavailable, detail_class, unit.pts, unit.admitted_at_us, unit.sequence)
       |> record_last_admitted(unit)
-      |> Map.merge(%{
-        next_contiguous?: false,
-        awaiting_keyframe?: true,
-        force_reanchor?: true
-      })
+      |> record_discontinuity_boundary(true)
 
     case state.phase do
       :streaming ->
@@ -679,6 +671,37 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       _ ->
         route_valid_unit(state, unit)
     end
+  end
+
+  defp record_discontinuity_boundary(%{handover_samples: 0} = state, reanchor?) do
+    apply_barrier_flags(state, %{reanchor?: reanchor?})
+  end
+
+  defp record_discontinuity_boundary(state, reanchor?) do
+    push_handover_barrier(state, reanchor?)
+  end
+
+  defp push_handover_barrier(state, reanchor?) do
+    queue =
+      case :queue.peek_r(state.handover_queue) do
+        {:value, {:handover_barrier, existing}} ->
+          merged = {:handover_barrier, %{reanchor?: existing.reanchor? or reanchor?}}
+          :queue.in(merged, :queue.drop_r(state.handover_queue))
+
+        _ ->
+          :queue.in({:handover_barrier, %{reanchor?: reanchor?}}, state.handover_queue)
+      end
+
+    %{state | handover_queue: queue}
+  end
+
+  defp apply_barrier_flags(state, barrier) do
+    %{
+      state
+      | next_contiguous?: false,
+        awaiting_keyframe?: true,
+        force_reanchor?: state.force_reanchor? or barrier.reanchor?
+    }
   end
 
   defp route_valid_unit(%{phase: :idle} = state, unit) do
@@ -727,10 +750,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     soft_reached? = soft_bound_reached?(block, state.bounds)
 
     cond do
-      # Sequence discontinuity relative to the active block (e.g. after handover overflow):
+      # Sequence or timestamp discontinuity relative to the active block:
       # close the current block and require an IDR before starting the next block.
-      block.last_sequence != nil and unit.sequence != block.last_sequence + 1 ->
-        state = finish_active_block_input(%{state | next_contiguous?: false, awaiting_keyframe?: true})
+      block_discontinuous?(block, unit) ->
+        reanchor? = block.last_pts != nil and unit.pts < block.last_pts
+
+        state =
+          state
+          |> apply_barrier_flags(%{reanchor?: reanchor?})
+          |> finish_active_block_input()
+
         {:noreply, enqueue_handover_unit(state, unit)}
 
       # Soft target reached and an IDR arrived -> clean keyframe-aligned cut!
@@ -788,18 +817,25 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       duration_ticks >= ms_to_ticks(bounds.soft_duration_ms)
   end
 
+  defp block_discontinuous?(block, unit) do
+    (block.last_sequence != nil and unit.sequence != block.last_sequence + 1) or
+      (block.last_pts != nil and unit.pts < block.last_pts)
+  end
+
   defp enqueue_handover_unit(state, unit) do
     unit_bytes = byte_size(unit.payload)
+    {block_samples, block_bytes} = active_block_queued_usage(state)
+    total_samples = state.handover_samples + block_samples
+    total_bytes = state.handover_bytes + block_bytes
 
-    if state.handover_samples >= state.handover_max_samples or
-         state.handover_bytes + unit_bytes > state.handover_max_bytes do
+    if total_samples >= state.handover_max_samples or
+         total_bytes + unit_bytes > state.handover_max_bytes do
       # Bounded handover queue overflow: drop unit, release inbox credit, record exact gap.
       release_inbox_credit(state, unit_bytes)
 
       state
       |> note_gap_start(:handover_overflow, "handover_queue_full", unit)
-      |> Map.put(:awaiting_keyframe?, true)
-      |> maybe_clear_contiguous_on_empty_handover()
+      |> record_discontinuity_boundary(false)
     else
       %{
         state
@@ -810,27 +846,52 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     end
   end
 
-  defp maybe_clear_contiguous_on_empty_handover(%{handover_samples: 0} = state), do: %{state | next_contiguous?: false}
-  defp maybe_clear_contiguous_on_empty_handover(state), do: state
+  defp active_block_queued_usage(%{
+         active_block: %{frames_accepted: fa, frames_sent: fs, bytes_accepted: ba, bytes_sent: bs}
+       }) do
+    {max(0, fa - fs), max(0, ba - bs)}
+  end
+
+  defp active_block_queued_usage(_state), do: {0, 0}
 
   defp drain_handover_queue(%{stopping?: true} = state) do
     drain_and_release_handover(state)
     complete_graceful_stop(state)
   end
 
-  defp drain_handover_queue(%{handover_samples: 0} = state), do: {:noreply, state}
-
   defp drain_handover_queue(state) do
-    {{:value, unit}, rest} = :queue.out(state.handover_queue)
+    case :queue.out(state.handover_queue) do
+      {{:value, {:handover_barrier, barrier}}, rest} ->
+        apply_handover_barrier(%{state | handover_queue: rest}, barrier)
 
-    state = %{
-      state
-      | handover_queue: rest,
-        handover_samples: state.handover_samples - 1,
-        handover_bytes: state.handover_bytes - byte_size(unit.payload)
-    }
+      {{:value, unit}, rest} ->
+        state = %{
+          state
+          | handover_queue: rest,
+            handover_samples: state.handover_samples - 1,
+            handover_bytes: state.handover_bytes - byte_size(unit.payload)
+        }
 
-    drain_one_handover_unit(state, unit)
+        drain_one_handover_unit(state, unit)
+
+      {:empty, _} ->
+        {:noreply, state}
+    end
+  end
+
+  defp apply_handover_barrier(%{phase: :streaming} = state, barrier) do
+    state = apply_barrier_flags(state, barrier)
+    {:noreply, finish_active_block_input(state)}
+  end
+
+  defp apply_handover_barrier(%{phase: :idle} = state, barrier) do
+    state
+    |> apply_barrier_flags(barrier)
+    |> drain_handover_queue()
+  end
+
+  defp apply_handover_barrier(state, barrier) do
+    {:noreply, %{state | handover_queue: :queue.in_r({:handover_barrier, barrier}, state.handover_queue)}}
   end
 
   defp drain_one_handover_unit(%{phase: :idle} = state, unit) do
@@ -874,6 +935,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
   defp drain_and_release_handover(state) do
     case :queue.out(state.handover_queue) do
+      {{:value, {:handover_barrier, _barrier}}, rest} ->
+        drain_and_release_handover(%{state | handover_queue: rest})
+
       {{:value, unit}, rest} ->
         release_inbox_credit(state, byte_size(unit.payload))
         drain_and_release_handover(%{state | handover_queue: rest})
