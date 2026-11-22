@@ -47,16 +47,18 @@ CUDA 13.0 (driver 580 or newer).
   The directory must contain `config.json`, `tokenizer.json`, and
   `model.safetensors` (or `siglip.safetensors`).
 - A GPU allocation (`nvidia.com/gpu`) and the NVIDIA runtime class on the node.
-  The chart adds the GPU request whenever `mediaWorker.executionProvider` is not
-  `cpu_explicit`.
 - A writable volume at `/var/cache/serviceradar-media-worker/cuda` (or wherever
-  `CUDA_CACHE_PATH` points). The chart's root filesystem is read-only and its
-  `/tmp` emptyDir is limited to 256Mi, which the ~350 MB kernel cache would
-  exceed. Use an emptyDir of at least 1Gi (survives container restarts) or a
-  PVC (survives pod restarts). Without it the worker logs a warning and every
-  start spends about 9 s compiling kernels before it reports ready.
+  `CUDA_CACHE_PATH` points). The ~350 MB kernel cache exceeds a small `/tmp`
+  mount (256Mi in the Helm chart); use an emptyDir of at least 1Gi (survives
+  container restarts) or a PVC (survives pod restarts). Without a writable
+  cache, the worker logs a warning and every start spends about 9 s compiling
+  kernels before it reports ready.
 - `/healthz` answers during the warm-up; `/readyz` stays 503 until it finishes.
   No startup probe is needed for the warm-up itself.
+
+For Helm chart configuration (including the SigLIP-only PVC mount, GPU
+scheduling, and the automatic CUDA cache volume), see the
+[Camera semantic search worker section in helm/serviceradar/README.md](../helm/serviceradar/README.md#camera-semantic-search-worker).
 
 ## How it is built and published
 

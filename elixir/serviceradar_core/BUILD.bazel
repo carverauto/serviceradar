@@ -1265,6 +1265,14 @@ filegroup(
     ),
 )
 
+# The camera model identity core compiles in, read as source by
+# //helm/serviceradar:media_worker_model_identity_test so the chart's media worker
+# cannot announce a different one.
+filegroup(
+    name = "camera_model_identity_src",
+    srcs = ["lib/serviceradar/camera/visual_index_dispatcher.ex"],
+)
+
 # Schema-template identity inputs. Keep these separate from the migration execution
 # target: adding the manifest must not change which database any consumer uses.
 filegroup(

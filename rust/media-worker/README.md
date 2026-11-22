@@ -164,6 +164,14 @@ Each batch's frames are resized and normalised in parallel on up to
 concurrent index jobs together stay within the cores. The output is identical to
 the single-threaded path.
 
+## NATS inbox prefix
+
+`SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX` / `--nats-inbox-prefix` sets the
+custom NATS inbox prefix used for the worker's own JetStream replies, pull
+deliveries, and publish acknowledgements (default `_INBOX.media-worker`). The
+value must be a literal dot-separated subject prefix with no wildcards or
+whitespace and must match the broker's subscribe ACL.
+
 ## Tests and building
 
 `src/keyframe_decoder_tests.rs` encodes programmatic patterns with `rusty_h264-encoder` at

@@ -18,6 +18,7 @@
 {{- end -}}
 {{- include "serviceradar.validateNvrIngest" . -}}
 {{- include "serviceradar.validateNvrRead" . -}}
+{{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
 {{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
 {{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
@@ -27,6 +28,10 @@
 {{- $readEnabled := default false $read.enabled -}}
 {{- $readPort := int (default 8444 $read.port) -}}
 {{- $archive := default (dict) $nvr.archive -}}
+{{- $mediaWorker := default (dict) .Values.mediaWorker -}}
+{{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
+{{- $mediaWorkerRead := and (eq (include "serviceradar.mediaWorkerEnabled" .) "true") (eq (include "serviceradar.mediaWorkerAllowNvrRead" .) "true") -}}
+{{- $mediaWorkerReadPort := int (default 8444 $mediaWorkerPolicy.nvrReadPort) -}}
 {{- $archiveEnabled := default false $archive.enabled -}}
 {{- $podSecurity := include "serviceradar.elixirReleasePodSecurityContext" . -}}
 {{- $nodeSelector := deepCopy (default (dict) $nvr.nodeSelector) -}}
@@ -336,7 +341,7 @@ spec:
     matchLabels:
       app: serviceradar-nvr
   policyTypes: [Ingress, Egress]
-  {{- if or $ingestEnabled $readEnabled }}
+  {{- if or $ingestEnabled $readEnabled $mediaWorkerRead }}
   ingress:
     {{- if $ingestEnabled }}
     - from:
@@ -356,6 +361,17 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $readPort }}
+    {{- end }}
+    {{- if $mediaWorkerRead }}
+    {{- /* Pairs with the media worker's egress rule (mediaWorker.networkPolicy.allowNvrRead)
+         for local-recording analysis reads. */}}
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-media-worker
+      ports:
+        - protocol: TCP
+          port: {{ $mediaWorkerReadPort }}
     {{- end }}
   {{- else }}
   ingress: []

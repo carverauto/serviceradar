@@ -8,8 +8,10 @@ from pathlib import Path
 
 CHECK = Path(__file__).parent / "files" / "check-runtime-certs.py"
 LAYOUT = "runtime-cert-layout-version"
-VERIFIED = ("trivy-sidecar.pem", "k8s-inventory.pem")
-REQUIRED = ("root.pem", *VERIFIED, "gateway.pem", LAYOUT)
+# Every required leaf certificate is verified against root.pem, whichever
+# identity it belongs to (the media worker's included); keys are not.
+VERIFIED = ("trivy-sidecar.pem", "k8s-inventory.pem", "gateway.pem", "media-worker.pem")
+REQUIRED = ("root.pem", *VERIFIED, "gateway-key.pem", LAYOUT)
 
 
 class RuntimeCertPreservationTest(unittest.TestCase):
@@ -34,8 +36,9 @@ class RuntimeCertPreservationTest(unittest.TestCase):
                     "-set_serial", "3", "-days", "1", "-out", "untrusted.pem")
 
             issued = (certs / "client.pem").read_bytes()
-            for name in (*VERIFIED, "gateway.pem"):
+            for name in VERIFIED:
                 (certs / name).write_bytes(issued)
+            (certs / "gateway-key.pem").write_bytes((certs / "client-key.pem").read_bytes())
             (certs / LAYOUT).write_text("2")
 
             def check(expected_status, message):
@@ -56,11 +59,36 @@ class RuntimeCertPreservationTest(unittest.TestCase):
                     check(1, f"missing runtime cert files: {name}")
                     path.write_bytes(contents)
 
+            # An untrusted leaf stands for one left from before a root rotation, for
+            # example the media worker's pair kept while the worker was disabled.
             for name in VERIFIED:
                 with self.subTest(untrusted=name):
                     (certs / name).write_bytes((certs / "untrusted.pem").read_bytes())
                     check(1, f"do not verify against root.pem: {name}")
                     (certs / name).write_bytes(issued)
+
+            (certs / "newcerts").mkdir()
+            (certs / "index.txt").write_text("")
+            (certs / "serial").write_text("1000\n")
+            (certs / "ca.cnf").write_text(
+                "[ca]\n"
+                "default_ca = ca_default\n"
+                "[ca_default]\n"
+                f"database = {certs / 'index.txt'}\n"
+                f"serial = {certs / 'serial'}\n"
+                f"new_certs_dir = {certs / 'newcerts'}\n"
+                "default_md = sha256\n"
+                "policy = policy_anything\n"
+                "[policy_anything]\n"
+                "commonName = supplied\n"
+            )
+            openssl("ca", "-batch", "-config", "ca.cnf",
+                    "-cert", "root.pem", "-keyfile", "root-key.pem",
+                    "-startdate", "20200101000000Z", "-enddate", "20200102000000Z",
+                    "-in", "client.csr", "-out", "expired.pem")
+            (certs / "gateway.pem").write_bytes((certs / "expired.pem").read_bytes())
+            check(0, "preserving current runtime certs")
+            (certs / "gateway.pem").write_bytes(issued)
 
             (certs / LAYOUT).write_text("1")
             check(1, "layout version 1; expected 2")

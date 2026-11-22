@@ -42,7 +42,8 @@ install that has accumulated data beyond compact's stream caps.
 recovery work queue `TELEMETRY_EDGE_RECORD_RECOVERY_V1` (R3, 64 MiB except
 4 MiB on `tenant-2g`).
 
-Per-server need, with the chart's full/spread formula:
+Per-server need with the camera semantic search worker disabled, using the
+chart's full/spread formula:
 
 | Profile | Servers | Need | Limit |
 | --- | --- | --- | --- |
@@ -75,12 +76,16 @@ as 1. The budget uses the same capped counts and its message marks each capped
 stream. Against an external NATS the configured replica counts are kept.
 
 The per-stream sizes of each profile are chart data in
-`helm/serviceradar/files/jetstream-profiles.yaml`. Every size is still
-overridable at its own value, and `nats.jetstream.maxFileStore` overrides the
-profile's `max_file_store`. NATS reads `G` as 10^9 bytes and `Gi` as 2^30
-bytes; the chart renders the exact byte count.
+`helm/serviceradar/files/jetstream-profiles.yaml`. Per-stream chart values
+override the corresponding profile sizes. The camera worker creates
+its streams at fixed sizes. For their budget impact, minimum file store and
+cleanup after disabling the worker, see the
+[chart's worker guide](../helm/serviceradar/README.md#camera-semantic-search-worker).
+`nats.jetstream.maxFileStore` overrides the profile's `max_file_store`.
+NATS reads `G` as 10^9 bytes and `Gi` as 2^30 bytes. The chart renders the
+exact byte count.
 
-Two render-time checks, both raised from `templates/nats.yaml`:
+The NATS template enforces two limits for every profile:
 
 1. **Reservation budget.** With `n = nats.replicas`, a stream with at least
    `n` replicas reserves its `max_bytes` on every server ("full"); the others
@@ -109,9 +114,10 @@ Two render-time checks, both raised from `templates/nats.yaml`:
    NATS fill the disk, which is worse than an unplaceable stream, so
    `allowOvercommit` does NOT skip this check.
 
-When the budget check fails, fix it in values: lower the size named in the
-message, move to a larger profile (next section), or set `allowOvercommit`
-after deciding the risk is acceptable.
+When the reservation budget check fails, lower a configurable reservation,
+move to a larger profile (next section), or set `allowOvercommit` after
+deciding the risk is acceptable. If a fixed worker stream exceeds the file
+store itself, increase the file store before enabling the worker.
 
 ## Moving a live install to a larger profile
 
@@ -185,11 +191,15 @@ running and serving, and the PVCs are untouched.
 
 ### 5. Upgrade with the new size and profile
 
-Set both values together, in the values file your install uses (Git for an Argo
-CD install) or on the command line:
+Set both values together in the values files your install uses (Git for an
+Argo CD install), or pass them on the command line alongside the complete
+deployment overrides. When upgrading with the media worker enabled from a chart
+with retired media worker keys, follow the
+[worker migration instructions](../helm/serviceradar/README.md#camera-semantic-search-worker)
+before reapplying those overrides.
 
 ```
-helm upgrade <release> <chart> -n <ns> --reuse-values \
+helm upgrade <release> <chart> -n <ns> --reset-values -f my-values.yaml \
   --set nats.persistence.size=100Gi \
   --set nats.jetstream.profile=medium
 ```

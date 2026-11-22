@@ -246,6 +246,13 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-nvr"))) -}}
 {{- end -}}
+{{- /* The media worker's only egress grant is its own policy (templates/media-worker.yaml).
+     This policy grants egress to whatever it selects, so the worker is left out of it
+     whenever the worker is enabled, whatever base selector is configured. */ -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- $podSelector = deepCopy $podSelector -}}
+{{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-worker"))) -}}
+{{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

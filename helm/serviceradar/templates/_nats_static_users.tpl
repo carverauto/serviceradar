@@ -22,6 +22,14 @@ Two consumers read it, so they cannot drift apart:
 
 Add or change a built-in identity's subjects only here.
 */ -}}
+{{- /* The media worker's NATS inbox prefix (SERVICERADAR_MEDIA_WORKER_NATS_INBOX_PREFIX).
+     Its own JetStream API replies, pull deliveries and publish acknowledgements arrive
+     under it, so its user subscribes to this prefix instead of the account-wide
+     _INBOX.>, which also carries other services' JetStream deliveries. */ -}}
+{{- define "serviceradar.mediaWorkerNatsInboxPrefix" -}}
+_INBOX.media-worker
+{{- end -}}
+
 {{- define "serviceradar.natsStaticUsers" -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
 {{- /* ServiceRadar.Observability.Zen.RuleBucket.bucket/0 and the collector's
@@ -50,6 +58,14 @@ Add or change a built-in identity's subjects only here.
      is honored as a fallback for releases that only set it under .agent. It
      MUST match SERVICERADAR_OTX_PARTITION on the core-elx runtime config. */ -}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" }}
+{{- /* Camera semantic search (serviceradar-media-worker). The stream and durable
+     consumer names are fixed in the worker binary (rust/media-worker/src/config.rs). */}}
+{{- $mediaWorkerEnabled := eq (include "serviceradar.mediaWorkerEnabled" .) "true" }}
+{{- $mediaJobsStream := "CAMERA_MEDIA_JOBS" }}
+{{- $mediaResultsStream := "CAMERA_MEDIA_RESULTS" }}
+{{- $mediaLiveConsumer := "camera_visual_index_worker_v1_live" }}
+{{- $mediaBackfillConsumer := "camera_visual_index_worker_v1_backfill" }}
+{{- $mediaWorkerInbox := include "serviceradar.mediaWorkerNatsInboxPrefix" . }}
 {{- /* logs.normalized.> carries log batches the log collector has already
      normalized, which EventWriter stores without running Zen rules. Only the
      log collector may publish there, so every identity whose allow list would
@@ -97,6 +113,12 @@ Add or change a built-in identity's subjects only here.
              sweeps (Edge.SweepHostMetrics), whose retries reach this queue. */}}
       - "availability.transitions.device"
       - "metrics.sweep.>"
+      {{- if $mediaWorkerEnabled }}
+      {{- /* Camera semantic search (Camera.SemanticSearch) asks the media worker
+           for a query embedding with a request on this subject; the reply comes
+           back on _INBOX. */}}
+      - "media.rpc.visual_text_embed.v1.>"
+      {{- end }}
       {{- /* Zen rule bundles (Zen.RuleBucket). Saving a rule in web-ng writes
            its subject's bundle from web-ng, as core's reconcile does. */}}
       - "$KV.{{ $zenRuleBucket }}.>"
@@ -223,7 +245,9 @@ Add or change a built-in identity's subjects only here.
       {{- /* Visual index jobs (Camera.VisualIndexDispatcher), relayed from the
            camera_visual_index_jobs outbox onto CAMERA_MEDIA_JOBS, which the
            media worker owns. The publish waits for a PubAck, so a missing
-           entry leaves every job pending. */}}
+           entry leaves every job pending. Results the worker returns on
+           media.results.visual_index.v1 are read through a JetStream consumer,
+           which the API, ACK and inbox grants below already cover. */}}
       - "media.jobs.visual_index.v1"
       - "media.jobs.visual_index.backfill.v1"
       {{- /* Zen rule bundles collectors follow (Zen.RuleBucket). Core creates
@@ -449,6 +473,47 @@ Add or change a built-in identity's subjects only here.
   subscribe:
     {{- if $k8sInventoryNatsEnabled }}
     allow: ["_INBOX.>"]
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+{{- /* The media worker (rust/media-worker/src/worker.rs) creates its jobs and
+     results streams if they are missing, creates and pulls its two durable job
+     consumers, acknowledges their deliveries, publishes results and its own
+     metrics snapshot, and answers query-embedding requests from web-ng. Every
+     JetStream API grant names its own stream or consumer, so it cannot read,
+     purge or delete anything else. Everything addressed to the worker arrives
+     under its own inbox prefix, the only inbox it may subscribe to.
+     Publishing to _INBOX.> remains: an embedding reply goes to web-ng's reply
+     subject, which Gnat draws from web-ng's single connection-wide _INBOX.
+     prefix. Narrowing it needs a dedicated reply prefix for those requests in
+     web-ng (follow-up). */}}
+- user: "CN=serviceradar-media-worker,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+  publish:
+    {{- if $mediaWorkerEnabled }}
+    allow:
+      - "media.results.visual_index.v1"
+      - "telemetry.media_worker.metrics.v1"
+      - "$JS.API.STREAM.INFO.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.CREATE.{{ $mediaJobsStream }}"
+      - "$JS.API.STREAM.INFO.{{ $mediaResultsStream }}"
+      - "$JS.API.STREAM.CREATE.{{ $mediaResultsStream }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.INFO.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.media.jobs.visual_index.v1"
+      - "$JS.API.CONSUMER.CREATE.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.media.jobs.visual_index.backfill.v1"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}"
+      - "$JS.API.CONSUMER.MSG.NEXT.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaLiveConsumer }}.>"
+      - "$JS.ACK.{{ $mediaJobsStream }}.{{ $mediaBackfillConsumer }}.>"
+      - "_INBOX.>"
+    {{- else }}
+    allow: []
+    deny: [">"]
+    {{- end }}
+  subscribe:
+    {{- if $mediaWorkerEnabled }}
+    allow: ["media.rpc.visual_text_embed.v1.>", "{{ $mediaWorkerInbox }}.>"]
     {{- else }}
     allow: []
     deny: [">"]
