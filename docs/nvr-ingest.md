@@ -10,7 +10,7 @@ S3 remains optional.
 | --- | --- | --- |
 | Camera to NVR | Bounded relay-to-NVR coordinator streams one shared relay session into a configured NVR replica over mTLS | Continuous recorder pool scheduling and automatic assignment |
 | Footage catalog | [Bounded capture registration](#bounded-relay-coordinator) and durable publication intents with Core acceptance | Reconciliation of missed registrations, current-history completion and qualified local-copy registration |
-| Playback | Archive player and authorized S3 reads | Owner-routed authorized local reads and player discovery |
+| Playback | [Playback read listener](#playback-read-listener) and owner-routed local timeline playback in web-ng | Isolated archive reader (D.2) and end-to-end local-to-archive playback verification |
 | Worker replacement | Synthetic release restart preserves decoded frames | Deployed Longhorn attachment and approved node-loss verification |
 
 The listener below closes the network input boundary. It remains disabled by
@@ -296,6 +296,42 @@ for a block with no seal that verifies, and 503 `descriptor_unavailable` when
 the read pool is full, the read times out, recovery is closed or storage is
 unavailable. The request deadline is 15 seconds.
 
+## Playback read listener
+
+A separate, opt-in HTTPS listener serves recorded media to web-ng for timeline
+playback of local copies. It has its own port, client certificate pin and
+read-purpose bearer token (`SERVICERADAR_NVR_READ_CONFIG_FILE`, same 5-key
+format as the ingest config, and `SERVICERADAR_NVR_READ_TOKEN_FILE`). The NVR
+refuses to start when the read installation shares the ingest port, pin or
+token, so a playback credential can neither record nor archive and an ingest
+credential cannot read media.
+
+- `GET /v1/blocks/<block_id>/init?descriptor_sha256=<hex>` answers the block's
+  initialization bytes.
+- `GET /v1/blocks/<block_id>/fragments/<n>?descriptor_sha256=<hex>` answers
+  fragment `n`, its descriptor `sequence`.
+
+Each read verifies the whole sealed block, requires its canonical descriptor's
+SHA-256 to equal the one given (the digest Core froze when it cataloged the
+block), and rechecks the selected bytes against their journal digest. Paths,
+offsets and ranges are never accepted. Answers: 200 `application/octet-stream`;
+400 `invalid_read_request` without exactly one well-formed `descriptor_sha256`;
+401 for a client that fails the read pin or token; 404 `block_not_found` or
+`fragment_not_found`; 409 `block_not_sealed` when no seal or selected digest
+verifies, or `descriptor_mismatch` when the block on disk is not the cataloged
+one; 503 `read_unavailable` with `retry-after: 1` when the playback read pool is
+full, a read times out or the recovery state refuses it. Reads run in their own
+pool (`SERVICERADAR_NVR_PLAYBACK_READ_SLOTS`, default 8, 1 through 64, ten
+seconds each), so playback cannot take the four slots that inventory, archive
+and descriptor reads share. Nothing is queued and nothing on disk changes; each
+request is bounded by 15 seconds.
+
+web-ng reads through `ServiceRadarNVRClient.read_block/6` with a member map
+(`SERVICERADAR_NVR_READ_CLIENT_CONFIG_FILE`, `SERVICERADAR_NVR_READ_CLIENT_TOKEN_FILE`;
+the `ServiceRadarNVRClient.Members` format) and picks the member whose storage
+UUID is the catalog entry's. The chart enables both sides with `nvr.read`, and
+its NetworkPolicy admits web-ng pods only, to the read port only.
+
 ## Archive upload
 
 The same authenticated listener copies one sealed local block to an
@@ -389,6 +425,11 @@ The same target reads a network-ingested block's descriptor over mutual TLS,
 checks it against the block's files and the packaged client, and checks the
 401, 404 and 409 answers and that the client refuses non-canonical bytes and
 descriptors for another block.
+The same target reads a block's init segment and every fragment through the read
+listener and decodes them with an independent decoder, checks the read client's
+typed refusals, the 400/401/404/409 answers, that read and ingest credentials
+open only their own listener, and that the NVR refuses to start when the read
+installation shares the ingest port, pin or token.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every

@@ -225,6 +225,10 @@ config :serviceradar_web_ng, :auth,
 
 config :serviceradar_web_ng, :bitmap_tag_keys, []
 
+# Timeline playback reads local copies from the owning NVR member. Archive
+# copies have no reader yet (D.2), so the default reports them not installed.
+config :serviceradar_web_ng, :camera_timeline_readers, local: ServiceRadarWebNG.CameraTimelineReader.NVRLocal
+
 config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []

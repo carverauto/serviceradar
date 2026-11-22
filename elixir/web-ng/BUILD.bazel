@@ -297,6 +297,7 @@ WEB_NG_NATIVE_LIBS = {
 WEB_NG_DEPS = [
     "//third_party/hex_vendored/connection:erlang_app",
     "//elixir/datasvc:erlang_app",
+    "//elixir/serviceradar_nvr_client:erlang_app",
     "//elixir/serviceradar_srql:erlang_app",
     "@hexpm//:ash_ai",
     "@hexpm//:ash_phoenix",
@@ -406,6 +407,7 @@ elixir_release(
         "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/palisade:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_nvr_client:mix.exs",
         "//elixir/serviceradar_recording_metadata:mix.exs",
         "//elixir/serviceradar_recording_control:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",

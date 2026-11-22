@@ -37,6 +37,11 @@ descriptor bytes of one verified sealed block, read in the shared read pool.
 Core freezes those bytes when it catalogs the block. See
 [block descriptor](../../docs/nvr-ingest.md#block-descriptor).
 
+An optional separate read listener, with its own port, pin and read-purpose
+token, serves a sealed block's init segment and fragments to web-ng for
+playback, bound to the cataloged descriptor digest. See
+[playback read listener](../../docs/nvr-ingest.md#playback-read-listener).
+
 ## Deployment recovery admission
 
 Runtime admission requires an external boot-pinned recovery generation and a
@@ -311,23 +316,28 @@ A different digest returns `:descriptor_digest_mismatch`; malformed digests and
 selectors are refused before media I/O. A missing fragment returns `:not_readable`.
 Paths, arbitrary byte ranges and whole-block media reads are not accepted.
 
-Every request re-verifies the complete sealed block under the existing 16 MiB /
-8 fragment limit, compares its descriptor digest, then rechecks storage identity
-and the selected bytes' hash. Initialization output is at most 1 MiB and fragment
-output at most 4 MiB. Corrupt or unsealed evidence is refused without repair.
-I/O runs in the bounded read pool, outside the recording capacity admission GenServer.
+Every request re-verifies the complete sealed block, compares its descriptor
+digest, then rechecks storage identity and the selected bytes' hash.
+Initialization output is at most 1 MiB and fragment output at most 4 MiB.
+Corrupt or unsealed evidence is refused without repair. I/O runs in a bounded
+read pool, outside the recording capacity admission GenServer.
 
-This is a trusted same-VM primitive, with no network endpoint. The digest is a
-content binding, not playback permission or an assignment lease. Full-block
-verification on every read is finite but is not a playback throughput claim.
-Authenticated owner-aware delivery, downstream buffering budgets and seek
-cancellation remain work for the remote playback protocol. No cache or catalog
-is created by these reads.
+`read_block/3` is a trusted same-VM primitive running in the shared four-slot
+read pool. `ServiceRadarNVR.playback_read/3` performs the same descriptor-bound
+verification in the separate playback read pool for the opt-in
+[playback read listener](../../docs/nvr-ingest.md#playback-read-listener). The
+digest is a content binding, not playback permission or an assignment lease.
+Full-block verification on every read is finite but is not a playback throughput
+claim. No cache or catalog is created by these reads.
 
 ## Read admission and lifetime
 
-Inventory, sealed-block inspection, descriptor generation, intent inspection and media reads share
-four supervised task slots per replica. A full pool returns
+Inventory, sealed-block inspection, descriptor generation, intent inspection,
+archive verification and same-VM `read_block/3` share four supervised task slots
+per replica (`ServiceRadarNVR.ReadTasks`). The playback read listener uses a
+separate pool (`ServiceRadarNVR.PlaybackReadTasks`, configured by
+`SERVICERADAR_NVR_PLAYBACK_READ_SLOTS`, default 8, 1 through 64) so playback
+cannot starve the shared pool. A full pool returns
 `:nvr_read_capacity`; media work is not queued. An unavailable/restarting pool or
 failed task returns `:nvr_read_unavailable`. Invalid media selectors and descriptor
 digest syntax are refused before requesting a slot.
@@ -390,10 +400,11 @@ authorization and automatic assignment reconciliation remain pending.
 | `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` | 150 | 8 through 256; fragments per local block before rotation. Reads accept up to 256, so lowering it never strands a retained block. 256 keeps the publication intent, which lists every fragment, within its 64 KiB cap |
 | `SERVICERADAR_NVR_MAX_SPOOL_BYTES` | 1073741824 | 1 TiB; retained bytes, full active reservations and missing publication records |
 | `SERVICERADAR_NVR_RESERVE_BYTES` | 67108864 | 1 PiB; physical free-space floor; admission also needs all reservations free |
+| `SERVICERADAR_NVR_PLAYBACK_READ_SLOTS` | 8 | 1 through 64; playback read listener task pool (10 seconds each), separate from the 4-slot read pool |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
 | Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most 4096 blocks per volume; no eviction or deletion |
 | Fragment | 4 MiB | oversized output fails the worker |
-| Read work | 4 tasks per replica / 10 seconds each | no media-work queue; separate from writers |
+| Read work | 4 shared tasks + playback read slots / 10 seconds each | no media-work queue; separate from writers |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
 | Kubernetes | 2 CPU / 1 GiB memory per replica | configurable container limits |
 
@@ -420,8 +431,8 @@ budget fills well before 4096 blocks for any real camera stream. Nothing
 reclaims blocks yet: reclamation is not implemented, and a full volume or
 budget refuses new captures.
 
-The default network listener only serves health probes; private media ingress is
-separately opt-in:
+The default network listener only serves health probes; private media ingress
+and the playback read listener are separately opt-in:
 `GET /healthz` means the runtime is live; `/readyz` additionally verifies the
 configured private storage root and identity. Neither admits a recording pool.
 

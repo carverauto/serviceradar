@@ -987,6 +987,18 @@ defmodule ServiceRadarWebNG.CameraRecordingSettings do
   end
 
   @doc """
+  The `{camera_source_id, stream_profile_id}` pairs a recorder is recording now,
+  under `scope`; empty when the caller may not read recording settings.
+  """
+  @spec recording_now(map()) :: MapSet.t()
+  def recording_now(scope) do
+    case CameraRecordingPolicies.recording_now(actor_opts(scope)) do
+      {:ok, pairs} -> pairs
+      {:error, _reason} -> MapSet.new()
+    end
+  end
+
+  @doc """
   Merges `phx-change="preview_policy"` parameters onto `prev_form`, handling
   stream profile resets when switching cameras and `archive_retention_override_mode`
   value transitions, and returns `{next_form, errors, matched_revision}`.

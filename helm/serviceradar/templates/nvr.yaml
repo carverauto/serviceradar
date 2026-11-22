@@ -17,11 +17,15 @@
 {{- fail "nvr.recovery.existingConfigMap must name operator-owned recovery state" -}}
 {{- end -}}
 {{- include "serviceradar.validateNvrIngest" . -}}
+{{- include "serviceradar.validateNvrRead" . -}}
 {{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
 {{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
 {{- $ingestEnabled := default false $ingest.enabled -}}
 {{- $ingestPort := int (default 8443 $ingest.port) -}}
+{{- $read := default (dict) $nvr.read -}}
+{{- $readEnabled := default false $read.enabled -}}
+{{- $readPort := int (default 8444 $read.port) -}}
 {{- $archive := default (dict) $nvr.archive -}}
 {{- $mediaWorker := default (dict) .Values.mediaWorker -}}
 {{- $mediaWorkerPolicy := default (dict) $mediaWorker.networkPolicy -}}
@@ -126,6 +130,11 @@ spec:
       port: {{ $ingestPort }}
       targetPort: ingest-https
     {{- end }}
+    {{- if $readEnabled }}
+    - name: read-https
+      port: {{ $readPort }}
+      targetPort: read-https
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -181,6 +190,10 @@ spec:
             - name: ingest-https
               containerPort: {{ $ingestPort }}
             {{- end }}
+            {{- if $readEnabled }}
+            - name: read-https
+              containerPort: {{ $readPort }}
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -214,6 +227,14 @@ spec:
             - name: SERVICERADAR_NVR_INGEST_TOKEN_FILE
               value: /etc/serviceradar/nvr-ingest/auth/ingest-token
             {{- end }}
+            {{- if $readEnabled }}
+            - name: SERVICERADAR_NVR_READ_CONFIG_FILE
+              value: /etc/serviceradar/nvr-read/config/config.json
+            - name: SERVICERADAR_NVR_READ_TOKEN_FILE
+              value: /etc/serviceradar/nvr-read/auth/read-token
+            - name: SERVICERADAR_NVR_PLAYBACK_READ_SLOTS
+              value: {{ printf "%d" (int (default 8 $read.playbackReadSlots)) | quote }}
+            {{- end }}
           resources: {{ toYaml $nvr.resources | nindent 12 }}
           startupProbe:
             httpGet: {path: /healthz, port: health}
@@ -238,6 +259,17 @@ spec:
               readOnly: true
             - name: ingest-tls
               mountPath: /etc/serviceradar/nvr-ingest/tls
+              readOnly: true
+            {{- end }}
+            {{- if $readEnabled }}
+            - name: read-config
+              mountPath: /etc/serviceradar/nvr-read/config
+              readOnly: true
+            - name: read-auth
+              mountPath: /etc/serviceradar/nvr-read/auth
+              readOnly: true
+            - name: read-tls
+              mountPath: /etc/serviceradar/nvr-read/tls
               readOnly: true
             {{- end }}
       volumes:
@@ -267,6 +299,28 @@ spec:
               - {key: tls.key, path: tls.key}
               - {key: ca.crt, path: ca.crt}
         {{- end }}
+        {{- if $readEnabled }}
+        - name: read-config
+          secret:
+            secretName: {{ $read.configSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: config.json, path: config.json}
+        - name: read-auth
+          secret:
+            secretName: {{ $read.tokenSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: read-token, path: read-token}
+        - name: read-tls
+          secret:
+            secretName: {{ $read.tlsSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+              - {key: ca.crt, path: ca.crt}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: recording
@@ -286,7 +340,7 @@ spec:
     matchLabels:
       app: serviceradar-nvr
   policyTypes: [Ingress, Egress]
-  {{- if or $ingestEnabled $mediaWorkerRead }}
+  {{- if or $ingestEnabled $readEnabled $mediaWorkerRead }}
   ingress:
     {{- if $ingestEnabled }}
     - from:
@@ -296,6 +350,16 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $ingestPort }}
+    {{- end }}
+    {{- if $readEnabled }}
+    # Playback reads come from web-ng only, to the read port only.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-web-ng
+      ports:
+        - protocol: TCP
+          port: {{ $readPort }}
     {{- end }}
     {{- if $mediaWorkerRead }}
     {{- /* Pairs with the media worker's egress rule (mediaWorker.networkPolicy.allowNvrRead)

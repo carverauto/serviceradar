@@ -19,6 +19,8 @@ defmodule ServiceRadarNVR.Config do
     :recovery_gate,
     :delivery,
     :ingest,
+    :read,
+    :playback_read_slots,
     :auto_delivery
   ]
 
@@ -33,6 +35,9 @@ defmodule ServiceRadarNVR.Config do
          {:ok, recovery_gate} <- ServiceRadarRecordingControl.RecoveryGate.load(env, root),
          {:ok, delivery} <- ServiceRadarNVR.DeliveryConfig.load(env),
          {:ok, ingest} <- ServiceRadarNVR.IngestListener.load(env),
+         {:ok, read} <- ServiceRadarNVR.ReadListener.load(env),
+         :ok <- distinct_listeners(ingest, read),
+         {:ok, playback_read_slots} <- integer(env, "SERVICERADAR_NVR_PLAYBACK_READ_SLOTS", 8, 64),
          {:ok, auto_delivery} <- auto_delivery(env, root, delivery) do
       config = %__MODULE__{
         root: root,
@@ -46,6 +51,8 @@ defmodule ServiceRadarNVR.Config do
         recovery_gate: recovery_gate,
         delivery: delivery,
         ingest: ingest,
+        read: read,
+        playback_read_slots: playback_read_slots,
         auto_delivery: auto_delivery
       }
 
@@ -55,6 +62,17 @@ defmodule ServiceRadarNVR.Config do
 
   @doc "Largest accepted `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS`, so also the fragment bound for reading a retained block."
   def block_fragments_ceiling, do: @block_fragments_ceiling
+
+  # The read listener is a separate trust boundary: a playback credential must
+  # not open the ingest listener, and an ingest credential must not read media.
+  defp distinct_listeners(%{} = ingest, %{} = read) do
+    if ingest.port != read.port and ingest.client_sha256 != read.client_sha256 and
+         ingest.token_sha256 != read.token_sha256,
+       do: :ok,
+       else: {:error, :invalid_nvr_read_config}
+  end
+
+  defp distinct_listeners(_ingest, _read), do: :ok
 
   defp auto_delivery(env, root, delivery) do
     case Map.get(env, "SERVICERADAR_NVR_PUBLICATION_AUTO_DELIVERY", "false") do

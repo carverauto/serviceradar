@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNG.CameraTimelineAdmissionTest do
              :reacquired
   end
 
-  test "CameraTimelineReader behaviour seams default to reader_unavailable and enforce digest + fallback invariants" do
+  test "CameraTimelineReader behaviour seams report unavailable copies and enforce digest + fallback invariants" do
     payload = "synthetic-verified-fragment-payload"
     sha = :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
 
@@ -92,12 +92,32 @@ defmodule ServiceRadarWebNG.CameraTimelineAdmissionTest do
       credential_error: nil
     }
 
-    # Default callbacks return :reader_unavailable
+    # Without a reader a local copy is unavailable; no archive reader is installed yet (D.2).
     assert CameraTimelineReader.fetch_local(local_plan, 1_000) == {:error, :reader_unavailable}
-    assert CameraTimelineReader.fetch_archive(archive_plan, 1_000) == {:error, :reader_unavailable}
+    assert CameraTimelineReader.fetch_archive(archive_plan, 1_000) == {:error, :archive_reader_not_installed}
+    refute CameraTimelineReader.archive_reader_installed?()
 
-    assert CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto) ==
+    unavailable = %{local: fn _plan, _dl -> {:error, :unavailable} end}
+
+    # A failed local read stays the answer when there is no archive reader to fall back to...
+    assert CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto, readers: unavailable) ==
              {:error, :reader_unavailable}
+
+    assert CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto,
+             readers: %{local: fn _plan, _dl -> {:error, :not_found} end}
+           ) == {:error, :recording_unavailable}
+
+    assert {:ok, %{copy: :archive, copy_header: "archive", bytes: ^payload}} =
+             CameraTimelineReader.execute_plans([local_plan, archive_plan], :auto,
+               readers: %{
+                 local: fn _plan, _dl -> {:error, :not_found} end,
+                 archive: fn _plan, _dl -> {:ok, payload} end
+               }
+             )
+
+    # ...and archive-only footage reports that archive playback is not available.
+    assert CameraTimelineReader.execute_plans([archive_plan], :auto) == {:error, :archive_reader_not_installed}
+    assert CameraTimelineReader.execute_plans([archive_plan], :archive) == {:error, :archive_reader_not_installed}
 
     # Provisional local copy returns "local; provisional" header on digest match
     assert {:ok, %{copy: :local, provisional?: true, copy_header: "local; provisional"}} =

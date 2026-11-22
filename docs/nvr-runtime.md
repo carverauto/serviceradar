@@ -32,13 +32,15 @@ different claims: recorder downtime and in-flight uncommitted media may be gaps.
 The Helm `nvr` component is disabled by default. Enabling it starts the runtime
 and health probes. A separately installed private listener accepts authenticated
 media from the [bounded relay coordinator](nvr-ingest.md#bounded-relay-coordinator),
-which registers sealed blocks in Core. Continuous recorder scheduling and pool
+which registers sealed blocks in Core, and an opt-in
+[playback read listener](nvr-ingest.md#playback-read-listener) serves verified
+local copies to web-ng. Continuous recorder scheduling and pool
 assignment, automatic archive scheduling and reclamation, and automated restart
 reconciliation remain pending. For an explicit, verified copy to a bucket, see
 [Archive upload](#archive-upload). Do not enable recording policies through this
 runtime yet. Workload updates use `OnDelete` until coordinated drain/fencing is
 implemented. The [first-camera milestone](nvr-ingest.md) tracks the remaining
-recording, local playback and deployed storage acceptance boundaries.
+recording, archive playback and deployed storage acceptance boundaries.
 
 The finite-session runtime enforces a per-replica spool budget and a physical
 free-space floor. Capture admission also reserves 64 KiB for each missing
@@ -147,7 +149,7 @@ camera or provider credentials. Health probes listen on port 8095 by default.
 
 ## Deployment recovery gate
 
-NVR runtime admission, Core recording and archive work, archive playback, and
+NVR runtime admission, Core recording and archive work, timeline playback, and
 local-publication acceptance require deployment-owned recovery state. Kubernetes sets `nvr.recovery.existingConfigMap` to an existing ConfigMap with `generation`
 and `state.json` keys. Helm never creates that ConfigMap or changes it to ready.
 Keep it outside the CNPG/PVC backup set and outside application GitOps rollback.

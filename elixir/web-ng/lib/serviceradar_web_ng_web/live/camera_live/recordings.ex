@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.CameraArchiveWindow
   alias ServiceRadarWebNG.CameraRecordingSettings
+  alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraArchiveAccess
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
@@ -162,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
         timeline_coverage={@timeline_coverage}
+        archive_playback_available={CameraTimelineReader.archive_reader_installed?()}
         timeline_playlist_path={@timeline_playlist_path}
         timeline_play_from_us={@timeline_play_from_us}
         timeline_play_to_us={@timeline_play_to_us}
@@ -958,7 +960,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         [
           {"from", Integer.to_string(play_from_us)},
           {"to", Integer.to_string(play_to_us)},
-          {"source", source_str}
+          {"source", playlist_source_param(source_str)}
         ] ++
           if(profile_id in [nil, ""], do: [], else: [{"profile", profile_id}])
 
@@ -966,10 +968,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp block_playable_for_source?(block, "local"), do: block.local_state == :present
-  defp block_playable_for_source?(block, "archive"), do: block.archive_state == :verified
+  defp playlist_source_param("local"), do: "local"
+  defp playlist_source_param("archive"), do: "archive"
 
-  defp block_playable_for_source?(block, _auto), do: block.local_state == :present or block.archive_state == :verified
+  defp playlist_source_param(_auto) do
+    if CameraTimelineReader.archive_reader_installed?(), do: "auto", else: "local"
+  end
+
+  defp block_playable_for_source?(block, "local"), do: block.local_state == :present
+  defp block_playable_for_source?(block, "archive"), do: archive_playable?(block)
+  defp block_playable_for_source?(block, _auto), do: block.local_state == :present or archive_playable?(block)
+
+  # A verified archive copy plays only through an installed archive reader (D.2).
+  defp archive_playable?(block), do: block.archive_state == :verified and CameraTimelineReader.archive_reader_installed?()
 
   defp adjacent_window_available?(play_to_us, cov_to_us) do
     now_us = System.system_time(:microsecond)

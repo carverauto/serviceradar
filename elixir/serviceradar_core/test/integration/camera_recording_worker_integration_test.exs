@@ -7,11 +7,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingControl
+  alias ServiceRadar.Camera.RecordingTimeline
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelaySessionManager
@@ -1150,6 +1152,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                actor: nvr_ctx.actor
              )
 
+    # Playback: the catalog entry's local read plans, served by the NVR read
+    # listener with the read-purpose credentials, are the init segment and the
+    # fragments of the captured media.
+    played = play_cataloged_block(nvr, nvr_ctx.source.id, entry, block.descriptor)
+    played_mp4 = Path.join(nvr.dir, "played.mp4")
+    File.write!(played_mp4, played)
+
     assert_live_delivery(%{relay: active_relay, pipeline: pipeline}, List.last(units))
 
     stop_nvr_daemon(daemon)
@@ -1162,6 +1171,36 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     expected_raw = binary_part(decode_rawvideo(ctx.media.path), 0, 60 * div(64 * 64 * 3, 2))
     assert decode_rawvideo(exported_mp4) == expected_raw
+    assert decode_rawvideo(played_mp4) == expected_raw
+  end
+
+  # Reads the entry's init segment and every fragment the way web-ng's local
+  # reader does: the plan `RecordingTimeline.resolve_read_plans/5` builds from the
+  # catalog, sent to the member that stores the entry with the read credentials.
+  defp play_cataloged_block(nvr, camera_source_id, entry, descriptor) do
+    {:ok, members} =
+      ServiceRadarNVRClient.Members.load(nvr.read_client_config, nvr.read_token_file)
+
+    {:ok, target} = ServiceRadarNVRClient.Members.by_storage_id(members, entry.storage_id)
+    selectors = [:init | Enum.map(descriptor["fragments"], &{:fragment, &1["sequence"]})]
+
+    Enum.map_join(selectors, fn selector ->
+      assert {:ok, [plan]} =
+               RecordingTimeline.resolve_read_plans(camera_source_id, entry.id, selector, :local)
+
+      assert plan.provisional?
+
+      assert {:ok, bytes} =
+               ServiceRadarNVRClient.read_block(
+                 target.client_config,
+                 plan.block_key,
+                 plan.descriptor_sha256,
+                 plan.selector,
+                 %{length: plan.expected_length, sha256: plan.expected_sha256}
+               )
+
+      bytes
+    end)
   end
 
   test "NVRCapture mid-stream transport drop returns uncertain without retrying, failing over, or releasing the active recorder fence",
@@ -1360,9 +1399,16 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              second
   end
 
-  test "NVRCapture keeps a capture uncertain after a late Core abort and an unverified reply",
-       ctx do
-    %{worker: worker, task: task, nvr: nvr, seal: seal} = capture_waiting_for_seal(ctx)
+  test "NVRCapture registers a verified seal after a late Core abort", ctx do
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {_descriptor, bytes}
+    } =
+      capture_waiting_for_seal(ctx)
 
     # Closing the relay pipeline stops the stream from Core's side while the
     # seal answer is outstanding.
@@ -1377,14 +1423,22 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       System.monotonic_time(:millisecond) + 5_000
     )
 
-    send(nvr.peer, {:seal, Jason.encode!(%{seal | "storage_id" => Ecto.UUID.generate()})})
+    send(nvr.peer, {:seal, Jason.encode!(seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(nvr.peer, {:descriptor, 200, bytes})
 
-    assert {:error, {:nvr_ingest_uncertain, details}} = Task.await(task, 10_000)
-    assert details.reason == :ingest_stopped
-    assert details.frames_sent == 3
+    assert {:ok, receipt} = Task.await(task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert receipt.frames_sent == 3
+
+    assert [%{id: sealed_id, state: :sealed}] = recording_blocks(ctx)
+    assert sealed_id == block.id
+    assert [%{id: ^entry_id, recording_block_id: ^sealed_id}] = catalog_entries(nvr.storage_id)
 
     claim = recorder_claim(ctx)
-    assert claim.state == :active
+    assert claim.state == :released
     assert claim.recorder_epoch == 1
   end
 
@@ -1406,12 +1460,15 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       :ok = :sys.resume(capture.worker)
     end
 
-    assert_registration_refused(ctx, capture, :capture_timeout)
+    assert_registration_refused(ctx, capture, :registration_deadline)
+    refute_received {:nvr_descriptor_read, _}
   end
 
-  test "NVRCapture delivers a verified reply already queued behind a timeout interrupt", ctx do
+  test "NVRCapture registers a verified reply queued behind a timeout interrupt before the deadline",
+       ctx do
     capture = capture_waiting_for_seal(ctx)
     %{sender_ref: sender_ref} = :sys.get_state(capture.worker)
+    {_descriptor, bytes} = capture.descriptor
     :ok = :sys.suspend(capture.worker)
 
     try do
@@ -1426,12 +1483,20 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       :ok = :sys.resume(capture.worker)
     end
 
-    assert_registration_refused(ctx, capture, :capture_timeout)
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
+
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
   end
 
-  test "NVRCapture delivers the seal when renewal observed recovery closure before the reply",
-       ctx do
+  test "NVRCapture registers the seal when recovery reopens before the reply", ctx do
     capture = capture_waiting_for_seal(ctx)
+    {_descriptor, bytes} = capture.descriptor
     gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
     ready = File.read!(gate.path)
     close_recovery_gate()
@@ -1439,16 +1504,25 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert %{abort_reason: :nvr_recovery_closed} = :sys.get_state(capture.worker)
     File.write!(gate.path, ready)
     send(capture.nvr.peer, {:seal, Jason.encode!(capture.seal)})
+    assert_receive {:nvr_descriptor_read, _request_line}, 5_000
+    send(capture.nvr.peer, {:descriptor, 200, bytes})
 
-    assert_registration_refused(ctx, capture, :nvr_recovery_closed)
+    assert {:ok, receipt} = Task.await(capture.task, 10_000)
+    assert receipt.status == :sealed_local
+    assert {:registered, entry_id} = receipt.catalog
+    assert receipt.release == :released
+    assert [%{id: ^entry_id}] = catalog_entries(capture.nvr.storage_id)
+    assert recorder_claim(ctx).state == :released
   end
 
   defp capture_waiting_for_seal(ctx) do
     owner = owner(ctx, 30_000)
-    nvr = fake_nvr_member(ctx, "pending-seal", &start_sealing_tls_peer(&1, self()))
+    nvr = fake_nvr_member(ctx, "pending-seal", &start_registering_tls_peer(&1, self()))
     task = start_fake_nvr_capture(ctx, nvr, 3)
     worker = await_nvr_worker_attached(owner)
-    %{block: %{block_key: block_key}} = :sys.get_state(worker)
+    %{block: block} = :sys.get_state(worker)
+    descriptor = Fixtures.recording_descriptor(block)
+    {:ok, bytes} = Descriptor.encode(descriptor)
     Enum.each(Enum.take(ctx.media.units, 3), &send(ctx.pipeline, {:media_chunk, &1}))
     assert_receive :nvr_sealing_peer_request_complete, 5_000
 
@@ -1456,10 +1530,17 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       "version" => 1,
       "status" => "sealed_local",
       "storage_id" => nvr.storage_id,
-      "block_ids" => [block_key]
+      "block_ids" => [block.block_key]
     }
 
-    %{worker: worker, task: task, nvr: nvr, seal: seal}
+    %{
+      worker: worker,
+      task: task,
+      nvr: nvr,
+      block: block,
+      seal: seal,
+      descriptor: {descriptor, bytes}
+    }
   end
 
   test "NVRCapture keeps a capture uncertain when its caller dies while a unit is queued before the end marker, holding the recorder fence",
@@ -1960,7 +2041,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       block: block,
       descriptor: {descriptor, bytes},
       units: units,
-      admitted: admitted
+      admitted: admitted,
+      recording_while_attached: recording_while_attached
     } =
       registering_capture(sealing_capture(ctx), fn bytes -> {200, bytes} end)
 
@@ -2000,6 +2082,11 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     # The freeze ran under the claim; only then was the claim released.
     assert recorder_claim(ctx).state == :released
+
+    # Recorder status follows the live claim, not the policy.
+    assert MapSet.member?(recording_while_attached, {ctx.source.id, ctx.profile.id})
+    assert {:ok, recording_after} = RecorderOwnership.recording_now(ctx.source.id)
+    refute MapSet.member?(recording_after, {ctx.source.id, ctx.profile.id})
   end
 
   test "NVRCapture leaves a sealed block it cannot read back to the reconciler and still releases its claim",
@@ -2461,6 +2548,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     nvr = fake_nvr_member(ctx, "registering", &start_registering_tls_peer(&1, self()))
     task = start_fake_nvr_capture(ctx, nvr, 3, 25_000)
     worker = await_nvr_worker_attached(owner)
+    {:ok, recording_while_attached} = RecorderOwnership.recording_now(ctx.source.id)
     [block] = Enum.filter(recording_blocks(ctx), &(&1.storage_id == nvr.storage_id))
     descriptor = Fixtures.recording_descriptor(block)
     {:ok, bytes} = Descriptor.encode(descriptor)
@@ -2487,7 +2575,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       block: block,
       descriptor: {descriptor, bytes},
       units: units,
-      admitted: admitted
+      admitted: admitted,
+      recording_while_attached: recording_while_attached
     }
   end
 
@@ -2761,7 +2850,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert {:ok, _} = Storage.initialize(spool_dir, storage_id)
 
     certs = write_nvr_mtls_certs(certs_dir)
+    read_certs = write_nvr_mtls_certs(Path.join(dir, "read-certs"))
     ingest_port = free_local_port()
+    read_port = free_local_port()
     health_port = free_local_port()
     unused_port = free_local_port()
     gate = Application.fetch_env!(:serviceradar_core, :nvr_recovery_gate)
@@ -2780,6 +2871,36 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         "cert_file" => certs.server_cert,
         "key_file" => certs.server_key,
         "ca_file" => certs.server_ca
+      })
+    )
+
+    read_config = Path.join(dir, "read.json")
+    read_token_file = Path.join(dir, "read-token")
+    read_client_config = Path.join(dir, "read-client.json")
+    File.write!(read_token_file, "synthetic-nvr-playback-reader-token-0123")
+
+    File.write!(
+      read_config,
+      Jason.encode!(%{
+        "port" => read_port,
+        "client_sha256" => read_certs.client_sha256,
+        "cert_file" => read_certs.server_cert,
+        "key_file" => read_certs.server_key,
+        "ca_file" => read_certs.server_ca
+      })
+    )
+
+    File.write!(
+      read_client_config,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => read_port,
+        "ca_file" => read_certs.client_ca,
+        "cert_file" => read_certs.client_cert,
+        "key_file" => read_certs.client_key,
+        "members" => %{
+          "serviceradar-nvr-0" => %{"host" => "localhost", "storage_id" => storage_id}
+        }
       })
     )
 
@@ -2812,6 +2933,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       ingest_config: ingest_config,
       token_file: token_file,
       client_config: client_config,
+      read_config: read_config,
+      read_token_file: read_token_file,
+      read_client_config: read_client_config,
       certs: certs,
       gate: gate
     }
@@ -2830,7 +2954,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       {~c"SERVICERADAR_NVR_MAX_SESSIONS", ~c"2"},
       {~c"SERVICERADAR_NVR_HEALTH_PORT", String.to_charlist(Integer.to_string(nvr.health_port))},
       {~c"SERVICERADAR_NVR_INGEST_CONFIG_FILE", String.to_charlist(nvr.ingest_config)},
-      {~c"SERVICERADAR_NVR_INGEST_TOKEN_FILE", String.to_charlist(nvr.token_file)}
+      {~c"SERVICERADAR_NVR_INGEST_TOKEN_FILE", String.to_charlist(nvr.token_file)},
+      {~c"SERVICERADAR_NVR_READ_CONFIG_FILE", String.to_charlist(nvr.read_config)},
+      {~c"SERVICERADAR_NVR_READ_TOKEN_FILE", String.to_charlist(nvr.read_token_file)}
     ]
 
     port =
@@ -3257,6 +3383,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp registering_peer_accept(listen, notify_pid) do
     with {:ok, ingest} <- accept_tls_peer(listen),
          :ok <- read_until_request_end(ingest, <<>>) do
+      send(notify_pid, :nvr_sealing_peer_request_complete)
+
       receive do
         {:seal, body} -> answer_tls_peer(ingest, 200, body)
       end

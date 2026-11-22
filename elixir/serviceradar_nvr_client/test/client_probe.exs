@@ -63,6 +63,22 @@ result =
       "descriptor" ->
         ServiceRadarNVRClient.block_descriptor(config, request["block_id"], request["timeout_ms"])
 
+      "read" ->
+        selector = if request["selector"] == "init", do: :init, else: {:fragment, request["selector"]}
+        expected = %{length: request["length"], sha256: request["sha256"]}
+
+        with {:ok, bytes} <-
+               ServiceRadarNVRClient.read_block(
+                 config,
+                 request["block_id"],
+                 request["descriptor_sha256"],
+                 selector,
+                 expected,
+                 request["timeout_ms"]
+               ) do
+          {:ok, %{length: byte_size(bytes), sha256: Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)}}
+        end
+
       "caller_loss" ->
         {caller, caller_monitor} =
           spawn_monitor(fn ->

@@ -158,7 +158,7 @@ gate.
 ## D. Unified timeline playback (design D)
 
 ### serviceradar_nvr and serviceradar_nvr_client (parallel)
-- [ ] D.1 Read listener: `GET /v1/blocks/<id>/init` and `/fragments/<n>` with expected descriptor digest; separate mTLS pin and read token; separate playback read pool (default 8); chart NetworkPolicy from web-ng to the read port.
+- [x] D.1 Read listener: `GET /v1/blocks/<id>/init` and `/fragments/<n>` with expected descriptor digest; separate mTLS pin and read token; separate playback read pool (default 8); chart NetworkPolicy from web-ng to the read port.
 
 ### serviceradar_core_elx (parallel)
 - [ ] D.2 Isolated archive reader per-request credential mode for CNPG-credentialed bindings (operator-created or Cloud-delivered): per-request destination, reader credential and exact plan; key-family check; admission install bound (default 8).

@@ -131,15 +131,29 @@ defmodule ServiceRadarNVR do
   deadline with discovery and inspection. It supplies neither playback
   authorization nor remote transport or downstream buffering budgets.
   """
-  def read_block(block_id, descriptor_sha256, :init) do
-    read_verified(block_id, descriptor_sha256, &Spool.read_init/1)
+  def read_block(block_id, descriptor_sha256, selector),
+    do: read_selected_block(block_id, descriptor_sha256, selector, ServiceRadarNVR.ReadTasks)
+
+  @doc """
+  `read_block/3` for the playback read listener, in its own read pool.
+
+  The pool has `SERVICERADAR_NVR_PLAYBACK_READ_SLOTS` slots (default 8) and the
+  same ten-second admitted-task deadline, so playback cannot take the four slots
+  that discovery, inspection, archive and descriptor reads share.
+  """
+  def playback_read(block_id, descriptor_sha256, selector),
+    do: read_selected_block(block_id, descriptor_sha256, selector, ServiceRadarNVR.PlaybackReadTasks)
+
+  defp read_selected_block(block_id, descriptor_sha256, :init, pool) do
+    read_verified(block_id, descriptor_sha256, &Spool.read_init/1, pool)
   end
 
-  def read_block(block_id, descriptor_sha256, {:fragment, sequence}) when is_integer(sequence) and sequence >= 0 do
-    read_verified(block_id, descriptor_sha256, &Spool.read_fragment(&1, sequence))
+  defp read_selected_block(block_id, descriptor_sha256, {:fragment, sequence}, pool)
+       when is_integer(sequence) and sequence >= 0 do
+    read_verified(block_id, descriptor_sha256, &Spool.read_fragment(&1, sequence), pool)
   end
 
-  def read_block(_block_id, _descriptor_sha256, _selector), do: {:error, :invalid_media_selector}
+  defp read_selected_block(_block_id, _descriptor_sha256, _selector, _pool), do: {:error, :invalid_media_selector}
 
   @doc """
   Persist one immutable local publication intent without blocking recording workers.
@@ -232,16 +246,16 @@ defmodule ServiceRadarNVR do
          do: result
   end
 
-  defp read_verified(block_id, expected_digest, read)
+  defp read_verified(block_id, expected_digest, read, pool)
        when is_binary(expected_digest) and byte_size(expected_digest) == 64 do
     if Regex.match?(~r/\A[0-9a-f]{64}\z/, expected_digest) do
-      Reads.run(fn -> read_selected(block_id, expected_digest, read) end)
+      Reads.run(fn -> read_selected(block_id, expected_digest, read) end, pool)
     else
       {:error, :invalid_descriptor_digest}
     end
   end
 
-  defp read_verified(_block_id, _expected_digest, _read), do: {:error, :invalid_descriptor_digest}
+  defp read_verified(_block_id, _expected_digest, _read, _pool), do: {:error, :invalid_descriptor_digest}
 
   defp read_selected(block_id, expected_digest, read) do
     with {:ok, snapshot} <- inspect_block(block_id),

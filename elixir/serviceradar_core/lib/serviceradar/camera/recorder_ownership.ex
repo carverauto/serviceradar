@@ -18,6 +18,7 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   """
   import Ash.Expr
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingBlock
@@ -28,6 +29,40 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   require Ash.Query
 
   @max_counter 9_223_372_036_854_775_807
+  @status_actor SystemActor.system(:camera_recorder_status)
+
+  @doc """
+  The `{camera_source_id, stream_profile_id}` pairs a recorder is recording now:
+  their claim is `:active` and its lease has not expired by database time. A pair
+  missing from the set has no recorder running, whatever its policy says.
+  Narrowed to one camera when `camera_source_id` is given. Read-only status for
+  display; it grants nothing.
+  """
+  @spec recording_now(Ecto.UUID.t() | nil) ::
+          {:ok, MapSet.t({Ecto.UUID.t(), Ecto.UUID.t()})} | {:error, term()}
+  def recording_now(camera_source_id \\ nil) do
+    RecorderClaim
+    |> Ash.Query.filter(state == :active and lease_expires_at > now())
+    |> recording_camera(camera_source_id)
+    |> Ash.Query.load(:ingest_owner)
+    |> Ash.read(actor: @status_actor)
+    |> case do
+      {:ok, claims} ->
+        {:ok,
+         MapSet.new(
+           claims,
+           &{&1.ingest_owner.camera_source_id, &1.ingest_owner.stream_profile_id}
+         )}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp recording_camera(query, nil), do: query
+
+  defp recording_camera(query, camera_source_id),
+    do: Ash.Query.filter(query, ingest_owner.camera_source_id == ^camera_source_id)
 
   def acquire(ingest, token, media_ingest_id, storage_id, ttl_ms, opts \\ []) do
     with :ok <- ttl(ttl_ms),

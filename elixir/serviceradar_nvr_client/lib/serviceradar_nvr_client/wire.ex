@@ -122,6 +122,41 @@ defmodule ServiceRadarNVRClient.Wire do
     end
   end
 
+  def read_request(block_id, descriptor_sha256, selector, %{length: length, sha256: sha256} = expected)
+      when map_size(expected) == 2 do
+    with true <- matches?(block_id, @hex64) and matches?(descriptor_sha256, @hex64) and matches?(sha256, @hex64),
+         {:ok, object, limit} <- media_object(selector),
+         true <- is_integer(length) and length in 1..limit do
+      {:ok, "/v1/blocks/" <> block_id <> "/" <> object <> "?descriptor_sha256=" <> descriptor_sha256}
+    else
+      _ -> {:error, :invalid_read_request}
+    end
+  end
+
+  def read_request(_block_id, _descriptor_sha256, _selector, _expected), do: {:error, :invalid_read_request}
+
+  # The fragment bound is the playback read path's (design D4); init is the descriptor's.
+  defp media_object(:init), do: {:ok, "init", 1_048_576}
+
+  defp media_object({:fragment, index}) when is_integer(index) and index in 0..255,
+    do: {:ok, "fragments/" <> Integer.to_string(index), 4_194_304}
+
+  defp media_object(_selector), do: :error
+
+  def media(bytes, %{length: length, sha256: sha256}) do
+    if byte_size(bytes) == length and Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == sha256,
+      do: {:ok, bytes},
+      else: {:error, :integrity_mismatch}
+  end
+
+  # 409 is the NVR's answer for a block whose seal or selected bytes no longer
+  # verify, or whose descriptor is not the one frozen: the local copy is not the
+  # cataloged block.
+  def read_refusal(404, _body), do: {:error, :not_found}
+  def read_refusal(409, _body), do: {:error, :integrity_mismatch}
+  def read_refusal(503, _body), do: {:error, :unavailable}
+  def read_refusal(status, body), do: {:error, {:read_status, status, error_body(body)}}
+
   def error_body(bytes) do
     case Jason.decode(bytes) do
       {:ok, %{} = error} -> error
