@@ -30,6 +30,37 @@ defmodule ServiceRadarNVR.Blocks do
     end
   end
 
+  # Local state of one block from its journal and file lengths (no media read).
+  def state(storage, block_id, limits, writing?) do
+    entry = %{block_id: block_id, writing: writing?, bytes: nil, descriptor_sha256: nil, reason: nil}
+
+    case ServiceRadarNVR.Disk.block_usage(storage.root, block_id) do
+      {:error, :enoent} -> Map.put(entry, :state, :absent)
+      {:error, _} -> Map.merge(entry, %{state: :unresolved, reason: :invalid_block_files})
+      {:ok, bytes, _pending} -> journal_state(storage, block_id, limits, %{entry | bytes: bytes})
+    end
+  end
+
+  defp journal_state(storage, block_id, limits, entry) do
+    with {:ok, snapshot} <- Spool.journal_state(storage, block_id, limits),
+         {:ok, digest} <- sealed_digest(snapshot) do
+      Map.merge(entry, %{state: if(snapshot.sealed?, do: :sealed, else: :incomplete), descriptor_sha256: digest})
+    else
+      {:error, reason} -> Map.merge(entry, %{state: :unresolved, reason: reason_class(reason)})
+    end
+  end
+
+  defp sealed_digest(%{sealed?: false}), do: {:ok, nil}
+
+  defp sealed_digest(snapshot) do
+    with {:ok, snapshot} <- with_format(snapshot),
+         {:ok, bytes} <- descriptor(snapshot),
+         do: {:ok, Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)}
+  end
+
+  defp reason_class(reason) when is_atom(reason), do: reason
+  defp reason_class(_reason), do: :unreadable_block
+
   def descriptor(snapshot) do
     with {:ok, descriptor} <- Descriptor.from_snapshot(snapshot, snapshot.init_format),
          do: Descriptor.encode(descriptor)

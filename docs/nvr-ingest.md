@@ -298,6 +298,52 @@ for a block with no seal that verifies, and 503 `descriptor_unavailable` when
 the read pool is full, the read times out, recovery is closed or storage is
 unavailable. The request deadline is 15 seconds.
 
+## Member status and block state
+
+The ingest listener, with the same pin and token, answers three bounded
+observations that Core's recording coordinator and reconciler use. They change
+nothing on disk. Each request is bounded by 15 seconds.
+
+- `GET /v1/status` answers 200 with `version`, `storage_id`, `recovery`
+  (`state` `ready` or `closed`, and the pinned `generation`), `inventory`
+  (`ready`, `rebuilding`, `mismatch` or `unavailable`), `capacity` (`used_bytes`,
+  `max_spool_bytes`, `available_bytes`, `reserve_bytes`, `reserved_bytes`,
+  `reservations`, `blocks`, `max_blocks`; null unless the block ledger is ready
+  or mismatched), `max_sessions`, `archive_busy` and `release`. A closed gate or
+  an unbuilt ledger is reported, not refused.
+- `POST /v1/blocks/lookup` with exactly one
+  `Content-Type: application/vnd.serviceradar.nvr-lookup.v1+json` header and a
+  JSON body `{"block_ids": [...]}` of 1 through 50 distinct 64-character block
+  IDs, at most 8 KiB. 200 lists one entry per ID, in order.
+- `GET /v1/blocks?after=<block_id>&limit=<1..100>` pages the block ledger in
+  ascending ID order (`limit` defaults to 100). 200 adds `next_after`: the last
+  ID when the page is full, null on the last page. Blocks created behind the
+  cursor appear on the next walk. 503 `inventory_rebuilding` (with
+  `retry-after: 1`) while the ledger is built.
+
+Each block entry has `block_id`, `state`, `writing` (an admitted writer holds
+the block now) and `bytes` (charged on disk; null when absent or unmeasurable),
+plus `descriptor_sha256` exactly when `state` is `sealed` and `reason` (an error
+class) exactly when it is `unresolved`:
+
+| `state` | Meaning |
+| --- | --- |
+| `sealed` | The journal holds a seal record and the file lengths match it |
+| `incomplete` | A valid journal without a seal record |
+| `unresolved` | The directory exists but its files or journal cannot be read as a block |
+| `absent` | No directory; not proof the block never existed |
+
+The state is read from the block's per-record digested journal and file lengths,
+not from its media, so a lookup or page stays cheap. `sealed` therefore does not
+mean the media verifies: fetch the descriptor, which verifies the whole block,
+before freezing it. Lookups and pages run in the shared read pool, so 503
+`lookup_unavailable` or `inventory_unavailable` (with `retry-after: 1`) means a
+busy pool or a closed recovery gate. Malformed requests answer 400
+`invalid_lookup_request` or `invalid_inventory_request` before any read.
+
+The client functions are `ServiceRadarNVRClient.status/2`, `lookup_blocks/3`
+and `block_page/4`.
+
 ## Playback read listener
 
 A separate, opt-in HTTPS listener serves recorded media to web-ng for timeline
@@ -432,6 +478,12 @@ listener and decodes them with an independent decoder, checks the read client's
 typed refusals, the 400/401/404/409 answers, that read and ingest credentials
 open only their own listener, and that the NVR refuses to start when the read
 installation shares the ingest port, pin or token.
+The same target checks status, lookup and ledger pages against a sealed and an
+unsealed block and through the packaged client, refuses malformed requests, and
+checks the block ledger: the cap refuses admission while reads and lookups keep
+working, a restart rebuilds the same charge, a directory the ledger did not
+record closes admission without changing any file, and a volume larger than one
+rebuild page reports `rebuilding` before it is ready.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every

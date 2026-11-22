@@ -60,6 +60,15 @@ result =
           request["timeout_ms"]
         )
 
+      "status" ->
+        ServiceRadarNVRClient.status(config, request["timeout_ms"])
+
+      "lookup" ->
+        ServiceRadarNVRClient.lookup_blocks(config, request["block_ids"], request["timeout_ms"])
+
+      "page" ->
+        ServiceRadarNVRClient.block_page(config, request["after"], request["limit"], request["timeout_ms"])
+
       "descriptor" ->
         ServiceRadarNVRClient.block_descriptor(config, request["block_id"], request["timeout_ms"])
 
@@ -117,6 +126,7 @@ result =
     {:ok, receipt} -> %{ok: receipt}
     {:error, {:archive_status, status, error}} -> %{error: "archive_status", status: status, body: error}
     {:error, {:descriptor_status, status, error}} -> %{error: "descriptor_status", status: status, body: error}
+    {:error, {tag, status, error}} when is_integer(status) -> %{error: Atom.to_string(tag), status: status, body: error}
     {:error, reason} -> %{error: inspect(reason)}
   end
 

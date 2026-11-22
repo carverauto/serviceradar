@@ -32,7 +32,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
   "recovery_transition" ->
     {:ok, _} = Storage.initialize(root, id)
-    {:ok, token, _, _} = Capacity.reserve()
+    {:ok, token, _, _} = Capacity.reserve(String.duplicate("e", 64))
     :ok = Capacity.check(token)
     path = Path.join(System.fetch_env!("TMPDIR"), "recovery.json")
     ready = File.read!(path)
@@ -60,7 +60,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
     File.write!(path <> ".next", closed)
     File.rename!(path <> ".next", path)
     {:error, :nvr_recovery_closed} = Capacity.check(token)
-    {:error, :nvr_recovery_closed} = Capacity.next_block(token)
+    {:error, :nvr_recovery_closed} = Capacity.next_block(token, String.duplicate("f", 64))
     send(reader, :continue)
     {:error, :nvr_recovery_closed} = Task.await(read)
     {:error, :nvr_recovery_closed} = Reads.run(fn -> raise "closed read executed" end)
@@ -983,7 +983,7 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     # Close the gate from the file server when Capacity first lists the spool,
     # after its admission check and before the repair or measurement finishes.
-    close_during_inventory = fn ->
+    close_during_inventory = fn capacity ->
       hook = fn
         _, {:in, {:"$gen_call", {^capacity, _}, {:list_dir, _}}}, _ ->
           :ok = :prim_file.write_file(path <> ".next", String.replace(ready, "ready", "closed"))
@@ -997,14 +997,36 @@ case System.fetch_env!("NVR_TEST_MODE") do
       :ok = :sys.install(:file_server_2, {hook, :waiting})
     end
 
-    close_during_inventory.()
+    close_during_inventory.(capacity)
     {:error, :nvr_recovery_closed} = ServiceRadarNVR.recover_block(block_id, expected)
     false = File.read!(path) == ready
     File.write!(path <> ".next", ready)
     File.rename!(path <> ".next", path)
     {:ok, %{sealed?: true}} = ServiceRadarNVR.sealed_block(block_id)
 
-    close_during_inventory.()
+    # Measurement reads the block ledger, which only a new capacity owner builds
+    # by listing the spool: replace the owner so the closure lands in that scan.
+    monitor = Process.monitor(capacity)
+    Process.exit(capacity, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, _, _} -> :ok
+    after
+      5000 -> raise "capacity owner survived"
+    end
+
+    replacement = fn wait, attempts ->
+      case Process.whereis(Capacity) do
+        pid when is_pid(pid) ->
+          pid
+
+        nil when attempts > 0 ->
+          Process.sleep(20)
+          wait.(wait, attempts - 1)
+      end
+    end
+
+    close_during_inventory.(replacement.(replacement, 250))
     {:error, :nvr_recovery_closed} = ServiceRadarNVR.capacity()
     false = File.read!(path) == ready
 
@@ -1166,6 +1188,11 @@ case System.fetch_env!("NVR_TEST_MODE") do
     held = for tag <- 1..4, do: {tag, start_read.(tag)}
     digest = String.duplicate("0", 64)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.list_blocks()
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.block_states([digest])
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.block_page(nil, 10)
+    {:error, :invalid_block_id} = ServiceRadarNVR.block_states(["not-a-block-id"])
+    {:error, :invalid_block_id} = ServiceRadarNVR.block_page("not-a-block-id", 10)
+    {:error, :invalid_block_page} = ServiceRadarNVR.block_page(nil, 0)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.publication_page()
     {:error, :nvr_read_capacity} = ServiceRadarNVR.sealed_block(digest)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.block_descriptor(digest)
@@ -1218,6 +1245,141 @@ case System.fetch_env!("NVR_TEST_MODE") do
 
     :ok = wait_readable.(wait_readable, 100)
 
+  "lookup_page_guards" ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:ok, worker, inbox} = ServiceRadarNVR.start_recording(identity, clock)
+    aud = <<0, 0, 0, 1, 9>>
+    [<<>> | units] = :binary.split(File.read!(System.fetch_env!("NVR_TEST_H264")), aud, [:global])
+
+    for {payload, index} <- Enum.with_index(units) do
+      sequence = index + 1
+
+      :ok =
+        Inbox.offer(inbox, %{
+          payload: aud <> payload,
+          pts: 90_000 + index * 6_000,
+          dts: 90_000 + index * 6_000,
+          sequence: sequence,
+          codec: "h264",
+          payload_format: "annexb",
+          media_ingest_id: inbox.media_ingest_id
+        })
+
+      %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+    end
+
+    {:ok, [%{block_id: active_id, state: :incomplete, writing: true, bytes: active_bytes, descriptor_sha256: nil}]} =
+      ServiceRadarNVR.block_page(nil, 10)
+
+    true = is_integer(active_bytes) and active_bytes > 0
+
+    monitor = Process.monitor(worker)
+    :ok = Inbox.finish(inbox)
+
+    receive do
+      {:nvr_recording, ^worker, {:ok, %{snapshot: %{sealed?: true}}}} -> :ok
+    after
+      10_000 -> raise "missing sealed local receipt"
+    end
+
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, :normal} -> :ok
+    after
+      5_000 -> raise "recording worker did not retire"
+    end
+
+    {:ok, [%{block_id: ^active_id, state: :sealed, writing: false, bytes: sealed_bytes, descriptor_sha256: digest}]} =
+      ServiceRadarNVR.block_page(nil, 10)
+
+    true = is_integer(sealed_bytes) and sealed_bytes > 0 and is_binary(digest)
+
+    restart_capacity = fn ->
+      previous = Process.whereis(Capacity)
+      ref = Process.monitor(previous)
+      Process.exit(previous, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ok
+      after
+        5_000 -> raise "capacity owner survived"
+      end
+
+      wait_capacity = fn wait, attempts ->
+        case Process.whereis(Capacity) do
+          pid when is_pid(pid) ->
+            pid
+
+          nil when attempts > 0 ->
+            Process.sleep(20)
+            wait.(wait, attempts - 1)
+        end
+      end
+
+      wait_capacity.(wait_capacity, 250)
+    end
+
+    gate_path = System.fetch_env!("SERVICERADAR_NVR_RECOVERY_STATE_FILE")
+    ready = File.read!(gate_path)
+    marker = Path.join(root, ".storage-id")
+    marker_bytes = File.read!(marker)
+    tmpdir = System.fetch_env!("TMPDIR")
+
+    capacity_for_gate = restart_capacity.()
+
+    gate_hook = fn
+      _, {:in, {:"$gen_call", {^capacity_for_gate, _}, {:list_dir, _}}}, _ ->
+        :ok = :prim_file.write_file(gate_path <> ".next", String.replace(ready, "ready", "closed"))
+        :ok = :prim_file.rename(gate_path <> ".next", gate_path)
+        :done
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {gate_hook, :waiting})
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.block_page(nil, 10)
+    File.write!(gate_path <> ".next", ready)
+    File.rename!(gate_path <> ".next", gate_path)
+
+    capacity_for_swap = restart_capacity.()
+    swap_1 = Path.join(tmpdir, "marker-swap-1")
+    File.write!(swap_1, marker_bytes)
+    File.chmod!(swap_1, 0o600)
+
+    ledger_swap_hook = fn
+      _, {:in, {:"$gen_call", {^capacity_for_swap, _}, {:list_dir, _}}}, _ ->
+        :ok = :prim_file.rename(swap_1, marker)
+        :done
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {ledger_swap_hook, :waiting})
+    {:error, :storage_changed} = ServiceRadarNVR.block_page(nil, 10)
+
+    {:ok, [%{block_id: ^active_id, state: :sealed}]} = ServiceRadarNVR.block_page(nil, 10)
+
+    swap_2 = Path.join(tmpdir, "marker-swap-2")
+    File.write!(swap_2, marker_bytes)
+    File.chmod!(swap_2, 0o600)
+
+    lookup_swap_hook = fn
+      _, {:in, {:"$gen_call", {caller, _}, {:list_dir, dir}}}, _ ->
+        if caller != capacity_for_swap and Path.basename(to_string(dir)) == active_id do
+          :ok = :prim_file.rename(swap_2, marker)
+          :done
+        else
+          :waiting
+        end
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {lookup_swap_hook, :waiting})
+    {:error, :storage_changed} = ServiceRadarNVR.block_states([active_id, String.duplicate("0", 64)])
+
   "pressure" ->
     {:ok, _} = Storage.initialize(root, id)
     {:error, :nvr_storage_pressure} = ServiceRadarNVR.start_recording(identity, clock)
@@ -1228,14 +1390,126 @@ case System.fetch_env!("NVR_TEST_MODE") do
     {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.capacity()
     {:error, :nvr_inventory_unavailable} = ServiceRadarNVR.list_blocks()
 
-  "inventory_limit" ->
-    {:error, :nvr_inventory_limit} = ServiceRadarNVR.start_recording(identity, clock)
-    {:ok, %{blocks: 4096, used_bytes: 0, reserved_bytes: 0}} = ServiceRadarNVR.capacity()
-    {:ok, blocks} = ServiceRadarNVR.list_blocks()
-    4096 = length(blocks)
+  mode when mode in ["inventory_limit", "discovery_limit"] ->
+    # More than one rebuild page: the ledger reports rebuilding, then ready.
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.start_recording(identity, clock)
 
-  "discovery_limit" ->
-    {:error, :nvr_inventory_limit} = ServiceRadarNVR.list_blocks()
+    wait_ready = fn wait, attempts ->
+      case ServiceRadarNVR.capacity() do
+        {:error, :nvr_inventory_rebuilding} when attempts > 0 ->
+          Process.sleep(50)
+          wait.(wait, attempts - 1)
+
+        result ->
+          result
+      end
+    end
+
+    expected = if mode == "inventory_limit", do: 4096, else: 4097
+    {:ok, %{blocks: ^expected, max_blocks: 4096, used_bytes: 0, reserved_bytes: 0}} = wait_ready.(wait_ready, 200)
+    # The cap refuses admission only; the volume stays listable past it.
+    {:error, :nvr_inventory_limit} = ServiceRadarNVR.start_recording(identity, clock)
+    {:ok, blocks} = ServiceRadarNVR.list_blocks()
+    ^expected = length(blocks)
+
+  "multipage_rebuild" ->
+    wait_rebuild = fn wait, attempts ->
+      case ServiceRadarNVR.capacity() do
+        {:error, :nvr_inventory_rebuilding} when attempts > 0 ->
+          Process.sleep(20)
+          wait.(wait, attempts - 1)
+
+        result ->
+          result
+      end
+    end
+
+    entries = root |> File.ls!() |> List.delete(".storage-id")
+    2100 = length(entries)
+
+    bad_file = Path.join([root, Enum.at(entries, 1024), "unexpected.txt"])
+    File.write!(bad_file, "stray")
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+    {:error, :nvr_inventory_unavailable} = wait_rebuild.(wait_rebuild, 200)
+
+    File.rm!(bad_file)
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+    {:ok, %{blocks: 2100, used_bytes: 0, reserved_bytes: 0}} = wait_rebuild.(wait_rebuild, 200)
+
+    capacity_pid = Process.whereis(Capacity)
+    expected = Map.put(identity, :clock, clock)
+
+    for bad_id <- [".", ".storage-id", "../outside", :not_a_binary, 123] do
+      {:error, :invalid_block_id} = ServiceRadarNVR.recover_block(bad_id, expected)
+      {:error, :invalid_block_id} = ServiceRadarNVR.prepare_publication(bad_id, %{})
+      {:error, :invalid_block_id} = ServiceRadarNVR.acknowledge_publication(bad_id, "{}")
+      {:error, :invalid_block_id} = Capacity.record_archive_receipt(bad_id, "{}")
+    end
+
+    ^capacity_pid = Process.whereis(Capacity)
+    {:ok, %{blocks: 2100, used_bytes: 0}} = ServiceRadarNVR.capacity()
+
+    settled_block = hd(entries)
+    trigger_block = Enum.at(entries, 1000)
+    parent = self()
+
+    writer =
+      spawn(fn ->
+        {:ok, _token, _, _} = Capacity.reserve(settled_block)
+        send(parent, :writer_reserved)
+
+        receive do
+          :exit -> :ok
+        end
+      end)
+
+    receive do
+      :writer_reserved -> :ok
+    after
+      5_000 -> raise "writer failed to reserve block"
+    end
+
+    trigger_file = Path.join([root, trigger_block, "unexpected.txt"])
+    File.write!(trigger_file, "stray")
+    {:error, _} = ServiceRadarNVR.prepare_publication(trigger_block, %{})
+    File.rm!(trigger_file)
+
+    hook = fn
+      :waiting, {:in, :rebuild_page}, _ ->
+        send(parent, :rebuild_paused)
+
+        receive do
+          :resume_rebuild -> :done
+        after
+          10_000 -> raise "rebuild pause handshake failed"
+        end
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(Capacity, {hook, :waiting})
+    {:error, :nvr_inventory_rebuilding} = ServiceRadarNVR.capacity()
+
+    receive do
+      :rebuild_paused -> :ok
+    after
+      5_000 -> raise "rebuild did not reach second page"
+    end
+
+    File.write!(Path.join([root, settled_block, "journal"]), :binary.copy(<<0>>, 128))
+    writer_monitor = Process.monitor(writer)
+    send(writer, :exit)
+
+    receive do
+      {:DOWN, ^writer_monitor, :process, ^writer, :normal} -> :ok
+    after
+      5_000 -> raise "writer did not exit"
+    end
+
+    send(Capacity, :resume_rebuild)
+    {:ok, %{blocks: 2100, used_bytes: 128, reservations: 0}} = wait_rebuild.(wait_rebuild, 200)
 
   "archive_retained" ->
     # Restarted inventory accepts the receipt, charges its actual bytes and

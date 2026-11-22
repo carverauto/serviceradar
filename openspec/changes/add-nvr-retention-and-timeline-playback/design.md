@@ -893,6 +893,10 @@ camera, profile, policy, run, `start_us`, `end_us` (set once when the gap
 closes), `media_gap_ns` (exact, within a run), `time_basis`, `reason`, bounded
 `detail_class`. Append-only except closing `end_us`.
 
+Note (2026-11-21): "320 blocks per camera per day (time-closed)" holds only
+for streams below about 370 kbit/s; above that, blocks close on the 12 MiB
+Core byte bound until A8 (multipart) lets them close on time.
+
 Row volume: at 320 blocks per camera per day (time-closed) up to about 3,433
 (4 Mbit/s) or 6,866 (8 Mbit/s), 100 cameras for a year is roughly 12 million to
 125 million catalog rows, and up to about 250 million at 8 Mbit/s. Blocks above

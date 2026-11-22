@@ -1,3 +1,4 @@
+load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
 load("//build:elixir_quality.bzl", "elixir_quality")
 load("//build:elixir_release.bzl", "SHIPPED_ERTS_OTP_ROOT", "SHIPPED_ERTS_ROOT_MARKER", "elixir_release")
@@ -43,6 +44,14 @@ elixir_release(
 )
 
 exports_files(["test/client_probe.exs"])
+
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = ["test/wire_test.exs"],
+    load_config = False,
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
 
 elixir_quality(
     source_deps = ["@hexpm//:ex_dna"],

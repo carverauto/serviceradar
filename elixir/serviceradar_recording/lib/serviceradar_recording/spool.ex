@@ -34,6 +34,7 @@ defmodule ServiceRadarRecording.Spool do
   alias ServiceRadarRecording.Storage
 
   @identity_keys ~w(source_id profile recorder_epoch block_sequence)a
+  @hex64 ~r/\A[0-9a-f]{64}\z/
   @record_bytes 4096
   @defaults %{
     max_init_bytes: 1_048_576,
@@ -61,7 +62,8 @@ defmodule ServiceRadarRecording.Spool do
     entries: [],
     high_water: 0,
     journal_size: 0,
-    sealed?: false
+    sealed?: false,
+    verify_media?: true
   ]
 
   @doc "Maximum logical bytes in one block, including init and bounded journal records."
@@ -230,6 +232,48 @@ defmodule ServiceRadarRecording.Spool do
 
   def inspect_sealed(%Storage{}, _block_id, _limits), do: {:error, :invalid_block_id}
 
+  @doc """
+  Report a retained block's state from its journal without reading media.
+
+  Replays the bounded, per-record digested journal and verifies the init bytes,
+  the identity-derived directory name and that file lengths match the committed
+  records. Media bytes, fragment digests and the seal digest are not checked:
+  `:sealed` means the journal holds a seal record, not that the media verifies.
+  Use `inspect_sealed/3` for that. Returns the same snapshot shape with
+  `sealed?` set accordingly; an open journal's media file may be longer than its
+  committed high-water mark. Nothing on disk changes.
+  """
+  def journal_state(storage, block_id, limits \\ %{})
+
+  def journal_state(%Storage{} = storage, block_id, limits) when is_binary(block_id) do
+    directory = Path.join(storage.root, block_id)
+
+    with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, block_id) || {:error, :invalid_block_id},
+         {:ok, spool} <- read_block(storage, directory, :discover, limits, false),
+         true <- block_id(spool.identity) == block_id || {:error, :block_identity_mismatch},
+         :ok <- exact_size(Path.join(directory, "init.mp4"), spool.init["length"]),
+         :ok <- media_size(Path.join(directory, "media.m4s"), spool),
+         :ok <- sealed_journal_size(Path.join(directory, "journal"), spool),
+         :ok <- Storage.verify(storage) do
+      {:ok, snapshot(spool)}
+    end
+  end
+
+  def journal_state(%Storage{}, _block_id, _limits), do: {:error, :invalid_block_id}
+
+  defp sealed_journal_size(path, %{sealed?: true, journal_size: size}), do: exact_size(path, size)
+  defp sealed_journal_size(_path, _spool), do: :ok
+
+  defp media_size(path, %{sealed?: true, high_water: high_water}), do: exact_size(path, high_water)
+
+  defp media_size(path, %{high_water: high_water}) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular, links: 1, size: size}} when size >= high_water -> :ok
+      {:ok, _} -> {:error, :truncated_media}
+      {:error, _} = error -> error
+    end
+  end
+
   defp exact_size(path, expected) do
     case File.lstat(path) do
       {:ok, %File.Stat{type: :regular, links: 1, size: ^expected}} -> :ok
@@ -238,7 +282,7 @@ defmodule ServiceRadarRecording.Spool do
     end
   end
 
-  defp read_block(storage, directory, expected_identity, limits) do
+  defp read_block(storage, directory, expected_identity, limits, verify_media? \\ true) do
     with :ok <- Storage.verify(storage),
          true <- Path.dirname(directory) == storage.root || {:error, :storage_directory_mismatch},
          {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
@@ -258,7 +302,8 @@ defmodule ServiceRadarRecording.Spool do
              init: init,
              limits: limits,
              journal_size: header_size,
-             hash: :crypto.hash_init(:sha256)
+             hash: :crypto.hash_init(:sha256),
+             verify_media?: verify_media?
            }),
          :ok <- Storage.verify(storage) do
       {:ok, spool}
@@ -285,11 +330,14 @@ defmodule ServiceRadarRecording.Spool do
   defp fragment_entry(_spool, payload, _timing) when not is_binary(payload) or byte_size(payload) == 0,
     do: {:error, :invalid_fragment}
 
-  defp fragment_entry(spool, payload, %{start_ns: start, duration_ns: duration} = timing)
-       when is_integer(start) and start >= 0 and is_integer(duration) and duration > 0 and
-              start + duration <= 9_223_372_036_854_775_807 do
-    with {:ok, duration_source} <- tail_duration_source(timing),
-         :ok <- check_capacity(spool, byte_size(payload), duration),
+  defp fragment_entry(spool, payload, timing),
+    do: build_fragment_entry(spool, byte_size(payload), digest(payload), timing)
+
+  defp build_fragment_entry(spool, size, sha256, %{start_ns: start, duration_ns: duration} = timing)
+       when is_integer(size) and size > 0 do
+    with true <- valid_fragment_timing?(start, duration) || {:error, :invalid_timing},
+         {:ok, duration_source} <- tail_duration_source(timing),
+         :ok <- check_capacity(spool, size, duration),
          true <- contiguous?(spool.entries, start) || {:error, :discontinuity} do
       {:ok,
        Map.merge(
@@ -297,17 +345,23 @@ defmodule ServiceRadarRecording.Spool do
            "type" => "fragment",
            "sequence" => length(spool.entries),
            "offset" => spool.high_water,
-           "length" => byte_size(payload),
+           "length" => size,
            "start_ns" => start,
            "duration_ns" => duration,
-           "sha256" => digest(payload)
+           "sha256" => sha256
          },
          duration_source
        )}
     end
   end
 
-  defp fragment_entry(_spool, _payload, _timing), do: {:error, :invalid_timing}
+  defp build_fragment_entry(_spool, _size, _sha256, _timing), do: {:error, :invalid_timing}
+
+  defp valid_fragment_timing?(start, duration)
+       when is_integer(start) and start >= 0 and is_integer(duration) and duration > 0,
+       do: start + duration <= 9_223_372_036_854_775_807
+
+  defp valid_fragment_timing?(_start, _duration), do: false
 
   defp tail_duration_source(timing) do
     case Map.fetch(timing, :tail_duration_source) do
@@ -400,30 +454,24 @@ defmodule ServiceRadarRecording.Spool do
          spool
        )
        when is_integer(offset) and offset >= 0 and is_integer(length) and length > 0 do
-    timing =
-      case Map.fetch(record, "tail_duration_source") do
-        {:ok, source} -> %{start_ns: start, duration_ns: duration, tail_duration_source: source}
-        :error -> %{start_ns: start, duration_ns: duration}
-      end
+    timing = fragment_timing(record, start, duration)
 
     with true <- offset == spool.high_water || {:error, :invalid_offset},
-         true <- length <= spool.limits.max_fragment_bytes || {:error, :fragment_too_large},
-         {:ok, payload} <- read_verified(Path.join(spool.directory, "media.m4s"), offset, length, sha256),
-         {:ok, ^record} <- fragment_entry(spool, payload, timing) do
-      {:ok,
-       %{
-         spool
-         | entries: [record | spool.entries],
-           high_water: offset + length,
-           hash: :crypto.hash_update(spool.hash, payload)
-       }}
-    else
-      {:ok, _} -> {:error, :invalid_fragment_record}
-      {:error, _} = error -> error
+         true <- length <= spool.limits.max_fragment_bytes || {:error, :fragment_too_large} do
+      replay_fragment(spool, record, length, sha256, timing)
     end
   end
 
-  defp replay_record(%{"type" => "seal", "sha256" => sha256}, %{high_water: high_water} = spool) when high_water > 0 do
+  defp replay_record(
+         %{"type" => "seal", "sha256" => sha256} = record,
+         %{verify_media?: false, high_water: high_water} = spool
+       )
+       when map_size(record) == 2 and high_water > 0 do
+    if sha256?(sha256), do: {:ok, %{spool | sealed?: true, sha256: sha256}}, else: {:error, :invalid_record}
+  end
+
+  defp replay_record(%{"type" => "seal", "sha256" => sha256} = record, %{high_water: high_water} = spool)
+       when map_size(record) == 2 and high_water > 0 do
     actual = spool.hash |> :crypto.hash_final() |> Base.encode16(case: :lower)
 
     if actual == sha256,
@@ -432,6 +480,41 @@ defmodule ServiceRadarRecording.Spool do
   end
 
   defp replay_record(_record, _spool), do: {:error, :invalid_record}
+
+  defp replay_fragment(%{verify_media?: false} = spool, record, length, sha256, timing) do
+    with true <- sha256?(sha256) || {:error, :invalid_fragment_record},
+         {:ok, ^record} <- build_fragment_entry(spool, length, sha256, timing) do
+      {:ok, %{spool | entries: [record | spool.entries], high_water: spool.high_water + length}}
+    else
+      {:ok, _} -> {:error, :invalid_fragment_record}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp replay_fragment(spool, record, length, sha256, timing) do
+    with {:ok, payload} <- read_verified(Path.join(spool.directory, "media.m4s"), spool.high_water, length, sha256),
+         {:ok, ^record} <- fragment_entry(spool, payload, timing) do
+      {:ok,
+       %{
+         spool
+         | entries: [record | spool.entries],
+           high_water: spool.high_water + length,
+           hash: :crypto.hash_update(spool.hash, payload)
+       }}
+    else
+      {:ok, _} -> {:error, :invalid_fragment_record}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp fragment_timing(record, start, duration) do
+    case Map.fetch(record, "tail_duration_source") do
+      {:ok, source} -> %{start_ns: start, duration_ns: duration, tail_duration_source: source}
+      :error -> %{start_ns: start, duration_ns: duration}
+    end
+  end
+
+  defp sha256?(value), do: is_binary(value) and Regex.match?(@hex64, value)
 
   defp encode_record(record) do
     payload = Jason.encode!(record)

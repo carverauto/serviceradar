@@ -17,6 +17,13 @@ defmodule ServiceRadarNVR.Ingest do
   404 `block_not_found` for an ID that names no retained block, 409
   `block_not_sealed` for a block with no seal that verifies, and 503
   `descriptor_unavailable` when the read pool or recovery state refuses it.
+
+  It also answers three observations for Core's coordinators: `GET /v1/status`
+  (`ServiceRadarNVR.MemberStatus`), `POST /v1/blocks/lookup` for up to 50 block
+  IDs and `GET /v1/blocks?after=&limit=` pages of the block ledger
+  (`ServiceRadarNVR.block_states/1` and `block_page/2`). Lookups and pages run
+  in the shared read pool and report journal state, not verified media. See
+  `docs/nvr-ingest.md`, "Member status and block state".
   """
   @behaviour Plug
 
@@ -26,6 +33,7 @@ defmodule ServiceRadarNVR.Ingest do
   alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.IngestStream
   alias ServiceRadarNVR.ListenerConfig
+  alias ServiceRadarNVR.MemberStatus
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
@@ -33,7 +41,8 @@ defmodule ServiceRadarNVR.Ingest do
 
   @archive_request_bytes 8192
   # The read pool retires an admitted read after 10 s and its caller after 11 s.
-  @descriptor_deadline_ms 15_000
+  @read_deadline_ms 15_000
+  @lookup_request_bytes 8192
 
   @impl true
   def init(config), do: config
@@ -103,16 +112,92 @@ defmodule ServiceRadarNVR.Ingest do
     end
   end
 
+  defp route(%{method: "GET", path_info: ["v1", "status"]} = conn, config) do
+    respond(conn, 200, MemberStatus.report(config))
+  end
+
+  defp route(%{method: "POST", path_info: ["v1", "blocks", "lookup"]} = conn, config) do
+    with ["application/vnd.serviceradar.nvr-lookup.v1+json"] <- get_req_header(conn, "content-type"),
+         {:ok, body, conn} <-
+           read_body(conn, length: @lookup_request_bytes, read_length: @lookup_request_bytes, read_timeout: 5_000),
+         {:ok, %{"block_ids" => ids} = request} when map_size(request) == 1 and is_list(ids) <- Jason.decode(body) do
+      case ServiceRadarNVR.block_states(ids) do
+        {:ok, blocks} -> respond(conn, 200, block_list(config, blocks))
+        {:error, :invalid_block_id} -> respond(conn, 400, %{error: "invalid_lookup_request"})
+        {:error, _} -> unavailable(conn, "lookup_unavailable")
+      end
+    else
+      {:more, _partial, conn} -> respond(conn, 400, %{error: "invalid_lookup_request"})
+      _ -> respond(conn, 400, %{error: "invalid_lookup_request"})
+    end
+  end
+
+  defp route(%{method: "GET", path_info: ["v1", "blocks"]} = conn, config) do
+    conn = fetch_query_params(conn)
+
+    with {:ok, after_id, limit} <- page_request(conn.query_params),
+         {:ok, blocks} <- ServiceRadarNVR.block_page(after_id, limit) do
+      next_after = if length(blocks) == limit, do: List.last(blocks).block_id
+      respond(conn, 200, Map.put(block_list(config, blocks), :next_after, next_after))
+    else
+      :invalid -> respond(conn, 400, %{error: "invalid_inventory_request"})
+      {:error, :invalid_block_id} -> respond(conn, 400, %{error: "invalid_inventory_request"})
+      {:error, :nvr_inventory_rebuilding} -> unavailable(conn, "inventory_rebuilding")
+      {:error, _} -> unavailable(conn, "inventory_unavailable")
+    end
+  end
+
   defp route(conn, _config), do: respond(conn, 404, %{error: "not_found"})
+
+  defp page_request(params) do
+    with true <- Map.keys(params) -- ["after", "limit"] == [],
+         {:ok, limit} <- page_limit(Map.get(params, "limit", "100")),
+         after_id = Map.get(params, "after"),
+         true <- is_nil(after_id) or is_binary(after_id) do
+      {:ok, after_id, limit}
+    else
+      _ -> :invalid
+    end
+  end
+
+  defp page_limit(value) when is_binary(value) do
+    if Regex.match?(~r/\A[1-9][0-9]{0,2}\z/, value) and String.to_integer(value) <= 100,
+      do: {:ok, String.to_integer(value)},
+      else: :invalid
+  end
+
+  defp page_limit(_value), do: :invalid
+
+  defp block_list(config, blocks) do
+    %{version: 1, storage_id: config.storage_id, blocks: Enum.map(blocks, &block_entry/1)}
+  end
+
+  defp block_entry(block) do
+    %{block_id: block.block_id, state: Atom.to_string(block.state), writing: block.writing, bytes: block.bytes}
+    |> put_present(:descriptor_sha256, block.descriptor_sha256)
+    |> put_present(:reason, block.reason && Atom.to_string(block.reason))
+  end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp unavailable(conn, error) do
+    conn
+    |> put_resp_header("retry-after", "1")
+    |> respond(503, %{error: error})
+  end
 
   defp descriptor_refusal(conn, :block_not_found), do: respond(conn, 404, %{error: "block_not_found"})
   defp descriptor_refusal(conn, :block_not_sealed), do: respond(conn, 409, %{error: "block_not_sealed"})
   defp descriptor_refusal(conn, _class), do: respond(conn, 503, %{error: "descriptor_unavailable"})
 
-  # The archive and descriptor routes have their own deadlines; every other
-  # route keeps the ingest one.
+  # The archive route and the read routes have their own deadlines; ingest
+  # keeps the recording one.
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "archive"]}, _config), do: Archive.request_timeout_ms()
-  defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "descriptor"]}, _config), do: @descriptor_deadline_ms
+  defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "descriptor"]}, _config), do: @read_deadline_ms
+  defp deadline_ms(%{path_info: ["v1", "blocks", "lookup"]}, _config), do: @read_deadline_ms
+  defp deadline_ms(%{path_info: ["v1", "blocks"]}, _config), do: @read_deadline_ms
+  defp deadline_ms(%{path_info: ["v1", "status"]}, _config), do: @read_deadline_ms
   defp deadline_ms(_conn, config), do: config.max_duration_ms
 
   defp consume(stream, worker, inbox, blocks) do
