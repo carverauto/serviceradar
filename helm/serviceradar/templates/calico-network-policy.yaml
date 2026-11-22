@@ -68,8 +68,17 @@
 {{- $nvrIngest := default (dict) $nvr.ingest -}}
 {{- $nvrIngestEnabled := and $nvr.enabled (default false $nvrIngest.enabled) -}}
 {{- $nvrIngestPort := int (default 8443 $nvrIngest.port) -}}
+{{- $nvrRead := default (dict) $nvr.read -}}
+{{- $nvrReadEnabled := and $nvr.enabled (default false $nvrRead.enabled) -}}
+{{- $nvrReadPort := int (default 8444 $nvrRead.port) -}}
 {{- if $nvr.enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-nvr'" $selector -}}
+{{- end -}}
+{{- /* Same exclusion as serviceradar-egress, whenever the worker is enabled: this
+     policy grants egress to whatever it selects, and the worker's only egress grant
+     is its own policy. */ -}}
+{{- if eq (include "serviceradar.mediaWorkerEnabled" .) "true" -}}
+{{- $selector = printf "(%s) && app != 'serviceradar-media-worker'" $selector -}}
 {{- end -}}
 ---
 apiVersion: projectcalico.org/v3
@@ -105,6 +114,16 @@ spec:
         selector: "app == 'serviceradar-nvr'"
         ports:
           - {{ $nvrIngestPort }}
+{{- end }}
+{{- if $nvrReadEnabled }}
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: "app == 'serviceradar-web-ng'"
+      destination:
+        selector: "app == 'serviceradar-nvr'"
+        ports:
+          - {{ $nvrReadPort }}
 {{- end }}
 {{- if $allowDNS }}
     - action: Allow

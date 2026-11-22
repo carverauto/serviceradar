@@ -8,8 +8,8 @@ certificate is admitted by its recorded fingerprint, so a fleet-wide reissue
 to change one server certificate is a needless risk.
 
 The script is the chart's own files/generate-certs.sh, rendered here for the
-five template expressions it contains. An expression this renderer does not
-know fails the test rather than being dropped.
+template expressions it contains. An expression this renderer does not know
+fails the test rather than being dropped.
 """
 import hashlib
 import os
@@ -24,7 +24,7 @@ LEAF_HOST = "leaf.example.com"
 GATEWAY_HOST = "gateway.example.com"
 
 
-def render(leaf_host="", gateway_host=""):
+def render(leaf_host="", gateway_host="", media_worker=False):
     text = SCRIPT.read_text(encoding="utf-8")
     text = text.replace("{{ .Release.Namespace }}", "example")
     text = text.replace(
@@ -37,6 +37,12 @@ def render(leaf_host="", gateway_host=""):
         text,
     )
     text = text.replace("{{ .Values.agentGateway.publicHostname }}", gateway_host)
+    text = re.sub(
+        r'\n?\{\{- if eq \(include "serviceradar\.mediaWorkerEnabled" \.\) "true" \}\}(.*?)\n?\{\{- end \}\}',
+        lambda m: m.group(1) if media_worker else "",
+        text,
+        flags=re.DOTALL,
+    )
     if "{{" in text:
         raise AssertionError("generate-certs.sh has a template expression this test does not render")
     return text
@@ -155,6 +161,21 @@ class RuntimeCertNamesTest(unittest.TestCase):
         for copy in ("flowgger", "otel"):
             self.assertEqual((self.certs / f"{copy}.pem").read_bytes(), (self.certs / "log-collector.pem").read_bytes())
             self.assertEqual((self.certs / f"{copy}-key.pem").read_bytes(), (self.certs / "log-collector-key.pem").read_bytes())
+
+    def test_media_worker_cert_follows_names_only_rules(self):
+        # Missing media-worker cert is not created by the NAMES_ONLY pass.
+        self.assertFalse((self.certs / "media-worker.pem").exists())
+        self.assertEqual(run(self.certs, render(media_worker=True), NAMES_ONLY="true"), [])
+        self.assertEqual(digests(self.certs), self.issued)
+
+        # Issuing with media_worker=True adds only the worker keypair, and a
+        # subsequent broker SAN addition leaves the worker cert untouched.
+        run(self.certs, render(media_worker=True))
+        with_worker = digests(self.certs)
+        self.assertEqual(changed(self.issued, with_worker), ["media-worker-key.pem", "media-worker.pem"])
+        reissued = run(self.certs, render(leaf_host=LEAF_HOST, media_worker=True), NAMES_ONLY="true")
+        self.assertEqual(reissued, ["nats.pem"])
+        self.assertEqual(changed(with_worker, digests(self.certs)), ["nats-key.pem", "nats.pem"])
 
 
 if __name__ == "__main__":
