@@ -259,6 +259,8 @@ build() (
   write_manifest "${out}"
   (
     cd "${out}"
+    # find excludes SHA256SUMS, so the pipeline never reads the file being written.
+    # shellcheck disable=SC2094
     find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
   )
   echo "built ${out}:"

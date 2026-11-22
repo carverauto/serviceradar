@@ -2,7 +2,7 @@
 //!
 //! Enforces:
 //! - SHA-256 verification of pinned detector, vision, and text model files on disk;
-//! - Execution provider verification (`tensorrt`, `cuda`, `cpu_explicit`) with
+//! - Execution provider verification (`cuda`, `cpu_explicit`; `tensorrt` refused) with
 //!   **zero silent fallback to CPU** when GPU acceleration is configured;
 //! - GPU sharing classification (`physical`, `mig`, `time_sliced`, `cpu_explicit`);
 //! - Synthetic vision + text forward-pass warmup self-test before `/readyz` turns `200 OK`.

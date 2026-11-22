@@ -58,6 +58,7 @@ if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
     echo "error: a native-build image requires one verified digest" >&2
     exit 1
   fi
+  # shellcheck source=scripts/oci_registry.sh
   source "${SCRIPT_DIR}/oci_registry.sh"
   oci_check_native_image "${REPO_ROOT}/docker/images/image_inventory.bzl" "${SERVICERADAR_NATIVE_IMAGE}"
   cosign_init_sign_args

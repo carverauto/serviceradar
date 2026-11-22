@@ -25,6 +25,7 @@ if [[ ! -r "${INVENTORY}" ]]; then
 fi
 
 if [[ -n "${SERVICERADAR_NATIVE_IMAGE:-}" ]]; then
+  # shellcheck source=scripts/oci_registry.sh
   source "${SCRIPT_DIR}/oci_registry.sh"
   oci_check_native_image "${INVENTORY}" "${SERVICERADAR_NATIVE_IMAGE}"
   IMAGE_SPECS=("${OCI_REPOSITORY_BASE}/${SERVICERADAR_NATIVE_IMAGE}|native")
@@ -78,6 +79,7 @@ if ! command -v oras >/dev/null 2>&1; then
   echo "error: oras is required" >&2
   exit 1
 fi
+# shellcheck source=scripts/oci_registry.sh
 source "${SCRIPT_DIR}/oci_registry.sh"
 
 if ! command -v jq >/dev/null 2>&1; then

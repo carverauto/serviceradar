@@ -11,10 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-/// Supported execution providers (`design.md` Section 1.3).
+/// Execution provider configuration (`design.md` Section 1.3).
 ///
-/// When `TensorRt` or `Cuda` is selected, startup capability verification MUST
-/// confirm hardware and runtime availability and NEVER silently fall back to CPU.
+/// `Cuda` requires verified GPU hardware and runtime availability with zero
+/// silent CPU fallback. `Tensorrt` is parsed so startup admission fails closed
+/// rather than falling back to CPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionProvider {
