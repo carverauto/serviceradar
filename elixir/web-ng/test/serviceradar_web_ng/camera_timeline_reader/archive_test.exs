@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
     %{certs: write_certs(ctx.tmp_dir)}
   end
 
-  test "forwards destination, credential, and plan to POST /v1/timeline-archive-ranges and verifies digest", ctx do
+  test "forwards destination, credential, and plan to POST /v1/timeline-archive-ranges", ctx do
     fragment = "invented-s3-archived-fragment-bytes"
     port = start_reader_peer(ctx.certs, 200, fragment)
     configure(ctx, port)
@@ -111,13 +111,13 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
     refute_leaked_secrets(log)
   end
 
-  test "maps 404, 409, digest mismatch, 503, and timeout without logging credentials", ctx do
+  test "maps 404, 409, 503, and timeout without logging credentials and rejects tampered bytes via CameraTimelineReader",
+       ctx do
     fragment = "invented-s3-archived-fragment-bytes"
 
     cases = [
       {404, ~s({"error":"archive_object_not_found"}), {:error, :not_found}},
       {409, ~s({"error":"archive_integrity_mismatch"}), {:error, :integrity_mismatch}},
-      {200, "wrong-bytes-of-different-digest-val", {:error, :integrity_mismatch}},
       {503, ~s({"error":"archive_read_busy"}), {:error, :reader_unavailable}}
     ]
 
@@ -133,6 +133,18 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.ArchiveTest do
       assert_receive {:archive_reader_request, _}, 2_000
       refute_leaked_secrets(log)
     end
+
+    tampered_port = start_reader_peer(ctx.certs, 200, "wrong-bytes-of-different-digest-val")
+    configure(ctx, tampered_port)
+
+    tampered_log =
+      capture_log([level: :warning], fn ->
+        assert {:error, :recording_integrity_failed} =
+                 CameraTimelineReader.execute_plans([plan(fragment)], :archive, readers: %{archive: Archive})
+      end)
+
+    assert_receive {:archive_reader_request, _}, 2_000
+    refute_leaked_secrets(tampered_log)
 
     # Expired deadline fails immediately without connecting.
     port = start_reader_peer(ctx.certs, 200, fragment)

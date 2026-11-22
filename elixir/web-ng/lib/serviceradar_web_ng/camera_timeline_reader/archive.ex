@@ -70,13 +70,8 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.Archive do
     end
   end
 
-  defp handle_response({:ok, %{status: 200, body: bytes}}, plan) when is_binary(bytes) do
-    if valid_digest_and_length?(bytes, plan) do
-      {:ok, bytes}
-    else
-      log_failure(plan, :integrity_mismatch)
-      {:error, :integrity_mismatch}
-    end
+  defp handle_response({:ok, %{status: 200, body: bytes}}, _plan) when is_binary(bytes) do
+    {:ok, bytes}
   end
 
   defp handle_response({:ok, %{status: 404}}, _plan), do: {:error, :not_found}
@@ -172,16 +167,6 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.Archive do
     else
       {:error, :invalid_archive_plan}
     end
-  end
-
-  defp valid_digest_and_length?(bytes, plan) do
-    expected_len = Map.get(plan, :expected_length)
-    expected_sha = Map.get(plan, :expected_sha256)
-
-    is_integer(expected_len) and
-      byte_size(bytes) == expected_len and
-      is_binary(expected_sha) and
-      :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower) == expected_sha
   end
 
   defp log_failure(plan, reason) do

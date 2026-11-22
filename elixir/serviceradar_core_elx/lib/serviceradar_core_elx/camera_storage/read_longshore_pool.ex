@@ -22,16 +22,10 @@ defmodule ServiceRadarCoreElx.CameraStorage.ReadLongshorePool do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  def acquire(pool \\ __MODULE__, key, ls_config, opts \\ [])
-
-  def acquire(pool, key, ls_config, opts) when is_list(opts) do
+  def acquire(pool \\ __MODULE__, key, ls_config, opts \\ []) when is_list(opts) do
     timeout = Keyword.get(opts, :timeout, 5_000)
     owner_token = Keyword.get(opts, :owner_token)
     GenServer.call(pool, {:acquire, key, ls_config, owner_token}, timeout)
-  end
-
-  def acquire(pool, key, ls_config, timeout) when is_integer(timeout) do
-    GenServer.call(pool, {:acquire, key, ls_config, nil}, timeout)
   end
 
   def release(pool \\ __MODULE__, lease_ref) do
