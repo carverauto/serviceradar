@@ -29,6 +29,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.AgentSupersession
   alias ServiceRadar.Infrastructure.Checker
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Infrastructure.HealthTracker
@@ -185,7 +186,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     # Run checks in parallel
     tasks = [
       Task.async(fn -> check_gateways(state, actor) end),
-      Task.async(fn -> check_agents(state, actor) end),
+      Task.async(fn -> check_agents(actor: actor, agent_timeout: state.agent_timeout) end),
       Task.async(fn -> check_checkers(state, actor) end),
       Task.async(fn -> check_agent_config_health(state, actor) end)
     ]
@@ -247,8 +248,17 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     )
   end
 
-  defp check_agents(state, actor) do
-    timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
+  @doc """
+  Checks for connected or degraded agents whose heartbeat is older than the
+  configured `agent_timeout`, transitions them to `:disconnected`, and triggers
+  supersession handoff when a live sibling exists on the same device.
+  Public for tests and on-demand tooling; the periodic check calls it directly.
+  """
+  @spec check_agents(keyword()) :: non_neg_integer()
+  def check_agents(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:state_monitor))
+    timeout_ms = Keyword.get(opts, :agent_timeout, agent_timeout())
+    timeout_threshold = DateTime.add(DateTime.utc_now(), -timeout_ms, :millisecond)
 
     run_check(
       fn -> list_stale_agents(timeout_threshold, actor) end,
@@ -273,7 +283,14 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       agent_uid: agent.uid
     )
 
-    transition_resource(agent, :lose_connection, %{}, actor, "agent", agent_uid: agent.uid)
+    case transition_resource(agent, :lose_connection, %{}, actor, "agent", agent_uid: agent.uid) do
+      {:ok, disconnected_agent} ->
+        AgentSupersession.on_agent_disconnected(disconnected_agent, actor)
+        :ok
+
+      :error ->
+        :ok
+    end
   end
 
   # ==========================================================================
@@ -577,14 +594,16 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       |> Ash.update()
 
     case result do
-      {:ok, _updated_resource} ->
-        :ok
+      {:ok, updated_resource} ->
+        {:ok, updated_resource}
 
       {:error, reason} ->
         Logger.error(
           "Failed to transition #{resource_name}",
           Keyword.put(metadata, :reason, inspect(reason))
         )
+
+        :error
     end
   end
 end

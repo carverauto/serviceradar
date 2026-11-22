@@ -20,7 +20,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Edge.AgentArtifactDelivery
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentReleaseManager
-  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.ReleaseArtifactDelivery
   alias ServiceRadar.Infrastructure.Agent
@@ -43,18 +42,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.AttributeStrength
   alias ServiceRadar.Inventory.Sync.DeviceWrites
-  alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.LeaseRefresh
-  alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
   require Logger
 
-  @terminal_release_target_statuses [:healthy, :failed, :rolled_back, :canceled]
   @agent_live_window_minutes 30
   # A reused grant must outlive this, so the material the agent caches until
   # the lease ends is never handed over about to expire.
@@ -1471,170 +1466,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   # Same device only. A shared address is not a host: two devices behind one
-  # NAT address must not retire each other. Side effects run only for a row
-  # that was actually superseded, including one the pruner already marked
-  # unavailable.
+  # NAT address must not retire each other. Assignment handoff and release-target
+  # cancellation run inside AgentSupersession whenever a row is superseded.
   defp retire_superseded_agents(agent_id, device_uid, _attrs, actor) do
-    agent_id
-    |> AgentSupersession.on_check_in(device_uid, actor)
-    |> Enum.each(&finish_superseded_agent(&1, agent_id, actor))
-  end
-
-  defp finish_superseded_agent(agent, replacement_agent_id, actor) do
-    cancel_superseded_release_targets(agent.uid, replacement_agent_id, actor)
-    mark_superseded_release_state(agent, actor)
-    transfer_superseded_assignments(agent.uid, replacement_agent_id, actor)
-
-    Logger.info("Superseded agent #{agent.uid} in favor of #{replacement_agent_id}")
-  end
-
-  defp mark_superseded_release_state(agent, actor) do
-    _ =
-      agent
-      |> Ash.Changeset.for_update(:update_release_status, %{
-        release_rollout_state: :canceled,
-        last_update_at: DateTime.utc_now(),
-        last_update_error: "agent_superseded"
-      })
-      |> Ash.update(actor: actor)
-
+    _ = AgentSupersession.on_check_in(agent_id, device_uid, actor)
     :ok
-  end
-
-  defp cancel_superseded_release_targets(agent_id, replacement_agent_id, actor) do
-    AgentReleaseTarget
-    |> Ash.Query.for_read(:read, %{}, actor: actor)
-    |> Ash.Query.filter(
-      expr(agent_id == ^agent_id and status not in ^@terminal_release_target_statuses)
-    )
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, targets} ->
-        Enum.each(targets, fn target ->
-          _ =
-            AgentReleaseTarget.set_status(
-              target,
-              %{
-                status: :canceled,
-                last_status_message: "superseded by #{replacement_agent_id}",
-                last_error: "agent_superseded",
-                completed_at: DateTime.utc_now()
-              },
-              actor: actor
-            )
-        end)
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to cancel release targets for superseded agent #{agent_id}: #{inspect(reason)}"
-        )
-    end
-  end
-
-  defp transfer_superseded_assignments(agent_id, replacement_agent_id, actor) do
-    Enum.each(
-      [
-        {:mapper_jobs,
-         transfer_agent_assignment(MapperJob, agent_id, replacement_agent_id, actor)},
-        {:sweep_groups, transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor)}
-      ],
-      &log_assignment_transfer(&1, agent_id, replacement_agent_id)
-    )
-  end
-
-  defp log_assignment_transfer({_label, {:ok, 0}}, _agent_id, _replacement_agent_id), do: :ok
-
-  defp log_assignment_transfer({label, {:ok, count}}, agent_id, replacement_agent_id) do
-    Logger.info(
-      "Reassigned #{count} #{label} from superseded agent #{agent_id} to #{replacement_agent_id}"
-    )
-  end
-
-  defp log_assignment_transfer({label, {:error, reason}}, agent_id, replacement_agent_id) do
-    Logger.warning(
-      "Failed to reassign #{label} from superseded agent #{agent_id} to #{replacement_agent_id}: #{inspect(reason)}"
-    )
-  end
-
-  defp transfer_agent_assignment(resource, agent_id, replacement_agent_id, actor) do
-    query =
-      resource
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(agent_id == ^agent_id)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, []} ->
-        {:ok, 0}
-
-      {:ok, records} ->
-        update_agent_assignments(records, replacement_agent_id, actor)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor) do
-    query =
-      SweepGroup
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(^agent_id in agent_ids)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, records} ->
-        records
-        |> Enum.map(&replace_sweep_group_assignment(&1, agent_id, replacement_agent_id))
-        |> update_sweep_group_assignments(actor)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp replace_sweep_group_assignment(group, agent_id, replacement_agent_id) do
-    agent_ids =
-      group.agent_ids
-      |> AgentAssignment.normalize()
-      |> Enum.map(fn current_agent_id ->
-        if current_agent_id == agent_id, do: replacement_agent_id, else: current_agent_id
-      end)
-      |> AgentAssignment.normalize()
-
-    {group, agent_ids}
-  end
-
-  defp update_agent_assignments(records, replacement_agent_id, actor) do
-    records
-    |> Enum.reduce_while(0, fn record, count ->
-      record
-      |> Ash.Changeset.for_update(:update, %{agent_id: replacement_agent_id}, actor: actor)
-      |> Ash.update()
-      |> case do
-        {:ok, _record} -> {:cont, count + 1}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      count -> {:ok, count}
-    end
-  end
-
-  defp update_sweep_group_assignments(assignments, actor) do
-    assignments
-    |> Enum.reduce_while(0, fn {group, agent_ids}, count ->
-      group
-      |> Ash.Changeset.for_update(:update, %{agent_ids: agent_ids}, actor: actor)
-      |> Ash.update()
-      |> case do
-        {:ok, _group} -> {:cont, count + 1}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:error, reason} -> {:error, reason}
-      count -> {:ok, count}
-    end
   end
 
   defp maybe_put(map, _key, nil), do: map
