@@ -161,6 +161,7 @@ Edge onboarding subcommands (run \`serviceradar-cli edge help\` for every flag):
   serviceradar-cli edge package list|show|revoke|download
   serviceradar-cli edge site create      --instance <url> --name <name> [--slug <slug>]
   serviceradar-cli edge site list|show|bundle [--wait]
+  serviceradar-cli edge hub status       --instance <url> [--json]
   serviceradar-cli collector create      --instance <url> --type flowgger|trapd|netflow|sflow|otel [--edge-site <id>]
   serviceradar-cli collector list|show|revoke|download
   serviceradar-cli nats account status   --instance <url>
