@@ -71,12 +71,13 @@ credential can neither record nor archive. */ -}}
 {{- $serverTLS := required "nvr.read.tlsSecretName is required when nvr.read.enabled" $read.tlsSecretName -}}
 {{- $client := default (dict) $read.client -}}
 {{- $_ := required "nvr.read.client.configSecretName is required when nvr.read.enabled" $client.configSecretName -}}
-{{- $_ := required "nvr.read.client.tokenSecretName is required when nvr.read.enabled" $client.tokenSecretName -}}
+{{- $clientToken := required "nvr.read.client.tokenSecretName is required when nvr.read.enabled" $client.tokenSecretName -}}
 {{- $clientTLS := required "nvr.read.client.tlsSecretName is required when nvr.read.enabled" $client.tlsSecretName -}}
 {{- if eq $serverTLS $clientTLS -}}
 {{- fail "nvr.read server and client TLS Secrets must be distinct" -}}
 {{- end -}}
-{{- if has $token (list $ingest.tokenSecretName $ingestClient.tokenSecretName) -}}
+{{- $ingestTokens := list $ingest.tokenSecretName $ingestClient.tokenSecretName -}}
+{{- if or (has $token $ingestTokens) (has $clientToken $ingestTokens) -}}
 {{- fail "nvr.read must use a read token Secret distinct from the ingest token" -}}
 {{- end -}}
 {{- if has $clientTLS (list $ingest.tlsSecretName $ingestClient.tlsSecretName) -}}

@@ -82,11 +82,12 @@ defmodule ServiceRadarNVR.Playback do
     |> halt()
   end
 
+  defp answer(conn, {:error, :enoent}), do: respond(conn, 404, "block_not_found")
   defp answer(conn, {:error, :not_readable}), do: respond(conn, 404, "fragment_not_found")
   defp answer(conn, {:error, :descriptor_digest_mismatch}), do: respond(conn, 409, "descriptor_mismatch")
 
   defp answer(conn, {:error, reason}) do
-    case Blocks.read_error(reason) do
+    case Blocks.read_error(reason, :descriptor) do
       :block_not_found -> respond(conn, 404, "block_not_found")
       :block_not_sealed -> respond(conn, 409, "block_not_sealed")
       _ -> unavailable(conn)

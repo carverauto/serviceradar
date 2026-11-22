@@ -2043,7 +2043,14 @@ class NVRReleaseTest(unittest.TestCase):
             offset += 4 + int.from_bytes(journal[offset:offset + 4], "big") + 32
         (block / "journal").write_bytes(journal[:last])
         self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        (block / "journal").write_bytes(journal[:-1] + bytes([journal[-1] ^ 1]))
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (409, b'{"error":"block_not_sealed"}'))
+        self.assertEqual(
+            self.read_with_client(block_id, digest, "init", len(init), hashlib.sha256(init).hexdigest()),
+            {"error": ":integrity_mismatch"},
+        )
         (block / "journal").write_bytes(journal)
+        self.assertEqual(self.media_request(f"/v1/blocks/{block_id}/init{query}"), (200, init))
 
     def test_read_listener_refuses_ingest_credentials_at_boot(self):
         self.ingest_installation()
