@@ -73,7 +73,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: 'leafnodes \{\s+port: 7422\s+no_advertise: true\s+tls \{[^}]*ca_file: "/etc/serviceradar/certs/root.pem"\s+verify: true'
+          pattern: 'leafnodes \{\s+port: 7422\s+tls \{[^}]*ca_file: "/etc/serviceradar/certs/root.pem"\s+verify: true'
         documentSelector:
           path: kind
           value: StatefulSet

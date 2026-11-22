@@ -246,7 +246,8 @@ AUTH: {
 
 // A hub advertises reconnect addresses to every leaf. Its own pod address is
 // unreachable from an edge host, so the rendered listener must advertise the
-// public leaf endpoint when one is configured and nothing otherwise.
+// public leaf endpoint when one is configured, and leave both advertise and
+// no_advertise unset otherwise.
 func TestLeafListenerAdvertisesOnlyThePublicEndpoint(t *testing.T) {
 	leafValues := map[string]any{
 		"certificateAuthorization": map[string]any{"enabled": true},
@@ -257,7 +258,6 @@ func TestLeafListenerAdvertisesOnlyThePublicEndpoint(t *testing.T) {
 		name          string
 		other         map[string]any
 		wantAdvertise string
-		wantNone      bool
 	}{
 		{
 			name: "public leaf host",
@@ -266,7 +266,7 @@ func TestLeafListenerAdvertisesOnlyThePublicEndpoint(t *testing.T) {
 			}},
 			wantAdvertise: "leaf.example.com:7422",
 		},
-		{name: "no public leaf host", wantNone: true},
+		{name: "no public leaf host"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pki := newTestPKI(t)
@@ -290,8 +290,8 @@ func TestLeafListenerAdvertisesOnlyThePublicEndpoint(t *testing.T) {
 				t.Errorf("leafnode advertise = %q, want %q", opts.LeafNode.Advertise, tc.wantAdvertise)
 			}
 
-			if opts.LeafNode.NoAdvertise != tc.wantNone {
-				t.Errorf("leafnode no_advertise = %v, want %v", opts.LeafNode.NoAdvertise, tc.wantNone)
+			if opts.LeafNode.NoAdvertise {
+				t.Errorf("leafnode no_advertise = true, want false")
 			}
 		})
 	}

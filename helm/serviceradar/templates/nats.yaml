@@ -215,11 +215,13 @@ spec:
             {{- /* A hub tells each leaf which addresses to reconnect to. Left
                  alone it advertises its pod address, which no edge host can
                  reach, so a leaf spends a dial timeout on each one before it
-                 returns to the address it was configured with. */}}
+                 returns to the address it was configured with. Do not fall back
+                 to no_advertise when no public leaf host is set: it has no
+                 effect on the hub's own address before nats-server 2.15.0, and
+                 from 2.15.0 it makes pre-2.15 leaf servers refuse the
+                 connection. */}}
             {{- with include "serviceradar.natsLeafAdvertise" . }}
             advertise: {{ . | quote }}
-            {{- else }}
-            no_advertise: true
             {{- end }}
             tls {
               cert_file: "/etc/serviceradar/certs/nats.pem"
