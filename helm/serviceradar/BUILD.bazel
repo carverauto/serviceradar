@@ -124,6 +124,14 @@ py_test(
     data = ["files/runtime-cert-rotation.py"],
 )
 
+# A kept certificate that lacks a name it is now asked to carry is reissued
+# alone; every other certificate keeps its fingerprint.
+py_test(
+    name = "runtime_cert_names_test",
+    srcs = ["runtime_cert_names_test.py"],
+    data = ["files/generate-certs.sh"],
+)
+
 py_test(
     name = "runtime_cert_preservation_test",
     srcs = ["runtime_cert_preservation_test.py"],

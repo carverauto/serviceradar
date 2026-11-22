@@ -192,6 +192,14 @@ class OpenIdentityTest(unittest.TestCase):
                         self.assertFalse(may(users[name], direction, subject))
 
 
+class VisualIndexJobPermissionsTest(unittest.TestCase):
+    def test_core_may_publish_live_and_backfill_jobs(self):
+        users = {user["user"].split(",")[0]: user for user in render_static_users()}
+        for subject in ("media.jobs.visual_index.v1", "media.jobs.visual_index.backfill.v1"):
+            with self.subTest(subject=subject):
+                self.assertTrue(may_publish(users["CN=serviceradar-core"], subject))
+
+
 class NormalizedLogSubjectTest(unittest.TestCase):
     def test_only_the_log_collector_may_publish_normalized_logs(self):
         for rendering, values in RENDERINGS.items():
