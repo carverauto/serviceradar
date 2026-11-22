@@ -929,6 +929,59 @@ test("edge hub status prints readiness, identity coverage, and uncovered warning
       },
     )
   }
+
+  const unconfiguredHub = {
+    enforcement_configured: false,
+    authorizer_answering: false,
+    authorizer_reason: "auth_connection_unavailable",
+    leaf_listener: false,
+    leaf_upstream_url: false,
+    chart_identities: {
+      total: 2,
+      adopted: 0,
+      not_adopted: [
+        {
+          subject: "CN=core-elx",
+          reason: "held_unrecorded",
+          rotation_reason: null,
+          remedy: "Record the successor certificate through the successor API.",
+        },
+        {
+          subject: "CN=datasvc",
+          reason: "adoption_failed:db_timeout",
+        },
+      ],
+    },
+  }
+  await withServer(
+    (req, res) => json(res, 200, {hub: unconfiguredHub}),
+    async (instance) => {
+      const {code, stdout, stderr} = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(code, 0, stderr)
+      assert.match(stdout, /enforcement:\s+not configured/)
+      assert.match(stdout, /authorizer:\s+not answering \(auth_connection_unavailable\)/)
+      assert.match(stdout, /leaf listener:\s+not configured/)
+      assert.match(stdout, /leaf upstream url:\s+not configured/)
+      assert.match(stdout, /chart identities:\s+0\/2 adopted/)
+      assert.doesNotMatch(stdout, /rotation reason:/)
+      assert.match(stdout, /WARNING: CN=core-elx .*held_unrecorded/)
+      assert.match(stdout, /remedy: Record the successor certificate/)
+      assert.match(stdout, /WARNING: CN=datasvc — adoption failed \(db_timeout\)/)
+    },
+  )
+
+  await withServer(
+    (req, res) => json(res, 403, {error: "insufficient_scope", granted: ["dashboard.publish"]}),
+    async (instance) => {
+      const forbidden = await runCli(["edge", "hub", "status", "--instance", instance], {env: TOKEN_ENV})
+      assert.notEqual(forbidden.code, 0)
+      assert.match(forbidden.stderr, /does not carry the edge\.manage scope/)
+    },
+  )
+
+  const unknownSub = await runCli(["edge", "hub", "bogus", "--instance", "https://tenant.example"], {env: TOKEN_ENV})
+  assert.notEqual(unknownSub.code, 0)
+  assert.match(unknownSub.stderr, /unknown subcommand: edge hub bogus/)
 })
 
 test("edge install leaf stops before packaging unless static mTLS names the deployment account", async () => {
@@ -1051,6 +1104,19 @@ test("edge install leaf enforces the 6 ordered hub readiness preflight checks be
       action: /check NATS and core health/,
     },
     {
+      name: "4b. authorizer not answering without reason defaults to authorizer_unavailable",
+      hub: {
+        enforcement_configured: true,
+        authorizer_answering: false,
+        authorizer_reason: null,
+        leaf_listener: false,
+        leaf_upstream_url: false,
+      },
+      nats: {ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"},
+      cause: /hub authorizer is not answering \(authorizer_unavailable\)/,
+      action: /check NATS and core health/,
+    },
+    {
       name: "5. leaf listener not configured (takes precedence over upstream)",
       hub: {
         enforcement_configured: true,
@@ -1120,6 +1186,25 @@ test("edge install leaf proceeds when all 6 checks pass even with empty or parti
       const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
       assert.equal(ok.code, 0, ok.stderr)
       assert.match(ok.stdout, /1 chart identity is not adopted yet \(advisory/)
+      assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+    },
+  )
+
+  await withServer(
+    bootstrap({
+      total: 13,
+      adopted: 11,
+      legacy_certificates: 0,
+      not_adopted: [
+        {subject: "CN=agent-gateway", reason: "no_inventory_certificate"},
+        {subject: "CN=datasvc", reason: "held_unrecorded"},
+      ],
+      unlisted: [],
+    }),
+    async (instance) => {
+      const ok = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+      assert.equal(ok.code, 0, ok.stderr)
+      assert.match(ok.stdout, /2 chart identities are not adopted yet \(advisory/)
       assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
     },
   )

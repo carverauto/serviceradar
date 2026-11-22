@@ -307,17 +307,45 @@ JWT, and the session is not remembered. A matching account is still decided
 from the certificate policy. For chart-managed enforcement, see the
 [TLS guide](docs/tls-security.md#in-chart-certificate-generator).
 
-`serviceradar-cli edge install` for a leaf or collector continues when the
-hub authorizer is disconnected. `static_mtls` with an empty reason, or with
-reason `connecting`, `auth_connection_unavailable`,
+`serviceradar-cli edge hub status` reads the `hub` readiness object and
+`chart_identities` summary from `GET /api/admin/managed-components/bootstrap`
+using the `edge.manage` scope. It reports enforcement configuration, authorizer
+readiness, leaf listener configuration, leaf upstream URL configuration, and
+adopted chart identity counts, printing a warning with the reason (and any
+`rotation_reason` and `remedy`) for each uncovered chart identity and unlisted
+inventory file. It fails if `hub` or `chart_identities` is missing or
+unreadable.
+
+`serviceradar-cli edge install leaf` checks that same `hub` object before
+downloading packages or making any host change, stopping on the first failing
+preflight check in order:
+
+1. `hub` is missing or unreadable (wait and retry; check core's health).
+2. `enforcement_configured` is false (enable `nats.certificateAuthorization.enabled`).
+3. `authorizer_reason` is `signing_keys_not_provisioned` (provision the missing
+   signing seeds in the issuer Secret, or remove remaining `nats-callout-*`
+   entries for generator-owned provisioning).
+4. `authorizer_answering` is false (check NATS and core health; reports
+   `authorizer_reason` or `authorizer_unavailable`).
+5. `leaf_listener` is false (enable `nats.leafnodes.enabled`).
+6. `leaf_upstream_url` is false (set `hostedRuntime.publicEndpoints.natsLeafHost`).
+
+When those six checks pass, `edge install leaf` treats `chart_identities` as
+advisory (printing a note when coverage is unreadable or any chart identity is
+not adopted yet) and proceeds through the `static_mtls` account check.
+
+`serviceradar-cli edge install collector` keeps local onboarding behavior and
+continues when the hub authorizer is disconnected. `static_mtls` with an empty
+reason, or with reason `connecting`, `auth_connection_unavailable`,
 `auth_subscription_failed`, `policy_unavailable`, `not_configured`,
 `authorizer_unavailable`, or `core_unavailable`, continues. An unset mode
 continues while the hub is not configured. `static_mtls` still requires the
 deployment account name. The command does not create the account or require
-a JWT account seed. It stops before package installation for
-`jwt_account_signer_unconfigured`, `unsupported_auth_mode`,
-`nats_account_mismatch`, `signing_keys_not_provisioned`, any other
-authentication mode, and `nats.ready` without `static_mtls`.
+a JWT account seed. Both `edge install leaf` and `edge install collector` stop
+before package installation for `jwt_account_signer_unconfigured`,
+`unsupported_auth_mode`, `nats_account_mismatch`,
+`signing_keys_not_provisioned`, any other authentication mode, and `nats.ready`
+without `static_mtls`.
 
 When core uses a stored `operator_jwt` configuration, it reports readiness reason
 `jwt_account_signer_unconfigured`. The authorizer does not open a broker
