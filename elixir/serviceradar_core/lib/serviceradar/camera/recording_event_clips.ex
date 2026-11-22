@@ -4,9 +4,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   detections and playable `RecordingCatalogEntry` segments.
 
   Returns UniFi Protect-style event clips (`:person`, `:vehicle`, `:animal`,
-  `:package`, `:motion`, and `:recording` fallback segments) with counts,
-  mode (`:all | :smart | :basic`) and category filtering, and optional
-  thumbnail URL generation.
+  `:package`, `:motion`, and `:recording` fallback segments) with counts and
+  mode (`:all | :smart | :basic`) and category filtering.
 
   Supports both live CNPG execution and `:loaders` injection for `:db_free`
   unit test suites in `serviceradar_core` and `web-ng`.
@@ -26,6 +25,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   @max_window_us 31 * 86_400 * 1_000_000
   @default_limit 100
   @max_limit 240
+  @visual_frames_query_limit 500
   @default_coalesce_gap_us 8_000_000
   @default_detection_clip_duration_us 4_000_000
 
@@ -57,6 +57,10 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   @spec basic_categories() :: [category()]
   def basic_categories, do: @basic_categories
 
+  @doc "Default per-view clip display limit."
+  @spec default_limit() :: pos_integer()
+  def default_limit, do: @default_limit
+
   @doc """
   Lists event clips for `camera_source_id` within `[from_us, to_us]`.
 
@@ -72,7 +76,6 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     attrs = to_map(params)
     loaders = Keyword.get(opts, :loaders, %{})
     coalesce_gap_us = Keyword.get(opts, :coalesce_gap_us, @default_coalesce_gap_us)
-    thumbnail_url_builder = Keyword.get(opts, :thumbnail_url_builder)
 
     with :ok <- authorize_optional_caller(opts),
          {:ok, camera_uuid} <- cast_uuid(camera_source_id, :invalid_camera_source_id),
@@ -97,12 +100,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       detection_clips =
         frames
         |> Enum.filter(&frame_belongs_to_playable?(&1, playable_by_id, from_us, to_us))
-        |> build_detection_clips(
-          camera_uuid,
-          playable_by_id,
-          coalesce_gap_us,
-          thumbnail_url_builder
-        )
+        |> build_detection_clips(camera_uuid, playable_by_id, coalesce_gap_us)
 
       covered_entry_ids =
         detection_clips
@@ -115,14 +113,17 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
         |> Enum.reject(fn entry ->
           MapSet.member?(covered_entry_ids, to_string(entry_id(entry)))
         end)
-        |> Enum.map(&build_recording_segment_clip(&1, camera_uuid, thumbnail_url_builder))
+        |> Enum.map(&build_recording_segment_clip(&1, camera_uuid))
 
       all_clips =
-        (detection_clips ++ fallback_clips)
-        |> Enum.sort_by(fn clip -> {-clip.start_us, clip.id} end)
-        |> Enum.take(limit)
+        Enum.sort_by(detection_clips ++ fallback_clips, fn clip -> {-clip.start_us, clip.id} end)
 
-      filtered = filter_clips(all_clips, %{mode: mode, category: category})
+      counts = category_counts(all_clips)
+
+      filtered =
+        all_clips
+        |> filter_clips(%{mode: mode, category: category})
+        |> Enum.take(limit)
 
       {:ok,
        %{
@@ -131,7 +132,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
          to_us: to_us,
          clips: filtered,
          all_clips: all_clips,
-         counts: category_counts(all_clips),
+         counts: counts,
          total: length(all_clips)
        }}
     end
@@ -243,77 +244,58 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
          preloaded_blocks,
          loaders
        ) do
-    cond do
-      is_list(preloaded_blocks) ->
-        {:ok,
-         filter_playable_entries(preloaded_blocks, camera_uuid, profile_uuid, from_us, to_us)}
+    if is_list(preloaded_blocks) do
+      {:ok, filter_playable_entries(preloaded_blocks, camera_uuid, profile_uuid, from_us, to_us)}
+    else
+      case Map.get(loaders, :catalog_loader) do
+        loader when is_function(loader, 4) ->
+          with {:ok, rows} <- loader.(camera_uuid, profile_uuid, from_us, to_us) do
+            {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
+          end
 
-      is_function(Map.get(loaders, :catalog_loader), 4) ->
-        with {:ok, rows} <- loaders.catalog_loader.(camera_uuid, profile_uuid, from_us, to_us) do
-          {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
-        end
+        nil ->
+          query =
+            RecordingCatalogEntry
+            |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
+            |> Ash.Query.filter(
+              camera_source_id == ^camera_uuid and
+                local_state != :quarantined and
+                is_nil(quarantine_reason) and
+                not is_nil(recording_block_id) and
+                not is_nil(timeline_start_us) and
+                not is_nil(timeline_end_us) and
+                timeline_end_us > ^from_us and
+                timeline_start_us < ^to_us
+            )
+            |> maybe_filter_profile_query(profile_uuid)
+            |> Ash.Query.sort(timeline_start_us: :asc, block_key: :asc)
 
-      is_function(Map.get(loaders, :catalog_loader), 1) ->
-        with {:ok, rows} <- loaders.catalog_loader.(camera_uuid) do
-          {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
-        end
-
-      is_function(Map.get(loaders, :catalog_loader), 0) ->
-        with {:ok, rows} <- loaders.catalog_loader.() do
-          {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
-        end
-
-      map_size(loaders) > 0 ->
-        {:ok, []}
-
-      true ->
-        query =
-          RecordingCatalogEntry
-          |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
-          |> Ash.Query.filter(
-            camera_source_id == ^camera_uuid and
-              local_state != :quarantined and
-              is_nil(quarantine_reason) and
-              not is_nil(recording_block_id) and
-              not is_nil(timeline_start_us) and
-              not is_nil(timeline_end_us) and
-              timeline_end_us > ^from_us and
-              timeline_start_us < ^to_us
-          )
-          |> maybe_filter_profile_query(profile_uuid)
-          |> Ash.Query.sort(timeline_start_us: :asc, block_key: :asc)
-
-        with {:ok, rows} <- Ash.read(query, actor: @system_actor) do
-          {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
-        end
+          with {:ok, rows} <- Ash.read(query, actor: @system_actor) do
+            {:ok, filter_playable_entries(rows, camera_uuid, profile_uuid, from_us, to_us)}
+          end
+      end
     end
   end
 
   defp load_window_visual_frames(camera_uuid, profile_uuid, from_us, to_us, loaders) do
-    cond do
-      is_function(Map.get(loaders, :visual_frames_loader), 4) ->
-        loaders.visual_frames_loader.(camera_uuid, profile_uuid, from_us, to_us)
+    case Map.get(loaders, :visual_frames_loader) do
+      loader when is_function(loader, 4) ->
+        loader.(camera_uuid, profile_uuid, from_us, to_us)
 
-      is_function(Map.get(loaders, :visual_frames_loader), 1) ->
-        loaders.visual_frames_loader.(camera_uuid)
-
-      is_function(Map.get(loaders, :visual_frames_loader), 0) ->
-        loaders.visual_frames_loader.()
-
-      map_size(loaders) > 0 ->
-        {:ok, []}
-
-      true ->
+      nil ->
         query =
           VisualFrame
           |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
           |> Ash.Query.filter(
             camera_source_id == ^camera_uuid and
               timeline_ts_us >= ^from_us and
-              timeline_ts_us <= ^to_us
+              timeline_ts_us <= ^to_us and
+              (scene_suppressed == false or
+                 fragment("coalesce(cardinality(?), 0) > 0", detections))
           )
           |> maybe_filter_profile_query(profile_uuid)
-          |> Ash.Query.sort(timeline_ts_us: :asc, fragment_sequence: :asc)
+          |> Ash.Query.sort(timeline_ts_us: :desc, fragment_sequence: :desc)
+          |> Ash.Query.limit(@visual_frames_query_limit)
 
         Ash.read(query, actor: @system_actor)
     end
@@ -355,20 +337,14 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   # Private: Detection Clip Coalescing & Segment Fallback
   # ---------------------------------------------------------------------------
 
-  defp build_detection_clips(
-         frames,
-         camera_uuid,
-         playable_by_id,
-         coalesce_gap_us,
-         thumbnail_builder
-       ) do
+  defp build_detection_clips(frames, camera_uuid, playable_by_id, coalesce_gap_us) do
     frames
     |> Enum.flat_map(&expand_frame_observations/1)
     |> Enum.sort_by(fn obs -> {obs.catalog_entry_id, obs.category, obs.timeline_ts_us} end)
     |> coalesce_observations(coalesce_gap_us)
     |> Enum.map(fn cluster ->
       entry = Map.get(playable_by_id, to_string(cluster.catalog_entry_id))
-      finalize_detection_clip(cluster, camera_uuid, entry, thumbnail_builder)
+      finalize_detection_clip(cluster, camera_uuid, entry)
     end)
   end
 
@@ -498,13 +474,17 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
         best_confidence: if(better_peak?, do: obs.confidence, else: cluster.best_confidence),
         best_bbox: if(better_peak?, do: obs.bbox, else: cluster.best_bbox),
         object_class: if(better_peak?, do: obs.object_class, else: cluster.object_class),
-        thumbnail_url: cluster.thumbnail_url || obs.thumbnail_url,
+        thumbnail_url:
+          if(better_peak?,
+            do: obs.thumbnail_url || cluster.thumbnail_url,
+            else: cluster.thumbnail_url || obs.thumbnail_url
+          ),
         dominant_colors: Enum.uniq(cluster.dominant_colors ++ obs.dominant_colors),
         frame_count: cluster.frame_count + 1
     }
   end
 
-  defp finalize_detection_clip(cluster, camera_uuid, entry, thumbnail_builder) do
+  defp finalize_detection_clip(cluster, camera_uuid, entry) do
     entry_end_us = fetch_val(entry, :timeline_end_us)
     start_us = cluster.first_ts_us
 
@@ -533,7 +513,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
         frame_id -> "evt-#{frame_id}-#{cluster.category}"
       end
 
-    base = %{
+    %{
       id: clip_id,
       camera_source_id: camera_uuid,
       started_at: DateTime.from_unix!(start_us, :microsecond),
@@ -560,11 +540,9 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       copy_state: copy_state,
       thumbnail_url: cluster.thumbnail_url
     }
-
-    maybe_attach_thumbnail_url(base, camera_uuid, thumbnail_builder)
   end
 
-  defp build_recording_segment_clip(entry, camera_uuid, thumbnail_builder) do
+  defp build_recording_segment_clip(entry, camera_uuid) do
     eid = entry_id(entry)
     start_us = fetch_val(entry, :timeline_start_us)
     end_us = max(fetch_val(entry, :timeline_end_us), start_us + 1_000_000)
@@ -573,7 +551,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
     local_state = normalize_atom(fetch_val(entry, :local_state))
     copy_state = RecordingTimeline.copy_state(entry)
 
-    base = %{
+    %{
       id: "rec-#{eid}",
       camera_source_id: camera_uuid,
       started_at: DateTime.from_unix!(start_us, :microsecond),
@@ -599,23 +577,7 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       copy_state: copy_state,
       thumbnail_url: fetch_val(entry, :thumbnail_url)
     }
-
-    maybe_attach_thumbnail_url(base, camera_uuid, thumbnail_builder)
   end
-
-  defp maybe_attach_thumbnail_url(%{thumbnail_url: url} = clip, _camera_uuid, _builder)
-       when is_binary(url) and url != "",
-       do: clip
-
-  defp maybe_attach_thumbnail_url(clip, camera_uuid, builder) when is_function(builder, 2) do
-    %{clip | thumbnail_url: builder.(camera_uuid, clip)}
-  end
-
-  defp maybe_attach_thumbnail_url(clip, _camera_uuid, builder) when is_function(builder, 1) do
-    %{clip | thumbnail_url: builder.(clip)}
-  end
-
-  defp maybe_attach_thumbnail_url(clip, _camera_uuid, _builder), do: clip
 
   # ---------------------------------------------------------------------------
   # Private: Filtering, Validation & Authorization
@@ -629,12 +591,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   defp category_matches?(clip, cat), do: clip[:category] == cat
 
   defp authorize_optional_caller(opts) do
-    if Keyword.has_key?(opts, :actor) or Keyword.has_key?(opts, :scope) do
-      actor =
-        case Keyword.get(opts, :actor) do
-          nil -> opts |> Keyword.get(:scope) |> actor_from_scope()
-          explicit -> explicit
-        end
+    if Keyword.has_key?(opts, :actor) do
+      actor = Keyword.get(opts, :actor)
 
       permitted? =
         system_actor?(actor) or
@@ -647,9 +605,6 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
       :ok
     end
   end
-
-  defp actor_from_scope(%{user: user}) when not is_nil(user), do: user
-  defp actor_from_scope(_), do: nil
 
   defp system_actor?(%{role: :system}), do: true
   defp system_actor?(%{role: "system"}), do: true
@@ -665,15 +620,15 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   defp cast_uuid(_, error_reason), do: {:error, error_reason}
 
   defp parse_optional_profile_id(attrs) do
-    case fetch_val(attrs, :stream_profile_id) || fetch_val(attrs, :profile) do
+    case fetch_val(attrs, :stream_profile_id) do
       val when val in [nil, ""] -> {:ok, nil}
       val -> cast_uuid(val, :invalid_stream_profile_id)
     end
   end
 
   defp parse_window(attrs) do
-    raw_from = fetch_val(attrs, :from_us) || fetch_val(attrs, :from)
-    raw_to = fetch_val(attrs, :to_us) || fetch_val(attrs, :to)
+    raw_from = fetch_val(attrs, :from_us)
+    raw_to = fetch_val(attrs, :to_us)
 
     with {:ok, from_us} <- parse_non_neg_int(raw_from),
          {:ok, to_us} <- parse_non_neg_int(raw_to),

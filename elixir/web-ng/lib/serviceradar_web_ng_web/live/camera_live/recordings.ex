@@ -817,8 +817,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           cov_to_us,
           profile_id,
           coverage.blocks,
-          scope,
-          socket
+          scope
         )
 
       selected_clip_id =
@@ -1672,27 +1671,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end)
   end
 
-  defp event_clips_opts(socket) do
-    Map.get_lazy(socket.assigns, :camera_event_clips_opts, fn ->
-      Application.get_env(:serviceradar_web_ng, :camera_event_clips_opts, [])
-    end)
-  end
-
-  defp load_event_clips(source_id, from_us, to_us, profile_id, catalog_blocks, scope, socket) do
-    opts =
-      socket
-      |> event_clips_opts()
-      |> Keyword.put_new(:scope, scope)
-
+  defp load_event_clips(source_id, from_us, to_us, profile_id, catalog_blocks, scope) do
     params = %{
       from_us: from_us,
       to_us: to_us,
       stream_profile_id: profile_id,
-      catalog_blocks: catalog_blocks,
-      limit: 100
+      catalog_blocks: catalog_blocks
     }
 
-    case RecordingEventClips.list_clips(source_id, params, opts) do
+    case RecordingEventClips.list_clips(source_id, params, actor: scope.user) do
       {:ok, %{all_clips: clips}} when is_list(clips) -> clips
       _ -> []
     end

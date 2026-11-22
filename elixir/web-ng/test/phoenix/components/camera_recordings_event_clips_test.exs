@@ -47,8 +47,11 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert attr_of(doc, "#camera-clip-card-evt-person-1 img", "fetchpriority") == []
 
     assert attr_of(doc, "#camera-clip-card-evt-person-1 img", "src") == [
-             "/api/cameras/#{@source_id}/timeline/frames/frame-1/thumbnail.jpg"
+             "https://thumbnails.example.com/frame-1.jpg"
            ]
+
+    # Card without thumbnail_url renders icon placeholder without <img>
+    refute has_selector?(doc, "#camera-clip-card-evt-vehicle-1 img")
 
     # Recorded segment fallback card renders without <img> under basic smart_type
     assert attr_of(doc, "#camera-clip-card-rec-seg-1", "data-clip-category") == ["recording"]
@@ -92,6 +95,79 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(empty_filtered_doc, "#camera-clips-empty")
     assert has_selector?(empty_filtered_doc, "#camera-clips-reset-filters")
     refute has_selector?(empty_filtered_doc, "#camera-clips-grid")
+  end
+
+  test "computes full chip counts and filters before capping rendered cards at the display limit" do
+    older_person = %{
+      id: "evt-old-person",
+      camera_source_id: @source_id,
+      started_at: DateTime.from_unix!(@base_us + 10_000_000, :microsecond),
+      ended_at: DateTime.from_unix!(@base_us + 20_000_000, :microsecond),
+      start_us: @base_us + 10_000_000,
+      end_us: @base_us + 20_000_000,
+      peak_ts_us: @base_us + 12_000_000,
+      duration_seconds: 10,
+      category: :person,
+      smart_type: :smart,
+      label: "Person",
+      confidence: 0.91,
+      attributes: %{dominant_colors: ["blue"], frame_count: 1},
+      visual_frame_id: "frame-old-person",
+      catalog_entry_id: "entry-old",
+      archive_state: :not_required,
+      local_state: :present,
+      copy_state: :local_only,
+      thumbnail_url: nil
+    }
+
+    newer_recordings =
+      for idx <- 1..105 do
+        start_us = @base_us + (200 - idx) * 15_000_000
+
+        %{
+          id: "rec-seg-#{idx}",
+          camera_source_id: @source_id,
+          started_at: DateTime.from_unix!(start_us, :microsecond),
+          ended_at: DateTime.from_unix!(start_us + 10_000_000, :microsecond),
+          start_us: start_us,
+          end_us: start_us + 10_000_000,
+          peak_ts_us: start_us,
+          duration_seconds: 10,
+          category: :recording,
+          smart_type: :basic,
+          label: "Recording",
+          confidence: nil,
+          attributes: %{dominant_colors: [], fragment_count: 1},
+          visual_frame_id: nil,
+          catalog_entry_id: "entry-#{idx}",
+          archive_state: :not_required,
+          local_state: :present,
+          copy_state: :local_only,
+          thumbnail_url: nil
+        }
+      end
+
+    clips = newer_recordings ++ [older_person]
+
+    all_doc =
+      %{timeline_event_clips: clips}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert text_of(all_doc, "#camera-clips-total-badge") == "106"
+    assert text_of(all_doc, "#camera-clips-category-count-all") == "106"
+    assert text_of(all_doc, "#camera-clips-category-count-person") == "1"
+    assert has_selector?(all_doc, "#camera-clips-display-cap-note")
+    assert Enum.count(LazyHTML.query(all_doc, "#camera-clips-grid [data-role='event-clip-card']")) == 100
+
+    person_doc =
+      %{timeline_event_clips: clips, timeline_clips_category: "person"}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert text_of(person_doc, "#camera-clips-total-badge") == "1"
+    refute has_selector?(person_doc, "#camera-clips-display-cap-note")
+    assert has_selector?(person_doc, "#camera-clip-card-evt-old-person")
   end
 
   defp render_recordings_doc(assigns) do
@@ -183,7 +259,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
         archive_state: :verified,
         local_state: :present,
         copy_state: :local_and_archived,
-        thumbnail_url: "/api/cameras/#{@source_id}/timeline/frames/frame-1/thumbnail.jpg"
+        thumbnail_url: "https://thumbnails.example.com/frame-1.jpg"
       },
       %{
         id: "evt-vehicle-1",

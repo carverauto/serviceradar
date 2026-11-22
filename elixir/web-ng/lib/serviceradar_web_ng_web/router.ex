@@ -578,12 +578,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/cameras/:camera_source_id/recordings/:id/fragments/:index", CameraRecordingController, :fragment)
     get("/cameras/:camera_source_id/timeline/blocks/:entry_id/init", CameraTimelineController, :init_object)
     get("/cameras/:camera_source_id/timeline/blocks/:entry_id/fragments/:index", CameraTimelineController, :fragment)
-
-    get(
-      "/cameras/:camera_source_id/timeline/frames/:frame_id/thumbnail.jpg",
-      CameraTimelineController,
-      :frame_thumbnail
-    )
   end
 
   scope "/api", ServiceRadarWebNGWeb.Api do

@@ -358,11 +358,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
     clip_counts = RecordingEventClips.category_counts(assigns.timeline_event_clips)
 
-    filtered_event_clips =
+    filtered_matches =
       RecordingEventClips.filter_clips(assigns.timeline_event_clips, %{
         mode: assigns.timeline_clips_mode,
         category: assigns.timeline_clips_category
       })
+
+    filtered_event_clip_total = length(filtered_matches)
+    filtered_event_clips = Enum.take(filtered_matches, RecordingEventClips.default_limit())
 
     now_us = System.system_time(:microsecond)
     event_markers = build_event_markers(assigns.timeline_event_clips, cov_from_us, cov_to_us, now_us)
@@ -377,6 +380,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:hit_markers, hit_markers)
       |> assign(:event_markers, event_markers)
       |> assign(:clip_counts, clip_counts)
+      |> assign(:filtered_event_clip_total, filtered_event_clip_total)
       |> assign(:filtered_event_clips, filtered_event_clips)
       |> assign(:now_us, now_us)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
@@ -1332,8 +1336,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           <div class="flex items-center gap-2">
             <h2 class="font-semibold text-sr-ink">Detections &amp; Clips</h2>
             <.ui_badge id="camera-clips-total-badge" variant="ghost" size="xs">
-              {length(@filtered_event_clips)}
+              {@filtered_event_clip_total}
             </.ui_badge>
+            <span
+              :if={@filtered_event_clip_total > length(@filtered_event_clips)}
+              id="camera-clips-display-cap-note"
+              class="text-xs text-sr-muted"
+            >
+              Showing latest {length(@filtered_event_clips)} of {@filtered_event_clip_total}
+            </span>
           </div>
 
           <div
@@ -1488,8 +1499,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     name={clip_category_icon(clip.category)}
                     class="size-7 text-zinc-500 transition-transform duration-200 group-hover:scale-110 group-hover:text-zinc-300"
                   />
-                  <span class="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    {if(clip.category == :recording, do: "Recorded segment", else: "Keyframe pending")}
+                  <span
+                    :if={clip.category == :recording}
+                    class="font-mono text-[10px] uppercase tracking-wider text-zinc-500"
+                  >
+                    Recorded segment
                   </span>
                 </div>
               <% end %>

@@ -131,22 +131,15 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       ]
 
       loaders = %{
-        catalog_loader: fn -> {:ok, entries} end,
-        visual_frames_loader: fn -> {:ok, frames} end
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, entries} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, frames} end
       }
-
-      thumb_builder = fn cam_id, clip ->
-        if clip.visual_frame_id do
-          "/api/cameras/#{cam_id}/timeline/frames/#{clip.visual_frame_id}/thumbnail.jpg"
-        end
-      end
 
       assert {:ok, result} =
                RecordingEventClips.list_clips(
                  @camera_id,
                  %{from_us: @base_us, to_us: @base_us + 400_000_000},
-                 loaders: loaders,
-                 thumbnail_url_builder: thumb_builder
+                 loaders: loaders
                )
 
       # Expect: 1 coalesced :person, 1 :vehicle, 1 :motion (all from entry_1),
@@ -174,9 +167,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert person_clip.attributes.frame_count == 2
       assert Enum.sort(person_clip.attributes.dominant_colors) == ["blue", "red"]
       assert person_clip.archive_state == :verified
-
-      assert person_clip.thumbnail_url ==
-               "/api/cameras/#{@camera_id}/timeline/frames/#{@frame_2_id}/thumbnail.jpg"
+      assert person_clip.thumbnail_url == nil
 
       vehicle_clip = Enum.find(result.all_clips, &(&1.category == :vehicle))
       assert vehicle_clip.smart_type == :smart
@@ -236,8 +227,8 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       ]
 
       loaders = %{
-        catalog_loader: fn -> {:ok, entries} end,
-        visual_frames_loader: fn -> {:ok, frames} end
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, entries} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, frames} end
       }
 
       {:ok, smart_only} =
@@ -267,11 +258,94 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
 
       assert Enum.map(animal_only.clips, & &1.category) == [:animal]
     end
+
+    test "computes full window counts and filters before applying limit so older smart clips are never hidden" do
+      older_entry =
+        playable_entry(
+          @entry_1_id,
+          @block_1_id,
+          @base_us,
+          @base_us + 60_000_000,
+          :present,
+          :not_required
+        )
+
+      newer_entries =
+        for idx <- 1..110 do
+          start_us = @base_us + idx * 120_000_000
+
+          playable_entry(
+            Ecto.UUID.generate(),
+            Ecto.UUID.generate(),
+            start_us,
+            start_us + 60_000_000,
+            :present,
+            :not_required
+          )
+        end
+
+      older_person_frame = %{
+        id: @frame_1_id,
+        catalog_entry_id: @entry_1_id,
+        camera_source_id: @camera_id,
+        stream_profile_id: @profile_id,
+        fragment_sequence: 1,
+        timeline_ts_us: @base_us + 10_000_000,
+        scene_suppressed: false,
+        detections: [
+          %{"object_class" => "person", "confidence" => 0.93, "dominant_colors" => ["navy"]}
+        ]
+      }
+
+      loaders = %{
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, [older_entry | newer_entries]} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, [older_person_frame]} end
+      }
+
+      window = %{from_us: @base_us, to_us: @base_us + 15_000_000_000, limit: 100}
+
+      assert {:ok, unfiltered} =
+               RecordingEventClips.list_clips(@camera_id, window, loaders: loaders)
+
+      assert unfiltered.total == 111
+      assert length(unfiltered.all_clips) == 111
+      assert length(unfiltered.clips) == 100
+      assert unfiltered.counts.all == 111
+      assert unfiltered.counts.smart == 1
+      assert unfiltered.counts.basic == 110
+      assert unfiltered.counts.person == 1
+      assert unfiltered.counts.recording == 110
+
+      assert {:ok, smart_result} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 Map.put(window, :mode, :smart),
+                 loaders: loaders
+               )
+
+      assert smart_result.counts.smart == 1
+      assert smart_result.counts.person == 1
+      assert Enum.map(smart_result.clips, & &1.visual_frame_id) == [@frame_1_id]
+
+      assert {:ok, person_result} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 Map.put(window, :category, :person),
+                 loaders: loaders
+               )
+
+      assert person_result.counts.person == 1
+      assert Enum.map(person_result.clips, & &1.visual_frame_id) == [@frame_1_id]
+    end
   end
 
   describe "authorization and validation" do
     test "rejects unauthorized actors and allows recordings viewers" do
-      loaders = %{catalog_loader: fn -> {:ok, []} end, visual_frames_loader: fn -> {:ok, []} end}
+      loaders = %{
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, []} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, []} end
+      }
+
       params = %{from_us: @base_us, to_us: @base_us + 60_000_000}
 
       denied_actor = %{
@@ -283,6 +357,12 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert {:error, %Forbidden{}} =
                RecordingEventClips.list_clips(@camera_id, params,
                  actor: denied_actor,
+                 loaders: loaders
+               )
+
+      assert {:error, %Forbidden{}} =
+               RecordingEventClips.list_clips(@camera_id, params,
+                 actor: nil,
                  loaders: loaders
                )
 
@@ -299,8 +379,11 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
                )
     end
 
-    test "validates camera UUID, window bounds, mode, category, and limit" do
-      loaders = %{catalog_loader: fn -> {:ok, []} end, visual_frames_loader: fn -> {:ok, []} end}
+    test "validates camera UUID, canonical window params, mode, category, and limit" do
+      loaders = %{
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, []} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, []} end
+      }
 
       assert {:error, :invalid_camera_source_id} =
                RecordingEventClips.list_clips("not-a-uuid", %{from_us: 1, to_us: 2},
@@ -311,6 +394,9 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
                RecordingEventClips.list_clips(@camera_id, %{from_us: 100, to_us: 100},
                  loaders: loaders
                )
+
+      assert {:error, :invalid_timeline_window} =
+               RecordingEventClips.list_clips(@camera_id, %{from: 1, to: 2}, loaders: loaders)
 
       assert {:error, :timeline_window_too_large} =
                RecordingEventClips.list_clips(
