@@ -61,10 +61,15 @@ Setting a camera policy's `visual_index_mode` to `:off` stops new live job admis
 ## Impact
 
 - Affected specs: `camera-semantic-search`
-- Affected code: `ServiceRadar.Camera.VisualIndexDispatcher`,
+- Affected code: `ServiceRadar.Camera.RecordingCatalogEntry`,
+  `ServiceRadar.Camera.VisualIndexBackfill`,
+  `ServiceRadar.Camera.VisualIndexDispatcher`,
   `ServiceRadar.Camera.VisualIndexDispatchWorker`,
+  `ServiceRadar.Camera.VisualIndexResultEnvelope`,
   `ServiceRadar.Camera.VisualIndexResultProjector`,
-  `ServiceRadar.Jobs.CoreCrontab`, `ServiceRadar.EventWriter.{Config,Pipeline}`,
+  `ServiceRadar.Camera.VisualWorkerReadGrants`,
+  `ServiceRadar.JSONDocument`, `ServiceRadar.Jobs.CoreCrontab`,
+  `ServiceRadar.EventWriter.{Config,Pipeline,Telemetry,TerminalMessageError,TransientMessageError}`,
   `ServiceRadar.EventWriter.Processors.CameraVisualIndexResults`, both core
   `runtime.exs` stream lists, and `helm/serviceradar/templates/_nats_static_users.tpl`.
 - Not in this change: the media worker's NATS identity, its permissions, the

@@ -6,11 +6,13 @@ defmodule ServiceRadar.Camera.VisualWorkerReadGrants do
   - Authenticates workload-scoped callers (`media_worker` purpose / system actor;
     never human RBAC or cross-domain tokens).
   - Validates `job_id`, `catalog_entry_id`, and `descriptor_sha256` against live
-    `VisualIndexJob` and `RecordingCatalogEntry` state.
-  - Returns `{:error, :recording_gone}` (`410 Gone`) immediately when the catalog
-    entry is absent, `local_state == :quarantined`, or terminally deleted
+    `VisualIndexJob` and `RecordingCatalogEntry` state before any job state
+    transition.
+  - Returns `{:error, :recording_gone}` (`410 Gone`) when the verified catalog
+    entry is absent, has no `recording_block_id`, has `quarantine_reason` set,
+    has `local_state == :quarantined`, or is terminally deleted
     (`local_state == :reclaimed` and `archive_state in [:deleted, :not_required]`),
-    cancelling any active job row.
+    cancelling only the matching active job row.
   - Coalesces adjacent sampled fragment byte ranges into chunks `<= 4 MiB` while
     preserving exact `init_sha256` and per-fragment `sha256` digests from the
     frozen descriptor.

@@ -33,9 +33,9 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
 
   JetStream redelivers a delivered job itself (the worker's durable consumer
   has its own `MaxDeliver`). A dispatched job is re-published only after its
-  `deadline_at` and at least 72 hours after dispatch: by then its
-  earlier message can no longer be queued, so a worker backlog never causes a
-  duplicate publish or spends an attempt.
+  `deadline_at` and at least 72 hours after the later of `dispatched_at` and
+  `updated_at`: by then its earlier message can no longer be queued, so a
+  worker backlog never causes a duplicate publish or spends an attempt.
   """
 
   import Ash.Expr
