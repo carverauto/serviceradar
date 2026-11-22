@@ -523,8 +523,9 @@ impl MultiObjectTracker {
     }
 
     /// Advances tracker time without stepping `trackforge` association (e.g. on gate-skipped
-    /// frames), closing any live tracks whose idle duration meets or exceeds `max_lost_ms`
-    /// and returning any emitted `TrackExited` events.
+    /// frames), closing any `Lost` tracks whose idle duration meets or exceeds `max_lost_ms`
+    /// and returning any emitted `TrackExited` events. Tracks present on the last admitted
+    /// frame (`New`/`Active`, `missed_frames == 0`) remain open across skipped static scenes.
     pub fn advance_time(&mut self, timestamp_ms: u64) -> Vec<DetectionEvent> {
         if matches!(self.engine, TrackerEngine::Off) || self.config.max_lost_ms == 0 {
             return Vec::new();
@@ -534,6 +535,9 @@ impl MultiObjectTracker {
             .tracks
             .iter()
             .filter_map(|(&tid, rec)| {
+                if rec.state != TrackState::Lost || rec.missed_frames == 0 {
+                    return None;
+                }
                 let idle_ms = timestamp_ms.saturating_sub(rec.last_seen_ms);
                 (idle_ms >= self.config.max_lost_ms).then_some(tid)
             })
@@ -877,6 +881,10 @@ mod tests {
         assert_eq!(out3.events[0].kind, DetectionEventKind::TrackEntered);
         assert_eq!(out3.events[0].track_id, Some(tid2));
 
+        let out4 = tracker.update((640, 360), 9_000, &[], None, None, None);
+        assert!(out4.events.is_empty());
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
+
         let exit2 = tracker.advance_time(14_000);
         assert_eq!(exit2.len(), 1);
         assert_eq!(exit2[0].kind, DetectionEventKind::TrackExited);
@@ -967,7 +975,7 @@ mod tests {
     }
 
     #[test]
-    fn advance_time_closes_expired_tracks_with_stored_thumbnail() {
+    fn advance_time_closes_expired_lost_tracks_and_preserves_active_stationary_tracks() {
         let mut tracker = MultiObjectTracker::new(
             "cam-synth-advance-01",
             TrackerConfig {
@@ -991,6 +999,18 @@ mod tests {
         let tid = out.assigned_track_ids[0].expect("track assigned");
         let thumb = synthetic_thumb("best-keyframe-advance");
         assert!(tracker.set_best_keyframe_thumbnail(tid, thumb.clone()));
+
+        // Active, never-missed track must survive advance_time well past max_lost_ms.
+        assert!(tracker.advance_time(11_000).is_empty());
+        assert!(tracker.advance_time(50_000).is_empty());
+        assert_eq!(tracker.live_summaries().len(), 1);
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Active);
+        assert!(tracker.closed_summaries().is_empty());
+
+        // Record a missed admitted frame so the track transitions to Lost.
+        let miss = tracker.update((640, 360), 2_000, &[], None, None, None);
+        assert!(miss.events.is_empty());
+        assert_eq!(tracker.live_summaries()[0].state, TrackState::Lost);
 
         assert!(tracker.advance_time(10_999).is_empty());
         assert_eq!(tracker.live_summaries().len(), 1);

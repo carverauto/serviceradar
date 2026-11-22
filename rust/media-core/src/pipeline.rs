@@ -420,32 +420,92 @@ mod tests {
         let detector: Arc<dyn ObjectDetector> = Arc::new(SyntheticDetector::default());
         let mut pipeline = MediaPipeline::new(cfg, detector).expect("pipeline init");
 
-        let mut person_frame = RgbFrame::solid(320, 180, [190, 190, 190]);
+        let bg = RgbFrame::solid(320, 180, [190, 190, 190]);
+        let mut person_frame = bg.clone();
         person_frame.fill_rect(60, 35, 112, 92, [220, 25, 25]);
         person_frame.fill_rect(60, 92, 112, 150, [25, 65, 225]);
 
-        let payload = vec![0xAAu8; 2_000];
+        let payload_present = vec![0xAAu8; 2_000];
         let r0 = pipeline
-            .process_compressed(1_000, &payload, || Ok(person_frame.clone()))
+            .process_compressed(1_000, &payload_present, || Ok(person_frame.clone()))
             .unwrap();
         assert!(r0.gate_decision.is_admitted());
         let tid = r0.assigned_track_ids[0].expect("track id");
         let best_thumb = r0.thumbnail.as_ref().expect("best keyframe thumb").clone();
 
-        // Identical compressed payload 5s later (well before 60s Tier 0 heartbeat):
-        // must skip decode_rgb and still emit TrackExited with best_thumb.
+        // Departure frame with >8% compressed size delta admits through Tier 0 and Tier 1,
+        // marking the track Lost before subsequent identical empty frames skip at Tier 0.
+        let payload_empty = vec![0xBBu8; 3_000];
         let r1 = pipeline
-            .process_compressed(6_000, &payload, || {
+            .process_compressed(2_000, &payload_empty, || Ok(bg.clone()))
+            .unwrap();
+        assert!(r1.gate_decision.is_admitted());
+        assert!(r1.detections.is_empty());
+        assert_eq!(
+            pipeline.tracker().live_summaries()[0].state,
+            crate::TrackState::Lost
+        );
+
+        // Identical empty compressed payload 5s after last_seen (well before 60s Tier 0 heartbeat):
+        // must skip decode_rgb and still emit TrackExited with best_thumb.
+        let r2 = pipeline
+            .process_compressed(6_000, &payload_empty, || {
                 panic!("decode_rgb must not be called on Tier 0 skip")
             })
             .unwrap();
-        assert!(!r1.gate_decision.is_admitted());
-        assert_eq!(r1.events.len(), 1);
-        assert_eq!(r1.events[0].kind, DetectionEventKind::TrackExited);
-        assert_eq!(r1.events[0].track_id, Some(tid));
+        assert!(!r2.gate_decision.is_admitted());
+        assert_eq!(r2.events.len(), 1);
+        assert_eq!(r2.events[0].kind, DetectionEventKind::TrackExited);
+        assert_eq!(r2.events[0].track_id, Some(tid));
         assert_eq!(
-            r1.events[0].thumbnail.as_ref().unwrap().sha256_hex,
+            r2.events[0].thumbnail.as_ref().unwrap().sha256_hex,
             best_thumb.sha256_hex
         );
+    }
+
+    #[test]
+    fn stationary_active_track_survives_gate_skips_past_max_lost_ms_and_keeps_id_on_heartbeat() {
+        let mut cfg = MediaPipelineConfig::for_camera("cam-synth-stationary-01");
+        cfg.tier1_gate.max_skip_interval_ms = 20_000;
+        cfg.tracker.min_hits_to_activate = 1;
+        cfg.tracker.max_lost_frames = 30;
+        cfg.tracker.max_lost_ms = 5_000;
+
+        let detector: Arc<dyn ObjectDetector> = Arc::new(SyntheticDetector::default());
+        let mut pipeline = MediaPipeline::new(cfg, detector).expect("pipeline init");
+
+        let bg = RgbFrame::solid(320, 180, [190, 190, 190]);
+        pipeline.process_rgb_frame(0, &bg).unwrap();
+
+        let mut stationary = bg.clone();
+        stationary.fill_rect(60, 35, 112, 92, [220, 25, 25]);
+        stationary.fill_rect(60, 92, 112, 150, [25, 65, 225]);
+        let r1 = pipeline.process_rgb_frame(1_000, &stationary).unwrap();
+        assert!(r1.gate_decision.is_admitted());
+        let tid = r1.assigned_track_ids[0].expect("track id");
+        assert_eq!(r1.events.len(), 1);
+        assert_eq!(r1.events[0].kind, DetectionEventKind::TrackEntered);
+
+        // Identical static scene well past max_lost_ms (5s): Tier 1 skips and track stays Active.
+        let r2 = pipeline.process_rgb_frame(10_000, &stationary).unwrap();
+        assert!(!r2.gate_decision.is_admitted());
+        assert!(r2.events.is_empty());
+        assert_eq!(pipeline.tracker().live_summaries().len(), 1);
+        assert_eq!(pipeline.tracker().live_summaries()[0].track_id, tid);
+        assert_eq!(
+            pipeline.tracker().live_summaries()[0].state,
+            crate::TrackState::Active
+        );
+        assert!(pipeline.tracker().closed_summaries().is_empty());
+
+        // Heartbeat at t=21s re-detects the stationary object under the same track_id with no churn.
+        let r3 = pipeline.process_rgb_frame(21_000, &stationary).unwrap();
+        assert!(r3.gate_decision.is_admitted());
+        assert_eq!(r3.assigned_track_ids[0], Some(tid));
+        assert!(r3.events.is_empty());
+        assert_eq!(pipeline.tracker().live_summaries().len(), 1);
+        assert_eq!(pipeline.tracker().live_summaries()[0].track_id, tid);
+        assert_eq!(pipeline.tracker().live_summaries()[0].dwell_ms, 20_000);
+        assert!(pipeline.tracker().closed_summaries().is_empty());
     }
 }
