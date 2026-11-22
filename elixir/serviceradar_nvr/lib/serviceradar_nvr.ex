@@ -21,6 +21,7 @@ defmodule ServiceRadarNVR do
   alias ServiceRadarNVR.Reads
   alias ServiceRadarNVR.Session
   alias ServiceRadarRecording.Spool
+  alias ServiceRadarRecording.Storage
 
   @doc """
   Provision a new empty private root with authenticated Core preparation bytes.
@@ -103,21 +104,25 @@ defmodule ServiceRadarNVR do
   `{:error, :nvr_inventory_rebuilding}` while the ledger is being built.
   """
   def block_page(after_id, limit) when limit in 1..100 and (is_nil(after_id) or is_binary(after_id)) do
-    with true <- (is_nil(after_id) or Blocks.valid_id?(after_id)) || {:error, :invalid_block_id},
-         {:ok, ids} <- ServiceRadarNVR.Capacity.ledger_page(after_id, limit) do
-      page_states(ids)
-    end
+    if is_nil(after_id) or Blocks.valid_id?(after_id),
+      do: Reads.run(fn -> inspect_page(after_id, limit) end),
+      else: {:error, :invalid_block_id}
   end
 
   def block_page(_after_id, _limit), do: {:error, :invalid_block_page}
 
-  defp page_states([]), do: {:ok, []}
-  defp page_states(ids), do: Reads.run(fn -> inspect_states(ids) end)
+  defp inspect_page(after_id, limit) do
+    with {:ok, ids} <- ServiceRadarNVR.Capacity.ledger_page(after_id, limit) do
+      inspect_states(ids)
+    end
+  end
 
   defp inspect_states(block_ids) do
-    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage() do
-      writing = ServiceRadarNVR.Capacity.active_blocks()
-      {:ok, Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1)))}
+    with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
+         writing = ServiceRadarNVR.Capacity.active_blocks(),
+         states = Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1))),
+         :ok <- Storage.verify(storage) do
+      {:ok, states}
     end
   end
 

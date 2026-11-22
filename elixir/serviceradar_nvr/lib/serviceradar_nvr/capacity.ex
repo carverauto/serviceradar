@@ -182,7 +182,10 @@ defmodule ServiceRadarNVR.Capacity do
 
   def handle_call({:ledger_page, after_id, limit}, _from, state) do
     with {:ok, storage} <- storage(state),
-         {:ok, state} <- ensure_ledger(%{state | storage: storage}) do
+         {:ok, state} <- ensure_ledger(%{state | storage: storage}),
+         {:ok, state} <- remeasure_active(state),
+         :ok <- Storage.verify(storage),
+         :ok <- RecoveryGate.check(state.config.recovery_gate) do
       {:reply, {:ok, page(state.ledger.entries, after_id, limit)}, state}
     else
       {:error, _} = error -> {:reply, error, state}

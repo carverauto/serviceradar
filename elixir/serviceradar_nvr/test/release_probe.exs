@@ -1188,6 +1188,11 @@ case System.fetch_env!("NVR_TEST_MODE") do
     held = for tag <- 1..4, do: {tag, start_read.(tag)}
     digest = String.duplicate("0", 64)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.list_blocks()
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.block_states([digest])
+    {:error, :nvr_read_capacity} = ServiceRadarNVR.block_page(nil, 10)
+    {:error, :invalid_block_id} = ServiceRadarNVR.block_states(["not-a-block-id"])
+    {:error, :invalid_block_id} = ServiceRadarNVR.block_page("not-a-block-id", 10)
+    {:error, :invalid_block_page} = ServiceRadarNVR.block_page(nil, 0)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.publication_page()
     {:error, :nvr_read_capacity} = ServiceRadarNVR.sealed_block(digest)
     {:error, :nvr_read_capacity} = ServiceRadarNVR.block_descriptor(digest)
@@ -1239,6 +1244,141 @@ case System.fetch_env!("NVR_TEST_MODE") do
     end
 
     :ok = wait_readable.(wait_readable, 100)
+
+  "lookup_page_guards" ->
+    {:ok, _} = Storage.initialize(root, id)
+    {:ok, worker, inbox} = ServiceRadarNVR.start_recording(identity, clock)
+    aud = <<0, 0, 0, 1, 9>>
+    [<<>> | units] = :binary.split(File.read!(System.fetch_env!("NVR_TEST_H264")), aud, [:global])
+
+    for {payload, index} <- Enum.with_index(units) do
+      sequence = index + 1
+
+      :ok =
+        Inbox.offer(inbox, %{
+          payload: aud <> payload,
+          pts: 90_000 + index * 6_000,
+          dts: 90_000 + index * 6_000,
+          sequence: sequence,
+          codec: "h264",
+          payload_format: "annexb",
+          media_ingest_id: inbox.media_ingest_id
+        })
+
+      %{last_sequence: ^sequence} = ServiceRadarNVR.status(worker)
+    end
+
+    {:ok, [%{block_id: active_id, state: :incomplete, writing: true, bytes: active_bytes, descriptor_sha256: nil}]} =
+      ServiceRadarNVR.block_page(nil, 10)
+
+    true = is_integer(active_bytes) and active_bytes > 0
+
+    monitor = Process.monitor(worker)
+    :ok = Inbox.finish(inbox)
+
+    receive do
+      {:nvr_recording, ^worker, {:ok, %{snapshot: %{sealed?: true}}}} -> :ok
+    after
+      10_000 -> raise "missing sealed local receipt"
+    end
+
+    receive do
+      {:DOWN, ^monitor, :process, ^worker, :normal} -> :ok
+    after
+      5_000 -> raise "recording worker did not retire"
+    end
+
+    {:ok, [%{block_id: ^active_id, state: :sealed, writing: false, bytes: sealed_bytes, descriptor_sha256: digest}]} =
+      ServiceRadarNVR.block_page(nil, 10)
+
+    true = is_integer(sealed_bytes) and sealed_bytes > 0 and is_binary(digest)
+
+    restart_capacity = fn ->
+      previous = Process.whereis(Capacity)
+      ref = Process.monitor(previous)
+      Process.exit(previous, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ok
+      after
+        5_000 -> raise "capacity owner survived"
+      end
+
+      wait_capacity = fn wait, attempts ->
+        case Process.whereis(Capacity) do
+          pid when is_pid(pid) ->
+            pid
+
+          nil when attempts > 0 ->
+            Process.sleep(20)
+            wait.(wait, attempts - 1)
+        end
+      end
+
+      wait_capacity.(wait_capacity, 250)
+    end
+
+    gate_path = System.fetch_env!("SERVICERADAR_NVR_RECOVERY_STATE_FILE")
+    ready = File.read!(gate_path)
+    marker = Path.join(root, ".storage-id")
+    marker_bytes = File.read!(marker)
+    tmpdir = System.fetch_env!("TMPDIR")
+
+    capacity_for_gate = restart_capacity.()
+
+    gate_hook = fn
+      _, {:in, {:"$gen_call", {^capacity_for_gate, _}, {:list_dir, _}}}, _ ->
+        :ok = :prim_file.write_file(gate_path <> ".next", String.replace(ready, "ready", "closed"))
+        :ok = :prim_file.rename(gate_path <> ".next", gate_path)
+        :done
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {gate_hook, :waiting})
+    {:error, :nvr_recovery_closed} = ServiceRadarNVR.block_page(nil, 10)
+    File.write!(gate_path <> ".next", ready)
+    File.rename!(gate_path <> ".next", gate_path)
+
+    capacity_for_swap = restart_capacity.()
+    swap_1 = Path.join(tmpdir, "marker-swap-1")
+    File.write!(swap_1, marker_bytes)
+    File.chmod!(swap_1, 0o600)
+
+    ledger_swap_hook = fn
+      _, {:in, {:"$gen_call", {^capacity_for_swap, _}, {:list_dir, _}}}, _ ->
+        :ok = :prim_file.rename(swap_1, marker)
+        :done
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {ledger_swap_hook, :waiting})
+    {:error, :storage_changed} = ServiceRadarNVR.block_page(nil, 10)
+
+    {:ok, [%{block_id: ^active_id, state: :sealed}]} = ServiceRadarNVR.block_page(nil, 10)
+
+    swap_2 = Path.join(tmpdir, "marker-swap-2")
+    File.write!(swap_2, marker_bytes)
+    File.chmod!(swap_2, 0o600)
+
+    lookup_swap_hook = fn
+      _, {:in, {:"$gen_call", {caller, _}, {:list_dir, dir}}}, _ ->
+        if caller != capacity_for_swap and Path.basename(to_string(dir)) == active_id do
+          :ok = :prim_file.rename(swap_2, marker)
+          :done
+        else
+          :waiting
+        end
+
+      state, _, _ ->
+        state
+    end
+
+    :ok = :sys.install(:file_server_2, {lookup_swap_hook, :waiting})
+    {:error, :storage_changed} = ServiceRadarNVR.block_states([active_id, String.duplicate("0", 64)])
 
   "pressure" ->
     {:ok, _} = Storage.initialize(root, id)

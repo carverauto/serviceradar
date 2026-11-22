@@ -243,9 +243,9 @@ defmodule ServiceRadarNVRClient.Wire do
 
   # A descriptor digest exactly when sealed, a reason exactly when unresolved,
   # and a byte count unless absent.
-  defp state_fields?("sealed", digest, nil, bytes), do: matches?(digest, @hex64) and counted?(bytes)
+  defp state_fields?("sealed", digest, nil, bytes), do: matches?(digest, @hex64) and nonnegative?(bytes)
   defp state_fields?("unresolved", nil, reason, bytes), do: bounded_text?(reason, 64) and counted?(bytes)
-  defp state_fields?("incomplete", nil, nil, bytes), do: counted?(bytes)
+  defp state_fields?("incomplete", nil, nil, bytes), do: nonnegative?(bytes)
   defp state_fields?("absent", nil, nil, nil), do: true
   defp state_fields?(_state, _digest, _reason, _bytes), do: false
 

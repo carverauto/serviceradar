@@ -461,6 +461,107 @@ defmodule ServiceRadarRecording.SpoolTest do
     end
   end
 
+  test "journal_state skips media digests but enforces limits, contiguity and record schemas", %{storage: storage} do
+    wide_limits = %{@limits | max_fragments: 4, max_block_bytes: 512, max_fragment_duration_ns: 5_000_000_000}
+
+    {:ok, spool} = Spool.create(storage, @identity, "init", wide_limits)
+    {:ok, spool, _} = Spool.append(spool, "frag-0", %{start_ns: 0, duration_ns: 3_000_000_000})
+
+    {:ok, spool, _} =
+      Spool.append(spool, "frag-1", %{
+        start_ns: 3_000_000_000,
+        duration_ns: 1_000_000_000,
+        tail_duration_source: :previous_sample
+      })
+
+    {:ok, spool, _} = Spool.append(spool, "frag-2", %{start_ns: 4_000_000_000, duration_ns: 1_000_000_000})
+    {:ok, sealed} = Spool.seal(spool)
+    snapshot = Spool.snapshot(sealed)
+    block_id = Path.basename(snapshot.directory)
+
+    assert {:ok, state} = Spool.journal_state(storage, block_id, wide_limits)
+    assert state.sealed?
+    assert state.sha256 == snapshot.sha256
+    assert Enum.at(state.entries, 1)["tail_duration_source"] == "previous_sample"
+
+    assert {:error, :block_full} = Spool.journal_state(storage, block_id, %{wide_limits | max_fragments: 2})
+    assert {:error, :block_full} = Spool.inspect_sealed(storage, block_id, %{wide_limits | max_fragments: 2})
+    assert {:error, :block_full} = Spool.journal_state(storage, block_id, %{wide_limits | max_block_bytes: 12})
+    assert {:error, :block_full} = Spool.inspect_sealed(storage, block_id, %{wide_limits | max_block_bytes: 12})
+
+    assert {:error, :fragment_too_long} =
+             Spool.journal_state(storage, block_id, %{wide_limits | max_fragment_duration_ns: 2_000_000_000})
+
+    assert {:error, :fragment_too_long} =
+             Spool.inspect_sealed(storage, block_id, %{wide_limits | max_fragment_duration_ns: 2_000_000_000})
+
+    # Corrupting media bytes preserves journal_state (journal-only) while inspect_sealed refuses it.
+    media_path = Path.join(snapshot.directory, "media.m4s")
+    original_media = File.read!(media_path)
+    File.write!(media_path, String.duplicate("x", byte_size(original_media)))
+    assert {:ok, %{sealed?: true}} = Spool.journal_state(storage, block_id, wide_limits)
+    assert {:error, :media_digest_mismatch} = Spool.inspect_sealed(storage, block_id, wide_limits)
+    File.write!(media_path, original_media)
+
+    valid_fragment = %{
+      "type" => "fragment",
+      "sequence" => 1,
+      "offset" => 6,
+      "length" => 6,
+      "start_ns" => 2_000_000_000,
+      "duration_ns" => 2_000_000_000,
+      "sha256" => Base.encode16(:crypto.hash(:sha256, "frag-1"), case: :lower)
+    }
+
+    bad_unsealed_cases = [
+      {%{valid_fragment | "start_ns" => 3_000_000_000}, :discontinuity},
+      {%{valid_fragment | "duration_ns" => 0}, :invalid_timing},
+      {%{valid_fragment | "start_ns" => -1}, :invalid_timing},
+      {Map.put(valid_fragment, "tail_duration_source", "bogus"), :invalid_tail_duration_source},
+      {%{valid_fragment | "sha256" => "not-hex"}, :invalid_fragment_record},
+      {%{valid_fragment | "sha256" => String.duplicate("A", 64)}, :invalid_fragment_record},
+      {Map.put(valid_fragment, "extra", true), :invalid_fragment_record},
+      {%{valid_fragment | "sequence" => 2}, :invalid_fragment_record},
+      {Map.delete(valid_fragment, "start_ns"), :invalid_record}
+    ]
+
+    for {{bad_record, expected_error}, index} <- Enum.with_index(bad_unsealed_cases, 10) do
+      {:ok, open_spool} = Spool.create(storage, %{@identity | block_sequence: index}, "init", wide_limits)
+      {:ok, open_spool, _} = Spool.append(open_spool, "frag-0", timing(0))
+      open_snap = Spool.snapshot(open_spool)
+      open_id = Path.basename(open_snap.directory)
+      File.write!(Path.join(open_snap.directory, "media.m4s"), "frag-1", [:append])
+      File.write!(Path.join(open_snap.directory, "journal"), frame_record(bad_record), [:append])
+      assert {:error, ^expected_error} = Spool.journal_state(storage, open_id, wide_limits)
+    end
+
+    valid_seal_hash = Base.encode16(:crypto.hash(:sha256, "frag-0"), case: :lower)
+
+    bad_seal_cases = [
+      %{"type" => "seal", "sha256" => "not-a-hex-digest"},
+      %{"type" => "seal", "sha256" => String.duplicate("A", 64)},
+      %{"type" => "seal", "sha256" => valid_seal_hash, "extra" => true}
+    ]
+
+    for {bad_seal, index} <- Enum.with_index(bad_seal_cases, 30) do
+      {:ok, open_spool} = Spool.create(storage, %{@identity | block_sequence: index}, "init", wide_limits)
+      {:ok, open_spool, _} = Spool.append(open_spool, "frag-0", timing(0))
+      open_snap = Spool.snapshot(open_spool)
+      open_id = Path.basename(open_snap.directory)
+      File.write!(Path.join(open_snap.directory, "journal"), frame_record(bad_seal), [:append])
+      assert {:error, :invalid_record} = Spool.journal_state(storage, open_id, wide_limits)
+
+      if Map.has_key?(bad_seal, "extra") do
+        assert {:error, :invalid_record} = Spool.inspect_sealed(storage, open_id, wide_limits)
+      end
+    end
+  end
+
+  defp frame_record(record) do
+    payload = Jason.encode!(record)
+    <<byte_size(payload)::unsigned-big-32, payload::binary, :crypto.hash(:sha256, payload)::binary>>
+  end
+
   defp mutate_storage(:missing, storage, directory) do
     File.rm!(Path.join(storage.root, @marker))
     directory

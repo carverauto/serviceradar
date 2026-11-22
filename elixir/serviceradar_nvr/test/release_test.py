@@ -2168,6 +2168,10 @@ class NVRReleaseTest(unittest.TestCase):
                                  (400, b'{"error":"invalid_inventory_request"}'))
         self.assertEqual(self.member_request("GET", "/v1/status", token="incorrect-token-for-the-ingest-listener")[0], 401)
 
+    def test_lookup_and_ledger_page_enforce_storage_gate_and_active_block_guards(self):
+        self.make_media()
+        self.run_probe("lookup_page_guards")
+
     def test_block_ledger_caps_admission_rebuilds_on_restart_and_closes_admission_on_mismatch(self):
         self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "1"
         proc, block_id = self.sealed_network_block()
