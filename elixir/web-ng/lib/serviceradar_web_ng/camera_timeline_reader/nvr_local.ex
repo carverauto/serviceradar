@@ -25,23 +25,28 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.NVRLocal do
   alias ServiceRadarNVRClient.Members
   alias ServiceRadarWebNG.CameraTimelineReader
 
+  require Logger
+
   @impl true
   def fetch_local(plan, deadline_ms) do
     expected = %{length: plan.expected_length, sha256: plan.expected_sha256}
 
-    with {:ok, config_file, token_file} <- client_files(),
-         {:ok, members} <- Members.load(config_file, token_file),
-         {:ok, target} <- Members.by_storage_id(members, to_string(plan.storage_id)),
-         {:ok, timeout_ms} <- remaining_ms(deadline_ms) do
-      ServiceRadarNVRClient.read_block(
-        target.client_config,
-        plan.block_key,
-        plan.descriptor_sha256,
-        plan.selector,
-        expected,
-        timeout_ms
-      )
-    end
+    result =
+      with {:ok, config_file, token_file} <- client_files(),
+           {:ok, members} <- Members.load(config_file, token_file),
+           {:ok, target} <- Members.by_storage_id(members, to_string(plan.storage_id)),
+           {:ok, timeout_ms} <- remaining_ms(deadline_ms) do
+        ServiceRadarNVRClient.read_block(
+          target.client_config,
+          plan.block_key,
+          plan.descriptor_sha256,
+          plan.selector,
+          expected,
+          timeout_ms
+        )
+      end
+
+    log_read_failure(result, plan.storage_id)
   end
 
   # Archive copies are read by the isolated archive reader (D.2), not by an NVR.
@@ -65,5 +70,16 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.NVRLocal do
       remaining when remaining > 0 -> {:ok, min(remaining, 300_000)}
       _ -> {:error, :timeout}
     end
+  end
+
+  defp log_read_failure({:ok, _bytes} = result, _storage_id), do: result
+
+  defp log_read_failure({:error, reason} = result, _storage_id) when reason in [:not_found, :integrity_mismatch] do
+    result
+  end
+
+  defp log_read_failure({:error, reason} = result, storage_id) do
+    Logger.warning("NVR local playback read failed storage_id=#{storage_id} reason=#{inspect(reason, limit: 8)}")
+    result
   end
 end

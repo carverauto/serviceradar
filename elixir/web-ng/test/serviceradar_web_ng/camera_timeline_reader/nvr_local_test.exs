@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.NVRLocalTest do
   # Reads go through the application's read-client configuration, which is global.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadarWebNG.CameraTimelineReader
   alias ServiceRadarWebNG.CameraTimelineReader.NVRLocal
 
@@ -75,6 +77,50 @@ defmodule ServiceRadarWebNG.CameraTimelineReader.NVRLocalTest do
            ) == {:error, :recording_integrity_failed}
 
     assert_received {:marked_missing, "33333333-3333-4333-8333-333333333302"}
+  end
+
+  test "logs a warning with storage_id and reason for unavailable local reads without leaking tokens", ctx do
+    configure(ctx, 1)
+    unknown_storage_id = "00000000-0000-4000-8000-000000000022"
+    unknown_plan = %{plan("x") | storage_id: unknown_storage_id}
+
+    unknown_log =
+      capture_log([level: :warning], fn ->
+        assert NVRLocal.fetch_local(unknown_plan, deadline()) == {:error, :unknown_nvr_storage}
+      end)
+
+    assert unknown_log =~ unknown_storage_id
+    assert unknown_log =~ ":unknown_nvr_storage"
+    refute unknown_log =~ @read_token
+
+    unauthorized_port = start_read_peer(ctx.certs, 401, ~s({"error":"unauthorized"}))
+    configure(ctx, unauthorized_port)
+
+    unauthorized_log =
+      capture_log([level: :warning], fn ->
+        assert {:error, {:read_status, 401, _}} = NVRLocal.fetch_local(plan("x"), deadline())
+      end)
+
+    assert unauthorized_log =~ @storage_id
+    assert unauthorized_log =~ ":read_status"
+    assert unauthorized_log =~ "401"
+    refute unauthorized_log =~ @read_token
+
+    for {status, body, expected} <- [
+          {200, "x", {:ok, "x"}},
+          {404, ~s({"error":"fragment_not_found"}), {:error, :not_found}},
+          {409, ~s({"error":"descriptor_mismatch"}), {:error, :integrity_mismatch}}
+        ] do
+      port = start_read_peer(ctx.certs, status, body)
+      configure(ctx, port)
+
+      silent_log =
+        capture_log([level: :warning], fn ->
+          assert NVRLocal.fetch_local(plan("x"), deadline()) == expected
+        end)
+
+      assert silent_log == ""
+    end
   end
 
   defp plan(bytes) do
