@@ -106,11 +106,12 @@ fn default_max_closed_tracks() -> usize {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackerConfig {
     pub mode: TrackerMode,
-    /// Consecutive/total hits required to promote a `New` track to `Active` (default `2`).
+    /// Total matched frames required to promote a `New` track to `Active` (default `2`).
     pub min_hits_to_activate: u32,
     /// Maximum consecutive missed frames before a `Lost` track transitions to `Closed` (default `30`).
     pub max_lost_frames: u32,
-    /// Maximum idle elapsed milliseconds before a `Lost` track transitions to `Closed` (default `30_000`).
+    /// Maximum elapsed milliseconds since a track was first missed on an admitted frame before
+    /// transitioning from `Lost` to `Closed` (default `30_000`; `0` disables time-based expiry).
     pub max_lost_ms: u64,
     /// Hard cap on live tracked IDs retained in memory (default `128`).
     pub max_tracks: usize,

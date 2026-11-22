@@ -193,9 +193,8 @@ pub struct LetterboxTransform {
 }
 
 impl LetterboxTransform {
-    /// Computes top-left (or centered) letterbox scaling parameters from `src` to `dst`.
-    ///
-    /// Uses centered padding (`pad_x`, `pad_y`) matching standard YOLOX/ONNX preprocessing.
+    /// Computes centered letterbox scaling parameters (`pad_x`, `pad_y`) from `src` to `dst`,
+    /// matching standard YOLOX/ONNX preprocessing.
     pub fn compute(
         src_width: u32,
         src_height: u32,
