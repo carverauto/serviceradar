@@ -65,7 +65,7 @@ async function siteListCommand(options: Record<string, any>): Promise<void> {
     {header: "ID", value: (s) => s.id},
     {header: "NAME", value: (s) => s.name},
     {header: "SLUG", value: (s) => s.slug},
-    {header: "STATUS", value: (s) => s.status},
+    {header: "STATUS", value: (s) => deploymentStatus(s)},
     {header: "LEAF", value: (s) => leafStatus(s)},
     {header: "CREATED", value: (s) => s.inserted_at},
   ], "No edge sites.")
@@ -82,7 +82,7 @@ async function siteShowCommand(options: Record<string, any>): Promise<void> {
   printRecord(`Edge site ${site?.id}`, [
     ["name", site?.name],
     ["slug", site?.slug],
-    ["status", site?.status],
+    ["status", deploymentStatus(site)],
     ["leaf status", leafStatus(site)],
     ["leaf upstream", site?.leaf_server?.upstream_url],
     ["leaf listen", site?.leaf_server?.local_listen],
@@ -163,8 +163,19 @@ function unwrap(payload: any): any {
   return payload && typeof payload === "object" && payload.data && !Array.isArray(payload.data) ? payload.data : payload
 }
 
-function leafStatus(site: any): string {
-  return site?.leaf_server?.status || (site?.leaf_server === null ? "pending" : "")
+/**
+ * The state the Edge Sites page shows: the site's managed leaf deployment
+ * (`deployment_status`). An instance that does not report it yet falls back to
+ * the site record's own status.
+ */
+export function deploymentStatus(site: any): string {
+  return site?.deployment_status || site?.status || ""
+}
+
+// A managed leaf has one state, its deployment. The leaf record's own status is
+// only meaningful for a site with no managed deployment reported.
+export function leafStatus(site: any): string {
+  return site?.deployment_status || site?.leaf_server?.status || (site?.leaf_server === null ? "pending" : "")
 }
 
 export function positiveNumber(value: unknown, fallback: number): number {

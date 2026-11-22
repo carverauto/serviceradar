@@ -417,6 +417,30 @@ test("edge site create/list/show use the edge-sites contract", async () => {
   )
 })
 
+// The Edge Sites page shows a managed site by its deployment status. The site
+// record's own status stays "pending" for the life of a managed site, so the
+// CLI must report the same state the page does.
+test("edge site list and show report the managed deployment status the UI shows", async () => {
+  const managed = {...SITE, status: "pending", deployment_status: "installed", leaf_server: {status: "provisioned", upstream_url: "tls://hub.example:7422"}}
+  await withServer(
+    (req, res) => {
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites") return json(res, 200, {data: [managed]})
+      if (req.method === "GET" && req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: managed})
+      return json(res, 404, {})
+    },
+    async (instance) => {
+      const list = await runCli(["edge", "site", "list", "--instance", instance], {env: TOKEN_ENV})
+      const rows = list.stdout.trim().split("\n").map((line) => line.split(/\s{2,}/))
+      assert.deepEqual(rows[1], ["site-1", "Branch 1", "branch-1", "installed", "installed", "2026-10-03T00:00:00Z"])
+
+      const show = await runCli(["edge", "site", "show", "site-1", "--instance", instance], {env: TOKEN_ENV})
+      assert.match(show.stdout, /status:\s+installed/)
+      assert.match(show.stdout, /leaf status:\s+installed/)
+      assert.doesNotMatch(show.stdout, /pending|provisioned/)
+    },
+  )
+})
+
 test("edge site bundle fails with a --wait hint while the leaf is not ready", async () => {
   await withServer(
     (req, res) => json(res, 409, {error: "leaf_not_ready"}),

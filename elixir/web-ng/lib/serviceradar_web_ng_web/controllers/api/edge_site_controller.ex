@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
       query =
         EdgeSite
         |> Ash.Query.for_read(:read)
-        |> Ash.Query.load(:nats_leaf_server)
+        |> Ash.Query.load([:nats_leaf_server, :deployment_status])
         |> Ash.Query.sort(inserted_at: :desc)
 
       with {:ok, sites} <- Ash.read(query, actor: actor(conn)) do
@@ -108,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
            EdgeSite
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.Query.load(:nats_leaf_server)
+           |> Ash.Query.load([:nats_leaf_server, :deployment_status])
            |> Ash.read_one(actor: actor(conn)) do
       {:ok, site}
     else
@@ -125,6 +125,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
       name: site.name,
       slug: site.slug,
       status: site.status,
+      # What the Edge Sites page shows: the state of the site's managed leaf
+      # deployment. Absent when the caller did not load it.
+      deployment_status: deployment_status(site),
       nats_leaf_url: site.nats_leaf_url,
       leaf_server: leaf_server_to_json(site.nats_leaf_server),
       inserted_at: site.inserted_at
@@ -143,6 +146,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeSiteController do
   end
 
   defp leaf_server_to_json(_), do: nil
+
+  defp deployment_status(%{deployment_status: status}) when is_binary(status), do: status
+  defp deployment_status(_), do: nil
 
   defp required_name(%{"name" => name}) when is_binary(name) do
     case String.trim(name) do
