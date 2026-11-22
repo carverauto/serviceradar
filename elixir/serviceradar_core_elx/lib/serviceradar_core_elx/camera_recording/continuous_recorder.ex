@@ -76,8 +76,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   @relay_open_timeout_ms 15_000
 
   @inbox_defaults [max_samples: 128, max_bytes: 16_777_216]
-  @default_handover_max_samples 32
-  @default_handover_max_bytes 4_194_304
+  @handover_sample_margin 16
+  @handover_byte_margin 2_097_152
 
   @default_bounds %{
     soft_frames: 7_800,
@@ -216,6 +216,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         anchor_id: nil,
         anchor_pts: nil,
         anchor_utc_us: nil,
+        force_reanchor?: false,
         # Previous completed block tracking
         prev_block_last_sequence: nil,
         prev_block_last_pts: nil,
@@ -243,6 +244,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         {:noreply, ready_state}
 
       {:error, reason, failed_state} ->
+        failed_state = %{failed_state | stop_reason: reason}
         gap_recorded? = maybe_record_startup_gap(failed_state, reason)
 
         notify(
@@ -401,7 +403,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
     if not state.keep_claim_on_exit? do
       if state.claim != nil, do: release_claim(state)
-      if state.relay_origin == :new and is_binary(state.relay_session_id), do: close_opened_relay(state)
+
+      if state.relay_origin == :new and is_binary(state.relay_session_id) and
+           not peer_owned_startup_reason?(state.stop_reason) do
+        close_opened_relay(state)
+      end
     end
 
     :ok
@@ -561,6 +567,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       {:sequence_skip, expected_seq} ->
         handle_sequence_skip(state, unit, expected_seq)
 
+      {:reordered_dts, detail_class} ->
+        handle_reordered_dts(state, unit, detail_class)
+
       {:discontinuity, detail_class} ->
         handle_timestamp_discontinuity(state, unit, detail_class)
     end
@@ -569,7 +578,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp validate_unit(state, unit) do
     cond do
       unit.dts != unit.pts ->
-        {:discontinuity, "reordered_dts"}
+        {:reordered_dts, "reordered_dts"}
 
       state.last_admitted_pts != nil and unit.pts < state.last_admitted_pts ->
         {:discontinuity, "timestamp_discontinuity"}
@@ -632,7 +641,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
 
   defp sequence_skip_gap_origin(state, unit), do: gap_origin(state, unit)
 
-  defp handle_timestamp_discontinuity(state, unit, detail_class) do
+  defp handle_reordered_dts(state, unit, detail_class) do
+    release_inbox_credit(state, byte_size(unit.payload))
+
     state =
       state
       |> note_gap_start(:source_unavailable, detail_class, unit)
@@ -640,9 +651,24 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       |> Map.merge(%{
         next_contiguous?: false,
         awaiting_keyframe?: true,
-        anchor_pts: nil,
-        anchor_utc_us: nil,
-        anchor_id: nil
+        force_reanchor?: true
+      })
+
+    case state.phase do
+      :streaming -> {:noreply, finish_active_block_input(state)}
+      _ -> {:noreply, state}
+    end
+  end
+
+  defp handle_timestamp_discontinuity(state, unit, detail_class) do
+    state =
+      state
+      |> note_gap_start_at(:source_unavailable, detail_class, unit.pts, unit.admitted_at_us, unit.sequence)
+      |> record_last_admitted(unit)
+      |> Map.merge(%{
+        next_contiguous?: false,
+        awaiting_keyframe?: true,
+        force_reanchor?: true
       })
 
     case state.phase do
@@ -926,10 +952,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       bytes_accepted: unit_bytes,
       frames_sent: 0,
       bytes_sent: 0,
-      contiguous_with_previous: contiguous?
+      contiguous_with_previous: contiguous?,
+      force_reanchor?: state.force_reanchor?
     }
 
-    next = %{state | phase: :streaming, active_block: active_block, next_contiguous?: true}
+    next = %{state | phase: :streaming, active_block: active_block, next_contiguous?: true, force_reanchor?: false}
 
     if state.bounds.max_frames == 1 do
       {:noreply, finish_active_block_input(%{next | awaiting_keyframe?: true})}
@@ -941,6 +968,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp compute_contiguous?(state, unit) do
     state.prev_block_last_sequence != nil and
       state.next_contiguous? and
+      not state.force_reanchor? and
       unit.sequence == state.prev_block_last_sequence + 1
   end
 
@@ -1345,6 +1373,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     {attrs, next_state}
   end
 
+  def compute_time_basis_and_anchor(state, %{force_reanchor?: true} = block) do
+    reanchor_block(state, block, false)
+  end
+
   def compute_time_basis_and_anchor(state, block) do
     pts_delta = block.first_pts - state.anchor_pts
 
@@ -1438,7 +1470,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     start_us = gap.start_us
 
     end_us =
-      if state.anchor_pts != nil and next_unit.pts >= gap.start_pts do
+      if state.anchor_pts != nil and not state.force_reanchor? and next_unit.pts >= gap.start_pts do
         max(start_us, start_us + div(media_gap_ns, 1_000))
       else
         max(start_us, next_unit.admitted_at_us)
@@ -1728,8 +1760,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     max_allowed_samples = max(1, inbox_samples - 1)
     max_allowed_bytes = max(1, inbox_bytes - 1)
 
-    default_samples = min(@default_handover_max_samples, max(1, div(inbox_samples, 4)))
-    default_bytes = min(@default_handover_max_bytes, max(1, div(inbox_bytes, 4)))
+    default_samples = max(1, inbox_samples - min(@handover_sample_margin, max(1, inbox_samples - 1)))
+    default_bytes = max(1, inbox_bytes - min(@handover_byte_margin, max(1, inbox_bytes - 1)))
 
     samples =
       opts
