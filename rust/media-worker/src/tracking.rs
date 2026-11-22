@@ -30,8 +30,6 @@ pub struct TrackSummary {
     peak_confidence: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     best_keyframe_offset_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    thumbnail_jpeg_b64: Option<String>,
 }
 
 impl TrackSummary {
@@ -65,14 +63,6 @@ impl TrackSummary {
 
     pub fn best_keyframe_offset_ms(&self) -> Option<u64> {
         self.best_keyframe_offset_ms
-    }
-
-    pub fn thumbnail_jpeg_b64(&self) -> Option<&str> {
-        self.thumbnail_jpeg_b64.as_deref()
-    }
-
-    pub(crate) fn set_thumbnail_jpeg_b64(&mut self, thumbnail: Option<String>) {
-        self.thumbnail_jpeg_b64 = thumbnail;
     }
 }
 
@@ -192,7 +182,6 @@ impl ClipTracker {
                 frame_count: s.frame_count,
                 peak_confidence: s.peak_confidence,
                 best_keyframe_offset_ms: Some(s.best_keyframe.timestamp_ms),
-                thumbnail_jpeg_b64: None,
             })
             .collect()
     }

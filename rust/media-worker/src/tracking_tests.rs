@@ -822,7 +822,7 @@ fn production_vision_pipeline_uses_media_core_motion_gate_and_emits_bounded_jfif
     // Block-level thumbnail prefers the detected keyframe (frame 3) over the empty anchor (frame 0).
     assert_eq!(clip.block_thumbnail_jpeg_b64(), Some(f3_b64));
 
-    // Track summary carries the best-keyframe JPEG thumbnail.
+    // Track summary points to its best keyframe (frame 3) without duplicating thumbnail bytes.
     assert_eq!(clip.tracks().len(), 1);
-    assert_eq!(clip.tracks()[0].thumbnail_jpeg_b64(), Some(f3_b64));
+    assert_eq!(clip.tracks()[0].best_keyframe_offset_ms(), Some(3_000));
 }

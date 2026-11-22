@@ -266,8 +266,6 @@ pub struct TrackSummaryPayload {
     dwell_ms: u64,
     frame_count: u32,
     peak_confidence: f32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    thumbnail_jpeg_b64: Option<String>,
 }
 
 impl TrackSummaryPayload {
@@ -297,10 +295,6 @@ impl TrackSummaryPayload {
 
     pub fn peak_confidence(&self) -> f32 {
         self.peak_confidence
-    }
-
-    pub fn thumbnail_jpeg_b64(&self) -> Option<&str> {
-        self.thumbnail_jpeg_b64.as_deref()
     }
 }
 
@@ -994,7 +988,6 @@ where
                 dwell_ms: t.dwell_ms(),
                 frame_count: t.frame_count(),
                 peak_confidence: t.peak_confidence(),
-                thumbnail_jpeg_b64: t.thumbnail_jpeg_b64().map(str::to_string),
             })
             .collect();
 
