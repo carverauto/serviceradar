@@ -65,7 +65,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   @relay_batch_limit 100
   @relay_max_batches 10
 
-  @default_detector_model_id "rtdetr-r18"
+  @default_detector_model_id "yolox-s"
   @default_detector_model_version "2026.1"
   @default_embedder_model_id "siglip-b16-384"
   @default_embedder_model_version "2026.1"

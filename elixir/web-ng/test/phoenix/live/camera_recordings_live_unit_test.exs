@@ -29,6 +29,12 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         list_holds: fn _, _ -> flunk("disconnected mount/params must not list holds") end,
         list_event_clips: fn _, _, _ -> flunk("disconnected mount/params must not list clips") end,
         list_cameras: fn _, _ -> flunk("disconnected mount/params must not list cameras") end,
+        list_window_overlays: fn _, _, _, _, _ ->
+          flunk("disconnected mount/params must not list window overlays")
+        end,
+        get_frame_overlay: fn _, _, _ ->
+          flunk("disconnected mount/params must not load frame overlay")
+        end,
         subscribe: fn _ -> flunk("disconnected mount/params must not subscribe to PubSub") end,
         unsubscribe: fn _ -> flunk("disconnected mount/params must not unsubscribe from PubSub") end
       }
@@ -1435,6 +1441,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
              total_pages: 1
            }}
         end,
+        list_window_overlays: fn _source_id, _from_us, _to_us, _profile_id, _scope -> [] end,
+        get_frame_overlay: fn _source_id, _frame_id, _scope -> [] end,
         subscribe: &RecordingPubSub.subscribe/1,
         unsubscribe: &RecordingPubSub.unsubscribe/1,
         now_us: fn -> @base_now_us end
@@ -1533,6 +1541,267 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       on_exit(fn -> cancel_timers(after_cam) end)
       assert after_cam.assigns.gaps_page == 1
+    end
+  end
+
+  describe "window overlay detections, live refresh, and camera switch search reset" do
+    test "loads bounded window VisualFrame detections during normal playback, clip playback, and live refresh" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+      parent = self()
+
+      frame_1_id = "00000000-0000-4000-8000-000000000801"
+      frame_2_id = "00000000-0000-4000-8000-000000000802"
+      missing_highlight_id = "00000000-0000-4000-8000-000000000803"
+
+      det_start = from_us + 1_200_000_000
+      det_end = det_start + 4_000_000
+
+      person_clip =
+        "evt-person-window"
+        |> sample_clip(det_start, det_end)
+        |> Map.put(:visual_frame_id, frame_1_id)
+
+      rec_start = from_us + 600_000_000
+      rec_end = rec_start + 110_000_000
+
+      recording_clip =
+        "rec-seg-window"
+        |> sample_clip(rec_start, rec_end)
+        |> Map.merge(%{
+          category: :recording,
+          smart_type: :basic,
+          label: "Recording",
+          peak_ts_us: rec_start,
+          visual_frame_id: nil
+        })
+
+      missing_highlight_clip =
+        "evt-missing-highlight"
+        |> sample_clip(det_start + 5_000_000, det_end + 5_000_000)
+        |> Map.put(:visual_frame_id, missing_highlight_id)
+
+      window_det_1 = %{
+        visual_frame_id: frame_1_id,
+        timeline_ts_us: det_start + 1_000_000,
+        start_us: max(det_start - 500_000, 0),
+        end_us: det_start + 2_500_000,
+        bbox: [0.1, 0.2, 0.3, 0.8],
+        object_class: "person",
+        score: 0.93,
+        dominant_colors: ["navy"],
+        time_basis: "received"
+      }
+
+      window_det_2 = %{
+        visual_frame_id: frame_2_id,
+        timeline_ts_us: det_start + 3_000_000,
+        start_us: det_start + 1_500_000,
+        end_us: det_start + 4_500_000,
+        bbox: [0.4, 0.3, 0.7, 0.75],
+        object_class: "vehicle",
+        score: 0.88,
+        dominant_colors: ["silver"],
+        time_basis: "received"
+      }
+
+      extra_live_det = %{
+        visual_frame_id: "00000000-0000-4000-8000-000000000804",
+        timeline_ts_us: det_start + 5_000_000,
+        start_us: det_start + 3_500_000,
+        end_us: det_start + 6_500_000,
+        bbox: [0.2, 0.2, 0.4, 0.6],
+        object_class: "package",
+        score: 0.81,
+        dominant_colors: ["brown"],
+        time_basis: "received"
+      }
+
+      highlight_det = %{
+        visual_frame_id: missing_highlight_id,
+        timeline_ts_us: det_start + 6_000_000,
+        start_us: det_start + 4_500_000,
+        end_us: det_start + 7_500_000,
+        bbox: [0.5, 0.1, 0.8, 0.5],
+        object_class: "animal",
+        score: 0.9,
+        dominant_colors: ["black"],
+        time_basis: "received"
+      }
+
+      :ets.new(:overlay_test_state, [:set, :public, :named_table])
+      on_exit(fn -> if :ets.whereis(:overlay_test_state) != :undefined, do: :ets.delete(:overlay_test_state) end)
+      :ets.insert(:overlay_test_state, {:overlays, [window_det_1, window_det_2]})
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn _source_id, params, _scope ->
+            {:ok, list_page_result([recording_clip, person_clip, missing_highlight_clip], params)}
+          end,
+          list_window_overlays: fn source_id, w_from, w_to, profile_id, _scope ->
+            send(parent, {:window_overlays_queried, source_id, w_from, w_to, profile_id})
+            [{:overlays, current}] = :ets.lookup(:overlay_test_state, :overlays)
+            current
+          end,
+          get_frame_overlay: fn source_id, frame_id, _scope ->
+            send(parent, {:frame_overlay_queried, source_id, frame_id})
+            [highlight_det]
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 15_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      # 1. Initial normal timeline playback loads window overlays without search or highlight_frame
+      assert_receive {:window_overlays_queried, @camera_id, ^from_us, ^to_us, ""}
+      refute_received {:frame_overlay_queried, _, _}
+      assert socket.assigns.timeline_overlay_detections == [window_det_1, window_det_2]
+
+      # 2. Selecting smart event clip loads window overlays and skips redundant
+      #    get_frame_overlay when frame_1_id is in window
+      {:noreply, smart_selected} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-person-window"}, socket)
+
+      expected_smart_from = det_start - 5_000_000
+      expected_smart_to = det_end + 10_000_000
+      assert_receive {:window_overlays_queried, @camera_id, ^expected_smart_from, ^expected_smart_to, ""}
+      refute_received {:frame_overlay_queried, _, _}
+      assert smart_selected.assigns.timeline_overlay_detections == [window_det_1, window_det_2]
+
+      # 3. Live refresh preserving window updates timeline_overlay_detections with newly indexed frames
+      :ets.insert(:overlay_test_state, {:overlays, [window_det_1, window_det_2, extra_live_det]})
+      token = smart_selected.assigns.recording_refresh_token
+      {:noreply, refreshed} = Recordings.handle_info({:refresh_timeline_tick, token}, smart_selected)
+      on_exit(fn -> cancel_timers(refreshed) end)
+
+      assert_receive {:window_overlays_queried, @camera_id, ^expected_smart_from, ^expected_smart_to, ""}
+      assert refreshed.assigns.timeline_overlay_detections == [window_det_1, window_det_2, extra_live_det]
+
+      # 4. Selecting :recording segment (visual_frame_id == nil) still loads window overlays across [rec_start, rec_end]
+      {:noreply, rec_selected} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "rec-seg-window"}, refreshed)
+
+      assert_receive {:window_overlays_queried, @camera_id, ^rec_start, ^rec_end, ""}
+      assert rec_selected.assigns.timeline_overlay_detections == [window_det_1, window_det_2, extra_live_det]
+
+      # 5. When highlight_frame_id is not present in window overlays, get_frame_overlay is invoked and merged
+      {:noreply, highlight_selected} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => "evt-missing-highlight"}, rec_selected)
+
+      assert_receive {:window_overlays_queried, @camera_id, _, _, ""}
+      assert_receive {:frame_overlay_queried, @camera_id, ^missing_highlight_id}
+
+      assert highlight_selected.assigns.timeline_overlay_detections == [
+               highlight_det,
+               window_det_1,
+               window_det_2,
+               extra_live_det
+             ]
+    end
+
+    test "resets semantic search assigns and mobile switcher drawer when switching cameras via handle_params, and resets results when q changes on the same camera" do
+      deps = stub_deps(%{})
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      dirty_socket =
+        assign(socket,
+          timeline_search_query: "person in red",
+          timeline_search_object_class: "person",
+          timeline_search_results: [%{visual_frame_id: "f1", clip_start_us: 1, clip_end_us: 2}],
+          timeline_search_executed?: true,
+          timeline_search_error: "Semantic clip search is temporarily unavailable.",
+          timeline_embedder_unavailable?: true,
+          timeline_overlay_detections: [%{visual_frame_id: "f1", bbox: [0.1, 0.1, 0.2, 0.2]}],
+          switcher_open_mobile?: true
+        )
+
+      # Changing "q" on the same camera resets search results/error/overlay state
+      {:noreply, same_cam_new_q} =
+        Recordings.handle_params(
+          %{"camera_source_id" => @camera_id, "mode" => "timeline", "q" => ""},
+          "/cameras/#{@camera_id}/recordings?mode=timeline&q=",
+          dirty_socket
+        )
+
+      assert same_cam_new_q.assigns.timeline_search_query == ""
+      assert same_cam_new_q.assigns.timeline_search_object_class == "person"
+      assert same_cam_new_q.assigns.timeline_search_results == []
+      assert same_cam_new_q.assigns.timeline_search_executed? == false
+      assert same_cam_new_q.assigns.timeline_search_error == nil
+      assert same_cam_new_q.assigns.timeline_embedder_unavailable? == false
+      assert same_cam_new_q.assigns.timeline_overlay_detections == []
+      assert same_cam_new_q.assigns.switcher_open_mobile? == true
+
+      # Changing "object_class" without changing "q" resets and re-triggers semantic search
+      parent = self()
+
+      vehicle_hit = %{
+        catalog_entry_id: "00000000-0000-4000-8000-000000000810",
+        visual_frame_id: "00000000-0000-4000-8000-000000000811",
+        camera_source_id: @camera_id,
+        camera_display_name: "Synthetic Gate Camera",
+        clip_start_us: @base_now_us - 60_000_000,
+        clip_end_us: @base_now_us - 50_000_000,
+        best_timeline_ts_us: @base_now_us - 55_000_000,
+        time_basis: "received",
+        score: 0.94,
+        object_class: "vehicle",
+        dominant_colors: ["silver"],
+        bbox: [0.2, 0.3, 0.7, 0.8]
+      }
+
+      search_socket =
+        assign(dirty_socket,
+          camera_semantic_search_opts: [
+            search_fn: fn search_params, _opts ->
+              send(parent, {:semantic_search_ran, search_params})
+              {:ok, [vehicle_hit]}
+            end
+          ]
+        )
+
+      {:noreply, same_cam_new_class} =
+        Recordings.handle_params(
+          %{"camera_source_id" => @camera_id, "mode" => "timeline", "object_class" => "vehicle"},
+          "/cameras/#{@camera_id}/recordings?mode=timeline&object_class=vehicle",
+          search_socket
+        )
+
+      assert_receive {:semantic_search_ran, search_params}
+      assert search_params.query == "person in red"
+      assert search_params.object_class == "vehicle"
+      assert same_cam_new_class.assigns.timeline_search_query == "person in red"
+      assert same_cam_new_class.assigns.timeline_search_object_class == "vehicle"
+      assert same_cam_new_class.assigns.timeline_search_executed? == true
+      assert same_cam_new_class.assigns.timeline_search_error == nil
+      assert same_cam_new_class.assigns.timeline_embedder_unavailable? == false
+      assert [%{object_class: "vehicle"}] = same_cam_new_class.assigns.timeline_search_results
+      assert [%{object_class: "vehicle"}] = same_cam_new_class.assigns.timeline_overlay_detections
+
+      # Switching cameras resets all semantic search assigns and mobile switcher drawer
+      {:noreply, switched} =
+        Recordings.handle_params(
+          %{"camera_source_id" => @other_camera_id, "mode" => "timeline"},
+          "/cameras/#{@other_camera_id}/recordings?mode=timeline",
+          dirty_socket
+        )
+
+      on_exit(fn -> cancel_timers(switched) end)
+
+      assert switched.assigns.camera_source_id == @other_camera_id
+      assert switched.assigns.timeline_search_query == ""
+      assert switched.assigns.timeline_search_object_class == ""
+      assert switched.assigns.timeline_search_results == []
+      assert switched.assigns.timeline_search_executed? == false
+      assert switched.assigns.timeline_search_error == nil
+      assert switched.assigns.timeline_embedder_unavailable? == false
+      assert switched.assigns.timeline_overlay_detections == []
+      assert switched.assigns.switcher_open_mobile? == false
     end
   end
 

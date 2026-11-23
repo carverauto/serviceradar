@@ -1012,7 +1012,7 @@ async fn range_coalescing_caps_at_4_mib_and_longshore_s3_verifies_sha256_before_
 async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_semantic_ranking() {
     // End-to-end test across BOTH 768-d (`siglip-b16-384`) and 512-d (`mobileclip-s2`) models!
     for (model_id, dim) in [("siglip-b16-384", 768usize), ("mobileclip-s2", 512usize)] {
-        let models = ModelPinConfig::new("rtdetr-r18", "2026.1", model_id, "2026.1", dim);
+        let models = ModelPinConfig::new("yolox-s", "2026.1", model_id, "2026.1", dim);
         let cfg = WorkerConfig::cpu_explicit_default()
             .with_backend_kind(InferenceBackendKind::Stub)
             .with_models(models.clone());
@@ -2482,6 +2482,180 @@ async fn interactive_text_embed_responder_completes_under_50ms_while_all_index_s
     }
     let _ = shutdown_tx.send(true);
     nats_server.abort();
+}
+
+#[tokio::test]
+async fn readiness_stays_503_until_text_embed_rpc_responder_is_warmed_up_and_subscribed() {
+    let models = ModelPinConfig::default();
+    let cfg = WorkerConfig::cpu_explicit_default()
+        .with_backend_kind(InferenceBackendKind::Stub)
+        .with_models(models.clone());
+    let metrics = Arc::new(WorkerMetrics::new());
+    let readiness = ReadinessState::not_ready(
+        "connecting to NATS and subscribing text-embed RPC",
+        Arc::clone(&metrics),
+    );
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let probe_addr = serve_http_probes(
+        SocketAddr::from(([127, 0, 0, 1], 0)),
+        readiness.clone(),
+        shutdown_rx.clone(),
+    )
+    .await
+    .expect("serve_http_probes");
+
+    let (worker, manifest) = crate::load_and_admit_worker(cfg)
+        .await
+        .expect("load_and_admit_worker");
+
+    // Before NATS RPC subscription completes, /readyz MUST still return 503.
+    let before_status = tokio::task::spawn_blocking(move || {
+        ureq::config::Config::builder()
+            .http_status_as_error(false)
+            .build()
+            .new_agent()
+            .get(&format!("http://{probe_addr}/readyz"))
+            .call()
+            .expect("GET /readyz before subscribe")
+            .status()
+            .as_u16()
+    })
+    .await
+    .expect("join /readyz before subscribe");
+    assert_eq!(before_status, 503);
+    assert!(!readiness.is_ready());
+
+    // Subscribe and warm up on loopback NATS, then mark ready.
+    let (nats_addr, nats_server) = spawn_loopback_nats_rpc_broker().await;
+    let worker_nats = async_nats::connect(format!("nats://{nats_addr}"))
+        .await
+        .expect("worker connect loopback NATS");
+    let caller_nats = async_nats::connect(format!("nats://{nats_addr}"))
+        .await
+        .expect("caller connect loopback NATS");
+
+    let _responder = crate::worker::spawn_nats_text_embed_responder(
+        worker_nats,
+        &worker,
+        Arc::clone(&metrics),
+        shutdown_rx,
+    )
+    .await
+    .expect("spawn_nats_text_embed_responder");
+
+    readiness.mark_ready(manifest);
+    assert!(readiness.is_ready());
+
+    let after_status = tokio::task::spawn_blocking(move || {
+        ureq::config::Config::builder()
+            .http_status_as_error(false)
+            .build()
+            .new_agent()
+            .get(&format!("http://{probe_addr}/readyz"))
+            .call()
+            .expect("GET /readyz after subscribe")
+            .status()
+            .as_u16()
+    })
+    .await
+    .expect("join /readyz after subscribe");
+    assert_eq!(after_status, 200);
+
+    // Once /readyz is 200, a live text-embed RPC succeeds immediately.
+    let subject = text_embed_rpc_subject(&models);
+    let rpc_req =
+        TextEmbedRpcRequest::new("person at front door", "siglip-b16-384", "2026.1", 768, 250);
+    let reply = tokio::time::timeout(
+        Duration::from_millis(250),
+        caller_nats.request(
+            subject,
+            serde_json::to_vec(&rpc_req).expect("req json").into(),
+        ),
+    )
+    .await
+    .expect("RPC within 250ms")
+    .expect("NATS reply");
+    let decoded: TextEmbedRpcResponse =
+        serde_json::from_slice(&reply.payload).expect("decode RPC response");
+    assert_eq!(decoded.status(), "ok");
+    assert_eq!(decoded.embedding().map(<[f32]>::len), Some(768));
+
+    let _ = shutdown_tx.send(true);
+    nats_server.abort();
+}
+
+#[tokio::test]
+async fn text_embed_warmup_allows_2000ms_admission_while_live_rpc_remains_clamped_at_250ms() {
+    struct SlowEncodeTextBackend {
+        delay: Duration,
+        vec: Vec<f32>,
+    }
+
+    impl crate::InferenceBackend for SlowEncodeTextBackend {
+        fn info(&self) -> crate::InferenceBackendInfo {
+            crate::InferenceBackendInfo::new(
+                InferenceBackendKind::Stub,
+                "cpu",
+                self.vec.len(),
+                "slow-test",
+                true,
+            )
+        }
+
+        fn detect_objects(
+            &self,
+            _frame: &RgbFrame,
+            _min_confidence: f32,
+        ) -> Result<Vec<crate::RawDetection>, MediaWorkerError> {
+            Ok(Vec::new())
+        }
+
+        fn encode_images(&self, images: &[&RgbFrame]) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            Ok(vec![self.vec.clone(); images.len()])
+        }
+
+        fn encode_text(&self, _text: &str) -> Result<Vec<f32>, MediaWorkerError> {
+            std::thread::sleep(self.delay);
+            Ok(self.vec.clone())
+        }
+    }
+
+    let models = ModelPinConfig::default();
+    let mut vec = vec![0.0f32; models.embedding_dim()];
+    vec[0] = 1.0;
+    let backend: Arc<dyn crate::InferenceBackend> = Arc::new(SlowEncodeTextBackend {
+        delay: Duration::from_millis(350),
+        vec,
+    });
+    let service = crate::worker::TextEmbedService::new(
+        models.clone(),
+        backend,
+        2,
+        Arc::new(WorkerMetrics::new()),
+    );
+
+    // Admission warmup uses 2_000 ms deadline, so a 350 ms CPU encode_text succeeds.
+    service
+        .warmup_rpc()
+        .await
+        .expect("warmup_rpc must allow up to 2_000 ms for CPU startup");
+
+    // Live interactive RPCs remain clamped to 10..=250 ms even if caller asks for 2_000 ms.
+    let live_req = TextEmbedRpcRequest::new(
+        "person at front door",
+        models.embedder_model_id(),
+        models.embedder_model_version(),
+        models.embedding_dim(),
+        2_000,
+    );
+    assert_eq!(live_req.deadline_ms(), 250);
+    let payload = serde_json::to_vec(&live_req).expect("serialize live request");
+    let live_resp = service.handle_rpc_payload(&payload).await;
+    assert_eq!(live_resp.status(), "error");
+    assert_eq!(
+        live_resp.error_reason(),
+        Some("text_embed_execution_failed")
+    );
 }
 
 // ============================================================================

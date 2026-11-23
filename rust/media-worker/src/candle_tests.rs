@@ -1,4 +1,4 @@
-//! Synthetic end-to-end tests for `CandleBackend`, `PureRustTokenizer`, `YoloV8Detector`,
+//! Synthetic end-to-end tests for `CandleBackend`, `PureRustTokenizer`, `YoloxDetector`,
 //! `InferenceBackend` trait selection, and `/healthz` + `/readyz` backend metadata.
 //!
 //! All model weights, configs, tokenizers, and images in this module are 100% synthetic
@@ -23,7 +23,7 @@ use crate::metrics::WorkerMetrics;
 use crate::ort_loader::OrtRuntimeProbeResult;
 use crate::tokenizer::PureRustTokenizer;
 use crate::vision::{ObjectClass, RgbFrame, VisionPipeline, cosine_similarity};
-use crate::yolo_v8::{YoloV8Config, coco_class_to_object_class, coco_name_to_object_class};
+use crate::yolox::{YoloxDetectorConfig, coco_class_to_object_class, coco_name_to_object_class};
 use clap::Parser;
 use safetensors::tensor::{Dtype as StDtype, TensorView};
 use std::collections::BTreeMap;
@@ -135,7 +135,7 @@ fn insert_conv_block(
     );
 }
 
-fn insert_c2f(
+fn insert_yolox_csp_layer(
     t: &mut TensorMap,
     seed: &mut u64,
     prefix: &str,
@@ -143,12 +143,27 @@ fn insert_c2f(
     out_c: usize,
     n: usize,
 ) {
-    let c = out_c / 2;
-    insert_conv_block(t, seed, &format!("{prefix}.cv1"), in_c, 2 * c, 1);
-    insert_conv_block(t, seed, &format!("{prefix}.cv2"), (2 + n) * c, out_c, 1);
+    let hidden = out_c / 2;
+    insert_conv_block(t, seed, &format!("{prefix}.conv1"), in_c, hidden, 1);
+    insert_conv_block(t, seed, &format!("{prefix}.conv2"), in_c, hidden, 1);
+    insert_conv_block(t, seed, &format!("{prefix}.conv3"), 2 * hidden, out_c, 1);
     for idx in 0..n {
-        insert_conv_block(t, seed, &format!("{prefix}.bottleneck.{idx}.cv1"), c, c, 3);
-        insert_conv_block(t, seed, &format!("{prefix}.bottleneck.{idx}.cv2"), c, c, 3);
+        insert_conv_block(
+            t,
+            seed,
+            &format!("{prefix}.m.{idx}.conv1"),
+            hidden,
+            hidden,
+            1,
+        );
+        insert_conv_block(
+            t,
+            seed,
+            &format!("{prefix}.m.{idx}.conv2"),
+            hidden,
+            hidden,
+            3,
+        );
     }
 }
 
@@ -450,86 +465,158 @@ fn write_tiny_siglip_fixture(dir: &Path) {
     write_safetensors_file(&dir.join("model.safetensors"), &t);
 }
 
-/// Builds a tiny valid YOLOv8 `.safetensors` + `detector_config.json` (`input_size=64`)
-/// with a positive bias on COCO class 0 (`person`) so Stage 1 emits real detections.
-fn write_tiny_yolov8_fixture(dir: &Path) {
-    let cfg = YoloV8Config {
-        depth: 0.33,
-        width: 0.0625,
-        ratio: 1.0,
+/// Builds a tiny valid YOLOX `.safetensors` + `detector_config.json` (`input=64x64`,
+/// `width_multiple=0.125`, `depth_multiple=0.33`, `num_classes=10`) with positive objectness
+/// and COCO class 0 (`person`) logits on stride 32 so Stage 1 emits real detections.
+fn write_tiny_yolox_fixture(weights_dir: &Path, config_dir: &Path) {
+    let cfg = YoloxDetectorConfig {
+        family: "yolox".to_string(),
+        variant: "yolox-tiny-synth".to_string(),
+        input_width: 64,
+        input_height: 64,
         num_classes: 10,
-        input_size: 64,
+        strides: vec![8, 16, 32],
+        depth_multiple: 0.33,
+        width_multiple: 0.125,
+        confidence_threshold: 0.25,
+        nms_iou_threshold: 0.45,
+        max_detections: 32,
+        apply_sigmoid: true,
     };
     std::fs::write(
-        dir.join("detector_config.json"),
+        config_dir.join("detector_config.json"),
         serde_json::to_vec_pretty(&cfg).expect("detector_config json"),
     )
     .expect("write detector_config.json");
 
-    let b1 = 4usize;
-    let b2 = 8usize;
-    let f1 = 16usize;
-    let f2 = 32usize;
-    let f3 = 32usize;
-    let ch = 16usize;
+    let base_c = 8usize;
+    let c2 = base_c * 2; // 16
+    let c3 = base_c * 4; // 32
+    let c4 = base_c * 8; // 64
+    let c5 = base_c * 16; // 128
+    let mid_c = 32usize;
     let nc = cfg.num_classes;
-    let c1 = (f1 / 4).max(ch * 4).max(16);
-    let c2 = f1.max(nc.min(100));
 
     let mut t = TensorMap::new();
     let mut seed = 500u64;
 
-    // Backbone (`net.*`)
-    insert_conv_block(&mut t, &mut seed, "net.b1.0", 3, b1, 3);
-    insert_conv_block(&mut t, &mut seed, "net.b1.1", b1, b2, 3);
-    insert_c2f(&mut t, &mut seed, "net.b2.0", b2, b2, 1);
-    insert_conv_block(&mut t, &mut seed, "net.b2.1", b2, f1, 3);
-    insert_c2f(&mut t, &mut seed, "net.b2.2", f1, f1, 2);
-    insert_conv_block(&mut t, &mut seed, "net.b3.0", f1, f2, 3);
-    insert_c2f(&mut t, &mut seed, "net.b3.1", f2, f2, 2);
-    insert_conv_block(&mut t, &mut seed, "net.b4.0", f2, f3, 3);
-    insert_c2f(&mut t, &mut seed, "net.b4.1", f3, f3, 1);
-    insert_conv_block(&mut t, &mut seed, "net.b5.0.cv1", f3, f3 / 2, 1);
-    insert_conv_block(&mut t, &mut seed, "net.b5.0.cv2", (f3 / 2) * 4, f3, 1);
-
-    // Neck (`fpn.*`)
-    insert_c2f(&mut t, &mut seed, "fpn.n1", f2 + f3, f2, 1);
-    insert_c2f(&mut t, &mut seed, "fpn.n2", f1 + f2, f1, 1);
-    insert_conv_block(&mut t, &mut seed, "fpn.n3", f1, f1, 3);
-    insert_c2f(&mut t, &mut seed, "fpn.n4", f1 + f2, f2, 1);
-    insert_conv_block(&mut t, &mut seed, "fpn.n5", f2, f2, 3);
-    insert_c2f(&mut t, &mut seed, "fpn.n6", f2 + f3, f3, 1);
-
-    // Head (`head.*`)
-    let mut dfl_weights = Vec::with_capacity(ch * 4);
-    for i in 0..ch {
-        dfl_weights.extend_from_slice(&(i as f32).to_le_bytes());
-    }
-    t.insert(
-        "head.dfl.conv.weight".to_string(),
-        (vec![1, ch, 1, 1], dfl_weights),
+    // CSPDarknet (`backbone.backbone.*`)
+    insert_conv_block(
+        &mut t,
+        &mut seed,
+        "backbone.backbone.stem.conv",
+        12,
+        base_c,
+        3,
     );
+    insert_conv_block(
+        &mut t,
+        &mut seed,
+        "backbone.backbone.dark2.0",
+        base_c,
+        c2,
+        3,
+    );
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.backbone.dark2.1", c2, c2, 1);
+    insert_conv_block(&mut t, &mut seed, "backbone.backbone.dark3.0", c2, c3, 3);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.backbone.dark3.1", c3, c3, 3);
+    insert_conv_block(&mut t, &mut seed, "backbone.backbone.dark4.0", c3, c4, 3);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.backbone.dark4.1", c4, c4, 3);
+    insert_conv_block(&mut t, &mut seed, "backbone.backbone.dark5.0", c4, c5, 3);
+    insert_conv_block(
+        &mut t,
+        &mut seed,
+        "backbone.backbone.dark5.1.conv1",
+        c5,
+        c5 / 2,
+        1,
+    );
+    insert_conv_block(
+        &mut t,
+        &mut seed,
+        "backbone.backbone.dark5.1.conv2",
+        (c5 / 2) * 4,
+        c5,
+        1,
+    );
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.backbone.dark5.2", c5, c5, 1);
 
-    for (idx, in_c) in [f1, f2, f3].into_iter().enumerate() {
-        insert_conv_block(&mut t, &mut seed, &format!("head.cv2.{idx}.0"), in_c, c1, 3);
-        insert_conv_block(&mut t, &mut seed, &format!("head.cv2.{idx}.1"), c1, c1, 3);
-        t.insert(
-            format!("head.cv2.{idx}.2.weight"),
-            (vec![4 * ch, c1, 1, 1], const_f32_bytes(4 * ch * c1, 0.0)),
+    // YOLOPAFPN neck (`backbone.*`)
+    insert_conv_block(&mut t, &mut seed, "backbone.lateral_conv0", c5, c4, 1);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.C3_p4", c4 + c4, c4, 1);
+    insert_conv_block(&mut t, &mut seed, "backbone.reduce_conv1", c4, c3, 1);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.C3_p3", c3 + c3, c3, 1);
+    insert_conv_block(&mut t, &mut seed, "backbone.bu_conv2", c3, c3, 3);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.C3_n3", c3 + c3, c4, 1);
+    insert_conv_block(&mut t, &mut seed, "backbone.bu_conv1", c4, c4, 3);
+    insert_yolox_csp_layer(&mut t, &mut seed, "backbone.C3_n4", c4 + c4, c5, 1);
+
+    // Decoupled YOLOXHead (`head.*`)
+    for (idx, in_c) in [c3, c4, c5].into_iter().enumerate() {
+        insert_conv_block(
+            &mut t,
+            &mut seed,
+            &format!("head.stems.{idx}"),
+            in_c,
+            mid_c,
+            1,
         );
-        t.insert(
-            format!("head.cv2.{idx}.2.bias"),
-            (vec![4 * ch], const_f32_bytes(4 * ch, 0.0)),
+        insert_conv_block(
+            &mut t,
+            &mut seed,
+            &format!("head.cls_convs.{idx}.0"),
+            mid_c,
+            mid_c,
+            3,
+        );
+        insert_conv_block(
+            &mut t,
+            &mut seed,
+            &format!("head.cls_convs.{idx}.1"),
+            mid_c,
+            mid_c,
+            3,
+        );
+        insert_conv_block(
+            &mut t,
+            &mut seed,
+            &format!("head.reg_convs.{idx}.0"),
+            mid_c,
+            mid_c,
+            3,
+        );
+        insert_conv_block(
+            &mut t,
+            &mut seed,
+            &format!("head.reg_convs.{idx}.1"),
+            mid_c,
+            mid_c,
+            3,
         );
 
-        insert_conv_block(&mut t, &mut seed, &format!("head.cv3.{idx}.0"), in_c, c2, 3);
-        insert_conv_block(&mut t, &mut seed, &format!("head.cv3.{idx}.1"), c2, c2, 3);
         t.insert(
-            format!("head.cv3.{idx}.2.weight"),
-            (vec![nc, c2, 1, 1], const_f32_bytes(nc * c2, 0.0)),
+            format!("head.reg_preds.{idx}.weight"),
+            (vec![4, mid_c, 1, 1], const_f32_bytes(4 * mid_c, 0.0)),
         );
-        // Set strong positive logit on class 0 (`person`) for scale 2 so sigmoid > 0.85,
-        // and negative logits elsewhere so NMS produces clean deterministic detections.
+        t.insert(
+            format!("head.reg_preds.{idx}.bias"),
+            (vec![4], const_f32_bytes(4, 0.0)),
+        );
+
+        t.insert(
+            format!("head.obj_preds.{idx}.weight"),
+            (vec![1, mid_c, 1, 1], const_f32_bytes(mid_c, 0.0)),
+        );
+        let obj_bias = if idx == 2 { 2.2f32 } else { -4.0f32 };
+        t.insert(
+            format!("head.obj_preds.{idx}.bias"),
+            (vec![1], const_f32_bytes(1, obj_bias)),
+        );
+
+        t.insert(
+            format!("head.cls_preds.{idx}.weight"),
+            (vec![nc, mid_c, 1, 1], const_f32_bytes(nc * mid_c, 0.0)),
+        );
         let mut cls_bias = Vec::with_capacity(nc * 4);
         for class_i in 0..nc {
             let val = if idx == 2 && class_i == 0 {
@@ -539,10 +626,10 @@ fn write_tiny_yolov8_fixture(dir: &Path) {
             };
             cls_bias.extend_from_slice(&val.to_le_bytes());
         }
-        t.insert(format!("head.cv3.{idx}.2.bias"), (vec![nc], cls_bias));
+        t.insert(format!("head.cls_preds.{idx}.bias"), (vec![nc], cls_bias));
     }
 
-    write_safetensors_file(&dir.join("detector.safetensors"), &t);
+    write_safetensors_file(&weights_dir.join("detector.safetensors"), &t);
 }
 
 #[test]
@@ -629,18 +716,18 @@ fn candle_backend_synthetic_siglip_end_to_end_and_scene_only_fallback() {
 }
 
 #[test]
-fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
+fn candle_backend_with_synthetic_yolox_detector_runs_two_stage_pipeline() {
     let dir = TempDir::new().expect("temp dir");
     write_tiny_siglip_fixture(dir.path());
-    write_tiny_yolov8_fixture(dir.path());
+    write_tiny_yolox_fixture(dir.path(), dir.path());
 
     let backend = Arc::new(
         CandleBackend::load(
             dir.path(),
             &CandleBackendOptions::new(InferenceDevicePreference::Auto, false, 32)
-                .with_model_revision("siglip-yolo-synth:1"),
+                .with_model_revision("siglip-yolox-synth:1"),
         )
-        .expect("load SigLIP + YOLOv8 CandleBackend"),
+        .expect("load SigLIP + YOLOX CandleBackend"),
     );
 
     assert!(backend.detector_enabled());
@@ -649,10 +736,10 @@ fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
     let frame = RgbFrame::solid(64, 64, [180, 35, 35]);
     let raw_dets = backend
         .detect_objects(&frame, 0.35)
-        .expect("YOLOv8 detect_objects");
+        .expect("YOLOX detect_objects");
     assert!(
         !raw_dets.is_empty(),
-        "expected synthetic YOLOv8 person detection"
+        "expected synthetic YOLOX person detection"
     );
     assert!(
         raw_dets
@@ -660,7 +747,7 @@ fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
             .all(|d| d.object_class() == ObjectClass::Person)
     );
 
-    let models = ModelPinConfig::new("yolov8-tiny", "1", "siglip-yolo-synth", "1", 32);
+    let models = ModelPinConfig::new("yolox-s", "2026.1", "siglip-yolox-synth", "1", 32);
     let pipeline = VisionPipeline::with_backend(models, true, backend);
     let analysis = pipeline
         .process_keyframe(&frame, None)
@@ -676,6 +763,26 @@ fn candle_backend_with_synthetic_yolov8_detector_runs_two_stage_pipeline() {
         let norm: f32 = emb.embedding().iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-4);
     }
+
+    // Also verify explicit detector_path resolves detector_config.json from weights_path.parent()
+    // before falling back to model_dir.
+    let model_dir = TempDir::new().expect("model dir");
+    let detector_dir = TempDir::new().expect("detector dir");
+    write_tiny_siglip_fixture(model_dir.path());
+    write_tiny_yolox_fixture(detector_dir.path(), detector_dir.path());
+    // Write a conflicting non-YOLOX config in model_dir to prove parent dir wins.
+    std::fs::write(
+        model_dir.path().join("detector_config.json"),
+        br#"{"family":"rtdetr"}"#,
+    )
+    .expect("write model_dir decoy config");
+    let explicit_backend = CandleBackend::load(
+        model_dir.path(),
+        &CandleBackendOptions::new(InferenceDevicePreference::Cpu, false, 32)
+            .with_detector_path(detector_dir.path().join("detector.safetensors")),
+    )
+    .expect("detector_config.json in weights_path.parent() must take precedence");
+    assert!(explicit_backend.detector_enabled());
 }
 
 #[test]
@@ -1384,6 +1491,73 @@ fn startup_admission_runs_image_and_text_warmup_before_reporting_ready() {
         backend
             .text_queries
             .load(std::sync::atomic::Ordering::SeqCst)
-            >= 1
+            >= 2,
+        "startup admission must run both JIT and post-JIT text warmup passes"
+    );
+    assert!(manifest.text_warmup_ms() < 60_000);
+}
+
+#[test]
+fn detector_defaults_align_on_yolox_s() {
+    let pin = ModelPinConfig::default();
+    assert_eq!(pin.detector_model_id(), "yolox-s");
+    assert_eq!(pin.detector_model_version(), "2026.1");
+
+    let cfg = CliArgs::try_parse_from(["serviceradar-media-worker"])
+        .expect("parse default cli")
+        .into_worker_config()
+        .expect("default worker config");
+    assert_eq!(cfg.models().detector_model_id(), "yolox-s");
+    assert_eq!(cfg.models().detector_model_version(), "2026.1");
+}
+
+#[tokio::test]
+async fn text_embed_rpc_warmup_and_readiness_wait_for_nats_connection() {
+    let dir = TempDir::new().expect("temp dir");
+    write_tiny_siglip_fixture(dir.path());
+
+    let cfg = CliArgs::try_parse_from([
+        "serviceradar-media-worker",
+        "--execution-provider",
+        "cpu_explicit",
+        "--model-dir",
+        dir.path().to_str().expect("utf8 path"),
+        "--device",
+        "cpu",
+        "--embedding-dim",
+        "32",
+        "--nats-url",
+        "invalid://unreachable-nats",
+    ])
+    .expect("parse cli")
+    .into_worker_config()
+    .expect("worker config");
+
+    let (worker, manifest) = crate::load_and_admit_worker(cfg.clone())
+        .await
+        .expect("admit candle backend");
+    let metrics = Arc::new(WorkerMetrics::new());
+
+    // Warm up TextEmbedService::handle_rpc_payload over tokio::task::spawn_blocking.
+    crate::worker::warmup_text_embed_rpc(cfg.models(), Arc::clone(&worker.backend), 4)
+        .await
+        .expect("text embed RPC warmup succeeds");
+
+    // Readiness MUST remain false if NATS connection/subscription fails.
+    let readiness = ReadinessState::not_ready("connecting to NATS", Arc::clone(&metrics));
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let err = crate::run_admitted_nats_worker_with_readiness(
+        worker,
+        metrics,
+        shutdown_rx,
+        readiness.clone(),
+        manifest,
+    )
+    .await
+    .expect_err("unreachable NATS must fail before readiness turns ready");
+    assert!(!err.to_string().is_empty());
+    assert!(
+        !readiness.is_ready(),
+        "/readyz must stay 503 when NATS connect/subscribe fails"
     );
 }

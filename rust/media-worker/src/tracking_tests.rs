@@ -485,7 +485,7 @@ fn tracker_mode_off_preserves_untracked_per_frame_behavior_and_wire_compat() {
         "job_id": "job-legacy-1",
         "catalog_entry_id": "cat-1",
         "descriptor_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "detector_model_id": "rtdetr-r18",
+        "detector_model_id": "yolox-s",
         "detector_model_version": "2026.1",
         "embedder_model_id": "siglip-b16-384",
         "embedder_model_version": "2026.1",

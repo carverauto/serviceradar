@@ -426,7 +426,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
           timeline_ts_us: ctx.local_entry.timeline_start_us + 500_000,
           time_basis: :received,
           scene_suppressed: false,
-          detector_model_id: "rtdetr-r18",
+          detector_model_id: "yolox-s",
           detector_model_version: "2026.1",
           detections: [
             %{"object_class" => "person", "confidence" => 0.94, "dominant_colors" => ["blue"]}
@@ -524,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
           timeline_ts_us: ctx.local_entry.timeline_start_us + 900_000,
           time_basis: :received,
           scene_suppressed: false,
-          detector_model_id: "rtdetr-r18",
+          detector_model_id: "yolox-s",
           detector_model_version: "2026.1",
           detections: [],
           thumbnail_jpeg: frame_jpeg

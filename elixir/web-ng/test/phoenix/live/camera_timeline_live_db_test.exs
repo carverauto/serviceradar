@@ -552,6 +552,128 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='false']")
   end
 
+  test "populates data-overlay-detections from VisualFrame detections during normal timeline playback and clip playback while excluding quarantined entries",
+       %{viewer: viewer, actor: actor} do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    ctx = seed_rich_timeline_camera(actor, now)
+    entry = ctx.local_and_archived_entry
+
+    {:ok, person_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          fragment_sequence: 0,
+          media_pts_ns: entry.media_start_ns + 1_000_000_000,
+          timeline_ts_us: entry.timeline_start_us + 1_000_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "yolox-s",
+          detector_model_version: "2026.1",
+          detections: [
+            %{
+              "object_class" => "person",
+              "confidence" => 0.92,
+              "bbox" => %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.4, "y2" => 0.8},
+              "dominant_colors" => ["navy"]
+            }
+          ]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, vehicle_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          fragment_sequence: 1,
+          media_pts_ns: entry.media_start_ns + 4_000_000_000,
+          timeline_ts_us: entry.timeline_start_us + 4_000_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "yolox-s",
+          detector_model_version: "2026.1",
+          detections: [
+            %{
+              "object_class" => "vehicle",
+              "confidence" => 0.87,
+              "bbox" => %{"x1" => 0.5, "y1" => 0.3, "x2" => 0.9, "y2" => 0.7},
+              "dominant_colors" => ["white"]
+            }
+          ]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, quarantined_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: ctx.quarantined_entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          fragment_sequence: 0,
+          media_pts_ns: 0,
+          timeline_ts_us: entry.timeline_start_us + 2_000_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "yolox-s",
+          detector_model_version: "2026.1",
+          detections: [
+            %{
+              "object_class" => "package",
+              "confidence" => 0.85,
+              "bbox" => %{"x1" => 0.2, "y1" => 0.2, "x2" => 0.3, "y2" => 0.4}
+            }
+          ]
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    # Normal timeline playback (no search / no highlight_frame) populates window VisualFrame detections
+    {:ok, view, _html} = live(authed_conn(viewer), ~p"/cameras/#{ctx.source.id}/recordings?mode=timeline")
+
+    normal_overlays = player_overlay_detections(view)
+    normal_frame_ids = Enum.map(normal_overlays, & &1["visual_frame_id"])
+    assert person_frame.id in normal_frame_ids
+    assert vehicle_frame.id in normal_frame_ids
+    refute quarantined_frame.id in normal_frame_ids
+
+    # Clip playback focuses the window and preserves both VisualFrame detections inside [start_us - 5s, end_us + 10s]
+    person_clip_id = "evt-#{person_frame.id}-person"
+    view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
+
+    clip_overlays = player_overlay_detections(view)
+    clip_frame_ids = Enum.map(clip_overlays, & &1["visual_frame_id"])
+    assert person_frame.id in clip_frame_ids
+    assert vehicle_frame.id in clip_frame_ids
+    refute quarantined_frame.id in clip_frame_ids
+  end
+
+  defp player_overlay_detections(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#camera-timeline-player")
+    |> LazyHTML.attribute("data-overlay-detections")
+    |> List.first()
+    |> case do
+      json when is_binary(json) and json != "" -> Jason.decode!(json)
+      _ -> []
+    end
+  end
+
   defp player_playlist_path(view) do
     view
     |> render()

@@ -168,6 +168,7 @@ pub struct CapabilityManifest {
     index_concurrency: usize,
     text_embed_concurrency: usize,
     warmup_ms: u64,
+    text_warmup_ms: u64,
 }
 
 impl CapabilityManifest {
@@ -194,6 +195,11 @@ impl CapabilityManifest {
     /// Wall time of the synthetic warm-up forward passes (includes any CUDA JIT compile).
     pub fn warmup_ms(&self) -> u64 {
         self.warmup_ms
+    }
+
+    /// Post-JIT wall time (ms) of the second synthetic SigLIP text forward pass.
+    pub fn text_warmup_ms(&self) -> u64 {
+        self.text_warmup_ms
     }
 
     pub fn detector_enabled(&self) -> bool {
@@ -310,7 +316,7 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         )));
     }
     let warmup_started = Instant::now();
-    run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
+    let text_warmup_ms = run_synthetic_warmup_self_test(config.models(), Arc::clone(&backend))?;
     let warmup_ms = u64::try_from(warmup_started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     Ok(CapabilityManifest {
@@ -340,6 +346,7 @@ pub fn verify_startup_capabilities_with_backend<P: GpuEnvironmentProbe>(
         index_concurrency: config.index_concurrency(),
         text_embed_concurrency: config.text_embed_concurrency(),
         warmup_ms,
+        text_warmup_ms,
     })
 }
 
@@ -514,7 +521,7 @@ fn classify_gpu_sharing(
 fn run_synthetic_warmup_self_test(
     models: &ModelPinConfig,
     backend: Arc<dyn InferenceBackend>,
-) -> Result<(), CapabilityError> {
+) -> Result<u64, CapabilityError> {
     // The configured index width, not the backend's own claim: the warm-up vectors are
     // real model output, so this proves the towers emit what the index stores.
     let expected_dim = models.embedding_dim();
@@ -556,7 +563,34 @@ fn run_synthetic_warmup_self_test(
             "text tower warmup produced non-unit embedding vector",
         ));
     }
-    Ok(())
+
+    // Second pass after PTX JIT compilation measures steady-state text-tower latency.
+    let text_pass2_started = Instant::now();
+    let second_text_vec = backend.encode_text("warmup second pass").map_err(|err| {
+        CapabilityError::invalid_configuration(format!(
+            "second-pass text tower warmup failed: {err}"
+        ))
+    })?;
+    let text_warmup_ms =
+        u64::try_from(text_pass2_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if second_text_vec.len() != expected_dim {
+        return Err(CapabilityError::invalid_configuration(
+            "second-pass text tower warmup produced unexpected embedding dimension",
+        ));
+    }
+    let norm_sq_2: f32 = second_text_vec.iter().map(|x| x * x).sum();
+    if (norm_sq_2.sqrt() - 1.0).abs() > 0.01 {
+        return Err(CapabilityError::invalid_configuration(
+            "second-pass text tower warmup produced non-unit embedding vector",
+        ));
+    }
+    tracing::info!(
+        text_warmup_ms,
+        embedding_dim = expected_dim,
+        "verified post-JIT SigLIP text tower warmup latency"
+    );
+
+    Ok(text_warmup_ms)
 }
 
 fn count_nvidia_device_nodes() -> usize {

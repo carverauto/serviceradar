@@ -314,6 +314,66 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
              for(i <- 5..1//-1, do: "camera-timeline-gap-gap-#{String.pad_leading(Integer.to_string(i), 2, "0")}")
   end
 
+  test "renders sticky camera switcher rail and explicit empty states for single-camera and zero-match filters" do
+    active_cam = %{
+      id: @source_id,
+      display_name: "Synthetic Entry Camera",
+      vendor: "unifi",
+      vendor_camera_id: "cam-entry",
+      availability_status: "online",
+      metadata: %{"site" => "lab-a"}
+    }
+
+    single_cam_doc =
+      %{
+        switcher_cameras: [active_cam],
+        switcher_total_count: 1,
+        switcher_search: "",
+        switcher_open_mobile?: false
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    [rail_class] = attr_of(single_cam_doc, "#camera-switcher-rail", "class")
+    classes = String.split(rail_class)
+    assert "lg:sticky" in classes
+    assert "lg:top-20" in classes
+    assert "lg:self-start" in classes
+    assert "hidden" in classes
+    assert "lg:flex" in classes
+    refute "flex" in classes
+
+    refute has_selector?(single_cam_doc, "#camera-switcher-list")
+    assert text_of(single_cam_doc, "#camera-switcher-empty") == "No other cameras configured."
+
+    active_only_search_doc =
+      %{
+        switcher_cameras: [active_cam],
+        switcher_total_count: 1,
+        switcher_search: "Entry",
+        switcher_open_mobile?: true
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    [mobile_open_class] = attr_of(active_only_search_doc, "#camera-switcher-rail", "class")
+    assert "flex" in String.split(mobile_open_class)
+    refute has_selector?(active_only_search_doc, "#camera-switcher-list")
+    assert text_of(active_only_search_doc, "#camera-switcher-empty") == "No other matching cameras."
+
+    zero_match_doc =
+      %{
+        switcher_cameras: [],
+        switcher_total_count: 0,
+        switcher_search: "missing"
+      }
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    refute has_selector?(zero_match_doc, "#camera-switcher-list")
+    assert text_of(zero_match_doc, "#camera-switcher-empty") == "No matching cameras."
+  end
+
   defp page_assigns(all_clips, overrides) do
     mode = Map.get(overrides, :timeline_clips_mode, "all")
     category = Map.get(overrides, :timeline_clips_category, "all")
