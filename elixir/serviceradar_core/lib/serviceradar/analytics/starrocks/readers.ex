@@ -193,6 +193,18 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       e when e in ~w(rum rum_beacons rum_beacon) ->
         :rum
 
+      "horizon_outages" ->
+        :horizon_outages
+
+      "horizon_bgp" ->
+        :horizon_bgp_events
+
+      "horizon_zombies" ->
+        :horizon_bgp_zombies
+
+      "horizon_paths" ->
+        :horizon_path_hops
+
       e
       when e in ~w(device_availability_history device_availability_transitions
                    availability_history) ->
@@ -223,7 +235,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # NetFlow has no CNPG serving path. Every other dataset keeps one and stays
   # on CNPG until it is cut over; flows instead refuse to answer, because the
   # alternative is a second, divergent set of numbers for the same question.
-  @starrocks_only [:flows]
+  @starrocks_only [
+    :flows,
+    :horizon_outages,
+    :horizon_bgp_events,
+    :horizon_bgp_zombies,
+    :horizon_path_hops
+  ]
+
+  @horizon_datasets [
+    :horizon_outages,
+    :horizon_bgp_events,
+    :horizon_bgp_zombies,
+    :horizon_path_hops
+  ]
 
   @spec mode_for(atom() | String.t() | nil) ::
           String.t() | {:error, :starrocks_required} | nil
@@ -258,6 +283,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # exclusively to CNPG otherwise.
   def mode_for(:rum), do: if(enabled?(), do: "starrocks")
   def mode_for(:rum_beacons), do: if(enabled?(), do: "starrocks")
+
+  # Horizon telemetry is StarRocks-only: no CNPG dual-write or fallback.
+  def mode_for(dataset) when dataset in @horizon_datasets do
+    if enabled?(), do: "starrocks", else: {:error, :starrocks_required}
+  end
 
   # Interface counters and the other sysmon series use the same switch. A stale
   # `cutover_datasets` entry does not select StarRocks while the warehouse is off,

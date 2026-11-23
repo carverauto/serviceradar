@@ -11,6 +11,7 @@ mod bmp_events;
 mod device_availability_history;
 mod flow_filters;
 mod flow_spread;
+mod horizon;
 mod mtr;
 mod otel_metrics;
 mod rum_beacons;
@@ -81,6 +82,12 @@ fn translate_inner(
     }
     if matches!(plan.entity, Entity::RumBeacons) {
         return rum_beacons::translate(plan, database);
+    }
+    if matches!(
+        plan.entity,
+        Entity::HorizonOutages | Entity::HorizonBgp | Entity::HorizonZombies | Entity::HorizonPaths
+    ) {
+        return horizon::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {

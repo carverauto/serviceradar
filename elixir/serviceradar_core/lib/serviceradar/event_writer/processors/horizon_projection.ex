@@ -1,97 +1,47 @@
 defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   @moduledoc """
-  Fail-open projection from Horizon OCSF `log_activity` event rows into typed
-  CNPG tables (`horizon_outages`, `horizon_bgp_events`, `horizon_bgp_zombies`).
+  Fail-open StarRocks projection from Horizon OCSF `log_activity` event rows
+  into `serviceradar.horizon_outages`, `serviceradar.horizon_bgp_events`, and
+  `serviceradar.horizon_bgp_zombies`.
 
-  Called by `ServiceRadar.EventWriter.Processors.Events` on the CNPG events
-  write path. Skipped when `:events` is routed to the StarRocks warehouse
-  (`Destination.warehouse?(:events)`). Batches containing no `horizon.*`
-  `log_name` values short-circuit with zero database calls, and each table's
-  upsert fails open independently so primary OCSF event ingestion never fails.
+  Called by `ServiceRadar.EventWriter.Processors.Events` after OCSF rows are
+  persisted. Batches containing no `horizon.*` `log_name` values—or running on
+  an installation without StarRocks enabled—short-circuit with zero loads.
+  Each table load is isolated and fail-open so a projection error never fails
+  primary OCSF event ingestion or blocks sibling Horizon tables.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Destination
-  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
 
   require Logger
 
-  @outages_table "horizon_outages"
-  @bgp_events_table "horizon_bgp_events"
-  @bgp_zombies_table "horizon_bgp_zombies"
-
-  @outage_replace_fields [
-    :status,
-    :severity,
-    :entity_type,
-    :entity_key,
-    :region,
-    :covering_prefix,
-    :origin_asn,
-    :corroborating_pop_count,
-    :avg_forwarding_loss_pct,
-    :avg_synthetic_failure_pct,
-    :window_start_ms,
-    :window_end_ms,
-    :correlated_bgp_event_ids,
-    :raw_data
-  ]
-
-  @bgp_event_replace_fields [
-    :kind,
-    :level,
-    :prefix,
-    :origin_asn,
-    :as_path,
-    :rpki_status,
-    :caida_leak_inference,
-    :watchlist_id,
-    :client_label,
-    :raw_data
-  ]
-
-  @bgp_zombie_replace_fields [
-    :status,
-    :prefix,
-    :origin_asn,
-    :divergence_pct,
-    :is_beacon,
-    :withdrawn_peers,
-    :total_peers,
-    :stuck_peer_asns,
-    :first_seen_at,
-    :resolved_at,
-    :raw_data
-  ]
-
   @doc """
-  Projects any Horizon OCSF rows in `rows` into typed CNPG tables.
+  Projects any Horizon OCSF rows in `rows` into StarRocks.
 
-  Always returns `:ok` (fail-open). Accepts `insert_fn: fn table, rows, opts -> ... end`
-  in `opts` for testing without a database connection.
+  Always returns `:ok` (fail-open). Test options:
+
+    * `:starrocks_enabled` - boolean override for `Destination.enabled?/0`
+    * `:load` - `(dataset, rows -> {:ok, map()} | {:error, term()})`, defaults to
+      `&Destination.persist_warehouse/2`
   """
   @spec project_rows([map()], keyword()) :: :ok
   def project_rows(rows, opts \\ []) when is_list(rows) do
-    if Destination.warehouse?(:events) do
+    horizon_rows = Enum.filter(rows, &horizon_event?/1)
+
+    if horizon_rows == [] or not starrocks_enabled?(opts) do
       :ok
     else
-      horizon_rows = Enum.filter(rows, &horizon_event?/1)
-
-      if horizon_rows == [] do
-        :ok
-      else
-        do_project(horizon_rows, opts)
-      end
+      do_project(horizon_rows, opts)
     end
   rescue
     error ->
       Logger.warning("Horizon OCSF projection failed (fail-open): #{Exception.message(error)}")
-
       :ok
   end
 
   @doc """
-  Builds typed row lists for each Horizon table from OCSF event rows.
+  Builds typed row lists for each Horizon StarRocks table from OCSF event rows.
   """
   @spec build_projections([map()]) :: %{
           outages: [map()],
@@ -118,54 +68,39 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     }
   end
 
+  defp starrocks_enabled?(opts) do
+    Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0)
+  end
+
   defp do_project(horizon_rows, opts) do
-    insert_fn = Keyword.get(opts, :insert_fn, &BulkInsert.insert_all/3)
+    load_fn = Keyword.get(opts, :load, &Destination.persist_warehouse/2)
     projections = build_projections(horizon_rows)
 
-    upsert_table(
-      insert_fn,
-      @outages_table,
-      projections.outages,
-      [:time, :outage_id],
-      @outage_replace_fields
-    )
-
-    upsert_table(
-      insert_fn,
-      @bgp_events_table,
-      projections.bgp_events,
-      [:time, :event_id],
-      @bgp_event_replace_fields
-    )
-
-    upsert_table(
-      insert_fn,
-      @bgp_zombies_table,
-      projections.bgp_zombies,
-      [:time, :episode_id],
-      @bgp_zombie_replace_fields
-    )
+    load_table(load_fn, :horizon_outages, projections.outages)
+    load_table(load_fn, :horizon_bgp_events, projections.bgp_events)
+    load_table(load_fn, :horizon_bgp_zombies, projections.bgp_zombies)
 
     :ok
   end
 
-  defp upsert_table(_insert_fn, _table, [], _conflict_target, _replace_fields), do: :ok
+  defp load_table(_load_fn, _dataset, []), do: :ok
 
-  defp upsert_table(insert_fn, table, rows, conflict_target, replace_fields) do
-    insert_fn.(
-      table,
-      rows,
-      on_conflict: {:replace, replace_fields},
-      conflict_target: conflict_target,
-      returning: false
-    )
+  defp load_table(load_fn, dataset, rows) do
+    case load_fn.(dataset, rows) do
+      {:ok, _result} ->
+        :ok
 
-    :ok
+      {:error, reason} ->
+        Logger.warning(
+          "Horizon StarRocks projection failed for #{dataset} (fail-open): #{inspect(reason)}"
+        )
+
+        :ok
+    end
   rescue
     error ->
       Logger.warning(
-        "Horizon OCSF projection failed (fail-open) for #{table}: #{Exception.message(error)}",
-        table: table
+        "Horizon StarRocks projection raised for #{dataset} (fail-open): #{Exception.message(error)}"
       )
 
       :ok
@@ -177,9 +112,10 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   defp horizon_event?(_row), do: false
 
+  # Exact unmapped key names emitted by plugins/horizon-feed/src/ocsf.rs.
   defp project_row(%{log_name: "horizon.outage", time: time} = row) do
     unmapped = unmapped_map(row)
-    outage_id = non_empty_string(unmapped["outage_id"] || unmapped["horizon_outage_id"])
+    outage_id = non_empty_string(unmapped["outage_id"])
 
     if is_nil(outage_id) do
       :ignore
@@ -192,18 +128,17 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
          time: normalize_time(time),
          outage_id: outage_id,
          status: non_empty_string(unmapped["status"]) || "active",
-         severity: non_empty_string(unmapped["severity"] || unmapped["level"]) || "warning",
+         severity: non_empty_string(unmapped["severity"]) || "warning",
          entity_type: entity_type,
          entity_key: entity_key,
          region: non_empty_string(unmapped["region"]),
          covering_prefix: non_empty_string(unmapped["covering_prefix"]),
-         origin_asn: parse_outage_asn(unmapped, entity_type, entity_key),
+         origin_asn: parse_asn(unmapped["affected_asn"]),
          corroborating_pop_count: parse_int(unmapped["corroborating_pop_count"]) || 0,
          avg_forwarding_loss_pct: parse_float(unmapped["avg_forwarding_loss_pct"]),
          avg_synthetic_failure_pct: parse_float(unmapped["avg_synthetic_failure_pct"]),
-         window_start_ms:
-           parse_int(unmapped["window_start_unix_ms"] || unmapped["window_start_ms"]),
-         window_end_ms: parse_int(unmapped["window_end_unix_ms"] || unmapped["window_end_ms"]),
+         window_start_ms: parse_int(unmapped["window_start_unix_ms"]),
+         window_end_ms: parse_int(unmapped["window_end_unix_ms"]),
          correlated_bgp_event_ids: list_or_empty(unmapped["correlated_bgp_event_ids"]),
          raw_data: unmapped
        }}
@@ -213,7 +148,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   defp project_row(%{log_name: "horizon.bgp_anomaly", time: time} = row) do
     unmapped = unmapped_map(row)
     event_id = non_empty_string(unmapped["event_id"])
-    prefix = non_empty_string(unmapped["prefix"] || unmapped["covering_prefix"])
+    prefix = non_empty_string(unmapped["covering_prefix"])
 
     if is_nil(event_id) or is_nil(prefix) do
       :ignore
@@ -227,10 +162,10 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
          prefix: prefix,
          origin_asn: parse_int(unmapped["origin_asn"]),
          as_path: list_or_empty(unmapped["as_path"]),
-         rpki_status: non_empty_string(unmapped["rpki_status"] || unmapped["roa_validity"]),
+         rpki_status: non_empty_string(unmapped["rpki_status"]),
          caida_leak_inference: non_empty_string(unmapped["caida_leak_inference"]),
-         watchlist_id: non_empty_string(unmapped["watchlist_id"]),
-         client_label: non_empty_string(unmapped["client_label"] || unmapped["label"]),
+         watchlist_id: nil,
+         client_label: nil,
          raw_data: unmapped
        }}
     end
@@ -239,11 +174,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   defp project_row(%{log_name: "horizon.bgp_watchlist", time: time} = row) do
     unmapped = unmapped_map(row)
     event_id = non_empty_string(unmapped["event_id"])
-
-    prefix =
-      non_empty_string(
-        unmapped["observed_prefix"] || unmapped["covering_prefix"] || unmapped["watched_prefix"]
-      )
+    prefix = non_empty_string(unmapped["observed_prefix"])
 
     if is_nil(event_id) or is_nil(prefix) do
       :ignore
@@ -255,12 +186,12 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
          kind: "watchlist",
          level: non_empty_string(unmapped["level"]) || "warning",
          prefix: prefix,
-         origin_asn: parse_int(unmapped["observed_origin_asn"] || unmapped["origin_asn"]),
-         as_path: list_or_empty(unmapped["observed_as_path"] || unmapped["as_path"]),
-         rpki_status: non_empty_string(unmapped["rpki_status"]),
-         caida_leak_inference: non_empty_string(unmapped["caida_leak_inference"]),
+         origin_asn: parse_int(unmapped["observed_origin_asn"]),
+         as_path: list_or_empty(unmapped["observed_as_path"]),
+         rpki_status: nil,
+         caida_leak_inference: nil,
          watchlist_id: non_empty_string(unmapped["watchlist_id"]),
-         client_label: non_empty_string(unmapped["label"] || unmapped["client_label"]),
+         client_label: non_empty_string(unmapped["label"]),
          raw_data: unmapped
        }}
     end
@@ -269,7 +200,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   defp project_row(%{log_name: "horizon.bgp_zombie", time: time} = row) do
     unmapped = unmapped_map(row)
     episode_id = non_empty_string(unmapped["episode_id"])
-    prefix = non_empty_string(unmapped["prefix"] || unmapped["covering_prefix"])
+    prefix = non_empty_string(unmapped["covering_prefix"])
 
     if is_nil(episode_id) or is_nil(prefix) do
       :ignore
@@ -278,13 +209,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       event_time = normalize_time(time)
 
       resolved_at =
-        case parse_optional_timestamp(unmapped["resolved_at"]) do
-          %DateTime{} = ts ->
-            ts
-
-          nil ->
-            if String.downcase(status) in ["resolved", "cleared"], do: event_time
-        end
+        if String.downcase(status) in ["resolved", "cleared"], do: event_time
 
       {:bgp_zombie,
        %{
@@ -298,8 +223,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
          withdrawn_peers: parse_int(unmapped["withdrawn_peers"]),
          total_peers: parse_int(unmapped["total_peers"]),
          stuck_peer_asns: list_or_empty(unmapped["stuck_peer_asns"]),
-         first_seen_at:
-           parse_optional_timestamp(unmapped["first_seen_at"] || unmapped["first_seen"]),
+         first_seen_at: parse_optional_timestamp(unmapped["first_seen"]),
          resolved_at: resolved_at,
          raw_data: unmapped
        }}
@@ -310,13 +234,6 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
 
   defp unmapped_map(%{unmapped: map}) when is_map(map), do: map
   defp unmapped_map(_row), do: %{}
-
-  defp parse_outage_asn(unmapped, entity_type, entity_key) do
-    case parse_asn(unmapped["origin_asn"] || unmapped["affected_asn"]) do
-      nil when entity_type == "asn" -> parse_asn(entity_key)
-      asn -> asn
-    end
-  end
 
   defp parse_asn(nil), do: nil
   defp parse_asn(val) when is_integer(val), do: val

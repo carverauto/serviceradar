@@ -4,6 +4,9 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
 
@@ -16,43 +19,44 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
     Events.parse_message(message)
   end
 
+  defp outage_row(id \\ "out-2026-001") do
+    ocsf_row(%{
+      "id" => "horizon.outages:#{id}:1763913600000",
+      "time" => "2026-11-23T16:00:00Z",
+      "class_uid" => 1008,
+      "category_uid" => 1,
+      "type_uid" => 100_801,
+      "activity_id" => 1,
+      "severity_id" => 5,
+      "log_name" => "horizon.outage",
+      "log_provider" => "horizon.outages",
+      "message" => "Horizon major outage on asn AS13335 (us-east)",
+      "unmapped" => %{
+        "source" => "horizon.outages",
+        "outage_id" => id,
+        "horizon_outage_id" => id,
+        "status" => "active",
+        "severity" => "major",
+        "level" => "critical",
+        "entity_type" => "asn",
+        "entity_key" => "AS13335",
+        "affected_asn" => "AS13335",
+        "region" => "us-east",
+        "covering_prefix" => "1.1.1.0/24",
+        "corroborating_pop_count" => 7,
+        "avg_forwarding_loss_pct" => 42.5,
+        "avg_synthetic_failure_pct" => 88.0,
+        "window_start_unix_ms" => 1_763_913_000_000,
+        "window_end_unix_ms" => 1_763_913_600_000,
+        "correlated_bgp_event_ids" => ["bgp-1", "bgp-2"]
+      }
+    })
+  end
+
   describe "build_projections/1" do
     test "projects horizon.outage OCSF payload matching plugins/horizon-feed shape" do
-      row =
-        ocsf_row(%{
-          "id" => "horizon.outages:out-2026-001:1763913600000",
-          "time" => "2026-11-23T16:00:00Z",
-          "class_uid" => 1008,
-          "category_uid" => 1,
-          "type_uid" => 100_801,
-          "activity_id" => 1,
-          "severity_id" => 5,
-          "log_name" => "horizon.outage",
-          "log_provider" => "horizon.outages",
-          "message" => "Horizon major outage on asn AS13335 (us-east)",
-          "unmapped" => %{
-            "source" => "horizon.outages",
-            "outage_id" => "out-2026-001",
-            "horizon_outage_id" => "out-2026-001",
-            "status" => "active",
-            "severity" => "major",
-            "level" => "critical",
-            "entity_type" => "asn",
-            "entity_key" => "AS13335",
-            "affected_asn" => "AS13335",
-            "region" => "us-east",
-            "covering_prefix" => "1.1.1.0/24",
-            "corroborating_pop_count" => 7,
-            "avg_forwarding_loss_pct" => 42.5,
-            "avg_synthetic_failure_pct" => 88.0,
-            "window_start_unix_ms" => 1_763_913_000_000,
-            "window_end_unix_ms" => 1_763_913_600_000,
-            "correlated_bgp_event_ids" => ["bgp-1", "bgp-2"]
-          }
-        })
-
       %{outages: [outage], bgp_events: [], bgp_zombies: []} =
-        HorizonProjection.build_projections([row])
+        HorizonProjection.build_projections([outage_row()])
 
       assert outage.outage_id == "out-2026-001"
       assert outage.status == "active"
@@ -201,7 +205,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   end
 
   describe "project_rows/2" do
-    test "short-circuits when batch contains no horizon.* events" do
+    test "short-circuits when StarRocks is disabled or no horizon.* rows exist" do
       non_horizon =
         ocsf_row(%{
           "id" => Ecto.UUID.generate(),
@@ -213,172 +217,108 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           "log_name" => "events.ocsf.processed"
         })
 
-      insert_fn = fn _table, _rows, _opts ->
-        flunk("insert_fn must not be called for non-Horizon rows")
+      load_fn = fn _dataset, _rows ->
+        flunk("load_fn must not be called")
       end
 
-      assert :ok == HorizonProjection.project_rows([non_horizon], insert_fn: insert_fn)
+      assert :ok ==
+               HorizonProjection.project_rows([non_horizon],
+                 starrocks_enabled: true,
+                 load: load_fn
+               )
+
+      assert :ok ==
+               HorizonProjection.project_rows([outage_row()],
+                 starrocks_enabled: false,
+                 load: load_fn
+               )
     end
 
-    test "dispatches upserts per populated table and fails open on error" do
-      outage =
-        ocsf_row(%{
-          "id" => "horizon.outages:out-9:1",
-          "time" => "2026-11-23T16:00:00Z",
-          "class_uid" => 1008,
-          "category_uid" => 1,
-          "type_uid" => 100_801,
-          "activity_id" => 1,
-          "log_name" => "horizon.outage",
-          "unmapped" => %{
-            "outage_id" => "out-9",
-            "status" => "active",
-            "severity" => "minor",
-            "entity_type" => "saas",
-            "entity_key" => "github.com"
-          }
-        })
-
-      parent = self()
-
-      insert_fn = fn table, rows, opts ->
-        send(parent, {:inserted, table, length(rows), opts[:conflict_target]})
-        {length(rows), nil}
-      end
-
-      assert :ok == HorizonProjection.project_rows([outage], insert_fn: insert_fn)
-      assert_received {:inserted, "horizon_outages", 1, [:time, :outage_id]}
-
-      failing_insert = fn _table, _rows, _opts ->
-        raise RuntimeError, "simulated CNPG outage"
-      end
-
-      log =
-        capture_log(fn ->
-          assert :ok == HorizonProjection.project_rows([outage], insert_fn: failing_insert)
-        end)
-
-      assert log =~ "Horizon OCSF projection failed (fail-open) for horizon_outages"
-    end
-
-    test "isolates per-table upsert failures so remaining tables in the batch still project" do
-      outage =
-        ocsf_row(%{
-          "id" => "horizon.outages:out-10:1",
-          "time" => "2026-11-23T16:00:00Z",
-          "class_uid" => 1008,
-          "category_uid" => 1,
-          "type_uid" => 100_801,
-          "activity_id" => 1,
-          "log_name" => "horizon.outage",
-          "unmapped" => %{
-            "outage_id" => "out-10",
-            "status" => "active",
-            "severity" => "major",
-            "entity_type" => "asn",
-            "entity_key" => "AS64512"
-          }
-        })
-
+    test "isolates per-table StarRocks load failures and continues sibling tables" do
       bgp =
         ocsf_row(%{
-          "id" => "horizon.bgp_anomalies:bgp-10",
-          "time" => "2026-11-23T16:01:00Z",
+          "id" => "horizon.bgp_anomalies:bgp-2",
+          "time" => "2026-11-23T16:05:00Z",
           "class_uid" => 1008,
           "category_uid" => 1,
           "type_uid" => 100_801,
           "activity_id" => 1,
+          "severity_id" => 5,
           "log_name" => "horizon.bgp_anomaly",
           "unmapped" => %{
-            "event_id" => "bgp-10",
-            "kind" => "hijack",
+            "event_id" => "bgp-2",
+            "kind" => "leak",
             "level" => "critical",
-            "prefix" => "198.51.100.0/24"
-          }
-        })
-
-      zombie =
-        ocsf_row(%{
-          "id" => "horizon.bgp_zombies:ep-10",
-          "time" => "2026-11-23T16:02:00Z",
-          "class_uid" => 1008,
-          "category_uid" => 1,
-          "type_uid" => 100_801,
-          "activity_id" => 1,
-          "log_name" => "horizon.bgp_zombie",
-          "unmapped" => %{
-            "episode_id" => "ep-10",
-            "status" => "active",
-            "prefix" => "192.0.2.0/24"
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_512
           }
         })
 
       parent = self()
 
-      insert_fn = fn
-        "horizon_outages", _rows, _opts ->
-          raise RuntimeError, "simulated outage constraint error"
+      load_fn = fn
+        :horizon_outages, _rows ->
+          {:error, :warehouse_unavailable}
 
-        table, rows, opts ->
-          send(parent, {:inserted, table, length(rows), opts[:conflict_target]})
-          {length(rows), nil}
+        :horizon_bgp_events, rows ->
+          send(parent, {:loaded, :horizon_bgp_events, length(rows)})
+          {:ok, %{loaded: length(rows)}}
       end
 
       log =
         capture_log(fn ->
           assert :ok ==
-                   HorizonProjection.project_rows([outage, bgp, zombie], insert_fn: insert_fn)
+                   HorizonProjection.project_rows([outage_row(), bgp],
+                     starrocks_enabled: true,
+                     load: load_fn
+                   )
         end)
 
-      assert log =~ "horizon_outages"
-      assert log =~ "simulated outage constraint error"
-      assert_received {:inserted, "horizon_bgp_events", 1, [:time, :event_id]}
-      assert_received {:inserted, "horizon_bgp_zombies", 1, [:time, :episode_id]}
+      assert log =~ "Horizon StarRocks projection failed for horizon_outages (fail-open)"
+      assert_received {:loaded, :horizon_bgp_events, 1}
+    end
+  end
+
+  describe "StarRocks routing and encoding" do
+    test "routes canonical Horizon entities to StarRocks and requires StarRocks when disabled" do
+      prev = Application.get_env(:serviceradar_core, StarRocks)
+
+      on_exit(fn ->
+        if prev == nil do
+          Application.delete_env(:serviceradar_core, StarRocks)
+        else
+          Application.put_env(:serviceradar_core, StarRocks, prev)
+        end
+      end)
+
+      Application.put_env(:serviceradar_core, StarRocks, enabled: false)
+
+      for entity <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths) do
+        assert Readers.mode_for(entity) == {:error, :starrocks_required}
+        assert Readers.backend(entity) == {:error, :starrocks_required}
+      end
+
+      Application.put_env(:serviceradar_core, StarRocks, enabled: true)
+
+      for entity <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths) do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      assert Destination.table_for(:horizon_outages) == "horizon_outages"
+      assert Destination.table_for(:horizon_bgp_events) == "horizon_bgp_events"
+      assert Destination.table_for(:horizon_bgp_zombies) == "horizon_bgp_zombies"
+      assert Destination.table_for(:horizon_path_hops) == "horizon_path_hops"
     end
 
-    test "skips CNPG projection when events are routed to StarRocks warehouse" do
-      previous = Application.get_env(:serviceradar_core, StarRocks)
-      on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous || []) end)
+    test "encodes Horizon rows as JSON for StarRocks Stream Load" do
+      %{outages: outages} = HorizonProjection.build_projections([outage_row()])
+      [encoded] = Rows.encode(:horizon_outages, outages)
 
-      outage =
-        ocsf_row(%{
-          "id" => "horizon.outages:out-11:1",
-          "time" => "2026-11-23T16:00:00Z",
-          "class_uid" => 1008,
-          "category_uid" => 1,
-          "type_uid" => 100_801,
-          "activity_id" => 1,
-          "log_name" => "horizon.outage",
-          "unmapped" => %{
-            "outage_id" => "out-11",
-            "status" => "active",
-            "severity" => "minor",
-            "entity_type" => "saas",
-            "entity_key" => "example.test"
-          }
-        })
-
-      Application.put_env(:serviceradar_core, StarRocks,
-        enabled: true,
-        cutover_datasets: [:events]
-      )
-
-      insert_fn = fn _table, _rows, _opts ->
-        flunk("insert_fn must not be called when :events is cut over to StarRocks")
-      end
-
-      assert :ok == HorizonProjection.project_rows([outage], insert_fn: insert_fn)
-
-      Application.put_env(:serviceradar_core, StarRocks, enabled: true, cutover_datasets: [])
-      parent = self()
-
-      cnpg_insert_fn = fn table, rows, _opts ->
-        send(parent, {:inserted, table, length(rows)})
-        {length(rows), nil}
-      end
-
-      assert :ok == HorizonProjection.project_rows([outage], insert_fn: cnpg_insert_fn)
-      assert_received {:inserted, "horizon_outages", 1}
+      assert encoded["outage_id"] == "out-2026-001"
+      assert encoded["origin_asn"] == 13_335
+      assert encoded["correlated_bgp_event_ids"] == ["bgp-1", "bgp-2"]
+      assert {:ok, _json} = Jason.encode(encoded)
     end
   end
 end

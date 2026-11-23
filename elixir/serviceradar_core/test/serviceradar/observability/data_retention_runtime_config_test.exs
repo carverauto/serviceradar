@@ -74,14 +74,12 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
         "SERVICERADAR_OTEL_METRICS_RETENTION_DAYS" => "11",
         "SERVICERADAR_OTEL_METRIC_POINTS_RETENTION_DAYS" => "12",
         "SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS" => "13",
-        "SERVICERADAR_HORIZON_RETENTION_DAYS" => "21",
         "SERVICERADAR_RAW_METRICS_RETENTION_DAYS" => "8",
         "SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS" => "40",
         "SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS" => "9",
         "SERVICERADAR_OTEL_METRICS_CHUNK_INTERVAL_HOURS" => "5",
         "SERVICERADAR_OTEL_METRIC_POINTS_CHUNK_INTERVAL_HOURS" => "4",
         "SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS" => "3",
-        "SERVICERADAR_HORIZON_CHUNK_INTERVAL_HOURS" => "12",
         "SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS" => "2",
         "SERVICERADAR_CAPACITY_FORECASTS_CHUNK_INTERVAL_HOURS" => "6"
       })
@@ -89,14 +87,12 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert worker[:otel_metrics_retention_days] == 11
     assert worker[:otel_metric_points_retention_days] == 12
     assert worker[:ocsf_events_retention_days] == 13
-    assert worker[:horizon_retention_days] == 21
     assert worker[:raw_metrics_retention_days] == 8
     assert worker[:capacity_forecasts_retention_days] == 40
     assert worker[:cnpg_telemetry_default_days] == 9
     assert worker[:otel_metrics_chunk_interval_hours] == 5
     assert worker[:otel_metric_points_chunk_interval_hours] == 4
     assert worker[:ocsf_events_chunk_interval_hours] == 3
-    assert worker[:horizon_chunk_interval_hours] == 12
     assert worker[:raw_metrics_chunk_interval_hours] == 2
     assert worker[:capacity_forecasts_chunk_interval_hours] == 6
   end
@@ -108,8 +104,6 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
         "SERVICERADAR_OTEL_METRICS_RETENTION_DAYS" => nil,
         "SERVICERADAR_OTEL_METRIC_POINTS_RETENTION_DAYS" => nil,
         "SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS" => nil,
-        "SERVICERADAR_HORIZON_RETENTION_DAYS" => nil,
-        "SERVICERADAR_HORIZON_CHUNK_INTERVAL_HOURS" => nil,
         "SERVICERADAR_RAW_METRICS_RETENTION_DAYS" => nil,
         "SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS" => nil
       })
@@ -118,8 +112,6 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert worker[:otel_metrics_retention_days] == 30
     assert worker[:otel_metric_points_retention_days] == 30
     assert worker[:ocsf_events_retention_days] == 14
-    assert worker[:horizon_retention_days] == 14
-    assert worker[:horizon_chunk_interval_hours] == 24
     assert worker[:raw_metrics_retention_days] == 7
     assert worker[:capacity_forecasts_retention_days] == 395
   end
@@ -140,10 +132,6 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert applied["otel_metrics"] == 7
     assert applied["otel_metric_points"] == 7
     assert applied["ocsf_events"] == 7
-    assert applied["horizon_outages"] == 7
-    assert applied["horizon_bgp_events"] == 7
-    assert applied["horizon_bgp_zombies"] == 7
-    assert applied["horizon_path_hops"] == 7
     assert applied["timeseries_metrics"] == 7
     assert applied["cpu_metrics"] == 7
     refute Map.has_key?(applied, "ocsf_network_activity")
@@ -160,10 +148,6 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
     assert shipped["otel_metrics"] == 30
     assert shipped["logs"] == 30
     assert shipped["otel_traces"] == 3
-    assert shipped["horizon_outages"] == 14
-    assert shipped["horizon_bgp_events"] == 14
-    assert shipped["horizon_bgp_zombies"] == 14
-    assert shipped["horizon_path_hops"] == 14
     assert shipped["capacity_forecasts"] == 395
     assert DataRetentionWorker.hourly_rollup_retention_days([]) == 395
 

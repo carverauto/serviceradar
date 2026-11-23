@@ -8,7 +8,6 @@ mod composite_checks;
 mod declarative_checks;
 mod endpoint_inventory;
 mod events;
-mod horizon;
 mod inventory;
 mod metrics;
 mod observability;
@@ -19,7 +18,6 @@ pub use endpoint_inventory::{
     EndpointInventoryScanRow, EndpointPackageCatalogRow, EndpointPackageRow,
 };
 pub use events::{AlertRow, BmpRoutingEventRow, EventRow};
-pub use horizon::{HorizonBgpEventRow, HorizonBgpZombieRow, HorizonOutageRow, HorizonPathHopRow};
 pub use inventory::{
     AddonStatusRow, AgentRow, DeviceAvailabilityTransitionRow, DeviceRow, GatewayRow,
     ServiceStatusRow, SourceFactDisagreementRow, SweepCoverageRow, SweepExecutionRow,

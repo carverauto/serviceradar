@@ -4,10 +4,9 @@ use super::{
     camera_sources, capacity_forecasts, composite_results, dashboard_service_views, dashboards,
     declarative_check_results, device_availability_history, device_graph, device_sweep_overlap,
     devices, downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, horizon_bgp,
-    horizon_outages, horizon_paths, horizon_zombies, identity, interfaces,
-    is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points, otel_metrics,
-    otel_services, public_endpoints, rum_beacons, security_events, services,
+    endpoint_vulnerability_matches, events, field_survey, gateways, graph_dql, identity,
+    interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces, otel_metric_points,
+    otel_metrics, otel_services, public_endpoints, rum_beacons, security_events, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
     translate_request, virtualization, vulnerability_advisories, websites, wifi_map,
@@ -50,6 +49,18 @@ impl QueryEngine {
         if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
             return Err(ServiceError::InvalidRequest(
                 "flows require the StarRocks telemetry warehouse".into(),
+            ));
+        }
+
+        if matches!(
+            plan.entity,
+            Entity::HorizonOutages
+                | Entity::HorizonBgp
+                | Entity::HorizonZombies
+                | Entity::HorizonPaths
+        ) {
+            return Err(ServiceError::InvalidRequest(
+                "horizon entities require the StarRocks telemetry warehouse".into(),
             ));
         }
 
@@ -136,10 +147,12 @@ impl QueryEngine {
                 | Entity::ScanActivity
                 | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
-                Entity::HorizonOutages => horizon_outages::execute(&mut conn, &plan).await?,
-                Entity::HorizonBgp => horizon_bgp::execute(&mut conn, &plan).await?,
-                Entity::HorizonZombies => horizon_zombies::execute(&mut conn, &plan).await?,
-                Entity::HorizonPaths => horizon_paths::execute(&mut conn, &plan).await?,
+                Entity::HorizonOutages
+                | Entity::HorizonBgp
+                | Entity::HorizonZombies
+                | Entity::HorizonPaths => {
+                    unreachable!("horizon entities require the StarRocks telemetry warehouse")
+                }
                 Entity::MtrHops => mtr_hops::execute(&mut conn, &plan).await?,
                 Entity::MtrTraces => mtr_traces::execute(&mut conn, &plan).await?,
                 Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,
