@@ -311,6 +311,96 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       person_clips = RecordingEventClips.filter_clips(clips, %{category: :person})
       assert Enum.map(person_clips, & &1.visual_frame_id) == [@frame_1_id]
     end
+
+    test "list_page/3 returns bounded server-side pages, clamped page numbers, full counts, and markers" do
+      entries =
+        for idx <- 1..30 do
+          start_us = @base_us + idx * 60_000_000
+
+          playable_entry(
+            Ecto.UUID.generate(),
+            Ecto.UUID.generate(),
+            start_us,
+            start_us + 45_000_000,
+            :present,
+            :verified
+          )
+        end
+
+      first_entry = hd(entries)
+
+      person_frame = %{
+        id: @frame_1_id,
+        catalog_entry_id: first_entry.id,
+        camera_source_id: @camera_id,
+        stream_profile_id: @profile_id,
+        fragment_sequence: 1,
+        timeline_ts_us: first_entry.timeline_start_us + 5_000_000,
+        scene_suppressed: false,
+        detections: [
+          %{"object_class" => "person", "confidence" => 0.91, "dominant_colors" => ["black"]}
+        ]
+      }
+
+      loaders = %{
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, entries} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, [person_frame]} end
+      }
+
+      window = %{from_us: @base_us, to_us: @base_us + 3_600_000_000}
+
+      # Default per_page is 12 -> 30 clips total -> 3 pages (12, 12, 6)
+      assert {:ok, page1} = RecordingEventClips.list_page(@camera_id, window, loaders: loaders)
+      assert length(page1.clips) == 12
+      assert page1.total_count == 30
+      assert page1.page == 1
+      assert page1.per_page == 12
+      assert page1.total_pages == 3
+      assert page1.counts.all == 30
+      assert page1.counts.smart == 1
+      assert page1.counts.basic == 29
+      assert page1.counts.person == 1
+      assert length(page1.markers) == 1
+      assert hd(page1.markers).category == :person
+      assert hd(page1.markers).visual_frame_id == @frame_1_id
+
+      # Page 3 returns remaining 6 clips
+      assert {:ok, page3} =
+               RecordingEventClips.list_page(@camera_id, Map.put(window, :page, 3),
+                 loaders: loaders
+               )
+
+      assert length(page3.clips) == 6
+      assert page3.page == 3
+      assert page3.total_pages == 3
+
+      # Out-of-bounds page clamps to total_pages; per_page caps at 48
+      assert {:ok, clamped} =
+               RecordingEventClips.list_page(
+                 @camera_id,
+                 Map.merge(window, %{page: 99, per_page: 200}),
+                 loaders: loaders
+               )
+
+      assert clamped.per_page == 48
+      assert clamped.page == 1
+      assert clamped.total_pages == 1
+      assert length(clamped.clips) == 30
+
+      # Filtered smart page preserves full window counts while slicing filtered results
+      assert {:ok, smart_page} =
+               RecordingEventClips.list_page(
+                 @camera_id,
+                 Map.merge(window, %{mode: :smart, page: 1, per_page: 12}),
+                 loaders: loaders
+               )
+
+      assert smart_page.total_count == 1
+      assert smart_page.total_pages == 1
+      assert smart_page.counts.all == 30
+      assert smart_page.counts.smart == 1
+      assert Enum.map(smart_page.clips, & &1.category) == [:person]
+    end
   end
 
   describe "authorization and validation" do

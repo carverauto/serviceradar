@@ -481,14 +481,32 @@ The page header provides a mode toggle between two distinct recording catalogs:
 
 ### Coverage bar, time basis, and playback controls
 
-In **Timeline** mode, operators can filter by relay-eligible stream profile,
-switch the coverage span (`1h`, `6h`, `24h`, `7d`, with `Previous`, `Next`,
-`Latest`, and `Refresh` navigation), and choose playback source mode (`Auto`,
-`Force local`, or `Force archive`).
+In **Timeline** mode, `/cameras/:camera_source_id/recordings` renders a 3-pane
+workspace above the **Detections & Clips** strip:
 
-The coverage bar aggregates non-quarantined catalog blocks and gaps into bounded
-buckets (`120` in the UI; up to `1,440` buckets across at most `31` days via the
-API) using eight states:
+- **Camera switcher (left rail):** Server-side paginated (`20` cameras per
+  page) and searchable (by display name, vendor, vendor camera ID, availability
+  status, assigned agent ID, or `site` metadata) RBAC-scoped camera list with
+  the active camera pinned at the top and a mobile **Cameras** drawer toggle.
+- **Vertical timeline scrubber (middle rail):** Aggregates non-quarantined
+  catalog blocks and gaps into bounded buckets (`120` in the UI; up to `1,440`
+  buckets across at most `31` days via the API) ordered newest-at-top to
+  oldest-at-bottom. Clicking anywhere on the rail (`CameraVerticalTimeline`
+  hook) seeks to that wall-clock timestamp and focuses playback around it,
+  while dedicated detection and semantic hit markers on the rail remain
+  individually clickable. Controls above and below the rail provide a **LIVE**
+  link, **Latest** jump, `+`/`-` zoom controls, coverage spans (`15m`, `1h`,
+  `6h`, `24h`, `7d`), **Newer** / **Older** window steps, a timezone-aware
+  date/time jump form, and collapsible **Gaps** and **Legend** panels.
+- **Main video stage (right pane):** Full-stage 16:9 HLS player
+  (`CameraTimelinePlayer`) with stream profile filter, playback source selector
+  (`Auto`, `Local`, or `Archive`), **Refresh**, compact transport controls
+  (`-10s`, `Play`/`Pause`, `+10s`, elapsed/total time, `Serving:` copy badge,
+  `Mute`/`Unmute`, `Fullscreen`, `AI boxes: On/Off`, and `Retry playback`),
+  inline semantic clip search, and a **Manage / Holds** slide-over drawer
+  trigger showing the recorded hold count.
+
+The vertical coverage rail uses eight states:
 
 | Coverage state | Meaning |
 | --- | --- |
@@ -501,7 +519,7 @@ API) using eight states:
 | **Not scheduled** (`not_scheduled`) | No continuous recording policy covered the interval. |
 | **Deleted by retention** (`deleted_by_retention`) | Local copy reclaimed and archive copy deleted (or `not_required`). |
 
-Above the bar, banners and markers surface timing and durability provenance:
+Above the video stage, badges and banners surface timing and durability provenance:
 
 - **Explicit `received` time basis:** Displays
   `Time basis: received (uncertainty: unmeasured)`. Wall-clock positions are
@@ -510,7 +528,9 @@ Above the bar, banners and markers surface timing and durability provenance:
   media duration. If the NVR skips leading units while waiting for a keyframe,
   the displayed start precedes the first retained sample by the skipped duration.
 - **Clock re-anchor markers (`Clock re-anchored`):** Marks points where receipt
-  clock drift triggered a timeline re-anchor without a media gap.
+  clock drift triggered a timeline re-anchor without a media gap; individual
+  re-anchor timestamps and catalog blocks in the span are listed in the
+  **Manage / Holds** slide-over drawer.
 - **`provisional` badge:** Indicates local copies on NVR storage lifetimes that
   do not yet have `LocalStorageBinding` registration and current qualification.
 - **Live recorder status badge & empty states:** When a `continuous` policy is
@@ -518,7 +538,7 @@ Above the bar, banners and markers surface timing and durability provenance:
   claim) or **`Continuous policy set: not recording yet`** (no active recorder
   claim), and the empty state distinguishes a running recorder with no sealed
   blocks yet from a policy with no active recorder. Windows containing only
-  verified archive copies (or `Force archive` mode) display
+  verified archive copies (or `Archive` source mode) display
   **`Archive playback not available yet`** until an archive reader is installed.
 - **Adjacent-window loading:** Each HLS VOD playlist covers up to `60` minutes
   (`2,048` segments). As playback nears the end of the active window, the
@@ -538,11 +558,11 @@ Above the bar, banners and markers surface timing and durability provenance:
 
 ### Detections & Clips strip and coverage event markers
 
-In **Timeline** mode, `/cameras/:camera_source_id/recordings` projects event
-clips for the active coverage window and stream profile via
-`RecordingEventClips.list_clips/3`, pairing non-quarantined playable
-`RecordingCatalogEntry` blocks with `VisualFrame` detections (queried with
-separate bounded limits of `500` frames with detections and `500`
+In **Timeline** mode, `/cameras/:camera_source_id/recordings` projects a
+server-side paginated slice of event clips for the active coverage window and
+stream profile via `RecordingEventClips.list_page/3`, pairing non-quarantined
+playable `RecordingCatalogEntry` blocks with `VisualFrame` detections (queried
+with separate bounded limits of `500` frames with detections and `500`
 non-suppressed motion-only frames per window, newest-first, so high motion
 volume never crowds out older smart detections):
 
@@ -553,26 +573,31 @@ volume never crowds out older smart detections):
   - **Basic (`basic`):** `Motion` (non-suppressed frames with empty detections)
     and `Recording` fallback segments for playable blocks not covered by any
     detection or motion clip. Quarantined entries and their frames are excluded.
-- **Coverage event markers:** Coalesced smart and motion clips (excluding
-  `Recording` fallbacks) render as color-coded clickable tick markers along the
-  Coverage bar.
-- **In-memory mode & category filters:** The **Detections & Clips** strip
-  provides an `All` / `Smart` / `Basic` mode toggle and category filter chips
-  (`All`, `Person`, `Vehicle`, `Animal`, `Package`, `Motion`) showing
-  full-window counts and filtering in memory without reloading from CNPG. Up to
-  `100` matching cards render at once (`Showing latest 100 of <total>` when
-  more match), and a zero-match filter shows a **Reset filters** action. Each
-  card displays a lazy-loaded thumbnail when `thumbnail_url` is present (or a
-  category-icon placeholder otherwise), relative age, duration, category,
-  confidence, dominant color tags, timestamp, and storage tier (`local+archive`,
-  `archive`, `local`, or `recorded`).
-- **Click-to-jump playback:** Selecting a clip card or coverage event marker
-  focuses playback on `[start - 5 s, end + 10 s]` (clamped to coverage bounds
-  and the `60`-minute playlist limit), seeks to the clip's peak timestamp,
-  highlights matching frame detection overlays when available, and marks the
-  card active until playback moves elsewhere (selecting a coverage bucket,
-  advancing to an adjacent window, jumping to a semantic search hit, or
-  changing span/profile outside the clip).
+- **Vertical timeline event markers:** Coalesced smart and motion clips
+  (excluding `Recording` fallbacks) render as color-coded clickable markers
+  along the vertical timeline scrubber rail across the full coverage window,
+  including clips not currently on the active Detections & Clips page.
+- **Server-side mode/category filters & pagination:** The **Detections & Clips**
+  strip provides a `Smart` / `Basic` / `All` mode toggle and category filter
+  chips (`All`, `Person`, `Vehicle`, `Animal`, `Package`, `Motion`) displaying
+  full-window counts. Changing the mode, category, or page reloads a bounded
+  page of `12` cards (`2` rows x `6` cards on desktop; up to `48` via
+  `RecordingEventClips.list_page/3`) with `Prev` / `Page X / Y` / `Next`
+  controls, and a zero-match filter shows a **Reset filters** action. Each card
+  displays a lazy-loaded thumbnail when `thumbnail_url` is present (or a
+  category-icon placeholder otherwise), relative age, duration, category badge,
+  compact timestamp, and storage tier (`local+archive`, `archive`, `local`, or
+  `recorded`).
+- **Click-to-jump playback:** Selecting a smart or motion clip card (or its
+  vertical rail marker) focuses playback on `[start - 5 s, end + 10 s]`
+  (clamped to coverage bounds and the `60`-minute playlist limit), seeks to the
+  clip's peak timestamp, and highlights matching frame detection overlays when
+  available. Selecting a `Recording` fallback segment card focuses playback on
+  the segment's exact `[start, end]` window (clamped to coverage bounds and the
+  `60`-minute playlist limit) without lead-in/lead-out padding. The selected
+  card stays highlighted until playback moves elsewhere (clicking the vertical
+  timeline rail to seek, advancing to an adjacent window, jumping to a semantic
+  search hit, or changing span/profile outside the clip).
 
 ### Timeline HTTP API, copy resolution, and read bounds
 
@@ -640,10 +665,14 @@ playlist window rather than writing per-fragment rows.
 
 Users with `devices.cameras.recordings.hold` (along with `devices.view` and
 `devices.cameras.recordings.view`) can place and release holds in the
-**Recording holds** panel on `/cameras/:camera_source_id/recordings`:
+**Manage / Holds** slide-over drawer (**Manage Holds & Catalog**) on
+`/cameras/:camera_source_id/recordings`:
 
-1. Select a coverage bucket (which pre-fills `Start (us UTC)` and `End (us UTC)`
-   for the active playback window) or enter explicit UTC microsecond bounds.
+1. Click **Manage / Holds** below the video player to open the slide-over
+   drawer. The **Start** and **End** date/time inputs (in your user timezone)
+   are pre-filled from the active playback window; you can also choose a quick
+   preset (`Current window`, `Last 15m`, `Last 1h`, `Last 24h`) or enter
+   explicit bounds.
 2. Choose **Hold kind** (`Investigation` or `Export`), enter a required ticket
    or incident **Reason**, and click **Place hold**.
 3. `RecordingHolds.place_hold/2` locks intersecting non-quarantined

@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  alias ServiceRadar.Camera.RecordingEventClips
-
   attr :source, :any, required: true
   attr :items, :list, required: true
   attr :next_cursor, :string, default: nil
@@ -37,39 +35,63 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
   attr :timeline_event_clips, :list, default: []
+  attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_clips_page, :integer, default: 1
+  attr :timeline_clips_total_count, :integer, default: 0
+  attr :timeline_clips_total_pages, :integer, default: 1
+  attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :timeline_manage_drawer_open?, :boolean, default: false
+  attr :switcher_cameras, :list, default: []
+  attr :switcher_search, :string, default: ""
+  attr :switcher_page, :integer, default: 1
+  attr :switcher_total_count, :integer, default: 0
+  attr :switcher_total_pages, :integer, default: 1
+  attr :switcher_open_mobile?, :boolean, default: false
   attr :hold_form, :any, default: nil
 
   def recordings(assigns) do
     ~H"""
-    <div id="camera-recordings" class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
-      <header class="flex flex-wrap items-start justify-between gap-4">
-        <div class="min-w-0">
-          <p class="text-sm text-sr-muted">
-            {if(@mode == :timeline, do: "Camera timeline", else: "Camera archive")}
-          </p>
-          <h1 class="mt-1 text-2xl font-semibold text-sr-ink">
-            {if(@source, do: @source.display_name || "Camera recordings", else: "Camera recordings")}
-          </h1>
-          <p :if={@mode == :published} class="mt-2 text-sm text-sr-muted">
-            Browse published recordings. Publication time is not capture time.
-          </p>
-          <p
-            :if={@mode == :published}
-            id="camera-recordings-source-label"
-            class="mt-1 text-xs text-sr-muted"
+    <div id="camera-recordings" class="mx-auto w-full max-w-[1800px] space-y-3 p-3 sm:p-4">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex min-w-0 items-center gap-2.5">
+          <.ui_button
+            :if={@mode == :timeline}
+            id="camera-switcher-mobile-toggle"
+            type="button"
+            phx-click="toggle_switcher_mobile"
+            variant="outline"
+            size="xs"
+            class="lg:hidden"
           >
-            Source: <code class="font-mono">ArchiveUploads</code>
-            published catalog, distinct from NVR archive receipts tracked in Recording &amp; Storage settings.
-          </p>
-          <p :if={@mode == :timeline} class="mt-2 text-sm text-sr-muted">
-            Unified recorded playback across local NVR storage and verified object archive copies.
-          </p>
+            <.icon name="hero-video-camera" class="size-3.5" /> Cameras
+          </.ui_button>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h1 class="truncate text-lg font-semibold text-sr-ink sm:text-xl">
+                {if(@source,
+                  do: @source.display_name || "Camera recordings",
+                  else: "Camera recordings"
+                )}
+              </h1>
+              <span class="rounded-md border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] text-sr-muted">
+                {if(@mode == :timeline, do: "Timeline", else: "Archive")}
+              </span>
+            </div>
+            <p
+              :if={@mode == :published}
+              id="camera-recordings-source-label"
+              class="mt-0.5 text-xs text-sr-muted"
+            >
+              Source: <code class="font-mono">ArchiveUploads</code>
+              published catalog. Publication time is not capture time.
+            </p>
+          </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <div class="inline-flex flex-wrap items-center gap-1 rounded-lg border border-sr-line bg-sr-surface p-1">
+          <div class="inline-flex flex-wrap items-center gap-1 rounded-lg border border-sr-line bg-sr-surface p-0.5">
             <.ui_button
               id="camera-recordings-mode-timeline"
               type="button"
@@ -95,11 +117,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             :if={@can_view_recording_settings}
             id="camera-recording-settings-link"
             navigate={~p"/settings/recording"}
-            class="sr-ops-button"
+            class="sr-ops-button text-xs"
           >
             Recording &amp; storage
           </.link>
-          <.link :if={@source} navigate={~p"/devices/#{@source.device_uid}"} class="sr-ops-button">
+          <.link
+            :if={@source}
+            navigate={~p"/devices/#{@source.device_uid}"}
+            class="sr-ops-button text-xs"
+          >
             Back to device
           </.link>
         </div>
@@ -109,11 +135,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         :if={@error}
         id="camera-recordings-error"
         role="alert"
-        class="rounded-xl border border-sr-line p-4"
+        class="rounded-xl border border-rose-500/40 bg-rose-500/5 px-4 py-3 text-sm text-sr-ink"
       >
         {@error}
       </div>
-      <div :if={@loading} id="camera-recordings-loading" role="status" class="text-sr-muted">
+      <div :if={@loading} id="camera-recordings-loading" role="status" class="text-sm text-sr-muted">
         Loading recordings...
       </div>
 
@@ -155,9 +181,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_has_adjacent_window={@timeline_has_adjacent_window}
         timeline_holds={@timeline_holds}
         timeline_event_clips={@timeline_event_clips}
+        timeline_event_markers={@timeline_event_markers}
         timeline_clips_mode={@timeline_clips_mode}
         timeline_clips_category={@timeline_clips_category}
+        timeline_clips_page={@timeline_clips_page}
+        timeline_clips_total_count={@timeline_clips_total_count}
+        timeline_clips_total_pages={@timeline_clips_total_pages}
+        timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
+        timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
+        switcher_cameras={@switcher_cameras}
+        switcher_search={@switcher_search}
+        switcher_page={@switcher_page}
+        switcher_total_count={@switcher_total_count}
+        switcher_total_pages={@switcher_total_pages}
+        switcher_open_mobile?={@switcher_open_mobile?}
         hold_form={@hold_form}
       />
     </div>
@@ -340,14 +378,27 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
   attr :timeline_event_clips, :list, default: []
+  attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
+  attr :timeline_clips_page, :integer, default: 1
+  attr :timeline_clips_total_count, :integer, default: 0
+  attr :timeline_clips_total_pages, :integer, default: 1
+  attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :timeline_manage_drawer_open?, :boolean, default: false
+  attr :switcher_cameras, :list, default: []
+  attr :switcher_search, :string, default: ""
+  attr :switcher_page, :integer, default: 1
+  attr :switcher_total_count, :integer, default: 0
+  attr :switcher_total_pages, :integer, default: 1
+  attr :switcher_open_mobile?, :boolean, default: false
   attr :hold_form, :any, default: nil
 
   defp timeline_view(assigns) do
     coverage = assigns.timeline_coverage || default_empty_coverage()
     buckets = coverage_list(coverage, :buckets)
+    vertical_buckets = buckets |> Enum.with_index() |> Enum.reverse()
     blocks = coverage_list(coverage, :blocks)
     gaps = coverage_list(coverage, :gaps)
     reanchors = extract_reanchors(coverage, blocks)
@@ -355,34 +406,44 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     time_uncertainty = coverage_field(coverage, :time_uncertainty) || "unmeasured"
     cov_from_us = coverage_field(coverage, :from_us)
     cov_to_us = coverage_field(coverage, :to_us)
-    hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
-    clip_counts = RecordingEventClips.category_counts(assigns.timeline_event_clips)
 
-    filtered_matches =
-      RecordingEventClips.filter_clips(assigns.timeline_event_clips, %{
-        mode: assigns.timeline_clips_mode,
-        category: assigns.timeline_clips_category
-      })
-
-    filtered_event_clip_total = length(filtered_matches)
-    filtered_event_clips = Enum.take(filtered_matches, RecordingEventClips.default_limit())
+    clip_counts = assigns.timeline_clips_counts || %{}
+    filtered_event_clips = assigns.timeline_event_clips
+    filtered_event_clip_total = assigns.timeline_clips_total_count || 0
+    clips_total_pages = max(assigns.timeline_clips_total_pages || 1, 1)
+    clips_page = min(max(assigns.timeline_clips_page || 1, 1), clips_total_pages)
 
     now_us = System.system_time(:microsecond)
-    event_markers = build_event_markers(assigns.timeline_event_clips, cov_from_us, cov_to_us, now_us)
+    event_markers = build_event_markers(assigns.timeline_event_markers || [], cov_from_us, cov_to_us, now_us)
+    hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
+
+    play_window_band =
+      build_play_window_band(assigns.timeline_play_from_us, assigns.timeline_play_to_us, cov_from_us, cov_to_us)
+
+    time_ticks = build_vertical_time_ticks(cov_from_us, cov_to_us)
+
+    active_source_id = assigns.source && to_string(assigns.source.id)
 
     assigns =
       assigns
       |> assign(:coverage, coverage)
       |> assign(:buckets, buckets)
+      |> assign(:vertical_buckets, vertical_buckets)
       |> assign(:blocks, blocks)
       |> assign(:gaps, gaps)
       |> assign(:reanchors, reanchors)
       |> assign(:hit_markers, hit_markers)
       |> assign(:event_markers, event_markers)
+      |> assign(:play_window_band, play_window_band)
+      |> assign(:time_ticks, time_ticks)
       |> assign(:clip_counts, clip_counts)
       |> assign(:filtered_event_clip_total, filtered_event_clip_total)
       |> assign(:filtered_event_clips, filtered_event_clips)
+      |> assign(:clips_page, clips_page)
+      |> assign(:clips_total_pages, clips_total_pages)
+      |> assign(:has_any_window_clips?, Map.get(clip_counts, :all, 0) > 0)
       |> assign(:now_us, now_us)
+      |> assign(:active_source_id, active_source_id)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
@@ -395,90 +456,216 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       )
 
     ~H"""
-    <div id="camera-timeline-view" class="space-y-6">
-      <%!-- Time Basis & Clock Integrity Banner --%>
-      <section
-        id="camera-timeline-basis-banner"
-        aria-label="Timeline time basis"
-        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sr-line bg-sr-surface px-4 py-3"
+    <div id="camera-timeline-view" class="space-y-3">
+      <%!-- 3-Pane Scalable Workspace: Left Camera Switcher | Middle Vertical Timeline | Main Video Stage --%>
+      <div
+        id="camera-timeline-workspace"
+        class="grid gap-3 lg:grid-cols-[15rem_9.5rem_minmax(0,1fr)]"
       >
-        <div class="flex flex-wrap items-center gap-2">
-          <.ui_badge id="camera-timeline-time-basis" variant="info" size="sm">
-            {@time_basis_label}
-          </.ui_badge>
-          <.ui_badge
-            :if={@has_provisional?}
-            id="camera-timeline-provisional-badge"
-            data-role="provisional-copy-badge"
-            variant="warning"
-            size="sm"
-          >
-            provisional
-          </.ui_badge>
-          <.ui_badge
-            :if={@reanchors != []}
-            id="camera-timeline-reanchor-badge"
-            variant="outline"
-            size="sm"
-          >
-            Clock re-anchored ({length(@reanchors)})
-          </.ui_badge>
-          <%!-- A continuous policy says recording is wanted; only a live recorder records. --%>
-          <.ui_badge
-            :if={@scheduled_continuous?}
-            id="camera-timeline-recorder-state"
-            variant={if(@recorder_running?, do: "success", else: "warning")}
-            size="sm"
-          >
-            {if @recorder_running?, do: "Recording", else: "Continuous policy set: not recording yet"}
-          </.ui_badge>
-        </div>
-        <p class="text-xs text-sr-muted">
-          Wall-clock labels reflect <code class="font-mono">{@time_basis_short}</code>
-          timestamps, never unverified camera capture clocks.
-        </p>
-      </section>
-
-      <%!-- Controls Toolbar --%>
-      <section
-        id="camera-timeline-controls"
-        aria-label="Timeline controls"
-        class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-sr-line bg-sr-surface p-4"
-      >
-        <div class="flex flex-wrap items-center gap-3">
-          <form id="camera-timeline-profile-form" phx-change="select_timeline_profile">
-            <label for="camera-timeline-profile-select" class="sr-only">Stream profile</label>
-            <select
-              id="camera-timeline-profile-select"
-              name="stream_profile_id"
-              class="h-9 rounded-lg border border-sr-line bg-sr-control px-3 text-sm text-sr-ink"
+        <%!-- PANE 1 (Left Rail): Scalable Server-Side Paginated Camera Switcher --%>
+        <aside
+          id="camera-switcher-rail"
+          aria-label="Camera switcher"
+          class={[
+            "flex flex-col rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]",
+            if(@switcher_open_mobile?, do: "flex", else: "hidden lg:flex")
+          ]}
+        >
+          <div class="flex items-center justify-between gap-2 pb-2">
+            <span class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
+              Cameras
+            </span>
+            <span
+              id="camera-switcher-total"
+              class="rounded-full bg-sr-canvas px-1.5 py-0.5 font-mono text-[10px] text-sr-muted"
             >
-              <option value="" selected={@timeline_profile_id == ""}>All profiles</option>
-              <option
-                :for={prof <- @stream_profiles}
-                value={prof.id}
-                selected={to_string(@timeline_profile_id) == to_string(prof.id)}
-              >
-                {prof.profile_name}
-              </option>
-            </select>
+              {@switcher_total_count}
+            </span>
+          </div>
+
+          <form
+            id="camera-switcher-search-form"
+            phx-change="switcher_search"
+            phx-submit="switcher_search"
+          >
+            <label for="camera-switcher-search" class="sr-only">Filter cameras</label>
+            <input
+              id="camera-switcher-search"
+              type="search"
+              name="search"
+              value={@switcher_search}
+              phx-debounce="250"
+              placeholder="Search cameras, site..."
+              class="h-8 w-full rounded-lg border border-sr-line bg-sr-control px-2.5 text-xs text-sr-ink placeholder:text-sr-muted focus:border-sr-brand focus:outline-none"
+            />
           </form>
+
+          <%!-- Pinned Active Camera --%>
+          <div
+            :if={@source}
+            id="camera-switcher-active"
+            class="mt-2 rounded-lg border border-sr-brand bg-sr-brand/10 px-2.5 py-2"
+          >
+            <div class="flex items-center justify-between gap-1.5">
+              <span class="truncate text-xs font-semibold text-sr-ink">
+                {@source.display_name || "Active camera"}
+              </span>
+              <span
+                class={[
+                  "size-2 shrink-0 rounded-full",
+                  if(@recorder_running?, do: "bg-rose-500", else: "bg-emerald-500")
+                ]}
+                title={if(@recorder_running?, do: "Recording", else: "Active")}
+              ></span>
+            </div>
+            <p class="mt-0.5 truncate text-[10px] text-sr-muted">
+              {camera_subtitle(@source)}
+            </p>
+          </div>
+
+          <%!-- Bounded Paginated Camera List (<= 20 items) --%>
+          <div class="mt-2 min-h-0 flex-1 overflow-y-auto pr-0.5">
+            <ul id="camera-switcher-list" class="space-y-1">
+              <li
+                :for={cam <- @switcher_cameras}
+                :if={to_string(cam.id) != @active_source_id}
+                id={"camera-switcher-row-#{cam.id}"}
+              >
+                <.link
+                  id={"camera-switcher-item-#{cam.id}"}
+                  patch={~p"/cameras/#{cam.id}/recordings?mode=timeline"}
+                  class="flex items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left transition-colors hover:border-sr-line hover:bg-sr-canvas"
+                >
+                  <div class="min-w-0">
+                    <span class="block truncate text-xs font-medium text-sr-ink">
+                      {cam.display_name || cam.vendor_camera_id || "Camera"}
+                    </span>
+                    <span class="block truncate text-[10px] text-sr-muted">
+                      {camera_subtitle(cam)}
+                    </span>
+                  </div>
+                  <span
+                    class={[
+                      "size-2 shrink-0 rounded-full",
+                      camera_status_dot_class(cam)
+                    ]}
+                    title={camera_status_title(cam)}
+                  ></span>
+                </.link>
+              </li>
+            </ul>
+            <p
+              :if={@switcher_cameras == []}
+              id="camera-switcher-empty"
+              class="px-2 py-4 text-center text-[11px] text-sr-muted"
+            >
+              No matching cameras.
+            </p>
+          </div>
+
+          <%!-- Switcher Pagination Footer --%>
+          <div
+            :if={@switcher_total_pages > 1}
+            id="camera-switcher-pagination"
+            class="mt-2 flex items-center justify-between gap-1 border-t border-sr-line pt-2 text-[11px]"
+          >
+            <button
+              id="camera-switcher-prev"
+              type="button"
+              phx-click="switcher_paginate"
+              phx-value-page={max(@switcher_page - 1, 1)}
+              disabled={@switcher_page <= 1}
+              class="rounded border border-sr-line px-2 py-0.5 text-sr-ink disabled:opacity-40 hover:bg-sr-canvas"
+            >
+              Prev
+            </button>
+            <span id="camera-switcher-page" class="font-mono text-[10px] text-sr-muted">
+              {@switcher_page}/{@switcher_total_pages}
+            </span>
+            <button
+              id="camera-switcher-next"
+              type="button"
+              phx-click="switcher_paginate"
+              phx-value-page={min(@switcher_page + 1, @switcher_total_pages)}
+              disabled={@switcher_page >= @switcher_total_pages}
+              class="rounded border border-sr-line px-2 py-0.5 text-sr-ink disabled:opacity-40 hover:bg-sr-canvas"
+            >
+              Next
+            </button>
+          </div>
+        </aside>
+
+        <%!-- PANE 2 (Middle Rail): Interactive Vertical Timeline Scrubber --%>
+        <section
+          id="camera-timeline-coverage-section"
+          aria-label="Vertical timeline scrubber"
+          class="flex flex-col rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]"
+        >
+          <%!-- LIVE + Latest Edge Buttons --%>
+          <div class="flex items-center gap-1">
+            <.link
+              :if={@source}
+              id="camera-timeline-live-button"
+              navigate={~p"/cameras/#{@source.id}"}
+              class="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-rose-500"
+            >
+              <span class="size-1.5 rounded-full bg-white"></span>
+              <span>LIVE</span>
+            </.link>
+            <button
+              id="camera-timeline-latest-window"
+              type="button"
+              phx-click="navigate_timeline_window"
+              phx-value-direction="latest"
+              title="Jump to latest recorded edge"
+              class="rounded-md border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+            >
+              Latest
+            </button>
+          </div>
+
+          <%!-- Zoom - / + and Span Selector --%>
+          <div class="mt-2 flex items-center justify-between gap-1">
+            <button
+              id="camera-timeline-zoom-in"
+              type="button"
+              phx-click="zoom_timeline_span"
+              phx-value-direction="in"
+              disabled={@timeline_span == "15m"}
+              title="Zoom in"
+              class="flex size-6 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+            >
+              +
+            </button>
+            <span class="font-mono text-[11px] font-semibold text-sr-ink">{@timeline_span}</span>
+            <button
+              id="camera-timeline-zoom-out"
+              type="button"
+              phx-click="zoom_timeline_span"
+              phx-value-direction="out"
+              disabled={@timeline_span == "7d"}
+              title="Zoom out"
+              class="flex size-6 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+            >
+              -
+            </button>
+          </div>
 
           <div
             id="camera-timeline-span-selector"
             role="group"
             aria-label="Coverage span"
-            class="inline-flex items-center gap-1 rounded-lg border border-sr-line p-1"
+            class="mt-1.5 grid grid-cols-5 gap-0.5 rounded-md border border-sr-line bg-sr-canvas p-0.5"
           >
             <button
-              :for={span <- ["1h", "6h", "24h", "7d"]}
+              :for={span <- ["15m", "1h", "6h", "24h", "7d"]}
               id={"camera-timeline-span-#{span}"}
               type="button"
               phx-click="select_timeline_span"
               phx-value-span={span}
-              aria-pressed={@timeline_span == span}
+              aria-pressed={to_string(@timeline_span == span)}
               class={[
-                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                "rounded py-0.5 text-[10px] font-medium transition-colors",
                 if(@timeline_span == span,
                   do: "bg-sr-ink text-sr-surface",
                   else: "text-sr-muted hover:text-sr-ink"
@@ -489,52 +676,32 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             </button>
           </div>
 
-          <div id="camera-timeline-window-nav" class="inline-flex flex-wrap items-center gap-1.5">
-            <.ui_button
-              id="camera-timeline-prev-window"
-              type="button"
-              phx-click="navigate_timeline_window"
-              phx-value-direction="previous"
-              variant="outline"
-              size="xs"
-            >
-              Previous
-            </.ui_button>
-            <.ui_button
+          <%!-- Prev / Next Window Step + Date Jump --%>
+          <div id="camera-timeline-window-nav" class="mt-1.5 grid grid-cols-2 gap-1">
+            <button
               id="camera-timeline-next-window"
               type="button"
               phx-click="navigate_timeline_window"
               phx-value-direction="next"
-              variant="outline"
-              size="xs"
+              class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
             >
-              Next
-            </.ui_button>
-            <.ui_button
-              id="camera-timeline-latest-window"
+              &uarr; Newer
+            </button>
+            <button
+              id="camera-timeline-prev-window"
               type="button"
               phx-click="navigate_timeline_window"
-              phx-value-direction="latest"
-              variant="outline"
-              size="xs"
+              phx-value-direction="previous"
+              class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
             >
-              Latest
-            </.ui_button>
-            <.ui_button
-              id="camera-timeline-refresh"
-              type="button"
-              phx-click="refresh_timeline"
-              variant="ghost"
-              size="xs"
-            >
-              Refresh
-            </.ui_button>
+              &darr; Older
+            </button>
           </div>
 
           <form
             id="camera-timeline-jump-form"
             phx-submit="jump_timeline_to"
-            class="inline-flex flex-wrap items-center gap-1.5"
+            class="mt-1.5 flex items-center gap-1"
           >
             <label for="camera-timeline-jump-at" class="sr-only">
               Jump to date and time ({@timezone})
@@ -546,457 +713,347 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               name="jump_at"
               value={@timeline_jump_at}
               aria-label={"Jump to date and time (#{@timezone})"}
-              class="h-8 rounded-lg border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
+              class="h-7 min-w-0 flex-1 rounded border border-sr-line bg-sr-control px-1 text-[10px] text-sr-ink"
             />
-            <.ui_button
+            <button
               id="camera-timeline-jump-submit"
               type="submit"
-              variant="outline"
-              size="xs"
+              class="h-7 shrink-0 rounded border border-sr-line bg-sr-canvas px-1.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
             >
               Go
-            </.ui_button>
+            </button>
           </form>
-        </div>
 
-        <div
-          id="camera-timeline-source-selector"
-          role="group"
-          aria-label="Playback source"
-          class="inline-flex flex-wrap items-center gap-1 rounded-lg border border-sr-line p-1"
-        >
-          <button
-            :for={
-              {val, label} <- [
-                {"auto", "Auto"},
-                {"local", "Force local"},
-                {"archive", "Force archive"}
-              ]
-            }
-            id={"camera-timeline-source-#{val}"}
-            type="button"
-            phx-click="select_timeline_source"
-            phx-value-source={val}
-            aria-pressed={@timeline_source == val}
-            class={[
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-              if(@timeline_source == val,
-                do: "bg-sr-ink text-sr-surface",
-                else: "text-sr-muted hover:text-sr-ink"
-              )
-            ]}
-          >
-            {label}
-          </button>
-        </div>
-      </section>
-
-      <%!-- Inline Timeline Semantic Search --%>
-      <section
-        id="camera-timeline-search-section"
-        aria-label="Timeline semantic clip search"
-        class="space-y-3 rounded-xl border border-sr-line bg-sr-surface p-4"
-      >
-        <form
-          id="camera-timeline-search-form"
-          phx-submit="timeline_semantic_search"
-          class="flex flex-wrap items-center gap-2"
-        >
-          <label for="camera-timeline-search-input" class="sr-only">
-            Semantic search in camera timeline
-          </label>
-          <input
-            id="camera-timeline-search-input"
-            type="text"
-            name="search[q]"
-            value={@timeline_search_query}
-            maxlength="256"
-            placeholder="Search clips in timeline (e.g. person in red dress, white van near gate)"
-            class="input input-sm input-bordered min-w-60 flex-1 bg-sr-control text-sr-ink"
-          />
-
-          <label for="camera-timeline-search-object-class" class="sr-only">Object class</label>
-          <select
-            id="camera-timeline-search-object-class"
-            name="search[object_class]"
-            class="select select-sm select-bordered bg-sr-control text-sr-ink"
-          >
-            <option value="" selected={@timeline_search_object_class == ""}>All subjects</option>
-            <option
-              :for={
-                {val, label} <- [
-                  {"person", "Person"},
-                  {"vehicle", "Vehicle"},
-                  {"bicycle", "Bicycle"},
-                  {"animal", "Animal"},
-                  {"package", "Package"}
-                ]
-              }
-              value={val}
-              selected={@timeline_search_object_class == val}
-            >
-              {label}
-            </option>
-          </select>
-
-          <button id="camera-timeline-search-submit" type="submit" class="btn btn-primary btn-sm">
-            <.icon name="hero-magnifying-glass" class="size-4" /> Search timeline
-          </button>
-          <button
-            :if={@timeline_search_executed? or @timeline_search_query != ""}
-            id="camera-timeline-search-clear"
-            type="button"
-            phx-click="clear_timeline_semantic_search"
-            class="btn btn-ghost btn-sm"
-          >
-            Clear
-          </button>
-        </form>
-
-        <div
-          :if={@timeline_embedder_unavailable?}
-          id="camera-timeline-search-unavailable"
-          role="alert"
-          class="alert alert-warning sm:alert-horizontal text-xs"
-        >
-          <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
-          <div>
-            <p class="font-semibold">Visual search workers unavailable</p>
-            <p>
-              No compatible media worker responded within the interactive deadline. Timeline video playback remains unaffected.
-            </p>
-          </div>
-        </div>
-
-        <div
-          :if={@timeline_search_error}
-          id="camera-timeline-search-error"
-          role="alert"
-          class="alert alert-error sm:alert-horizontal text-xs"
-        >
-          <span>{@timeline_search_error}</span>
-        </div>
-
-        <p
-          :if={
-            @timeline_search_executed? and @timeline_search_results == [] and
-              not @timeline_embedder_unavailable? and is_nil(@timeline_search_error)
-          }
-          id="camera-timeline-search-empty"
-          class="text-xs text-sr-muted"
-        >
-          No matching recorded clips found in the current coverage span.
-        </p>
-
-        <ul
-          :if={@timeline_search_results != []}
-          id="camera-timeline-search-results"
-          class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          <li
-            :for={{hit, idx} <- Enum.with_index(@timeline_search_results)}
-            id={"camera-timeline-hit-#{idx}"}
-          >
-            <button
-              id={"select-timeline-semantic-hit-#{idx}"}
-              type="button"
-              data-role="timeline-semantic-hit"
-              phx-click="select_timeline_semantic_hit"
-              phx-value-seek_us={hit.best_timeline_ts_us}
-              phx-value-start_us={hit.clip_start_us}
-              phx-value-end_us={hit.clip_end_us}
-              phx-value-frame_id={hit.visual_frame_id || ""}
-              class={[
-                "w-full rounded-lg border p-2.5 text-left text-xs transition-colors hover:bg-sr-canvas",
-                if(
-                  not is_nil(@timeline_highlight_frame_id) and
-                    @timeline_highlight_frame_id == hit.visual_frame_id,
-                  do: "border-sr-brand bg-sr-brand/5",
-                  else: "border-sr-line"
-                )
-              ]}
-            >
-              <div class="flex flex-wrap items-center justify-between gap-1.5">
-                <div class="flex flex-wrap items-center gap-1">
-                  <span class="badge badge-primary badge-xs font-mono">
-                    {format_hit_score(hit.score)}
-                  </span>
-                  <span :if={hit.object_class} class="badge badge-outline badge-xs">
-                    {hit.object_class}
-                  </span>
-                  <span
-                    :for={color <- Enum.take(hit.dominant_colors || [], 2)}
-                    class="badge badge-ghost badge-xs"
-                  >
-                    {color}
-                  </span>
-                </div>
-                <span class="font-mono text-[11px] text-sr-muted">{hit.time_basis}</span>
-              </div>
-              <div class="mt-1.5 text-sr-ink">
+          <%!-- Vertical Interactive Coverage Bar (Newest Top -> Oldest Bottom) --%>
+          <div class="mt-2 flex min-h-[16rem] flex-1 gap-1.5 overflow-hidden">
+            <%!-- Left Time Ticks Column --%>
+            <div class="flex w-11 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight text-sr-muted">
+              <span :if={coverage_field(@coverage, :to_us)} id="camera-timeline-span-end">
                 <.user_time
-                  id={"timeline-hit-time-#{idx}"}
-                  value={us_to_datetime(hit.best_timeline_ts_us)}
+                  id="camera-timeline-span-end-time"
+                  value={us_to_datetime(coverage_field(@coverage, :to_us))}
                   timezone={@timezone}
+                  style={:compact}
                 />
-              </div>
-            </button>
-          </li>
-        </ul>
-      </section>
-
-      <%!-- Coverage Bar & Legend --%>
-      <section
-        id="camera-timeline-coverage-section"
-        aria-label="Timeline coverage"
-        class="space-y-4 rounded-xl border border-sr-line bg-sr-surface p-4"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-sr-muted">
-          <span :if={coverage_field(@coverage, :from_us)}>
-            {@time_basis_short}
-            <.user_time
-              id="camera-timeline-span-start"
-              value={us_to_datetime(coverage_field(@coverage, :from_us))}
-              timezone={@timezone}
-            />
-          </span>
-          <span class="font-medium text-sr-ink">Coverage ({@timeline_span})</span>
-          <span :if={coverage_field(@coverage, :to_us)}>
-            {@time_basis_short}
-            <.user_time
-              id="camera-timeline-span-end"
-              value={us_to_datetime(coverage_field(@coverage, :to_us))}
-              timezone={@timezone}
-            />
-          </span>
-        </div>
-
-        <div
-          id="camera-timeline-coverage-bar"
-          class="relative flex h-8 w-full overflow-hidden rounded-lg border border-sr-line bg-sr-canvas p-0.5"
-        >
-          <%= if @buckets == [] do %>
-            <div
-              data-bucket-state="not_scheduled"
-              class="flex h-full w-full items-center justify-center text-xs text-sr-muted"
-            >
-              Not scheduled
+              </span>
+              <span :for={{tick_us, idx} <- Enum.with_index(@time_ticks)}>
+                <.user_time
+                  id={"camera-timeline-tick-#{idx}"}
+                  value={us_to_datetime(tick_us)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </span>
+              <span :if={coverage_field(@coverage, :from_us)} id="camera-timeline-span-start">
+                <.user_time
+                  id="camera-timeline-span-start-time"
+                  value={us_to_datetime(coverage_field(@coverage, :from_us))}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </span>
             </div>
-          <% else %>
-            <button
-              :for={{bucket, idx} <- Enum.with_index(@buckets)}
-              id={"camera-timeline-bucket-#{idx}"}
-              type="button"
-              phx-click="select_timeline_bucket"
-              phx-value-start_us={bucket_start_us(bucket)}
-              phx-value-end_us={bucket_end_us(bucket)}
-              data-bucket-state={bucket_state_name(bucket)}
-              data-provisional={to_string(bucket_provisional?(bucket))}
-              title={bucket_title(bucket)}
-              class={[
-                "h-full flex-1 border-r border-sr-surface/30 transition-opacity last:border-r-0 hover:opacity-80",
-                bucket_color_class(bucket_state_name(bucket))
-              ]}
+
+            <%!-- Click-to-Seek Vertical Rail --%>
+            <div
+              id="camera-timeline-coverage-bar"
+              phx-hook="CameraVerticalTimeline"
+              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas p-0.5"
+              title="Click anywhere on the timeline to seek"
             >
-              <span class="sr-only">{bucket_title(bucket)}</span>
-            </button>
-          <% end %>
+              <%= if @vertical_buckets == [] do %>
+                <div
+                  data-bucket-state="not_scheduled"
+                  class="flex h-full w-full items-center justify-center text-center text-[10px] text-sr-muted"
+                >
+                  Not scheduled
+                </div>
+              <% else %>
+                <div
+                  :for={{bucket, idx} <- @vertical_buckets}
+                  id={"camera-timeline-bucket-#{idx}"}
+                  data-bucket-state={bucket_state_name(bucket)}
+                  data-provisional={to_string(bucket_provisional?(bucket))}
+                  title={bucket_title(bucket)}
+                  class={[
+                    "w-full flex-1 border-b border-sr-surface/20 last:border-b-0",
+                    bucket_color_class(bucket_state_name(bucket))
+                  ]}
+                >
+                </div>
+              <% end %>
 
-          <button
-            :for={marker <- @event_markers}
-            id={"camera-timeline-event-marker-#{marker.idx}"}
-            type="button"
-            data-role="event-clip-marker"
-            data-clip-category={to_string(marker.category)}
-            phx-click="select_event_clip"
-            phx-value-clip_id={marker.clip_id}
-            title={marker.title}
-            style={"left: #{marker.left_pct}%"}
-            class={[
-              "absolute bottom-0 z-[5] h-2.5 w-1 -translate-x-1/2 rounded-t-full ring-1 ring-black/50 transition-transform hover:h-full hover:scale-x-150",
-              event_marker_color_class(marker.category)
-            ]}
-          >
-            <span class="sr-only">{marker.title}</span>
-          </button>
-
-          <button
-            :for={marker <- @hit_markers}
-            id={"camera-timeline-hit-marker-#{marker.idx}"}
-            type="button"
-            data-role="semantic-hit-marker"
-            phx-click="select_timeline_semantic_hit"
-            phx-value-seek_us={marker.seek_us}
-            phx-value-start_us={marker.start_us}
-            phx-value-end_us={marker.end_us}
-            phx-value-frame_id={marker.frame_id}
-            title={marker.title}
-            style={"left: #{marker.left_pct}%"}
-            class="absolute inset-y-0 z-10 w-1.5 -translate-x-1/2 rounded-full bg-amber-400 ring-1 ring-black/60 hover:scale-x-150"
-          >
-            <span class="sr-only">{marker.title}</span>
-          </button>
-        </div>
-
-        <div
-          id="camera-timeline-legend"
-          class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-sr-muted"
-        >
-          <span
-            :for={{state, label} <- legend_entries()}
-            data-legend-state={state}
-            class="inline-flex items-center gap-1.5"
-          >
-            <span class={["inline-block size-2.5 rounded-sm", bucket_color_class(state)]}></span>
-            <span>{label}</span>
-          </span>
-        </div>
-
-        <div
-          :if={@has_local_only_after_archive?}
-          id="camera-timeline-local-only-after-archive-note"
-          class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-sr-ink"
-        >
-          <strong>Local only (archive expired/reaped):</strong>
-          footage exists only on local NVR storage after object archive expiry or capacity reaping.
-          These local bytes remain evictable under local retention and are never counted as unarchived.
-        </div>
-
-        <%!-- Clock Re-anchor Markers --%>
-        <div
-          :if={@reanchors != []}
-          id="camera-timeline-reanchors"
-          class="space-y-1 rounded-lg border border-sr-line bg-sr-canvas p-3 text-xs"
-        >
-          <p class="font-semibold text-sr-ink">Clock re-anchor markers</p>
-          <ul class="space-y-1 text-sr-muted">
-            <li
-              :for={{marker, idx} <- Enum.with_index(@reanchors)}
-              id={"camera-timeline-reanchor-#{idx}"}
-              class="flex flex-wrap items-center gap-2"
-            >
-              <.ui_badge variant="outline" size="xs">Clock re-anchored</.ui_badge>
-              <span>
-                {@time_basis_short}
-                <.user_time
-                  id={"camera-timeline-reanchor-time-#{idx}"}
-                  value={us_to_datetime(reanchor_at_us(marker))}
-                  timezone={@timezone}
-                />
-              </span>
-              <span class="text-sr-muted">
-                Receipt drift re-anchored the clock without a media gap.
-              </span>
-            </li>
-          </ul>
-        </div>
-
-        <%!-- Recorded Gaps --%>
-        <div
-          :if={@gaps != []}
-          id="camera-timeline-gaps"
-          class="space-y-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs"
-        >
-          <p class="font-semibold text-sr-ink">Recorded gaps in window ({length(@gaps)})</p>
-          <ul class="space-y-1">
-            <li
-              :for={{gap, idx} <- Enum.with_index(@gaps)}
-              id={"camera-timeline-gap-#{coverage_field(gap, :id) || idx}"}
-              data-gap-reason={to_string(coverage_field(gap, :reason))}
-              class="flex flex-wrap items-center justify-between gap-2 text-sr-muted"
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <.ui_badge variant="error" size="xs">
-                  {to_string(coverage_field(gap, :reason))}
-                </.ui_badge>
-                <span :if={coverage_field(gap, :detail_class)} class="font-mono">
-                  ({coverage_field(gap, :detail_class)})
-                </span>
+              <%!-- Active Playback Window Indicator --%>
+              <div
+                :if={@play_window_band}
+                id="camera-timeline-active-window-band"
+                aria-hidden="true"
+                style={"top: #{@play_window_band.top_pct}%; height: #{@play_window_band.height_pct}%"}
+                class="pointer-events-none absolute inset-x-0 z-[3] border-y-2 border-white bg-white/15"
+              >
               </div>
-              <span>
-                {@time_basis_short}
-                <.user_time
-                  id={"camera-timeline-gap-start-#{idx}"}
-                  value={us_to_datetime(coverage_field(gap, :start_us))}
-                  timezone={@timezone}
-                />
-                <%= if coverage_field(gap, :end_us) do %>
-                  &rarr;
-                  <.user_time
-                    id={"camera-timeline-gap-end-#{idx}"}
-                    value={us_to_datetime(coverage_field(gap, :end_us))}
-                    timezone={@timezone}
-                  />
-                <% else %>
-                  (open)
-                <% end %>
-              </span>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <%!-- Main Grid: Player + Blocks & Holds --%>
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+              <%!-- Hover Crosshair --%>
+              <div
+                data-role="vertical-timeline-hover"
+                hidden
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-x-0 z-[15] h-0.5 bg-white/90"
+              >
+              </div>
+
+              <%!-- Detection Event Markers along Vertical Rail --%>
+              <button
+                :for={marker <- @event_markers}
+                id={"camera-timeline-event-marker-#{marker.idx}"}
+                type="button"
+                data-role="event-clip-marker"
+                data-clip-category={to_string(marker.category)}
+                phx-click="select_event_clip"
+                phx-value-clip_id={marker.clip_id}
+                title={marker.title}
+                style={"top: #{marker.top_pct}%"}
+                class={[
+                  "absolute right-0 z-[6] h-1.5 w-3.5 -translate-y-1/2 rounded-l-full ring-1 ring-black/60 transition-transform hover:w-full",
+                  event_marker_color_class(marker.category)
+                ]}
+              >
+                <span class="sr-only">{marker.title}</span>
+              </button>
+
+              <%!-- Semantic Hit Markers along Vertical Rail --%>
+              <button
+                :for={marker <- @hit_markers}
+                id={"camera-timeline-hit-marker-#{marker.idx}"}
+                type="button"
+                data-role="semantic-hit-marker"
+                phx-click="select_timeline_semantic_hit"
+                phx-value-seek_us={marker.seek_us}
+                phx-value-start_us={marker.start_us}
+                phx-value-end_us={marker.end_us}
+                phx-value-frame_id={marker.frame_id}
+                title={marker.title}
+                style={"top: #{marker.top_pct}%"}
+                class="absolute inset-x-0 z-10 h-1.5 -translate-y-1/2 rounded-full bg-amber-400 ring-1 ring-black/60 hover:scale-y-150"
+              >
+                <span class="sr-only">{marker.title}</span>
+              </button>
+            </div>
+          </div>
+
+          <%!-- Compact Gaps Popover + Legend Footer --%>
+          <div class="mt-2 space-y-1.5 border-t border-sr-line pt-2 text-[10px]">
+            <details
+              :if={@gaps != []}
+              id="camera-timeline-gaps-details"
+              class="rounded-md border border-rose-500/30 bg-rose-500/5 px-2 py-1"
+            >
+              <summary class="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">
+                Gaps ({length(@gaps)})
+              </summary>
+              <div id="camera-timeline-gaps" class="mt-1.5 max-h-32 space-y-1 overflow-y-auto">
+                <div
+                  :for={{gap, idx} <- Enum.with_index(@gaps)}
+                  id={"camera-timeline-gap-#{coverage_field(gap, :id) || idx}"}
+                  data-gap-reason={to_string(coverage_field(gap, :reason))}
+                  class="space-y-0.5 border-t border-rose-500/20 pt-1 text-[10px] text-sr-muted first:border-t-0 first:pt-0"
+                >
+                  <div class="flex flex-wrap items-center gap-1">
+                    <.ui_badge variant="error" size="xs">
+                      {to_string(coverage_field(gap, :reason))}
+                    </.ui_badge>
+                    <span :if={coverage_field(gap, :detail_class)} class="font-mono">
+                      ({coverage_field(gap, :detail_class)})
+                    </span>
+                  </div>
+                  <div class="truncate">
+                    <.user_time
+                      id={"camera-timeline-gap-start-#{idx}"}
+                      value={us_to_datetime(coverage_field(gap, :start_us))}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                    <%= if coverage_field(gap, :end_us) do %>
+                      &rarr;
+                      <.user_time
+                        id={"camera-timeline-gap-end-#{idx}"}
+                        value={us_to_datetime(coverage_field(gap, :end_us))}
+                        timezone={@timezone}
+                        style={:compact}
+                      />
+                    <% else %>
+                      (open)
+                    <% end %>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details id="camera-timeline-legend-details" class="text-sr-muted">
+              <summary class="cursor-pointer font-medium hover:text-sr-ink">Legend</summary>
+              <div id="camera-timeline-legend" class="mt-1.5 space-y-1">
+                <div
+                  :for={{state, label} <- legend_entries()}
+                  data-legend-state={state}
+                  class="flex items-center gap-1.5"
+                >
+                  <span class={["inline-block size-2 shrink-0 rounded-xs", bucket_color_class(state)]}></span>
+                  <span class="truncate">{label}</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <%!-- PANE 3 (Main Stage): Full-Size Video Player + Compact Controls --%>
         <section
           id="camera-timeline-player-section"
           aria-label="Timeline player"
-          class="min-w-0 space-y-4 rounded-xl border border-sr-line bg-sr-surface p-4"
+          class="flex min-w-0 flex-col space-y-2.5 rounded-xl border border-sr-line bg-sr-surface p-3"
         >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 class="font-semibold text-sr-ink">Playback window</h2>
-              <p :if={@timeline_play_from_us && @timeline_play_to_us} class="text-xs text-sr-muted">
-                {@time_basis_short}
-                <.user_time
-                  id="camera-timeline-play-from"
-                  value={us_to_datetime(@timeline_play_from_us)}
-                  timezone={@timezone}
-                /> &rarr;
-                <.user_time
-                  id="camera-timeline-play-to"
-                  value={us_to_datetime(@timeline_play_to_us)}
-                  timezone={@timezone}
-                />
-              </p>
+          <%!-- Compact Status & Controls Strip --%>
+          <div
+            id="camera-timeline-controls"
+            class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line pb-2"
+          >
+            <div id="camera-timeline-basis-banner" class="flex flex-wrap items-center gap-1.5">
+              <.ui_badge id="camera-timeline-time-basis" variant="info" size="xs">
+                {@time_basis_label}
+              </.ui_badge>
+              <.ui_badge
+                :if={@has_provisional?}
+                id="camera-timeline-provisional-badge"
+                data-role="provisional-copy-badge"
+                variant="warning"
+                size="xs"
+              >
+                provisional
+              </.ui_badge>
+              <.ui_badge
+                :if={@reanchors != []}
+                id="camera-timeline-reanchor-badge"
+                variant="outline"
+                size="xs"
+              >
+                Clock re-anchored ({length(@reanchors)})
+              </.ui_badge>
+              <.ui_badge
+                :if={@scheduled_continuous?}
+                id="camera-timeline-recorder-state"
+                variant={if(@recorder_running?, do: "success", else: "warning")}
+                size="xs"
+              >
+                {if @recorder_running?,
+                  do: "Recording",
+                  else: "Continuous policy set: not recording yet"}
+              </.ui_badge>
             </div>
-            <.ui_badge variant="ghost" size="xs">
-              Source mode: {@timeline_source}
-            </.ui_badge>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              <form id="camera-timeline-profile-form" phx-change="select_timeline_profile">
+                <label for="camera-timeline-profile-select" class="sr-only">Stream profile</label>
+                <select
+                  id="camera-timeline-profile-select"
+                  name="stream_profile_id"
+                  class="h-7 rounded-md border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
+                >
+                  <option value="" selected={@timeline_profile_id == ""}>All profiles</option>
+                  <option
+                    :for={prof <- @stream_profiles}
+                    value={prof.id}
+                    selected={to_string(@timeline_profile_id) == to_string(prof.id)}
+                  >
+                    {prof.profile_name}
+                  </option>
+                </select>
+              </form>
+
+              <div
+                id="camera-timeline-source-selector"
+                role="group"
+                aria-label="Playback source"
+                class="inline-flex items-center gap-0.5 rounded-md border border-sr-line bg-sr-canvas p-0.5"
+              >
+                <button
+                  :for={
+                    {val, label} <- [
+                      {"auto", "Auto"},
+                      {"local", "Local"},
+                      {"archive", "Archive"}
+                    ]
+                  }
+                  id={"camera-timeline-source-#{val}"}
+                  type="button"
+                  phx-click="select_timeline_source"
+                  phx-value-source={val}
+                  aria-pressed={to_string(@timeline_source == val)}
+                  class={[
+                    "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    if(@timeline_source == val,
+                      do: "bg-sr-ink text-sr-surface",
+                      else: "text-sr-muted hover:text-sr-ink"
+                    )
+                  ]}
+                >
+                  {label}
+                </button>
+              </div>
+
+              <.ui_button
+                id="camera-timeline-refresh"
+                type="button"
+                phx-click="refresh_timeline"
+                variant="ghost"
+                size="xs"
+              >
+                Refresh
+              </.ui_button>
+            </div>
           </div>
 
-          <div id="camera-timeline-player-card">
+          <div
+            :if={@has_local_only_after_archive?}
+            id="camera-timeline-local-only-after-archive-note"
+            class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-sr-ink"
+          >
+            <strong>Local only (archive expired/reaped):</strong>
+            footage exists only on local NVR storage after object archive expiry or capacity reaping.
+            These local bytes remain evictable under local retention and are never counted as unarchived.
+          </div>
+
+          <%!-- Full-Size 16:9 Video Player --%>
+          <div id="camera-timeline-player-card" class="flex-1">
             <div
               :if={@timeline_playlist_path in [nil, ""]}
               id="camera-timeline-empty-state"
               role="status"
-              class="rounded-xl border border-dashed border-sr-line bg-sr-canvas p-6 text-sm space-y-2"
+              class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sr-line bg-sr-canvas p-6 text-center text-sm"
             >
               <%= cond do %>
                 <% @archive_only_unplayable? -> %>
                   <div class="flex items-center gap-2 font-semibold text-sr-ink">
-                    <.icon name="hero-archive-box" class="size-4 text-sr-muted" />
+                    <.icon name="hero-archive-box" class="size-5 text-sr-muted" />
                     <span>Archive playback not available yet</span>
                   </div>
-                  <p id="camera-timeline-archive-only" class="text-xs text-sr-muted">
+                  <p id="camera-timeline-archive-only" class="max-w-md text-xs text-sr-muted">
                     Archive copies cannot be played yet, so footage stored only in the archive
                     shows on the timeline but does not play. Local copies play as they are recorded.
                   </p>
                 <% @scheduled_continuous? -> %>
                   <div class="flex items-center gap-2 font-semibold text-sr-ink">
-                    <.icon name="hero-clock" class="size-4 text-sr-muted" />
+                    <.icon name="hero-clock" class="size-5 text-sr-muted" />
                     <span>No playable footage in selected window</span>
                   </div>
                   <p
                     :if={not @recorder_running?}
                     id="camera-timeline-not-recording"
-                    class="text-xs text-sr-muted"
+                    class="max-w-md text-xs text-sr-muted"
                   >
                     A <code class="font-mono">continuous</code>
                     recording policy is configured for this camera, but no recorder is running for it,
                     so no new footage is being captured. Footage appears here once recording runs.
                   </p>
-                  <p :if={@recorder_running?} class="text-xs text-sr-muted">
+                  <p :if={@recorder_running?} class="max-w-md text-xs text-sr-muted">
                     A recorder is running for this camera, and <strong class="text-sr-ink">0</strong>
                     sealed catalog blocks
                     (<code class="font-mono">RecordingCatalogEntry</code>) exist in the selected window yet.
@@ -1015,10 +1072,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   </div>
                 <% true -> %>
                   <div class="flex items-center gap-2 font-semibold text-sr-ink">
-                    <.icon name="hero-video-camera-slash" class="size-4 text-sr-muted" />
+                    <.icon name="hero-video-camera-slash" class="size-5 text-sr-muted" />
                     <span>No continuous recording policy active</span>
                   </div>
-                  <p class="text-xs text-sr-muted">
+                  <p class="max-w-md text-xs text-sr-muted">
                     No <code class="font-mono">continuous</code> recording policy is active for this
                     camera/profile, and no playable catalog blocks exist in the selected window.
                   </p>
@@ -1047,7 +1104,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
               class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
             >
-              <div class="relative overflow-hidden rounded-lg bg-black">
+              <div
+                data-role="timeline-video-container"
+                class="relative overflow-hidden rounded-lg bg-black"
+              >
                 <video
                   data-role="timeline-video"
                   controls
@@ -1061,31 +1121,87 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
                 ></svg>
               </div>
-              <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <p data-role="timeline-status" role="status" class="text-sm text-sr-muted">
+
+              <%!-- Compact Player Transport Bar (managed by CameraTimelinePlayer hook) --%>
+              <div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line bg-sr-canvas px-2.5 py-1.5 text-xs">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <button
+                    id="camera-timeline-back-10"
+                    type="button"
+                    data-role="transport-back-10"
+                    class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 font-mono text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+                  >
+                    -10s
+                  </button>
+                  <button
+                    id="camera-timeline-play-pause"
+                    type="button"
+                    data-role="transport-play-pause"
+                    aria-pressed="false"
+                    class="rounded border border-sr-line bg-sr-ink px-2.5 py-0.5 text-[11px] font-medium text-sr-surface hover:opacity-90"
+                  >
+                    Play
+                  </button>
+                  <button
+                    id="camera-timeline-fwd-10"
+                    type="button"
+                    data-role="transport-fwd-10"
+                    class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 font-mono text-[11px] font-medium text-sr-ink hover:border-sr-brand"
+                  >
+                    +10s
+                  </button>
+                  <span
+                    data-role="transport-current-time"
+                    class="ml-1 font-mono text-[11px] text-sr-muted"
+                  >
+                    00:00
+                  </span>
+                  <span data-role="timeline-status" role="status" class="text-[11px] text-sr-muted">
                     Preparing timeline...
-                  </p>
+                  </span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-1.5">
                   <span
                     id="camera-timeline-served-copy-badge"
                     data-role="served-copy-badge"
                     data-served-copy=""
-                    class="inline-flex items-center rounded-md border border-sr-line px-2 py-0.5 font-mono text-xs text-sr-ink"
+                    class="inline-flex items-center rounded border border-sr-line bg-sr-surface px-1.5 py-0.5 font-mono text-[10px] text-sr-ink"
                   >
                     Serving: —
                   </span>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
+                  <button
+                    id="camera-timeline-mute"
+                    type="button"
+                    data-role="transport-mute"
+                    aria-pressed="false"
+                    class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] text-sr-ink hover:border-sr-brand"
+                  >
+                    Mute
+                  </button>
+                  <button
+                    id="camera-timeline-fullscreen"
+                    type="button"
+                    data-role="transport-fullscreen"
+                    class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] text-sr-ink hover:border-sr-brand"
+                  >
+                    Fullscreen
+                  </button>
                   <button
                     id="camera-timeline-toggle-bbox-overlay"
                     type="button"
                     data-role="toggle-bbox-overlay"
                     aria-pressed="true"
-                    class="btn btn-outline btn-xs"
+                    class="rounded border border-sr-line bg-sr-surface px-2 py-0.5 text-[11px] font-medium text-sr-ink hover:border-sr-brand"
                   >
-                    Detection overlay
+                    AI boxes: On
                   </button>
-                  <button type="button" data-role="timeline-retry" class="sr-ops-button" hidden>
+                  <button
+                    type="button"
+                    data-role="timeline-retry"
+                    class="sr-ops-button text-xs"
+                    hidden
+                  >
                     Retry playback
                   </button>
                 </div>
@@ -1093,364 +1209,331 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             </div>
           </div>
 
-          <%!-- Catalog Blocks in Window --%>
-          <div :if={@blocks != []} id="camera-timeline-blocks" class="space-y-2 pt-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
-              Catalog blocks in span ({length(@blocks)})
-            </h3>
-            <ul class="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-xs">
-              <li
-                :for={block <- @blocks}
-                id={"camera-timeline-block-#{coverage_field(block, :id)}"}
-                data-copy-state={block_copy_state_name(block)}
-                class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line px-3 py-2"
+          <%!-- Window Time Range + Manage/Holds Drawer Trigger --%>
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-xs">
+            <p :if={@timeline_play_from_us && @timeline_play_to_us} class="text-sr-muted">
+              <span class="font-medium text-sr-ink">Window:</span>
+              {@time_basis_short}
+              <.user_time
+                id="camera-timeline-play-from"
+                value={us_to_datetime(@timeline_play_from_us)}
+                timezone={@timezone}
+              /> &rarr;
+              <.user_time
+                id="camera-timeline-play-to"
+                value={us_to_datetime(@timeline_play_to_us)}
+                timezone={@timezone}
+              />
+            </p>
+            <div class="flex items-center gap-2">
+              <.ui_button
+                id="camera-timeline-manage-drawer-toggle"
+                type="button"
+                phx-click="toggle_manage_drawer"
+                variant="outline"
+                size="xs"
               >
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <.ui_badge
-                    variant={copy_state_badge_variant(block_copy_state_name(block))}
-                    size="xs"
-                  >
-                    {copy_state_label(block_copy_state_name(block))}
-                  </.ui_badge>
-                  <.ui_badge
-                    :if={block_provisional?(block)}
-                    data-role="block-provisional-badge"
-                    variant="warning"
-                    size="xs"
-                  >
-                    provisional
-                  </.ui_badge>
-                  <.ui_badge :if={block_reanchored?(block)} variant="outline" size="xs">
-                    Clock re-anchored
-                  </.ui_badge>
-                </div>
-                <span class="text-sr-muted">
-                  {@time_basis_short}
-                  <.user_time
-                    id={"camera-timeline-block-start-#{coverage_field(block, :id)}"}
-                    value={us_to_datetime(coverage_field(block, :timeline_start_us))}
-                    timezone={@timezone}
-                  />
+                <.icon name="hero-shield-check" class="size-3.5" /> Manage / Holds
+                <span class="ml-1 rounded-full bg-sr-canvas px-1.5 py-0.5 font-mono text-[10px]">
+                  {length(@timeline_holds)}
                 </span>
+              </.ui_button>
+            </div>
+          </div>
+
+          <%!-- Compact Inline Semantic Search Bar --%>
+          <section
+            id="camera-timeline-search-section"
+            aria-label="Timeline semantic clip search"
+            class="space-y-2 border-t border-sr-line pt-2"
+          >
+            <form
+              id="camera-timeline-search-form"
+              phx-submit="timeline_semantic_search"
+              class="flex flex-wrap items-center gap-1.5"
+            >
+              <label for="camera-timeline-search-input" class="sr-only">
+                Semantic search in camera timeline
+              </label>
+              <input
+                id="camera-timeline-search-input"
+                type="text"
+                name="search[q]"
+                value={@timeline_search_query}
+                maxlength="256"
+                placeholder="Search clips in timeline (e.g. person in red jacket, white van)"
+                class="h-8 min-w-48 flex-1 rounded-lg border border-sr-line bg-sr-control px-2.5 text-xs text-sr-ink placeholder:text-sr-muted"
+              />
+              <label for="camera-timeline-search-object-class" class="sr-only">Object class</label>
+              <select
+                id="camera-timeline-search-object-class"
+                name="search[object_class]"
+                class="h-8 rounded-lg border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
+              >
+                <option value="" selected={@timeline_search_object_class == ""}>All subjects</option>
+                <option
+                  :for={
+                    {val, label} <- [
+                      {"person", "Person"},
+                      {"vehicle", "Vehicle"},
+                      {"bicycle", "Bicycle"},
+                      {"animal", "Animal"},
+                      {"package", "Package"}
+                    ]
+                  }
+                  value={val}
+                  selected={@timeline_search_object_class == val}
+                >
+                  {label}
+                </option>
+              </select>
+              <.ui_button id="camera-timeline-search-submit" type="submit" variant="primary" size="xs">
+                <.icon name="hero-magnifying-glass" class="size-3.5" /> Search
+              </.ui_button>
+              <.ui_button
+                :if={@timeline_search_executed? or @timeline_search_query != ""}
+                id="camera-timeline-search-clear"
+                type="button"
+                phx-click="clear_timeline_semantic_search"
+                variant="ghost"
+                size="xs"
+              >
+                Clear
+              </.ui_button>
+            </form>
+
+            <div
+              :if={@timeline_embedder_unavailable?}
+              id="camera-timeline-search-unavailable"
+              role="alert"
+              class="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-sr-ink"
+            >
+              <p class="font-semibold">Visual search workers unavailable</p>
+              <p class="text-sr-muted">
+                No compatible media worker responded within the interactive deadline. Timeline video playback remains unaffected.
+              </p>
+            </div>
+
+            <div
+              :if={@timeline_search_error}
+              id="camera-timeline-search-error"
+              role="alert"
+              class="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-sr-ink"
+            >
+              <span>{@timeline_search_error}</span>
+            </div>
+
+            <p
+              :if={
+                @timeline_search_executed? and @timeline_search_results == [] and
+                  not @timeline_embedder_unavailable? and is_nil(@timeline_search_error)
+              }
+              id="camera-timeline-search-empty"
+              class="text-xs text-sr-muted"
+            >
+              No matching recorded clips found in the current coverage span.
+            </p>
+
+            <ul
+              :if={@timeline_search_results != []}
+              id="camera-timeline-search-results"
+              class="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              <li
+                :for={{hit, idx} <- Enum.with_index(@timeline_search_results)}
+                id={"camera-timeline-hit-#{idx}"}
+              >
+                <button
+                  id={"select-timeline-semantic-hit-#{idx}"}
+                  type="button"
+                  data-role="timeline-semantic-hit"
+                  phx-click="select_timeline_semantic_hit"
+                  phx-value-seek_us={hit.best_timeline_ts_us}
+                  phx-value-start_us={hit.clip_start_us}
+                  phx-value-end_us={hit.clip_end_us}
+                  phx-value-frame_id={hit.visual_frame_id || ""}
+                  class={[
+                    "w-full rounded-lg border p-2 text-left text-xs transition-colors hover:bg-sr-canvas",
+                    if(
+                      not is_nil(@timeline_highlight_frame_id) and
+                        @timeline_highlight_frame_id == hit.visual_frame_id,
+                      do: "border-sr-brand bg-sr-brand/5",
+                      else: "border-sr-line"
+                    )
+                  ]}
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-1">
+                    <div class="flex flex-wrap items-center gap-1">
+                      <.ui_badge variant="primary" size="xs">{format_hit_score(hit.score)}</.ui_badge>
+                      <.ui_badge :if={hit.object_class} variant="outline" size="xs">
+                        {hit.object_class}
+                      </.ui_badge>
+                    </div>
+                    <span class="font-mono text-[10px] text-sr-muted">{hit.time_basis}</span>
+                  </div>
+                  <div class="mt-1 text-[11px] text-sr-ink">
+                    <.user_time
+                      id={"timeline-hit-time-#{idx}"}
+                      value={us_to_datetime(hit.best_timeline_ts_us)}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </div>
+                </button>
               </li>
             </ul>
-          </div>
-        </section>
-
-        <%!-- Holds Placement & Release --%>
-        <section
-          id="camera-timeline-holds-section"
-          aria-label="Recording holds"
-          class="space-y-4 rounded-xl border border-sr-line bg-sr-surface p-4"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="font-semibold text-sr-ink">Recording holds</h2>
-            <.ui_badge variant="ghost" size="xs">{length(@timeline_holds)}</.ui_badge>
-          </div>
-
-          <%= if @can_manage_holds && @hold_form do %>
-            <.form
-              for={@hold_form}
-              id="place-timeline-hold-form"
-              phx-change="change_hold_form"
-              phx-submit="place_timeline_hold"
-              class="space-y-3 rounded-lg border border-sr-line bg-sr-canvas p-3"
-            >
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="text-xs font-semibold text-sr-ink">Place hold on window</p>
-                <div
-                  id="timeline-hold-presets"
-                  role="group"
-                  aria-label="Hold window presets"
-                  class="inline-flex flex-wrap items-center gap-1"
-                >
-                  <button
-                    :for={
-                      {preset, label} <- [
-                        {"window", "Current window"},
-                        {"15m", "Last 15m"},
-                        {"1h", "Last 1h"},
-                        {"24h", "Last 24h"}
-                      ]
-                    }
-                    id={"timeline-hold-preset-#{preset}"}
-                    type="button"
-                    phx-click="select_hold_preset"
-                    phx-value-preset={preset}
-                    class="rounded border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] font-medium text-sr-ink hover:bg-sr-subtle"
-                  >
-                    {label}
-                  </button>
-                </div>
-              </div>
-              <.input
-                field={@hold_form[:kind]}
-                id="timeline-hold-kind"
-                type="select"
-                label="Hold kind"
-                options={[{"Investigation", "investigation"}, {"Export", "export"}]}
-              />
-              <div class="space-y-2">
-                <.input
-                  field={@hold_form[:start_at]}
-                  id="timeline-hold-start-at"
-                  type="datetime-local"
-                  step="1"
-                  label={"Start (#{@timezone})"}
-                  required
-                />
-                <.input
-                  field={@hold_form[:end_at]}
-                  id="timeline-hold-end-at"
-                  type="datetime-local"
-                  step="1"
-                  label={"End (#{@timezone})"}
-                  required
-                />
-              </div>
-              <.input
-                field={@hold_form[:reason]}
-                id="timeline-hold-reason"
-                type="text"
-                label="Reason"
-                placeholder="Incident or export ticket reference"
-                required
-              />
-              <.ui_button
-                id="place-timeline-hold-submit"
-                type="submit"
-                variant="primary"
-                size="sm"
-                class="w-full"
-              >
-                Place hold
-              </.ui_button>
-            </.form>
-          <% end %>
-
-          <p
-            :if={@timeline_holds == []}
-            id="camera-timeline-holds-empty"
-            class="text-sm text-sr-muted"
-          >
-            No holds recorded for this camera.
-          </p>
-
-          <ul :if={@timeline_holds != []} id="camera-timeline-holds-list" class="space-y-3">
-            <li
-              :for={hold <- @timeline_holds}
-              id={"timeline-hold-#{hold.id}"}
-              data-hold-state={to_string(hold.state)}
-              class="space-y-2 rounded-lg border border-sr-line p-3 text-xs"
-            >
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <.ui_badge
-                    variant={if(hold.state == :accepted, do: "primary", else: "ghost")}
-                    size="xs"
-                  >
-                    {to_string(hold.state)}
-                  </.ui_badge>
-                  <.ui_badge variant="outline" size="xs">{to_string(hold.kind)}</.ui_badge>
-                  <.ui_badge
-                    :if={hold.pinned_copy}
-                    id={"timeline-hold-pin-#{hold.id}"}
-                    variant="info"
-                    size="xs"
-                  >
-                    Pinned: {to_string(hold.pinned_copy)}
-                  </.ui_badge>
-                </div>
-              </div>
-
-              <p class="font-medium text-sr-ink">{hold.reason}</p>
-
-              <p class="text-sr-muted">
-                {@time_basis_short}
-                <.user_time
-                  id={"timeline-hold-start-#{hold.id}"}
-                  value={us_to_datetime(hold.start_us)}
-                  timezone={@timezone}
-                /> &rarr;
-                <.user_time
-                  id={"timeline-hold-end-#{hold.id}"}
-                  value={us_to_datetime(hold.end_us)}
-                  timezone={@timezone}
-                />
-              </p>
-
-              <div
-                :if={hold.archive_missing?}
-                id={"timeline-hold-archive-missing-#{hold.id}"}
-                class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300"
-              >
-                Archive copy missing — local copy is pinned when present.
-              </div>
-
-              <div
-                :if={hold.unavailable_blocks != []}
-                id={"timeline-hold-unavailable-#{hold.id}"}
-                class="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-rose-700 dark:text-rose-300"
-              >
-                {length(hold.unavailable_blocks)} block(s) unavailable (deletion in progress when hold was placed).
-              </div>
-
-              <p :if={hold.state == :released && hold.release_reason} class="text-sr-muted">
-                Released: {hold.release_reason}
-              </p>
-
-              <form
-                :if={@can_manage_holds && hold.state == :accepted}
-                id={"release-timeline-hold-form-#{hold.id}"}
-                phx-submit="release_timeline_hold"
-                class="flex items-center gap-2 pt-1"
-              >
-                <input type="hidden" name="hold_id" value={hold.id} />
-                <input
-                  type="text"
-                  name="release_reason"
-                  placeholder="Optional release note"
-                  class="h-8 flex-1 rounded-md border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
-                />
-                <.ui_button
-                  id={"release-timeline-hold-#{hold.id}"}
-                  type="submit"
-                  variant="outline"
-                  size="xs"
-                >
-                  Release
-                </.ui_button>
-              </form>
-            </li>
-          </ul>
+          </section>
         </section>
       </div>
 
-      <%!-- Detections & Event Clip Strip --%>
+      <%!-- BOTTOM STRIP: Compact 2-Row Server-Side Paginated Detections & Clips --%>
       <section
         id="camera-timeline-event-clips-section"
         aria-label="Detections and clips"
-        class="space-y-4 rounded-xl border border-sr-line bg-sr-surface p-4"
+        class="space-y-2.5 rounded-xl border border-sr-line bg-sr-surface p-3"
       >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <h2 class="font-semibold text-sr-ink">Detections &amp; Clips</h2>
-            <.ui_badge id="camera-clips-total-badge" variant="ghost" size="xs">
-              {@filtered_event_clip_total}
-            </.ui_badge>
-            <span
-              :if={@filtered_event_clip_total > length(@filtered_event_clips)}
-              id="camera-clips-display-cap-note"
-              class="text-xs text-sr-muted"
+        <%!-- Compact Single-Line Filter + Pagination Header --%>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-1.5">
+              <h2 class="text-sm font-semibold text-sr-ink">Detections &amp; Clips</h2>
+              <.ui_badge id="camera-clips-total-badge" variant="ghost" size="xs">
+                {@filtered_event_clip_total}
+              </.ui_badge>
+            </div>
+
+            <div
+              id="camera-clips-mode-toggle"
+              role="group"
+              aria-label="Clip detection mode"
+              class="inline-flex items-center gap-0.5 rounded-lg border border-sr-line bg-sr-canvas p-0.5"
             >
-              Showing latest {length(@filtered_event_clips)} of {@filtered_event_clip_total}
-            </span>
+              <button
+                :for={
+                  {mode_val, mode_label, count_key} <- [
+                    {"smart", "Smart", :smart},
+                    {"basic", "Basic", :basic},
+                    {"all", "All", :all}
+                  ]
+                }
+                id={"camera-clips-mode-#{mode_val}"}
+                type="button"
+                phx-click="filter_event_clips_mode"
+                phx-value-mode={mode_val}
+                aria-pressed={to_string(@timeline_clips_mode == mode_val)}
+                class={[
+                  "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  if(@timeline_clips_mode == mode_val,
+                    do: "bg-sr-ink text-sr-surface",
+                    else: "text-sr-muted hover:text-sr-ink"
+                  )
+                ]}
+              >
+                <span>{mode_label}</span>
+                <span class="font-mono text-[10px] opacity-75">
+                  {Map.get(@clip_counts, count_key, 0)}
+                </span>
+              </button>
+            </div>
+
+            <div
+              id="camera-clips-category-filters"
+              role="group"
+              aria-label="Clip category filters"
+              class="flex flex-wrap items-center gap-1"
+            >
+              <button
+                :for={{cat_val, cat_label, cat_icon, count_key} <- clip_category_filter_specs()}
+                id={"camera-clips-category-#{cat_val}"}
+                type="button"
+                phx-click="filter_event_clips_category"
+                phx-value-category={cat_val}
+                aria-pressed={to_string(@timeline_clips_category == cat_val)}
+                class={[
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  if(@timeline_clips_category == cat_val,
+                    do: "border-sr-brand bg-sr-brand/10 text-sr-ink",
+                    else:
+                      "border-sr-line bg-sr-canvas text-sr-muted hover:border-sr-ink/40 hover:text-sr-ink"
+                  )
+                ]}
+              >
+                <.icon name={cat_icon} class="size-3 shrink-0" />
+                <span>{cat_label}</span>
+                <span
+                  id={"camera-clips-category-count-#{cat_val}"}
+                  class="font-mono text-[10px] opacity-75"
+                >
+                  {Map.get(@clip_counts, count_key, 0)}
+                </span>
+              </button>
+            </div>
           </div>
 
+          <%!-- Right-Aligned Compact Server-Side Pagination Controls --%>
           <div
-            id="camera-clips-mode-toggle"
-            role="group"
-            aria-label="Clip detection mode"
-            class="inline-flex items-center gap-1 rounded-lg border border-sr-line bg-sr-canvas p-1"
+            id="camera-clips-pagination"
+            class="inline-flex items-center gap-1.5 text-xs"
           >
             <button
-              :for={
-                {mode_val, mode_label, count_key} <- [
-                  {"all", "All", :all},
-                  {"smart", "Smart", :smart},
-                  {"basic", "Basic", :basic}
-                ]
-              }
-              id={"camera-clips-mode-#{mode_val}"}
+              id="camera-clips-prev-page"
               type="button"
-              phx-click="filter_event_clips_mode"
-              phx-value-mode={mode_val}
-              aria-pressed={to_string(@timeline_clips_mode == mode_val)}
-              class={[
-                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                if(@timeline_clips_mode == mode_val,
-                  do: "bg-sr-ink text-sr-surface",
-                  else: "text-sr-muted hover:text-sr-ink"
-                )
-              ]}
+              phx-click="paginate_event_clips"
+              phx-value-page={max(@clips_page - 1, 1)}
+              disabled={@clips_page <= 1}
+              class="rounded-md border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] font-medium text-sr-ink disabled:opacity-40 hover:border-sr-brand"
             >
-              <span>{mode_label}</span>
-              <span class="font-mono text-[10px] opacity-75">
-                {Map.get(@clip_counts, count_key, 0)}
-              </span>
+              Prev
+            </button>
+            <span
+              id="camera-clips-page-indicator"
+              class="px-1 font-mono text-[11px] text-sr-muted"
+            >
+              Page {@clips_page} / {@clips_total_pages}
+            </span>
+            <button
+              id="camera-clips-next-page"
+              type="button"
+              phx-click="paginate_event_clips"
+              phx-value-page={min(@clips_page + 1, @clips_total_pages)}
+              disabled={@clips_page >= @clips_total_pages}
+              class="rounded-md border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] font-medium text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+            >
+              Next
             </button>
           </div>
-        </div>
-
-        <div
-          id="camera-clips-category-filters"
-          role="group"
-          aria-label="Clip category filters"
-          class="flex flex-wrap items-center gap-2"
-        >
-          <button
-            :for={{cat_val, cat_label, cat_icon, count_key} <- clip_category_filter_specs()}
-            id={"camera-clips-category-#{cat_val}"}
-            type="button"
-            phx-click="filter_event_clips_category"
-            phx-value-category={cat_val}
-            aria-pressed={to_string(@timeline_clips_category == cat_val)}
-            class={[
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-              if(@timeline_clips_category == cat_val,
-                do: "border-sr-brand bg-sr-brand/10 text-sr-ink",
-                else:
-                  "border-sr-line bg-sr-canvas text-sr-muted hover:border-sr-ink/40 hover:text-sr-ink"
-              )
-            ]}
-          >
-            <.icon name={cat_icon} class="size-3.5 shrink-0" />
-            <span>{cat_label}</span>
-            <span
-              id={"camera-clips-category-count-#{cat_val}"}
-              class="rounded-full bg-sr-surface px-1.5 py-0.5 font-mono text-[10px] text-sr-muted"
-            >
-              {Map.get(@clip_counts, count_key, 0)}
-            </span>
-          </button>
         </div>
 
         <div
           :if={@filtered_event_clips == []}
           id="camera-clips-empty"
           role="status"
-          class="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-sr-line bg-sr-canvas px-6 py-10 text-center"
+          class="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-sr-line bg-sr-canvas px-4 py-6 text-center"
         >
-          <.icon name="hero-film" class="size-6 text-sr-muted" />
-          <p class="text-sm font-medium text-sr-ink">
-            {if(@timeline_event_clips == [],
-              do: "No detections or recorded clips in this coverage window.",
-              else: "No clips match the current filter."
-            )}
-          </p>
-          <p class="text-xs text-sr-muted">
-            {if(@timeline_event_clips == [],
-              do: "Try expanding the timeline span or checking recording status.",
-              else: "Switch mode or clear the category filter to see all clips in this window."
+          <.icon name="hero-film" class="size-5 text-sr-muted" />
+          <p class="text-xs font-medium text-sr-ink">
+            {if(@has_any_window_clips?,
+              do: "No clips match the current filter.",
+              else: "No detections or recorded clips in this coverage window."
             )}
           </p>
           <.ui_button
-            :if={@timeline_event_clips != []}
+            :if={@has_any_window_clips?}
             id="camera-clips-reset-filters"
             type="button"
             phx-click="reset_event_clip_filters"
             variant="outline"
             size="xs"
-            class="mt-1"
           >
             Reset filters
           </.ui_button>
         </div>
 
+        <%!-- Strictly 2-Row Compact Grid (per_page: 12 => 2 rows x 6 cards on desktop) --%>
         <div
           :if={@filtered_event_clips != []}
           id="camera-clips-grid"
-          class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+          class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
         >
           <button
             :for={clip <- @filtered_event_clips}
@@ -1472,7 +1555,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               )
             }
             class={[
-              "group flex flex-col overflow-hidden rounded-xl border bg-sr-canvas text-left transition-all hover:border-sr-brand/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sr-brand",
+              "group flex flex-col overflow-hidden rounded-lg border bg-sr-canvas text-left transition-all hover:border-sr-brand/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sr-brand",
               if(
                 clip_selected?(
                   clip,
@@ -1494,52 +1577,35 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                 />
               <% else %>
-                <div class="flex h-full w-full flex-col items-center justify-center gap-1.5 bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 text-zinc-400">
+                <div class="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 text-zinc-500">
                   <.icon
                     name={clip_category_icon(clip.category)}
-                    class="size-7 text-zinc-500 transition-transform duration-200 group-hover:scale-110 group-hover:text-zinc-300"
+                    class="size-5 transition-transform duration-200 group-hover:scale-110 group-hover:text-zinc-300"
                   />
-                  <span
-                    :if={clip.category == :recording}
-                    class="font-mono text-[10px] uppercase tracking-wider text-zinc-500"
-                  >
-                    Recorded segment
-                  </span>
                 </div>
               <% end %>
 
-              <%!-- Top-left relative timestamp badge --%>
-              <span class="absolute top-2 left-2 rounded-md bg-black/75 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-xs">
+              <%!-- Top-left relative time pill --%>
+              <span class="absolute top-1 left-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-medium leading-none text-white backdrop-blur-xs">
                 {format_relative_age(clip.start_us, @now_us)}
               </span>
 
-              <%!-- Top-right duration badge --%>
-              <span class="absolute top-2 right-2 rounded-md bg-black/75 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200 backdrop-blur-xs">
+              <%!-- Top-right duration pill --%>
+              <span class="absolute top-1 right-1 rounded bg-black/75 px-1 py-0.5 font-mono text-[10px] leading-none text-zinc-200 backdrop-blur-xs">
                 {format_clip_duration(clip.duration_seconds)}
               </span>
 
-              <%!-- Bottom-left detection badge --%>
-              <div class="absolute right-2 bottom-2 left-2 flex flex-wrap items-center gap-1">
-                <span class={[
-                  "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-xs",
-                  clip_badge_bg_class(clip.category)
-                ]}>
-                  <.icon name={clip_category_icon(clip.category)} class="size-3 shrink-0" />
-                  <span>{clip.label}</span>
-                  <span :if={is_number(clip.confidence)} class="font-mono text-[10px] opacity-90">
-                    {format_hit_score(clip.confidence)}
-                  </span>
-                </span>
-                <span
-                  :for={color <- Enum.take(get_in(clip, [:attributes, :dominant_colors]) || [], 2)}
-                  class="rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] capitalize text-zinc-200 backdrop-blur-xs"
-                >
-                  {color}
-                </span>
-              </div>
+              <%!-- Bottom-left compact type badge --%>
+              <span class={[
+                "absolute bottom-1 left-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium leading-none text-white backdrop-blur-xs",
+                clip_badge_bg_class(clip.category)
+              ]}>
+                <.icon name={clip_category_icon(clip.category)} class="size-2.5 shrink-0" />
+                <span>{clip.label}</span>
+              </span>
             </div>
 
-            <div class="flex items-center justify-between gap-2 px-2.5 py-2 text-xs">
+            <div class="flex items-center justify-between gap-1 px-1.5 py-1 text-[10px]">
               <span class="truncate text-sr-ink">
                 <.user_time
                   id={"camera-clip-time-#{clip.id}"}
@@ -1548,16 +1614,385 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   style={:compact}
                 />
               </span>
-              <span class="shrink-0 font-mono text-[10px] text-sr-muted">
+              <span class="shrink-0 font-mono text-[9px] text-sr-muted">
                 {clip_storage_badge(clip)}
               </span>
             </div>
           </button>
         </div>
       </section>
+
+      <%!-- Slide-Over Drawer: Recording Holds, Catalog Blocks & Clock Re-anchors --%>
+      <div
+        id="camera-timeline-manage-drawer"
+        aria-hidden={to_string(not @timeline_manage_drawer_open?)}
+        class={[
+          "fixed inset-0 z-50 flex justify-end",
+          if(@timeline_manage_drawer_open?, do: "", else: "hidden")
+        ]}
+      >
+        <div
+          id="camera-timeline-manage-drawer-backdrop"
+          phx-click="close_manage_drawer"
+          class="fixed inset-0 bg-black/50 backdrop-blur-xs"
+        >
+        </div>
+
+        <aside
+          aria-label="Manage holds and catalog blocks"
+          class="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-sr-line bg-sr-surface p-4 shadow-xl"
+        >
+          <div class="flex items-center justify-between gap-2 border-b border-sr-line pb-3">
+            <div>
+              <h2 class="text-sm font-semibold text-sr-ink">Manage Holds &amp; Catalog</h2>
+              <p class="text-xs text-sr-muted">
+                Recording holds, catalog blocks in span, and clock re-anchor markers.
+              </p>
+            </div>
+            <.ui_button
+              id="camera-timeline-manage-drawer-close"
+              type="button"
+              phx-click="close_manage_drawer"
+              variant="ghost"
+              size="xs"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </.ui_button>
+          </div>
+
+          <div class="mt-4 space-y-5">
+            <%!-- Recording Holds --%>
+            <section
+              id="camera-timeline-holds-section"
+              aria-label="Recording holds"
+              class="space-y-3"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
+                  Recording holds
+                </h3>
+                <.ui_badge variant="ghost" size="xs">{length(@timeline_holds)}</.ui_badge>
+              </div>
+
+              <%= if @can_manage_holds && @hold_form do %>
+                <.form
+                  for={@hold_form}
+                  id="place-timeline-hold-form"
+                  phx-change="change_hold_form"
+                  phx-submit="place_timeline_hold"
+                  class="space-y-2.5 rounded-lg border border-sr-line bg-sr-canvas p-3"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <p class="text-xs font-semibold text-sr-ink">Place hold on window</p>
+                    <div
+                      id="timeline-hold-presets"
+                      role="group"
+                      aria-label="Hold window presets"
+                      class="inline-flex flex-wrap items-center gap-1"
+                    >
+                      <button
+                        :for={
+                          {preset, label} <- [
+                            {"window", "Current window"},
+                            {"15m", "Last 15m"},
+                            {"1h", "Last 1h"},
+                            {"24h", "Last 24h"}
+                          ]
+                        }
+                        id={"timeline-hold-preset-#{preset}"}
+                        type="button"
+                        phx-click="select_hold_preset"
+                        phx-value-preset={preset}
+                        class="rounded border border-sr-line bg-sr-surface px-1.5 py-0.5 text-[11px] font-medium text-sr-ink hover:bg-sr-subtle"
+                      >
+                        {label}
+                      </button>
+                    </div>
+                  </div>
+                  <.input
+                    field={@hold_form[:kind]}
+                    id="timeline-hold-kind"
+                    type="select"
+                    label="Hold kind"
+                    options={[{"Investigation", "investigation"}, {"Export", "export"}]}
+                  />
+                  <div class="space-y-2">
+                    <.input
+                      field={@hold_form[:start_at]}
+                      id="timeline-hold-start-at"
+                      type="datetime-local"
+                      step="1"
+                      label={"Start (#{@timezone})"}
+                      required
+                    />
+                    <.input
+                      field={@hold_form[:end_at]}
+                      id="timeline-hold-end-at"
+                      type="datetime-local"
+                      step="1"
+                      label={"End (#{@timezone})"}
+                      required
+                    />
+                  </div>
+                  <.input
+                    field={@hold_form[:reason]}
+                    id="timeline-hold-reason"
+                    type="text"
+                    label="Reason"
+                    placeholder="Incident or export ticket reference"
+                    required
+                  />
+                  <.ui_button
+                    id="place-timeline-hold-submit"
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    class="w-full"
+                  >
+                    Place hold
+                  </.ui_button>
+                </.form>
+              <% end %>
+
+              <p
+                :if={@timeline_holds == []}
+                id="camera-timeline-holds-empty"
+                class="text-xs text-sr-muted"
+              >
+                No holds recorded for this camera.
+              </p>
+
+              <ul :if={@timeline_holds != []} id="camera-timeline-holds-list" class="space-y-2.5">
+                <li
+                  :for={hold <- @timeline_holds}
+                  id={"timeline-hold-#{hold.id}"}
+                  data-hold-state={to_string(hold.state)}
+                  class="space-y-2 rounded-lg border border-sr-line p-2.5 text-xs"
+                >
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <.ui_badge
+                      variant={if(hold.state == :accepted, do: "primary", else: "ghost")}
+                      size="xs"
+                    >
+                      {to_string(hold.state)}
+                    </.ui_badge>
+                    <.ui_badge variant="outline" size="xs">{to_string(hold.kind)}</.ui_badge>
+                    <.ui_badge
+                      :if={hold.pinned_copy}
+                      id={"timeline-hold-pin-#{hold.id}"}
+                      variant="info"
+                      size="xs"
+                    >
+                      Pinned: {to_string(hold.pinned_copy)}
+                    </.ui_badge>
+                  </div>
+
+                  <p class="font-medium text-sr-ink">{hold.reason}</p>
+
+                  <p class="text-sr-muted">
+                    {@time_basis_short}
+                    <.user_time
+                      id={"timeline-hold-start-#{hold.id}"}
+                      value={us_to_datetime(hold.start_us)}
+                      timezone={@timezone}
+                    /> &rarr;
+                    <.user_time
+                      id={"timeline-hold-end-#{hold.id}"}
+                      value={us_to_datetime(hold.end_us)}
+                      timezone={@timezone}
+                    />
+                  </p>
+
+                  <div
+                    :if={hold.archive_missing?}
+                    id={"timeline-hold-archive-missing-#{hold.id}"}
+                    class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300"
+                  >
+                    Archive copy missing — local copy is pinned when present.
+                  </div>
+
+                  <div
+                    :if={hold.unavailable_blocks != []}
+                    id={"timeline-hold-unavailable-#{hold.id}"}
+                    class="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-rose-700 dark:text-rose-300"
+                  >
+                    {length(hold.unavailable_blocks)} block(s) unavailable (deletion in progress when hold was placed).
+                  </div>
+
+                  <p :if={hold.state == :released && hold.release_reason} class="text-sr-muted">
+                    Released: {hold.release_reason}
+                  </p>
+
+                  <form
+                    :if={@can_manage_holds && hold.state == :accepted}
+                    id={"release-timeline-hold-form-#{hold.id}"}
+                    phx-submit="release_timeline_hold"
+                    class="flex items-center gap-2 pt-1"
+                  >
+                    <input type="hidden" name="hold_id" value={hold.id} />
+                    <input
+                      type="text"
+                      name="release_reason"
+                      placeholder="Optional release note"
+                      class="h-8 flex-1 rounded-md border border-sr-line bg-sr-control px-2 text-xs text-sr-ink"
+                    />
+                    <.ui_button
+                      id={"release-timeline-hold-#{hold.id}"}
+                      type="submit"
+                      variant="outline"
+                      size="xs"
+                    >
+                      Release
+                    </.ui_button>
+                  </form>
+                </li>
+              </ul>
+            </section>
+
+            <%!-- Clock Re-anchor Markers --%>
+            <div
+              :if={@reanchors != []}
+              id="camera-timeline-reanchors"
+              class="space-y-1.5 rounded-lg border border-sr-line bg-sr-canvas p-3 text-xs"
+            >
+              <p class="font-semibold text-sr-ink">Clock re-anchor markers</p>
+              <ul class="space-y-1 text-sr-muted">
+                <li
+                  :for={{marker, idx} <- Enum.with_index(@reanchors)}
+                  id={"camera-timeline-reanchor-#{idx}"}
+                  class="flex flex-wrap items-center gap-1.5"
+                >
+                  <.ui_badge variant="outline" size="xs">Clock re-anchored</.ui_badge>
+                  <span>
+                    {@time_basis_short}
+                    <.user_time
+                      id={"camera-timeline-reanchor-time-#{idx}"}
+                      value={us_to_datetime(reanchor_at_us(marker))}
+                      timezone={@timezone}
+                    />
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            <%!-- Catalog Blocks in Span --%>
+            <div :if={@blocks != []} id="camera-timeline-blocks" class="space-y-2">
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
+                Catalog blocks in span ({length(@blocks)})
+              </h3>
+              <ul class="max-h-72 space-y-1.5 overflow-y-auto pr-1 text-xs">
+                <li
+                  :for={block <- @blocks}
+                  id={"camera-timeline-block-#{coverage_field(block, :id)}"}
+                  data-copy-state={block_copy_state_name(block)}
+                  class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sr-line px-2.5 py-1.5"
+                >
+                  <div class="flex flex-wrap items-center gap-1">
+                    <.ui_badge
+                      variant={copy_state_badge_variant(block_copy_state_name(block))}
+                      size="xs"
+                    >
+                      {copy_state_label(block_copy_state_name(block))}
+                    </.ui_badge>
+                    <.ui_badge
+                      :if={block_provisional?(block)}
+                      data-role="block-provisional-badge"
+                      variant="warning"
+                      size="xs"
+                    >
+                      provisional
+                    </.ui_badge>
+                    <.ui_badge :if={block_reanchored?(block)} variant="outline" size="xs">
+                      Clock re-anchored
+                    </.ui_badge>
+                  </div>
+                  <span class="text-sr-muted">
+                    {@time_basis_short}
+                    <.user_time
+                      id={"camera-timeline-block-start-#{coverage_field(block, :id)}"}
+                      value={us_to_datetime(coverage_field(block, :timeline_start_us))}
+                      timezone={@timezone}
+                    />
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
     """
   end
+
+  defp camera_subtitle(cam) when is_map(cam) do
+    site =
+      case Map.get(cam, :metadata) do
+        %{} = meta -> meta["site"] || meta[:site]
+        _ -> nil
+      end
+
+    vendor = Map.get(cam, :vendor)
+    status = Map.get(cam, :availability_status)
+
+    [site, vendor, status]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
+    |> case do
+      "" -> "Camera"
+      text -> text
+    end
+  end
+
+  defp camera_subtitle(_), do: "Camera"
+
+  defp camera_status_dot_class(cam) do
+    status = cam |> Map.get(:availability_status) |> to_string() |> String.downcase()
+
+    if status in ["online", "available", "active"] do
+      "bg-emerald-500"
+    else
+      "bg-zinc-400"
+    end
+  end
+
+  defp camera_status_title(cam) do
+    status = cam |> Map.get(:availability_status) |> to_string() |> String.downcase()
+
+    if status in ["online", "available", "active"] do
+      "Online"
+    else
+      "Offline"
+    end
+  end
+
+  defp build_vertical_time_ticks(from_us, to_us) when is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    span = to_us - from_us
+
+    [
+      round(to_us - span * 0.25),
+      round(to_us - span * 0.5),
+      round(to_us - span * 0.75)
+    ]
+  end
+
+  defp build_vertical_time_ticks(_, _), do: []
+
+  defp build_play_window_band(play_from_us, play_to_us, cov_from_us, cov_to_us)
+       when is_integer(play_from_us) and is_integer(play_to_us) and is_integer(cov_from_us) and is_integer(cov_to_us) do
+    clamped_from = max(play_from_us, cov_from_us)
+    clamped_to = min(play_to_us, cov_to_us)
+
+    if cov_to_us > cov_from_us and play_to_us > play_from_us and clamped_to > clamped_from do
+      span = cov_to_us - cov_from_us
+      # Newest (to_us) is at top (0%), oldest (from_us) is at bottom (100%)
+      top_pct = Float.round(min(max((cov_to_us - clamped_to) / span * 100.0, 0.0), 98.0), 2)
+      bottom_pct = Float.round(min(max((cov_to_us - clamped_from) / span * 100.0, 2.0), 100.0), 2)
+      height_pct = Float.round(max(bottom_pct - top_pct, 2.0), 2)
+      %{top_pct: top_pct, height_pct: height_pct}
+    end
+  end
+
+  defp build_play_window_band(_, _, _, _), do: nil
 
   defp default_empty_coverage do
     %{
@@ -1654,14 +2089,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp block_reanchored?(block) do
     coverage_field(block, :reanchored?) == true or coverage_field(block, :reanchored) == true
-  end
-
-  defp bucket_start_us(bucket) do
-    coverage_field(bucket, :start_us) || coverage_field(bucket, :from_us)
-  end
-
-  defp bucket_end_us(bucket) do
-    coverage_field(bucket, :end_us) || coverage_field(bucket, :to_us)
   end
 
   defp bucket_title(bucket) do
@@ -1765,7 +2192,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       frame_id = to_string(coverage_field(hit, :visual_frame_id) || "")
       score = coverage_field(hit, :score)
       class_label = coverage_field(hit, :object_class) || coverage_field(hit, :region_kind) || "match"
-      left_pct = Float.round(min(max((seek_us - from_us) / span_us * 100.0, 0.5), 99.5), 2)
+      # Vertical timeline: top (0%) = to_us (newest), bottom (100%) = from_us (oldest)
+      top_pct = Float.round(min(max((to_us - seek_us) / span_us * 100.0, 0.5), 99.5), 2)
 
       %{
         idx: idx,
@@ -1773,7 +2201,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         start_us: start_us,
         end_us: end_us,
         frame_id: frame_id,
-        left_pct: left_pct,
+        top_pct: top_pct,
         title: "Semantic match: #{class_label} (#{format_hit_score(score)})"
       }
     end)
@@ -1835,7 +2263,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     |> Enum.with_index()
     |> Enum.map(fn {clip, idx} ->
       ts = clip[:peak_ts_us] || clip[:start_us]
-      left_pct = Float.round(min(max((ts - from_us) / span_us * 100.0, 0.5), 99.5), 2)
+      # Vertical timeline: top (0%) = to_us (newest), bottom (100%) = from_us (oldest)
+      top_pct = Float.round(min(max((to_us - ts) / span_us * 100.0, 0.5), 99.5), 2)
 
       conf_suffix =
         if is_number(clip[:confidence]), do: " (#{format_hit_score(clip[:confidence])})", else: ""
@@ -1846,7 +2275,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         idx: idx,
         clip_id: clip.id,
         category: clip.category,
-        left_pct: left_pct,
+        top_pct: top_pct,
         title: "#{clip.label}#{conf_suffix} — #{age_label}"
       }
     end)

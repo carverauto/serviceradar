@@ -59,6 +59,38 @@ playwright_bin.playwright_test(
     tags = ["unit_test", "external", "no-local", "no-remote-cache"],
 )
 
+# Production 3-pane camera timeline workspace rendered with synthetic assigns and
+# driven with real CameraVerticalTimeline + CameraTimelinePlayer hooks against CMAF.
+playwright_bin.playwright_test(
+    name = "camera_timeline_workspace_test",
+    size = "medium",
+    args = ["test", "--config=camera_timeline_workspace.config.js"],
+    chdir = package_name(),
+    data = [
+        "camera_timeline_workspace.playwright.js",
+        "camera_timeline_workspace.config.js",
+        "camera_recording.config.js",
+        "//elixir/serviceradar_core_elx:recording_browser_fixture",
+        "//elixir/web-ng:camera_timeline_workspace_browser_fixture",
+        "//elixir/web-ng/assets:css_bundle",
+        "//elixir/web-ng/assets:camera_timeline_workspace_bundle",
+        "//elixir/web-ng/assets:camera_timeline_workspace_test_lib",
+        "//elixir/web-ng/assets:node_modules/@playwright/test",
+    ],
+    env = {
+        "CAMERA_BROWSER_FIXTURE": "$(rootpath //elixir/serviceradar_core_elx:recording_browser_fixture)",
+        "CAMERA_TIMELINE_COMPONENT": "$(rootpath //elixir/web-ng:camera_timeline_workspace_browser_fixture)",
+        "CAMERA_TIMELINE_STYLES": "$(rootpath //elixir/web-ng/assets:css_bundle)",
+        "CAMERA_TIMELINE_BUNDLE": "$(rootpath //elixir/web-ng/assets:camera_timeline_workspace_bundle)",
+        "CI": "1",
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright",
+    },
+    exec_properties = {
+        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:bdfda2a8fdf48707c5e50a49bd3e06d8d0c759153dc8ee057d8a81c3450bb3e9",
+    },
+    tags = ["unit_test", "external", "no-local", "no-remote-cache"],
+)
+
 # Dependency experiment only; native bytes are verified before browser input.
 playwright_bin.playwright_test(
     name = "camera_codec_capability_test",

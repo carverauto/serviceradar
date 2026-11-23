@@ -544,8 +544,11 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
     assert is_binary(player_playlist_path(view))
 
-    # Selecting a different coverage bucket clears the previously selected clip highlight
-    view |> element("#camera-timeline-bucket-119") |> render_click()
+    # Seeking on the vertical timeline rail clears the previously selected clip highlight
+    view
+    |> element("#camera-timeline-coverage-bar")
+    |> render_hook("seek_timeline_fraction", %{"fraction" => 0.99})
+
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='false']")
   end
 

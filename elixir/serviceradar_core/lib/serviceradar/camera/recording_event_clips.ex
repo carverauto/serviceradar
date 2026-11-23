@@ -6,9 +6,11 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   `list_clips/3` projects coalesced event clips (`:person`, `:vehicle`,
   `:animal`, `:package`, `:motion`, and `:recording` fallback segments) for a
   camera coverage window using separate bounded queries for detection and
-  motion-only frames. `category_counts/1` and `filter_clips/2` provide
-  in-memory mode (`:all | :smart | :basic`) and category counting and
-  filtering.
+  motion-only frames. `list_page/3` and `paginate_clips/2` return a bounded
+  server-side page (`12` per page by default, capped at `48`) alongside
+  full-window mode/category counts and lightweight timeline event markers.
+  `category_counts/1` and `filter_clips/2` provide in-memory mode
+  (`:all | :smart | :basic`) and category counting and filtering.
 
   Supports both live CNPG execution and `:loaders` injection for `:db_free`
   unit test suites in `serviceradar_core` and `web-ng`.
@@ -27,6 +29,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
 
   @max_window_us 31 * 86_400 * 1_000_000
   @default_limit 100
+  @default_per_page 12
+  @max_per_page 48
   @detection_frames_query_limit 500
   @motion_frames_query_limit 500
   @default_coalesce_gap_us 8_000_000
@@ -63,6 +67,14 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   @doc "Default per-view clip display limit."
   @spec default_limit() :: pos_integer()
   def default_limit, do: @default_limit
+
+  @doc "Default page size for server-side paginated clip views (2 rows x 6 cards)."
+  @spec default_per_page() :: pos_integer()
+  def default_per_page, do: @default_per_page
+
+  @doc "Maximum allowed page size for server-side paginated clip views."
+  @spec max_per_page() :: pos_integer()
+  def max_per_page, do: @max_per_page
 
   @doc """
   Lists event clips for `camera_source_id` within `[from_us, to_us]`.
@@ -126,6 +138,83 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
          clips: clips
        }}
     end
+  end
+
+  @doc """
+  Lists a server-side paginated and filtered slice of event clips for
+  `camera_source_id` within `[from_us, to_us]`, together with full window
+  category/mode counts and lightweight timeline event markers.
+
+  Supports:
+  - `mode`: `:all | :smart | :basic` (or string equivalents, default `:all`)
+  - `category`: `:all | category()` (or string equivalents, default `:all`)
+  - `page`: 1-indexed page number (default `1`, clamped to `1..total_pages`)
+  - `per_page`: page size (default `12`, capped at `48`)
+  """
+  @spec list_page(String.t(), map() | keyword(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def list_page(camera_source_id, params \\ %{}, opts \\ [])
+      when is_binary(camera_source_id) and (is_map(params) or is_list(params)) and is_list(opts) do
+    attrs = to_map(params)
+
+    with {:ok, result} <- list_clips(camera_source_id, attrs, opts) do
+      paged = paginate_clips(result.clips, attrs)
+
+      markers =
+        result.clips
+        |> Enum.reject(&(&1.category == :recording))
+        |> Enum.map(fn clip ->
+          %{
+            id: clip.id,
+            category: clip.category,
+            smart_type: clip.smart_type,
+            label: clip.label,
+            confidence: clip.confidence,
+            start_us: clip.start_us,
+            end_us: clip.end_us,
+            peak_ts_us: clip.peak_ts_us,
+            visual_frame_id: clip.visual_frame_id
+          }
+        end)
+
+      {:ok,
+       Map.merge(paged, %{
+         camera_source_id: result.camera_source_id,
+         from_us: result.from_us,
+         to_us: result.to_us,
+         markers: markers
+       })}
+    end
+  end
+
+  @doc """
+  Computes full counts, applies mode/category filters, and returns a single
+  bounded page slice of clips.
+  """
+  @spec paginate_clips([map()], map() | keyword()) :: map()
+  def paginate_clips(clips, params \\ %{}) when is_list(clips) do
+    attrs = to_map(params)
+    counts = category_counts(clips)
+    filtered = filter_clips(clips, attrs)
+    total_count = length(filtered)
+    per_page = parse_per_page(fetch_val(attrs, :per_page))
+    total_pages = max(div(total_count + per_page - 1, per_page), 1)
+    requested_page = parse_page(fetch_val(attrs, :page))
+    page = min(requested_page, total_pages)
+
+    page_clips =
+      filtered
+      |> Enum.drop((page - 1) * per_page)
+      |> Enum.take(per_page)
+
+    %{
+      clips: page_clips,
+      total_count: total_count,
+      page: page,
+      per_page: per_page,
+      total_pages: total_pages,
+      counts: counts
+    }
   end
 
   @doc """
@@ -656,6 +745,31 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
   end
 
   defp parse_non_neg_int(_), do: :error
+
+  defp parse_page(val) do
+    case parse_pos_int(val) do
+      {:ok, n} -> n
+      :error -> 1
+    end
+  end
+
+  defp parse_per_page(val) do
+    case parse_pos_int(val) do
+      {:ok, n} -> min(n, @max_per_page)
+      :error -> @default_per_page
+    end
+  end
+
+  defp parse_pos_int(val) when is_integer(val) and val >= 1, do: {:ok, val}
+
+  defp parse_pos_int(val) when is_binary(val) do
+    case Integer.parse(String.trim(val)) do
+      {n, ""} when n >= 1 -> {:ok, n}
+      _ -> :error
+    end
+  end
+
+  defp parse_pos_int(_), do: :error
 
   defp normalize_mode_value(val) when val in [:smart, "smart"], do: :smart
   defp normalize_mode_value(val) when val in [:basic, "basic"], do: :basic
