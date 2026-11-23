@@ -2006,6 +2006,313 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
     end
   end
 
+  describe "stream idle timeout, HTTP 408 refusal, and run_stopped gap duration" do
+    test "seals stalled streaming block on stream_idle_timeout_ms without hanging pull_unit and requires IDR to resume" do
+      harness = start_harness(bounds: %{soft_frames: 10, max_frames: 20}, stream_idle_timeout_ms: 40)
+
+      log =
+        capture_log(fn ->
+          {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+          assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+          send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+          send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+          # No more units arrive -> idle timer cuts Block 0 cleanly and enters :idle awaiting IDR
+          assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key0, catalog: {:registered, _}}}},
+                         1_000
+
+          assert_receive {:sent_block, ^key0, block0_units}, 1_000
+          assert Enum.map(block0_units, & &1.sequence) == [0, 1]
+          assert ContinuousRecorder.status(pid).phase == :idle
+
+          # Non-IDR seq 2 after idle cut must be dropped as :keyframe_wait; IDR seq 3 starts Block 1 non-contiguously
+          send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 200_000, @p_frame_payload)
+          send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 233_333, @idr_payload)
+
+          assert_receive {:gap_recorded, gap}, 1_000
+          assert gap.reason == :keyframe_wait
+          assert gap.detail_class == "awaiting_idr"
+
+          ContinuousRecorder.stop(pid, :policy_disabled)
+          assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1}}}, 1_000
+          assert_receive {:sent_block, ^key1, block1_units}, 1_000
+          assert Enum.map(block1_units, & &1.sequence) == [3]
+          assert_receive {:cataloged, ^key1, attrs1}, 1_000
+          assert attrs1.contiguous_with_previous == false
+          assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+        end)
+
+      assert log =~ "stream idle timeout on block"
+    end
+
+    test "treats HTTP 408 ingest refusal as a definite refusal without stopping the run" do
+      parent = self()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        send(parent, {:sent_block, block_key, units})
+
+        if header["identity"]["block_sequence"] == 0 do
+          {:error, {:ingest_refused, 408}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 10, max_frames: 20},
+          stream_idle_timeout_ms: 40,
+          send_recording_fn: send_fn
+        )
+
+      capture_log(fn ->
+        {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+        assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+        send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+        send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+        assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 408, detail_class: "http_408"}}}, 1_000
+        assert_receive {:gap_recorded, gap}, 1_000
+        assert {gap.reason, gap.detail_class, gap.start_us, gap.end_us} == {:nvr_refused, "http_408", @base_utc_us, nil}
+
+        recovery_us = @base_utc_us + 500_000
+        send_unit(pid, harness.inbox_id, 2, 6_000, recovery_us, @idr_payload)
+        send_unit(pid, harness.inbox_id, 3, 9_000, recovery_us + 33_333, @p_frame_payload)
+
+        ContinuousRecorder.stop(pid, :policy_disabled)
+        assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_000
+        assert_receive {:gap_closed, closed_gap}, 1_000
+        assert {closed_gap.reason, closed_gap.detail_class, closed_gap.end_us} == {:nvr_refused, "http_408", recovery_us}
+        assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+      end)
+    end
+
+    test "records open run_stopped gap (end_us: nil) on recorder_claim_lost and ownership_lost, closed by replacement run" do
+      for reason <- [:recorder_claim_lost, :ownership_lost] do
+        detail = Atom.to_string(reason)
+        last_admitted_us = @base_utc_us + 100_000
+        open_gaps_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> [] end}, id: make_ref()))
+
+        harness1 =
+          start_harness(
+            bounds: %{soft_frames: 10, max_frames: 10},
+            lease_ms: 400,
+            renew_claim_fn: fn _owner, _claim, _ttl, _opts -> {:error, reason} end,
+            record_gap_fn: fn attrs, _opts ->
+              stored = Map.put(attrs, :id, Ecto.UUID.generate())
+              Agent.update(open_gaps_agent, &[stored | &1])
+              {:ok, stored}
+            end
+          )
+
+        {:ok, pid1} = ContinuousRecorder.start_link(harness1.opts)
+        assert_receive {:continuous_recorder, ^pid1, {:run_started, %{run_id: run1_id}}}, 1_000
+
+        send_unit(pid1, harness1.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+        send_unit(pid1, harness1.inbox_id, 1, 3_000, last_admitted_us, @p_frame_payload)
+        _ = ContinuousRecorder.status(pid1)
+        send(pid1, :renew_lease)
+
+        assert_receive {:continuous_recorder, ^pid1, {:run_stopped, %{reason: ^reason, run_id: ^run1_id}}}, 1_000
+        [recorded_gap] = Agent.get(open_gaps_agent, & &1)
+
+        assert {recorded_gap.reason, recorded_gap.detail_class, recorded_gap.start_us, recorded_gap.end_us} ==
+                 {:run_stopped, detail, last_admitted_us, nil}
+
+        parent = self()
+        now = DateTime.utc_now()
+
+        harness2 =
+          start_harness(
+            acquire_claim_fn: fn _owner, _token, _ingest_id, _storage_id, _ttl, _opts ->
+              {:ok,
+               %{
+                 id: Ecto.UUID.generate(),
+                 recorder_epoch: 2,
+                 lease_expires_at: DateTime.shift(now, second: 30),
+                 database_now: now
+               }}
+            end,
+            close_stale_open_gaps_fn: fn _cam, _prof, current_run_id, now_us, _opts ->
+              closed =
+                Agent.get_and_update(open_gaps_agent, fn gaps ->
+                  {remaining, to_close} =
+                    Enum.split_with(gaps, fn g -> not is_nil(g.end_us) or g.run_id == current_run_id end)
+
+                  updated = Enum.map(to_close, &Map.put(&1, :end_us, max(&1.start_us, now_us)))
+                  {updated, remaining ++ updated}
+                end)
+
+              send(parent, {:stale_gaps_closed, closed})
+              {:ok, length(closed)}
+            end
+          )
+
+        {:ok, pid2} = ContinuousRecorder.start_link(harness2.opts)
+        assert_receive {:stale_gaps_closed, [closed_gap]}, 1_000
+        assert closed_gap.id == recorded_gap.id
+        assert is_integer(closed_gap.end_us) and closed_gap.end_us >= recorded_gap.start_us
+        assert_receive {:continuous_recorder, ^pid2, {:run_started, _}}, 1_000
+
+        ContinuousRecorder.stop(pid2, :policy_disabled)
+        assert_receive {:continuous_recorder, ^pid2, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+      end
+    end
+
+    test "recovers to idle without stopping run when 1-frame stream idle cut hits post-EOF 422 / :incomplete" do
+      parent = self()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        send(parent, {:sent_block, block_key, units})
+
+        if length(units) < 2 do
+          {:error, {:ingest_status, 422}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      lookup_fn = fn _cfg, [block_key], _timeout ->
+        send(parent, {:lookup_called, block_key})
+        {:ok, %{storage_id: @storage_id, blocks: [%{block_id: block_key, state: :incomplete}]}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 10, max_frames: 20},
+          stream_idle_timeout_ms: 40,
+          send_recording_fn: send_fn,
+          lookup_blocks_fn: lookup_fn
+        )
+
+      log =
+        capture_log(fn ->
+          {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+          assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+          # 1 IDR frame then stall -> stream_idle_timeout_ms fires with frames_accepted == 1
+          send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+
+          assert_receive {:sent_block, key0, [_single_unit]}, 1_000
+          assert_receive {:lookup_called, ^key0}, 1_000
+          assert_receive {:gap_recorded, gap}, 1_000
+
+          assert {gap.reason, gap.detail_class, gap.start_us} ==
+                   {:incomplete_tail, "stream_idle_insufficient_frames", @base_utc_us}
+
+          assert_receive {:continuous_recorder, ^pid,
+                          {:uncertain_resolved, %{block_key: ^key0, resolution: :incomplete, recovered?: true}}},
+                         1_000
+
+          refute_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 50
+          assert Process.alive?(pid)
+          assert ContinuousRecorder.status(pid).phase == :idle
+
+          # Non-IDR P-frame after recovery is dropped as :keyframe_wait; next >=2-frame block seals cleanly
+          resume_us = @base_utc_us + 500_000
+          send_unit(pid, harness.inbox_id, 1, 3_000, resume_us, @p_frame_payload)
+          send_unit(pid, harness.inbox_id, 2, 6_000, resume_us + 33_333, @idr_payload)
+          send_unit(pid, harness.inbox_id, 3, 9_000, resume_us + 66_666, @p_frame_payload)
+
+          assert_receive {:gap_recorded, kw_gap}, 1_000
+          assert kw_gap.reason == :keyframe_wait
+
+          ContinuousRecorder.stop(pid, :policy_disabled)
+
+          assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1, catalog: {:registered, _}}}},
+                         1_000
+
+          assert_receive {:sent_block, ^key1, block1_units}, 1_000
+          assert Enum.map(block1_units, & &1.sequence) == [2, 3]
+          assert_receive {:cataloged, ^key1, attrs1}, 1_000
+          assert attrs1.contiguous_with_previous == false
+          assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+        end)
+
+      assert log =~ "stream idle timeout on block"
+    end
+
+    test "recovers to idle without stopping run when max_frames: 1 hits post-EOF 422 / :incomplete" do
+      parent = self()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        send(parent, {:sent_block, block_key, units})
+        {:error, {:ingest_status, 422}}
+      end
+
+      lookup_fn = fn _cfg, [block_key], _timeout ->
+        {:ok, %{storage_id: @storage_id, blocks: [%{block_id: block_key, state: :incomplete}]}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 1, max_frames: 1},
+          send_recording_fn: send_fn,
+          lookup_blocks_fn: lookup_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+
+      assert_receive {:sent_block, key0, [_]}, 1_000
+      assert_receive {:gap_recorded, gap}, 1_000
+
+      assert {gap.reason, gap.detail_class} == {:incomplete_tail, "max_frames_one_insufficient_frames"}
+
+      assert_receive {:continuous_recorder, ^pid,
+                      {:uncertain_resolved, %{block_key: ^key0, resolution: :incomplete, recovered?: true}}},
+                     1_000
+
+      refute_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 50
+      assert Process.alive?(pid)
+      assert ContinuousRecorder.status(pid).phase == :idle
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
+    test "still stops run with :run_stopped when >= 2-frame block gets post-EOF 422 and resolves :incomplete" do
+      send_fn = fn _cfg, _header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        {:error, {:ingest_status, 422}}
+      end
+
+      lookup_fn = fn _cfg, [block_key], _timeout ->
+        {:ok, %{storage_id: @storage_id, blocks: [%{block_id: block_key, state: :incomplete}]}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 10, max_frames: 20},
+          stream_idle_timeout_ms: 40,
+          send_recording_fn: send_fn,
+          lookup_blocks_fn: lookup_fn
+        )
+
+      capture_log(fn ->
+        {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+        assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+        send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+        send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+
+        assert_receive {:gap_recorded, gap}, 1_000
+        assert {gap.reason, gap.detail_class} == {:run_stopped, "block_incomplete"}
+        assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: {:unresolved_block, :incomplete}}}}, 1_000
+      end)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Synthetic test harness
   # ---------------------------------------------------------------------------

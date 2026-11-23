@@ -1492,6 +1492,7 @@ class NVRReleaseTest(unittest.TestCase):
         receipt = json.dumps({"version": 1, "status": "sealed_local",
                               "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"], "block_ids": [key]}).encode()
         for status, body, expected in ((400, b"{}", "{:ingest_refused, 400}"), (401, b"{}", "{:ingest_refused, 401}"),
+                                       (408, b"{}", "{:ingest_refused, 408}"),
                                        (503, b"{}", "{:ingest_refused, 503}"), (200, receipt, ":outcome_unknown")):
             observations, closed = self.sender_peer(body, status=status, answer_after=len(self.ingest_header()) + 1)
             result = self.send_with_client(units, mode="paced", pace_ms=50)
@@ -1803,15 +1804,16 @@ class NVRReleaseTest(unittest.TestCase):
             decoded.extend(self.decode(str(output)))
         self.assertEqual(bytes(decoded), self.decode(source))
 
-    def test_network_ingest_read_timeout_aborts_stalled_stream_after_fifteen_seconds(self):
+    def test_network_ingest_read_timeout_aborts_stalled_stream_after_twenty_five_seconds(self):
         self.ingest_installation()
         self.make_media(75)
         units = self.ingest_units()
-        # Keep the absolute recording budget well above the 15s read_timeout so
-        # only IngestStream's idle read timeout can retire the stalled stream.
+        # Keep the absolute recording budget well above the 25s read_timeout and pin
+        # max_keyframe_wait_ms to 20s so the 25s read_timeout floor retires the stall cleanly.
         self.env["SERVICERADAR_NVR_MAX_DURATION_MS"] = "60000"
+        self.env["SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS"] = "20000"
         proc = self.start_ingest_release()
-        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=25)
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=35)
         self.addCleanup(connection.close)
         connection.putrequest("POST", "/v1/recordings/ingest")
         connection.putheader("Authorization", "Bearer " + self.ingest_token)
@@ -1830,18 +1832,19 @@ class NVRReleaseTest(unittest.TestCase):
 
         stalled_at = time.monotonic()
         status = None
+        response_body = None
         try:
             response = connection.getresponse()
             status = response.status
-            response.read()
-        except (OSError, http.client.HTTPException):
+            response_body = json.loads(response.read())
+        except (OSError, http.client.HTTPException, ValueError):
             pass
         elapsed = time.monotonic() - stalled_at
 
-        self.assertGreaterEqual(elapsed, 14.0, f"stalled stream aborted too early ({elapsed:.2f}s, status={status})")
-        self.assertLess(elapsed, 22.0, f"stalled stream outlived 15s read_timeout ({elapsed:.2f}s, status={status})")
-        if status is not None:
-            self.assertIn(status, (408, 422))
+        self.assertGreaterEqual(elapsed, 24.0, f"stalled stream aborted too early ({elapsed:.2f}s, status={status})")
+        self.assertLess(elapsed, 32.0, f"stalled stream outlived 25s read_timeout ({elapsed:.2f}s, status={status})")
+        self.assertEqual(status, 408)
+        self.assertEqual(response_body, {"error": "ingest_read_timeout"})
 
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -1865,7 +1868,84 @@ class NVRReleaseTest(unittest.TestCase):
 
         proc.send_signal(signal.SIGTERM)
         log = proc.communicate(timeout=15)[0].decode(errors="replace")
-        self.assertIn("Read timeout", log)
+        self.assertNotIn("Bandit.HTTPError", log)
+        self.assertNotIn("Read timeout", log)
+        self.assertRegex(log, r"NVR ingest incomplete: :(?:ingest_read_timeout|keyframe_wait_exceeded)")
+
+    def test_network_ingest_keyframe_interval_and_wait_limits(self):
+        defaults = subprocess.run(
+            [
+                self.binary,
+                "eval",
+                "{:ok, cfg} = ServiceRadarNVR.Config.load(System.get_env()); "
+                "IO.inspect({cfg.max_keyframe_interval_ms, cfg.max_keyframe_wait_ms})",
+            ],
+            env=self.env,
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertEqual(defaults.returncode, 0, defaults.stdout + defaults.stderr)
+        self.assertIn(b"{15000, 35000}", defaults.stdout)
+
+        self.ingest_installation()
+        source = self.env["NVR_TEST_H264"]
+        subprocess.run(
+            [
+                self.ffmpeg, "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i",
+                "testsrc2=size=64x64:rate=15", "-frames:v", "120", "-pix_fmt", "yuv420p",
+                "-c:v", "libx264", "-profile:v", "baseline", "-bf", "0", "-sc_threshold", "0",
+                "-g", "90", "-x264-params", "aud=1:repeat-headers=1", "-f", "h264", source,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        units = self.ingest_units()
+
+        # 6.0s GOP (90 frames at 15fps) exceeds the old 5s limit but succeeds under the 15s default.
+        proc = self.start_ingest_release()
+        status, receipt = self.ingest_request(
+            self.ingest_header(source="synthetic-six-second-gop") + b"".join(units) + struct.pack("!I", 0)
+        )
+        self.assertEqual(status, 200, receipt)
+        self.assertEqual(receipt["status"], "sealed_local")
+        self.stop_ingest_release(proc)
+
+        # Lowering SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS below 6s rejects the same 6s GOP with 422.
+        self.env["SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS"] = "4000"
+        proc_strict = self.start_ingest_release()
+        strict_status, strict_result = self.ingest_request(
+            self.ingest_header(source="synthetic-six-second-gop-strict") + b"".join(units) + struct.pack("!I", 0)
+        )
+        self.assertEqual((strict_status, strict_result), (422, {"error": "ingest_incomplete"}))
+        self.stop_ingest_release(proc_strict)
+
+        # Lowering SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS to 2s rejects a 3s mid-GOP stall with 422.
+        self.env["SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS"] = "15000"
+        self.env["SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS"] = "2000"
+        self.make_media(75)
+        wait_units = self.ingest_units()
+        proc_wait = self.start_ingest_release()
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=15)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+        first = self.ingest_header(source="synthetic-keyframe-wait-limit") + b"".join(wait_units[:15])
+        connection.send(f"{len(first):x}\r\n".encode() + first + b"\r\n")
+        time.sleep(3.0)
+        tail = b"".join(wait_units[15:]) + struct.pack("!I", 0)
+        try:
+            connection.send(f"{len(tail):x}\r\n".encode() + tail + b"\r\n")
+            connection.send(b"0\r\n\r\n")
+        except OSError:
+            pass
+        resp = connection.getresponse()
+        resp_body = json.loads(resp.read())
+        self.assertEqual((resp.status, resp_body), (422, {"error": "ingest_incomplete"}))
+        self.stop_ingest_release(proc_wait)
 
     def test_foreground_release_probes_refuse_uninitialized_storage(self):
         proc = subprocess.Popen([self.binary, "start"], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -1923,6 +2003,10 @@ class NVRReleaseTest(unittest.TestCase):
         settings += [({"SERVICERADAR_NVR_MAX_BLOCKS": "262145"}, b"invalid_nvr_limit")]
         settings += [({"SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS": value}, b"invalid_nvr_limit")
                      for value in ["7", "257"]]
+        settings += [({"SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS": value}, b"invalid_nvr_limit")
+                     for value in ["0", "999", "60001"]]
+        settings += [({"SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS": value}, b"invalid_nvr_limit")
+                     for value in ["0", "999", "60001"]]
         settings += [({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed)}, b"invalid_nvr_delivery_config"),
                      ({"SERVICERADAR_NVR_PUBLICATION_CONFIG_FILE": str(malformed),
                        "SERVICERADAR_NVR_PUBLICATION_TOKEN_FILE": str(malformed)}, b"invalid_nvr_delivery_config")]

@@ -35,7 +35,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
      - `:sealed` -> fetch descriptor, freeze/catalog, enqueue archive, continue.
      - `:absent` -> record `:block_absent` gap, continue with next sequence.
      - `:incomplete` / `:unresolved` -> record `:run_stopped` gap, end run for
-       reconciler recovery.
+       reconciler recovery (except single-frame non-stopping cuts rejected for
+       insufficient tail samples, which record `:incomplete_tail` and resume in
+       `:idle` awaiting the next IDR).
      - member unreachable -> retry lookup within a bounded window, then record
        `:run_stopped` gap and end run leaving the claim for lease expiry.
   5. Checks wall-clock receipt time against the run's PTS-anchored estimate
@@ -83,6 +85,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   @default_catalog_attempts 3
   @default_catalog_retry_delay_ms 1_000
   @default_nvr_refusal_cooldown_ms 10_000
+  @default_stream_idle_timeout_ms 15_000
+  @pull_unit_headroom_ms 5_000
   @relay_poll_interval_ms 100
   @relay_open_timeout_ms 15_000
 
@@ -103,7 +107,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   @max_bytes_ceiling 12_582_912
   @max_duration_ms_ceiling 270_000
 
-  @definite_refusals [400, 401, 422, 503]
+  @definite_refusals [400, 401, 408, 422, 503]
   @non_retryable_catalog_errors [
     :recorder_claim_lost,
     :ownership_lost,
@@ -193,6 +197,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
         catalog_retry_delay_ms: Keyword.get(opts, :catalog_retry_delay_ms, @default_catalog_retry_delay_ms),
         nvr_refusal_cooldown_ms: max(0, Keyword.get(opts, :nvr_refusal_cooldown_ms, @default_nvr_refusal_cooldown_ms)),
         nvr_refusal_retry_after_ms: nil,
+        stream_idle_timeout_ms:
+          normalize_stream_idle_timeout_ms(Keyword.get(opts, :stream_idle_timeout_ms, @default_stream_idle_timeout_ms)),
+        last_unit_at_ms: nil,
+        idle_timer: nil,
         send_timeout_ms: Keyword.get(opts, :send_timeout_ms, block_send_timeout_ms(bounds)),
         lease_ms: Keyword.get(opts, :lease_ms, @lease_ms),
         member: policy.nvr_member,
@@ -402,6 +410,23 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     handle_lease_renewal(%{state | lease_timer: nil})
   end
 
+  def handle_info(
+        {:check_stream_idle, block_key},
+        %{phase: :streaming, active_block: %{record: %{block_key: block_key}}, stream_idle_timeout_ms: idle_ms} = state
+      )
+      when is_integer(idle_ms) do
+    state = %{state | idle_timer: nil}
+    elapsed = now_ms(state) - (state.last_unit_at_ms || now_ms(state))
+
+    if elapsed >= idle_ms do
+      Logger.warning("ContinuousRecorder stream idle timeout on block #{block_key} after #{elapsed}ms")
+      state = mark_single_frame_cut(state, :stream_idle)
+      {:noreply, finish_active_block_input(%{state | awaiting_keyframe?: true, next_contiguous?: false})}
+    else
+      {:noreply, schedule_stream_idle_check(state, block_key, max(1, idle_ms - elapsed))}
+    end
+  end
+
   def handle_info({:EXIT, _from, reason}, state) when reason != :normal do
     handle_fatal_run_stop(state, reason)
   end
@@ -413,6 +438,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     _ = close_active_outage_gap(state, latest_outage_end_us(state))
     if state.inbox, do: Inbox.cancel(state.inbox)
     if state.lease_timer, do: Process.cancel_timer(state.lease_timer)
+    if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
     stop_active_sender(state.active_block)
     stop_pending_task(state.pending_task)
 
@@ -818,7 +844,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
             bytes_accepted: next_bytes
         }
 
-        state = maybe_reply_puller(%{state | active_block: next_block})
+        state = maybe_reply_puller(%{state | active_block: next_block, last_unit_at_ms: now_ms(state)})
 
         if hard_reached? do
           {:noreply, finish_active_block_input(%{state | awaiting_keyframe?: true})}
@@ -1057,6 +1083,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       input_complete?: false,
       eof_replied?: false,
       abort_reason: nil,
+      single_frame_cut_reason: nil,
       first_pts: unit.pts,
       first_sequence: unit.sequence,
       first_admitted_at_us: unit.admitted_at_us,
@@ -1070,12 +1097,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       force_reanchor?: state.force_reanchor?
     }
 
-    next = %{state | phase: :streaming, active_block: active_block, next_contiguous?: true, force_reanchor?: false}
+    next = %{
+      state
+      | phase: :streaming,
+        active_block: active_block,
+        next_contiguous?: true,
+        force_reanchor?: false,
+        last_unit_at_ms: now_ms(state)
+    }
 
     if state.bounds.max_frames == 1 do
+      next = mark_single_frame_cut(next, :max_frames_one)
       {:noreply, finish_active_block_input(%{next | awaiting_keyframe?: true})}
     else
-      {:noreply, next}
+      {:noreply, schedule_stream_idle_check(next, block_record.block_key)}
     end
   end
 
@@ -1086,11 +1121,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       unit.sequence == state.prev_block_last_sequence + 1
   end
 
-  defp finish_active_block_input(%{active_block: nil} = state), do: %{state | phase: :idle}
+  defp mark_single_frame_cut(%{active_block: %{frames_accepted: frames} = block} = state, reason) when frames < 2 do
+    %{state | active_block: %{block | single_frame_cut_reason: block.single_frame_cut_reason || reason}}
+  end
+
+  defp mark_single_frame_cut(state, _reason), do: state
+
+  defp finish_active_block_input(%{active_block: nil} = state), do: cancel_idle_timer(%{state | phase: :idle})
 
   defp finish_active_block_input(%{active_block: block} = state) do
-    next_block = %{block | input_complete?: true}
-    maybe_reply_puller(%{state | phase: :sealing, active_block: next_block})
+    single_frame_cut_reason =
+      if not state.stopping? and block.frames_accepted < 2 do
+        block.single_frame_cut_reason || :insufficient_tail
+      else
+        block.single_frame_cut_reason
+      end
+
+    next_block = %{block | input_complete?: true, single_frame_cut_reason: single_frame_cut_reason}
+
+    state
+    |> cancel_idle_timer()
+    |> Map.merge(%{phase: :sealing, active_block: next_block})
+    |> maybe_reply_puller()
   end
 
   defp spawn_sender(state, header) do
@@ -1098,11 +1150,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     sender_ref = make_ref()
     client_config = state.client_config
     timeout_ms = state.send_timeout_ms
+    pull_timeout_ms = pull_unit_timeout_ms(state)
     send_fn = state.hooks.send_recording_fn
 
     {sender_pid, sender_monitor} =
       spawn_monitor(fn ->
-        stream = Stream.resource(fn -> worker end, &pull_from_worker/1, fn _ -> :ok end)
+        stream = Stream.resource(fn -> {worker, pull_timeout_ms} end, &pull_from_worker/1, fn _ -> :ok end)
         result = send_fn.(client_config, header, stream, timeout_ms)
         send(worker, {sender_ref, result})
       end)
@@ -1110,13 +1163,22 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     {sender_pid, sender_monitor, sender_ref}
   end
 
-  defp pull_from_worker(worker) do
-    case GenServer.call(worker, :pull_unit, :infinity) do
-      {:unit, unit} -> {[unit], worker}
-      :eof -> {:halt, worker}
+  defp pull_from_worker({worker, pull_timeout_ms} = acc) do
+    case GenServer.call(worker, :pull_unit, pull_timeout_ms) do
+      {:unit, unit} -> {[unit], acc}
+      :eof -> {:halt, acc}
       {:abort, reason} -> throw({:nvr_producer_aborted, reason})
     end
+  catch
+    :exit, {:timeout, _} -> throw({:nvr_producer_aborted, :pull_unit_timeout})
   end
+
+  defp pull_unit_timeout_ms(%{send_timeout_ms: send_timeout_ms, stream_idle_timeout_ms: idle_ms})
+       when is_integer(idle_ms) do
+    min(send_timeout_ms, idle_ms + @pull_unit_headroom_ms)
+  end
+
+  defp pull_unit_timeout_ms(%{send_timeout_ms: send_timeout_ms}), do: send_timeout_ms
 
   defp maybe_reply_puller(%{waiting_puller: nil} = state), do: state
 
@@ -1154,6 +1216,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   # ---------------------------------------------------------------------------
 
   defp handle_sender_result(%{active_block: block} = state, send_result) do
+    state = cancel_idle_timer(state)
     if block.sender_monitor, do: Process.demonitor(block.sender_monitor, [:flush])
     drain_remaining_block_queue(state, block.queue)
     storage_id = state.storage_id
@@ -1366,27 +1429,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     drain_handover_queue(state)
   end
 
-  defp handle_lookup_result(state, block, _raw_result, {:ok, unresolved_state})
-       when unresolved_state in [:incomplete, :unresolved] do
-    block_key = block.record.block_key
-    {block_start_us, _block_end_us} = block_gap_bounds_us(state, block)
+  defp handle_lookup_result(state, block, raw_result, {:ok, :incomplete}) do
+    if recoverable_single_frame_incomplete?(block, raw_result) do
+      recover_single_frame_incomplete(state, block)
+    else
+      stop_unresolved_block(state, block, :incomplete)
+    end
+  end
 
-    state =
-      state
-      |> close_active_outage_gap(block_start_us)
-      |> record_block_gap(block, :run_stopped, "block_#{unresolved_state}")
-
-    state = %{
-      state
-      | active_block: nil,
-        phase: :stopped,
-        waiting_puller: nil,
-        keep_claim_on_exit?: false
-    }
-
-    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: unresolved_state}})
-    notify(state, {:run_stopped, %{reason: {:unresolved_block, unresolved_state}, run_id: state.run_id}})
-    {:stop, :normal, state}
+  defp handle_lookup_result(state, block, _raw_result, {:ok, :unresolved}) do
+    stop_unresolved_block(state, block, :unresolved)
   end
 
   defp handle_lookup_result(state, block, raw_result, {:error, lookup_reason}) do
@@ -1415,6 +1467,64 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     notify(state, {:run_stopped, %{reason: :nvr_unreachable, run_id: state.run_id}})
     {:stop, :normal, state}
   end
+
+  defp stop_unresolved_block(state, block, unresolved_state) do
+    block_key = block.record.block_key
+    {block_start_us, _block_end_us} = block_gap_bounds_us(state, block)
+
+    state =
+      state
+      |> close_active_outage_gap(block_start_us)
+      |> record_block_gap(block, :run_stopped, "block_#{unresolved_state}")
+
+    state = %{
+      state
+      | active_block: nil,
+        phase: :stopped,
+        waiting_puller: nil,
+        keep_claim_on_exit?: false
+    }
+
+    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: unresolved_state}})
+    notify(state, {:run_stopped, %{reason: {:unresolved_block, unresolved_state}, run_id: state.run_id}})
+    {:stop, :normal, state}
+  end
+
+  defp recoverable_single_frame_incomplete?(%{frames_accepted: frames, single_frame_cut_reason: reason}, raw_result)
+       when frames < 2 and not is_nil(reason) do
+    raw_result in [{:error, {:ingest_status, 422}}, {:error, :outcome_unknown}]
+  end
+
+  defp recoverable_single_frame_incomplete?(_block, _raw_result), do: false
+
+  defp recover_single_frame_incomplete(state, block) do
+    block_key = block.record.block_key
+    {block_start_us, _block_end_us} = block_gap_bounds_us(state, block)
+    detail_class = single_frame_detail_class(block.single_frame_cut_reason)
+
+    state =
+      state
+      |> close_active_outage_gap(block_start_us)
+      |> record_block_gap(block, :incomplete_tail, detail_class)
+
+    state = %{
+      state
+      | active_block: nil,
+        phase: :idle,
+        waiting_puller: nil,
+        prev_block_last_sequence: nil,
+        prev_block_last_pts: nil,
+        next_contiguous?: false,
+        awaiting_keyframe?: true
+    }
+
+    notify(state, {:uncertain_resolved, %{block_key: block_key, resolution: :incomplete, recovered?: true}})
+    drain_handover_queue(state)
+  end
+
+  defp single_frame_detail_class(:stream_idle), do: "stream_idle_insufficient_frames"
+  defp single_frame_detail_class(:max_frames_one), do: "max_frames_one_insufficient_frames"
+  defp single_frame_detail_class(_), do: "insufficient_tail_samples"
 
   defp spawn_async_task(kind, meta, fun) do
     worker = self()
@@ -1818,11 +1928,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   end
 
   defp record_immediate_gap(state, reason, detail_class) do
-    now_us = state.last_admitted_at_us || System.os_time(:microsecond)
+    start_us = state.last_admitted_at_us || System.os_time(:microsecond)
 
     persist_gap(state, %{
-      start_us: now_us,
-      end_us: now_us,
+      start_us: start_us,
+      end_us: nil,
       media_gap_ns: nil,
       reason: reason,
       detail_class: detail_class
@@ -1922,7 +2032,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp complete_graceful_stop(state) do
     state = close_active_outage_gap(state, latest_outage_end_us(state))
     if state.inbox, do: Inbox.cancel(state.inbox)
-    state = cancel_lease_timer(state)
+    state = state |> cancel_lease_timer() |> cancel_idle_timer()
     stop_pending_task(state.pending_task)
     notify(state, {:run_stopped, %{reason: state.stop_reason || :stopped, run_id: state.run_id}})
     {:stop, :normal, %{state | phase: :stopped, pending_task: nil}}
@@ -1952,7 +2062,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp handle_fatal_run_stop(state, reason) do
     state = close_active_outage_gap(state, latest_outage_end_us(state))
     if state.inbox, do: Inbox.cancel(state.inbox)
-    state = cancel_lease_timer(state)
+    state = state |> cancel_lease_timer() |> cancel_idle_timer()
     stop_active_sender(state.active_block)
     stop_pending_task(state.pending_task)
     drain_and_release_handover(state)
@@ -2154,6 +2264,28 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp cancel_lease_timer(state) do
     Process.cancel_timer(state.lease_timer)
     %{state | lease_timer: nil}
+  end
+
+  defp normalize_stream_idle_timeout_ms(nil), do: nil
+  defp normalize_stream_idle_timeout_ms(ms) when is_integer(ms) and ms > 0, do: ms
+  defp normalize_stream_idle_timeout_ms(_), do: @default_stream_idle_timeout_ms
+
+  defp schedule_stream_idle_check(state, block_key, delay_ms \\ nil)
+
+  defp schedule_stream_idle_check(%{stream_idle_timeout_ms: nil} = state, _block_key, _delay_ms), do: state
+
+  defp schedule_stream_idle_check(state, block_key, delay_ms) do
+    state = cancel_idle_timer(state)
+    timeout_ms = delay_ms || state.stream_idle_timeout_ms
+    timer = Process.send_after(self(), {:check_stream_idle, block_key}, timeout_ms)
+    %{state | idle_timer: timer}
+  end
+
+  defp cancel_idle_timer(%{idle_timer: nil} = state), do: state
+
+  defp cancel_idle_timer(state) do
+    Process.cancel_timer(state.idle_timer)
+    %{state | idle_timer: nil}
   end
 
   defp claim_lease_deadline(request_start, %{lease_expires_at: expires_at, database_now: db_now}) do

@@ -39,7 +39,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   finalization, registration is gated only by the recovery gate, cleanup
   reserve and capture deadline, not by a prior stream abort.
 
-  An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
+  An NVR that answers 400, 401, 408, 422 or 503 before the end marker was sent has
   refused the unfinished stream and sealed nothing it had open. That is a
   definite failure: the worker reports `{:nvr_ingest_refused, details}` with the
   status and correlation fields and attempts to release the recorder claim,
@@ -109,12 +109,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRWorker do
   @max_bytes_ceiling 12_582_912
   @max_duration_ms_ceiling 270_000
   # The NVR ingest route refuses a stream with 400 (invalid header or request),
-  # 401 (unauthorized), 422 (incomplete or rejected media) or 503 (unavailable).
+  # 401 (unauthorized), 408 (read timeout), 422 (incomplete or rejected media) or
+  # 503 (unavailable).
   # Read before the end marker went out (`:ingest_refused`), each means the
   # block the NVR had open was never sealed: it seals the final block only after
   # the end marker, and keeps that block's journal. The same status after the
   # end marker (`:ingest_status`) can follow a seal, so it stays uncertain.
-  @definite_refusals [400, 401, 422, 503]
+  @definite_refusals [400, 401, 408, 422, 503]
 
   # Capture timeout and caller loss are interrupts the NVR ingest docs define as
   # uncertain, and they stay so even when Core stops the stream before `:eof`.

@@ -105,7 +105,7 @@ sending media over NATS/JetStream or ERTS distribution:
    the NVR answers. These uncertain outcomes return
    `{:error, {:nvr_ingest_uncertain, details}}` and keep the recorder fence
    until its lease lapses.
-5. An NVR that answers 400, 401, 422 or 503 before the end marker was sent has
+5. An NVR that answers 400, 401, 408, 422 or 503 before the end marker was sent has
    refused the unfinished stream and sealed nothing it had open. That is a
    definite failure, not an unknown outcome: the capture returns
    `{:error, {:nvr_ingest_refused, %{status: status, ...}}}` with the same
@@ -210,7 +210,7 @@ the finite operation before sending it. This transport does not enroll a pool,
 issue leases, resolve an uncertain earlier writer or authorize takeover.
 
 One request admits at most 64 MiB of application body and reports at most 256
-sealed blocks. Reads have a 15-second timeout. The existing configured session
+sealed blocks. Body reads default to a 40-second idle timeout (`max(25_000, max_keyframe_wait_ms + 5_000)` with the 35-second `max_keyframe_wait_ms` default). The existing configured session
 duration also bounds the entire request handler, including body reads and
 sealing; the service default is 30 seconds, the Helm chart sets five minutes
 (`nvr.maxDurationMs: 300000`) and the ceiling is five minutes. The timer
@@ -257,7 +257,7 @@ Core publication, a playable catalog entry or permission to delete footage.
 Existing block discovery is needed after an unknown response outcome.
 
 Authentication failures return 401, malformed headers return 400, unavailable
-admission returns 503 and incomplete media returns 422. A deadline, broken
+admission returns 503, stalled body reads return 408 and incomplete media returns 422. A deadline, broken
 transport or process failure can close the connection without a JSON response.
 Any lost response is an unknown outcome. Do not automatically resend media,
 change the recorder epoch or move to another replica to hide that uncertainty.
@@ -282,7 +282,7 @@ refused.
 | When the stream ended | What Core knows | Capture result | Recorder claim |
 | --- | --- | --- | --- |
 | Verified `sealed_local` receipt naming the reserved block | Sealed | `{:ok, receipt}` | Release outcome on receipt |
-| NVR answered 400, 401, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Release attempted, expiry on failure |
+| NVR answered 400, 401, 408, 422 or 503 before the end marker | Open block not sealed | `{:error, {:nvr_ingest_refused, details}}` | Release attempted, expiry on failure |
 | Core stopped the stream before handing out the end marker | Open block not sealed | `{:error, {:nvr_ingest_aborted, details}}` | Release attempted, expiry on failure |
 | Core stopped after the end marker, without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
 | Capture timeout without a verified receipt | Unknown | `{:error, {:nvr_ingest_uncertain, details}}` | Held until the lease lapses |
