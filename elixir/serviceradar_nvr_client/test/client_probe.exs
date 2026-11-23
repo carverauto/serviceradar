@@ -60,6 +60,14 @@ result =
           request["timeout_ms"]
         )
 
+      "reclaim" ->
+        ServiceRadarNVRClient.reclaim_block(
+          config,
+          request["block_id"],
+          request["reclaim_request"],
+          request["timeout_ms"]
+        )
+
       "status" ->
         ServiceRadarNVRClient.status(config, request["timeout_ms"])
 

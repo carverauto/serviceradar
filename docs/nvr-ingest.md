@@ -343,7 +343,7 @@ nothing on disk. Each request is bounded by 15 seconds.
   `retry-after: 1`) while the ledger is built.
 
 Each block entry has `block_id`, `state`, `writing` (an admitted writer holds
-the block now) and `bytes` (charged on disk; null when absent or unmeasurable),
+the block now) and `bytes` (charged on disk; null when absent, reclaimed or unmeasurable),
 plus `descriptor_sha256` exactly when `state` is `sealed` and `reason` (an error
 class) exactly when it is `unresolved`:
 
@@ -352,7 +352,8 @@ class) exactly when it is `unresolved`:
 | `sealed` | The journal holds a seal record and the file lengths match it |
 | `incomplete` | A valid journal without a seal record |
 | `unresolved` | The directory exists but its files or journal cannot be read as a block |
-| `absent` | No directory; not proof the block never existed |
+| `reclaimed` | A committed tombstone exists in `.disposition-journal` for this block |
+| `absent` | No directory and no tombstone; not proof the block never existed |
 
 The state is read from the block's per-record digested journal and file lengths,
 not from its media, so a lookup or page stays cheap. `sealed` therefore does not
@@ -362,8 +363,37 @@ before freezing it. Lookups and pages run in the shared read pool, so 503
 busy pool or a closed recovery gate. Malformed requests answer 400
 `invalid_lookup_request` or `invalid_inventory_request` before any read.
 
-The client functions are `ServiceRadarNVRClient.status/2`, `lookup_blocks/3`
-and `block_page/4`.
+The client functions are `ServiceRadarNVRClient.status/2`, `lookup_blocks/3`,
+`block_page/4` and `reclaim_block/4`.
+
+## Local block reclaim
+
+`POST /v1/blocks/<block_id>/reclaim` on the same authenticated ingest listener
+reclaims one verified sealed local block within a 30-second request deadline.
+Send exactly one `Content-Type: application/vnd.serviceradar.nvr-reclaim.v1+json`
+header and a canonical JSON body of at most 8192 bytes with `version: 1`,
+`storage_id`, `recovery_generation`, `operation_id` (canonical UUID) and
+`expected_descriptor_sha256` (lowercase 64-character hex).
+
+The NVR refuses active or publishing blocks (409 `block_active`), unsealed
+blocks (409 `block_not_sealed`), descriptor digest mismatches (409
+`descriptor_mismatch`), unknown or malformed block IDs (404 `block_not_found`),
+malformed requests (400 `invalid_reclaim_request`), unauthorized callers (401)
+and closed recovery or unavailable storage (503 `reclaim_unavailable` with
+`retry-after: 1`). Before unlinking the block directory, the NVR appends and
+fsyncs a canonical JSON tombstone to mode `0600` `.disposition-journal` at the
+spool root, then unlinks the block directory and removes it from the capacity
+ledger immediately. A 200 answer returns canonical JSON with `version: 1`,
+`status: "reclaimed"`, `storage_id`, `block_id`, `operation_id` and
+`reclaimed_at_ms`. Exact retries with the same `operation_id` and
+`expected_descriptor_sha256` return 200 with the same receipt; a different
+`operation_id` returns 409 `reclaim_conflict` and a different
+`expected_descriptor_sha256` returns 409 `descriptor_mismatch`. Re-ingesting or
+recovering a tombstoned block ID is refused. On restart, the NVR loads
+`.disposition-journal` (truncating and fsyncing any unterminated trailing
+partial line, and failing closed on unsafe or corrupt journal files), completes
+any tombstoned unlinks left behind by a crash, and reports tombstoned blocks as
+`reclaimed` in lookup.
 
 ## Playback read listener
 
@@ -505,6 +535,11 @@ checks the block ledger: the cap refuses admission while reads and lookups keep
 working, a restart rebuilds the same charge, a directory the ledger did not
 record closes admission without changing any file, and a volume larger than one
 rebuild page reports `rebuilding` before it is ready.
+The same target verifies `POST /v1/blocks/<block_id>/reclaim` through the
+packaged client and direct TLS requests: tombstone durability, partial-tail
+truncation and crash-unlink completion on restart, idempotent retries and
+conflict/mismatch refusals, immediate capacity and block-cap release, refusal
+to re-ingest tombstoned IDs, and fail-closed behavior on an unsafe journal.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every

@@ -1,11 +1,13 @@
 defmodule ServiceRadarNVR.Disk do
   @moduledoc false
 
+  alias ServiceRadarNVR.DispositionJournal
   alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Storage
 
   # An interrupted receipt write may leave its temporary file; both are charged.
   @block_files ~w(init.mp4 media.m4s journal publication.json publication-ack.json archive-receipt.json archive-receipt.json.tmp)
+  @root_files [".storage-id", DispositionJournal.filename()]
 
   # Inspect metadata only. Incomplete and sealed blocks are equally charged;
   # this is neither journal recovery nor permission to remove anything.
@@ -32,7 +34,7 @@ defmodule ServiceRadarNVR.Disk do
          true <-
            Enum.all?([".bootstrap-preparation.json", ".bootstrap-acknowledgement.json"], &(&1 not in entries)) ||
              {:error, :nvr_history_bootstrap_incomplete} do
-      {:ok, List.delete(entries, ".storage-id")}
+      {:ok, entries -- @root_files}
     end
   end
 

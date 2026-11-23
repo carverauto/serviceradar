@@ -37,6 +37,12 @@ descriptor bytes of one verified sealed block, read in the shared read pool.
 Core freezes those bytes when it catalogs the block. See
 [block descriptor](../../docs/nvr-ingest.md#block-descriptor).
 
+It also accepts `POST /v1/blocks/<block_id>/reclaim`, which verifies one sealed
+block against its expected descriptor digest, syncs a tombstone to
+`.disposition-journal`, unlinks the block directory and releases its ledger
+capacity immediately. See
+[local block reclaim](../../docs/nvr-ingest.md#local-block-reclaim).
+
 An optional separate read listener, with its own port, pin and read-purpose
 token, serves a sealed block's init segment and fragments to web-ng for
 playback, bound to the cataloged descriptor digest. See
@@ -403,7 +409,7 @@ authorization and automatic assignment reconciliation remain pending.
 | `SERVICERADAR_NVR_MAX_BLOCKS` | 131072 | 262144; block directories per volume, counting active reservations; at the cap admission refuses and nothing is deleted |
 | `SERVICERADAR_NVR_PLAYBACK_READ_SLOTS` | 8 | 1 through 64; playback read listener task pool (10 seconds each), separate from the 4-slot read pool |
 | Inbox | 8 samples / 8 MiB per worker | charged before mailbox admission |
-| Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most `SERVICERADAR_NVR_MAX_BLOCKS` per volume; no eviction or deletion |
+| Local block | 16 MiB / `SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS` fragments | rotate at a complete fragment boundary, whichever limit comes first; at most `SERVICERADAR_NVR_MAX_BLOCKS` per volume; no automatic eviction (blocks are removed only by explicit authenticated reclaim) |
 | Fragment | 4 MiB | oversized output fails the worker |
 | Read work | 4 shared tasks + playback read slots / 10 seconds each | no media-work queue; separate from writers |
 | VM | 2 schedulers / 32768 processes / 4096 ports | release VM arguments |
@@ -429,9 +435,9 @@ one block still rotates at 16 MiB or at the fragment limit. The volume holds at
 most `SERVICERADAR_NVR_MAX_BLOCKS` blocks (131,072 by default), about 410 days of
 one camera at 320 blocks a day. With the default 1 GiB
 `SERVICERADAR_NVR_MAX_SPOOL_BYTES` the byte budget fills long before the block
-cap for any real camera stream. Nothing
-reclaims blocks yet: reclamation is not implemented, and a full volume or
-budget refuses new captures.
+cap for any real camera stream. The NVR performs no automatic eviction: a full
+volume or budget refuses new captures until Core explicitly reclaims verified
+sealed blocks via [local block reclaim](../../docs/nvr-ingest.md#local-block-reclaim).
 
 The default network listener only serves health probes; private media ingress
 and the playback read listener are separately opt-in:
@@ -469,9 +475,11 @@ paged scan of 1,024 directories per step: a small volume is ready on the first
 call, a larger one answers `:nvr_inventory_rebuilding` (and `GET /v1/status`
 reports `rebuilding`) until the scan finishes, while reads keep working. The
 capacity owner then keeps it current: the block an admitted writer holds is
-re-measured on every measurement, at rotation and when the writer exits, and a
+re-measured on every measurement, at rotation and when the writer exits, a
 block is re-measured after a publication record, archive receipt or recovery
-touches it. Block directories hold the spool file names and the optional
+touches it, and a reclaimed block is removed immediately after its tombstone is
+synced to `.disposition-journal` at the spool root and its directory is
+unlinked. Block directories hold the spool file names and the optional
 `publication.json`, `publication-ack.json`, `archive-receipt.json` and an
 interrupted `archive-receipt.json.tmp`. Unknown entries, aliases and unreadable
 blocks refuse admission with `:nvr_inventory_unavailable` and remain intact.

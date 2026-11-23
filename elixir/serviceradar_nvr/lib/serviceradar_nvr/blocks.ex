@@ -31,7 +31,13 @@ defmodule ServiceRadarNVR.Blocks do
   end
 
   # Local state of one block from its journal and file lengths (no media read).
-  def state(storage, block_id, limits, writing?) do
+  def state(storage, block_id, limits, writing?, tombstoned? \\ false)
+
+  def state(_storage, block_id, _limits, _writing?, true) do
+    %{block_id: block_id, state: :reclaimed, writing: false, bytes: nil, descriptor_sha256: nil, reason: nil}
+  end
+
+  def state(storage, block_id, limits, writing?, false) do
     entry = %{block_id: block_id, writing: writing?, bytes: nil, descriptor_sha256: nil, reason: nil}
 
     case ServiceRadarNVR.Disk.block_usage(storage.root, block_id) do

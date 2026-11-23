@@ -39,7 +39,7 @@ local copies to web-ng. `core-elx` runs policy-driven continuous recording when
 `nvr.ingest.client.cameraRecordingEnabled` is set (see
 [Continuous recording](nvr-ingest.md#continuous-recording)) and schedules archive
 uploads for `:pending` cataloged blocks via `ArchiveBlockJob`; automatic pool
-assignment, reclamation, and automated restart reconciliation remain pending.
+assignment, automatic reclamation, and automated restart reconciliation remain pending.
 See [Archive upload](#archive-upload). Do not enable production recording policies
 through this runtime until reclamation and automated reconciliation are in place.
 Workload updates use `OnDelete` until coordinated drain/fencing is implemented.
@@ -79,9 +79,11 @@ about 370 kbit/s; a higher-bitrate stream reaches the byte bound sooner and
 makes more blocks (about 860 a day at 1 Mbit/s). Each active session reserves
 one maximum block: 18,453,856 bytes at 150 fragments, 586,744 bytes more than
 at the earlier fixed 8. The volume cap is `SERVICERADAR_NVR_MAX_BLOCKS`
-(default 131,072, ceiling 262,144) and nothing reclaims blocks yet, so a volume
-fills; size `nvr.maxSpoolBytes` for the retention you need until reclamation
-exists. Lowering `nvr.maxBlockFragments`
+(default 131,072, ceiling 262,144) and the NVR does not evict blocks
+automatically (explicit authenticated
+[local block reclaim](nvr-ingest.md#local-block-reclaim) is available, while
+Core's automatic retention job remains pending), so size `nvr.maxSpoolBytes`
+for the retention you need until automatic reclamation is active. Lowering `nvr.maxBlockFragments`
 affects new blocks only: reads accept up to 256 fragments, so retained blocks
 stay readable. The ceiling is 256 because a block's publication intent embeds
 one descriptor entry per fragment and is capped at 64 KiB.
@@ -435,7 +437,7 @@ block's files through Longshore, verifies each by reading it back, and writes an
 and transitions `RecordingCatalogEntry` to `:verified` in one transaction. The
 local copy is kept and nothing is deleted. The request uses the ingest listener
 and token, so the chart refuses `nvr.archive.enabled` without
-`nvr.ingest.enabled`. Archive playback and reclamation remain pending.
+`nvr.ingest.enabled`. Archive playback and automatic reclamation remain pending.
 
 The bucket credential is stored in Core's CNPG credential store and travels inside
 each request. The NVR holds it in memory for that request only. The chart adds no

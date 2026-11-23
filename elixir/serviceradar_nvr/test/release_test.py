@@ -2415,6 +2415,308 @@ class NVRReleaseTest(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(report["capacity"]["blocks"], 1025)
 
+    def reclaim_document(self, digest, operation_id="00000000-0000-4000-8000-000000000088", **changes):
+        document = {
+            "version": 1,
+            "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+            "recovery_generation": self.generation,
+            "operation_id": operation_id,
+            "expected_descriptor_sha256": digest,
+        }
+        document.update(changes)
+        return document
+
+    def reclaim_request(self, block_id, body, content_type="application/vnd.serviceradar.nvr-reclaim.v1+json", token=None):
+        payload = canonical(body) if isinstance(body, dict) else body
+        return self.member_request_with_headers("POST", f"/v1/blocks/{block_id}/reclaim", payload, content_type, token)
+
+    def test_reclaim_tombstones_unlinks_updates_capacity_and_is_idempotent(self):
+        proc, block_id = self.sealed_network_block()
+        status, descriptor = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, descriptor)
+        digest = hashlib.sha256(descriptor).hexdigest()
+        stored = self.block_bytes(block_id)
+        self.assertEqual(self.member_status()["capacity"]["blocks"], 1)
+        self.assertEqual(self.member_status()["capacity"]["used_bytes"], stored)
+
+        document = self.reclaim_document(digest)
+        journal_path = self.spool / ".disposition-journal"
+
+        # Digest mismatch refuses without deleting files or writing a tombstone.
+        status, body, _ = self.reclaim_request(block_id, self.reclaim_document("0" * 64))
+        self.assertEqual((status, body), (409, b'{"error":"descriptor_mismatch"}'))
+        self.assertTrue((self.spool / block_id).is_dir())
+        self.assertFalse(journal_path.exists())
+
+        # Unknown block, malformed requests, wrong token, and closed recovery gate are refused.
+        self.assertEqual(self.reclaim_request("0" * 64, document)[:2], (404, b'{"error":"block_not_found"}'))
+        self.assertEqual(self.reclaim_request("not-a-block-id", document)[:2], (404, b'{"error":"block_not_found"}'))
+        for invalid in (
+            self.reclaim_document(digest, storage_id="00000000-0000-4000-8000-000000000099"),
+            self.reclaim_document(digest, recovery_generation="00000000-0000-4000-8000-000000000098"),
+            self.reclaim_document(digest, operation_id="not-a-uuid"),
+            self.reclaim_document(digest, expected_descriptor_sha256="short"),
+            self.reclaim_document(digest, extra=True),
+            json.dumps(document, indent=1).encode(),
+            b"not json",
+        ):
+            self.assertEqual(self.reclaim_request(block_id, invalid)[:2], (400, b'{"error":"invalid_reclaim_request"}'))
+        self.assertEqual(self.reclaim_request(block_id, document, content_type="application/json")[0], 400)
+        self.assertEqual(self.reclaim_request(block_id, document, token="incorrect-token")[0], 401)
+
+        self.recovery.write_bytes(self.ready.replace(b"ready", b"closed"))
+        status, body, headers = self.reclaim_request(block_id, document)
+        self.assertEqual((status, body, headers.get("retry-after")), (503, b'{"error":"reclaim_unavailable"}', "1"))
+        self.recovery.write_bytes(self.ready)
+        self.assertTrue((self.spool / block_id).is_dir())
+        self.assertFalse(journal_path.exists())
+
+        # Happy path via packaged client: unlinks block, writes 0600 journal, frees capacity immediately.
+        reclaimed = self.run_client(
+            {"mode": "reclaim", "block_id": block_id, "reclaim_request": document, "timeout_ms": 15000}
+        )
+        self.assertIn("ok", reclaimed, reclaimed)
+        receipt = reclaimed["ok"]
+        self.assertEqual(
+            {k: receipt[k] for k in ("storage_id", "block_id", "operation_id", "status")},
+            {"storage_id": document["storage_id"], "block_id": block_id, "operation_id": document["operation_id"],
+             "status": "reclaimed"},
+        )
+        self.assertGreater(receipt["reclaimed_at_ms"], 0)
+        self.assertFalse((self.spool / block_id).exists())
+        self.assertTrue(journal_path.is_file())
+        self.assertEqual(journal_path.stat().st_mode & 0o777, 0o600)
+
+        after_status = self.member_status()
+        self.assertEqual(after_status["inventory"], "ready")
+        self.assertEqual((after_status["capacity"]["blocks"], after_status["capacity"]["used_bytes"]), (0, 0))
+
+        expected_lookup = {"block_id": block_id, "state": "reclaimed", "writing": False, "bytes": None}
+        status, body = self.lookup([block_id])
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["blocks"], [expected_lookup])
+        self.assertEqual(
+            self.run_client({"mode": "lookup", "block_ids": [block_id], "timeout_ms": 15000}),
+            {"ok": {"storage_id": document["storage_id"],
+                    "blocks": [expected_lookup | {"descriptor_sha256": None, "reason": None}]}},
+        )
+        status, body = self.member_request("GET", "/v1/blocks?limit=10")
+        self.assertEqual((status, json.loads(body)["blocks"], json.loads(body)["next_after"]), (200, [], None))
+
+        # Exact retry is idempotent; different operation_id or digest is a 409 conflict/mismatch.
+        retry = self.run_client(
+            {"mode": "reclaim", "block_id": block_id, "reclaim_request": document, "timeout_ms": 15000}
+        )
+        self.assertEqual(retry, reclaimed)
+        conflict_doc = self.reclaim_document(digest, operation_id="00000000-0000-4000-8000-000000000089")
+        self.assertEqual(
+            self.run_client({"mode": "reclaim", "block_id": block_id, "reclaim_request": conflict_doc, "timeout_ms": 15000}),
+            {"error": "reclaim_status", "status": 409, "body": {"error": "reclaim_conflict"}},
+        )
+        self.assertEqual(self.reclaim_request(block_id, self.reclaim_document("0" * 64))[:2],
+                         (409, b'{"error":"descriptor_mismatch"}'))
+
+        # Restart accepts the disposition journal, keeps capacity at 0, reports reclaimed, and admits new recordings.
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        restarted = self.member_status()
+        self.assertEqual(restarted["inventory"], "ready")
+        self.assertEqual((restarted["capacity"]["blocks"], restarted["capacity"]["used_bytes"]), (0, 0))
+        self.assertEqual(json.loads(self.lookup([block_id])[1])["blocks"], [expected_lookup])
+        identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1, "block_sequence": 1}
+        status, next_receipt = self.ingest_request(
+            self.ingest_header(identity=identity) + b"".join(self.ingest_units()) + struct.pack("!I", 0)
+        )
+        self.assertEqual(status, 200, next_receipt)
+        self.assertEqual(self.member_status()["capacity"]["blocks"], 1)
+
+    def test_reclaim_refuses_active_and_unsealed_blocks_and_boot_finishes_pending_tombstone(self):
+        self.ingest_installation()
+        self.make_media(75)
+        units = self.ingest_units()
+        proc = self.start_ingest_release()
+
+        # Start an active ingest stream without sending the end marker.
+        connection = http.client.HTTPSConnection("localhost", self.ingest_port, context=self.ingest_tls, timeout=20)
+        self.addCleanup(connection.close)
+        connection.putrequest("POST", "/v1/recordings/ingest")
+        connection.putheader("Authorization", "Bearer " + self.ingest_token)
+        connection.putheader("Content-Type", "application/vnd.serviceradar.nvr-ingest.v1")
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+        first = self.ingest_header() + b"".join(units)
+        connection.send(f"{len(first):x}\r\n".encode() + first + b"\r\n")
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            dirs = [p.name for p in self.spool.iterdir() if p.is_dir()]
+            if dirs and any(p.stat().st_size > 0 for p in self.spool.glob("*/media.m4s")):
+                active_id = dirs[0]
+                break
+            time.sleep(0.02)
+        else:
+            self.fail("active stream did not persist a fragment")
+
+        # Active writer block cannot be reclaimed.
+        doc = self.reclaim_document("a" * 64)
+        self.assertEqual(self.reclaim_request(active_id, doc)[:2], (409, b'{"error":"block_active"}'))
+        self.assertTrue((self.spool / active_id).is_dir())
+        self.assertFalse((self.spool / ".disposition-journal").exists())
+
+        # Drop the connection without sealing; once writer retires, incomplete block is also refused.
+        connection.close()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            entry = json.loads(self.lookup([active_id])[1])["blocks"][0]
+            if not entry["writing"]:
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("writer did not retire after connection close")
+        self.assertEqual(entry["state"], "incomplete", entry)
+        self.assertEqual(self.reclaim_request(active_id, doc)[:2], (409, b'{"error":"block_not_sealed"}'))
+        self.assertTrue((self.spool / active_id).is_dir())
+
+        # Simulate a mid-reclaim crash: committed tombstone + leftover block dir + partial trailing line.
+        self.stop_ingest_release(proc)
+        journal_path = self.spool / ".disposition-journal"
+        tombstone = canonical({
+            "version": 1,
+            "storage_id": self.env["NVR_TEST_EXPECTED_STORAGE_ID"],
+            "block_id": active_id,
+            "operation_id": "00000000-0000-4000-8000-000000000090",
+            "expected_descriptor_sha256": "a" * 64,
+            "reclaimed_at_ms": 1700000000000,
+        })
+        journal_path.write_bytes(tombstone + b"\n" + b'{"partial":"truncated')
+        journal_path.chmod(0o600)
+
+        # Restart truncates the partial tail, completes unlinking the leftover directory, and reports reclaimed state.
+        proc = self.start_ingest_release()
+        report = self.member_status()
+        self.assertEqual(report["inventory"], "ready")
+        self.assertEqual((report["capacity"]["blocks"], report["capacity"]["used_bytes"]), (0, 0))
+        self.assertFalse((self.spool / active_id).exists())
+        self.assertEqual(journal_path.read_bytes(), tombstone + b"\n")
+        self.assertEqual(
+            json.loads(self.lookup([active_id])[1])["blocks"],
+            [{"block_id": active_id, "state": "reclaimed", "writing": False, "bytes": None}],
+        )
+        status, body = self.member_request("GET", "/v1/blocks?limit=10")
+        self.assertEqual((status, json.loads(body)["blocks"]), (200, []))
+
+        # Reclaiming another block after partial-tail truncation appends cleanly and survives restart.
+        second_identity = {
+            "source_id": "synthetic-network-camera",
+            "profile": "recording",
+            "recorder_epoch": 1,
+            "block_sequence": 1,
+        }
+        status, next_receipt = self.ingest_request(
+            self.ingest_header(identity=second_identity) + b"".join(units) + struct.pack("!I", 0)
+        )
+        self.assertEqual(status, 200, next_receipt)
+        second_id = next_receipt["block_ids"][0]
+        status, second_descriptor = self.descriptor_request(second_id)
+        self.assertEqual(status, 200, second_descriptor)
+        second_digest = hashlib.sha256(second_descriptor).hexdigest()
+        second_doc = self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000091")
+        status, body, _ = self.reclaim_request(second_id, second_doc)
+        self.assertEqual(status, 200, body)
+        self.assertFalse((self.spool / second_id).exists())
+
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        after_restart = self.member_status()
+        self.assertEqual(after_restart["inventory"], "ready")
+        self.assertEqual((after_restart["capacity"]["blocks"], after_restart["capacity"]["used_bytes"]), (0, 0))
+        self.assertEqual(
+            json.loads(self.lookup([active_id, second_id])[1])["blocks"],
+            [
+                {"block_id": active_id, "state": "reclaimed", "writing": False, "bytes": None},
+                {"block_id": second_id, "state": "reclaimed", "writing": False, "bytes": None},
+            ],
+        )
+
+    def test_reclaim_unblocks_cap_refuses_reingest_and_fails_closed_on_unsafe_journal(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "1"
+        proc, block_id = self.sealed_network_block()
+        units = b"".join(self.ingest_units()) + struct.pack("!I", 0)
+        base_identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1}
+
+        # At the 1-block cap, a second block is refused.
+        self.assertEqual(
+            self.ingest_request(self.ingest_header(identity=base_identity | {"block_sequence": 1}) + units),
+            (503, {"error": "ingest_unavailable"}),
+        )
+
+        # Reclaiming block 0 immediately releases the cap without restart.
+        status, descriptor = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, descriptor)
+        digest = hashlib.sha256(descriptor).hexdigest()
+        status, body, _ = self.reclaim_request(block_id, self.reclaim_document(digest))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.descriptor_request(block_id), (404, b'{"error":"block_not_found"}'))
+
+        # Re-ingesting the tombstoned block identity is refused and does not recreate the directory.
+        self.assertEqual(
+            self.ingest_request(self.ingest_header(identity=base_identity | {"block_sequence": 0}) + units),
+            (503, {"error": "ingest_unavailable"}),
+        )
+        self.assertFalse((self.spool / block_id).exists())
+
+        # Ingesting block 1 succeeds immediately in the same process, and the 1s audit stays ready.
+        status, next_receipt = self.ingest_request(
+            self.ingest_header(identity=base_identity | {"block_sequence": 1}) + units
+        )
+        self.assertEqual(status, 200, next_receipt)
+        second_id = next_receipt["block_ids"][0]
+        time.sleep(1.5)
+        steady = self.member_status()
+        self.assertEqual(steady["inventory"], "ready")
+        self.assertEqual(steady["capacity"]["blocks"], 1)
+
+        # An unsafe (world-readable) disposition journal fails closed without mutating files.
+        status, second_descriptor = self.descriptor_request(second_id)
+        self.assertEqual(status, 200, second_descriptor)
+        second_digest = hashlib.sha256(second_descriptor).hexdigest()
+        self.stop_ingest_release(proc)
+        journal_path = self.spool / ".disposition-journal"
+        saved_journal = journal_path.read_bytes()
+        journal_path.chmod(0o644)
+
+        proc = self.start_ingest_release()
+        unsafe_status = self.member_status()
+        self.assertEqual((unsafe_status["inventory"], unsafe_status["capacity"]), ("unavailable", None))
+        status, body, headers = self.reclaim_request(
+            second_id, self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000092")
+        )
+        self.assertEqual((status, body, headers.get("retry-after")), (503, b'{"error":"reclaim_unavailable"}', "1"))
+        self.assertTrue((self.spool / second_id).is_dir())
+        self.assertEqual(journal_path.read_bytes(), saved_journal)
+
+        # A journal containing only an unterminated partial fragment (0 committed lines) truncates to empty on boot.
+        self.stop_ingest_release(proc)
+        journal_path.write_bytes(b'{"partial":"first-line-interrupted')
+        journal_path.chmod(0o600)
+        proc = self.start_ingest_release()
+        recovered = self.member_status()
+        self.assertEqual(recovered["inventory"], "ready")
+        self.assertEqual(recovered["capacity"]["blocks"], 1)
+        self.assertEqual(journal_path.read_bytes(), b"")
+
+        # Subsequent reclaim appends cleanly at offset 0 and survives restart.
+        second_doc = self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000093")
+        status, body, _ = self.reclaim_request(second_id, second_doc)
+        self.assertEqual(status, 200, body)
+        self.assertFalse((self.spool / second_id).exists())
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        self.assertEqual(
+            json.loads(self.lookup([second_id])[1])["blocks"],
+            [{"block_id": second_id, "state": "reclaimed", "writing": False, "bytes": None}],
+        )
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()

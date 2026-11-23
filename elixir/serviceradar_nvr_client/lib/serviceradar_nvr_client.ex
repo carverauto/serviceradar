@@ -1,10 +1,10 @@
 defmodule ServiceRadarNVRClient do
   @moduledoc """
   Sends one finite, already-authorized H264 capture to one installed NVR endpoint,
-  asks that endpoint to archive one sealed local block, reads one sealed
-  block's canonical descriptor, queries member status, block states and ledger
-  pages, or reads one sealed block's initialization bytes or a fragment for
-  playback.
+  asks that endpoint to archive or reclaim one sealed local block, reads one
+  sealed block's canonical descriptor, queries member status, block states and
+  ledger pages, or reads one sealed block's initialization bytes or a fragment
+  for playback.
 
   The lazy enumerable yields maps containing `payload`, `sequence`, `pts` and
   `dts`. It runs in a separate, bounded process: do not pass a caller-owned socket
@@ -70,6 +70,31 @@ defmodule ServiceRadarNVRClient do
   end
 
   def archive_block(_, _, _, _), do: {:error, :invalid_archive_request}
+
+  @doc """
+  Asks the NVR to tombstone and unlink sealed block `block_id`
+  (`POST /v1/blocks/<block_id>/reclaim` on the ingest listener).
+
+  The request binds `version` (1), `storage_id`, `recovery_generation`,
+  `operation_id` and `expected_descriptor_sha256`. Returns
+  `{:ok, %{storage_id: uuid, block_id: id, operation_id: uuid, status: :reclaimed, reclaimed_at_ms: ms}}`
+  on 200, `{:error, {:reclaim_status, status, error}}` for a non-200 answer,
+  `{:error, :outcome_unknown}` when the response was lost or malformed, and
+  `{:error, :invalid_reclaim_request}` before connecting for invalid arguments.
+  """
+  def reclaim_block(config, block_id, request, timeout_ms \\ 30_000)
+
+  def reclaim_block(%Config{} = config, block_id, request, timeout_ms) when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config),
+         {:ok, body} <- Wire.reclaim_request(block_id, request) do
+      finish = &json_result(&1, &2, :reclaim_status, fn bytes -> Wire.reclaim_receipt(bytes, block_id, request) end)
+      content_type = "application/vnd.serviceradar.nvr-reclaim.v1+json"
+      path = "/v1/blocks/" <> block_id <> "/reclaim"
+      bounded(timeout_ms, &HTTP.post_json(config, path, content_type, body, finish, &1, &2))
+    end
+  end
+
+  def reclaim_block(_, _, _, _), do: {:error, :invalid_reclaim_request}
 
   def descriptor_timeout_ms, do: 15_000
 
@@ -166,16 +191,16 @@ defmodule ServiceRadarNVRClient do
 
   Returns `{:ok, %{storage_id: uuid, blocks: [entry]}}` with one entry per
   requested ID, in order: `:block_id`, `:state` (`:sealed`, `:incomplete`,
-  `:unresolved` or `:absent`), `:writing` (an admitted writer holds it now),
-  `:bytes` (charged on disk; nil when absent or unmeasurable),
-  `:descriptor_sha256` (exactly when sealed) and `:reason` (exactly when
-  unresolved). The state comes from the block's journal, not its media: fetch
-  the descriptor before freezing a sealed block. `:absent` is not proof the
-  block never existed. Errors:
-  `{:error, {:lookup_status, status, error}}` for a non-200 answer (503 is a
-  busy read pool or a closed recovery gate), `{:error, :invalid_response}`,
-  `{:error, :unavailable}`, and `{:error, :invalid_lookup_request}` before
-  connecting.
+  `:unresolved`, `:reclaimed` or `:absent`), `:writing` (an admitted writer
+  holds it now), `:bytes` (charged on disk; nil when absent, reclaimed or
+  unmeasurable), `:descriptor_sha256` (exactly when sealed) and `:reason`
+  (exactly when unresolved). The state comes from the block's journal, not its
+  media: fetch the descriptor before freezing a sealed block. `:absent` means
+  no directory and no tombstone, and is not proof the block never existed.
+  Errors: `{:error, {:lookup_status, status, error}}` for a non-200 answer
+  (503 is a busy read pool or a closed recovery gate),
+  `{:error, :invalid_response}`, `{:error, :unavailable}`, and
+  `{:error, :invalid_lookup_request}` before connecting.
   """
   def lookup_blocks(config, block_ids, timeout_ms \\ 15_000)
 

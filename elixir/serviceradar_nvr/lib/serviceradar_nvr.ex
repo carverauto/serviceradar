@@ -80,14 +80,16 @@ defmodule ServiceRadarNVR do
   @doc """
   Report the local state of each block in `block_ids` (at most 50), in order.
 
-  Each entry has `:block_id`, `:state` (`:sealed`, `:incomplete`, `:unresolved`
-  or `:absent`), `:writing` (an admitted writer holds it now), `:bytes` (charged
-  on disk, nil when absent or unmeasurable), `:descriptor_sha256` (sealed only)
-  and `:reason` (unresolved only, an error class). State comes from the block's
-  journal and file lengths without reading media (`Spool.journal_state/3`):
+  Each entry has `:block_id`, `:state` (`:sealed`, `:incomplete`, `:unresolved`,
+  `:reclaimed` or `:absent`), `:writing` (an admitted writer holds it now),
+  `:bytes` (charged on disk, nil when absent, reclaimed or unmeasurable),
+  `:descriptor_sha256` (sealed only) and `:reason` (unresolved only, an error
+  class). State comes from `.disposition-journal` (for `:reclaimed`) or the
+  block's journal and file lengths without reading media (`Spool.journal_state/3`):
   `:sealed` means its journal holds a seal record. Fetch the descriptor or read
-  the media to verify the bytes. `:absent` means no directory exists, which is
-  not proof the block never existed. Runs in the shared read pool; nothing on
+  the media to verify the bytes. `:reclaimed` means a committed tombstone exists
+  in `.disposition-journal`. `:absent` means no directory and no tombstone, which
+  is not proof the block never existed. Runs in the shared read pool; nothing on
   disk changes.
   """
   def block_states(block_ids) when is_list(block_ids) and length(block_ids) in 1..50 do
@@ -120,7 +122,11 @@ defmodule ServiceRadarNVR do
   defp inspect_states(block_ids) do
     with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
          writing = ServiceRadarNVR.Capacity.active_blocks(),
-         states = Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1))),
+         tombstones = ServiceRadarNVR.Capacity.tombstoned_blocks(block_ids),
+         states =
+           Enum.map(block_ids, fn id ->
+             Blocks.state(storage, id, limits, MapSet.member?(writing, id), MapSet.member?(tombstones, id))
+           end),
          :ok <- Storage.verify(storage) do
       {:ok, states}
     end
