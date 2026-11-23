@@ -1003,3 +1003,57 @@ func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
 		})
 	}
 }
+
+func TestSweepLeaseStoreGetReturnsImmutableSnapshotWithoutCloning(t *testing.T) {
+	t.Parallel()
+
+	store, err := newSweepLeaseStore(t.TempDir())
+	require.NoError(t, err)
+
+	group := testLeaseGroup.String()
+	initial := testLeasePush(100, 300, testLeaseSlot(100), testLeaseSlot(200))
+	installed, err := store.Install(initial, group)
+	require.NoError(t, err)
+
+	first := store.Get(group)
+	second := store.Get(group)
+	require.Same(t, installed, first)
+	require.Same(t, first, second)
+
+	// Merging a replacement window installs a new snapshot without mutating
+	// the previously returned snapshot.
+	next := testLeasePush(200, 400, testLeaseSlot(250), testLeaseSlot(350))
+	next.LeaseId = initial.LeaseId
+	updated, err := store.Install(next, group)
+	require.NoError(t, err)
+
+	require.NotSame(t, first, updated)
+	require.Equal(t, []int64{100, 200}, heldStarts(first))
+	require.Equal(t, []int64{100, 250, 350}, heldStarts(updated))
+}
+
+func TestSweepLeaseExecutorRunGroupIdleAllocations(t *testing.T) {
+	store, err := newSweepLeaseStore(t.TempDir())
+	require.NoError(t, err)
+
+	const slotCount = 64
+	slots := make([]*edgev1.SweepLeaseSlotV1, slotCount)
+	baseSec := testSlotStart.Unix()
+	for i := range slots {
+		slots[i] = testLeaseSlot(baseSec + int64(i)*60)
+	}
+
+	group := testLeaseGroup.String()
+	push := testLeasePush(baseSec, baseSec+int64(slotCount+1)*60, slots...)
+	_, err = store.Install(push, group)
+	require.NoError(t, err)
+
+	runner := &recordingLeaseRunner{}
+	exec := newSweepLeaseExecutor(store, func() sweepLeaseRunner { return runner }, nil, logger.NewTestLogger())
+	clock := func() time.Time { return time.Unix(baseSec-60, 0) }
+
+	allocs := testing.AllocsPerRun(50, func() {
+		exec.runGroup(context.Background(), runner, group, clock)
+	})
+	require.Zero(t, allocs, "idle runGroup pass must not clone leases or allocate per slot")
+}
