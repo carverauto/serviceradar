@@ -2591,18 +2591,52 @@ class NVRReleaseTest(unittest.TestCase):
         journal_path.write_bytes(tombstone + b"\n" + b'{"partial":"truncated')
         journal_path.chmod(0o600)
 
-        # Restart completes unlinking the leftover directory and reports clean capacity and reclaimed state.
-        self.start_ingest_release()
+        # Restart truncates the partial tail, completes unlinking the leftover directory, and reports reclaimed state.
+        proc = self.start_ingest_release()
         report = self.member_status()
         self.assertEqual(report["inventory"], "ready")
         self.assertEqual((report["capacity"]["blocks"], report["capacity"]["used_bytes"]), (0, 0))
         self.assertFalse((self.spool / active_id).exists())
+        self.assertEqual(journal_path.read_bytes(), tombstone + b"\n")
         self.assertEqual(
             json.loads(self.lookup([active_id])[1])["blocks"],
             [{"block_id": active_id, "state": "reclaimed", "writing": False, "bytes": None}],
         )
         status, body = self.member_request("GET", "/v1/blocks?limit=10")
         self.assertEqual((status, json.loads(body)["blocks"]), (200, []))
+
+        # Reclaiming another block after partial-tail truncation appends cleanly and survives restart.
+        second_identity = {
+            "source_id": "synthetic-network-camera",
+            "profile": "recording",
+            "recorder_epoch": 1,
+            "block_sequence": 1,
+        }
+        status, next_receipt = self.ingest_request(
+            self.ingest_header(identity=second_identity) + b"".join(units) + struct.pack("!I", 0)
+        )
+        self.assertEqual(status, 200, next_receipt)
+        second_id = next_receipt["block_ids"][0]
+        status, second_descriptor = self.descriptor_request(second_id)
+        self.assertEqual(status, 200, second_descriptor)
+        second_digest = hashlib.sha256(second_descriptor).hexdigest()
+        second_doc = self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000091")
+        status, body, _ = self.reclaim_request(second_id, second_doc)
+        self.assertEqual(status, 200, body)
+        self.assertFalse((self.spool / second_id).exists())
+
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        after_restart = self.member_status()
+        self.assertEqual(after_restart["inventory"], "ready")
+        self.assertEqual((after_restart["capacity"]["blocks"], after_restart["capacity"]["used_bytes"]), (0, 0))
+        self.assertEqual(
+            json.loads(self.lookup([active_id, second_id])[1])["blocks"],
+            [
+                {"block_id": active_id, "state": "reclaimed", "writing": False, "bytes": None},
+                {"block_id": second_id, "state": "reclaimed", "writing": False, "bytes": None},
+            ],
+        )
 
 
 def canonical(value):

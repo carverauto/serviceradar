@@ -4,9 +4,10 @@ defmodule ServiceRadarNVR.DispositionJournal do
 
   Each committed entry is one newline-terminated canonical JSON record synced
   to `.disposition-journal` at the spool root before the block directory is
-  unlinked. On restart, loading the journal and completing any pending removals
-  finishes interrupted unlinks without mistaking a half-deleted directory for
-  an incomplete block or inventory corruption.
+  unlinked. On restart, loading the journal truncates any unterminated trailing
+  partial line, syncs the file and spool root, and completing any pending
+  removals finishes interrupted unlinks without mistaking a half-deleted
+  directory for an incomplete block or inventory corruption.
   """
 
   alias ServiceRadarNVR.Blocks
@@ -21,11 +22,13 @@ defmodule ServiceRadarNVR.DispositionJournal do
   def load(%Storage{} = storage) do
     path = journal_path(storage)
 
-    case File.lstat(path) do
-      {:error, :enoent} -> {:ok, %{}}
-      {:ok, %File.Stat{type: :regular, links: 1, mode: mode}} -> load_private(path, mode, storage.id)
-      {:ok, _} -> {:error, :invalid_disposition_journal}
-      {:error, _} = error -> error
+    with :ok <- Storage.verify(storage) do
+      case File.lstat(path) do
+        {:error, :enoent} -> {:ok, %{}}
+        {:ok, %File.Stat{type: :regular, links: 1, mode: mode}} -> load_private(storage, path, mode)
+        {:ok, _} -> {:error, :invalid_disposition_journal}
+        {:error, _} = error -> error
+      end
     end
   end
 
@@ -83,27 +86,47 @@ defmodule ServiceRadarNVR.DispositionJournal do
 
   defp journal_path(%Storage{root: root}), do: Path.join(root, @filename)
 
-  defp load_private(path, mode, storage_id) do
+  defp load_private(storage, path, mode) do
     if Bitwise.band(mode, 0o077) == 0,
-      do: read_entries(path, storage_id),
+      do: read_entries(storage, path),
       else: {:error, :invalid_disposition_journal}
   end
 
-  defp read_entries(path, storage_id) do
+  defp read_entries(storage, path) do
     case File.read(path) do
       {:ok, ""} ->
         {:ok, %{}}
 
       {:ok, bytes} ->
-        # Only newline-terminated lines are committed; a partial trailing write
-        # from a mid-append crash has no terminating newline and is ignored.
         lines = :binary.split(bytes, "\n", [:global])
-        committed = Enum.slice(lines, 0, length(lines) - 1)
-        parse_lines(committed, storage_id)
+        {committed, [tail]} = Enum.split(lines, -1)
+
+        with {:ok, entries} <- parse_lines(committed, storage.id),
+             :ok <- maybe_truncate_tail(storage, path, byte_size(bytes) - byte_size(tail), byte_size(tail)) do
+          {:ok, entries}
+        end
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp maybe_truncate_tail(_storage, _path, _committed_size, 0), do: :ok
+
+  defp maybe_truncate_tail(storage, path, committed_size, _tail_size) do
+    with :ok <- truncate_file(path, committed_size),
+         :ok <- fsync_dir(storage.root),
+         do: Storage.verify(storage)
+  end
+
+  defp truncate_file(path, size) do
+    with_file(path, [:read, :write], fn device ->
+      with {:ok, actual} <- :file.position(device, :eof),
+           true <- actual >= size || {:error, :invalid_disposition_journal},
+           {:ok, ^size} <- :file.position(device, size),
+           :ok <- :file.truncate(device),
+           do: :file.sync(device)
+    end)
   end
 
   defp parse_lines(lines, storage_id) do
@@ -141,41 +164,68 @@ defmodule ServiceRadarNVR.DispositionJournal do
 
     case File.lstat(path) do
       {:error, :enoent} -> create_and_sync(storage.root, path, data)
-      {:ok, %File.Stat{type: :regular, links: 1, mode: mode}} -> append_private(path, mode, data)
+      {:ok, %File.Stat{type: :regular, links: 1, mode: mode}} -> append_private(storage.root, path, mode, data)
       {:ok, _} -> {:error, :invalid_disposition_journal}
       {:error, _} = error -> error
     end
   end
 
   defp create_and_sync(root, path, data) do
-    with :ok <- write_and_fsync(path, [:write, :exclusive], data, true),
+    with :ok <-
+           with_file(path, [:write, :exclusive], fn device ->
+             with :ok <- File.chmod(path, 0o600), do: write_or_rollback(device, 0, data)
+           end),
          do: fsync_dir(root)
   end
 
-  defp append_private(path, mode, data) do
-    if Bitwise.band(mode, 0o077) == 0,
-      do: write_and_fsync(path, [:write, :append], data, false),
-      else: {:error, :invalid_disposition_journal}
+  defp append_private(root, path, mode, data) do
+    if Bitwise.band(mode, 0o077) == 0 do
+      with {:ok, offset} <- write_at_eof(path, data) do
+        if offset == 0, do: fsync_dir(root), else: :ok
+      end
+    else
+      {:error, :invalid_disposition_journal}
+    end
   end
 
-  defp write_and_fsync(path, modes, data, chmod?) do
-    case :file.open(String.to_charlist(path), [:raw, :binary | modes]) do
-      {:ok, device} ->
-        try do
-          with :ok <- maybe_chmod(path, chmod?),
-               :ok <- :file.write(device, data),
-               do: :file.sync(device)
-        after
-          :file.close(device)
-        end
+  defp write_at_eof(path, data) do
+    with_file(path, [:read, :write], fn device ->
+      with {:ok, offset} <- :file.position(device, :eof),
+           :ok <- check_line_boundary(device, offset),
+           {:ok, ^offset} <- :file.position(device, offset),
+           :ok <- write_or_rollback(device, offset, data) do
+        {:ok, offset}
+      end
+    end)
+  end
+
+  defp check_line_boundary(_device, 0), do: :ok
+
+  defp check_line_boundary(device, offset) do
+    case :file.pread(device, offset - 1, 1) do
+      {:ok, "\n"} -> :ok
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_disposition_journal}
+    end
+  end
+
+  defp write_or_rollback(device, offset, data) do
+    case :file.write(device, data) do
+      :ok ->
+        :file.sync(device)
 
       {:error, _} = error ->
+        rollback_write(device, offset)
         error
     end
   end
 
-  defp maybe_chmod(path, true), do: File.chmod(path, 0o600)
-  defp maybe_chmod(_path, false), do: :ok
+  defp rollback_write(device, offset) do
+    with {:ok, ^offset} <- :file.position(device, offset),
+         :ok <- :file.truncate(device) do
+      :file.sync(device)
+    end
+  end
 
   defp remove_directory_contents(dir) do
     case File.ls(dir) do
@@ -212,11 +262,13 @@ defmodule ServiceRadarNVR.DispositionJournal do
   defp canonical_uuid?(value) when is_binary(value), do: Ecto.UUID.cast(value) == {:ok, value}
   defp canonical_uuid?(_value), do: false
 
-  defp fsync_dir(dir) do
-    case :file.open(String.to_charlist(dir), [:raw, :binary, :read, :directory]) do
+  defp fsync_dir(dir), do: with_file(dir, [:read, :directory], &:file.sync/1)
+
+  defp with_file(path, modes, fun) do
+    case :file.open(String.to_charlist(path), [:raw, :binary | modes]) do
       {:ok, device} ->
         try do
-          :file.sync(device)
+          fun.(device)
         after
           :file.close(device)
         end

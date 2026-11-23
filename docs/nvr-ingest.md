@@ -343,7 +343,7 @@ nothing on disk. Each request is bounded by 15 seconds.
   `retry-after: 1`) while the ledger is built.
 
 Each block entry has `block_id`, `state`, `writing` (an admitted writer holds
-the block now) and `bytes` (charged on disk; null when absent or unmeasurable),
+the block now) and `bytes` (charged on disk; null when absent, reclaimed or unmeasurable),
 plus `descriptor_sha256` exactly when `state` is `sealed` and `reason` (an error
 class) exactly when it is `unresolved`:
 

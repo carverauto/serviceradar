@@ -191,16 +191,16 @@ defmodule ServiceRadarNVRClient do
 
   Returns `{:ok, %{storage_id: uuid, blocks: [entry]}}` with one entry per
   requested ID, in order: `:block_id`, `:state` (`:sealed`, `:incomplete`,
-  `:unresolved` or `:absent`), `:writing` (an admitted writer holds it now),
-  `:bytes` (charged on disk; nil when absent or unmeasurable),
-  `:descriptor_sha256` (exactly when sealed) and `:reason` (exactly when
-  unresolved). The state comes from the block's journal, not its media: fetch
-  the descriptor before freezing a sealed block. `:absent` is not proof the
-  block never existed. Errors:
-  `{:error, {:lookup_status, status, error}}` for a non-200 answer (503 is a
-  busy read pool or a closed recovery gate), `{:error, :invalid_response}`,
-  `{:error, :unavailable}`, and `{:error, :invalid_lookup_request}` before
-  connecting.
+  `:unresolved`, `:reclaimed` or `:absent`), `:writing` (an admitted writer
+  holds it now), `:bytes` (charged on disk; nil when absent, reclaimed or
+  unmeasurable), `:descriptor_sha256` (exactly when sealed) and `:reason`
+  (exactly when unresolved). The state comes from the block's journal, not its
+  media: fetch the descriptor before freezing a sealed block. `:absent` means
+  no directory and no tombstone, and is not proof the block never existed.
+  Errors: `{:error, {:lookup_status, status, error}}` for a non-200 answer
+  (503 is a busy read pool or a closed recovery gate),
+  `{:error, :invalid_response}`, `{:error, :unavailable}`, and
+  `{:error, :invalid_lookup_request}` before connecting.
   """
   def lookup_blocks(config, block_ids, timeout_ms \\ 15_000)
 
