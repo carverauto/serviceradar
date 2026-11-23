@@ -1,0 +1,921 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"gen_random_uuid()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_catalog_block_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_recording_blocks"
+      },
+      "scale": null,
+      "size": null,
+      "source": "recording_block_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "camera_source_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "stream_profile_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "policy_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "storage_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "block_key",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "clock_epoch",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "run_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_start_ns",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_end_ns",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "first_unit_pts",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "first_unit_received_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "timeline_start_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "timeline_end_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "time_basis",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "time_uncertainty_us",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "anchor_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "reanchored",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": false,
+      "default": "false",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "contiguous_with_previous",
+      "type": "boolean"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "fragment_count",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "descriptor_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "local_state_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "quarantine_reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "quarantine_receipt",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "quarantined_bytes",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "quarantine_evidence",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "operator_disposition_state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "operator_decision",
+      "type": "map"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_state",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_state_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_deleted_reason",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_catalog_archive_binding_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_archive_bindings"
+      },
+      "scale": null,
+      "size": null,
+      "source": "archive_binding_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_catalog_quarantine_binding_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_archive_bindings"
+      },
+      "scale": null,
+      "size": null,
+      "source": "quarantine_binding_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_recording_catalog_receipt_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_nvr_archive_receipts"
+      },
+      "scale": null,
+      "size": null,
+      "source": "nvr_archive_receipt_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_attempts",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archive_last_error_class",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "sealed_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "archived_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "thumbnail_jpeg",
+      "type": "binary"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "inserted_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "block_key"
+      ],
+      "base_filter": null,
+      "check": "block_key ~ '^[0-9a-f]{64}$' AND\nlocal_state IN ('present', 'quarantined', 'reclaiming', 'reclaimed', 'missing') AND\narchive_state IN ('not_required', 'awaiting_binding', 'pending', 'failed_retryable', 'failed_terminal', 'verified', 'deleting', 'deleted', 'missing') AND\narchive_attempts >= 0 AND\n(archive_last_error_class IS NULL OR (octet_length(archive_last_error_class) BETWEEN 1 AND 64 AND archive_last_error_class ~ '^[a-z0-9_:-]+$')) AND\n((archive_state = 'deleted' AND archive_deleted_reason IN ('object_retention', 'object_capacity', 'operator')) OR\n (archive_state <> 'deleted' AND archive_deleted_reason IS NULL))\n",
+      "name": "camera_recording_catalog_states_and_digests"
+    },
+    {
+      "attribute": [
+        "recording_block_id"
+      ],
+      "base_filter": null,
+      "check": "(local_state <> 'present' OR (recording_block_id IS NOT NULL AND quarantine_reason IS NULL)) AND\n(recording_block_id IS NOT NULL OR quarantine_reason IS NOT NULL) AND\n(recording_block_id IS NULL OR (\n  camera_source_id IS NOT NULL AND\n  stream_profile_id IS NOT NULL AND\n  media_start_ns IS NOT NULL AND media_start_ns >= 0 AND\n  media_end_ns IS NOT NULL AND media_end_ns > media_start_ns AND\n  timeline_start_us IS NOT NULL AND\n  timeline_end_us IS NOT NULL AND timeline_end_us >= timeline_start_us AND\n  time_basis IN ('received', 'camera_reported') AND\n  fragment_count IS NOT NULL AND fragment_count >= 1 AND\n  media_bytes IS NOT NULL AND media_bytes >= 1 AND\n  init_sha256 ~ '^[0-9a-f]{64}$' AND\n  descriptor_sha256 ~ '^[0-9a-f]{64}$' AND\n  sealed_at IS NOT NULL\n)) AND\n(local_state <> 'quarantined' OR quarantine_reason IS NOT NULL) AND\n((quarantine_reason IS NULL AND quarantine_receipt IS NULL AND quarantined_bytes IS NULL AND quarantine_evidence IS NULL AND operator_disposition_state IS NULL AND operator_decision IS NULL) OR\n (quarantine_reason IN ('unrecoverable_journal', 'unattributable', 'binding_without_history', 'binding_compromised') AND\n  quarantine_receipt IS NOT NULL AND\n  quarantined_bytes IS NOT NULL AND quarantined_bytes >= 0 AND\n  (operator_disposition_state IS NULL OR operator_disposition_state IN ('awaiting_operator', 'export_requested', 'delete_requested', 'disposed'))))\n",
+      "name": "camera_recording_catalog_sealed_or_quarantined"
+    },
+    {
+      "attribute": [
+        "time_basis"
+      ],
+      "base_filter": null,
+      "check": "(time_basis IS NULL OR time_basis IN ('received', 'camera_reported')) AND\n(time_basis <> 'received' OR time_uncertainty_us IS NULL) AND\n(time_uncertainty_us IS NULL OR time_uncertainty_us >= 0) AND\n((timeline_start_us IS NULL AND timeline_end_us IS NULL) OR\n (timeline_start_us IS NOT NULL AND timeline_end_us IS NOT NULL AND timeline_end_us >= timeline_start_us))\n",
+      "name": "camera_recording_catalog_time_basis_valid"
+    },
+    {
+      "attribute": [
+        "thumbnail_jpeg"
+      ],
+      "base_filter": null,
+      "check": "thumbnail_jpeg IS NULL OR octet_length(thumbnail_jpeg) <= 65536",
+      "name": "camera_recording_catalog_thumbnail_jpeg_size"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "recording_block_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "recording_block_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_recording_block_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": true,
+      "using": null,
+      "where": "recording_block_id IS NOT NULL"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "camera_source_id",
+        "stream_profile_id",
+        "timeline_start_us"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "camera_source_id"
+        },
+        {
+          "type": "atom",
+          "value": "stream_profile_id"
+        },
+        {
+          "type": "atom",
+          "value": "timeline_start_us"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_timeline_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "archive_state",
+        "sealed_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "archive_state"
+        },
+        {
+          "type": "atom",
+          "value": "sealed_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_archive_backlog_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "archive_state IN ('awaiting_binding', 'pending', 'failed_retryable')"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "storage_id",
+        "sealed_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "storage_id"
+        },
+        {
+          "type": "atom",
+          "value": "sealed_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_local_present_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "local_state = 'present'"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "archived_at"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "archived_at"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_archive_verified_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "archive_state = 'verified'"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "archive_binding_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "archive_binding_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_archive_binding_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "archive_binding_id IS NOT NULL"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "quarantine_binding_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "quarantine_binding_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_quarantine_binding_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "quarantine_binding_id IS NOT NULL"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "nvr_archive_receipt_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "nvr_archive_receipt_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "camera_recording_catalog_receipt_index",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "nvr_archive_receipt_id IS NOT NULL"
+    }
+  ],
+  "custom_statements": [
+    {
+      "after_tables": [],
+      "code?": false,
+      "down": "DROP FUNCTION IF EXISTS platform.camera_recording_catalog_prevent_terminal_revival();\n",
+      "global?": false,
+      "name": "prevent_terminal_state_revival_fn",
+      "up": "CREATE OR REPLACE FUNCTION platform.camera_recording_catalog_prevent_terminal_revival()\nRETURNS trigger\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  IF OLD.local_state = 'reclaimed' AND NEW.local_state IS DISTINCT FROM 'reclaimed' THEN\n    RAISE EXCEPTION 'camera_recording_catalog local_state cannot transition out of terminal state reclaimed'\n      USING ERRCODE = 'check_violation',\n            CONSTRAINT = 'camera_recording_catalog_local_state_terminal';\n  END IF;\n\n  IF OLD.archive_state = 'deleted' AND NEW.archive_state IS DISTINCT FROM 'deleted' THEN\n    RAISE EXCEPTION 'camera_recording_catalog archive_state cannot transition out of terminal state deleted'\n      USING ERRCODE = 'check_violation',\n            CONSTRAINT = 'camera_recording_catalog_archive_state_terminal';\n  END IF;\n\n  RETURN NEW;\nEND;\n$$;\n"
+    },
+    {
+      "after_tables": [
+        "camera_recording_catalog"
+      ],
+      "code?": false,
+      "down": "DROP TRIGGER IF EXISTS trg_camera_recording_catalog_prevent_terminal_revival\nON platform.camera_recording_catalog;\n",
+      "global?": false,
+      "name": "prevent_terminal_state_revival_trg",
+      "up": "CREATE TRIGGER trg_camera_recording_catalog_prevent_terminal_revival\nBEFORE UPDATE ON platform.camera_recording_catalog\nFOR EACH ROW\nEXECUTE FUNCTION platform.camera_recording_catalog_prevent_terminal_revival();\n"
+    }
+  ],
+  "has_create_action": true,
+  "hash": "99FBAAF14CCEC2B4161E207C56F34D29C395CF00A05621A67BE46039A2CD30F9",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "camera_recording_catalog_storage_block_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "storage_id"
+        },
+        {
+          "type": "atom",
+          "value": "block_key"
+        }
+      ],
+      "name": "storage_block",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_recording_catalog",
+  "temporal": null
+}

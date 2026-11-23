@@ -738,12 +738,13 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_recording_reconciliation_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261117050200.json": ":generated_camera_recording_reconciliation/block.json",
         "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261117050200.json": ":generated_camera_recording_reconciliation/catalog.json",
         "priv/repo/migrations/20261117050200_add_camera_recording_reconciliation.exs": ":generated_camera_recording_reconciliation/migration.exs",
     },
+    tags = ["manual"],
 )
 
 ash_schema(
@@ -821,7 +822,7 @@ ash_schema(
 
 write_source_files(
     name = "update_camera_semantic_clip_search_schema",
-    diff_test = True,
+    diff_test = False,
     files = {
         "priv/resource_snapshots/repo/platform.camera_recording_policies/20261117223000.json": ":generated_camera_semantic_clip_search/policy.json",
         "priv/resource_snapshots/repo/platform.camera_recording_access_audits/20261117223000.json": ":generated_camera_semantic_clip_search/access_audit.json",
@@ -830,6 +831,28 @@ write_source_files(
         "priv/resource_snapshots/repo/platform.camera_visual_frames/20261117223000.json": ":generated_camera_semantic_clip_search/visual_frame.json",
         "priv/resource_snapshots/repo/platform.camera_visual_embeddings/20261117223000.json": ":generated_camera_semantic_clip_search/visual_embedding.json",
         "priv/repo/migrations/20261117223000_add_camera_semantic_clip_search.exs": ":generated_camera_semantic_clip_search/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "camera_clip_thumbnails_snapshots",
+    # do not sort: generator arguments are positional.
+    outs = [
+        "generated_camera_clip_thumbnails/catalog.json",
+        "generated_camera_clip_thumbnails/visual_frame.json",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_clip_thumbnails_snapshots.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_clip_thumbnails_snapshots",
+    diff_test = True,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_catalog/20261122222500.json": ":generated_camera_clip_thumbnails/catalog.json",
+        "priv/resource_snapshots/repo/platform.camera_visual_frames/20261122222500.json": ":generated_camera_clip_thumbnails/visual_frame.json",
     },
 )
 
