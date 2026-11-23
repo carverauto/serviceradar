@@ -25,7 +25,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   StarRocks they are not stored. Logs and events are routed on
   `cutover_datasets` (`Readers.mode_for/1`). Assessment exposure facts and
   transition history also use the warehouse-only path. Their consumer attaches
-  only when StarRocks is enabled and requires both loads before ACK.
+  only when StarRocks is enabled and requires both loads before ACK. Horizon
+  datasets (`:horizon_outages`, `:horizon_bgp_events`, `:horizon_bgp_zombies`,
+  `:horizon_path_hops`) are also warehouse-only, loaded via `persist_warehouse/2`
+  when StarRocks is enabled (`HorizonProjection` handles load failures fail-open
+  so OCSF event ingestion is not blocked).
 
   ## Load sizing
 

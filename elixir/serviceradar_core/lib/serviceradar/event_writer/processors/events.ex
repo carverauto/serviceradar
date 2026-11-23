@@ -5,7 +5,9 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   Parses JSON events from NATS and stores them using the OCSF Event Log
   Activity schema (class_uid: 1008): in the warehouse `events` table when
   events are routed there (`Destination.warehouse?/1`), otherwise in the CNPG
-  `ocsf_events` hypertable. Never both.
+  `ocsf_events` hypertable. Never both. After primary event persistence
+  succeeds, `HorizonProjection.project_rows/1` projects `horizon.*` rows into
+  the StarRocks Horizon tables fail-open when StarRocks is enabled.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor

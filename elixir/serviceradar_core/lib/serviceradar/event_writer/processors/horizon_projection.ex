@@ -62,9 +62,10 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       end)
 
     %{
-      outages: dedupe_by_key(grouped.outages, &{&1.time, &1.outage_id}),
-      bgp_events: dedupe_by_key(grouped.bgp_events, &{&1.time, &1.event_id}),
-      bgp_zombies: dedupe_by_key(grouped.bgp_zombies, &{&1.time, &1.episode_id})
+      outages: grouped.outages |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.outage_id}),
+      bgp_events: grouped.bgp_events |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.event_id}),
+      bgp_zombies:
+        grouped.bgp_zombies |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.episode_id})
     }
   end
 

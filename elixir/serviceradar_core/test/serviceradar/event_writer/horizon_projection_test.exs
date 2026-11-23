@@ -8,6 +8,8 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.Rows
+  alias ServiceRadar.Analytics.StarRocks.Schema
+  alias ServiceRadar.Analytics.StarRocks.SchemaMigrator
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
   alias ServiceRadar.TestSupport.StreamLoadFE
@@ -204,6 +206,49 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert projected.first_seen_at == ~U[2026-11-23 15:30:00Z]
       assert projected.resolved_at == nil
     end
+
+    test "sets resolved_at for resolved/cleared zombies, dedupes by (time, id), and drops malformed rows" do
+      resolved_zombie =
+        ocsf_row(%{
+          "id" => "horizon.bgp_zombies:ep-88:resolved:1763914500000",
+          "time" => "2026-11-23T16:20:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 2,
+          "log_name" => "horizon.bgp_zombie",
+          "unmapped" => %{
+            "episode_id" => "ep-88",
+            "status" => "resolved",
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_500
+          }
+        })
+
+      malformed_outage =
+        ocsf_row(%{
+          "id" => "horizon.outages:missing-id",
+          "time" => "2026-11-23T16:20:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.outage",
+          "unmapped" => %{"status" => "active"}
+        })
+
+      dup1 = outage_row("out-dup-1")
+      dup2 = put_in(dup1, [:unmapped, "status"], "resolved")
+
+      %{outages: [outage], bgp_events: [], bgp_zombies: [zombie]} =
+        HorizonProjection.build_projections([dup1, dup2, malformed_outage, resolved_zombie])
+
+      assert outage.outage_id == "out-dup-1"
+      assert outage.status == "resolved"
+      assert zombie.episode_id == "ep-88"
+      assert zombie.resolved_at == ~U[2026-11-23 16:20:00Z]
+    end
   end
 
   describe "project_rows/2" do
@@ -278,6 +323,66 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
       assert log =~ "Horizon StarRocks projection failed for horizon_outages (fail-open)"
       assert_received {:loaded, :horizon_bgp_events, 1}
+    end
+
+    test "isolates raised exceptions on one table and still loads sibling Horizon tables" do
+      bgp =
+        ocsf_row(%{
+          "id" => "horizon.bgp_anomalies:bgp-exc-1",
+          "time" => "2026-11-23T16:05:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-exc-1",
+            "kind" => "hijack",
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_501
+          }
+        })
+
+      zombie =
+        ocsf_row(%{
+          "id" => "horizon.bgp_zombies:ep-exc-1",
+          "time" => "2026-11-23T16:06:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_zombie",
+          "unmapped" => %{
+            "episode_id" => "ep-exc-1",
+            "status" => "active",
+            "covering_prefix" => "203.0.113.0/24",
+            "origin_asn" => 64_502
+          }
+        })
+
+      parent = self()
+
+      load_fn = fn
+        :horizon_outages, _rows ->
+          raise "simulated outage encoder crash"
+
+        dataset, rows ->
+          send(parent, {:loaded, dataset, length(rows)})
+          {:ok, %{loaded: length(rows)}}
+      end
+
+      log =
+        capture_log(fn ->
+          assert :ok ==
+                   HorizonProjection.project_rows([outage_row(), bgp, zombie],
+                     starrocks_enabled: true,
+                     load: load_fn
+                   )
+        end)
+
+      assert log =~ "Horizon StarRocks projection raised for horizon_outages (fail-open)"
+      assert_received {:loaded, :horizon_bgp_events, 1}
+      assert_received {:loaded, :horizon_bgp_zombies, 1}
     end
   end
 
@@ -397,6 +502,297 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
       assert [%{"outage_id" => "out-2026-001", "origin_asn" => 13_335}] = outage_rows
       assert [%{"event_id" => "bgp-cutover-1", "origin_asn" => 64_512}] = bgp_rows
+    end
+
+    test "encodes all four Horizon datasets for StarRocks Stream Load JSON" do
+      [bgp_encoded] =
+        Rows.encode(:horizon_bgp_events, [
+          %{
+            time: ~U[2026-11-23 16:05:00Z],
+            event_id: "bgp-enc-1",
+            kind: "watchlist",
+            level: "warning",
+            prefix: "198.51.100.0/24",
+            origin_asn: 64_501,
+            as_path: [64_500, 64_501],
+            rpki_status: nil,
+            caida_leak_inference: nil,
+            watchlist_id: "wl-1",
+            client_label: "Synthetic Edge",
+            raw_data: %{"event_id" => "bgp-enc-1"}
+          }
+        ])
+
+      [zombie_encoded] =
+        Rows.encode(:horizon_bgp_zombies, [
+          %{
+            time: ~U[2026-11-23 16:10:00Z],
+            episode_id: "ep-enc-1",
+            status: "resolved",
+            prefix: "203.0.113.0/24",
+            origin_asn: 64_502,
+            divergence_pct: 41.2,
+            is_beacon: true,
+            withdrawn_peers: 120,
+            total_peers: 200,
+            stuck_peer_asns: [64_510],
+            first_seen_at: ~U[2026-11-23 15:00:00Z],
+            resolved_at: ~U[2026-11-23 16:10:00Z],
+            raw_data: %{"episode_id" => "ep-enc-1"}
+          }
+        ])
+
+      [hop_encoded] =
+        Rows.encode(:horizon_path_hops, [
+          %{
+            time: ~U[2026-11-23 16:15:00Z],
+            round_id: "rnd-1",
+            target_id: "tgt-1",
+            pop_id: "pop-east-1",
+            hop_ttl: 3,
+            hop_ip: "192.0.2.15",
+            router_alias_id: "rtr-1",
+            alias_confidence: 0.95,
+            asn: 64_503,
+            as_org: "Example Transit",
+            is_cloud: true,
+            cloud_provider: "example_cloud",
+            cloud_region: "us-east-1",
+            forwarding_loss_pct: 1.5,
+            avg_rtt_ms: 14.2,
+            effective_path_mtu: 1500,
+            mtu_blackhole_detected: false,
+            blackhole_hop_ttl: nil,
+            raw_data: %{"round_id" => "rnd-1"}
+          }
+        ])
+
+      assert bgp_encoded["event_id"] == "bgp-enc-1"
+      assert bgp_encoded["kind"] == "watchlist"
+      assert zombie_encoded["episode_id"] == "ep-enc-1"
+      assert zombie_encoded["is_beacon"] == true
+      assert zombie_encoded["first_seen_at"] == "2026-11-23T15:00:00Z"
+      assert zombie_encoded["resolved_at"] == "2026-11-23T16:10:00Z"
+      assert hop_encoded["hop_ttl"] == 3
+      assert hop_encoded["is_cloud"] == true
+      assert hop_encoded["mtu_blackhole_detected"] == false
+
+      for encoded <- [bgp_encoded, zombie_encoded, hop_encoded] do
+        assert {:ok, _json} = Jason.encode(encoded)
+      end
+    end
+
+    test "Events.store_event_rows fails open over HTTP when one Horizon table Stream Load fails" do
+      prev = Application.get_env(:serviceradar_core, StarRocks)
+
+      on_exit(fn ->
+        if prev == nil do
+          Application.delete_env(:serviceradar_core, StarRocks)
+        else
+          Application.put_env(:serviceradar_core, StarRocks, prev)
+        end
+      end)
+
+      if Process.whereis(LoadSupervisor) == nil do
+        start_supervised!({LoadSupervisor, [max_in_flight: 2, wait_timeout_ms: 5_000]})
+      end
+
+      fe_http = start_partial_fail_fe!("horizon_outages")
+
+      Application.put_env(:serviceradar_core, StarRocks,
+        enabled: true,
+        cutover_datasets: [:events],
+        fe_http: fe_http
+      )
+
+      watchlist_row =
+        ocsf_row(%{
+          "id" => "horizon.bgp_watchlist:bgp-wl-failopen",
+          "time" => "2026-11-23T16:10:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 4,
+          "log_name" => "horizon.bgp_watchlist",
+          "unmapped" => %{
+            "event_id" => "bgp-wl-failopen",
+            "watchlist_id" => "wl-edge-9",
+            "label" => "Synthetic Prefix",
+            "level" => "warning",
+            "observed_prefix" => "203.0.113.0/24",
+            "observed_origin_asn" => 64_509,
+            "observed_as_path" => [64_500, 64_509]
+          }
+        })
+
+      log =
+        capture_log(fn ->
+          assert {:ok, 2} = Events.store_event_rows([outage_row("out-fail-http"), watchlist_row])
+        end)
+
+      assert log =~ "Horizon StarRocks projection failed for horizon_outages (fail-open)"
+      assert_receive {:wire_table, "events", event_rows}, 5_000
+      assert_receive {:wire_table, "horizon_outages", _failed_outage_rows}, 5_000
+      assert_receive {:wire_table, "horizon_bgp_events", bgp_rows}, 5_000
+
+      assert length(event_rows) == 2
+
+      assert [
+               %{
+                 "event_id" => "bgp-wl-failopen",
+                 "kind" => "watchlist",
+                 "prefix" => "203.0.113.0/24",
+                 "origin_asn" => 64_509,
+                 "client_label" => "Synthetic Prefix"
+               }
+             ] = bgp_rows
+    end
+  end
+
+  describe "StarRocks schema migration 0044_horizon_tables.sql" do
+    test "Schema.migrations/0 and SchemaMigrator apply all four daily-partitioned Horizon tables idempotently" do
+      migration = Enum.find(Schema.migrations(), &(&1.version == 44))
+      assert migration
+      assert migration.name == "horizon_tables"
+      assert length(migration.statements) == 5
+
+      {:ok, agent} = Agent.start_link(fn -> %{ledger: [], ddl: []} end)
+
+      query_fn = fn sql ->
+        Agent.get_and_update(agent, fn state ->
+          cond do
+            sql == "SHOW BACKENDS" ->
+              {{:ok, %{columns: ["BackendId", "Alive"], rows: [[1, "true"]]}}, state}
+
+            sql == "SHOW COMPUTE NODES" ->
+              {{:ok, %{columns: ["ComputeNodeId", "Alive"], rows: []}}, state}
+
+            String.starts_with?(sql, "SELECT version FROM ") ->
+              {{:ok, %{columns: ["version"], rows: Enum.map(state.ledger, &[&1])}}, state}
+
+            String.starts_with?(sql, "SELECT TABLE_NAME, PARTITION_KEY") ->
+              {{:ok, %{columns: ["TABLE_NAME", "PARTITION_KEY"], rows: []}}, state}
+
+            String.starts_with?(sql, "INSERT INTO ") ->
+              [_, version] = Regex.run(~r/VALUES \((\d+),/, sql)
+
+              {{:ok, %{columns: [], rows: []}},
+               %{state | ledger: state.ledger ++ [String.to_integer(version)]}}
+
+            true ->
+              {{:ok, %{columns: [], rows: []}}, %{state | ddl: state.ddl ++ [sql]}}
+          end
+        end)
+      end
+
+      opts = [
+        query: query_fn,
+        try_lock: fn fun -> fun.(fn -> :ok end) end,
+        migrations: [migration],
+        database: "horizon_lab",
+        sleep: fn _ms -> :ok end,
+        workload_groups: fn _query -> :ok end
+      ]
+
+      assert {:ok, [44]} = SchemaMigrator.migrate(opts)
+      assert {:ok, []} = SchemaMigrator.migrate(opts)
+
+      %{ddl: ddl, ledger: ledger} = Agent.get(agent, & &1)
+      assert ledger == [44]
+
+      create_tables =
+        Enum.filter(
+          ddl,
+          &String.starts_with?(&1, "CREATE TABLE IF NOT EXISTS horizon_lab.horizon_")
+        )
+
+      assert length(create_tables) == 4
+
+      by_table =
+        Map.new(create_tables, fn stmt ->
+          [_, table] = Regex.run(~r/CREATE TABLE IF NOT EXISTS horizon_lab\.(\w+)/, stmt)
+          {table, stmt}
+        end)
+
+      for {table, expected_live_days} <- [
+            {"horizon_outages", "30"},
+            {"horizon_bgp_events", "30"},
+            {"horizon_bgp_zombies", "30"},
+            {"horizon_path_hops", "14"}
+          ] do
+        stmt = Map.fetch!(by_table, table)
+        assert stmt =~ "PARTITION BY date_trunc('day', time)"
+        assert stmt =~ ~r/PRIMARY KEY \(time,/
+        assert stmt =~ ~s("replication_num" = "1")
+        assert stmt =~ ~s("partition_live_number" = "#{expected_live_days}")
+      end
+    end
+  end
+
+  defp start_partial_fail_fe!(fail_table) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :http_bin, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+    start_supervised!({Task, fn -> serve_partial_fail(listener, parent, fail_table) end})
+    "http://127.0.0.1:#{port}"
+  end
+
+  defp serve_partial_fail(listener, parent, fail_table) do
+    case :gen_tcp.accept(listener, 5_000) do
+      {:ok, socket} ->
+        {:ok, {:http_request, :PUT, {:abs_path, path}, _}} = :gen_tcp.recv(socket, 0, 5_000)
+        headers = recv_http_headers(socket, %{})
+        :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
+        :ok = :inet.setopts(socket, packet: :raw)
+        {:ok, body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
+        rows = Jason.decode!(body)
+        [_, table] = Regex.run(~r|^/api/[^/]+/([^/]+)/_stream_load$|, path)
+        send(parent, {:wire_table, table, rows})
+
+        response =
+          if table == fail_table do
+            Jason.encode!(%{"Status" => "Fail", "Message" => "simulated load failure"})
+          else
+            Jason.encode!(%{
+              "Status" => "Success",
+              "NumberLoadedRows" => length(rows),
+              "NumberFilteredRows" => 0
+            })
+          end
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ",
+            Integer.to_string(byte_size(response)),
+            "\r\n\r\n",
+            response
+          ])
+
+        :gen_tcp.close(socket)
+        serve_partial_fail(listener, parent, fail_table)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, :timeout} ->
+        serve_partial_fail(listener, parent, fail_table)
+    end
+  end
+
+  defp recv_http_headers(socket, headers) do
+    case :gen_tcp.recv(socket, 0, 5_000) do
+      {:ok, :http_eoh} ->
+        headers
+
+      {:ok, {:http_header, _, key, _, value}} ->
+        recv_http_headers(
+          socket,
+          Map.put(headers, key |> to_string() |> String.downcase(), value)
+        )
     end
   end
 end

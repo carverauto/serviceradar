@@ -3,13 +3,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Dataset reader routing for StarRocks cutover.
 
   Warehouse-owned datasets follow the enabled flag in `mode_for/1`; the
-  remaining datasets use `cutover_datasets`. NetFlow is warehouse-only:
-  `:flows` is served from the warehouse or not at all, so an installation that has not cut it over gets
+  remaining datasets use `cutover_datasets`. NetFlow (`:flows`) and Horizon
+  telemetry (`:horizon_outages`, `:horizon_bgp_events`, `:horizon_bgp_zombies`,
+  `:horizon_path_hops`) are warehouse-only: they are served from the warehouse
+  or not at all, so when the warehouse is not serving them `mode_for/1` returns
   `{:error, :starrocks_required}` rather than CNPG rows. Flows ship in the
-  default cutover set of a warehouse-enabled installation (`Env`), so that
+  default cutover set of a warehouse-enabled installation (`Env`), so their
   refusal arm is reached only when an operator explicitly lists cutover
   datasets without `flows` (or the warehouse is disabled, where every flows
-  reader except the hostile-IOC risk reader refuses instead of reading CNPG).
+  reader except the hostile-IOC risk reader refuses instead of reading CNPG);
+  Horizon datasets key directly on `enabled?/0`.
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
   Every spelling the SRQL parser accepts for such an entity must be listed:
@@ -232,9 +235,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
-  # NetFlow has no CNPG serving path. Every other dataset keeps one and stays
-  # on CNPG until it is cut over; flows instead refuse to answer, because the
-  # alternative is a second, divergent set of numbers for the same question.
+  # NetFlow and Horizon datasets have no CNPG serving path: when not served by
+  # StarRocks they refuse with `{:error, :starrocks_required}` rather than
+  # falling back to CNPG. Every other dataset keeps a CNPG path until cut over.
   @starrocks_only [
     :flows,
     :horizon_outages,

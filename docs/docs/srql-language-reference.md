@@ -389,6 +389,10 @@ fields; using a field that the entity does not support returns an
 | `plugin_fleet` | `plugin_fleets` | WASM plugin assignments and current runtime evidence, one row per owner of a plugin on a partition and agent. Requires `plugins.view`. |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
 | `bmp_events` | `bmp_event`, `bmp_routing_events` | BGP Monitoring Protocol (BMP) routing events |
+| `horizon_outages` | | Horizon internet outages (`serviceradar.horizon_outages`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
+| `horizon_bgp` | | Horizon BGP anomalies and watchlist events (`serviceradar.horizon_bgp_events`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
+| `horizon_zombies` | | Horizon BGP zombie route episodes (`serviceradar.horizon_bgp_zombies`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.events.view`. |
+| `horizon_paths` | | Horizon path hop telemetry (`serviceradar.horizon_path_hops`). StarRocks-only (`:starrocks_required` when StarRocks is disabled). Row listing only. Requires `observability.traces.view`. |
 | `alerts` | `alert` | Generated alerts |
 | `cpu_metrics` | `cpu` | CPU utilization time-series |
 | `memory_metrics` | `memory` | Memory utilization time-series |
@@ -867,6 +871,113 @@ advertisements collected via the BGP Monitoring Protocol (BMP).
 
 Sortable fields: `time` (aliases `event_timestamp`, `timestamp`), `created_at`,
 `severity_id`.
+
+### horizon_outages
+
+StarRocks-only (`serviceradar.horizon_outages`). Requires StarRocks enabled
+(`:starrocks_required` when disabled) and `observability.events.view`. Canonical
+name only (no aliases). Row listing only: `stats:`, `rollup_stats:`, `bucket:`,
+and `other:true` are rejected. `time:` filters `time`.
+
+| Field | Type / Operators | Description |
+|-------|------------------|-------------|
+| `outage_id` | text (`=`, `!=`, `%`, list) | Outage identifier |
+| `status` | text (`=`, `!=`, `%`, list) | Outage status (e.g. `active`, `resolved`) |
+| `severity` | text (`=`, `!=`, `%`, list) | Outage severity (e.g. `warning`, `major`) |
+| `entity_type` | text (`=`, `!=`, `%`, list) | Affected entity type (e.g. `asn`, `prefix`) |
+| `entity_key` | text (`=`, `!=`, `%`, list) | Affected entity key |
+| `region` | text (`=`, `!=`, `%`, list) | Affected region |
+| `covering_prefix` | text (`=`, `!=`, `%`, list) | Covering IP prefix |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Affected origin ASN |
+| `corroborating_pop_count` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Number of corroborating PoPs |
+| `avg_forwarding_loss_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Average forwarding loss percentage |
+| `avg_synthetic_failure_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Average synthetic failure percentage |
+
+Sortable fields: `time` (default, descending), `severity`, `status`,
+`corroborating_pop_count`, `avg_forwarding_loss_pct`.
+
+```text
+in:horizon_outages status:active covering_prefix:198.51.100.0/24 origin_asn:64512 time:last_24h sort:time:desc limit:25
+```
+
+### horizon_bgp
+
+StarRocks-only (`serviceradar.horizon_bgp_events`). Requires StarRocks enabled
+(`:starrocks_required` when disabled) and `observability.events.view`. Canonical
+name only (no aliases). Row listing only: `stats:`, `rollup_stats:`, `bucket:`,
+and `other:true` are rejected. `time:` filters `time`.
+
+| Field | Type / Operators | Description |
+|-------|------------------|-------------|
+| `event_id` | text (`=`, `!=`, `%`, list) | BGP event identifier |
+| `kind` | text (`=`, `!=`, `%`, list) | Event kind (e.g. `hijack`, `watchlist`) |
+| `level` | text (`=`, `!=`, `%`, list) | Severity level (e.g. `warning`, `critical`) |
+| `prefix` | text (`=`, `!=`, `%`, list) | Observed or covering IP prefix |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Origin ASN |
+| `rpki_status` | text (`=`, `!=`, `%`, list) | RPKI validation status |
+| `caida_leak_inference` | text (`=`, `!=`, `%`, list) | Route-leak inference classification |
+| `watchlist_id` | text (`=`, `!=`, `%`, list) | Matching watchlist identifier |
+| `client_label` | text (`=`, `!=`, `%`, list) | Watchlist label |
+
+Sortable fields: `time` (default, descending), `kind`, `level`, `origin_asn`.
+
+```text
+in:horizon_bgp kind:(hijack,watchlist) prefix:198.51.100.0/24 origin_asn:64512 time:last_24h
+```
+
+### horizon_zombies
+
+StarRocks-only (`serviceradar.horizon_bgp_zombies`). Requires StarRocks enabled
+(`:starrocks_required` when disabled) and `observability.events.view`. Canonical
+name only (no aliases). Row listing only: `stats:`, `rollup_stats:`, `bucket:`,
+and `other:true` are rejected. `time:` filters `time`.
+
+| Field | Type / Operators | Description |
+|-------|------------------|-------------|
+| `episode_id` | text (`=`, `!=`, `%`, list) | Zombie route episode identifier |
+| `status` | text (`=`, `!=`, `%`, list) | Episode status (e.g. `active`, `resolved`) |
+| `prefix` | text (`=`, `!=`, `%`, list) | Affected IP prefix |
+| `origin_asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Origin ASN |
+| `divergence_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Peer divergence percentage |
+| `is_beacon` | boolean (`=`, `!=`) | Whether the prefix is a beacon |
+
+Sortable fields: `time` (default, descending), `status`, `divergence_pct`,
+`first_seen_at`.
+
+```text
+in:horizon_zombies status:active is_beacon:false divergence_pct:>=25 time:last_24h
+```
+
+### horizon_paths
+
+StarRocks-only (`serviceradar.horizon_path_hops`). Requires StarRocks enabled
+(`:starrocks_required` when disabled) and `observability.traces.view`. Canonical
+name only (no aliases). Row listing only: `stats:`, `rollup_stats:`, `bucket:`,
+and `other:true` are rejected. `time:` filters `time`.
+
+| Field | Type / Operators | Description |
+|-------|------------------|-------------|
+| `round_id` | text (`=`, `!=`, `%`, list) | Probe round identifier |
+| `target_id` | text (`=`, `!=`, `%`, list) | Probe target identifier |
+| `pop_id` | text (`=`, `!=`, `%`, list) | Vantage PoP identifier |
+| `hop_ttl` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hop TTL position |
+| `hop_ip` | text (`=`, `!=`, `%`, list) | Hop IP address |
+| `router_alias_id` | text (`=`, `!=`, `%`, list) | Resolved router alias identifier |
+| `asn` | integer (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Hop ASN |
+| `as_org` | text (`=`, `!=`, `%`, list) | Hop AS organization |
+| `is_cloud` | boolean (`=`, `!=`) | Whether the hop is in a cloud network |
+| `cloud_provider` | text (`=`, `!=`, `%`, list) | Cloud provider name |
+| `cloud_region` | text (`=`, `!=`, `%`, list) | Cloud region |
+| `forwarding_loss_pct` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Forwarding loss percentage |
+| `avg_rtt_ms` | float (`=`, `!=`, `>`, `>=`, `<`, `<=`) | Average round-trip time in ms |
+| `mtu_blackhole_detected` | boolean (`=`, `!=`) | Whether an MTU blackhole was detected |
+
+Sortable fields: `time` (default, descending), `hop_ttl`, `forwarding_loss_pct`,
+`avg_rtt_ms`.
+
+```text
+in:horizon_paths target_id:tgt-1 pop_id:pop-a mtu_blackhole_detected:false time:last_24h sort:hop_ttl:asc
+```
 
 ### alerts
 
