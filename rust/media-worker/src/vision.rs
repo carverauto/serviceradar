@@ -1,12 +1,16 @@
 //! Two-stage keyframe vision pipeline and shared multimodal text encoder (`2.4`, `2.5`).
 //!
+//! - Motion gate: `serviceradar-media-core` [`TwoTierFrameGate`] (or [`PixelMotionGate`] for
+//!   single-frame calls) skips unchanged empty scenes before Stage 1 when the preceding frame
+//!   had no detections and marks unchanged empty frames `scene_suppressed`.
 //! - Stage 1: Localized subject detection (`person`, `vehicle`, `bicycle`, `animal`, `package`),
 //!   class-aware NMS (`IoU <= 0.50`), `10%` padded full-resolution crop extraction with
-//!   normalized `[x1, y1, x2, y2]` coordinates (`0.0..=1.0`), HSV coarse dominant-color
-//!   classification, and optional static-empty-scene suppression (`< 2%` L1 delta).
+//!   normalized `[x1, y1, x2, y2]` coordinates (`0.0..=1.0`), and `serviceradar-media-core`
+//!   HSV coarse dominant-color attribute extraction.
 //! - Stage 2: Batched vision-language encoding producing L2-normalized `:scene` and `:crop`
 //!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
-//!   `embed_query_text`.
+//!   `embed_query_text`, plus budgeted JFIF JPEG keyframe thumbnails (`<= 48 KiB` raw,
+//!   `<= 384 KiB` total base64 per clip).
 
 use crate::backend::{InferenceBackend, InferenceBackendInfo, RawDetection};
 use crate::config::ModelPinConfig;
@@ -49,7 +53,7 @@ fn encode_frame_thumbnail_b64(
 ) -> Result<String, MediaWorkerError> {
     let encoded = encode_jpeg_thumbnail(frame, &default_thumbnail_config())
         .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&encoded.jpeg_bytes))
+    Ok(base64::engine::general_purpose::STANDARD.encode(encoded.jpeg_bytes))
 }
 
 /// Canonical surveillance object classes emitted by Stage 1 (`design.md` Section 3.2).
@@ -433,8 +437,10 @@ impl VisionPipeline {
         serviceradar_media_core::MediaPipeline::new(config, detector)
     }
 
-    /// Runs Stage 1 detection, per-clip `trackforge` multi-object tracking, optional
-    /// best-crop deduplication, and Stage 2 embedding across sequential keyframes of a clip.
+    /// Runs `serviceradar-media-core` motion gating ([`TwoTierFrameGate`]), Stage 1 detection,
+    /// per-clip [`ClipTracker`] multi-object tracking, optional best-crop deduplication, Stage 2
+    /// embedding, and budgeted JFIF JPEG keyframe thumbnail attachment across sequential
+    /// keyframes of a clip.
     ///
     /// Instantiates a fresh [`ClipTracker`] per call so the pipeline stays 100% stateless
     /// across clips.
@@ -1158,7 +1164,7 @@ fn resolve_track_best_frame_indices(
                     .iter()
                     .filter(|d| d.track_id() == Some(track.track_id()))
                     .map(|d| crop_quality_score(d.confidence(), d.bbox_norm()))
-                    .max_by(|a, b| a.total_cmp(b))?;
+                    .max_by(f32::total_cmp)?;
                 Some((idx, track_q))
             })
             .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
@@ -1194,7 +1200,7 @@ fn attach_budgeted_thumbnails(
                 .detections()
                 .iter()
                 .map(|d| crop_quality_score(d.confidence(), d.bbox_norm()))
-                .max_by(|a, b| a.total_cmp(b))
+                .max_by(f32::total_cmp)
                 .unwrap_or(0.0);
             let tier = if track_best_indices.contains(&idx) {
                 0
