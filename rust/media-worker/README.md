@@ -4,7 +4,7 @@ Standalone worker that indexes sealed camera recording blocks for semantic searc
 jobs from `media.jobs.visual_index.v1`, fetches `init.mp4` and the sampled keyframe
 fragments through a read grant, verifies every byte range against the frozen descriptor
 SHA-256, decodes one IDR keyframe per sampled fragment, runs SigLIP (and an optional
-YOLOv8 detector) with the pure-Rust `candle` backend, and publishes
+YOLOX detector (`yolox-s`)) with the pure-Rust `candle` backend, and publishes
 `media.results.visual_index.v1` before acknowledging the job. It also answers search-query
 text embeddings over NATS.
 

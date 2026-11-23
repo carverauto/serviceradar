@@ -437,6 +437,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
     active_source_id = assigns.source && to_string(assigns.source.id)
 
+    other_switcher_cameras =
+      Enum.reject(assigns.switcher_cameras || [], &(to_string(&1.id) == active_source_id))
+
     assigns =
       assigns
       |> assign(:coverage, coverage)
@@ -462,6 +465,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:has_any_window_clips?, Map.get(clip_counts, :all, 0) > 0)
       |> assign(:now_us, now_us)
       |> assign(:active_source_id, active_source_id)
+      |> assign(:other_switcher_cameras, other_switcher_cameras)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
       |> assign(:has_provisional?, any_provisional?(buckets, blocks))
@@ -485,7 +489,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           id="camera-switcher-rail"
           aria-label="Camera switcher"
           class={[
-            "flex flex-col rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]",
+            "flex-col rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:sticky lg:top-20 lg:self-start lg:max-h-[42rem]",
             if(@switcher_open_mobile?, do: "flex", else: "hidden lg:flex")
           ]}
         >
@@ -543,10 +547,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
           <%!-- Bounded Paginated Camera List (<= 20 items) --%>
           <div class="mt-2 min-h-0 flex-1 overflow-y-auto pr-0.5">
-            <ul id="camera-switcher-list" class="space-y-1">
+            <ul :if={@other_switcher_cameras != []} id="camera-switcher-list" class="space-y-1">
               <li
-                :for={cam <- @switcher_cameras}
-                :if={to_string(cam.id) != @active_source_id}
+                :for={cam <- @other_switcher_cameras}
                 id={"camera-switcher-row-#{cam.id}"}
               >
                 <.link
@@ -573,11 +576,15 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               </li>
             </ul>
             <p
-              :if={@switcher_cameras == []}
+              :if={@other_switcher_cameras == []}
               id="camera-switcher-empty"
               class="px-2 py-4 text-center text-[11px] text-sr-muted"
             >
-              No matching cameras.
+              {camera_switcher_empty_message(
+                @switcher_search,
+                @switcher_cameras,
+                @switcher_total_count
+              )}
             </p>
           </div>
 
@@ -2431,5 +2438,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       %{reason: reason, detail_class: detail, label: label, count: count}
     end)
     |> Enum.sort_by(fn entry -> {-entry.count, entry.label} end)
+  end
+
+  defp camera_switcher_empty_message(search, switcher_cameras, total_count) do
+    trimmed_search = String.trim(to_string(search || ""))
+
+    cond do
+      trimmed_search != "" and switcher_cameras == [] ->
+        "No matching cameras."
+
+      trimmed_search != "" ->
+        "No other matching cameras."
+
+      (total_count || 0) <= 1 ->
+        "No other cameras configured."
+
+      true ->
+        "No matching cameras."
+    end
   end
 end

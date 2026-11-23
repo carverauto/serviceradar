@@ -556,17 +556,20 @@ access.
   stream variants are not decoded: each such keyframe is recorded as
   undecodable with its reason (`unsupported_codec` and so on, counted in
   `serviceradar_media_worker_keyframes_undecodable_total`) and is not indexed.
-- Indexing is whole-scene only. The chart mounts only the three SigLIP files
-  into the model directory, so a detector file on the PVC is never visible to
-  the worker. A permissively licensed subject detector will be added later, and
-  enabling it will be an explicit chart setting, not a file drop.
+- Whole-scene indexing is the default when `mediaWorker.models.detectorPath` is
+  unset: the chart mounts only the three SigLIP files into the model directory,
+  so unconfigured detector files on the PVC stay invisible. Setting
+  `mediaWorker.models.detectorPath` (and optional `detectorConfigPath` /
+  `detectorSha256`) mounts the `yolox-s` detector weights and config via
+  `subPath` so object detection runs alongside SigLIP.
 - Local (not yet archived) recordings cannot be read yet, because the NVR has
   no analysis-read listener.
 
 | Value | Purpose | Default |
 | --- | --- | --- |
 | `mediaWorker.backend` | `candle` runs SigLIP from the weights in `models.existingClaim`. `stub` emits deterministic fake embeddings for pipeline tests only; it is used only when set explicitly and requires `executionProvider: cpu_explicit` | `candle` |
-| `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` at its root. Only those three files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`; restart the worker after replacing them. Nothing is downloaded or bundled. Running `replicas > 1` across multiple nodes requires a multi-node read access mode (`ReadOnlyMany` or `ReadWriteMany`); a `ReadWriteOnce` volume cannot attach to two nodes at once even when mounted read-only | `""` |
+| `mediaWorker.models.existingClaim` | PVC holding the SigLIP `config.json`, `model.safetensors` and `tokenizer.json` (and optionally `yolox-s` `detector.safetensors` + `detector_config.json`) at its root. Only those three SigLIP files are mounted, read-only and one by one, into `models.mountPath`, which is passed as `MEDIA_WORKER_MODEL_DIR`, unless `models.detectorPath` is set (which additionally mounts `detectorPath` and `detectorConfigPath` via `subPath`); restart the worker after replacing them. Nothing is downloaded or bundled. Running `replicas > 1` across multiple nodes requires a multi-node read access mode (`ReadOnlyMany` or `ReadWriteMany`); a `ReadWriteOnce` volume cannot attach to two nodes at once even when mounted read-only | `""` |
+| `mediaWorker.models.detectorPath`, `detectorConfigPath`, `detectorSha256` | Optional `yolox-s` detector weights and config paths inside `models.mountPath` (default `detectorConfigPath`: `<mountPath>/detector_config.json`). When `detectorPath` is set without `detectorSha256`, both files are mounted for `MEDIA_WORKER_MODEL_DIR` auto-discovery; when `detectorSha256` is set, both `SERVICERADAR_MEDIA_WORKER_DETECTOR_PATH` and `SERVICERADAR_MEDIA_WORKER_DETECTOR_SHA256` are emitted and verified at startup. Paths containing `yolov8`, `rtdetr`, or `..` are refused | `""`, `""`, `""` |
 | `mediaWorker.executionProvider` | `cuda` or `cpu_explicit` (`tensorrt` is refused because the worker does not support it). The worker refuses to start rather than fall back to CPU. `cuda` needs a GPU node, its runtime class and the CUDA image (below); the chart refuses `cuda` on the release's CPU image and refuses `backend: stub` under any provider other than `cpu_explicit` | `cuda` |
 | `mediaWorker.dtype` | Weight precision (`MEDIA_WORKER_DTYPE`): `auto` (f16 on CUDA, f32 on CPU), `f32` or `f16`. The worker loads the SigLIP weights in the configured dtype (see `rust/media-worker/README.md`). Under `cpu_explicit`, the chart refuses `f16` as a performance policy (half precision on CPU is slower than `f32` with no benefit); use `auto` or `f32` | `auto` |
 | `mediaWorker.cudaCache.sizeLimit`, `existingClaim` | Under a GPU provider, a writable compiled-kernel cache (about 350 MB) is mounted at `/var/cache/serviceradar-media-worker/cuda` and passed as `CUDA_CACHE_PATH`, since the root filesystem is read-only and `/tmp` is small: an `emptyDir` of `sizeLimit`, or `existingClaim` to keep it across restarts. When running `replicas > 1` across multiple nodes, a shared persistent `existingClaim` must support `ReadWriteMany` (a `ReadWriteOnce` volume cannot attach to two nodes at once), or leave `existingClaim` empty to use the default per-pod `emptyDir` cache. The image's other CUDA settings (`LD_LIBRARY_PATH`, `CUDA_CACHE_MAXSIZE`, `NVIDIA_DRIVER_CAPABILITIES`) are left as built | `1Gi`, `""` |
@@ -579,12 +582,12 @@ access.
 | `mediaWorker.networkPolicy.allowNvrRead`, `nvrReadPort` | Network preparation for local-recording reads: opens the worker's egress to the NVR pods and their ingress from it on `nvrReadPort`. The NVR analysis-read listener does not exist yet, so these reads still fail. When `nvr.enabled` and `allowNvrRead` are true, `nvrReadPort` must target a dedicated analysis-read port distinct from web-ng's enabled playback read port (`nvr.read.port`, default `8444`) and core's enabled ingest port (`nvr.ingest.port`, default `8443`); the chart refuses a collision | `false`, `8444` |
 
 The model identity is not configurable. Core stamps its compiled identity
-(embedder `siglip-b16-384` `2026.1`, detector `rtdetr-r18` `2026.1`, 768
+(embedder `siglip-b16-384` `2026.1`, detector `yolox-s` `2026.1`, 768
 dimensions) on every job and search request and has no setting for it, so the
 chart pins the worker to the same values and refuses
 `mediaWorker.models.embedderModelId`, `embedderModelVersion`,
-`detectorModelId`, `detectorModelVersion` and `embeddingDim`, as well as
-`detectorPath` and `detectorSha256`, while the worker is enabled. At startup
+`detectorModelId`, `detectorModelVersion` and `embeddingDim` while the worker
+is enabled. At startup
 the worker verifies that the loaded SigLIP checkpoint emits the pinned 768
 dimensions and refuses a mismatched checkpoint.
 `media_worker_model_identity_test.py` fails when core and the chart drift.
@@ -649,9 +652,9 @@ The chart refuses to render, instead of producing a pod that crash-loops, when:
   collision check reads);
 - the worker's streams do not fit JetStream (below).
 
-The retired keys (`models.embedderModelId`, `embedderModelVersion`,
-`detectorModelId`, `detectorModelVersion`, `embeddingDim`, `detectorPath`,
-`detectorSha256`) are refused while `mediaWorker.enabled` is true (installs with
+The retired identity keys (`models.embedderModelId`, `embedderModelVersion`,
+`detectorModelId`, `detectorModelVersion`, `embeddingDim`) are refused while
+`mediaWorker.enabled` is true (installs with
 the worker disabled are unaffected, including `helm upgrade --reuse-values`
 from an earlier chart). When upgrading with the worker enabled from an earlier
 chart, `helm upgrade --reuse-values` carries their old defaults forward and is

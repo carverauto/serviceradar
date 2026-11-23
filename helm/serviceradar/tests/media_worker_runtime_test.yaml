@@ -122,13 +122,131 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: refuses detector weights whose detections the pinned identity would mislabel
+  - it: mounts yolox-s detectorPath, detectorConfigPath, and emits pinned env vars with detectorSha256
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.mountPath: /opt/synthetic-models
+      mediaWorker.models.detectorPath: /opt/synthetic-models/detector.safetensors
+      mediaWorker.models.detectorConfigPath: /opt/synthetic-models/detector_config.json
+      mediaWorker.models.detectorSha256: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_ID, value: yolox-s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_DETECTOR_PATH, value: /opt/synthetic-models/detector.safetensors}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_DETECTOR_SHA256, value: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cert-data, mountPath: /etc/serviceradar/certs, readOnly: true}
+            - {name: cuda-cache, mountPath: /var/cache/serviceradar-media-worker/cuda}
+            - {name: models, mountPath: /opt/synthetic-models/config.json, subPath: config.json, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/model.safetensors, subPath: model.safetensors, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/tokenizer.json, subPath: tokenizer.json, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/detector.safetensors, subPath: detector.safetensors, readOnly: true}
+            - {name: models, mountPath: /opt/synthetic-models/detector_config.json, subPath: detector_config.json, readOnly: true}
+
+  - it: mounts yolox-s detector and default detector_config.json for auto-discovery when detectorSha256 is unset
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.mountPath: /opt/synthetic-models
+      mediaWorker.models.detectorPath: /opt/synthetic-models/detector.safetensors
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_DETECTOR_PATH}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_DETECTOR_SHA256}
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: models, mountPath: /opt/synthetic-models/detector.safetensors, subPath: detector.safetensors, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: models, mountPath: /opt/synthetic-models/detector_config.json, subPath: detector_config.json, readOnly: true}
+
+  - it: refuses yolov8 or rtdetr paths in detectorPath and detectorConfigPath
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/YOLOv8s.safetensors
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorPath .* must not reference yolov8 or rtdetr"
+
+  - it: refuses rtdetr in detectorConfigPath
     template: templates/media-worker.yaml
     set:
       mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
+      mediaWorker.models.detectorConfigPath: /var/lib/serviceradar-media-worker/models/RtDetr_config.json
     asserts:
       - failedTemplate:
-          errorPattern: "^mediaWorker.models.detectorPath is not supported: the worker indexes whole scenes only"
+          errorPattern: "^mediaWorker.models.detectorConfigPath .* must not reference yolov8 or rtdetr"
+
+  - it: refuses detectorSha256 without detectorPath
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorSha256 requires mediaWorker.models.detectorPath"
+
+  - it: refuses malformed detectorSha256 digests
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
+      mediaWorker.models.detectorSha256: "not-a-sha256"
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorSha256 must be a 64-character hexadecimal SHA-256 digest"
+
+  - it: refuses detectorPath traversal or paths outside mountPath
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/../secret.safetensors
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorPath .* must stay inside mediaWorker.models.mountPath"
+
+  - it: refuses double-slash in detectorPath that would produce a leading-slash subPath
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models//detector.safetensors
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorPath .* must stay inside mediaWorker.models.mountPath .* without '\\.\\.' or '//'"
+
+  - it: refuses double-slash in detectorConfigPath that would produce a leading-slash subPath
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
+      mediaWorker.models.detectorConfigPath: /var/lib/serviceradar-media-worker/models//detector_config.json
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.detectorConfigPath .* must stay inside mediaWorker.models.mountPath .* without '\\.\\.' or '//'"
+
+  - it: refuses detectorPath when existingClaim is empty
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.backend: stub
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.models.existingClaim: ""
+      mediaWorker.models.detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
+    asserts:
+      - failedTemplate:
+          errorPattern: "^mediaWorker.models.existingClaim is required when configuring detectorPath, detectorConfigPath, or detectorSha256"
 
   - it: refuses a CUDA device under cpu_explicit, which requests no GPU
     template: templates/media-worker.yaml

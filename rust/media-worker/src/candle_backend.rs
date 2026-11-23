@@ -7,7 +7,7 @@
 //! The SigLIP towers run in the configured precision (`MEDIA_WORKER_DTYPE`): `f16` by
 //! default on CUDA, `f32` on the CPU. Inputs are cast to the model dtype on the device
 //! and outputs are cast back to `f32` before L2 normalisation, so every precision
-//! produces vectors in the same space. The optional YOLOv8 detector always runs in `f32`.
+//! produces vectors in the same space. The optional YOLOX detector always runs in `f32`.
 
 use crate::backend::{
     InferenceBackend, InferenceBackendInfo, InferenceBackendKind, InferenceDevicePreference,
@@ -16,7 +16,7 @@ use crate::backend::{
 use crate::errors::MediaWorkerError;
 use crate::tokenizer::PureRustTokenizer;
 use crate::vision::RgbFrame;
-use crate::yolo_v8::{YoloV8Config, YoloV8Detector};
+use crate::yolox::{YoloxDetector, YoloxDetectorConfig};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::siglip;
@@ -84,13 +84,13 @@ pub(crate) fn preprocess_thread_budget(index_concurrency: usize) -> usize {
 }
 
 /// Live pure-Rust `candle` inference backend running SigLIP vision + text towers
-/// and an optional YOLOv8 Stage 1 detector.
+/// and an optional YOLOX Stage 1 detector.
 #[derive(Debug)]
 pub struct CandleBackend {
     siglip: siglip::Model,
     siglip_cfg: siglip::Config,
     tokenizer: PureRustTokenizer,
-    detector: Option<YoloV8Detector>,
+    detector: Option<YoloxDetector>,
     device: Device,
     device_name: String,
     precision: InferencePrecision,
@@ -105,7 +105,7 @@ const _: fn() = || {
 };
 
 impl CandleBackend {
-    /// Loads a SigLIP model (and optional YOLOv8 detector) strictly from `model_dir` on local disk.
+    /// Loads a SigLIP model (and optional YOLOX detector) strictly from `model_dir` on local disk.
     pub fn load(
         model_dir: &Path,
         options: &CandleBackendOptions,
@@ -450,7 +450,7 @@ fn load_optional_detector(
     model_dir: &Path,
     explicit_detector_path: Option<&Path>,
     device: &Device,
-) -> Result<Option<YoloV8Detector>, MediaWorkerError> {
+) -> Result<Option<YoloxDetector>, MediaWorkerError> {
     let weights_path = if let Some(explicit) = explicit_detector_path {
         if explicit
             .extension()
@@ -462,17 +462,25 @@ fn load_optional_detector(
             None
         }
     } else {
-        ["detector.safetensors", "yolov8.safetensors"]
-            .into_iter()
-            .map(|name| model_dir.join(name))
-            .find(|p| p.is_file())
+        [
+            "detector.safetensors",
+            "yolox.safetensors",
+            "yolox_s.safetensors",
+        ]
+        .into_iter()
+        .map(|name| model_dir.join(name))
+        .find(|p| p.is_file())
     };
 
     let Some(weights_path) = weights_path else {
         return Ok(None);
     };
 
-    let cfg_path = model_dir.join("detector_config.json");
+    let cfg_path = weights_path
+        .parent()
+        .map(|parent| parent.join("detector_config.json"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| model_dir.join("detector_config.json"));
     let cfg = if cfg_path.is_file() {
         let raw = std::fs::read(&cfg_path).map_err(|err| {
             MediaWorkerError::inference_failed(format!(
@@ -480,17 +488,17 @@ fn load_optional_detector(
                 cfg_path.display()
             ))
         })?;
-        serde_json::from_slice::<YoloV8Config>(&raw).map_err(|err| {
+        serde_json::from_slice::<YoloxDetectorConfig>(&raw).map_err(|err| {
             MediaWorkerError::inference_failed(format!(
                 "failed parsing detector_config.json '{}': {err}",
                 cfg_path.display()
             ))
         })?
     } else {
-        YoloV8Config::default()
+        YoloxDetectorConfig::default()
     };
 
-    let detector = YoloV8Detector::load(&weights_path, cfg, device)?;
+    let detector = YoloxDetector::load(&weights_path, cfg, device)?;
     Ok(Some(detector))
 }
 

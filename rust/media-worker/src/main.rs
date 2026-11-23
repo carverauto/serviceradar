@@ -1,7 +1,7 @@
 use clap::Parser;
 use serviceradar_media_worker::{
-    CliArgs, ReadinessState, WorkerMetrics, load_and_admit_worker, run_admitted_nats_worker,
-    serve_http_probes,
+    CliArgs, ReadinessState, WorkerMetrics, load_and_admit_worker,
+    run_admitted_nats_worker_with_readiness, serve_http_probes,
 };
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -55,7 +55,6 @@ async fn main() -> ExitCode {
         }
     };
 
-    readiness.mark_ready(manifest.clone());
     info!(
         listen = %bound_addr,
         architecture = %manifest.architecture(),
@@ -63,6 +62,7 @@ async fn main() -> ExitCode {
         inference_device = %manifest.inference_device(),
         inference_dtype = %manifest.inference_dtype(),
         warmup_ms = manifest.warmup_ms(),
+        text_warmup_ms = manifest.text_warmup_ms(),
         detector_enabled = manifest.detector_enabled(),
         tracker = %manifest.tracker(),
         dedup_track_crops = manifest.dedup_track_crops(),
@@ -73,7 +73,16 @@ async fn main() -> ExitCode {
         "serviceradar-media-worker startup capability admission verified"
     );
 
-    let worker_task = tokio::spawn(run_admitted_nats_worker(worker, metrics, shutdown_rx));
+    // Keep /readyz at 503 until NATS is connected and the interactive text-embedder
+    // RPC responder is warmed up and subscribed to `media.rpc.visual_text_embed.v1.*`.
+    readiness.mark_not_ready("connecting to NATS and subscribing text-embed RPC");
+    let worker_task = tokio::spawn(run_admitted_nats_worker_with_readiness(
+        worker,
+        metrics,
+        shutdown_rx,
+        readiness.clone(),
+        manifest,
+    ));
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {

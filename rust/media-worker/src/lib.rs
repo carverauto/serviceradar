@@ -19,7 +19,7 @@ mod tokenizer;
 mod tracking;
 mod vision;
 mod worker;
-mod yolo_v8;
+mod yolox;
 
 #[cfg(test)]
 mod candle_tests;
@@ -95,9 +95,9 @@ pub use worker::{
     UndecodableKeyframePayload, VISUAL_INDEX_BACKFILL_SUBJECT, VISUAL_INDEX_LIVE_SUBJECT,
     VISUAL_INDEX_RESULTS_SUBJECT, VISUAL_TEXT_EMBED_QUEUE_GROUP, VISUAL_TEXT_EMBED_RPC_PREFIX,
     VisualIndexJobEnvelope, VisualIndexProcessor, VisualIndexResultEnvelope, load_and_admit_worker,
-    run_admitted_nats_worker, run_nats_worker_loops, run_nats_worker_loops_with_backend,
-    text_embed_rpc_subject,
+    run_admitted_nats_worker, run_admitted_nats_worker_with_readiness, run_nats_worker_loops,
+    run_nats_worker_loops_with_backend, text_embed_rpc_subject,
 };
-pub use yolo_v8::{
-    YoloV8Config, YoloV8Detector, coco_class_to_object_class, coco_name_to_object_class,
+pub use yolox::{
+    YoloxDetector, YoloxDetectorConfig, coco_class_to_object_class, coco_name_to_object_class,
 };

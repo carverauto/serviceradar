@@ -107,7 +107,7 @@ defmodule ServiceRadar.Camera.ThumbnailTest do
         media_pts_ns: 0,
         timeline_ts_us: 1_760_000_000_000_000,
         time_basis: :received,
-        detector_model_id: "rtdetr-r18",
+        detector_model_id: "yolox-s",
         detector_model_version: "2026.1",
         detections: []
       }
@@ -142,7 +142,7 @@ defmodule ServiceRadar.Camera.ThumbnailTest do
         schema_version: 1,
         catalog_entry_id: @entry_id,
         descriptor_sha256: @digest,
-        detector_model_id: "rtdetr-r18",
+        detector_model_id: "yolox-s",
         detector_model_version: "2026.1",
         embedder_model_id: "siglip-b16-384",
         embedder_model_version: "2026.1",
@@ -189,7 +189,7 @@ defmodule ServiceRadar.Camera.ThumbnailTest do
         schema_version: 1,
         catalog_entry_id: @entry_id,
         descriptor_sha256: @digest,
-        detector_model_id: "rtdetr-r18",
+        detector_model_id: "yolox-s",
         detector_model_version: "2026.1",
         embedder_model_id: "siglip-b16-384",
         embedder_model_version: "2026.1",

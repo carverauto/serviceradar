@@ -10,6 +10,7 @@ use crate::config::{ModelPinConfig, WorkerConfig};
 use crate::credentials::WorkerAuthCredentials;
 use crate::errors::{IntegrityError, MediaWorkerError, MediaWorkerErrorKind};
 use crate::grants::{GrantClient, GrantResolution, HttpControlPlaneGrantClient, ReadGrantRequest};
+use crate::http_server::ReadinessState;
 use crate::keyframe_decoder::{DefaultKeyframeDecoder, KeyframeDecoder};
 use crate::metrics::{MEDIA_WORKER_TELEMETRY_SUBJECT, WorkerMetrics};
 use crate::range_reader::{
@@ -607,16 +608,41 @@ pub fn text_embed_rpc_subject(models: &ModelPinConfig) -> String {
 /// Reserved interactive text-embedding lane (`2.5`), isolated on its own semaphore
 /// from bulk `media.jobs.visual_index.v1` processing.
 #[derive(Clone)]
-struct TextEmbedService {
+pub(crate) struct TextEmbedService {
     models: ModelPinConfig,
     backend: Arc<dyn InferenceBackend>,
     semaphore: Arc<Semaphore>,
     metrics: Arc<WorkerMetrics>,
 }
 
+const WARMUP_TEXT_EMBED_DEADLINE_MS: u64 = 2_000;
+
 impl TextEmbedService {
+    pub(crate) fn new(
+        models: ModelPinConfig,
+        backend: Arc<dyn InferenceBackend>,
+        concurrency: usize,
+        metrics: Arc<WorkerMetrics>,
+    ) -> Self {
+        Self {
+            models,
+            backend,
+            semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
+            metrics,
+        }
+    }
+
     /// Evaluates a JSON `TextEmbedRpcRequest` within `<= 250 ms` on reserved capacity.
-    async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
+    pub(crate) async fn handle_rpc_payload(&self, raw_payload: &[u8]) -> TextEmbedRpcResponse {
+        self.handle_rpc_payload_with_max_deadline(raw_payload, 250)
+            .await
+    }
+
+    async fn handle_rpc_payload_with_max_deadline(
+        &self,
+        raw_payload: &[u8],
+        max_deadline_ms: u64,
+    ) -> TextEmbedRpcResponse {
         let req: TextEmbedRpcRequest = match serde_json::from_slice(raw_payload) {
             Ok(parsed) => parsed,
             Err(_) => return TextEmbedRpcResponse::error("invalid_json_request"),
@@ -636,7 +662,12 @@ impl TextEmbedService {
             return TextEmbedRpcResponse::error("model_version_or_dim_mismatch");
         }
 
-        let deadline = Duration::from_millis(req.deadline_ms());
+        let effective_deadline_ms = if max_deadline_ms <= 250 {
+            req.deadline_ms()
+        } else {
+            req.deadline_ms.clamp(10, max_deadline_ms)
+        };
+        let deadline = Duration::from_millis(effective_deadline_ms);
         let started = Instant::now();
         let sem = Arc::clone(&self.semaphore);
 
@@ -669,6 +700,54 @@ impl TextEmbedService {
             _ => TextEmbedRpcResponse::error("text_embed_execution_failed"),
         }
     }
+
+    /// Exercises the full async RPC path (`serde_json`, semaphore, `tokio::task::spawn_blocking`,
+    /// and `InferenceBackend::encode_text`) before readiness turns `200 OK`, using a generous
+    /// admission deadline (`2_000 ms`) so CPU-only `candle` runs do not falsely fail startup.
+    pub(crate) async fn warmup_rpc(&self) -> Result<(), MediaWorkerError> {
+        let expected_dim = self.backend.info().embedding_dim();
+        let req = TextEmbedRpcRequest::new(
+            "synthetic rpc warmup query",
+            self.models.embedder_model_id(),
+            self.models.embedder_model_version(),
+            expected_dim,
+            WARMUP_TEXT_EMBED_DEADLINE_MS,
+        );
+        let payload = serde_json::to_vec(&req).map_err(|err| {
+            MediaWorkerError::inference_failed(format!(
+                "failed serializing text-embed RPC warmup request: {err}"
+            ))
+        })?;
+        let resp = self
+            .handle_rpc_payload_with_max_deadline(&payload, WARMUP_TEXT_EMBED_DEADLINE_MS)
+            .await;
+        if resp.status() != "ok" {
+            return Err(MediaWorkerError::inference_failed(format!(
+                "text-embed RPC warmup failed: {}",
+                resp.error_reason().unwrap_or("unknown_error")
+            )));
+        }
+        serde_json::to_vec(&resp).map_err(|err| {
+            MediaWorkerError::inference_failed(format!(
+                "failed serializing text-embed RPC warmup response: {err}"
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+pub(crate) async fn warmup_text_embed_rpc(
+    models: &ModelPinConfig,
+    backend: Arc<dyn InferenceBackend>,
+    concurrency: usize,
+) -> Result<(), MediaWorkerError> {
+    let service = TextEmbedService::new(
+        models.clone(),
+        backend,
+        concurrency,
+        Arc::new(WorkerMetrics::new()),
+    );
+    service.warmup_rpc().await
 }
 
 /// Core visual-indexing worker engine (`2.4`, `2.5`) coordinating:
@@ -1339,12 +1418,18 @@ pub(crate) async fn spawn_nats_text_embed_responder(
 ) -> Result<tokio::task::JoinHandle<()>, MediaWorkerError> {
     let models = worker.config.models();
     let subject = text_embed_rpc_subject(models);
-    let service = TextEmbedService {
-        models: models.clone(),
-        backend: Arc::clone(&worker.backend),
-        semaphore: Arc::new(Semaphore::new(worker.config.text_embed_concurrency())),
+    warmup_text_embed_rpc(
+        models,
+        Arc::clone(&worker.backend),
+        worker.config.text_embed_concurrency(),
+    )
+    .await?;
+    let service = TextEmbedService::new(
+        models.clone(),
+        Arc::clone(&worker.backend),
+        worker.config.text_embed_concurrency(),
         metrics,
-    };
+    );
     let mut subscription = client
         .queue_subscribe(subject.clone(), VISUAL_TEXT_EMBED_QUEUE_GROUP.to_string())
         .await
@@ -1353,6 +1438,11 @@ pub(crate) async fn spawn_nats_text_embed_responder(
                 "failed subscribing to text-embed RPC subject '{subject}': {err}"
             ))
         })?;
+    client.flush().await.map_err(|err| {
+        MediaWorkerError::nats_error(format!(
+            "failed flushing text-embed RPC subscription '{subject}': {err}"
+        ))
+    })?;
 
     info!(subject = %subject, "started reserved interactive text-embedder NATS responder");
 
@@ -1400,19 +1490,28 @@ async fn admit_worker(
     + Send
     + 'static,
 ) -> Result<(AdmittedWorker, CapabilityManifest), MediaWorkerError> {
-    tokio::task::spawn_blocking(move || {
+    let (worker, manifest) = tokio::task::spawn_blocking(move || {
         let backend = load(&config)?;
         let manifest = verify_startup_capabilities_with_backend(
             &config,
             &SystemGpuEnvironmentProbe,
             Arc::clone(&backend),
         )?;
-        Ok((AdmittedWorker { config, backend }, manifest))
+        Ok::<_, MediaWorkerError>((AdmittedWorker { config, backend }, manifest))
     })
     .await
     .map_err(|err| {
         MediaWorkerError::inference_failed(format!("startup admission task failed: {err}"))
-    })?
+    })??;
+
+    warmup_text_embed_rpc(
+        worker.config.models(),
+        Arc::clone(&worker.backend),
+        worker.config.text_embed_concurrency(),
+    )
+    .await?;
+
+    Ok((worker, manifest))
 }
 
 /// Connects to NATS (with optional mTLS + `serviceradar-cert-policy`) and runs
@@ -1441,7 +1540,29 @@ pub async fn run_nats_worker_loops_with_backend(
 pub async fn run_admitted_nats_worker(
     worker: AdmittedWorker,
     metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), MediaWorkerError> {
+    run_admitted_nats_worker_inner(worker, metrics, shutdown, None).await
+}
+
+/// Connects to NATS, ensures JetStream streams, subscribes and warms up the interactive
+/// text-embedding RPC responder, and only then transitions `/readyz` to `200 OK` before
+/// entering the visual-index pull loop.
+pub async fn run_admitted_nats_worker_with_readiness(
+    worker: AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+    readiness: ReadinessState,
+    manifest: CapabilityManifest,
+) -> Result<(), MediaWorkerError> {
+    run_admitted_nats_worker_inner(worker, metrics, shutdown, Some((readiness, manifest))).await
+}
+
+async fn run_admitted_nats_worker_inner(
+    worker: AdmittedWorker,
+    metrics: Arc<WorkerMetrics>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ready_state: Option<(ReadinessState, CapabilityManifest)>,
 ) -> Result<(), MediaWorkerError> {
     let config = &worker.config;
     let auth = config.worker_auth().cloned().unwrap_or_else(|| {
@@ -1462,6 +1583,11 @@ pub async fn run_admitted_nats_worker(
         shutdown.clone(),
     )
     .await?;
+
+    if let Some((readiness, manifest)) = ready_state {
+        readiness.mark_ready(manifest);
+        info!("NATS text-embed RPC responder subscribed and /readyz marked ready");
+    }
 
     let grant_client =
         HttpControlPlaneGrantClient::new(config.control_plane_url(), auth, Duration::from_secs(10));

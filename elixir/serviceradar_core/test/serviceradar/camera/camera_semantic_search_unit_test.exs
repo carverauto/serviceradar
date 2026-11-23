@@ -267,7 +267,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
         job_kind: :live,
         attempt_count: 1,
         max_attempts: 5,
-        detector_model_id: "rtdetr-r18",
+        detector_model_id: "yolox-s",
         detector_model_version: "2026.1",
         embedder_model_id: "siglip-b16-384",
         embedder_model_version: "2026.1",

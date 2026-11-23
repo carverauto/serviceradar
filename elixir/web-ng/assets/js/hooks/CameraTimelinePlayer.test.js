@@ -512,4 +512,74 @@ describe("CameraTimelinePlayer hook", () => {
 
     hook.destroyed()
   })
+
+  it("renders multi-frame window detections during normal playback without highlightFrameId and refreshes non-destructively on updated()", () => {
+    vi.stubGlobal("window", {addEventListener: vi.fn()})
+
+    const initialPayload = JSON.stringify([
+      {
+        visual_frame_id: "frame-window-1",
+        timeline_ts_us: 1_005_000_000,
+        time_basis: "received",
+        object_class: "person",
+        score: 0.91,
+        bbox: [0.1, 0.2, 0.3, 0.8],
+      },
+      {
+        visual_frame_id: "frame-window-2",
+        timeline_ts_us: 1_018_000_000,
+        time_basis: "received",
+        object_class: "vehicle",
+        score: 0.86,
+        bbox: [0.4, 0.3, 0.8, 0.7],
+      },
+    ])
+
+    const {el, video, overlay} = makeElement({
+      windowStartUs: "1000000000",
+      seekOffsetSeconds: "0",
+      highlightFrameId: "",
+      overlayDetections: initialPayload,
+      clientWidth: 1000,
+      clientHeight: 600,
+      videoWidth: 1920,
+      videoHeight: 1080,
+    })
+    const {FakeHls, instances} = makeFakeHls()
+
+    const hook = Object.create(CameraTimelinePlayer)
+    hook.el = el
+    hook.hlsClass = FakeHls
+    hook.mounted()
+
+    video.currentTime = 5.0
+    video.emit("loadedmetadata")
+    expect(overlay.innerHTML).toContain("person 91% · received")
+    expect(overlay.innerHTML).not.toContain("vehicle")
+
+    // Scrubbing to 18.0s switches active frame to frame-window-2 without highlightFrameId
+    video.currentTime = 18.0
+    video.emit("timeupdate")
+    expect(overlay.innerHTML).toContain("vehicle 86% · received")
+    expect(overlay.innerHTML).not.toContain("person")
+
+    // Live refresh updates overlayDetections while keeping playlistPath stable (no HLS reload)
+    el.dataset.overlayDetections = JSON.stringify([
+      {
+        visual_frame_id: "frame-window-2",
+        timeline_ts_us: 1_018_000_000,
+        time_basis: "received",
+        object_class: "package",
+        score: 0.84,
+        bbox: [0.45, 0.35, 0.75, 0.65],
+      },
+    ])
+    hook.updated()
+
+    expect(instances).toHaveLength(1)
+    expect(instances[0].destroyed).toBe(false)
+    expect(overlay.innerHTML).toContain("package 84% · received")
+
+    hook.destroyed()
+  })
 })

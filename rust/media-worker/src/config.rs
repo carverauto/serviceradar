@@ -137,7 +137,7 @@ pub struct ModelPinConfig {
 impl Default for ModelPinConfig {
     fn default() -> Self {
         Self {
-            detector_model_id: "rtdetr-r18".to_string(),
+            detector_model_id: "yolox-s".to_string(),
             detector_model_version: "2026.1".to_string(),
             detector_path: None,
             detector_sha256: None,
@@ -637,7 +637,7 @@ pub struct CliArgs {
     #[arg(
         long,
         env = "SERVICERADAR_MEDIA_WORKER_DETECTOR_MODEL_ID",
-        default_value = "rtdetr-r18"
+        default_value = "yolox-s"
     )]
     detector_model_id: String,
 
