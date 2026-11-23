@@ -788,7 +788,8 @@ impl CliArgs {
 
         let device_preference = InferenceDevicePreference::from_str(&self.device)?;
         let precision = InferencePrecision::from_str(&self.dtype)?;
-        let tracker_mode = TrackerMode::from_str(&self.tracker)?;
+        let tracker_mode = TrackerMode::from_str(&self.tracker)
+            .map_err(|err| CapabilityError::invalid_configuration(err.to_string()))?;
 
         let raw_provider = self
             .execution_provider

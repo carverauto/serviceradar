@@ -1,20 +1,29 @@
 //! Two-stage keyframe vision pipeline and shared multimodal text encoder (`2.4`, `2.5`).
 //!
+//! - Motion gate: `serviceradar-media-core` [`TwoTierFrameGate`] (or [`PixelMotionGate`] for
+//!   single-frame calls) skips unchanged empty scenes before Stage 1 when the preceding frame
+//!   had no detections and marks unchanged empty frames `scene_suppressed`.
 //! - Stage 1: Localized subject detection (`person`, `vehicle`, `bicycle`, `animal`, `package`),
 //!   class-aware NMS (`IoU <= 0.50`), `10%` padded full-resolution crop extraction with
-//!   normalized `[x1, y1, x2, y2]` coordinates (`0.0..=1.0`), HSV coarse dominant-color
-//!   classification, and optional static-empty-scene suppression (`< 2%` L1 delta).
+//!   normalized `[x1, y1, x2, y2]` coordinates (`0.0..=1.0`), and `serviceradar-media-core`
+//!   HSV coarse dominant-color attribute extraction.
 //! - Stage 2: Batched vision-language encoding producing L2-normalized `:scene` and `:crop`
 //!   vectors (`512`-d or `768`-d) aligned in the same unit-hypersphere semantic space as
-//!   `embed_query_text`.
+//!   `embed_query_text`, plus budgeted JFIF JPEG keyframe thumbnails (`<= 48 KiB` raw,
+//!   `<= 384 KiB` total base64 per clip).
 
 use crate::backend::{InferenceBackend, InferenceBackendInfo, RawDetection};
 use crate::config::ModelPinConfig;
 use crate::errors::MediaWorkerError;
 use crate::tracking::{ClipTracker, TrackSummary, TrackerMode, crop_quality_score};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use serviceradar_media_core::{
+    CompressedFrameGateConfig, PixelMotionGate, PixelMotionGateConfig, ThumbnailConfig,
+    TwoTierFrameGate, classify_crop_colors, encode_jpeg_thumbnail, extract_visual_attributes,
+};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -22,8 +31,30 @@ const MAX_CROPS_PER_FRAME: usize = 8;
 const CROP_CONTEXT_MARGIN: f32 = 0.10;
 const NMS_IOU_THRESHOLD: f32 = 0.50;
 const DEFAULT_MIN_CONFIDENCE: f32 = 0.35;
-const STATIC_SCENE_L1_THRESHOLD: f32 = 0.02;
 const MAX_QUERY_CHARS: usize = 256;
+
+/// Hard upper bound (48 KiB raw JPEG) on keyframe thumbnails attached to visual index results.
+pub const MAX_THUMBNAIL_JPEG_BYTES: usize = 48 * 1024;
+/// Hard upper bound (384 KiB total base64 bytes) on all thumbnails within one result envelope.
+pub const MAX_ENVELOPE_THUMBNAIL_B64_BYTES: usize = 384 * 1024;
+
+fn default_thumbnail_config() -> ThumbnailConfig {
+    ThumbnailConfig {
+        max_width: 480,
+        max_height: 270,
+        quality: 75,
+        min_quality: 30,
+        max_bytes: MAX_THUMBNAIL_JPEG_BYTES,
+    }
+}
+
+fn encode_frame_thumbnail_b64(
+    frame: &serviceradar_media_core::RgbFrame,
+) -> Result<String, MediaWorkerError> {
+    let encoded = encode_jpeg_thumbnail(frame, &default_thumbnail_config())
+        .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(encoded.jpeg_bytes))
+}
 
 /// Canonical surveillance object classes emitted by Stage 1 (`design.md` Section 3.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -65,113 +96,75 @@ impl ObjectClass {
 /// Decoded RGB8 video keyframe (`width * height * 3` bytes).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RgbFrame {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
+    inner: serviceradar_media_core::RgbFrame,
 }
 
 impl RgbFrame {
     pub fn solid(width: u32, height: u32, rgb: [u8; 3]) -> Self {
-        let count = (width as usize).saturating_mul(height as usize);
-        let mut pixels = Vec::with_capacity(count * 3);
-        for _ in 0..count {
-            pixels.extend_from_slice(&rgb);
-        }
         Self {
-            width,
-            height,
-            pixels,
+            inner: serviceradar_media_core::RgbFrame::solid(width, height, rgb),
         }
     }
 
     pub fn from_rgb8(width: u32, height: u32, pixels: Vec<u8>) -> Result<Self, MediaWorkerError> {
-        let expected = (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|n| n.checked_mul(3))
-            .ok_or_else(|| MediaWorkerError::invalid_container("RGB frame dimensions overflow"))?;
-        if width == 0 || height == 0 || pixels.len() != expected {
-            return Err(MediaWorkerError::invalid_container(format!(
-                "RGB8 buffer length {} != expected {} for {width}x{height}",
-                pixels.len(),
-                expected
-            )));
-        }
-        Ok(Self {
-            width,
-            height,
-            pixels,
-        })
+        serviceradar_media_core::RgbFrame::from_rgb8(width, height, pixels)
+            .map(|inner| Self { inner })
+            .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))
     }
 
     pub fn width(&self) -> u32 {
-        self.width
+        self.inner.width()
     }
 
     pub fn height(&self) -> u32 {
-        self.height
+        self.inner.height()
     }
 
     pub fn pixels(&self) -> &[u8] {
-        &self.pixels
+        self.inner.pixels()
     }
 
     pub fn pixel_at(&self, x: u32, y: u32) -> [u8; 3] {
-        let idx = ((y as usize) * (self.width as usize) + (x as usize)) * 3;
-        [self.pixels[idx], self.pixels[idx + 1], self.pixels[idx + 2]]
+        self.inner.pixel_at(x, y)
     }
 
     pub fn set_pixel(&mut self, x: u32, y: u32, rgb: [u8; 3]) {
-        if x < self.width && y < self.height {
-            let idx = ((y as usize) * (self.width as usize) + (x as usize)) * 3;
-            self.pixels[idx] = rgb[0];
-            self.pixels[idx + 1] = rgb[1];
-            self.pixels[idx + 2] = rgb[2];
-        }
+        self.inner.set_pixel(x, y, rgb);
     }
 
     /// Extracts a normalized `[x1, y1, x2, y2]` sub-frame from the full-resolution image.
     pub fn crop_normalized(&self, bbox_norm: [f32; 4]) -> Self {
-        let [x1, y1, x2, y2] = bbox_norm;
-        let px1 = ((x1.clamp(0.0, 1.0) * (self.width as f32)).floor() as u32).min(self.width - 1);
-        let py1 = ((y1.clamp(0.0, 1.0) * (self.height as f32)).floor() as u32).min(self.height - 1);
-        let px2 =
-            ((x2.clamp(0.0, 1.0) * (self.width as f32)).ceil() as u32).clamp(px1 + 1, self.width);
-        let py2 =
-            ((y2.clamp(0.0, 1.0) * (self.height as f32)).ceil() as u32).clamp(py1 + 1, self.height);
-
-        let cw = px2 - px1;
-        let ch = py2 - py1;
-        let mut out = Vec::with_capacity((cw as usize) * (ch as usize) * 3);
-        for y in py1..py2 {
-            for x in px1..px2 {
-                out.extend_from_slice(&self.pixel_at(x, y));
-            }
-        }
         Self {
-            width: cw,
-            height: ch,
-            pixels: out,
+            inner: self.inner.crop_normalized(bbox_norm),
         }
+    }
+
+    /// Borrows this worker [`RgbFrame`] as a [`serviceradar_media_core::RgbFrame`].
+    pub fn as_media_core_frame(&self) -> &serviceradar_media_core::RgbFrame {
+        &self.inner
     }
 
     /// Converts this worker [`RgbFrame`] into a [`serviceradar_media_core::RgbFrame`].
     pub fn to_media_core_frame(
         &self,
     ) -> Result<serviceradar_media_core::RgbFrame, MediaWorkerError> {
-        serviceradar_media_core::RgbFrame::from_rgb8(self.width, self.height, self.pixels.clone())
-            .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))
+        Ok(self.inner.clone())
     }
 
     /// Computes normalized `[0.0, 1.0]` L1 pixel difference on a `16x16` downsampled grid.
     pub fn downsampled_l1_delta(&self, other: &Self) -> f32 {
         let grid = 16u32;
         let mut diff_sum = 0.0f32;
+        let self_w = self.width();
+        let self_h = self.height();
+        let other_w = other.width();
+        let other_h = other.height();
         for gy in 0..grid {
             for gx in 0..grid {
-                let ax = ((gx * self.width) / grid).min(self.width - 1);
-                let ay = ((gy * self.height) / grid).min(self.height - 1);
-                let bx = ((gx * other.width) / grid).min(other.width - 1);
-                let by = ((gy * other.height) / grid).min(other.height - 1);
+                let ax = ((gx * self_w) / grid).min(self_w - 1);
+                let ay = ((gy * self_h) / grid).min(self_h - 1);
+                let bx = ((gx * other_w) / grid).min(other_w - 1);
+                let by = ((gy * other_h) / grid).min(other_h - 1);
                 let pa = self.pixel_at(ax, ay);
                 let pb = other.pixel_at(bx, by);
                 let pixel_diff = ((i16::from(pa[0]) - i16::from(pb[0])).unsigned_abs()
@@ -280,6 +273,7 @@ pub struct KeyframeAnalysis {
     scene_suppressed: bool,
     detections: Vec<DetectedSubject>,
     embeddings: Vec<GeneratedEmbedding>,
+    thumbnail_jpeg_b64: Option<String>,
 }
 
 impl KeyframeAnalysis {
@@ -293,6 +287,10 @@ impl KeyframeAnalysis {
 
     pub fn embeddings(&self) -> &[GeneratedEmbedding] {
         &self.embeddings
+    }
+
+    pub fn thumbnail_jpeg_b64(&self) -> Option<&str> {
+        self.thumbnail_jpeg_b64.as_deref()
     }
 }
 
@@ -314,6 +312,8 @@ impl<'a> ClipKeyframe<'a> {
 pub struct ClipAnalysis {
     frames: Vec<KeyframeAnalysis>,
     tracks: Vec<TrackSummary>,
+    block_thumbnail_jpeg_b64: Option<String>,
+    thumbnail_frame_order: Vec<usize>,
     stage1_latencies_secs: Vec<f64>,
     stage2_latencies_secs: Vec<f64>,
 }
@@ -327,8 +327,16 @@ impl ClipAnalysis {
         &self.tracks
     }
 
+    pub fn block_thumbnail_jpeg_b64(&self) -> Option<&str> {
+        self.block_thumbnail_jpeg_b64.as_deref()
+    }
+
     pub fn into_parts(self) -> (Vec<KeyframeAnalysis>, Vec<TrackSummary>) {
         (self.frames, self.tracks)
+    }
+
+    pub(crate) fn thumbnail_frame_order(&self) -> &[usize] {
+        &self.thumbnail_frame_order
     }
 
     pub(crate) fn stage1_latencies_secs(&self) -> &[f64] {
@@ -429,8 +437,10 @@ impl VisionPipeline {
         serviceradar_media_core::MediaPipeline::new(config, detector)
     }
 
-    /// Runs Stage 1 detection, per-clip `trackforge` multi-object tracking, optional
-    /// best-crop deduplication, and Stage 2 embedding across sequential keyframes of a clip.
+    /// Runs `serviceradar-media-core` motion gating ([`TwoTierFrameGate`]), Stage 1 detection,
+    /// per-clip [`ClipTracker`] multi-object tracking, optional best-crop deduplication, Stage 2
+    /// embedding, and budgeted JFIF JPEG keyframe thumbnail attachment across sequential
+    /// keyframes of a clip.
     ///
     /// Instantiates a fresh [`ClipTracker`] per call so the pipeline stays 100% stateless
     /// across clips.
@@ -445,10 +455,15 @@ impl VisionPipeline {
         &self,
         keyframes: impl ExactSizeIterator<Item = (u64, Option<&'a RgbFrame>)>,
     ) -> Result<ClipAnalysis, MediaWorkerError> {
-        let mut previous_frame = None;
+        let mut motion_gate = TwoTierFrameGate::new(
+            CompressedFrameGateConfig::default(),
+            PixelMotionGateConfig::default(),
+        )
+        .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
         let mut tracker = ClipTracker::new(self.tracker_mode);
         let mut stage1_latencies_secs = Vec::with_capacity(keyframes.len());
         let mut stage2_latencies_secs = Vec::with_capacity(keyframes.len());
+        let mut prev_had_detections = false;
 
         if self.tracker_mode.uses_appearance() {
             // Appearance-assisted modes (`botsort`, `deep_ocsort`) need Stage 2 crop embeddings
@@ -459,22 +474,37 @@ impl VisionPipeline {
                 Vec::with_capacity(keyframes.len());
             let mut per_frame_embeddings: Vec<Vec<GeneratedEmbedding>> =
                 Vec::with_capacity(keyframes.len());
+            let mut frame_refs: Vec<(u64, &'a RgbFrame)> = Vec::with_capacity(keyframes.len());
 
             for (offset_ms, frame) in keyframes {
                 let Some(frame) = frame else {
                     tracker.update_frame(0, 0, offset_ms, &[], None);
                     continue;
                 };
+                frame_refs.push((offset_ms, frame));
+                let motion = motion_gate
+                    .evaluate_rgb(offset_ms, frame.as_media_core_frame())
+                    .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?;
+
+                if self.skip_unchanged_empty_scenes
+                    && !motion.decision.is_admitted()
+                    && !prev_had_detections
+                {
+                    tracker.update_frame(frame.width(), frame.height(), offset_ms, &[], None);
+                    per_frame_scene_suppressed.push(true);
+                    per_frame_detections.push(Vec::new());
+                    per_frame_embeddings.push(Vec::new());
+                    continue;
+                }
+
                 let t_s1 = Instant::now();
                 let mut detections = self.detect_subjects_checked(frame)?;
                 stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
+                prev_had_detections = !detections.is_empty();
 
-                let prev_frame = previous_frame.replace(frame);
                 let scene_suppressed = self.skip_unchanged_empty_scenes
                     && detections.is_empty()
-                    && prev_frame.is_some_and(|prev| {
-                        frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
-                    });
+                    && !motion.decision.is_admitted();
 
                 let t_s2 = Instant::now();
                 let mut embeddings =
@@ -540,7 +570,7 @@ impl VisionPipeline {
                 }
             }
 
-            let frames = per_frame_scene_suppressed
+            let mut frames: Vec<KeyframeAnalysis> = per_frame_scene_suppressed
                 .into_iter()
                 .zip(per_frame_detections)
                 .zip(per_frame_embeddings)
@@ -549,37 +579,61 @@ impl VisionPipeline {
                         scene_suppressed,
                         detections,
                         embeddings,
+                        thumbnail_jpeg_b64: None,
                     },
                 )
                 .collect();
 
+            let tracks = tracker.summaries();
+            let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
+                &mut frames,
+                &frame_refs,
+                &tracks,
+                MAX_ENVELOPE_THUMBNAIL_B64_BYTES,
+            )?;
+
             return Ok(ClipAnalysis {
                 frames,
-                tracks: tracker.summaries(),
+                tracks,
+                block_thumbnail_jpeg_b64,
+                thumbnail_frame_order,
                 stage1_latencies_secs,
                 stage2_latencies_secs,
             });
         }
 
         // Motion-only (`bytetrack`) or untracked (`off`) path:
-        // Pass 1 runs Stage 1 + tracking across all clip keyframes so best-crop deduplication
-        // avoids redundant Stage 2 vision-tower crop embedding calls on repeated tracks.
+        // Pass 1 runs Tier-1 PixelMotionGate -> Stage 1 -> tracking across all clip keyframes so
+        // best-crop deduplication avoids redundant Stage 2 vision-tower crop embedding calls.
         let mut staged = Vec::with_capacity(keyframes.len());
+        let mut frame_refs: Vec<(u64, &'a RgbFrame)> = Vec::with_capacity(keyframes.len());
         for (offset_ms, frame) in keyframes {
             let Some(frame) = frame else {
                 tracker.update_frame(0, 0, offset_ms, &[], None);
                 continue;
             };
+            frame_refs.push((offset_ms, frame));
+            let motion = motion_gate
+                .evaluate_rgb(offset_ms, frame.as_media_core_frame())
+                .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?;
+
+            if self.skip_unchanged_empty_scenes
+                && !motion.decision.is_admitted()
+                && !prev_had_detections
+            {
+                tracker.update_frame(frame.width(), frame.height(), offset_ms, &[], None);
+                staged.push((frame, true, Vec::new()));
+                continue;
+            }
+
             let t_s1 = Instant::now();
             let mut detections = self.detect_subjects_checked(frame)?;
             stage1_latencies_secs.push(t_s1.elapsed().as_secs_f64());
+            prev_had_detections = !detections.is_empty();
 
-            let prev_frame = previous_frame.replace(frame);
             let scene_suppressed = self.skip_unchanged_empty_scenes
                 && detections.is_empty()
-                && prev_frame.is_some_and(|prev| {
-                    frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD
-                });
+                && !motion.decision.is_admitted();
 
             let assigned =
                 tracker.update_frame(frame.width(), frame.height(), offset_ms, &detections, None);
@@ -622,12 +676,23 @@ impl VisionPipeline {
                 scene_suppressed,
                 detections,
                 embeddings,
+                thumbnail_jpeg_b64: None,
             });
         }
 
+        let tracks = tracker.summaries();
+        let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
+            &mut frames,
+            &frame_refs,
+            &tracks,
+            MAX_ENVELOPE_THUMBNAIL_B64_BYTES,
+        )?;
+
         Ok(ClipAnalysis {
             frames,
-            tracks: tracker.summaries(),
+            tracks,
+            block_thumbnail_jpeg_b64,
+            thumbnail_frame_order,
             stage1_latencies_secs,
             stage2_latencies_secs,
         })
@@ -640,17 +705,36 @@ impl VisionPipeline {
         frame: &RgbFrame,
         previous_frame: Option<&RgbFrame>,
     ) -> Result<KeyframeAnalysis, MediaWorkerError> {
+        let mc_frame = frame.as_media_core_frame();
+        let motion_admitted = if let Some(prev) = previous_frame {
+            let mut gate = PixelMotionGate::new(PixelMotionGateConfig::default())
+                .map_err(|err| MediaWorkerError::inference_failed(err.to_string()))?;
+            let _ = gate
+                .evaluate_rgb(0, prev.as_media_core_frame())
+                .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?;
+            gate.evaluate_rgb(1_000, mc_frame)
+                .map_err(|err| MediaWorkerError::invalid_container(err.to_string()))?
+                .decision
+                .is_admitted()
+        } else {
+            true
+        };
+
         let detections = self.detect_subjects_checked(frame)?;
-        let scene_suppressed = self.skip_unchanged_empty_scenes
-            && detections.is_empty()
-            && previous_frame
-                .is_some_and(|prev| frame.downsampled_l1_delta(prev) < STATIC_SCENE_L1_THRESHOLD);
+        let scene_suppressed =
+            self.skip_unchanged_empty_scenes && detections.is_empty() && !motion_admitted;
 
         let embeddings = self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+        let thumbnail_jpeg_b64 = if !scene_suppressed {
+            Some(encode_frame_thumbnail_b64(mc_frame)?)
+        } else {
+            None
+        };
         Ok(KeyframeAnalysis {
             scene_suppressed,
             detections,
             embeddings,
+            thumbnail_jpeg_b64,
         })
     }
 
@@ -667,18 +751,20 @@ impl VisionPipeline {
                 scene_suppressed: false,
                 detections: Vec::new(),
                 embeddings: Vec::new(),
+                thumbnail_jpeg_b64: None,
             })
     }
 
     /// Stage 1: detects foreground subjects via the active `InferenceBackend`,
     /// applies class-aware NMS (`IoU <= 0.50`), computes `10%` padded crop boxes,
-    /// and classifies HSV coarse dominant colors.
+    /// and classifies HSV coarse dominant colors via `serviceradar-media-core`.
     pub fn detect_subjects_checked(
         &self,
         frame: &RgbFrame,
     ) -> Result<Vec<DetectedSubject>, MediaWorkerError> {
         let raw_detections = self.backend.detect_objects(frame, DEFAULT_MIN_CONFIDENCE)?;
         let bg = estimate_border_background(frame);
+        let mc_frame = frame.as_media_core_frame();
         let mut candidates = Vec::with_capacity(raw_detections.len());
 
         for raw in raw_detections {
@@ -687,8 +773,8 @@ impl VisionPipeline {
             }
             let bbox_norm = clamp_unit_bbox(raw.bbox_norm());
             let padded_crop_bbox_norm = expand_bbox_with_margin(bbox_norm, CROP_CONTEXT_MARGIN);
-            let inner_crop = frame.crop_normalized(bbox_norm);
-            let dominant_colors = classify_dominant_colors(&inner_crop, Some(bg));
+            let attrs = extract_visual_attributes(mc_frame, bbox_norm, Some(bg));
+            let dominant_colors = attrs.dominant_color_names();
             let area_frac =
                 ((bbox_norm[2] - bbox_norm[0]) * (bbox_norm[3] - bbox_norm[1])).max(1e-6);
             let rank_score = raw.confidence() * area_frac.sqrt();
@@ -824,10 +910,9 @@ impl serviceradar_media_core::ObjectDetector for BackendObjectDetector {
         min_confidence: f32,
     ) -> Result<Vec<serviceradar_media_core::Detection>, serviceradar_media_core::MediaCoreError>
     {
-        let worker_frame =
-            RgbFrame::from_rgb8(frame.width(), frame.height(), frame.pixels().to_vec()).map_err(
-                |e| serviceradar_media_core::MediaCoreError::invalid_frame(e.to_string()),
-            )?;
+        let worker_frame = RgbFrame {
+            inner: frame.clone(),
+        };
         let raw = self
             .backend
             .detect_objects(&worker_frame, min_confidence)
@@ -1059,12 +1144,113 @@ fn classify_blob_geometry(frame: &RgbFrame, blob: &PixelBlob, bg: [u8; 3]) -> (O
     }
 }
 
-fn clamp_unit_bbox([x1, y1, x2, y2]: [f32; 4]) -> [f32; 4] {
-    let cx1 = x1.clamp(0.0, 0.999);
-    let cy1 = y1.clamp(0.0, 0.999);
-    let cx2 = x2.clamp(cx1 + 0.001, 1.0);
-    let cy2 = y2.clamp(cy1 + 0.001, 1.0);
-    [cx1, cy1, cx2, cy2]
+fn resolve_track_best_frame_indices(
+    frames: &[KeyframeAnalysis],
+    frame_refs: &[(u64, &RgbFrame)],
+    tracks: &[TrackSummary],
+) -> HashSet<usize> {
+    let mut indices = HashSet::with_capacity(tracks.len());
+    for track in tracks {
+        let target_offset = track
+            .best_keyframe_offset_ms()
+            .unwrap_or_else(|| track.first_seen_offset_ms());
+        let best_for_track = frames
+            .iter()
+            .enumerate()
+            .filter(|(idx, f)| !f.scene_suppressed() && frame_refs[*idx].0 == target_offset)
+            .filter_map(|(idx, f)| {
+                let track_q = f
+                    .detections()
+                    .iter()
+                    .filter(|d| d.track_id() == Some(track.track_id()))
+                    .map(|d| crop_quality_score(d.confidence(), d.bbox_norm()))
+                    .max_by(f32::total_cmp)?;
+                Some((idx, track_q))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(idx, _)| idx)
+            .or_else(|| {
+                frames
+                    .iter()
+                    .enumerate()
+                    .find(|(idx, f)| !f.scene_suppressed() && frame_refs[*idx].0 == target_offset)
+                    .map(|(idx, _)| idx)
+            });
+        if let Some(idx) = best_for_track {
+            indices.insert(idx);
+        }
+    }
+    indices
+}
+
+fn attach_budgeted_thumbnails(
+    frames: &mut [KeyframeAnalysis],
+    frame_refs: &[(u64, &RgbFrame)],
+    tracks: &[TrackSummary],
+    max_total_b64_bytes: usize,
+) -> Result<(Option<String>, Vec<usize>), MediaWorkerError> {
+    let track_best_indices = resolve_track_best_frame_indices(frames, frame_refs, tracks);
+
+    let mut candidates: Vec<(u8, f32, usize)> = frames
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.scene_suppressed())
+        .map(|(idx, f)| {
+            let best_quality = f
+                .detections()
+                .iter()
+                .map(|d| crop_quality_score(d.confidence(), d.bbox_norm()))
+                .max_by(f32::total_cmp)
+                .unwrap_or(0.0);
+            let tier = if track_best_indices.contains(&idx) {
+                0
+            } else if !f.detections().is_empty() {
+                1
+            } else {
+                2
+            };
+            (tier, best_quality, idx)
+        })
+        .collect();
+
+    candidates.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+
+    let Some(&(_, _, block_idx)) = candidates.first() else {
+        return Ok((None, Vec::new()));
+    };
+
+    let mut remaining_budget = max_total_b64_bytes;
+    let block_encoded = encode_frame_thumbnail_b64(frame_refs[block_idx].1.as_media_core_frame())?;
+    let block_thumbnail_jpeg_b64 = if block_encoded.len() <= remaining_budget {
+        remaining_budget -= block_encoded.len();
+        Some(block_encoded)
+    } else {
+        return Ok((None, Vec::new()));
+    };
+
+    let mut attached_order = Vec::new();
+    for &(_, _, idx) in candidates.iter().skip(1) {
+        if remaining_budget == 0 {
+            break;
+        }
+        let encoded = encode_frame_thumbnail_b64(frame_refs[idx].1.as_media_core_frame())?;
+        if encoded.len() > remaining_budget {
+            break;
+        }
+        remaining_budget -= encoded.len();
+        frames[idx].thumbnail_jpeg_b64 = Some(encoded);
+        attached_order.push(idx);
+    }
+
+    Ok((block_thumbnail_jpeg_b64, attached_order))
+}
+
+fn clamp_unit_bbox(bbox: [f32; 4]) -> [f32; 4] {
+    serviceradar_media_core::clamp_unit_bbox(bbox)
 }
 
 fn expand_bbox_with_margin([x1, y1, x2, y2]: [f32; 4], margin_frac: f32) -> [f32; 4] {
@@ -1074,17 +1260,7 @@ fn expand_bbox_with_margin([x1, y1, x2, y2]: [f32; 4], margin_frac: f32) -> [f32
 }
 
 fn bbox_iou(a: [f32; 4], b: [f32; 4]) -> f32 {
-    let ix1 = a[0].max(b[0]);
-    let iy1 = a[1].max(b[1]);
-    let ix2 = a[2].min(b[2]);
-    let iy2 = a[3].min(b[3]);
-    let inter = (ix2 - ix1).max(0.0) * (iy2 - iy1).max(0.0);
-    if inter <= 0.0 {
-        return 0.0;
-    }
-    let area_a = (a[2] - a[0]) * (a[3] - a[1]);
-    let area_b = (b[2] - b[0]) * (b[3] - b[1]);
-    inter / (area_a + area_b - inter).max(1e-6)
+    serviceradar_media_core::bbox_iou(a, b)
 }
 
 fn apply_class_aware_nms(
@@ -1118,89 +1294,13 @@ fn color_slot_index(name: &str) -> Option<usize> {
     CANONICAL_COLORS.iter().position(|&c| c == name)
 }
 
-/// Classifies coarse dominant colors in HSV space (`design.md` Section 3.2).
+/// Classifies coarse dominant colors in HSV space via `serviceradar-media-core`
+/// (`design.md` Section 3.2).
 pub fn classify_dominant_colors(crop: &RgbFrame, exclude_bg: Option<[u8; 3]>) -> Vec<String> {
-    let mut counts = [0u32; 9];
-    let mut sampled = 0u32;
-
-    for y in 0..crop.height() {
-        for x in 0..crop.width() {
-            let rgb = crop.pixel_at(x, y);
-            if let Some(bg) = exclude_bg
-                && !is_foreground_pixel(rgb, bg)
-            {
-                continue;
-            }
-            let bucket = classify_pixel_hsv_color(rgb);
-            counts[bucket] += 1;
-            sampled += 1;
-        }
-    }
-
-    if sampled == 0 {
-        return Vec::new();
-    }
-
-    let mut indexed: Vec<(usize, u32)> = counts
+    classify_crop_colors(crop.as_media_core_frame(), exclude_bg)
         .into_iter()
-        .enumerate()
-        .filter(|&(_, c)| (c as f32) / (sampled as f32) >= 0.18)
-        .collect();
-    indexed.sort_by_key(|a| core::cmp::Reverse(a.1));
-    indexed
-        .into_iter()
-        .take(2)
-        .map(|(idx, _)| CANONICAL_COLORS[idx].to_string())
+        .map(|c| c.as_str().to_string())
         .collect()
-}
-
-fn classify_pixel_hsv_color([r, g, b]: [u8; 3]) -> usize {
-    let rf = (r as f32) / 255.0;
-    let gf = (g as f32) / 255.0;
-    let bf = (b as f32) / 255.0;
-    let max_c = rf.max(gf).max(bf);
-    let min_c = rf.min(gf).min(bf);
-    let delta = max_c - min_c;
-    let sat = if max_c <= 1e-5 { 0.0 } else { delta / max_c };
-
-    if max_c < 0.16 {
-        return 3; // black
-    }
-    if sat < 0.16 {
-        if max_c >= 0.82 {
-            return 2; // white
-        }
-        return 6; // gray
-    }
-
-    let mut hue = if (max_c - rf).abs() < 1e-5 {
-        60.0 * (((gf - bf) / delta) % 6.0)
-    } else if (max_c - gf).abs() < 1e-5 {
-        60.0 * (((bf - rf) / delta) + 2.0)
-    } else {
-        60.0 * (((rf - gf) / delta) + 4.0)
-    };
-    if hue < 0.0 {
-        hue += 360.0;
-    }
-
-    if !(16.0..342.0).contains(&hue) {
-        0 // red
-    } else if hue < 42.0 {
-        if max_c < 0.68 {
-            8 // brown
-        } else {
-            7 // orange
-        }
-    } else if hue < 72.0 {
-        4 // yellow
-    } else if hue < 168.0 {
-        5 // green
-    } else if hue < 265.0 {
-        1 // blue
-    } else {
-        0 // red/magenta wrap
-    }
 }
 
 // ----------------------------------------------------------------------------

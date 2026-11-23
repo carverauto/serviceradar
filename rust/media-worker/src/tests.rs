@@ -1141,6 +1141,50 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         assert!(envelope.frames()[2].scene_suppressed());
         assert_eq!(envelope.frames()[2].embeddings().len(), 0);
 
+        // Bounded JFIF JPEG keyframe thumbnails:
+        // - block_thumbnail_jpeg_b64 is present (from detected frame 0) and valid JFIF <= 48 KiB
+        // - frame 0 omits thumbnail_jpeg_b64 so block_thumbnail_jpeg_b64 is not duplicated
+        // - non-suppressed distinct frame 1 carries valid JFIF thumbnail_jpeg_b64 <= 48 KiB
+        // - static suppressed frame 2 omits thumbnail_jpeg_b64 in both struct and JSON
+        use base64::Engine as _;
+        let block_b64 = envelope
+            .block_thumbnail_jpeg_b64()
+            .expect("block_thumbnail_jpeg_b64 present on indexed block");
+        let block_jpeg = base64::engine::general_purpose::STANDARD
+            .decode(block_b64)
+            .expect("valid base64 block thumbnail");
+        assert!(block_jpeg.starts_with(&[0xFF, 0xD8]));
+        assert!(block_jpeg.ends_with(&[0xFF, 0xD9]));
+        assert!(block_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+        assert_eq!(
+            raw_json["block_thumbnail_jpeg_b64"].as_str(),
+            Some(block_b64)
+        );
+
+        assert!(envelope.frames()[0].thumbnail_jpeg_b64().is_none());
+        assert!(raw_json["frames"][0].get("thumbnail_jpeg_b64").is_none());
+
+        let f1_b64 = envelope.frames()[1]
+            .thumbnail_jpeg_b64()
+            .expect("non-suppressed distinct frame should carry thumbnail_jpeg_b64");
+        assert_ne!(f1_b64, block_b64);
+        let f1_jpeg = base64::engine::general_purpose::STANDARD
+            .decode(f1_b64)
+            .expect("valid base64 frame thumbnail");
+        assert!(f1_jpeg.starts_with(&[0xFF, 0xD8]));
+        assert!(f1_jpeg.ends_with(&[0xFF, 0xD9]));
+        assert!(f1_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+
+        assert!(envelope.frames()[2].thumbnail_jpeg_b64().is_none());
+        assert!(raw_json["frames"][2].get("thumbnail_jpeg_b64").is_none());
+
+        assert!(!envelope.tracks().is_empty());
+        if let Some(tracks_json) = raw_json["tracks"].as_array() {
+            for track_json in tracks_json {
+                assert!(track_json.get("thumbnail_jpeg_b64").is_none());
+            }
+        }
+
         // Fragment 0 has 1 `:scene` + 2 `:crop` embeddings (`person` in `red`, `vehicle` in `white`).
         let f0 = &envelope.frames()[0];
         assert_eq!(f0.detections().len(), 2);
@@ -1292,6 +1336,534 @@ async fn synthetic_cmaf_two_stage_pipeline_enforces_wpi_publish_before_ack_and_s
         assert_eq!(gone_metrics.jobs_gone_count(), 1);
         assert_eq!(gone_events.lock().as_slice(), &["ack"]);
     }
+}
+
+#[tokio::test]
+async fn sixty_four_keyframe_block_with_continuous_detections_stays_under_nats_max_payload() {
+    use base64::Engine as _;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    const KEYFRAME_COUNT: usize = 64;
+    const NATS_MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+    const VEHICLE_PEAK_FRAME: usize = 10;
+    const PERSON_PEAK_FRAME: usize = 28;
+
+    struct HighEntropyFrameDecoder {
+        next_idx: AtomicU32,
+    }
+
+    impl KeyframeDecoder for HighEntropyFrameDecoder {
+        fn decode_keyframe(
+            &self,
+            _init: &ParsedInitSegment,
+            _fragment: &ParsedMediaFragment,
+        ) -> Result<RgbFrame, KeyframeDecodeError> {
+            let idx = self.next_idx.fetch_add(1, Ordering::SeqCst);
+            let width = 480u32;
+            let height = 270u32;
+            let mut pixels = vec![0u8; (width as usize) * (height as usize) * 3];
+            let mut state = 0x9E37_79B9u32 ^ idx.wrapping_mul(0x85EB_CA6B);
+            for byte in &mut pixels {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = (state & 0xFF) as u8;
+            }
+            pixels[0] = idx as u8;
+            RgbFrame::from_rgb8(width, height, pixels)
+                .map_err(|err| KeyframeDecodeError::malformed_bitstream(err.to_string()))
+        }
+    }
+
+    struct ContinuousDetectionBackend {
+        dim: usize,
+        scene_vec: Vec<f32>,
+        vehicle_vec: Vec<f32>,
+        person_vec: Vec<f32>,
+    }
+
+    impl ContinuousDetectionBackend {
+        fn new(dim: usize) -> Self {
+            let dense_unit = |phase: usize| -> Vec<f32> {
+                let raw: Vec<f32> = (0..dim)
+                    .map(|i| {
+                        let v = ((i + phase * 17) % 19) as f32 - 9.0;
+                        if v == 0.0 { 0.5 } else { v }
+                    })
+                    .collect();
+                let norm = raw.iter().map(|x| x * x).sum::<f32>().sqrt();
+                raw.into_iter().map(|x| x / norm).collect()
+            };
+            Self {
+                dim,
+                scene_vec: dense_unit(1),
+                vehicle_vec: dense_unit(2),
+                person_vec: dense_unit(5),
+            }
+        }
+    }
+
+    impl crate::InferenceBackend for ContinuousDetectionBackend {
+        fn info(&self) -> crate::InferenceBackendInfo {
+            crate::InferenceBackendInfo::new(
+                InferenceBackendKind::Stub,
+                "cpu",
+                self.dim,
+                "test",
+                true,
+            )
+        }
+
+        fn detect_objects(
+            &self,
+            frame: &RgbFrame,
+            _min_confidence: f32,
+        ) -> Result<Vec<crate::RawDetection>, MediaWorkerError> {
+            let idx = usize::from(frame.pixel_at(0, 0)[0]);
+            let vehicle = if idx == VEHICLE_PEAK_FRAME {
+                crate::RawDetection::new(ObjectClass::Vehicle, 0.97, [0.48, 0.38, 0.88, 0.80])
+            } else {
+                crate::RawDetection::new(ObjectClass::Vehicle, 0.88, [0.50, 0.40, 0.85, 0.78])
+            };
+            let mut dets = vec![vehicle];
+            if (20..=35).contains(&idx) {
+                let person = if idx == PERSON_PEAK_FRAME {
+                    crate::RawDetection::new(ObjectClass::Person, 0.96, [0.14, 0.14, 0.38, 0.86])
+                } else {
+                    crate::RawDetection::new(ObjectClass::Person, 0.82, [0.18, 0.22, 0.32, 0.74])
+                };
+                dets.push(person);
+            }
+            Ok(dets)
+        }
+
+        fn encode_annotated_images(
+            &self,
+            regions: &[(&RgbFrame, Option<ObjectClass>, &[String])],
+        ) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            Ok(regions
+                .iter()
+                .map(|(_, cls, _)| match cls {
+                    None => self.scene_vec.clone(),
+                    Some(ObjectClass::Vehicle) => self.vehicle_vec.clone(),
+                    Some(_) => self.person_vec.clone(),
+                })
+                .collect())
+        }
+
+        fn encode_images(&self, images: &[&RgbFrame]) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            Ok(vec![self.scene_vec.clone(); images.len()])
+        }
+
+        fn encode_text(&self, _text: &str) -> Result<Vec<f32>, MediaWorkerError> {
+            Ok(self.scene_vec.clone())
+        }
+    }
+
+    let duration = 1_000_000_000u64;
+    let init = build_init_mp4(480, 270, 90_000, b"avc1", &avcc_box(&[], &[]));
+    let fragments = (0..KEYFRAME_COUNT as u32).map(|seq| {
+        let start = u64::from(seq) * duration;
+        (
+            seq,
+            start,
+            duration,
+            build_fragment_m4s(seq, start, duration, 90_000, &[&[0x65]]),
+        )
+    });
+    let block = assemble_cmaf_block(480, 270, 90_000, init, fragments)
+        .expect("assemble 64-keyframe synthetic block");
+    let models = ModelPinConfig::default();
+
+    for tracker_mode in [crate::TrackerMode::ByteTrack, crate::TrackerMode::BotSort] {
+        let cfg = WorkerConfig::cpu_explicit_default()
+            .with_backend_kind(InferenceBackendKind::Stub)
+            .with_models(models.clone())
+            .with_tracker_mode(tracker_mode)
+            .with_dedup_track_crops(true);
+        let job = VisualIndexJobEnvelope::new(
+            "01933b40-0000-7000-8000-000000000064",
+            "00000000-0000-4000-8000-000000000064",
+            "00000000-0000-4000-8000-000000000007",
+            "00000000-0000-4000-8000-000000000008",
+            block.descriptor_sha256(),
+            &models,
+        );
+        let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let backend: Arc<dyn crate::InferenceBackend> =
+            Arc::new(ContinuousDetectionBackend::new(models.embedding_dim()));
+        let processor = VisualIndexProcessor::with_backend(
+            &cfg,
+            backend,
+            DelayedMockGrantClient {
+                resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                    &job, &block,
+                ))),
+                delay: Duration::ZERO,
+            },
+            InMemoryVerifiedStore {
+                block: block.clone(),
+            },
+            RecordingPublisher {
+                events: Arc::clone(&events),
+                published: Arc::new(Mutex::new(Vec::new())),
+                fail_publish: false,
+            },
+            Arc::new(WorkerMetrics::new()),
+        )
+        .with_keyframe_decoder(Arc::new(HighEntropyFrameDecoder {
+            next_idx: AtomicU32::new(0),
+        }));
+
+        let outcome = processor
+            .process_delivery(Arc::new(RecordingDelivery {
+                payload: serde_json::to_vec(&job).expect("job json"),
+                events: Arc::clone(&events),
+            }))
+            .await
+            .expect("64-keyframe continuous-detection block should succeed");
+        let envelope = outcome
+            .completed_envelope()
+            .expect("expected Completed outcome");
+
+        assert_eq!(envelope.frames().len(), KEYFRAME_COUNT);
+        assert!(envelope.frames().iter().all(|f| !f.scene_suppressed()));
+        assert_eq!(envelope.tracks().len(), 2);
+
+        let block_b64 = envelope
+            .block_thumbnail_jpeg_b64()
+            .expect("block_thumbnail_jpeg_b64 must be present");
+        let block_jpeg = base64::engine::general_purpose::STANDARD
+            .decode(block_b64)
+            .expect("decode block JPEG");
+        assert!(block_jpeg.starts_with(&[0xFF, 0xD8]));
+        assert!(block_jpeg.ends_with(&[0xFF, 0xD9]));
+        assert!(block_jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+        assert!(
+            block_jpeg.len() >= 16 * 1024,
+            "high-entropy 480x270 frame should produce substantial JPEG (>= 16 KiB), got {} bytes",
+            block_jpeg.len()
+        );
+
+        let mut total_thumb_b64_bytes = block_b64.len();
+        let mut attached_frame_thumbs = 0usize;
+        for frame in envelope.frames() {
+            if let Some(b64) = frame.thumbnail_jpeg_b64() {
+                assert_ne!(
+                    b64, block_b64,
+                    "block_thumbnail_jpeg_b64 must not be duplicated into frames for {tracker_mode:?}"
+                );
+                attached_frame_thumbs += 1;
+                total_thumb_b64_bytes += b64.len();
+                let jpeg = base64::engine::general_purpose::STANDARD
+                    .decode(b64)
+                    .expect("decode frame JPEG");
+                assert!(jpeg.starts_with(&[0xFF, 0xD8]));
+                assert!(jpeg.ends_with(&[0xFF, 0xD9]));
+                assert!(jpeg.len() <= crate::MAX_THUMBNAIL_JPEG_BYTES);
+            }
+        }
+        assert!(
+            (2..KEYFRAME_COUNT).contains(&attached_frame_thumbs),
+            "expected budgeted subset of frame thumbnails for {tracker_mode:?}, got {attached_frame_thumbs}/{KEYFRAME_COUNT}"
+        );
+        assert!(
+            envelope.frames()[VEHICLE_PEAK_FRAME]
+                .thumbnail_jpeg_b64()
+                .is_some(),
+            "parked vehicle peak keyframe should be prioritized for {tracker_mode:?}"
+        );
+        assert!(
+            envelope.frames()[PERSON_PEAK_FRAME]
+                .thumbnail_jpeg_b64()
+                .is_none(),
+            "block thumbnail frame (person peak) must not be duplicated into frames for {tracker_mode:?}"
+        );
+        assert!(
+            total_thumb_b64_bytes <= crate::MAX_ENVELOPE_THUMBNAIL_B64_BYTES,
+            "total base64 thumbnail bytes {total_thumb_b64_bytes} exceeded budget {} for {tracker_mode:?}",
+            crate::MAX_ENVELOPE_THUMBNAIL_B64_BYTES
+        );
+
+        let serialized = serde_json::to_vec(envelope).expect("serialize 64-keyframe envelope");
+        assert!(
+            serialized.len() <= crate::MAX_RESULT_ENVELOPE_JSON_BYTES,
+            "serialized 64-keyframe envelope ({} bytes) must stay within {} byte ceiling for {tracker_mode:?}",
+            serialized.len(),
+            crate::MAX_RESULT_ENVELOPE_JSON_BYTES
+        );
+        assert!(
+            serialized.len() < NATS_MAX_PAYLOAD_BYTES,
+            "serialized 64-keyframe envelope ({} bytes) must stay under 1 MiB NATS max_payload for {tracker_mode:?}",
+            serialized.len()
+        );
+
+        let raw_json: serde_json::Value =
+            serde_json::from_slice(&serialized).expect("parse serialized envelope JSON");
+        for track_json in raw_json["tracks"].as_array().expect("tracks array") {
+            assert!(
+                track_json.get("thumbnail_jpeg_b64").is_none(),
+                "TrackSummaryPayload must not carry duplicate thumbnail_jpeg_b64"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn large_base_envelope_trims_thumbnails_to_stay_within_960_kib_ceiling() {
+    use base64::Engine as _;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct TexturedDecoder {
+        next_idx: AtomicU32,
+    }
+
+    impl KeyframeDecoder for TexturedDecoder {
+        fn decode_keyframe(
+            &self,
+            _init: &ParsedInitSegment,
+            _fragment: &ParsedMediaFragment,
+        ) -> Result<RgbFrame, KeyframeDecodeError> {
+            let idx = self.next_idx.fetch_add(1, Ordering::SeqCst);
+            let width = 480u32;
+            let height = 270u32;
+            let mut pixels = vec![0u8; (width as usize) * (height as usize) * 3];
+            let mut state = 0x517C_C1B7u32 ^ idx.wrapping_mul(0x27D4_EB2D);
+            for byte in &mut pixels {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                *byte = (state & 0xFF) as u8;
+            }
+            pixels[0] = (idx & 0xFF) as u8;
+            RgbFrame::from_rgb8(width, height, pixels)
+                .map_err(|err| KeyframeDecodeError::malformed_bitstream(err.to_string()))
+        }
+    }
+
+    struct DenseEmbeddingBackend {
+        dim: usize,
+        scene_vec: Vec<f32>,
+        crop_vec: Vec<f32>,
+    }
+
+    impl DenseEmbeddingBackend {
+        fn new(dim: usize) -> Self {
+            let dense_unit = |phase: usize| -> Vec<f32> {
+                let raw: Vec<f32> = (0..dim)
+                    .map(|i| {
+                        let v = ((i + phase * 13) % 23) as f32 - 11.0;
+                        if v == 0.0 { 0.375 } else { v }
+                    })
+                    .collect();
+                let norm = raw.iter().map(|x| x * x).sum::<f32>().sqrt();
+                raw.into_iter().map(|x| x / norm).collect()
+            };
+            Self {
+                dim,
+                scene_vec: dense_unit(3),
+                crop_vec: dense_unit(7),
+            }
+        }
+    }
+
+    impl crate::InferenceBackend for DenseEmbeddingBackend {
+        fn info(&self) -> crate::InferenceBackendInfo {
+            crate::InferenceBackendInfo::new(
+                InferenceBackendKind::Stub,
+                "cpu",
+                self.dim,
+                "test",
+                true,
+            )
+        }
+
+        fn detect_objects(
+            &self,
+            frame: &RgbFrame,
+            _min_confidence: f32,
+        ) -> Result<Vec<crate::RawDetection>, MediaWorkerError> {
+            let idx = usize::from(frame.pixel_at(0, 0)[0]);
+            let conf = if idx == 5 { 0.98 } else { 0.86 };
+            Ok(vec![crate::RawDetection::new(
+                ObjectClass::Vehicle,
+                conf,
+                [0.45, 0.35, 0.85, 0.78],
+            )])
+        }
+
+        fn encode_annotated_images(
+            &self,
+            regions: &[(&RgbFrame, Option<ObjectClass>, &[String])],
+        ) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            Ok(regions
+                .iter()
+                .map(|(_, cls, _)| match cls {
+                    None => self.scene_vec.clone(),
+                    Some(_) => self.crop_vec.clone(),
+                })
+                .collect())
+        }
+
+        fn encode_images(&self, images: &[&RgbFrame]) -> Result<Vec<Vec<f32>>, MediaWorkerError> {
+            Ok(vec![self.scene_vec.clone(); images.len()])
+        }
+
+        fn encode_text(&self, _text: &str) -> Result<Vec<f32>, MediaWorkerError> {
+            Ok(self.scene_vec.clone())
+        }
+    }
+
+    let run_block = |keyframe_count: usize| async move {
+        let duration = 1_000_000_000u64;
+        let init = build_init_mp4(480, 270, 90_000, b"avc1", &avcc_box(&[], &[]));
+        let fragments = (0..keyframe_count as u32).map(|seq| {
+            let start = u64::from(seq) * duration;
+            (
+                seq,
+                start,
+                duration,
+                build_fragment_m4s(seq, start, duration, 90_000, &[&[0x65]]),
+            )
+        });
+        let block = assemble_cmaf_block(480, 270, 90_000, init, fragments)
+            .expect("assemble large synthetic block");
+        let models = ModelPinConfig::default();
+        let cfg = WorkerConfig::cpu_explicit_default()
+            .with_backend_kind(InferenceBackendKind::Stub)
+            .with_models(models.clone())
+            .with_tracker_mode(crate::TrackerMode::ByteTrack)
+            .with_dedup_track_crops(true);
+        let job = VisualIndexJobEnvelope::new(
+            "01933b40-0000-7000-8000-000000000084",
+            "00000000-0000-4000-8000-000000000084",
+            "00000000-0000-4000-8000-000000000007",
+            "00000000-0000-4000-8000-000000000008",
+            block.descriptor_sha256(),
+            &models,
+        );
+        let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let backend: Arc<dyn crate::InferenceBackend> =
+            Arc::new(DenseEmbeddingBackend::new(models.embedding_dim()));
+        let processor = VisualIndexProcessor::with_backend(
+            &cfg,
+            backend,
+            DelayedMockGrantClient {
+                resolution: GrantResolution::Admitted(Box::new(build_in_memory_local_plan(
+                    &job, &block,
+                ))),
+                delay: Duration::ZERO,
+            },
+            InMemoryVerifiedStore {
+                block: block.clone(),
+            },
+            RecordingPublisher {
+                events: Arc::clone(&events),
+                published: Arc::new(Mutex::new(Vec::new())),
+                fail_publish: false,
+            },
+            Arc::new(WorkerMetrics::new()),
+        )
+        .with_keyframe_decoder(Arc::new(TexturedDecoder {
+            next_idx: AtomicU32::new(0),
+        }));
+
+        let outcome = processor
+            .process_delivery(Arc::new(RecordingDelivery {
+                payload: serde_json::to_vec(&job).expect("job json"),
+                events: Arc::clone(&events),
+            }))
+            .await
+            .expect("large block should succeed");
+        outcome
+            .completed_envelope()
+            .expect("expected Completed outcome")
+            .clone()
+    };
+
+    let strip_thumbs_len = |envelope: &VisualIndexResultEnvelope| -> usize {
+        let mut val = serde_json::to_value(envelope).expect("envelope to value");
+        if let Some(obj) = val.as_object_mut() {
+            obj.remove("block_thumbnail_jpeg_b64");
+        }
+        if let Some(frames) = val["frames"].as_array_mut() {
+            for frame in frames {
+                if let Some(obj) = frame.as_object_mut() {
+                    obj.remove("thumbnail_jpeg_b64");
+                }
+            }
+        }
+        let stripped: VisualIndexResultEnvelope =
+            serde_json::from_value(val).expect("deserialize stripped envelope");
+        serde_json::to_vec(&stripped)
+            .expect("serialize stripped envelope")
+            .len()
+    };
+
+    // ~750 KiB base envelope: block thumbnail fits and frame thumbnails are trimmed to <= 960 KiB.
+    let envelope_750k = run_block(84).await;
+    let base_750k = strip_thumbs_len(&envelope_750k);
+    assert!(
+        (700 * 1024..=820 * 1024).contains(&base_750k),
+        "expected ~750 KiB base envelope without thumbnails, got {base_750k} bytes"
+    );
+    let serialized_750k = serde_json::to_vec(&envelope_750k).expect("serialize 750k envelope");
+    assert!(
+        serialized_750k.len() <= crate::MAX_RESULT_ENVELOPE_JSON_BYTES,
+        "serialized envelope ({} bytes) exceeded 960 KiB ceiling ({})",
+        serialized_750k.len(),
+        crate::MAX_RESULT_ENVELOPE_JSON_BYTES
+    );
+    let block_b64 = envelope_750k
+        .block_thumbnail_jpeg_b64()
+        .expect("block thumbnail must fit within ~210 KiB remaining headroom");
+    let block_jpeg = base64::engine::general_purpose::STANDARD
+        .decode(block_b64)
+        .expect("decode block JPEG");
+    assert!(block_jpeg.starts_with(&[0xFF, 0xD8]) && block_jpeg.ends_with(&[0xFF, 0xD9]));
+    let frame_thumb_bytes: usize = envelope_750k
+        .frames()
+        .iter()
+        .filter_map(|f| f.thumbnail_jpeg_b64())
+        .map(str::len)
+        .sum();
+    let total_thumb_bytes = block_b64.len() + frame_thumb_bytes;
+    assert!(
+        total_thumb_bytes < crate::MAX_ENVELOPE_THUMBNAIL_B64_BYTES,
+        "expected headroom trimming below 384 KiB static cap, got {total_thumb_bytes} bytes"
+    );
+    assert!(
+        envelope_750k
+            .frames()
+            .iter()
+            .all(|f| f.thumbnail_jpeg_b64() != Some(block_b64)),
+        "block thumbnail must not be duplicated into any frame"
+    );
+
+    // ~940 KiB base envelope: even base + block thumbnail exceeds 960 KiB, so all thumbnails drop.
+    let envelope_940k = run_block(98).await;
+    let base_940k = strip_thumbs_len(&envelope_940k);
+    assert!(
+        (915 * 1024..=crate::MAX_RESULT_ENVELOPE_JSON_BYTES).contains(&base_940k),
+        "expected ~940 KiB base envelope without thumbnails, got {base_940k} bytes"
+    );
+    assert!(
+        envelope_940k.block_thumbnail_jpeg_b64().is_none(),
+        "block thumbnail must be dropped when base + block exceeds 960 KiB"
+    );
+    assert!(
+        envelope_940k
+            .frames()
+            .iter()
+            .all(|f| f.thumbnail_jpeg_b64().is_none()),
+        "frame thumbnails must all be dropped when block thumbnail does not fit"
+    );
+    let serialized_940k = serde_json::to_vec(&envelope_940k).expect("serialize 940k envelope");
+    assert!(
+        serialized_940k.len() <= crate::MAX_RESULT_ENVELOPE_JSON_BYTES,
+        "serialized 940k envelope ({} bytes) exceeded 960 KiB ceiling",
+        serialized_940k.len()
+    );
 }
 
 #[tokio::test]

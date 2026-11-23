@@ -47,7 +47,7 @@ codec (`codec`, or `unknown` if unidentified), and a `reason`. The reasons are
 The counter at `/metrics` is `serviceradar_media_worker_keyframes_undecodable_total`,
 labelled by `reason`.
 
-Only decoded samples produce frames, detections, or embeddings. A refused sample still
+Only decoded samples produce frames, detections, embeddings, or thumbnails. A refused sample still
 advances the tracker at its timestamp, so a gap longer than the track buffer ends the
 track. The worker publishes the result even if every sample was refused. If all samples
 decode, it omits `undecodable_keyframes`. If the verified track init cannot be parsed,
@@ -62,6 +62,30 @@ Truncated CABAC data can produce a picture with incorrect trailing pixels. Pictu
 I_PCM macroblocks can also have approximate edge pixels when deblocking is enabled.
 See the [decoder design](../../openspec/changes/update-media-worker-real-keyframe-decode/design.md#known-gaps)
 for the CAVLC truncation behavior and the reasons for the single-slice restriction.
+
+## Vision pipeline and thumbnails
+
+Keyframe analysis delegates frame gating, multi-object tracking, HSV color extraction, and
+JPEG thumbnail encoding to `serviceradar-media-core`:
+
+- **Motion gating:** `TwoTierFrameGate` evaluates each decoded keyframe before Stage 1.
+  When `skip_unchanged_empty_scenes` is enabled, unchanged keyframes following an empty
+  frame skip Stage 1 detection and Stage 2 embedding and are emitted with
+  `scene_suppressed: true`.
+- **Tracking and attributes:** `ClipTracker` wraps `MultiObjectTracker` (`bytetrack`,
+  `botsort`, `deep_ocsort`, or `off`) per clip, and Stage 1 dominant colors delegate to
+  `extract_visual_attributes` / `classify_crop_colors`.
+- **Bounded JFIF JPEG thumbnails:** Non-suppressed keyframes can carry base64-encoded
+  Baseline JFIF JPEG thumbnails (at most `480x270`, quality 75 down to 30, capped at
+  `48 KiB` raw via `MAX_THUMBNAIL_JPEG_BYTES`). The highest-value keyframe (track best
+  keyframe, then highest-quality detected frame, then non-suppressed frame) is emitted as
+  `block_thumbnail_jpeg_b64` and omitted from its `frames[]` entry to avoid duplication.
+  Remaining distinct non-suppressed keyframes populate `frames[].thumbnail_jpeg_b64` in
+  priority order within a `384 KiB` base64 budget (`MAX_ENVELOPE_THUMBNAIL_B64_BYTES`),
+  and envelope assembly further trims thumbnails as needed so the serialized
+  `VisualIndexResultEnvelope` JSON stays at or below `960 KiB`
+  (`MAX_RESULT_ENVELOPE_JSON_BYTES`, below NATS's `1 MiB` `max_payload`). Suppressed
+  frames and `tracks[]` entries omit thumbnails.
 
 ## Images
 
