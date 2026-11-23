@@ -1,10 +1,15 @@
 defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureLog
 
   alias ServiceRadar.Camera.RecordingArchiveSettings
   alias ServiceRadar.Camera.RecordingHolds
   alias ServiceRadarCoreElx.CameraRecording.LocalRetentionJob
+  alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Fixture
   alias ServiceRadarNVRClient.Config, as: ClientConfig
+
+  @moduletag :tmp_dir
 
   @member "serviceradar-nvr-0"
   @storage_id "00000000-0000-4000-8000-000000000011"
@@ -13,6 +18,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
   @profile_id "00000000-0000-4000-8000-000000000104"
   @fixed_now ~U[2026-11-22 12:00:00.000000Z]
   @gib 1_073_741_824
+  @wire_token "synthetic-local-retention-wire-token-0123456789"
 
   describe "Oban worker configuration and no-op behavior" do
     test "uses maintenance queue, 500-block pass cap, and unique window including executing" do
@@ -596,6 +602,395 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       assert {:ok, %{status: :skipped, skipped_reason: :inventory_not_ready}} =
                LocalRetentionJob.run_target(target(), rebuilding_opts)
     end
+  end
+
+  describe "end-to-end mTLS ServiceRadarNVRClient wire integration" do
+    test "enqueue_all reads configured members from disk and run_member drives status, reclaim, and lookup over mTLS",
+         ctx do
+      dir = setup_wire_recovery_gate!(ctx)
+      certs = generate_wire_certs()
+
+      entries =
+        for idx <- 1..5 do
+          entry(idx, archive_state: :verified, media_bytes: 50, timeline_start_us: idx * 1_000)
+        end
+
+      server_state = start_wire_nvr_state(entries, used_bytes: 950)
+      port = start_wire_nvr(certs.server_config, server_state)
+      target_opts = write_wire_nvr_files(dir, certs.client_config, port, extra_member: true)
+
+      assert {:ok, jobs} =
+               LocalRetentionJob.enqueue_all(
+                 target_opts: target_opts,
+                 insert_fn: fn changeset -> {:ok, Ecto.Changeset.apply_changes(changeset)} end
+               )
+
+      assert Enum.map(jobs, & &1.args) == [
+               %{"member" => "serviceradar-nvr-0"},
+               %{"member" => "serviceradar-nvr-1"}
+             ]
+
+      attach_retention_telemetry!()
+
+      {harness, wire_opts} =
+        build_wire_harness(entries, target_opts, max_local_age_mode: :unlimited, max_local_age_seconds: nil)
+
+      {result, log} = with_log(fn -> LocalRetentionJob.run_member(@member, wire_opts) end)
+
+      assert {:ok, %{status: :ok, reclaimed: 3, processed: 3} = summary} = result
+      assert Enum.map(harness_state(harness).finalized, & &1.block_key) == [block_key(1), block_key(2), block_key(3)]
+
+      assert_receive {:retention_telemetry, %{reclaimed: 3, processed: 3, deferred: 0, held_skipped: 0},
+                      %{member: @member, storage_id: @storage_id, status: :ok, skipped_reason: nil}}
+
+      requests = Agent.get(server_state, & &1.requests)
+      assert Enum.all?(requests, &(&1.headers["authorization"] == "Bearer " <> @wire_token))
+
+      assert Enum.map(requests, &{&1.method, &1.target}) == [
+               {"GET", "/v1/status"},
+               {"POST", "/v1/blocks/#{block_key(1)}/reclaim"},
+               {"POST", "/v1/blocks/lookup"},
+               {"POST", "/v1/blocks/#{block_key(2)}/reclaim"},
+               {"POST", "/v1/blocks/lookup"},
+               {"POST", "/v1/blocks/#{block_key(3)}/reclaim"},
+               {"POST", "/v1/blocks/lookup"}
+             ]
+
+      reclaim_req = Enum.at(requests, 1)
+      lookup_req = Enum.at(requests, 2)
+      decoded_reclaim = Jason.decode!(reclaim_req.body)
+
+      assert {reclaim_req.headers["content-type"], lookup_req.headers["content-type"]} ==
+               {"application/vnd.serviceradar.nvr-reclaim.v1+json", "application/vnd.serviceradar.nvr-lookup.v1+json"}
+
+      assert Map.take(decoded_reclaim, ["version", "storage_id", "recovery_generation", "expected_descriptor_sha256"]) ==
+               %{
+                 "version" => 1,
+                 "storage_id" => @storage_id,
+                 "recovery_generation" => @recovery_generation,
+                 "expected_descriptor_sha256" => descriptor_sha256(1)
+               }
+
+      assert Jason.decode!(lookup_req.body) == %{"block_ids" => [block_key(1)]}
+      refute log =~ @wire_token or inspect(summary) =~ @wire_token
+    end
+
+    test "handles mTLS 503 lookup deferral without over-evicting, 409 block_active, closed gate, and storage mismatch",
+         ctx do
+      dir = setup_wire_recovery_gate!(ctx)
+      gate_path = Path.join(dir, "recovery-state.json")
+      certs = generate_wire_certs()
+
+      entries =
+        for idx <- 1..6 do
+          entry(idx, archive_state: :not_required, media_bytes: 100, timeline_start_us: idx * 1_000)
+        end
+
+      server_state =
+        start_wire_nvr_state(entries,
+          used_bytes: 950,
+          lookup_override: {503, %{"error" => "busy"}},
+          reclaim_overrides: %{block_key(1) => {409, %{"error" => "block_active"}}}
+        )
+
+      port = start_wire_nvr(certs.server_config, server_state)
+      target_opts = write_wire_nvr_files(dir, certs.client_config, port)
+
+      {harness, wire_opts} =
+        build_wire_harness(entries, target_opts,
+          max_local_age_mode: :unlimited,
+          max_local_age_seconds: nil,
+          local_only_full_policy: :overwrite_oldest
+        )
+
+      # Block 1 returns 409 block_active (deferred, NOT deducted); blocks 2 and 3 succeed reclaim
+      # (950 -> 850 -> 750 <= 800 low water) even though lookup returns 503 busy.
+      assert {:ok, %{status: :ok, reclaimed: 0, deferred: 3, processed: 3}} =
+               LocalRetentionJob.run_member(@member, wire_opts)
+
+      state = harness_state(harness)
+      assert state.finalized == []
+      assert Enum.any?(state.steps, &(&1.step == :failed and &1.extra[:error_class] == "block_active"))
+
+      reclaim_targets =
+        server_state
+        |> Agent.get(& &1.requests)
+        |> Enum.filter(&String.ends_with?(&1.target, "/reclaim"))
+        |> Enum.map(& &1.target)
+
+      assert reclaim_targets == [
+               "/v1/blocks/#{block_key(1)}/reclaim",
+               "/v1/blocks/#{block_key(2)}/reclaim",
+               "/v1/blocks/#{block_key(3)}/reclaim"
+             ]
+
+      # Mismatched storage_id in /v1/status skips without issuing any reclaim.
+      Agent.update(server_state, fn st ->
+        %{st | requests: [], status_storage_id: "00000000-0000-4000-8000-000000000099"}
+      end)
+
+      assert {:ok, %{status: :skipped, skipped_reason: :storage_id_mismatch}} =
+               LocalRetentionJob.run_member(@member, wire_opts)
+
+      assert Enum.map(Agent.get(server_state, & &1.requests), & &1.target) == ["/v1/status"]
+
+      # Closed recovery gate skips before contacting NVR at all.
+      Agent.update(server_state, fn st -> %{st | requests: [], status_storage_id: @storage_id} end)
+      File.write!(gate_path, ~s({"generation":"#{@recovery_generation}","state":"closed"}))
+
+      assert {:ok, %{status: :skipped, skipped_reason: :nvr_recovery_closed}} =
+               LocalRetentionJob.run_member(@member, wire_opts)
+
+      assert Agent.get(server_state, & &1.requests) == []
+    end
+  end
+
+  defp setup_wire_recovery_gate!(ctx) do
+    {:ok, _} = Application.ensure_all_started(:ssl)
+    prev_gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
+    on_exit(fn -> Application.put_env(:serviceradar_core, :nvr_recovery_gate, prev_gate) end)
+
+    dir = Path.expand(ctx.tmp_dir)
+    gate_path = Path.join(dir, "recovery-state.json")
+    File.write!(gate_path, ~s({"generation":"#{@recovery_generation}","state":"ready"}))
+    Application.put_env(:serviceradar_core, :nvr_recovery_gate, %{generation: @recovery_generation, path: gate_path})
+    dir
+  end
+
+  defp attach_retention_telemetry! do
+    handler = "local-retention-wire-test-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :camera_recording, :local_retention, :pass],
+        fn _event, measurements, metadata, _cfg ->
+          send(parent, {:retention_telemetry, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
+  defp build_wire_harness(entries, target_opts, settings_overrides) do
+    {harness, harness_opts} = build_harness(entries: entries, settings: settings(settings_overrides))
+
+    wire_opts =
+      harness_opts
+      |> Keyword.drop([:recovery_gate_fn, :status_fn, :reclaim_fn, :lookup_fn])
+      |> Keyword.put(:target_opts, target_opts)
+
+    {harness, wire_opts}
+  end
+
+  defp start_wire_nvr_state(entries, overrides) do
+    blocks =
+      Map.new(entries, fn e ->
+        {e.block_key, %{state: "sealed", bytes: e.media_bytes, digest: e.descriptor_sha256}}
+      end)
+
+    initial =
+      Map.merge(
+        %{
+          requests: [],
+          blocks: blocks,
+          used_bytes: 0,
+          max_spool_bytes: 1_000,
+          max_blocks: 100,
+          lookup_override: nil,
+          reclaim_overrides: %{},
+          status_storage_id: @storage_id
+        },
+        Map.new(overrides)
+      )
+
+    {:ok, state} = Agent.start_link(fn -> initial end)
+    state
+  end
+
+  defp generate_wire_certs do
+    algorithm = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
+    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
+
+    :public_key.pkix_test_data(%{
+      server_chain: %{root: algorithm, intermediates: [], peer: algorithm ++ [extensions: [san]]},
+      client_chain: %{root: algorithm, intermediates: [], peer: algorithm}
+    })
+  end
+
+  defp write_wire_nvr_files(dir, client, port, opts \\ []) do
+    {key_type, key_der} = client[:key]
+    roots = Enum.map(client[:cacerts], &{:Certificate, &1, :not_encrypted})
+    ca = Path.join(dir, "ca.pem")
+    cert = Path.join(dir, "client.pem")
+    key = Path.join(dir, "client-key.pem")
+    token = Path.join(dir, "nvr-token")
+    config = Path.join(dir, "nvr-client.json")
+
+    File.write!(ca, :public_key.pem_encode(roots))
+    File.write!(cert, :public_key.pem_encode([{:Certificate, client[:cert], :not_encrypted}]))
+    File.write!(key, :public_key.pem_encode([{key_type, key_der, :not_encrypted}]))
+    File.write!(token, @wire_token)
+
+    members =
+      if Keyword.get(opts, :extra_member, false) do
+        %{
+          @member => %{"host" => "localhost", "storage_id" => @storage_id},
+          "serviceradar-nvr-1" => %{
+            "host" => "localhost",
+            "storage_id" => "00000000-0000-4000-8000-000000000012"
+          }
+        }
+      else
+        %{@member => %{"host" => "localhost", "storage_id" => @storage_id}}
+      end
+
+    File.write!(
+      config,
+      Jason.encode!(%{
+        "version" => 1,
+        "port" => port,
+        "ca_file" => ca,
+        "cert_file" => cert,
+        "key_file" => key,
+        "members" => members
+      })
+    )
+
+    [config_file: config, token_file: token]
+  end
+
+  defp start_wire_nvr(server_tls, state_agent) do
+    Fixture.start(server_tls, fn request ->
+      Agent.update(state_agent, fn st -> %{st | requests: st.requests ++ [request]} end)
+      handle_wire_nvr_request(request, state_agent)
+    end)
+  end
+
+  defp handle_wire_nvr_request(request, state_agent) do
+    json = %{"content-type" => "application/json"}
+
+    if request.headers["authorization"] == "Bearer " <> @wire_token do
+      route_wire_nvr_request(request, state_agent, json)
+    else
+      {401, json, Jason.encode!(%{"error" => "unauthorized"})}
+    end
+  end
+
+  defp route_wire_nvr_request(%{method: "GET", target: "/v1/status"}, state_agent, json) do
+    wire_status_response(state_agent, json)
+  end
+
+  defp route_wire_nvr_request(%{method: "POST", target: "/v1/blocks/lookup"} = request, state_agent, json) do
+    wire_lookup_response(request, state_agent, json)
+  end
+
+  defp route_wire_nvr_request(%{method: "POST", target: "/v1/blocks/" <> _} = request, state_agent, json) do
+    if String.ends_with?(request.target, "/reclaim") do
+      wire_reclaim_response(request, state_agent, json)
+    else
+      {404, json, Jason.encode!(%{"error" => "not_found"})}
+    end
+  end
+
+  defp route_wire_nvr_request(_request, _state_agent, json) do
+    {404, json, Jason.encode!(%{"error" => "not_found"})}
+  end
+
+  defp wire_status_response(state_agent, json) do
+    st = Agent.get(state_agent, & &1)
+    sealed_count = Enum.count(st.blocks, fn {_k, v} -> v.state == "sealed" end)
+
+    body = %{
+      "version" => 1,
+      "storage_id" => st.status_storage_id,
+      "recovery" => %{"state" => "ready", "generation" => @recovery_generation},
+      "inventory" => "ready",
+      "capacity" => %{
+        "available_bytes" => st.max_spool_bytes - st.used_bytes,
+        "blocks" => sealed_count,
+        "max_blocks" => st.max_blocks,
+        "max_spool_bytes" => st.max_spool_bytes,
+        "reservations" => 0,
+        "reserve_bytes" => 0,
+        "reserved_bytes" => 0,
+        "used_bytes" => st.used_bytes
+      },
+      "max_sessions" => 8,
+      "archive_busy" => false,
+      "release" => "0.1.0-wire-test"
+    }
+
+    {200, json, Jason.encode!(body)}
+  end
+
+  defp wire_reclaim_response(request, state_agent, json) do
+    block_id = request.target |> String.trim_leading("/v1/blocks/") |> String.trim_trailing("/reclaim")
+    payload = Jason.decode!(request.body)
+    st = Agent.get(state_agent, & &1)
+
+    case Map.get(st.reclaim_overrides, block_id) do
+      {status, err_body} ->
+        {status, json, Jason.encode!(err_body)}
+
+      nil ->
+        mark_wire_block_reclaimed(state_agent, block_id)
+
+        receipt = %{
+          "version" => 1,
+          "status" => "reclaimed",
+          "storage_id" => @storage_id,
+          "block_id" => block_id,
+          "operation_id" => payload["operation_id"],
+          "reclaimed_at_ms" => DateTime.to_unix(@fixed_now, :millisecond)
+        }
+
+        {200, json, Jason.encode!(receipt)}
+    end
+  end
+
+  defp mark_wire_block_reclaimed(state_agent, block_id) do
+    Agent.update(state_agent, fn cur ->
+      case Map.get(cur.blocks, block_id) do
+        %{state: "sealed", bytes: b} = blk ->
+          %{
+            cur
+            | blocks: Map.put(cur.blocks, block_id, %{blk | state: "reclaimed", bytes: nil}),
+              used_bytes: max(cur.used_bytes - b, 0)
+          }
+
+        _ ->
+          cur
+      end
+    end)
+  end
+
+  defp wire_lookup_response(request, state_agent, json) do
+    st = Agent.get(state_agent, & &1)
+
+    case st.lookup_override do
+      {status, err_body} ->
+        {status, json, Jason.encode!(err_body)}
+
+      nil ->
+        %{"block_ids" => ids} = Jason.decode!(request.body)
+        blocks = Enum.map(ids, &wire_lookup_entry(&1, Map.get(st.blocks, &1)))
+        {200, json, Jason.encode!(%{"version" => 1, "storage_id" => @storage_id, "blocks" => blocks})}
+    end
+  end
+
+  defp wire_lookup_entry(bid, %{state: "sealed", bytes: b, digest: d}) do
+    %{"block_id" => bid, "state" => "sealed", "writing" => false, "bytes" => b, "descriptor_sha256" => d}
+  end
+
+  defp wire_lookup_entry(bid, %{state: "reclaimed"}) do
+    %{"block_id" => bid, "state" => "reclaimed", "writing" => false, "bytes" => nil}
+  end
+
+  defp wire_lookup_entry(bid, nil) do
+    %{"block_id" => bid, "state" => "absent", "writing" => false, "bytes" => nil}
   end
 
   defp target(member \\ @member, storage_id \\ @storage_id) do
