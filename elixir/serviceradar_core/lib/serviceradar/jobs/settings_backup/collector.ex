@@ -56,6 +56,8 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
     "secret",
     "token",
     "password",
+    "passwd",
+    "passphrase",
     "private_key",
     "encrypted_",
     "values_wo",
@@ -63,7 +65,11 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
     "secret_access_key",
     "community",
     "api_key",
-    "authorization"
+    "apikey",
+    "authorization",
+    "bearer",
+    "cookie",
+    "credential"
   ]
 
   @type snapshot :: %{
@@ -580,8 +586,13 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
   defp sanitize_map(nil), do: %{}
 
   defp sanitize_map(map) when is_map(map) do
+    drop_value? = sensitive_named_entry?(map)
+
     map
-    |> Enum.reject(fn {k, _v} -> sensitive_key?(to_string(k)) end)
+    |> Enum.reject(fn {k, _v} ->
+      key_str = to_string(k)
+      sensitive_key?(key_str) or (drop_value? and String.downcase(key_str) == "value")
+    end)
     |> Map.new(fn {k, v} -> {to_string(k), sanitize_term(v)} end)
   end
 
@@ -605,13 +616,24 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
 
   defp sanitize_term(other), do: other
 
-  defp sensitive_key?(key) do
-    down = String.downcase(key)
+  defp sensitive_named_entry?(map) do
+    Enum.any?(map, fn {k, v} ->
+      key_name = k |> to_string() |> String.downcase()
 
-    if MapSet.member?(@allowed_secret_ref_keys, down) do
+      key_name in ["name", "key", "header"] and
+        ((is_binary(v) and sensitive_key?(v)) or
+           (is_atom(v) and not is_nil(v) and not is_boolean(v) and
+              sensitive_key?(Atom.to_string(v))))
+    end)
+  end
+
+  defp sensitive_key?(key) do
+    normalized = key |> String.downcase() |> String.replace(["-", " "], "_")
+
+    if MapSet.member?(@allowed_secret_ref_keys, normalized) do
       false
     else
-      Enum.any?(@sensitive_substrings, &String.contains?(down, &1))
+      Enum.any?(@sensitive_substrings, &String.contains?(normalized, &1))
     end
   end
 

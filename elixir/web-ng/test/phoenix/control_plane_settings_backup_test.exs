@@ -58,7 +58,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     @moduledoc false
     def enqueue_export(_dest, params) do
       send(self(), {:enqueued_export, params})
-      {:ok, %Oban.Job{id: 4242}}
+      conflict? = Process.get(:fake_settings_backup_conflict, false)
+      {:ok, %Oban.Job{id: 4242, conflict?: conflict?}}
     end
   end
 
@@ -213,6 +214,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
 
     assert invalid_reason.status == 400
 
+    Process.put(:fake_settings_backup_conflict, false)
+
     queued =
       authed_json(:post, "/v1/settings-backup/export", %{
         "reason" => "pre_resize",
@@ -222,8 +225,24 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     assert queued.status == 202
     body = Jason.decode!(queued.resp_body)
     assert body["data"]["status"] == "queued"
+    assert body["data"]["deduplicated"] == false
     assert body["data"]["job_id"] == 4242
     assert is_binary(body["data"]["requested_at"])
+    assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "resize-op-123"}}
+
+    Process.put(:fake_settings_backup_conflict, true)
+
+    deduped =
+      authed_json(:post, "/v1/settings-backup/export", %{
+        "reason" => "pre_resize",
+        "idempotency_key" => "resize-op-123"
+      })
+
+    assert deduped.status == 202
+    deduped_body = Jason.decode!(deduped.resp_body)
+    assert deduped_body["data"]["status"] == "queued"
+    assert deduped_body["data"]["deduplicated"] == true
+    assert deduped_body["data"]["job_id"] == 4242
     assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "resize-op-123"}}
   end
 

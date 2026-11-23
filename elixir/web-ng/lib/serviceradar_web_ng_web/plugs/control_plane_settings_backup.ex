@@ -150,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneSettingsBackup do
             respond(conn, 202, %{
               data: %{
                 status: "queued",
+                deduplicated: Map.get(job, :conflict?, false) == true,
                 job_id: job.id,
                 requested_at: DateTime.to_iso8601(DateTime.utc_now())
               }

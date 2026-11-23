@@ -19,6 +19,10 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "test/fixtures/settings_backup/terraform_roundtrip_bundle_v1.json",
+])
+
 ash_schema(
     name = "recovery_effect_schema",
     outs = [

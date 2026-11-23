@@ -119,6 +119,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
       )
 
     assert idem_first.status == 202
+    assert idem_first.body["data"]["deduplicated"] == false
     idem_job_id = idem_first.body["data"]["job_id"]
     refute idem_job_id == job_id
 
@@ -131,7 +132,43 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
       )
 
     assert idem_second.status == 202
+    assert idem_second.body["data"]["deduplicated"] == true
     assert idem_second.body["data"]["job_id"] == idem_job_id
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.oban_jobs SET state = 'discarded' WHERE id = $1",
+      [idem_job_id]
+    )
+
+    idem_after_failure =
+      Req.post!(
+        "#{base}/v1/settings-backup/export",
+        headers: headers,
+        json: %{"reason" => "pre_resize", "idempotency_key" => "bandit-idem-1"},
+        retry: false
+      )
+
+    assert idem_after_failure.status == 202
+    assert idem_after_failure.body["data"]["deduplicated"] == false
+    retried_job_id = idem_after_failure.body["data"]["job_id"]
+    refute retried_job_id == idem_job_id
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.oban_jobs SET state = 'completed' WHERE id = $1",
+      [retried_job_id]
+    )
+
+    idem_after_success =
+      Req.post!(
+        "#{base}/v1/settings-backup/export",
+        headers: headers,
+        json: %{"reason" => "pre_resize", "idempotency_key" => "bandit-idem-1"},
+        retry: false
+      )
+
+    assert idem_after_success.status == 202
+    assert idem_after_success.body["data"]["deduplicated"] == true
+    assert idem_after_success.body["data"]["job_id"] == retried_job_id
 
     idem_distinct =
       Req.post!(
@@ -142,8 +179,10 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
       )
 
     assert idem_distinct.status == 202
+    assert idem_distinct.body["data"]["deduplicated"] == false
     distinct_job_id = idem_distinct.body["data"]["job_id"]
     refute distinct_job_id == idem_job_id
-    Process.put(:queued_settings_backup_job_ids, [job_id, idem_job_id, distinct_job_id])
+    refute distinct_job_id == retried_job_id
+    Process.put(:queued_settings_backup_job_ids, [job_id, idem_job_id, retried_job_id, distinct_job_id])
   end
 end

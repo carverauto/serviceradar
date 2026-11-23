@@ -178,19 +178,21 @@ defmodule ServiceRadar.Jobs.SettingsBackupIntegrationTest do
     assert_receive {:origin_put, _req1}
     assert_receive {:origin_put, _req2}
 
-    assert {:ok, updated} =
+    assert {:ok, :updated, updated} =
              SettingsBackupDestination.upsert_destination(
                Map.put(attrs, :bucket, "fail-bucket"),
                actor: ctx.actor
              )
 
-    assert {:ok, failed} =
+    assert {:error, _err} =
              updated
              |> Ash.Changeset.for_update(:run, %{manual: true, reason: "manual"}, actor: nil)
              |> Ash.update()
 
+    assert {:ok, failed} = SettingsBackupDestination.get_singleton(actor: ctx.actor)
     assert failed.last_export_status == "failed"
     assert failed.last_export_error == "s3_http_status_500"
+    assert failed.last_exported_at == succeeded.last_exported_at
     assert failed.last_export_object_key == succeeded.last_export_object_key
     assert failed.last_export_etag == succeeded.last_export_etag
     assert failed.last_export_sha256 == succeeded.last_export_sha256

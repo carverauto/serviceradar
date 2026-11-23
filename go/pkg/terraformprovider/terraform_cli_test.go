@@ -22,8 +22,9 @@ import (
 )
 
 // Bazel supplies logical runfile paths, never paths into its output cache.
-var terraformBinaryRlocation string //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
-var providerBinaryRlocation string  //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
+var terraformBinaryRlocation string       //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
+var providerBinaryRlocation string        //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
+var settingsBundleFixtureRlocation string //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
 
 func TestTerraformCLILifecycle(t *testing.T) {
 	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
@@ -359,77 +360,31 @@ func TestTerraformCLISettingsBundleRoundTrip(t *testing.T) {
 	defer api.Close()
 	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}))
 
-	bundleJSON := `{
-  "schema_version": 1,
-  "exported_at": "2026-11-22T18:00:00Z",
-  "reason": "pre_resize",
-  "terraform_resources": {
-    "serviceradar_network_credential_secret": [
-      {
-        "id": "00000000-0000-4000-8000-000000000101",
-        "name": "Bundle AWX Secret",
-        "description": "Synthetic AWX credential",
-        "credential_provider": "awx",
-        "auth_method": "bearer_token",
-        "values_version": 1
-      },
-      {
-        "id": "00000000-0000-4000-8000-000000000102",
-        "name": "Bundle Git Secret",
-        "description": "Synthetic Git credential",
-        "credential_provider": "git",
-        "auth_method": "bearer_token",
-        "values_version": 1
-      }
-    ],
-    "serviceradar_network_credential_rule": [
-      {
-        "id": "00000000-0000-4000-8000-000000000201",
-        "name": "Bundle AWX Rule",
-        "description": "Scope AWX credential",
-        "credential_provider": "awx",
-        "auth_method": "bearer_token",
-        "purpose": "automation",
-        "target_query": "in:devices tags.role:awx",
-        "scope_type": "agent",
-        "scope_value": "agent-1",
-        "secret_id": "00000000-0000-4000-8000-000000000101",
-        "allowed_ports": [443, 8443],
-        "tls_policy": "verify",
-        "ssh_host_key_policy": "known_hosts",
-        "priority": 50,
-        "enabled": true
-      }
-    ],
-    "serviceradar_ansible_controller": [
-      {
-        "id": "00000000-0000-4000-8000-000000000301",
-        "name": "Bundle AWX Controller",
-        "description": "Primary controller",
-        "base_url": "https://awx.example.com",
-        "agent_id": "agent-1",
-        "sync_credential_secret_id": "00000000-0000-4000-8000-000000000101",
-        "execution_credential_secret_id": "00000000-0000-4000-8000-000000000101",
-        "inventory_sync_interval_seconds": 300,
-        "catalog_sync_interval_seconds": 600,
-        "enabled": true
-      }
-    ],
-    "serviceradar_ansible_repository": [
-      {
-        "id": "00000000-0000-4000-8000-000000000401",
-        "name": "Bundle Playbooks Repo",
-        "description": "Synthetic playbooks",
-        "git_url": "https://git.example.com/org/playbooks.git",
-        "git_ref": "main",
-        "sync_interval_seconds": 600
-      }
-    ]
-  }
-}`
-	var bundle settingsExportBundle
-	if err := json.Unmarshal([]byte(bundleJSON), &bundle); err != nil {
-		t.Fatal(err)
+	bundle := loadSettingsBundleFixture(t)
+	if bundle.SchemaVersion != 1 || bundle.Reason != "pre_resize" {
+		t.Fatalf("unexpected bundle metadata: schema_version=%d reason=%q", bundle.SchemaVersion, bundle.Reason)
+	}
+	if len(bundle.TerraformResources.Secrets) < 2 ||
+		len(bundle.TerraformResources.Rules) < 1 ||
+		len(bundle.TerraformResources.Controllers) < 1 ||
+		len(bundle.TerraformResources.Repos) < 1 {
+		t.Fatal("shared settings export bundle is missing required Terraform resource families")
+	}
+	for _, secret := range bundle.TerraformResources.Secrets {
+		if _, leaked := secret["values_wo"]; leaked {
+			t.Fatal("shared settings export bundle unexpectedly contained values_wo")
+		}
+		if secret["values_version"] != float64(1) {
+			t.Fatalf("expected values_version=1 in exported secret, got %v", secret["values_version"])
+		}
+	}
+	primarySecretID := bundle.TerraformResources.Secrets[0]["id"]
+	if bundle.TerraformResources.Rules[0]["secret_id"] != primarySecretID {
+		t.Fatalf("rule secret_id %v does not reference primary secret %v", bundle.TerraformResources.Rules[0]["secret_id"], primarySecretID)
+	}
+	if bundle.TerraformResources.Controllers[0]["sync_credential_secret_id"] != primarySecretID ||
+		bundle.TerraformResources.Controllers[0]["execution_credential_secret_id"] != primarySecretID {
+		t.Fatalf("controller credential references do not match primary secret %v", primarySecretID)
 	}
 
 	assertNoSecrets := func(contents []byte) {
@@ -652,6 +607,29 @@ func buildBundleTerraformJSON(caPEM string, bundle settingsExportBundle, importi
 		}
 	}
 	return doc
+}
+
+func loadSettingsBundleFixture(t *testing.T) settingsExportBundle {
+	t.Helper()
+	var path string
+	if settingsBundleFixtureRlocation != "" {
+		resolved, err := runfiles.Rlocation(settingsBundleFixtureRlocation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path = resolved
+	} else {
+		path = filepath.Join("..", "..", "..", "elixir", "serviceradar_core", "test", "fixtures", "settings_backup", "terraform_roundtrip_bundle_v1.json")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed reading shared settings export bundle fixture %q: %v", path, err)
+	}
+	var bundle settingsExportBundle
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatalf("failed decoding shared settings export bundle fixture %q: %v", path, err)
+	}
+	return bundle
 }
 
 func readStateIDs(t *testing.T, showJSON []byte) map[string]string {

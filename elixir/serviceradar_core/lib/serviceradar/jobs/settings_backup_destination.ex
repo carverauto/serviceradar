@@ -51,6 +51,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
         queue :maintenance
         scheduler_priority 0
         worker_priority 0
+        max_attempts 1
         extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due
         worker_read_action :read
@@ -158,12 +159,23 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
     update :run do
       description "Collect declarative settings and upload a canonical snapshot to S3"
       require_atomic? false
+      transaction? false
 
       argument :manual, :boolean, default: false
       argument :reason, :string, allow_nil?: true
       argument :idempotency_key, :string, allow_nil?: true
 
       change &execute_export/2
+    end
+
+    update :record_export_failure do
+      description "Record a failed export attempt without overwriting last successful backup metadata"
+      require_atomic? false
+
+      argument :error_message, :string, allow_nil?: false
+      argument :attempted_at, :utc_datetime_usec, allow_nil?: true
+
+      change &apply_export_failure/2
     end
   end
 
@@ -172,7 +184,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
 
     system_bypass()
 
-    bypass action([:due, :read, :get_singleton, :run]) do
+    bypass action([:due, :read, :get_singleton, :run, :record_export_failure]) do
       authorize_if ActorIsNil
     end
 
@@ -671,17 +683,10 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
     end
   end
 
-  defp execute_export(changeset, _context) do
-    dest = changeset.data
-    now = DateTime.utc_now()
-    manual? = Ash.Changeset.get_argument(changeset, :manual) == true
-
-    reason =
-      Ash.Changeset.get_argument(changeset, :reason) ||
-        if(manual?, do: "manual", else: "scheduled")
-
-    actor = SystemActor.system(:settings_backup)
-
+  @doc false
+  @spec run_export_attempt(map() | struct(), DateTime.t(), String.t(), term()) ::
+          {:ok, map()} | {:error, String.t()}
+  def run_export_attempt(dest, %DateTime{} = now, reason, actor) do
     with {:ok, snapshot} <- Collector.collect(actor: actor, exported_at: now, reason: reason),
          {:ok, upload} <-
            S3Uploader.upload(dest, snapshot.json,
@@ -693,30 +698,84 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
            ) do
       next_run_at = if dest.enabled, do: next_cron_due(dest.schedule_cron, now)
 
-      changeset
-      |> Ash.Changeset.force_change_attribute(:last_exported_at, now)
-      |> Ash.Changeset.force_change_attribute(:last_export_status, "succeeded")
-      |> Ash.Changeset.force_change_attribute(:last_export_error, nil)
-      |> Ash.Changeset.force_change_attribute(:last_export_object_key, upload.object_key)
-      |> Ash.Changeset.force_change_attribute(:last_export_etag, upload.etag)
-      |> Ash.Changeset.force_change_attribute(:last_export_sha256, upload.sha256)
-      |> Ash.Changeset.force_change_attribute(:next_run_at, next_run_at)
+      {:ok,
+       %{
+         last_exported_at: now,
+         last_export_status: "succeeded",
+         last_export_error: nil,
+         last_export_object_key: upload.object_key,
+         last_export_etag: upload.etag,
+         last_export_sha256: upload.sha256,
+         next_run_at: next_run_at
+       }}
     else
       {:error, err_reason} ->
-        message = format_export_error(err_reason)
+        {:error, format_export_error(err_reason)}
+    end
+  end
 
-        Logger.warning("Settings backup export failed",
+  defp execute_export(changeset, _context) do
+    Ash.Changeset.before_action(changeset, fn cs ->
+      dest = cs.data
+      now = DateTime.utc_now()
+      manual? = Ash.Changeset.get_argument(cs, :manual) == true
+
+      reason =
+        Ash.Changeset.get_argument(cs, :reason) ||
+          if(manual?, do: "manual", else: "scheduled")
+
+      actor = SystemActor.system(:settings_backup)
+
+      case run_export_attempt(dest, now, reason, actor) do
+        {:ok, attrs} ->
+          Enum.reduce(attrs, cs, fn {field, value}, acc ->
+            Ash.Changeset.force_change_attribute(acc, field, value)
+          end)
+
+        {:error, message} ->
+          Logger.warning("Settings backup export failed",
+            key: dest.key,
+            reason: message
+          )
+
+          persist_export_failure(dest, message, now, actor)
+
+          Ash.Changeset.add_error(
+            cs,
+            InvalidAttribute.exception(field: :last_export_error, message: message)
+          )
+      end
+    end)
+  end
+
+  defp apply_export_failure(changeset, _context) do
+    dest = changeset.data
+    now = Ash.Changeset.get_argument(changeset, :attempted_at) || DateTime.utc_now()
+    message = Ash.Changeset.get_argument(changeset, :error_message)
+    retry_at = if dest.enabled, do: DateTime.shift(now, minute: 5)
+
+    changeset
+    |> Ash.Changeset.force_change_attribute(:last_export_status, "failed")
+    |> Ash.Changeset.force_change_attribute(:last_export_error, message)
+    |> Ash.Changeset.force_change_attribute(:next_run_at, retry_at)
+  end
+
+  defp persist_export_failure(dest, message, now, actor) do
+    case dest
+         |> Ash.Changeset.for_update(
+           :record_export_failure,
+           %{error_message: message, attempted_at: now},
+           actor: actor
+         )
+         |> Ash.update() do
+      {:ok, _updated} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to persist settings backup failure telemetry",
           key: dest.key,
-          reason: message
+          reason: inspect(reason)
         )
-
-        retry_at = if dest.enabled, do: DateTime.shift(now, minute: 5)
-
-        changeset
-        |> Ash.Changeset.force_change_attribute(:last_exported_at, now)
-        |> Ash.Changeset.force_change_attribute(:last_export_status, "failed")
-        |> Ash.Changeset.force_change_attribute(:last_export_error, message)
-        |> Ash.Changeset.force_change_attribute(:next_run_at, retry_at)
     end
   end
 

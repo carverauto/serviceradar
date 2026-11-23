@@ -1,0 +1,120 @@
+{
+  "exported_at": "2026-11-22T18:00:00Z",
+  "reason": "pre_resize",
+  "schema_version": 1,
+  "settings": {
+    "authorization_settings": [],
+    "device_hostname_rdns_settings": [],
+    "edge_pipeline_settings": [],
+    "mapbox_settings": [],
+    "netflow_settings": [],
+    "outbound_mail_settings": [],
+    "polling_schedules": [],
+    "role_profiles": [],
+    "service_checks": [],
+    "snmp_profiles": [],
+    "sweep_groups": [],
+    "sweep_profiles": [],
+    "sysmon_profiles": [],
+    "warehouse_retention_settings": []
+  },
+  "terraform_resources": {
+    "serviceradar_ansible_controller": [
+      {
+        "agent_id": "agent-1",
+        "awx_version": null,
+        "base_url": "https://awx.example.com",
+        "callback_credential_secret_id": null,
+        "catalog_sync_interval_seconds": 600,
+        "description": "Primary controller",
+        "enabled": true,
+        "execution_credential_secret_id": "00000000-0000-4000-8000-000000000101",
+        "id": "00000000-0000-4000-8000-000000000301",
+        "inventory_sync_interval_seconds": 300,
+        "metadata": {},
+        "name": "Bundle AWX Controller",
+        "status": "unknown",
+        "sync_credential_secret_id": "00000000-0000-4000-8000-000000000101"
+      }
+    ],
+    "serviceradar_ansible_repository": [
+      {
+        "credential_secret_id": null,
+        "description": "Synthetic playbooks",
+        "git_ref": "main",
+        "git_url": "https://git.example.com/org/playbooks.git",
+        "id": "00000000-0000-4000-8000-000000000401",
+        "last_sync_at": null,
+        "last_sync_status": "pending",
+        "metadata": {},
+        "name": "Bundle Playbooks Repo",
+        "sync_interval_seconds": 600
+      }
+    ],
+    "serviceradar_network_credential_rule": [
+      {
+        "allowed_ports": [
+          443,
+          8443
+        ],
+        "auth_method": "bearer_token",
+        "ca_bundle_pem": null,
+        "credential_provider": "awx",
+        "description": "Scope AWX credential",
+        "enabled": true,
+        "id": "00000000-0000-4000-8000-000000000201",
+        "metadata": {},
+        "name": "Bundle AWX Rule",
+        "priority": 50,
+        "purpose": "automation",
+        "scope_type": "agent",
+        "scope_value": "agent-1",
+        "secret_id": "00000000-0000-4000-8000-000000000101",
+        "server_cert_fingerprint": null,
+        "ssh_host_key_policy": "known_hosts",
+        "target_query": "in:devices tags.role:awx",
+        "tls_policy": "verify"
+      }
+    ],
+    "serviceradar_network_credential_secret": [
+      {
+        "auth_method": "bearer_token",
+        "credential_generation": null,
+        "credential_kind": "api_token",
+        "credential_provider": "awx",
+        "description": "Synthetic AWX credential",
+        "id": "00000000-0000-4000-8000-000000000101",
+        "last_rotated_at": "2026-11-20T00:00:00Z",
+        "managed_by": "operator",
+        "metadata": {
+          "auth_method": "bearer_token"
+        },
+        "name": "Bundle AWX Secret",
+        "public_fingerprint": "sha256:synthetic-awx-1",
+        "rotation_state": "active",
+        "source_type": "internal",
+        "username": null,
+        "values_version": 1
+      },
+      {
+        "auth_method": "bearer_token",
+        "credential_generation": null,
+        "credential_kind": "api_token",
+        "credential_provider": "git",
+        "description": "Synthetic Git credential",
+        "id": "00000000-0000-4000-8000-000000000102",
+        "last_rotated_at": null,
+        "managed_by": "operator",
+        "metadata": {
+          "auth_method": "bearer_token"
+        },
+        "name": "Bundle Git Secret",
+        "public_fingerprint": "sha256:synthetic-git-2",
+        "rotation_state": "active",
+        "source_type": "internal",
+        "username": "git-bot",
+        "values_version": 1
+      }
+    ]
+  }
+}

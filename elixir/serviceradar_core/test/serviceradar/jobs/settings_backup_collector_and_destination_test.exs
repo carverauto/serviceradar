@@ -1,8 +1,14 @@
 defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Jobs.SettingsBackup.Collector
   alias ServiceRadar.Jobs.SettingsBackupDestination
+
+  @roundtrip_bundle_fixture Path.expand(
+                              "../../fixtures/settings_backup/terraform_roundtrip_bundle_v1.json",
+                              __DIR__
+                            )
 
   @synthetic_secret_value "synthetic-plaintext-secret-must-never-leak"
   @synthetic_ciphertext "synthetic-encrypted-ciphertext-bytes"
@@ -98,7 +104,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert mapbox["access_token_present"] == true
     end
 
-    test "strips ad-hoc api_key and authorization keys while preserving allowed secret ref keys" do
+    test "strips hyphenated, synonym, and key-value list secrets while preserving allowed secret ref keys" do
       exported_at = ~U[2026-11-22 12:00:00Z]
 
       readers =
@@ -121,10 +127,21 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
                 "method" => "GET",
                 "api_key" => "inline-service-check-api-key",
                 "x_api_key" => "inline-x-api-key",
+                "credentials" => "inline-credentials-blob",
+                "passphrase" => "inline-passphrase-val",
+                "passwd" => "inline-passwd-val",
+                "bearer" => "inline-bearer-val",
                 "headers" => %{
                   "Authorization" => "Bearer inline-bearer-token",
+                  "X-API-Key" => "inline-hyphen-api-key",
+                  "Cookie" => "session=inline-cookie-val",
                   "Accept" => "application/json"
-                }
+                },
+                "header_list" => [
+                  %{"name" => "Authorization", "value" => "Bearer inline-list-auth"},
+                  %{"key" => "X-API-Key", "value" => "inline-list-api-key"},
+                  %{"name" => "Accept", "value" => "application/json"}
+                ]
               },
               warning_threshold_ms: 500,
               critical_threshold_ms: 1500,
@@ -135,6 +152,8 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
                 "authorization" => "Basic inline-basic-auth",
                 "api_key_present" => true,
                 "api_key_secret_id" => "00000000-0000-4000-8000-000000000099",
+                "credential_provider" => "awx",
+                "credential_secret_id" => "00000000-0000-4000-8000-000000000098",
                 "region" => "us-east-1"
               }
             }
@@ -144,24 +163,61 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert {:ok, snap} =
                Collector.collect(exported_at: exported_at, reason: "manual", readers: readers)
 
-      refute String.contains?(snap.json, "inline-service-check-api-key")
-      refute String.contains?(snap.json, "inline-x-api-key")
-      refute String.contains?(snap.json, "inline-bearer-token")
-      refute String.contains?(snap.json, "inline-basic-auth")
+      for leaked <- [
+            "inline-service-check-api-key",
+            "inline-x-api-key",
+            "inline-credentials-blob",
+            "inline-passphrase-val",
+            "inline-passwd-val",
+            "inline-bearer-val",
+            "inline-bearer-token",
+            "inline-hyphen-api-key",
+            "inline-cookie-val",
+            "inline-list-auth",
+            "inline-list-api-key",
+            "inline-basic-auth"
+          ] do
+        refute String.contains?(snap.json, leaked), "expected #{leaked} to be redacted"
+      end
 
       decoded = Jason.decode!(snap.json)
       [check] = decoded["settings"]["service_checks"]
 
       assert check["config"] == %{
                "headers" => %{"Accept" => "application/json"},
+               "header_list" => [
+                 %{"name" => "Authorization"},
+                 %{"key" => "X-API-Key"},
+                 %{"name" => "Accept", "value" => "application/json"}
+               ],
                "method" => "GET"
              }
 
       assert check["metadata"] == %{
                "api_key_present" => true,
                "api_key_secret_id" => "00000000-0000-4000-8000-000000000099",
+               "credential_provider" => "awx",
+               "credential_secret_id" => "00000000-0000-4000-8000-000000000098",
                "region" => "us-east-1"
              }
+    end
+
+    test "reproduces the shared Terraform round-trip bundle fixture" do
+      expected = @roundtrip_bundle_fixture |> File.read!() |> Jason.decode!()
+
+      readers = build_roundtrip_fixture_readers()
+
+      assert {:ok, snap} =
+               Collector.collect(
+                 exported_at: ~U[2026-11-22 18:00:00Z],
+                 reason: "pre_resize",
+                 readers: readers
+               )
+
+      assert Jason.decode!(snap.json) == expected
+      refute String.contains?(snap.json, @synthetic_secret_value)
+      refute String.contains?(snap.json, @synthetic_ciphertext)
+      refute String.contains?(snap.json, "values_wo")
     end
 
     test "propagates read errors instead of returning partial empty collections" do
@@ -314,7 +370,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert :schedule_cron in Enum.map(update_cs.errors, & &1.field)
     end
 
-    test "execute_export records failed status and preserves prior telemetry when S3 upload fails" do
+    test "run_export_attempt returns error when S3 upload fails and record_export_failure preserves prior success telemetry" do
       {:ok, _} = Application.ensure_all_started(:ssl)
       certs = generate_certs()
       test_pid = self()
@@ -339,6 +395,9 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
         restore_core_env(:settings_backup_collector_opts, prev_collector_opts)
       end)
 
+      prior_exported_at = ~U[2026-11-22 10:00:00Z]
+      attempt_now = ~U[2026-11-22 12:00:00Z]
+
       existing = %SettingsBackupDestination{
         id: Ecto.UUID.generate(),
         key: "default",
@@ -351,37 +410,50 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
         schedule_cron: "0 */6 * * *",
         access_key_id: "AKIA_SYNTHETIC_KEY",
         secret_access_key: "synthetic-secret-key",
+        last_exported_at: prior_exported_at,
         last_export_status: "succeeded",
         last_export_object_key: "tenant-a/settings-export/20261122T100000Z-abcdef123456.json",
         last_export_etag: "\"etag-prev\"",
         last_export_sha256: String.duplicate("a", 64)
       }
 
+      actor = SystemActor.system(:settings_backup_test)
+
+      assert {:error, "s3_http_status_500"} =
+               SettingsBackupDestination.run_export_attempt(existing, attempt_now, "manual", actor)
+
+      assert_receive {:origin_put, req1}
+      refute String.ends_with?(req1.path, "/latest.json")
+      refute_receive {:origin_put, _req2}, 150
+
       cs =
-        Ash.Changeset.for_update(existing, :run, %{manual: true, reason: "manual"})
+        Ash.Changeset.for_update(existing, :record_export_failure, %{
+          error_message: "s3_http_status_500",
+          attempted_at: attempt_now
+        })
 
       assert cs.valid?
       assert Ash.Changeset.get_attribute(cs, :last_export_status) == "failed"
       assert Ash.Changeset.get_attribute(cs, :last_export_error) == "s3_http_status_500"
-      assert %DateTime{} = last_exported = Ash.Changeset.get_attribute(cs, :last_exported_at)
-      assert %DateTime{} = next_run = Ash.Changeset.get_attribute(cs, :next_run_at)
-      assert DateTime.after?(next_run, last_exported)
+
+      assert DateTime.compare(
+               Ash.Changeset.get_attribute(cs, :next_run_at),
+               DateTime.shift(attempt_now, minute: 5)
+             ) == :eq
+      assert cs.data.last_exported_at == prior_exported_at
 
       assert cs.data.last_export_object_key ==
                "tenant-a/settings-export/20261122T100000Z-abcdef123456.json"
 
       assert cs.data.last_export_etag == "\"etag-prev\""
       assert cs.data.last_export_sha256 == String.duplicate("a", 64)
+      refute Map.has_key?(cs.attributes, :last_exported_at)
       refute Map.has_key?(cs.attributes, :last_export_object_key)
       refute Map.has_key?(cs.attributes, :last_export_etag)
       refute Map.has_key?(cs.attributes, :last_export_sha256)
-
-      assert_receive {:origin_put, req1}
-      refute String.ends_with?(req1.path, "/latest.json")
-      refute_receive {:origin_put, _req2}, 150
     end
 
-    test "execute_export records failed status when collection fails without attempting S3 upload" do
+    test "run_export_attempt returns error when collection fails without attempting S3 upload" do
       prev_collector_opts =
         Application.get_env(:serviceradar_core, :settings_backup_collector_opts)
 
@@ -412,35 +484,170 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
         secret_access_key: "synthetic-secret-key"
       }
 
-      cs =
-        Ash.Changeset.for_update(existing, :run, %{manual: true, reason: "manual"})
+      actor = SystemActor.system(:settings_backup_test)
 
-      assert cs.valid?
-      assert Ash.Changeset.get_attribute(cs, :last_export_status) == "failed"
+      assert {:error, message} =
+               SettingsBackupDestination.run_export_attempt(
+                 existing,
+                 ~U[2026-11-22 12:00:00Z],
+                 "manual",
+                 actor
+               )
 
       assert String.contains?(
-               Ash.Changeset.get_attribute(cs, :last_export_error),
+               message,
                "collection_failed:ServiceRadar.Monitoring.ServiceCheck:db_unavailable"
              )
     end
 
-    test "exposes priority-0 AshOban export trigger on :maintenance queue" do
-      [trigger] = AshOban.Info.oban_triggers(SettingsBackupDestination)
-      assert trigger.name == :export
-      assert trigger.queue == :maintenance
-      assert trigger.scheduler_priority == 0
-      assert trigger.worker_priority == 0
-      assert trigger.read_action == :due
-      assert trigger.worker_read_action == :read
-      assert trigger.action == :run
-      assert trigger.scheduler_cron == "* * * * *"
+    test "builds priority-0 Oban scheduler and trigger jobs on :maintenance queue" do
+      scheduler_job = SettingsBackupDestination.ExportScheduler.new(%{})
+      assert scheduler_job.valid?
+      assert Ecto.Changeset.get_field(scheduler_job, :priority) == 0
+      assert Ecto.Changeset.get_field(scheduler_job, :queue) == "maintenance"
 
-      assert trigger.scheduler_module_name ==
-               ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+      dest = %SettingsBackupDestination{
+        id: "00000000-0000-4000-8000-000000000999",
+        key: "default",
+        enabled: true
+      }
 
-      assert trigger.worker_module_name ==
-               ServiceRadar.Jobs.SettingsBackupDestination.ExportWorker
+      worker_job =
+        AshOban.build_trigger(dest, :export,
+          action_arguments: %{"manual" => true, "reason" => "pre_resize"}
+        )
+
+      assert worker_job.valid?
+      assert Ecto.Changeset.get_field(worker_job, :priority) == 0
+      assert Ecto.Changeset.get_field(worker_job, :queue) == "maintenance"
+      assert Ecto.Changeset.get_field(worker_job, :max_attempts) == 1
+      assert Ecto.Changeset.get_field(worker_job, :worker) ==
+               "ServiceRadar.Jobs.SettingsBackupDestination.ExportWorker"
+
+      assert worker_job.changes.args[:primary_key] == %{
+               id: "00000000-0000-4000-8000-000000000999"
+             }
+
+      assert worker_job.changes.args[:action_arguments] == %{
+               "manual" => true,
+               "reason" => "pre_resize"
+             }
     end
+  end
+
+  defp build_roundtrip_fixture_readers do
+    %{
+      network_credential_secrets: fn _actor ->
+        [
+          %{
+            id: "00000000-0000-4000-8000-000000000101",
+            name: "Bundle AWX Secret",
+            description: "Synthetic AWX credential",
+            provider: "awx",
+            credential_kind: :api_token,
+            username: nil,
+            public_fingerprint: "sha256:synthetic-awx-1",
+            managed_by: :operator,
+            credential_generation: nil,
+            source_type: :internal,
+            rotation_state: :active,
+            last_rotated_at: ~U[2026-11-20 00:00:00Z],
+            secret_payload: @synthetic_secret_value,
+            encrypted_secret_payload: @synthetic_ciphertext,
+            metadata: %{"auth_method" => "bearer_token", "api_token" => @synthetic_secret_value}
+          },
+          %{
+            id: "00000000-0000-4000-8000-000000000102",
+            name: "Bundle Git Secret",
+            description: "Synthetic Git credential",
+            provider: "git",
+            credential_kind: :api_token,
+            username: "git-bot",
+            public_fingerprint: "sha256:synthetic-git-2",
+            managed_by: :operator,
+            credential_generation: nil,
+            source_type: :internal,
+            rotation_state: :active,
+            last_rotated_at: nil,
+            metadata: %{"auth_method" => "bearer_token"}
+          }
+        ]
+      end,
+      network_credential_rules: fn _actor ->
+        [
+          %{
+            id: "00000000-0000-4000-8000-000000000201",
+            name: "Bundle AWX Rule",
+            description: "Scope AWX credential",
+            provider: "awx",
+            auth_method: "bearer_token",
+            purpose: "automation",
+            target_query: "in:devices tags.role:awx",
+            scope_type: :agent,
+            scope_value: "agent-1",
+            secret_id: "00000000-0000-4000-8000-000000000101",
+            allowed_ports: [8443, 443],
+            tls_policy: :verify,
+            ssh_host_key_policy: :known_hosts,
+            ca_bundle_pem: nil,
+            server_cert_fingerprint: nil,
+            priority: 50,
+            enabled: true,
+            metadata: %{}
+          }
+        ]
+      end,
+      ansible_controllers: fn _actor ->
+        [
+          %{
+            id: "00000000-0000-4000-8000-000000000301",
+            name: "Bundle AWX Controller",
+            description: "Primary controller",
+            base_url: "https://awx.example.com",
+            agent_id: "agent-1",
+            sync_credential_secret_id: "00000000-0000-4000-8000-000000000101",
+            execution_credential_secret_id: "00000000-0000-4000-8000-000000000101",
+            callback_credential_secret_id: nil,
+            inventory_sync_interval_seconds: 300,
+            catalog_sync_interval_seconds: 600,
+            enabled: true,
+            status: :unknown,
+            awx_version: nil,
+            metadata: %{}
+          }
+        ]
+      end,
+      ansible_repositories: fn _actor ->
+        [
+          %{
+            id: "00000000-0000-4000-8000-000000000401",
+            name: "Bundle Playbooks Repo",
+            description: "Synthetic playbooks",
+            git_url: "https://git.example.com/org/playbooks.git",
+            git_ref: "main",
+            sync_interval_seconds: 600,
+            credential_secret_id: nil,
+            last_sync_status: :pending,
+            last_sync_at: nil,
+            metadata: %{}
+          }
+        ]
+      end,
+      snmp_profiles: fn _actor -> [] end,
+      sweep_profiles: fn _actor -> [] end,
+      sweep_groups: fn _actor -> [] end,
+      polling_schedules: fn _actor -> [] end,
+      service_checks: fn _actor -> [] end,
+      sysmon_profiles: fn _actor -> [] end,
+      edge_pipeline_settings: fn _actor -> [] end,
+      warehouse_retention_settings: fn _actor -> [] end,
+      device_hostname_rdns_settings: fn _actor -> [] end,
+      role_profiles: fn _actor -> [] end,
+      authorization_settings: fn _actor -> [] end,
+      outbound_mail_settings: fn _actor -> [] end,
+      netflow_settings: fn _actor -> [] end,
+      mapbox_settings: fn _actor -> [] end
+    }
   end
 
   defp build_synthetic_readers(order) do
