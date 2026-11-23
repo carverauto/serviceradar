@@ -416,7 +416,12 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       actor = SystemActor.system(:settings_backup_live_test)
 
       assert {:ok, result} =
-               SettingsBackupDestination.run_export_attempt(dest, exported_at, "pre_resize", actor)
+               SettingsBackupDestination.run_export_attempt(
+                 dest,
+                 exported_at,
+                 "pre_resize",
+                 actor
+               )
 
       assert result.last_export_status == "succeeded"
       assert result.last_export_error == nil
@@ -551,7 +556,12 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       actor = SystemActor.system(:settings_backup_test)
 
       assert {:error, "s3_http_status_500"} =
-               SettingsBackupDestination.run_export_attempt(existing, attempt_now, "manual", actor)
+               SettingsBackupDestination.run_export_attempt(
+                 existing,
+                 attempt_now,
+                 "manual",
+                 actor
+               )
 
       assert_receive {:origin_put, req1}
       refute String.ends_with?(req1.path, "/latest.json")
@@ -571,6 +581,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
                Ash.Changeset.get_attribute(cs, :next_run_at),
                DateTime.shift(attempt_now, minute: 5)
              ) == :eq
+
       assert cs.data.last_exported_at == prior_exported_at
 
       assert cs.data.last_export_object_key ==
@@ -652,6 +663,7 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert Ecto.Changeset.get_field(worker_job, :priority) == 0
       assert Ecto.Changeset.get_field(worker_job, :queue) == "maintenance"
       assert Ecto.Changeset.get_field(worker_job, :max_attempts) == 1
+
       assert Ecto.Changeset.get_field(worker_job, :worker) ==
                "ServiceRadar.Jobs.SettingsBackupDestination.ExportWorker"
 

@@ -36,7 +36,10 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Jobs.RootSpanRatioWorker
   alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
-  alias ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler, as: SettingsBackupExportScheduler
+
+  alias ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler,
+    as: SettingsBackupExportScheduler
+
   alias ServiceRadar.Notifications.DispatchSchedule
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadar.Observability.ApiEventsRetentionWorker

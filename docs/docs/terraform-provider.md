@@ -93,17 +93,22 @@ provider installation mechanism.
 
 The Go tests drive the actual Plugin Framework protocol against an invented
 HTTPS API: create, idempotent replay, refresh, import, a no-op second plan,
-out-of-band drift, update, guarded deletion, and missing-resource refresh.
-They inspect state for write-only material and cover a successful rotation
-followed by a failed metadata update.
+out-of-band drift, update, guarded deletion, missing-resource refresh, `410`
+deleted-resource idempotency keys, `503` unavailability diagnostics, and
+stale-`If-Match` rotation replay. They inspect state for write-only material
+and cover a successful rotation followed by a failed metadata update.
 
 The separate CLI acceptance target runs pinned Terraform 1.11.4 with the provider
 binary as a declared Bazel input. It installs from a local filesystem mirror,
 then verifies saved plan/apply, a no-op plan, drift repair, credential rotation,
-import, guarded destroy, and successful destroy against the HTTPS fixture.
-Credential material must be absent from command output, saved plan archive
-entries, state, and state backups. Both test suites use synthetic fixtures;
-live API compatibility is covered separately by the database integration lane.
+import, guarded destroy, and successful destroy against the HTTPS fixture. It
+also exercises a round-trip from the shared synthetic settings-export bundle
+fixture across all four resource families and verifies `403` auth, `307`
+redirect, `503`, `412` stale-`If-Match`, `410` deleted-key, and partial-failure
+rotation guards. Credential material must be absent from command output, saved
+plan archive entries, state, and state backups. Both test suites use synthetic
+fixtures; live API compatibility is covered separately by the database
+integration lane.
 
 ```text
 bazel test --config=remote //go/pkg/terraformprovider:terraformprovider_test //go/pkg/terraformprovider:terraform_cli_acceptance_test

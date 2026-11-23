@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings.Scheduler
+  alias ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadarWebNG.Jobs.JobCatalog
 
@@ -141,11 +142,11 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert job.cron == "* * * * *"
     assert job.queue == :maintenance
     assert job.worker == ServiceRadar.Jobs.SettingsBackupDestination.ExportWorker
-    assert job.scheduler == ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+    assert job.scheduler == ExportScheduler
     assert job.description =~ "object storage"
 
     assert JobCatalog.ash_oban_trigger_module(job) ==
-             ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+             ExportScheduler
   end
 
   test "trigger_job delegates manual Armis entries to the worker entrypoint" do

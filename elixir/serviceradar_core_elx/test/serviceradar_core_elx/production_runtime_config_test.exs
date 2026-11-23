@@ -13,6 +13,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Jobs.RootSpanRatioWorker
   alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
+  alias ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Observability.ApiEventsRetentionWorker
   alias ServiceRadar.Observability.CapacityForecasting.Worker
@@ -40,7 +41,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
-    ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler,
+    ExportScheduler,
     ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
@@ -1126,7 +1127,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
       end
     end)
 
-    worker = ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+    worker = ExportScheduler
 
     for scheduler_enabled <- ["false", "true"] do
       with_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", scheduler_enabled)
