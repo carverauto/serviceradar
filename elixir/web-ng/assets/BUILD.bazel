@@ -363,6 +363,7 @@ vitest_bin.vitest_test(
         "js/lib/camera_relay/dashboard_camera.test.js",
         "js/hooks/CameraRelayStatusStream.test.js",
         "js/hooks/CameraTimelinePlayer.test.js",
+        "js/hooks/CameraVerticalTimeline.test.js",
     ],
     chdir = package_name(),
     data = glob(["js/lib/camera_relay/*.js"]) + [
@@ -370,6 +371,8 @@ vitest_bin.vitest_test(
         "js/hooks/CameraRelayStatusStream.test.js",
         "js/hooks/CameraTimelinePlayer.js",
         "js/hooks/CameraTimelinePlayer.test.js",
+        "js/hooks/CameraVerticalTimeline.js",
+        "js/hooks/CameraVerticalTimeline.test.js",
         ":node_modules",
     ],
     tags = ["unit_test"],
@@ -659,6 +662,30 @@ js_library(
     name = "camera_archive_player_test_lib",
     testonly = True,
     srcs = ["camera_archive_player.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
+
+js_run_binary(
+    name = "camera_timeline_workspace_bundle",
+    srcs = [
+        "camera_timeline_workspace_harness.js",
+        "js/hooks/CameraTimelinePlayer.js",
+        "js/hooks/CameraVerticalTimeline.js",
+        ":node_modules/hls.js",
+    ],
+    outs = ["camera_timeline_workspace.bundle.js"],
+    args = [
+        "camera_timeline_workspace_harness.js",
+        "camera_timeline_workspace.bundle.js",
+    ],
+    chdir = package_name(),
+    tool = ":browser_fixture_bundler",
+)
+
+js_library(
+    name = "camera_timeline_workspace_test_lib",
+    testonly = True,
+    srcs = ["camera_timeline_workspace.playwright.js"],
     deps = [":node_modules/@playwright/test"],
 )
 

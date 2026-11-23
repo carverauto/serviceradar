@@ -56,6 +56,12 @@ component_browser_fixture(
     renderer = "test/fixtures/camera_recordings_component.exs",
 )
 
+component_browser_fixture(
+    name = "camera_timeline_workspace_browser_fixture",
+    app = ":erlang_app",
+    renderer = "test/fixtures/camera_timeline_workspace_component.exs",
+)
+
 write_source_files(
     name = "camera_recordings_browser_fixture_export",
     diff_test = False,
