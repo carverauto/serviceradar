@@ -671,6 +671,7 @@ webNg:
 nvr:
   enabled: true
   replicas: 2
+  maxSpoolBytes: 17179869184
   nodeSelector:
     kubernetes.io/arch: amd64
   recovery:
