@@ -216,7 +216,8 @@ build() (
   [[ "${CUDA_BUILDER_IMAGE:-}" == "docker.io/nvidia/cuda@sha256:b7ae301dea2c162444795462ce17a05f6a516e5a75944b57af5b88540a1a2266" ]] \
     || die "CUDA_BUILDER_IMAGE must identify the pinned CUDA 13.0.3 devel image"
   require nvcc tar gzip sha256sum ldd cc awk
-  [[ -n "${HOME:-}" && -d "${HOME}" ]] || die "HOME must name an existing writable directory"
+  [[ -n "${HOME:-}" && "${HOME}" != "/" && -d "${HOME}" && -w "${HOME}" ]] \
+    || die "HOME must name an existing writable directory (not /)"
 
   local prefix="${HOME}/rust-${RUST_VERSION}"
   install_toolchain "${toolchain_dir}" "${prefix}"

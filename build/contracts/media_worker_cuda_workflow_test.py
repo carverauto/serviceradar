@@ -261,6 +261,40 @@ class MediaWorkerCudaWorkflowTest(unittest.TestCase):
         self.assertEqual(publish["concurrency"], {"group": "serviceradar-media-worker-cuda-${{ github.sha }}",
                                                   "cancel-in-progress": False})
 
+    def test_build_guards_root_home_and_empty_manifest_expression(self):
+        bundle_step, = (s for s in self.jobs["build"]["steps"] if s.get("id") == "bundle")
+        self.assertRegex(
+            bundle_step["env"]["RECORDED_BUILDER"],
+            r"^\$\{\{\s*fromJSON\(steps\.compile\.outputs\.manifest\s*\|\|\s*'\{\}'\)\.builder_image\s*\}\}$",
+        )
+        with tempfile.TemporaryDirectory() as work:
+            root = Path(work)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            for tool in ("nvcc", "tar", "gzip", "sha256sum", "ldd", "cc", "awk"):
+                stub = bin_dir / tool
+                stub.write_text("#!/bin/sh\nexit 0\n")
+                stub.chmod(0o755)
+            readonly_home = root / "readonly-home"
+            readonly_home.mkdir(mode=0o555)
+            bad_homes = ["/", "", str(root / "missing")]
+            if os.geteuid() != 0:
+                bad_homes.append(str(readonly_home))
+            try:
+                for idx, bad_home in enumerate(bad_homes):
+                    with self.subTest(home=bad_home):
+                        out_dir = root / f"out-{idx}"
+                        result = subprocess.run(
+                            ["bash", str(BUILD_SCRIPT), "build", str(root / "toolchain"), str(out_dir)],
+                            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": bad_home,
+                                 "GITHUB_SHA": COMMIT, "CUDA_BUILDER_IMAGE": CUDA_BUILDER},
+                            capture_output=True, text=True,
+                        )
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("HOME must name an existing writable directory", result.stderr)
+            finally:
+                readonly_home.chmod(0o755)
+
     def test_excluded_dispatch_runs_only_unprivileged_build_operations(self):
         for manifest in ({"builder_image": CUDA_BUILDER}, {}, {"builder_image": "unknown"}):
             with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as work:
@@ -288,9 +322,10 @@ esac
         builder.chmod(0o755)
         for tool in ("mkdir", "awk", "sha256sum", "cat", "tr"):
             (root / tool).symlink_to(shutil.which(tool))
-        env = self.workflow["env"] | {"PATH": str(root), "HOME": str(root), "RUNNER_TEMP": str(root),
+        env = self.workflow["env"] | {"PATH": str(root), "HOME": "/", "RUNNER_TEMP": str(root),
                                       "BUILD_MANIFEST": json.dumps(manifest), "EXPECTED_BUILDER": CUDA_BUILDER,
                                       "GITHUB_REF": ref, "GITHUB_SHA": COMMIT, "CHECKSUMS": CHECKSUMS,
+                                      "GITHUB_ENV": str(root / "env"),
                                       "GITHUB_OUTPUT": str(root / "outputs"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
         outputs = {}
         for name in ("toolchain", "build"):
@@ -308,8 +343,17 @@ esac
                     continue
                 settings = env | job.get("env", {})
                 for key, value in step.get("env", {}).items():
-                    output = re.fullmatch(r"\$\{\{ fromJSON\(steps\.(\w+)\.outputs\.(\w+)\)\.(\w+) \}\}", value)
-                    settings[key] = json.loads(outputs[output[1], output[2]]).get(output[3], "") if output else value
+                    output = re.fullmatch(
+                        r"\$\{\{ fromJSON\(steps\.(\w+)\.outputs\.(\w+)(?:\s*\|\|\s*'\{\}')?\)\.(\w+) \}\}",
+                        value,
+                    )
+                    if output:
+                        raw_output = outputs.get((output[1], output[2]), "")
+                        settings[key] = json.loads(raw_output or "{}").get(output[3], "") or ""
+                    else:
+                        settings[key] = value
+                env_file = root / "env"
+                env_file.write_text("")
                 output_file = root / "outputs"
                 output_file.write_text("")
                 result = subprocess.run(["/bin/bash", "-e", "-o", "pipefail", "-c", step["run"]],
@@ -319,6 +363,12 @@ esac
                     self.assertIn("incorrect manifest builder_image", result.stderr)
                     self.assertFalse(output_file.read_text())
                     return
+                for line in env_file.read_text().splitlines():
+                    key, value = line.split("=", 1)
+                    env[key] = value
+                if step.get("name") == "Create HOME":
+                    self.assertEqual(env["HOME"], str(root / "home"))
+                    self.assertTrue((root / "home").is_dir())
                 for line in output_file.read_text().splitlines():
                     key, value = line.split("=", 1)
                     outputs[step["id"], key] = value
