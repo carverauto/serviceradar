@@ -235,16 +235,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
-  # NetFlow and Horizon datasets have no CNPG serving path: when not served by
-  # StarRocks they refuse with `{:error, :starrocks_required}` rather than
-  # falling back to CNPG. Every other dataset keeps a CNPG path until cut over.
-  @starrocks_only [
-    :flows,
-    :horizon_outages,
-    :horizon_bgp_events,
-    :horizon_bgp_zombies,
-    :horizon_path_hops
-  ]
+  # NetFlow has no CNPG serving path. Every other cutover-gated dataset keeps
+  # one and stays on CNPG until it is cut over; flows instead refuse to answer,
+  # because the alternative is a second, divergent set of numbers for the same
+  # question.
+  @starrocks_only [:flows]
 
   @horizon_datasets [
     :horizon_outages,

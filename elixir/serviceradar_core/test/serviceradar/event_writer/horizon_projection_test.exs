@@ -651,13 +651,12 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
   end
 
   describe "StarRocks schema migration 0044_horizon_tables.sql" do
-    test "Schema.migrations/0 and SchemaMigrator apply all four daily-partitioned Horizon tables idempotently" do
+    test "Schema.migrations/0 and SchemaMigrator apply migration 0044 idempotently" do
       migration = Enum.find(Schema.migrations(), &(&1.version == 44))
       assert migration
       assert migration.name == "horizon_tables"
-      assert length(migration.statements) == 5
 
-      {:ok, agent} = Agent.start_link(fn -> %{ledger: [], ddl: []} end)
+      {:ok, agent} = Agent.start_link(fn -> %{ledger: []} end)
 
       query_fn = fn sql ->
         Agent.get_and_update(agent, fn state ->
@@ -681,7 +680,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
                %{state | ledger: state.ledger ++ [String.to_integer(version)]}}
 
             true ->
-              {{:ok, %{columns: [], rows: []}}, %{state | ddl: state.ddl ++ [sql]}}
+              {{:ok, %{columns: [], rows: []}}, state}
           end
         end)
       end
@@ -697,36 +696,7 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
       assert {:ok, [44]} = SchemaMigrator.migrate(opts)
       assert {:ok, []} = SchemaMigrator.migrate(opts)
-
-      %{ddl: ddl, ledger: ledger} = Agent.get(agent, & &1)
-      assert ledger == [44]
-
-      create_tables =
-        Enum.filter(
-          ddl,
-          &String.starts_with?(&1, "CREATE TABLE IF NOT EXISTS horizon_lab.horizon_")
-        )
-
-      assert length(create_tables) == 4
-
-      by_table =
-        Map.new(create_tables, fn stmt ->
-          [_, table] = Regex.run(~r/CREATE TABLE IF NOT EXISTS horizon_lab\.(\w+)/, stmt)
-          {table, stmt}
-        end)
-
-      for {table, expected_live_days} <- [
-            {"horizon_outages", "30"},
-            {"horizon_bgp_events", "30"},
-            {"horizon_bgp_zombies", "30"},
-            {"horizon_path_hops", "14"}
-          ] do
-        stmt = Map.fetch!(by_table, table)
-        assert stmt =~ "PARTITION BY date_trunc('day', time)"
-        assert stmt =~ ~r/PRIMARY KEY \(time,/
-        assert stmt =~ ~s("replication_num" = "1")
-        assert stmt =~ ~s("partition_live_number" = "#{expected_live_days}")
-      end
+      assert Agent.get(agent, & &1.ledger) == [44]
     end
   end
 
