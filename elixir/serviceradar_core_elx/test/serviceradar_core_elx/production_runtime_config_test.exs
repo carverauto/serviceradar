@@ -40,6 +40,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ApiEventsRetentionWorker,
     AuditVersionRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
+    ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler,
     ServiceRadar.EventWriter.LifecycleAdmissionDrainWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
     ServiceRadar.Observability.AnomalyAlertLivenessWorker,
@@ -1112,6 +1113,36 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     crontab = oban_crontab(read_prod_config())
     entry = {"* * * * *", ServiceRadarCoreElx.CameraRecording.LocalRetentionJob, [queue: :maintenance]}
     assert entry in crontab
+  end
+
+  test "prod Oban crontab deduplicates SettingsBackupDestination.ExportScheduler when AshOban is enabled" do
+    prev_domains = Application.get_env(:serviceradar_core, :ash_domains)
+    Application.put_env(:serviceradar_core, :ash_domains, [ServiceRadar.Jobs])
+
+    on_exit(fn ->
+      case prev_domains do
+        nil -> Application.delete_env(:serviceradar_core, :ash_domains)
+        domains -> Application.put_env(:serviceradar_core, :ash_domains, domains)
+      end
+    end)
+
+    worker = ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+
+    for scheduler_enabled <- ["false", "true"] do
+      with_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", scheduler_enabled)
+
+      crontab = oban_crontab(read_prod_config())
+      matches = Enum.filter(crontab, &(elem(&1, 1) == worker))
+
+      assert [{"* * * * *", ^worker, opts}] = matches
+      assert Keyword.get(opts, :queue) == :maintenance
+      assert Keyword.get(opts, :priority) == 0
+
+      job = worker.new(%{}, opts)
+      assert job.valid?
+      assert Ecto.Changeset.get_field(job, :priority) == 0
+      assert Ecto.Changeset.get_field(job, :queue) == "maintenance"
+    end
   end
 
   test "both core and core_elx runtime configs parse hub certificate-authorization and leaf listener flags" do

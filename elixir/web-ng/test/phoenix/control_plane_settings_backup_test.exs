@@ -15,16 +15,43 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
   @deployment_ref "ce032564-a123-4bc5-89ab-000000000002"
   @authorization_header "x-serviceradar-control-plane-authorization"
 
+  defmodule FakeState do
+    @moduledoc false
+    use Agent
+
+    def start_link(_opts) do
+      Agent.start_link(fn -> %{dest: {:ok, nil}, upsert: nil, conflict: false, test_pid: nil} end,
+        name: __MODULE__
+      )
+    end
+
+    def get(key, default \\ nil) do
+      case Process.whereis(__MODULE__) do
+        nil -> default
+        _pid -> Agent.get(__MODULE__, &Map.get(&1, key, default))
+      end
+    end
+
+    def put(key, value) do
+      Agent.update(__MODULE__, &Map.put(&1, key, value))
+    end
+  end
+
   defmodule FakeDestination do
     @moduledoc false
     def get_singleton(actor: _actor) do
-      Process.get(:fake_settings_backup_dest, {:ok, nil})
+      FakeState.get(:dest, {:ok, nil})
     end
 
     def upsert_destination(attrs, actor: _actor) do
-      case Process.get(:fake_settings_backup_upsert) do
-        fun when is_function(fun, 1) -> fun.(attrs)
-        _ -> {:ok, :created, build_record(attrs)}
+      case FakeState.get(:upsert) do
+        fun when is_function(fun, 1) ->
+          fun.(attrs)
+
+        _ ->
+          record = build_record(attrs)
+          FakeState.put(:dest, {:ok, record})
+          {:ok, :created, record}
       end
     end
 
@@ -57,13 +84,19 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
   defmodule FakeEnqueuer do
     @moduledoc false
     def enqueue_export(_dest, params) do
-      send(self(), {:enqueued_export, params})
-      conflict? = Process.get(:fake_settings_backup_conflict, false)
+      if pid = FakeState.get(:test_pid) do
+        send(pid, {:enqueued_export, params})
+      end
+
+      conflict? = FakeState.get(:conflict, false)
       {:ok, %Oban.Job{id: 4242, conflict?: conflict?}}
     end
   end
 
   setup do
+    start_supervised!(FakeState)
+    FakeState.put(:test_pid, self())
+
     prev_runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
     prev_dest_mod = Application.get_env(:serviceradar_web_ng, :settings_backup_destination_module)
     prev_enq_mod = Application.get_env(:serviceradar_web_ng, :settings_backup_enqueuer_module)
@@ -104,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
   end
 
   test "GET /v1/settings-backup/destination returns 404 when unconfigured and 200 without secrets when configured" do
-    Process.put(:fake_settings_backup_dest, {:ok, nil})
+    FakeState.put(:dest, {:ok, nil})
 
     missing = authed_conn(:get, "/v1/settings-backup/destination")
     assert missing.status == 404
@@ -125,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
         secret_access_key: "secret-must-not-leak"
     }
 
-    Process.put(:fake_settings_backup_dest, {:ok, record})
+    FakeState.put(:dest, {:ok, record})
     found = authed_conn(:get, "/v1/settings-backup/destination")
     assert found.status == 200
     body = Jason.decode!(found.resp_body)
@@ -190,7 +223,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
   end
 
   test "POST /v1/settings-backup/export returns 409 when unconfigured/disabled and 202 when queued" do
-    Process.put(:fake_settings_backup_dest, {:ok, nil})
+    FakeState.put(:dest, {:ok, nil})
     unconfigured = authed_conn(:post, "/v1/settings-backup/export")
     assert unconfigured.status == 409
 
@@ -202,19 +235,19 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
         enabled: false
       })
 
-    Process.put(:fake_settings_backup_dest, {:ok, disabled_record})
+    FakeState.put(:dest, {:ok, disabled_record})
     disabled = authed_conn(:post, "/v1/settings-backup/export")
     assert disabled.status == 409
 
     enabled_record = %{disabled_record | enabled: true}
-    Process.put(:fake_settings_backup_dest, {:ok, enabled_record})
+    FakeState.put(:dest, {:ok, enabled_record})
 
     invalid_reason =
       authed_json(:post, "/v1/settings-backup/export", %{"reason" => "not_allowed"})
 
     assert invalid_reason.status == 400
 
-    Process.put(:fake_settings_backup_conflict, false)
+    FakeState.put(:conflict, false)
 
     queued =
       authed_json(:post, "/v1/settings-backup/export", %{
@@ -230,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     assert is_binary(body["data"]["requested_at"])
     assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "resize-op-123"}}
 
-    Process.put(:fake_settings_backup_conflict, true)
+    FakeState.put(:conflict, true)
 
     deduped =
       authed_json(:post, "/v1/settings-backup/export", %{
@@ -244,6 +277,114 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     assert deduped_body["data"]["deduplicated"] == true
     assert deduped_body["data"]["job_id"] == 4242
     assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "resize-op-123"}}
+  end
+
+  test "live Bandit listener serves port-4001 settings-backup endpoints over HTTP with auth and guards" do
+    {:ok, _} = Application.ensure_all_started(:inets)
+
+    listener =
+      start_supervised!(
+        {Bandit, plug: ControlPlaneRuntimeRouter, scheme: :http, ip: {127, 0, 0, 1}, port: 0, startup_log: false}
+      )
+
+    {:ok, {_addr, port}} = ThousandIsland.listener_info(listener)
+    auth = [{String.to_charlist(@authorization_header), String.to_charlist("Bearer " <> @runtime_token)}]
+
+    # Auth enforcement over real TCP (missing, standard Authorization, media token).
+    for headers <- [
+          [],
+          [{~c"authorization", String.to_charlist("Bearer " <> @runtime_token)}],
+          [{String.to_charlist(@authorization_header), String.to_charlist("Bearer " <> @media_token)}]
+        ] do
+      assert {:ok, 401, _hdrs, %{"status" => "unauthorized"}, _raw} =
+               live_http(:get, port, "/v1/settings-backup/destination", headers)
+    end
+
+    # Unconfigured destination -> 404 on GET, 409 on POST export.
+    FakeState.put(:dest, {:ok, nil})
+
+    assert {:ok, 404, _hdrs, %{"status" => "not_found"}, _raw} =
+             live_http(:get, port, "/v1/settings-backup/destination", auth)
+
+    assert {:ok, 409, _hdrs, %{"status" => "destination_not_configured"}, _raw} =
+             live_http(:post, port, "/v1/settings-backup/export", auth, "application/json", "{}")
+
+    # PUT validation guards over real HTTP: 415 wrong media type, 400 duplicate key, 413 oversized.
+    assert {:ok, 415, _hdrs, %{"status" => "unsupported_media_type"}, _raw} =
+             live_http(:put, port, "/v1/settings-backup/destination", auth, "text/plain", "{}")
+
+    assert {:ok, 400, _hdrs, %{"status" => "invalid_request"}, _raw} =
+             live_http(
+               :put,
+               port,
+               "/v1/settings-backup/destination",
+               auth,
+               "application/json",
+               ~s({"bucket":"a","bucket":"b"})
+             )
+
+    assert {:ok, 413, _hdrs, %{"status" => "request_too_large"}, _raw} =
+             live_http(
+               :put,
+               port,
+               "/v1/settings-backup/destination",
+               auth,
+               "application/json",
+               String.duplicate("x", 70_000)
+             )
+
+    # Valid PUT creates destination and never echoes credentials.
+    put_body =
+      Jason.encode!(%{
+        "endpoint" => "https://us-east-1.linodeobjects.com",
+        "bucket" => "synthetic-bandit-bucket",
+        "region" => "us-east-1",
+        "prefix" => "tenant-live",
+        "access_key_id" => "AKIA_LIVE_BANDIT_KEY",
+        "secret_access_key" => "synthetic-live-bandit-secret",
+        "enabled" => true,
+        "schedule_cron" => "0 */6 * * *"
+      })
+
+    assert {:ok, 201, put_hdrs, %{"data" => created_data}, raw_put} =
+             live_http(:put, port, "/v1/settings-backup/destination", auth, "application/json", put_body)
+
+    assert header_value(put_hdrs, "cache-control") == "no-store"
+    assert header_value(put_hdrs, "x-content-type-options") == "nosniff"
+    assert created_data["bucket"] == "synthetic-bandit-bucket"
+    assert created_data["credentials_configured"] == true
+    refute String.contains?(raw_put, "AKIA_LIVE_BANDIT_KEY")
+    refute String.contains?(raw_put, "synthetic-live-bandit-secret")
+
+    # GET reads back configured destination without credentials.
+    assert {:ok, 200, _hdrs, %{"data" => fetched_data}, raw_get} =
+             live_http(:get, port, "/v1/settings-backup/destination", auth)
+
+    assert fetched_data["bucket"] == "synthetic-bandit-bucket"
+    refute String.contains?(raw_get, "AKIA_LIVE_BANDIT_KEY")
+    refute String.contains?(raw_get, "synthetic-live-bandit-secret")
+
+    # POST export queues job and reports deduplicated flag cleanly.
+    FakeState.put(:conflict, false)
+    export_body = Jason.encode!(%{"reason" => "pre_resize", "idempotency_key" => "  live-resize-1  "})
+
+    assert {:ok, 202, _hdrs, %{"data" => queued}, _raw} =
+             live_http(:post, port, "/v1/settings-backup/export", auth, "application/json", export_body)
+
+    assert queued["status"] == "queued"
+    assert queued["deduplicated"] == false
+    assert queued["job_id"] == 4242
+    assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "live-resize-1"}}
+
+    FakeState.put(:conflict, true)
+
+    assert {:ok, 202, _hdrs, %{"data" => deduped}, _raw} =
+             live_http(:post, port, "/v1/settings-backup/export", auth, "application/json", export_body)
+
+    assert deduped["status"] == "queued"
+    assert deduped["deduplicated"] == true
+    assert deduped["job_id"] == 4242
+    assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "live-resize-1"}}
   end
 
   test "build_export_job configures Oban uniqueness on idempotency_key when present" do
@@ -294,6 +435,30 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
     |> put_req_header("content-type", "application/json")
     |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+  end
+
+  defp live_http(method, port, path, headers, content_type \\ nil, body \\ nil) do
+    url = String.to_charlist("http://127.0.0.1:#{port}#{path}")
+
+    req =
+      case {method, content_type, body} do
+        {:get, _, _} -> {url, headers}
+        {_, ct, b} -> {url, headers, String.to_charlist(ct || "application/json"), b || ""}
+      end
+
+    case :httpc.request(method, req, [timeout: 5_000], body_format: :binary) do
+      {:ok, {{_version, status, _reason}, resp_headers, resp_body}} ->
+        {:ok, status, resp_headers, Jason.decode!(resp_body), resp_body}
+
+      other ->
+        other
+    end
+  end
+
+  defp header_value(headers, target) do
+    Enum.find_value(headers, fn {name, value} ->
+      if String.downcase(to_string(name)) == target, do: to_string(value)
+    end)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

@@ -370,6 +370,137 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert :schedule_cron in Enum.map(update_cs.errors, & &1.field)
     end
 
+    test "run_export_attempt collects canonical bundle and uploads over real CONNECT proxy to TLS origin without leaking secrets" do
+      {:ok, _} = Application.ensure_all_started(:ssl)
+      certs = generate_certs()
+      test_pid = self()
+      origin = start_accepting_tls_origin(certs.server_config, test_pid)
+      proxy = start_connect_proxy(origin.port)
+      prev_http_opts = Application.get_env(:serviceradar_core, :settings_backup_http_opts)
+
+      prev_collector_opts =
+        Application.get_env(:serviceradar_core, :settings_backup_collector_opts)
+
+      Application.put_env(:serviceradar_core, :settings_backup_http_opts,
+        proxy: %{scheme: :http, host: "127.0.0.1", port: proxy.port},
+        cacerts: Keyword.fetch!(certs.client_config, :cacerts)
+      )
+
+      Application.put_env(:serviceradar_core, :settings_backup_collector_opts,
+        readers: build_roundtrip_fixture_readers()
+      )
+
+      on_exit(fn ->
+        origin.stop.()
+        proxy.stop.()
+        restore_core_env(:settings_backup_http_opts, prev_http_opts)
+        restore_core_env(:settings_backup_collector_opts, prev_collector_opts)
+      end)
+
+      exported_at = ~U[2026-11-22 18:00:00Z]
+
+      dest = %SettingsBackupDestination{
+        id: Ecto.UUID.generate(),
+        key: "default",
+        enabled: true,
+        provider: "linode_object_storage",
+        endpoint: "https://localhost:#{origin.port}",
+        bucket: "synthetic-backup-bucket",
+        region: "us-east-1",
+        prefix: "tenant-a",
+        schedule_cron: "0 */6 * * *",
+        access_key_id: "AKIA_SYNTHETIC_KEY",
+        secret_access_key: "synthetic-secret-key"
+      }
+
+      actor = SystemActor.system(:settings_backup_live_test)
+
+      assert {:ok, result} =
+               SettingsBackupDestination.run_export_attempt(dest, exported_at, "pre_resize", actor)
+
+      assert result.last_export_status == "succeeded"
+      assert result.last_export_error == nil
+      assert result.last_exported_at == exported_at
+      assert result.last_export_etag == "\"etag-live-1\""
+      assert byte_size(result.last_export_sha256) == 64
+
+      sha_prefix = binary_part(result.last_export_sha256, 0, 12)
+      expected_key = "tenant-a/settings-export/20261122T180000Z-#{sha_prefix}.json"
+      assert result.last_export_object_key == expected_key
+
+      assert_receive {:origin_put, req1}
+      assert_receive {:origin_put, req2}
+      assert req1.path == "/synthetic-backup-bucket/#{expected_key}"
+      assert req2.path == "/synthetic-backup-bucket/tenant-a/settings-export/latest.json"
+      assert req1.body == req2.body
+      assert req1.headers["x-amz-content-sha256"] == result.last_export_sha256
+      assert String.starts_with?(req1.headers["authorization"], "AWS4-HMAC-SHA256 ")
+
+      expected_bundle = @roundtrip_bundle_fixture |> File.read!() |> Jason.decode!()
+      assert Jason.decode!(req1.body) == expected_bundle
+
+      for forbidden <- [
+            @synthetic_secret_value,
+            @synthetic_ciphertext,
+            "values_wo",
+            "synthetic-secret-key"
+          ] do
+        refute String.contains?(req1.body, forbidden)
+      end
+
+      # Also confirm hyphenated/synonym/header-list secrets are stripped before wire upload.
+      redaction_readers =
+        :order_a
+        |> build_synthetic_readers()
+        |> Map.put(:service_checks, fn _actor ->
+          [
+            %{
+              id: "80000000-0000-4000-8000-000000000002",
+              name: "Live Redaction Check",
+              description: "Check redaction on wire",
+              enabled: true,
+              check_type: :http,
+              target: "https://api.example.com/health",
+              port: 443,
+              interval_seconds: 60,
+              timeout_seconds: 5,
+              retries: 1,
+              config: %{
+                "headers" => %{"X-API-Key" => "wire-hyphen-key", "Cookie" => "wire-cookie-val"},
+                "header_list" => [%{"name" => "Authorization", "value" => "Bearer wire-list-val"}],
+                "passphrase" => "wire-passphrase-val"
+              },
+              warning_threshold_ms: 500,
+              critical_threshold_ms: 1500,
+              agent_uid: "agent-1",
+              device_uid: "device-1",
+              web_property_id: nil,
+              metadata: %{"credentials" => "wire-creds-val", "region" => "us-east-1"}
+            }
+          ]
+        end)
+
+      Application.put_env(:serviceradar_core, :settings_backup_collector_opts,
+        readers: redaction_readers
+      )
+
+      assert {:ok, _result2} =
+               SettingsBackupDestination.run_export_attempt(dest, exported_at, "manual", actor)
+
+      assert_receive {:origin_put, req3}
+      assert_receive {:origin_put, _req4}
+
+      for leaked <- [
+            "wire-hyphen-key",
+            "wire-cookie-val",
+            "wire-list-val",
+            "wire-passphrase-val",
+            "wire-creds-val"
+          ] do
+        refute String.contains?(req3.body, leaked)
+      end
+    end
+
     test "run_export_attempt returns error when S3 upload fails and record_export_failure preserves prior success telemetry" do
       {:ok, _} = Application.ensure_all_started(:ssl)
       certs = generate_certs()
@@ -936,6 +1067,191 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
           {:ok, chunk} -> read_http_head(socket, acc <> to_string(chunk))
           err -> err
         end
+    end
+  end
+
+  defp start_accepting_tls_origin(server_config, test_pid) do
+    listen_opts =
+      server_config ++
+        [
+          :binary,
+          active: false,
+          packet: :raw,
+          reuseaddr: true,
+          ip: {127, 0, 0, 1},
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+    {:ok, listener} = :ssl.listen(0, listen_opts)
+    {:ok, {_addr, port}} = :ssl.sockname(listener)
+    pid = spawn_link(fn -> accepting_origin_loop(listener, test_pid) end)
+
+    %{
+      port: port,
+      stop: fn ->
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+        :ssl.close(listener)
+      end
+    }
+  end
+
+  defp accepting_origin_loop(listener, test_pid) do
+    case :ssl.transport_accept(listener) do
+      {:ok, socket} ->
+        case :ssl.handshake(socket, 5_000) do
+          {:ok, tls_socket} ->
+            with {:ok, raw} <- read_full_http_request(tls_socket, "") do
+              [head, body] = String.split(raw, "\r\n\r\n", parts: 2)
+              [request_line | header_lines] = String.split(head, "\r\n")
+              [_method, path | _] = String.split(request_line, " ")
+
+              headers =
+                Map.new(header_lines, fn line ->
+                  [k, v] = String.split(line, ":", parts: 2)
+                  {String.downcase(String.trim(k)), String.trim(v)}
+                end)
+
+              send(test_pid, {:origin_put, %{path: path, headers: headers, body: body}})
+            end
+
+            :ssl.send(
+              tls_socket,
+              "HTTP/1.1 200 OK\r\netag: \"etag-live-1\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+            )
+
+            :ssl.close(tls_socket)
+
+          _ ->
+            :ok
+        end
+
+        accepting_origin_loop(listener, test_pid)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, _} ->
+        accepting_origin_loop(listener, test_pid)
+    end
+  end
+
+  defp read_full_http_request(socket, acc) do
+    case :binary.split(acc, "\r\n\r\n") do
+      [head, body] ->
+        expected_len = parse_content_length(head)
+
+        if byte_size(body) >= expected_len do
+          {:ok, head <> "\r\n\r\n" <> binary_part(body, 0, expected_len)}
+        else
+          case :ssl.recv(socket, 0, 5_000) do
+            {:ok, chunk} -> read_full_http_request(socket, acc <> to_string(chunk))
+            err -> err
+          end
+        end
+
+      [_] ->
+        case :ssl.recv(socket, 0, 5_000) do
+          {:ok, chunk} -> read_full_http_request(socket, acc <> to_string(chunk))
+          err -> err
+        end
+    end
+  end
+
+  defp parse_content_length(head) do
+    head
+    |> String.split("\r\n")
+    |> Enum.find_value(0, fn line ->
+      case String.split(line, ":", parts: 2) do
+        [name, val] ->
+          if String.downcase(String.trim(name)) == "content-length" do
+            case Integer.parse(String.trim(val)) do
+              {len, ""} -> len
+              _ -> 0
+            end
+          end
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp start_connect_proxy(origin_port) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        active: false,
+        packet: :raw,
+        reuseaddr: true,
+        ip: {127, 0, 0, 1}
+      ])
+
+    {:ok, port} = :inet.port(listener)
+    pid = spawn_link(fn -> proxy_accept(listener, origin_port) end)
+
+    %{
+      port: port,
+      stop: fn ->
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+        :gen_tcp.close(listener)
+      end
+    }
+  end
+
+  defp proxy_accept(listener, origin_port) do
+    case :gen_tcp.accept(listener) do
+      {:ok, client} ->
+        handler = spawn(fn -> receive do: (:go -> proxy_handle(client, origin_port)) end)
+        :ok = :gen_tcp.controlling_process(client, handler)
+        send(handler, :go)
+        proxy_accept(listener, origin_port)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, _} ->
+        proxy_accept(listener, origin_port)
+    end
+  end
+
+  defp proxy_handle(client, origin_port) do
+    with {:ok, request} <- :gen_tcp.recv(client, 0, 5_000),
+         true <- String.starts_with?(to_string(request), "CONNECT "),
+         {:ok, upstream} <-
+           :gen_tcp.connect(
+             {127, 0, 0, 1},
+             origin_port,
+             [:binary, active: false, packet: :raw],
+             5_000
+           ) do
+      :ok = :gen_tcp.send(client, "HTTP/1.0 200 OK\r\n\r\n")
+      :ok = :inet.setopts(client, active: true)
+      :ok = :inet.setopts(upstream, active: true)
+      proxy_relay(client, upstream)
+    else
+      _ -> :gen_tcp.close(client)
+    end
+  end
+
+  defp proxy_relay(client, upstream) do
+    receive do
+      {:tcp, ^client, data} ->
+        :gen_tcp.send(upstream, data)
+        proxy_relay(client, upstream)
+
+      {:tcp, ^upstream, data} ->
+        :gen_tcp.send(client, data)
+        proxy_relay(client, upstream)
+
+      {:tcp_closed, _} ->
+        :ok
+
+      {:tcp_error, _, _} ->
+        :ok
+    after
+      15_000 -> :ok
     end
   end
 end

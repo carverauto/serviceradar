@@ -134,6 +134,20 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
              Scheduler
   end
 
+  test "ash_oban settings backup destination catalog entry registers ExportWorker and ExportScheduler" do
+    assert {:ok, job} = JobCatalog.get_job("ash_oban:settings_backup_destination:export")
+    assert job.source == :ash_oban
+    assert job.resource == ServiceRadar.Jobs.SettingsBackupDestination
+    assert job.cron == "* * * * *"
+    assert job.queue == :maintenance
+    assert job.worker == ServiceRadar.Jobs.SettingsBackupDestination.ExportWorker
+    assert job.scheduler == ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+    assert job.description =~ "object storage"
+
+    assert JobCatalog.ash_oban_trigger_module(job) ==
+             ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+  end
+
   test "trigger_job delegates manual Armis entries to the worker entrypoint" do
     job = Enum.find(JobCatalog.manual_jobs(), &(&1.id == "manual:armis_northbound:source-1"))
 

@@ -509,6 +509,233 @@ func TestTerraformCLISettingsBundleRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTerraformCLIEdgeCaseGuards(t *testing.T) {
+	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
+	providerBinary := declaredTool(t, providerBinaryRlocation, "SERVICERADAR_PROVIDER_BINARY")
+	directory := t.TempDir()
+	mirror := filepath.Join(directory, "mirror")
+	plugin := filepath.Join(mirror, "registry.terraform.io", "carverauto", "serviceradar", "0.1.0", runtime.GOOS+"_"+runtime.GOARCH, "terraform-provider-serviceradar_v0.1.0")
+	copyExecutable(t, providerBinary, plugin)
+	cliConfig := filepath.Join(directory, "terraform.rc")
+	writeTestFile(t, cliConfig, fmt.Sprintf("disable_checkpoint = true\nprovider_installation {\n filesystem_mirror {\n path = %q\n include = [\"registry.terraform.io/carverauto/serviceradar\"]\n }\n}\n", mirror))
+
+	const wrongAPIKey = "synthetic-wrong-api-key-must-never-leak"
+	const rotatedMaterial = "synthetic-edge-rotated-ephemeral-material"
+	secretMarkers := []string{fixtureMaterial, rotatedMaterial, wrongAPIKey, "synthetic-api-token"}
+
+	credential := &apiFixture{}
+	var (
+		forceRedirect      bool
+		force503           bool
+		force412OnMutation bool
+		redirectHits       int
+	)
+	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		credential.mu.Lock()
+		redir := forceRedirect
+		ret503 := force503
+		ret412 := force412OnMutation
+		if redir {
+			redirectHits++
+		}
+		credential.mu.Unlock()
+
+		if redir {
+			w.Header().Set("Location", "/forwarded")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		if ret503 {
+			http.Error(w, fixtureMaterial, http.StatusServiceUnavailable)
+			return
+		}
+		if ret412 && (req.Method == http.MethodPatch || req.Method == http.MethodDelete) {
+			http.Error(w, "stale_etag", http.StatusPreconditionFailed)
+			return
+		}
+		if req.Header.Get("X-API-Key") == wrongAPIKey {
+			http.Error(w, wrongAPIKey, http.StatusForbidden)
+			return
+		}
+		credential.serve(w, req)
+	}))
+	defer api.Close()
+	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw}))
+
+	assertNoSecrets := func(contents []byte) {
+		t.Helper()
+		for _, marker := range secretMarkers {
+			if strings.Contains(string(contents), marker) {
+				t.Fatal("Terraform output or artifact leaked credential material")
+			}
+		}
+	}
+
+	baseEnv := []string{
+		"TF_CLI_CONFIG_FILE=" + cliConfig,
+		"CHECKPOINT_DISABLE=1",
+		"TF_IN_AUTOMATION=1",
+		"TF_INPUT=0",
+		"SERVICERADAR_ENDPOINT=" + api.URL,
+	}
+	for _, key := range []string{"PATH", "TMPDIR", "TEMP", "SYSTEMROOT"} {
+		if value, ok := os.LookupEnv(key); ok {
+			baseEnv = append(baseEnv, key+"="+value)
+		}
+	}
+
+	material := fixtureMaterial
+	runWithAuth := func(want int, authEnv string, args ...string) []byte {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, terraform, args...)
+		cmd.Dir = directory
+		cmd.Env = append(append([]string{}, baseEnv...), authEnv, "TF_VAR_credential_material="+material)
+		output, err := cmd.CombinedOutput()
+		assertNoSecrets(output)
+		code := 0
+		if err != nil {
+			var exited *exec.ExitError
+			if !errors.As(err, &exited) {
+				t.Fatalf("Terraform invocation failed: %v", err)
+			}
+			code = exited.ExitCode()
+		}
+		if code != want {
+			t.Fatalf("terraform %s exited %d, want %d:\n%s", args[0], code, want, output)
+		}
+		return output
+	}
+	runTF := func(want int, args ...string) []byte {
+		t.Helper()
+		return runWithAuth(want, "SERVICERADAR_API_TOKEN=synthetic-api-token", args...)
+	}
+
+	const edgeKey = "ffffffff-1111-4222-8333-444444444444"
+	writeConfig := func(name string, version int) {
+		t.Helper()
+		writeTestFile(t, filepath.Join(directory, "main.tf"), fmt.Sprintf(`terraform {
+  required_version = ">= 1.11.0"
+  required_providers {
+    serviceradar = { source = "carverauto/serviceradar", version = "0.1.0" }
+  }
+}
+provider "serviceradar" { ca_certificate = %q }
+variable "credential_material" {
+  type = string
+  ephemeral = true
+  sensitive = true
+}
+resource "serviceradar_network_credential_secret" "guarded" {
+  name = %q
+  credential_provider = "awx"
+  auth_method = "bearer_token"
+  idempotency_key = %q
+  values_version = %d
+  values_wo = { api_token = var.credential_material }
+}
+`, ca, name, edgeKey, version))
+	}
+
+	writeConfig("Guarded credential", 1)
+	runTF(0, "init", "-backend=false", "-input=false", "-no-color")
+	runTF(0, "validate", "-no-color")
+
+	// 1. Auth guard: wrong X-API-Key rejected with 403 and zero secret leakage.
+	collapseWS := func(b []byte) string { return strings.Join(strings.Fields(string(b)), " ") }
+	out := runWithAuth(1, "SERVICERADAR_API_KEY="+wrongAPIKey, "apply", "-auto-approve", "-input=false", "-no-color")
+	if !strings.Contains(collapseWS(out), "denied the request") {
+		t.Fatalf("expected 403 denied diagnostic, got:\n%s", out)
+	}
+
+	// 2. Redirect guard: 307 rejected without following redirect.
+	credential.mu.Lock()
+	forceRedirect = true
+	redirectHits = 0
+	credential.mu.Unlock()
+	runTF(1, "apply", "-auto-approve", "-input=false", "-no-color")
+	credential.mu.Lock()
+	hits := redirectHits
+	forceRedirect = false
+	credential.mu.Unlock()
+	if hits != 1 {
+		t.Fatalf("expected provider to stop on 307 without following redirect (hits=1), got %d", hits)
+	}
+
+	// 3. 503 diagnostic: surfaces temporary unavailability without leaking response body.
+	credential.mu.Lock()
+	force503 = true
+	credential.mu.Unlock()
+	out = runTF(1, "apply", "-auto-approve", "-input=false", "-no-color")
+	credential.mu.Lock()
+	force503 = false
+	credential.mu.Unlock()
+	if !strings.Contains(collapseWS(out), "temporarily unavailable") {
+		t.Fatalf("expected 503 temporary unavailability diagnostic, got:\n%s", out)
+	}
+
+	// 4. Clean create, then write-only values_wo rotation partial-failure recovery without double-rotating.
+	runTF(0, "apply", "-auto-approve", "-input=false", "-no-color")
+	material = rotatedMaterial
+	writeConfig("Guarded credential v2", 2)
+	credential.mu.Lock()
+	credential.rejectPatch = true
+	credential.mu.Unlock()
+	runTF(1, "apply", "-auto-approve", "-input=false", "-no-color")
+	credential.mu.Lock()
+	rotAfterFail := credential.rotations
+	credential.rejectPatch = false
+	credential.mu.Unlock()
+	if rotAfterFail != 1 {
+		t.Fatalf("expected exactly one accepted rotation before PATCH rejection, got %d", rotAfterFail)
+	}
+	stateBytes, err := os.ReadFile(filepath.Join(directory, "terraform.tfstate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoSecrets(stateBytes)
+
+	runTF(0, "apply", "-auto-approve", "-input=false", "-no-color")
+	credential.mu.Lock()
+	rotAfterRetry := credential.rotations
+	credential.mu.Unlock()
+	if rotAfterRetry != 1 {
+		t.Fatalf("retry repeated an already-accepted rotation: rotations=%d", rotAfterRetry)
+	}
+	runTF(0, "plan", "-detailed-exitcode", "-input=false", "-no-color")
+
+	// 5. ETag/If-Match concurrency guard: 412 Precondition Failed rejects update & destroy while preserving state.
+	writeConfig("Guarded credential v3", 2)
+	credential.mu.Lock()
+	force412OnMutation = true
+	credential.mu.Unlock()
+	out = runTF(1, "apply", "-auto-approve", "-input=false", "-no-color")
+	if !strings.Contains(collapseWS(out), "stale or missing resource version") {
+		t.Fatalf("expected 412 stale-version diagnostic on update, got:\n%s", out)
+	}
+	out = runTF(1, "destroy", "-auto-approve", "-input=false", "-no-color")
+	if !strings.Contains(collapseWS(out), "stale or missing resource version") {
+		t.Fatalf("expected 412 stale-version diagnostic on destroy, got:\n%s", out)
+	}
+	if !strings.Contains(string(runTF(0, "state", "list")), "serviceradar_network_credential_secret.guarded") {
+		t.Fatal("412 destroy falsely removed resource from Terraform state")
+	}
+
+	// 6. Clean destroy, then 410 Gone when reusing the deleted resource's idempotency_key.
+	credential.mu.Lock()
+	force412OnMutation = false
+	credential.mu.Unlock()
+	runTF(0, "destroy", "-auto-approve", "-input=false", "-no-color")
+	if len(strings.TrimSpace(string(runTF(0, "state", "list")))) != 0 {
+		t.Fatal("destroy retained resource")
+	}
+	out = runTF(1, "apply", "-auto-approve", "-input=false", "-no-color")
+	if !strings.Contains(collapseWS(out), "deleted resource") {
+		t.Fatalf("expected 410 deleted-resource idempotency_key diagnostic, got:\n%s", out)
+	}
+}
+
 func buildBundleTerraformJSON(caPEM string, bundle settingsExportBundle, importing, enabledOverride, includeData bool) map[string]any {
 	secretOne := bundle.TerraformResources.Secrets[0]
 	secretTwo := bundle.TerraformResources.Secrets[1]
