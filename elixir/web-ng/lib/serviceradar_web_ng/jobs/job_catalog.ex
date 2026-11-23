@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker
   alias ServiceRadar.Inventory.DeviceHostnameRdnsSettings
+  alias ServiceRadar.Jobs.SettingsBackupDestination
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -248,7 +249,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       ServiceCheck,
       Alert,
       OnboardingPackage,
-      DeviceHostnameRdnsSettings
+      DeviceHostnameRdnsSettings,
+      SettingsBackupDestination
     ]
   end
 
@@ -670,6 +672,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp resource_description(OnboardingPackage), do: "Expires edge onboarding packages"
 
   defp resource_description(DeviceHostnameRdnsSettings), do: "Resolves reverse-DNS hostnames onto inventory devices"
+
+  defp resource_description(SettingsBackupDestination),
+    do: "Exports declarative ServiceRadar settings to customer object storage"
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 

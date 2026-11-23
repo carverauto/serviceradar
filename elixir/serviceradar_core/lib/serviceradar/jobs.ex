@@ -30,6 +30,7 @@ defmodule ServiceRadar.Jobs do
 
   resources do
     resource ServiceRadar.Jobs.JobSchedule
+    resource ServiceRadar.Jobs.SettingsBackupDestination
   end
 
   authorization do

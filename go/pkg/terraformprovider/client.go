@@ -58,8 +58,12 @@ func (e *apiError) Error() string {
 		return "ServiceRadar denied the request; check the account permissions and token capabilities"
 	case http.StatusConflict:
 		return "ServiceRadar rejected a conflicting request or a deletion with active references"
+	case http.StatusGone:
+		return "ServiceRadar rejected a create whose idempotency key belongs to a deleted resource; supply a fresh idempotency_key"
 	case http.StatusPreconditionFailed, http.StatusPreconditionRequired:
 		return "ServiceRadar rejected a stale or missing resource version; refresh the plan before retrying"
+	case http.StatusServiceUnavailable:
+		return "ServiceRadar idempotency storage is temporarily unavailable; retain the idempotency_key and retry"
 	default:
 		return fmt.Sprintf("ServiceRadar returned HTTP %d; inspect the server's sanitized audit record", e.status)
 	}
