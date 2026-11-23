@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   @moduledoc """
-  Authenticated timeline coverage, multi-block HLS v7 VOD playlists, and bounded
-  copy-resolved init/fragment reads for recorded cameras (`D.3`, `D.4`,
-  `design.md` `D1`–`D7`, `spec.md:614-677`).
+  Authenticated timeline coverage, multi-block HLS v7 VOD playlists, bounded
+  copy-resolved init/fragment reads, and bounded JPEG clip thumbnails for
+  recorded cameras (`D.3`, `D.4`, `design.md` `D1`–`D7`, `spec.md:614-677`).
   """
 
   use ServiceRadarWebNGWeb, :controller

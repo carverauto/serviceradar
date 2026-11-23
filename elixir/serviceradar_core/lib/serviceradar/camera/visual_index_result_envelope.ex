@@ -5,8 +5,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultEnvelope do
 
   | Object | Required fields | Optional fields |
   | --- | --- | --- |
-  | Result | Schema, schema version (v1), catalog UUID, descriptor SHA-256, detector and embedder ID/version, dimension, frames | Job UUID, tracks (empty) |
-  | Frame | Fragment sequence, media PTS, scene suppression, detections, embeddings | None |
+  | Result | Schema, schema version (v1), catalog UUID, descriptor SHA-256, detector and embedder ID/version, dimension, frames | Job UUID, tracks (empty), nullable `block_thumbnail_jpeg_b64` (`<= 64 KiB` base64 JPEG) |
+  | Frame | Fragment sequence, media PTS, scene suppression, detections, embeddings | Nullable `thumbnail_jpeg_b64` (`<= 64 KiB` base64 JPEG) |
   | Detection | Object class, confidence, box, dominant colors | Nullable track ID (validated, not persisted) |
   | Embedding | Region kind, region index, dominant colors, vector | Nullable class, confidence, box and track ID |
   | Track | Track ID, object class, first and last offsets, dwell, frame count and peak confidence | None |

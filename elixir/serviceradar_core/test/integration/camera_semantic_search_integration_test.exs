@@ -602,7 +602,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
     assert {:ok, ^block_jpeg} =
              Thumbnail.fetch_for_camera(
-               to_string(cam_allowed.id),
+               to_string(cam_authorized.id),
                :block,
                to_string(entry_auth.id)
              )
@@ -651,7 +651,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
     assert {:error, :thumbnail_not_found} =
              Thumbnail.fetch_for_camera(
-               to_string(cam_allowed.id),
+               to_string(cam_authorized.id),
                :frame,
                to_string(forb_frame.id)
              )
@@ -751,8 +751,14 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
 
     target_vec = basis_vector(768, 5)
 
+    purge_block_jpeg =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x0B, 0xFF, 0xD9>>
+
     for entry <- [entry_tombstone, entry_quarantine, entry_held] do
-      ingest_single_crop_result(entry, target_vec, actor)
+      ingest_single_crop_result(entry, target_vec, actor, block_thumbnail_jpeg: purge_block_jpeg)
+
+      assert {:ok, ^purge_block_jpeg} =
+               Thumbnail.fetch_for_camera(to_string(cam.id), :block, to_string(entry.id))
     end
 
     hold_actor = %{
@@ -809,6 +815,18 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              |> Ash.Query.filter(catalog_entry_id == ^entry_tombstone.id)
              |> Ash.count!(actor: actor)
 
+    tombstone_thumb_row =
+      RecordingCatalogEntry
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(id == ^entry_tombstone.id)
+      |> Ash.Query.select([:id, :thumbnail_jpeg])
+      |> Ash.read_one!(actor: actor)
+
+    assert tombstone_thumb_row.thumbnail_jpeg == nil
+
+    assert {:error, :thumbnail_not_found} =
+             Thumbnail.fetch_for_camera(to_string(cam.id), :block, to_string(entry_tombstone.id))
+
     # 2. In-place quarantine on entry_quarantine immediately purges frames & embeddings
     #    and rejects any late worker result!
     {:ok, quarantined} =
@@ -838,6 +856,21 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
              VisualEmbedding
              |> Ash.Query.filter(catalog_entry_id == ^entry_quarantine.id)
              |> Ash.count!(actor: actor)
+
+    quarantined_thumb_row =
+      RecordingCatalogEntry
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(id == ^entry_quarantine.id)
+      |> Ash.Query.select([:id, :thumbnail_jpeg])
+      |> Ash.read_one!(actor: actor)
+
+    assert quarantined_thumb_row.thumbnail_jpeg == nil
+
+    assert {:error, :thumbnail_not_found} =
+             Thumbnail.fetch_for_camera(to_string(cam.id), :block, to_string(entry_quarantine.id))
+
+    assert {:ok, ^purge_block_jpeg} =
+             Thumbnail.fetch_for_camera(to_string(cam.id), :block, to_string(entry_held.id))
 
     assert {:error, :recording_gone} =
              VisualIndexResultProjector.ingest_result(
@@ -2213,7 +2246,7 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
     entry
   end
 
-  defp ingest_single_crop_result(entry, vec, actor) do
+  defp ingest_single_crop_result(entry, vec, actor, opts \\ []) do
     [job] =
       VisualIndexJob
       |> Ash.Query.filter(catalog_entry_id == ^entry.id)
@@ -2223,6 +2256,15 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchIntegrationTest do
       entry
       |> build_single_crop_envelope(vec)
       |> Map.put("job_id", to_string(job.id))
+
+    envelope =
+      case Keyword.get(opts, :block_thumbnail_jpeg) do
+        bytes when is_binary(bytes) ->
+          Map.put(envelope, "block_thumbnail_jpeg_b64", Base.encode64(bytes))
+
+        _ ->
+          envelope
+      end
 
     {:ok, _} = VisualIndexResultProjector.ingest_result(envelope)
   end

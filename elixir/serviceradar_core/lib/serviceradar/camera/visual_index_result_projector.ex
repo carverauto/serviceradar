@@ -15,7 +15,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   | Any | Active | Gone | Cancel active jobs for the recording and acknowledge |
   | Any | Active | Temporarily unavailable | Retry without writes |
   | Invalid, including a stale catalog digest | Active | Playable | Fail the job, report health, and dead-letter |
-  | Valid | Active | Playable | Store frames and embeddings, complete the job, and acknowledge |
+  | Valid | Active | Playable | Store optional block/frame thumbnails, frames and embeddings, complete the job, and acknowledge |
 
   Pending and dispatched jobs are active. Completed, cancelled and terminally failed jobs are final.
   """
