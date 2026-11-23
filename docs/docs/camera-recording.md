@@ -745,11 +745,17 @@ and background runtime workers in `core-elx` and `serviceradar-nvr`:
     inventory reconciliation and desired budget pushes are pending. See the
     [reconciliation and storage sync tasks](https://github.com/carverauto/serviceradar/blob/staging/openspec/changes/add-nvr-retention-and-timeline-playback/tasks.md).
   - **Background eviction & byte-range media readers:** Automatic local disk
-    reclamation (`LocalRetentionJob` + NVR `POST /v1/blocks/<id>/reclaim`),
-    expired object deletion (`ArchiveRetentionJob`), and self-hosted capacity
-    reaping (gated behind the disabled Phase 1 reaper flag) run as background
-    jobs; until local reclamation is active, NVR spools retain sealed blocks and
-    refuse new capture admission once spool budget is reached. Local timeline
+    reclamation runs every 60 seconds per configured NVR member through
+    `LocalRetentionJob` on `core-elx`'s `maintenance` Oban queue (enforcing the
+    `C1` watermarks and age ceilings with `PD5` hold checks, NVR
+    `POST /v1/blocks/<id>/reclaim`, and lookup verification, capped at 500
+    blocks per pass while the deployment recovery gate and member inventory are
+    ready). Expired object deletion (`ArchiveRetentionJob`) and self-hosted
+    capacity reaping (gated behind the disabled Phase 1 reaper flag) remain
+    pending background jobs; when local reclamation cannot run (for example
+    while the recovery gate is closed or `local_only_full_policy` is
+    `stop_when_full`), NVR spools retain sealed blocks and refuse new capture
+    admission once spool budget is reached. Local timeline
     init/fragment playback uses the opt-in NVR read listener (`nvr.read.enabled`
     in Helm) and `CameraTimelineReader.NVRLocal` (returning `503
     recording_read_unavailable` when the read client is unconfigured or

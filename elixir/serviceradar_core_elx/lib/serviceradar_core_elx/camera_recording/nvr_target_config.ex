@@ -45,6 +45,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfig do
 
   def resolve_by_storage_id(_storage_id, _opts), do: {:error, :invalid_nvr_storage_id}
 
+  @spec list_all(keyword()) :: {:ok, [resolved_target()]} | {:error, atom()}
+  def list_all(opts \\ []) when is_list(opts) do
+    with {:ok, config_path, token_path} <- config_paths(opts),
+         {:ok, members} <- Members.load(config_path, token_path) do
+      {:ok, members |> Map.values() |> Enum.sort_by(& &1.member)}
+    end
+  end
+
   defp cast_uuid(storage_id) do
     case Ecto.UUID.cast(storage_id) do
       {:ok, uuid} -> {:ok, uuid}
