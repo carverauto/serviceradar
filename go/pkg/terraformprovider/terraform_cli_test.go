@@ -27,6 +27,9 @@ var providerBinaryRlocation string        //nolint:gochecknoglobals // Bazel inj
 var settingsBundleFixtureRlocation string //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
 
 func TestTerraformCLILifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Terraform CLI subprocess acceptance test in short mode")
+	}
 	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
 	providerBinary := declaredTool(t, providerBinaryRlocation, "SERVICERADAR_PROVIDER_BINARY")
 	directory := t.TempDir()
@@ -341,6 +344,9 @@ type exportedTerraformResource struct {
 }
 
 func TestTerraformCLISettingsBundleRoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Terraform CLI subprocess acceptance test in short mode")
+	}
 	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
 	providerBinary := declaredTool(t, providerBinaryRlocation, "SERVICERADAR_PROVIDER_BINARY")
 	directory := t.TempDir()
@@ -510,6 +516,9 @@ func TestTerraformCLISettingsBundleRoundTrip(t *testing.T) {
 }
 
 func TestTerraformCLIEdgeCaseGuards(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Terraform CLI subprocess acceptance test in short mode")
+	}
 	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
 	providerBinary := declaredTool(t, providerBinaryRlocation, "SERVICERADAR_PROVIDER_BINARY")
 	directory := t.TempDir()
