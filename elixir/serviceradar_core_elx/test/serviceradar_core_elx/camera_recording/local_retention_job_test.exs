@@ -28,8 +28,70 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       refute :executing in unique[:states]
     end
 
-    test "run_all returns empty list when NVR client is not configured" do
-      assert {:ok, []} = LocalRetentionJob.run_all(target_opts: [config_file: nil, token_file: nil])
+    test "enqueue_all returns empty list when NVR client is not configured" do
+      insert_fn = fn _changeset ->
+        flunk("insert_fn must not be called when NVR client is not configured")
+      end
+
+      assert {:ok, []} =
+               LocalRetentionJob.enqueue_all(
+                 target_opts: [config_file: nil, token_file: nil],
+                 insert_fn: insert_fn
+               )
+    end
+
+    test "enqueue_all fans out one unique per-member job per configured NVR member" do
+      targets = [
+        target("serviceradar-nvr-0", "00000000-0000-4000-8000-000000000011"),
+        target("serviceradar-nvr-1", "00000000-0000-4000-8000-000000000012")
+      ]
+
+      {:ok, agent} = Agent.start_link(fn -> [] end)
+
+      insert_fn = fn changeset ->
+        Agent.update(agent, &(&1 ++ [changeset]))
+        {:ok, Ecto.Changeset.apply_changes(changeset)}
+      end
+
+      assert {:ok, jobs} = LocalRetentionJob.enqueue_all(targets: targets, insert_fn: insert_fn)
+      assert Enum.map(jobs, & &1.args) == [%{"member" => "serviceradar-nvr-0"}, %{"member" => "serviceradar-nvr-1"}]
+
+      changesets = Agent.get(agent, & &1)
+      assert length(changesets) == 2
+
+      for {changeset, expected_member} <- Enum.zip(changesets, ["serviceradar-nvr-0", "serviceradar-nvr-1"]) do
+        assert changeset.valid?
+        assert Ecto.Changeset.get_field(changeset, :args) == %{"member" => expected_member}
+        assert Ecto.Changeset.get_field(changeset, :queue) == "maintenance"
+        assert Ecto.Changeset.get_field(changeset, :worker) == "ServiceRadarCoreElx.CameraRecording.LocalRetentionJob"
+
+        unique = Ecto.Changeset.get_change(changeset, :unique)
+        assert unique[:keys] == [:member]
+        assert unique[:period] == 55
+        assert unique[:states] == [:available, :scheduled, :retryable]
+      end
+    end
+
+    test "enqueue_all propagates Oban insert failures" do
+      targets = [
+        target("serviceradar-nvr-0", "00000000-0000-4000-8000-000000000011"),
+        target("serviceradar-nvr-1", "00000000-0000-4000-8000-000000000012")
+      ]
+
+      insert_fn = fn changeset ->
+        if Ecto.Changeset.get_field(changeset, :args) == %{"member" => "serviceradar-nvr-1"} do
+          {:error, :db_unavailable}
+        else
+          {:ok, Ecto.Changeset.apply_changes(changeset)}
+        end
+      end
+
+      assert {:error, :db_unavailable} = LocalRetentionJob.enqueue_all(targets: targets, insert_fn: insert_fn)
+    end
+
+    test "perform dispatches per-member args to run_member" do
+      assert {:error, :invalid_nvr_member} =
+               LocalRetentionJob.perform(%Oban.Job{args: %{"member" => "invalid member name"}})
     end
   end
 
@@ -65,19 +127,92 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       assert Enum.map(state.finalized, & &1.block_key) == [block_key(1), block_key(2), block_key(3)]
     end
 
-    test "does not space-evict when usage is below high water" do
+    test "does not space-evict or query present entries when below high water and age modes are unlimited" do
       entries = [entry(1, archive_state: :verified, media_bytes: 50)]
 
       {harness, opts} =
         build_harness(
           entries: entries,
           capacity: capacity(used_bytes: 899, max_spool_bytes: 1_000, blocks: 1, max_blocks: 100),
-          settings: settings(max_local_age_mode: :unlimited, max_local_age_seconds: nil)
+          settings:
+            settings(
+              max_local_age_mode: :unlimited,
+              max_local_age_seconds: nil,
+              local_only_max_age_mode: :unlimited,
+              local_only_max_age_seconds: nil
+            )
         )
 
       assert {:ok, summary} = LocalRetentionJob.run_target(target(), opts)
       assert summary.reclaimed == 0
-      assert harness_state(harness).intents == []
+      state = harness_state(harness)
+      assert state.intents == []
+      assert state.present_loads == []
+    end
+
+    test "stops at low water when reclaim succeeds but follow-up lookup_blocks returns 503" do
+      # Budget: 1000 bytes, high water 90% (900), low water 80% (800).
+      # Used: 950 bytes across ten 100-byte local-only blocks under overwrite_oldest.
+      # Two reclaims bring projected bytes from 950 -> 750 <= 800 even when lookup_blocks returns 503.
+      entries =
+        for idx <- 1..10 do
+          entry(idx, archive_state: :not_required, media_bytes: 100, timeline_start_us: idx * 1_000_000)
+        end
+
+      {harness, opts} =
+        build_harness(
+          entries: entries,
+          capacity: capacity(used_bytes: 950, max_spool_bytes: 1_000, blocks: 10, max_blocks: 100),
+          settings:
+            settings(
+              max_local_age_mode: :unlimited,
+              max_local_age_seconds: nil,
+              local_only_full_policy: :overwrite_oldest
+            ),
+          lookup_error: {:error, {:lookup_status, 503, %{"error" => "busy"}}}
+        )
+
+      assert {:ok, summary} = LocalRetentionJob.run_target(target(), opts)
+      assert summary.reclaimed == 0
+      assert summary.deferred == 2
+      assert summary.processed == 2
+
+      state = harness_state(harness)
+      assert Enum.map(state.reclaim_calls, & &1.block_id) == [block_key(1), block_key(2)]
+      assert state.finalized == []
+    end
+
+    test "deducts projected usage on resumed sealed reclaim when follow-up lookup returns 503" do
+      # Used: 950 bytes, low water 800. Resuming block 1 (100 bytes) + space-evicting block 2 (100 bytes)
+      # reaches 750 <= 800 even if follow-up lookup_blocks returns 503 after each reclaim.
+      still_sealed = entry(1, local_state: :reclaiming, archive_state: :verified, media_bytes: 100)
+
+      present_entries =
+        for idx <- 2..6 do
+          entry(idx, archive_state: :verified, media_bytes: 100, timeline_start_us: idx * 1_000_000)
+        end
+
+      {harness, opts} =
+        build_harness(
+          reclaiming_entries: [still_sealed],
+          entries: present_entries,
+          capacity: capacity(used_bytes: 950, max_spool_bytes: 1_000, blocks: 6, max_blocks: 100),
+          settings: settings(max_local_age_mode: :unlimited, max_local_age_seconds: nil),
+          dispositions: %{
+            still_sealed.id => %{operation_id: "00000000-0000-4000-8000-000000000778", copy: :local}
+          },
+          initial_nvr_states: %{still_sealed.block_key => :sealed},
+          post_reclaim_lookup_error: {:error, {:lookup_status, 503, %{"error" => "busy"}}}
+        )
+
+      assert {:ok, summary} = LocalRetentionJob.run_target(target(), opts)
+      assert summary.reclaimed == 0
+      assert summary.deferred == 2
+      assert summary.processed == 2
+
+      state = harness_state(harness)
+      assert Enum.map(state.reclaim_calls, & &1.block_id) == [block_key(1), block_key(2)]
+      assert state.finalized == []
     end
 
     test "triggers space eviction on block cap and stops once projected blocks reach low water" do
@@ -380,6 +515,59 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       assert length(harness_state(harness).finalized) == 500
     end
 
+    test "bounds present catalog query with oldest-first sort, headroom limit, and policy/age filters" do
+      cutoff_a = DateTime.shift(@fixed_now, day: -1)
+      cutoff_b = DateTime.shift(@fixed_now, day: -2)
+
+      space_stop_query =
+        LocalRetentionJob.present_entries_query(@storage_id, %{
+          space_needed?: true,
+          full_policy: :stop_when_full,
+          kind_a_age_cutoff: nil,
+          kind_b_age_cutoff: nil,
+          limit: 1_000
+        })
+
+      assert space_stop_query.limit == 1_000
+      assert space_stop_query.sort == [timeline_start_us: :asc, sealed_at: :asc, block_key: :asc]
+      refute inspect(space_stop_query.filter) =~ "not_required"
+
+      age_only_query =
+        LocalRetentionJob.present_entries_query(@storage_id, %{
+          space_needed?: false,
+          full_policy: :stop_when_full,
+          kind_a_age_cutoff: cutoff_a,
+          kind_b_age_cutoff: cutoff_b,
+          limit: 1_000
+        })
+
+      assert age_only_query.limit == 1_000
+      assert age_only_query.sort == [timeline_start_us: :asc, sealed_at: :asc, block_key: :asc]
+      assert inspect(age_only_query.filter) =~ "sealed_at"
+
+      entries = [entry(1, archive_state: :verified, media_bytes: 50, sealed_at: hours_ago(30))]
+
+      {harness, opts} =
+        build_harness(
+          entries: entries,
+          capacity: capacity(used_bytes: 200, max_spool_bytes: 1_000, blocks: 1, max_blocks: 100),
+          settings:
+            settings(
+              max_local_age_mode: :limited,
+              max_local_age_seconds: 86_400,
+              local_only_max_age_mode: :unlimited,
+              local_only_max_age_seconds: nil
+            )
+        )
+
+      assert {:ok, _summary} = LocalRetentionJob.run_target(target(), opts)
+      assert [query_spec] = harness_state(harness).present_loads
+      assert query_spec.limit == 1_000
+      assert query_spec.space_needed? == false
+      assert query_spec.kind_a_age_cutoff == cutoff_a
+      assert query_spec.kind_b_age_cutoff == nil
+    end
+
     test "skips member when recovery gate is closed, storage_id mismatches, or inventory is not ready" do
       entries = [entry(1, archive_state: :verified, media_bytes: 100)]
 
@@ -415,12 +603,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
     end
   end
 
-  defp target do
+  defp target(member \\ @member, storage_id \\ @storage_id) do
     %{
-      member: @member,
-      storage_id: @storage_id,
+      member: member,
+      storage_id: storage_id,
       client_config: %ClientConfig{
-        host: "serviceradar-nvr-0.example.internal",
+        host: "#{member}.example.internal",
         port: 8_443,
         ca: "/run/nvr/ca.pem",
         cert: "/run/nvr/client.pem",
@@ -478,6 +666,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
     holds = Keyword.get(config, :holds, [])
     dispositions = Keyword.get(config, :dispositions, %{})
     reclaim_overrides = Keyword.get(config, :reclaim_overrides, %{})
+    lookup_error = Keyword.get(config, :lookup_error)
+    post_reclaim_lookup_error = Keyword.get(config, :post_reclaim_lookup_error)
     initial_nvr_states = Keyword.get(config, :initial_nvr_states, %{})
     cap = Keyword.get(config, :capacity, capacity([]))
     cfg_settings = Keyword.get(config, :settings, settings())
@@ -508,6 +698,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       Agent.start_link(fn ->
         %{
           nvr_states: nvr_states,
+          present_loads: [],
           intents: [],
           reclaim_calls: [],
           steps: [],
@@ -521,7 +712,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       status_fn: fn _cfg -> {:ok, status_map} end,
       settings_loader: fn -> {:ok, cfg_settings} end,
       reclaiming_loader: fn @storage_id -> {:ok, reclaiming_entries} end,
-      present_loader: fn @storage_id -> {:ok, entries} end,
+      present_loader: fn @storage_id, query_spec ->
+        Agent.update(agent, fn st -> %{st | present_loads: st.present_loads ++ [query_spec]} end)
+        {:ok, entries}
+      end,
       disposition_loader: fn entry_id -> {:ok, Map.get(dispositions, entry_id)} end,
       begin_intent_fn: fn entry_id, :local, attrs, _intent_opts ->
         e = Map.fetch!(entries_by_id, entry_id)
@@ -582,25 +776,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
             err
         end
       end,
-      lookup_fn: fn _cfg, block_ids ->
-        states = Agent.get(agent, & &1.nvr_states)
-
-        blocks =
-          Enum.map(block_ids, fn bid ->
-            st = Map.get(states, bid, :absent)
-
-            %{
-              block_id: bid,
-              state: st,
-              writing: false,
-              bytes: if(st == :sealed, do: 100),
-              descriptor_sha256: nil,
-              reason: nil
-            }
-          end)
-
-        {:ok, %{storage_id: @storage_id, blocks: blocks}}
-      end,
+      lookup_fn: build_lookup_fn(agent, lookup_error, post_reclaim_lookup_error),
       finalize_reclaimed_fn: fn e, now ->
         updated = %{e | local_state: :reclaimed}
 
@@ -613,6 +789,37 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
     ]
 
     {agent, opts}
+  end
+
+  defp build_lookup_fn(agent, lookup_error, post_reclaim_lookup_error) do
+    fn _cfg, block_ids ->
+      current = Agent.get(agent, & &1)
+
+      cond do
+        not is_nil(lookup_error) ->
+          lookup_error
+
+        not is_nil(post_reclaim_lookup_error) and current.reclaim_calls != [] ->
+          post_reclaim_lookup_error
+
+        true ->
+          blocks = Enum.map(block_ids, &lookup_block_entry(&1, current.nvr_states))
+          {:ok, %{storage_id: @storage_id, blocks: blocks}}
+      end
+    end
+  end
+
+  defp lookup_block_entry(bid, nvr_states) do
+    st = Map.get(nvr_states, bid, :absent)
+
+    %{
+      block_id: bid,
+      state: st,
+      writing: false,
+      bytes: if(st == :sealed, do: 100),
+      descriptor_sha256: nil,
+      reason: nil
+    }
   end
 
   defp harness_state(agent), do: Agent.get(agent, & &1)

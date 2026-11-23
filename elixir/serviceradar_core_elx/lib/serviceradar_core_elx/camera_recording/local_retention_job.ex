@@ -4,13 +4,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   enforces local NVR retention and capacity-driven ring eviction (`C.7`, design
   sections `C1`, `C2`, `C4`, `C6`, `C7`).
 
-  For each configured NVR member:
+  The 60-second cron trigger fans out one unique per-member Oban job
+  (`%{"member" => member}`) per configured NVR member so each member runs
+  independently on its 60-second cadence with per-member uniqueness.
+
+  For each NVR member pass:
   1. Verifies Core's recovery gate and the member's `GET /v1/status`
      (`storage_id` match, `recovery.state == :ready`, `inventory == :ready`).
   2. Resumes any catalog entries already in `local_state == :reclaiming` left by
      a prior worker crash before selecting new candidates.
-  3. Applies the `C1` eviction table over reconciled, non-quarantined entries
-     (`local_state == :present`, `recording_block_id != nil`, `quarantine_reason == nil`):
+  3. Skips loading `:present` catalog rows when neither space eviction nor age
+     eviction can apply; otherwise loads oldest-first eligible rows with a
+     bounded query limit and applies the `C1` eviction table over reconciled,
+     non-quarantined entries (`local_state == :present`,
+     `recording_block_id != nil`, `quarantine_reason == nil`):
      - Age eviction: kind (a) (`archive_state` in `[:verified, :deleted]`) older
        than `max_local_age` when `:limited`; kind (b) (`archive_state == :not_required`)
        older than `local_only_max_age` when `:limited`, regardless of full policy.
@@ -23,8 +30,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
        are never selected.
   4. Serializes each eviction with `RecordingHolds.begin_copy_deletion_intent/4`
      (PD5 hold check + `:reclaiming` transition + `:requested` disposition in one
-     transaction), calls `ServiceRadarNVRClient.reclaim_block/4`, re-checks via
-     `ServiceRadarNVRClient.lookup_blocks/3`, and transitions `local_state` to
+     transaction), calls `ServiceRadarNVRClient.reclaim_block/3`, re-checks via
+     `ServiceRadarNVRClient.lookup_blocks/2`, and transitions `local_state` to
      `:reclaimed` only after NVR confirms `:reclaimed` or `:absent`.
   5. Caps each pass at 500 blocks per member and leaves retryable failures in
      `:reclaiming` for the next 60-second pass.
@@ -57,6 +64,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   @system_actor SystemActor.system(:camera_nvr_local_retention)
   @actor_id "system:camera_nvr_local_retention"
   @max_blocks_per_pass 500
+  @present_query_headroom_multiplier 2
   @lookup_batch_size 50
   @kind_a_states [:verified, :deleted]
   @default_high_water_percent 90
@@ -89,35 +97,47 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   end
 
   def perform(%Oban.Job{}) do
-    case run_all() do
-      {:ok, _summaries} -> :ok
+    case enqueue_all() do
+      {:ok, _jobs} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  Runs one local retention pass across every configured NVR member.
+  Enqueues one unique per-member retention job for every configured NVR member.
 
   Returns `{:ok, []}` cleanly when the NVR client is not configured on this
   deployment.
   """
-  @spec run_all(keyword()) :: {:ok, [member_summary()]} | {:error, term()}
-  def run_all(opts \\ []) when is_list(opts) do
+  @spec enqueue_all(keyword()) :: {:ok, [Oban.Job.t()]} | {:error, term()}
+  def enqueue_all(opts \\ []) when is_list(opts) do
+    insert_fn = Keyword.get(opts, :insert_fn, &Oban.insert/1)
+
     case list_targets(opts) do
       {:ok, targets} ->
-        summaries =
-          Enum.map(targets, fn target ->
-            {:ok, summary} = run_target(target, opts)
-            summary
-          end)
-
-        {:ok, summaries}
+        enqueue_targets(targets, insert_fn)
 
       {:error, :nvr_client_not_configured} ->
         {:ok, []}
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp enqueue_targets(targets, insert_fn) do
+    targets
+    |> Enum.reduce_while({:ok, []}, fn %{member: member}, {:ok, acc} ->
+      changeset = new(%{"member" => member})
+
+      case insert_fn.(changeset) do
+        {:ok, job} -> {:cont, {:ok, [job | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, jobs} -> {:ok, Enum.reverse(jobs)}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -139,7 +159,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   - `:status_fn` (`(client_config -> {:ok, status} | {:error, term()})`)
   - `:settings_loader` (`(-> {:ok, settings} | {:error, term()})`)
   - `:reclaiming_loader` (`(storage_id -> {:ok, [entry]} | {:error, term()})`)
-  - `:present_loader` (`(storage_id -> {:ok, [entry]} | {:error, term()})`)
+  - `:present_loader` (`(storage_id, query_opts -> {:ok, [entry]} | {:error, term()})`)
   - `:disposition_loader` (`(entry_id -> {:ok, disposition | nil} | {:error, term()})`)
   - `:begin_intent_fn` (`(entry_id, :local, attrs, opts -> {:ok, %{entry: entry, disposition: disp}} | {:error, term()})`)
   - `:record_step_fn` (`(disposition, step, extra_attrs, opts -> {:ok, disposition} | {:error, term()})`)
@@ -287,6 +307,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
         |> deduct_projected_usage(freed_bytes)
         |> update_summary(%{resumed: 1, reclaimed: 1, processed: 1})
 
+      :deferred_reclaimed ->
+        acc
+        |> deduct_projected_usage(freed_bytes)
+        |> update_summary(%{deferred: 1, processed: 1})
+
       :deferred ->
         update_summary(acc, %{deferred: 1, processed: 1})
     end
@@ -297,15 +322,37 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   end
 
   defp evict_present_candidates(pass_ctx, capacity, state) do
-    case load_present_entries(pass_ctx.target.storage_id, pass_ctx.opts) do
+    query_spec = build_present_query_spec(capacity, pass_ctx, state)
+
+    if present_query_needed?(query_spec) do
+      load_and_evict_present_candidates(query_spec, pass_ctx, state)
+    else
+      state.summary
+    end
+  end
+
+  defp load_and_evict_present_candidates(query_spec, pass_ctx, state) do
+    case load_present_entries(pass_ctx.target.storage_id, query_spec, pass_ctx.opts) do
       {:ok, entries} ->
         candidates =
           entries
           |> Enum.filter(&present_eviction_eligible?/1)
           |> sort_oldest_first()
 
-        state = run_age_eviction(candidates, pass_ctx, state)
-        state = run_space_eviction(candidates, capacity, pass_ctx, state)
+        state =
+          if age_eviction_enabled?(query_spec) do
+            run_age_eviction(candidates, pass_ctx, state)
+          else
+            state
+          end
+
+        state =
+          if query_spec.space_needed? do
+            run_space_eviction(candidates, query_spec, pass_ctx, state)
+          else
+            state
+          end
+
         state.summary
 
       {:error, reason} ->
@@ -315,6 +362,40 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
         Map.update!(state.summary, :failed, &(&1 + 1))
     end
+  end
+
+  defp build_present_query_spec(capacity, pass_ctx, state) do
+    thresholds = compute_watermarks(capacity, pass_ctx.settings)
+    evict_for_bytes? = thresholds.effective_budget_bytes > 0 and capacity.used_bytes >= thresholds.high_water_bytes
+    evict_for_blocks? = capacity.max_blocks > 0 and capacity.blocks >= thresholds.high_water_blocks
+
+    space_needed? =
+      (evict_for_bytes? or evict_for_blocks?) and
+        not space_target_met?(state, thresholds, evict_for_bytes?, evict_for_blocks?)
+
+    %{
+      thresholds: thresholds,
+      space_triggers: {evict_for_bytes?, evict_for_blocks?},
+      space_needed?: space_needed?,
+      full_policy: RecordingArchiveSettings.effective_local_only_full_policy(pass_ctx.settings),
+      kind_a_age_cutoff:
+        age_cutoff(pass_ctx.settings.max_local_age_mode, pass_ctx.settings.max_local_age_seconds, pass_ctx.now),
+      kind_b_age_cutoff:
+        age_cutoff(
+          pass_ctx.settings.local_only_max_age_mode,
+          pass_ctx.settings.local_only_max_age_seconds,
+          pass_ctx.now
+        ),
+      limit: remaining_budget(pass_ctx.limit, state.summary.processed) * @present_query_headroom_multiplier
+    }
+  end
+
+  defp present_query_needed?(query_spec) do
+    query_spec.space_needed? or age_eviction_enabled?(query_spec)
+  end
+
+  defp age_eviction_enabled?(query_spec) do
+    not is_nil(query_spec.kind_a_age_cutoff) or not is_nil(query_spec.kind_b_age_cutoff)
   end
 
   defp run_age_eviction(candidates, pass_ctx, state) do
@@ -343,17 +424,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     end)
   end
 
-  defp run_space_eviction(candidates, capacity, pass_ctx, state) do
-    thresholds = compute_watermarks(capacity, pass_ctx.settings)
-    evict_for_bytes? = thresholds.effective_budget_bytes > 0 and capacity.used_bytes >= thresholds.high_water_bytes
-    evict_for_blocks? = capacity.max_blocks > 0 and capacity.blocks >= thresholds.high_water_blocks
-
-    if evict_for_bytes? or evict_for_blocks? do
-      space_candidates = select_space_candidates(candidates, pass_ctx.settings, state)
-      evict_space_candidates(space_candidates, thresholds, {evict_for_bytes?, evict_for_blocks?}, pass_ctx, state)
-    else
-      state
-    end
+  defp run_space_eviction(candidates, query_spec, pass_ctx, state) do
+    space_candidates = select_space_candidates(candidates, pass_ctx.settings, state)
+    evict_space_candidates(space_candidates, query_spec.thresholds, query_spec.space_triggers, pass_ctx, state)
   end
 
   defp select_space_candidates(candidates, settings, state) do
@@ -417,6 +490,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
         {next_state, :reclaimed}
 
+      :deferred_reclaimed ->
+        next_state =
+          state
+          |> deduct_projected_usage(reclaiming_entry.media_bytes || 0)
+          |> update_summary(%{deferred: 1, processed: 1})
+
+        {next_state, :deferred}
+
       :deferred ->
         {update_summary(state, %{deferred: 1, processed: 1}), :deferred}
     end
@@ -455,11 +536,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
     case call_reclaim_block(pass_ctx.target.client_config, entry.block_key, request, pass_ctx.opts) do
       {:ok, _receipt} ->
-        if disposition do
-          _ = record_disposition_step(disposition, :executed, %{}, pass_ctx.opts)
-        end
-
-        verify_and_finalize_reclaimed(entry, disposition, pass_ctx)
+        finalize_accepted_reclaim(entry, disposition, pass_ctx)
 
       {:error, :outcome_unknown} ->
         verify_or_fail_reclaim(entry, disposition, "outcome_unknown", pass_ctx)
@@ -478,10 +555,24 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     end
   end
 
+  defp finalize_accepted_reclaim(entry, disposition, pass_ctx) do
+    if disposition do
+      _ = record_disposition_step(disposition, :executed, %{}, pass_ctx.opts)
+    end
+
+    case verify_and_finalize_reclaimed(entry, disposition, pass_ctx) do
+      :reclaimed -> :reclaimed
+      _deferred -> :deferred_reclaimed
+    end
+  end
+
   defp verify_or_fail_reclaim(entry, disposition, error_class, pass_ctx) do
     case verify_and_finalize_reclaimed(entry, disposition, pass_ctx) do
       :reclaimed ->
         :reclaimed
+
+      :deferred_reclaimed ->
+        :deferred_reclaimed
 
       :deferred ->
         if disposition do
@@ -510,7 +601,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
     case finalize_reclaimed(entry, pass_ctx.now, pass_ctx.opts) do
       {:ok, _updated} -> :reclaimed
-      {:error, _reason} -> :deferred
+      {:error, _reason} -> :deferred_reclaimed
     end
   end
 
@@ -530,11 +621,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
   defp age_eviction_reason(_entry, _settings, _now), do: nil
 
-  defp limited_age_expired?(entry, :limited, seconds, now) when is_integer(seconds) do
-    entry_older_than?(entry, seconds, now)
+  defp limited_age_expired?(entry, mode, seconds, now) do
+    case age_cutoff(mode, seconds, now) do
+      %DateTime{} = cutoff -> entry_older_than_cutoff?(entry, cutoff)
+      nil -> false
+    end
   end
 
-  defp limited_age_expired?(_entry, _mode, _seconds, _now), do: false
+  defp age_cutoff(:limited, seconds, now) when is_integer(seconds) do
+    DateTime.shift(now, second: -seconds)
+  end
+
+  defp age_cutoff(_mode, _seconds, _now), do: nil
 
   defp space_eviction_reason(%{archive_state: state}, _full_policy) when state in @kind_a_states, do: :budget
 
@@ -542,9 +640,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
 
   defp space_eviction_reason(_entry, _full_policy), do: nil
 
-  defp entry_older_than?(entry, max_age_seconds, now) do
-    cutoff = DateTime.shift(now, second: -max_age_seconds)
-
+  defp entry_older_than_cutoff?(entry, cutoff) do
     cond do
       match?(%DateTime{}, Map.get(entry, :sealed_at)) ->
         DateTime.compare(entry.sealed_at, cutoff) in [:lt, :eq]
@@ -695,23 +791,67 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     |> Ash.read(actor: @system_actor)
   end
 
-  defp load_present_entries(storage_id, opts) do
-    loader = Keyword.get(opts, :present_loader, &default_present_loader/1)
-    loader.(storage_id)
+  defp load_present_entries(storage_id, query_spec, opts) do
+    loader = Keyword.get(opts, :present_loader, &default_present_loader/2)
+    loader.(storage_id, query_spec)
   end
 
-  defp default_present_loader(storage_id) do
+  defp default_present_loader(storage_id, query_spec) do
+    storage_id
+    |> present_entries_query(query_spec)
+    |> Ash.read(actor: @system_actor)
+  end
+
+  @doc false
+  @spec present_entries_query(String.t(), map()) :: Ash.Query.t()
+  def present_entries_query(storage_id, query_spec) when is_binary(storage_id) and is_map(query_spec) do
     RecordingCatalogEntry
     |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
     |> Ash.Query.filter(
       storage_id == ^storage_id and
         local_state == :present and
         not is_nil(recording_block_id) and
-        is_nil(quarantine_reason) and
-        archive_state in [:verified, :deleted, :not_required]
+        is_nil(quarantine_reason)
     )
+    |> apply_present_eligibility_filter(query_spec)
     |> Ash.Query.sort(timeline_start_us: :asc, sealed_at: :asc, block_key: :asc)
-    |> Ash.read(actor: @system_actor)
+    |> Ash.Query.limit(query_spec.limit)
+  end
+
+  defp apply_present_eligibility_filter(query, %{space_needed?: true, full_policy: :overwrite_oldest}) do
+    Ash.Query.filter(query, archive_state in [:verified, :deleted, :not_required])
+  end
+
+  defp apply_present_eligibility_filter(query, %{space_needed?: true, kind_b_age_cutoff: %DateTime{} = kind_b_cutoff}) do
+    Ash.Query.filter(
+      query,
+      archive_state in [:verified, :deleted] or
+        (archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
+    )
+  end
+
+  defp apply_present_eligibility_filter(query, %{space_needed?: true}) do
+    Ash.Query.filter(query, archive_state in [:verified, :deleted])
+  end
+
+  defp apply_present_eligibility_filter(query, %{
+         space_needed?: false,
+         kind_a_age_cutoff: %DateTime{} = kind_a_cutoff,
+         kind_b_age_cutoff: %DateTime{} = kind_b_cutoff
+       }) do
+    Ash.Query.filter(
+      query,
+      (archive_state in [:verified, :deleted] and sealed_at <= ^kind_a_cutoff) or
+        (archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
+    )
+  end
+
+  defp apply_present_eligibility_filter(query, %{space_needed?: false, kind_a_age_cutoff: %DateTime{} = kind_a_cutoff}) do
+    Ash.Query.filter(query, archive_state in [:verified, :deleted] and sealed_at <= ^kind_a_cutoff)
+  end
+
+  defp apply_present_eligibility_filter(query, %{space_needed?: false, kind_b_age_cutoff: %DateTime{} = kind_b_cutoff}) do
+    Ash.Query.filter(query, archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
   end
 
   defp load_latest_local_disposition(entry_id, opts) do
@@ -787,10 +927,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   end
 
   defp resolve_target(member, opts) do
-    case Keyword.fetch(opts, :target) do
-      {:ok, target} when is_map(target) -> {:ok, target}
-      :error -> NVRTargetConfig.resolve(member, Keyword.get(opts, :target_opts, []))
-    end
+    NVRTargetConfig.resolve(member, Keyword.get(opts, :target_opts, []))
   end
 
   defp settings_revision(settings) do
