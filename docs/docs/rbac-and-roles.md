@@ -105,7 +105,7 @@ profiles (see [Camera Recording & NVR](./camera-recording.md)):
 
 | Permission | Grants | Default roles |
 | --- | --- | --- |
-| `devices.cameras.recordings.view` | Open `/cameras/:camera_source_id/recordings` (Timeline and Published modes), inspect recording metadata and timeline coverage, issue HLS VOD playlists, and stream verified recorded footage (`auto`, `local`, or `archive`). Requires `devices.view` as well. | `admin` |
+| `devices.cameras.recordings.view` | Open `/cameras/:camera_source_id/recordings` (Timeline and Published modes), inspect recording metadata and timeline coverage, issue HLS VOD playlists, fetch clip thumbnails, and stream verified recorded footage (`auto`, `local`, or `archive`). Requires `devices.view` as well. | `admin` |
 | `devices.cameras.recordings.hold` | Place and release `investigation` or `export` holds on recorded camera footage from the camera Timeline, and authorize **Accept Archive Loss** on `/settings/recording?tab=health` when an entry is covered by an active hold. | `admin` |
 | `settings.recording.view` | Open `/settings/recording` and inspect NVR installation and recovery-gate status, per-member desired and applied storage budgets (`NVRStorageSettings`), immutable archive destination generations, redacted credential names, per-camera block locations and hold-pin status, recording policies, local and object retention projections, and health summaries. | `admin` |
 | `settings.recording.manage` | Register immutable `operator:<name>` archive destination generations, choose the active destination, toggle `archive_enabled`, configure per-camera `CameraRecordingPolicy` assignments (`?tab=policy`), edit deployment local and object `retention` settings (`?tab=retention`), and configure per-member `NVRStorageSettings` local byte budgets and reserves (`?tab=recorders`). | `admin` |
@@ -115,13 +115,13 @@ profiles (see [Camera Recording & NVR](./camera-recording.md)):
 
 Opening a camera's Recordings page, listing historical camera recordings,
 inspecting timeline coverage or metadata, requesting a timeline or archive
-playlist, or reading recorded footage requires both
+playlist, fetching clip thumbnails, or reading recorded footage requires both
 `devices.cameras.recordings.view` and `devices.view`. Live-video permission
 (`devices.cameras.view`) does not grant it. Each inventory, coverage, playlist,
-or fragment request reloads the user's persisted active account and current
-permissions, so cached authority does not preserve revoked access, and fragment
-responses repeat authorization before releasing bytes. Recording-read access
-does not grant hold placement, export, or `/settings/recording` access.
+thumbnail, or fragment request reloads the user's persisted active account and
+current permissions, so cached authority does not preserve revoked access, and
+fragment responses repeat authorization before releasing bytes. Recording-read
+access does not grant hold placement, export, or `/settings/recording` access.
 
 ### Recording holds
 
