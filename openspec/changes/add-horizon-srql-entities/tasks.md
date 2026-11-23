@@ -1,11 +1,13 @@
-## 1. CNPG Schema Migration
+## 1. CNPG Schema Migration & Retention
 - [x] 1.1 Create `elixir/serviceradar_core/priv/repo/migrations/20261123171500_create_horizon_tables.exs` with `platform.horizon_outages`, `platform.horizon_bgp_events`, `platform.horizon_bgp_zombies`, and `platform.horizon_path_hops`.
-- [x] 1.2 Add TimescaleDB hypertable conversion and targeted indexes for time, prefix, ASN, status, and identifier columns.
+- [x] 1.2 Add TimescaleDB hypertable conversion (1-day chunk interval) and targeted indexes for time, prefix, ASN, status, and identifier columns.
+- [x] 1.3 Register all four Horizon hypertables in `ServiceRadar.Observability.DataRetentionWorker` (`horizon_retention_days`, default 14 days; `horizon_chunk_interval_hours`, default 24 hours; capped by `cnpg_telemetry_default_days`) and wire runtime config in `serviceradar_core` and `serviceradar_core_elx`.
 
 ## 2. EventWriter Projection
-- [x] 2.1 Implement `ServiceRadar.EventWriter.Processors.HorizonProjection` for `horizon.outage`, `horizon.bgp_anomaly`, `horizon.bgp_watchlist`, and `horizon.bgp_zombie` OCSF events with fail-open error handling.
-- [x] 2.2 Wire `HorizonProjection.project_rows/1` into `ServiceRadar.EventWriter.Processors.Events`.
-- [x] 2.3 Add unit tests in `elixir/serviceradar_core/test/serviceradar/event_writer/horizon_projection_test.exs`.
+- [x] 2.1 Implement `ServiceRadar.EventWriter.Processors.HorizonProjection` for `horizon.outage`, `horizon.bgp_anomaly`, `horizon.bgp_watchlist`, and `horizon.bgp_zombie` OCSF events with independent per-table fail-open error handling.
+- [x] 2.2 Wire `HorizonProjection.project_rows/1` into the CNPG write path of `ServiceRadar.EventWriter.Processors.Events` and skip CNPG projection when `Destination.warehouse?(:events)` is true.
+- [x] 2.3 Add unit tests in `elixir/serviceradar_core/test/serviceradar/event_writer/horizon_projection_test.exs` and retention config coverage in `elixir/serviceradar_core/test/serviceradar/observability/data_retention_runtime_config_test.exs`.
+- Note (Out of Scope): Dedicated JetStream `EventWriter` ingestion for `platform.horizon_path_hops` is deferred to a follow-up change; this change provisions the `horizon_path_hops` table, retention reconciliation, and `in:horizon_paths` SRQL contract only.
 
 ## 3. Rust SRQL Entities and Access Control
 - [x] 3.1 Add Diesel table definitions to `rust/srql/src/schema.rs` and row models to `rust/srql/src/models/horizon.rs`.

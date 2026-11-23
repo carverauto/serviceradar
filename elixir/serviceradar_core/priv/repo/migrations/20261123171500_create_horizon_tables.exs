@@ -3,9 +3,14 @@ defmodule ServiceRadar.Repo.Migrations.CreateHorizonTables do
   Creates typed CNPG hypertables in `platform` for Horizon outages, BGP events,
   BGP zombie episodes, and path hop telemetry.
 
-  These tables are populated via `EventWriter` projections and queried directly
-  through SRQL entities (`in:horizon_outages`, `in:horizon_bgp`,
-  `in:horizon_zombies`, and `in:horizon_paths`).
+  `horizon_outages`, `horizon_bgp_events`, and `horizon_bgp_zombies` are
+  populated via `ServiceRadar.EventWriter.Processors.HorizonProjection` when
+  OCSF events are written to CNPG. `horizon_path_hops` provisions the table
+  schema ahead of a dedicated JetStream `EventWriter` consumer. All four
+  tables are queried through SRQL entities (`in:horizon_outages`,
+  `in:horizon_bgp`, `in:horizon_zombies`, and `in:horizon_paths`), and their
+  TimescaleDB retention and chunk policies are reconciled by
+  `ServiceRadar.Observability.DataRetentionWorker`.
   """
 
   use Ecto.Migration
@@ -258,7 +263,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateHorizonTables do
             AND hypertable_schema = '#{schema()}'
         ) THEN
           EXECUTE format(
-            'SELECT %I.create_hypertable(%L::regclass, %L::name, create_default_indexes => false, migrate_data => true, if_not_exists => true)',
+            'SELECT %I.create_hypertable(%L::regclass, %L::name, chunk_time_interval => INTERVAL ''1 day'', create_default_indexes => false, migrate_data => true, if_not_exists => true)',
             ts_schema,
             '#{schema()}.#{table_name}',
             '#{time_column}'

@@ -637,6 +637,9 @@ if config_env() == :prod do
   ocsf_events_retention_days =
     "SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS" |> parse_int_env.(14) |> max(1)
 
+  horizon_retention_days =
+    "SERVICERADAR_HORIZON_RETENTION_DAYS" |> parse_int_env.(14) |> max(1)
+
   timeseries_metrics_retention_days =
     "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
 
@@ -680,6 +683,9 @@ if config_env() == :prod do
 
   ocsf_events_chunk_interval_hours =
     "SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
+
+  horizon_chunk_interval_hours =
+    "SERVICERADAR_HORIZON_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
   raw_metrics_retention_days =
     "SERVICERADAR_RAW_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
@@ -1397,6 +1403,7 @@ if config_env() == :prod do
     otel_metrics_retention_days: otel_metrics_retention_days,
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
+    horizon_retention_days: horizon_retention_days,
     raw_metrics_retention_days: raw_metrics_retention_days,
     capacity_forecasts_retention_days: capacity_forecasts_retention_days,
     adhoc_scan_results_retention_days: adhoc_scan_results_retention_days,
@@ -1415,6 +1422,7 @@ if config_env() == :prod do
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
     otel_metric_points_chunk_interval_hours: otel_metric_points_chunk_interval_hours,
     ocsf_events_chunk_interval_hours: ocsf_events_chunk_interval_hours,
+    horizon_chunk_interval_hours: horizon_chunk_interval_hours,
     raw_metrics_chunk_interval_hours: raw_metrics_chunk_interval_hours,
     capacity_forecasts_chunk_interval_hours: capacity_forecasts_chunk_interval_hours,
     sweep_host_result_retention_days:

@@ -162,7 +162,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   # Events are written to the one store they are read from.
   defp store_event_rows(rows) do
     with {:ok, count} <- Destination.store(:events, rows, fn -> insert_cnpg(rows) end) do
-      HorizonProjection.project_rows(rows)
       broadcast_stored(rows, count)
       {:ok, count}
     end
@@ -178,6 +177,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         returning: false
       )
 
+    HorizonProjection.project_rows(rows)
     count
   end
 

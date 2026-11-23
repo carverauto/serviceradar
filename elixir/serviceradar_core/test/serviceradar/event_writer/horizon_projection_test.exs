@@ -1,8 +1,9 @@
 defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
 
@@ -257,7 +258,127 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
           assert :ok == HorizonProjection.project_rows([outage], insert_fn: failing_insert)
         end)
 
-      assert log =~ "Horizon OCSF projection failed (fail-open)"
+      assert log =~ "Horizon OCSF projection failed (fail-open) for horizon_outages"
+    end
+
+    test "isolates per-table upsert failures so remaining tables in the batch still project" do
+      outage =
+        ocsf_row(%{
+          "id" => "horizon.outages:out-10:1",
+          "time" => "2026-11-23T16:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.outage",
+          "unmapped" => %{
+            "outage_id" => "out-10",
+            "status" => "active",
+            "severity" => "major",
+            "entity_type" => "asn",
+            "entity_key" => "AS64512"
+          }
+        })
+
+      bgp =
+        ocsf_row(%{
+          "id" => "horizon.bgp_anomalies:bgp-10",
+          "time" => "2026-11-23T16:01:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_anomaly",
+          "unmapped" => %{
+            "event_id" => "bgp-10",
+            "kind" => "hijack",
+            "level" => "critical",
+            "prefix" => "198.51.100.0/24"
+          }
+        })
+
+      zombie =
+        ocsf_row(%{
+          "id" => "horizon.bgp_zombies:ep-10",
+          "time" => "2026-11-23T16:02:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.bgp_zombie",
+          "unmapped" => %{
+            "episode_id" => "ep-10",
+            "status" => "active",
+            "prefix" => "192.0.2.0/24"
+          }
+        })
+
+      parent = self()
+
+      insert_fn = fn
+        "horizon_outages", _rows, _opts ->
+          raise RuntimeError, "simulated outage constraint error"
+
+        table, rows, opts ->
+          send(parent, {:inserted, table, length(rows), opts[:conflict_target]})
+          {length(rows), nil}
+      end
+
+      log =
+        capture_log(fn ->
+          assert :ok ==
+                   HorizonProjection.project_rows([outage, bgp, zombie], insert_fn: insert_fn)
+        end)
+
+      assert log =~ "horizon_outages"
+      assert log =~ "simulated outage constraint error"
+      assert_received {:inserted, "horizon_bgp_events", 1, [:time, :event_id]}
+      assert_received {:inserted, "horizon_bgp_zombies", 1, [:time, :episode_id]}
+    end
+
+    test "skips CNPG projection when events are routed to StarRocks warehouse" do
+      previous = Application.get_env(:serviceradar_core, StarRocks)
+      on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous || []) end)
+
+      outage =
+        ocsf_row(%{
+          "id" => "horizon.outages:out-11:1",
+          "time" => "2026-11-23T16:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "log_name" => "horizon.outage",
+          "unmapped" => %{
+            "outage_id" => "out-11",
+            "status" => "active",
+            "severity" => "minor",
+            "entity_type" => "saas",
+            "entity_key" => "example.test"
+          }
+        })
+
+      Application.put_env(:serviceradar_core, StarRocks,
+        enabled: true,
+        cutover_datasets: [:events]
+      )
+
+      insert_fn = fn _table, _rows, _opts ->
+        flunk("insert_fn must not be called when :events is cut over to StarRocks")
+      end
+
+      assert :ok == HorizonProjection.project_rows([outage], insert_fn: insert_fn)
+
+      Application.put_env(:serviceradar_core, StarRocks, enabled: true, cutover_datasets: [])
+      parent = self()
+
+      cnpg_insert_fn = fn table, rows, _opts ->
+        send(parent, {:inserted, table, length(rows)})
+        {length(rows), nil}
+      end
+
+      assert :ok == HorizonProjection.project_rows([outage], insert_fn: cnpg_insert_fn)
+      assert_received {:inserted, "horizon_outages", 1}
     end
   end
 end

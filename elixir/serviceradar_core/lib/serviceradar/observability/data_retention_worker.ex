@@ -25,6 +25,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_otel_metrics_retention_days 30
   @default_otel_metric_points_retention_days 30
   @default_ocsf_events_retention_days 14
+  @default_horizon_retention_days 14
   # The merged device availability history (device_availability_transitions).
   @default_availability_history_retention_days 14
   @default_capacity_forecasts_retention_days 395
@@ -54,6 +55,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_otel_metrics_chunk_interval_hours 24
   @default_otel_metric_points_chunk_interval_hours 6
   @default_ocsf_events_chunk_interval_hours 6
+  @default_horizon_chunk_interval_hours 24
   @default_capacity_forecasts_chunk_interval_hours 24
   @default_raw_metrics_chunk_interval_hours 24
   # Raw CNPG telemetry a small install can cap with one value. Capacity
@@ -68,6 +70,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     :otel_metrics_retention_days,
     :otel_metric_points_retention_days,
     :ocsf_events_retention_days,
+    :horizon_retention_days,
     :timeseries_metrics_retention_days,
     :raw_metrics_retention_days,
     :hourly_rollup_retention_days,
@@ -129,6 +132,14 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
      @default_otel_metric_points_chunk_interval_hours},
     {"ocsf_events", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
      :ocsf_events_chunk_interval_hours, @default_ocsf_events_chunk_interval_hours},
+    {"horizon_outages", :horizon_retention_days, @default_horizon_retention_days,
+     :horizon_chunk_interval_hours, @default_horizon_chunk_interval_hours},
+    {"horizon_bgp_events", :horizon_retention_days, @default_horizon_retention_days,
+     :horizon_chunk_interval_hours, @default_horizon_chunk_interval_hours},
+    {"horizon_bgp_zombies", :horizon_retention_days, @default_horizon_retention_days,
+     :horizon_chunk_interval_hours, @default_horizon_chunk_interval_hours},
+    {"horizon_path_hops", :horizon_retention_days, @default_horizon_retention_days,
+     :horizon_chunk_interval_hours, @default_horizon_chunk_interval_hours},
     {"capacity_forecasts", :capacity_forecasts_retention_days,
      @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
      @default_capacity_forecasts_chunk_interval_hours},

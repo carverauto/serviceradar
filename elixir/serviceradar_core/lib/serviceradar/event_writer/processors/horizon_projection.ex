@@ -3,12 +3,14 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   Fail-open projection from Horizon OCSF `log_activity` event rows into typed
   CNPG tables (`horizon_outages`, `horizon_bgp_events`, `horizon_bgp_zombies`).
 
-  Called by `ServiceRadar.EventWriter.Processors.Events` after OCSF rows are
-  persisted. Batches containing no `horizon.*` `log_name` values short-circuit
-  with zero database calls, and any projection failure is logged and swallowed
-  so primary OCSF event ingestion never fails.
+  Called by `ServiceRadar.EventWriter.Processors.Events` on the CNPG events
+  write path. Skipped when `:events` is routed to the StarRocks warehouse
+  (`Destination.warehouse?(:events)`). Batches containing no `horizon.*`
+  `log_name` values short-circuit with zero database calls, and each table's
+  upsert fails open independently so primary OCSF event ingestion never fails.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
 
@@ -70,12 +72,16 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   """
   @spec project_rows([map()], keyword()) :: :ok
   def project_rows(rows, opts \\ []) when is_list(rows) do
-    horizon_rows = Enum.filter(rows, &horizon_event?/1)
-
-    if horizon_rows == [] do
+    if Destination.warehouse?(:events) do
       :ok
     else
-      do_project(horizon_rows, opts)
+      horizon_rows = Enum.filter(rows, &horizon_event?/1)
+
+      if horizon_rows == [] do
+        :ok
+      else
+        do_project(horizon_rows, opts)
+      end
     end
   rescue
     error ->
@@ -155,6 +161,14 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     )
 
     :ok
+  rescue
+    error ->
+      Logger.warning(
+        "Horizon OCSF projection failed (fail-open) for #{table}: #{Exception.message(error)}",
+        table: table
+      )
+
+      :ok
   end
 
   defp horizon_event?(%{log_name: log_name}) when is_binary(log_name) do
