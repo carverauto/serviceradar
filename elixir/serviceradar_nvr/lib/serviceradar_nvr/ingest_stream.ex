@@ -7,9 +7,11 @@ defmodule ServiceRadarNVR.IngestStream do
 
   @max_request_bytes 67_108_864
   @max_unit_bytes 1_048_576
-  @read_timeout_ms 15_000
+  @default_read_timeout_ms 25_000
 
-  def new(conn), do: %{conn: conn, buffer: <<>>, eof?: false, bytes: 0}
+  def new(conn, read_timeout_ms \\ @default_read_timeout_ms) do
+    %{conn: conn, buffer: <<>>, eof?: false, bytes: 0, read_timeout_ms: read_timeout_ms}
+  end
 
   def header(stream, config) do
     with {:ok, <<length::32>>, stream} <- take(stream, 4),
@@ -79,23 +81,30 @@ defmodule ServiceRadarNVR.IngestStream do
   defp take(%{eof?: true} = stream, _count), do: {:error, :end_of_body, stream}
 
   defp take(stream, count) do
-    opts = [length: count - byte_size(stream.buffer), read_length: 65_536, read_timeout: @read_timeout_ms]
+    opts = [length: count - byte_size(stream.buffer), read_length: 65_536, read_timeout: stream.read_timeout_ms]
 
-    case read_body(stream.conn, opts) do
-      {status, bytes, conn} when status in [:ok, :more] and stream.bytes + byte_size(bytes) <= @max_request_bytes ->
-        take(
-          %{
-            stream
-            | conn: conn,
-              buffer: stream.buffer <> bytes,
-              bytes: stream.bytes + byte_size(bytes),
-              eof?: status == :ok
-          },
-          count
-        )
+    try do
+      case read_body(stream.conn, opts) do
+        {status, bytes, conn} when status in [:ok, :more] and stream.bytes + byte_size(bytes) <= @max_request_bytes ->
+          take(
+            %{
+              stream
+              | conn: conn,
+                buffer: stream.buffer <> bytes,
+                bytes: stream.bytes + byte_size(bytes),
+                eof?: status == :ok
+            },
+            count
+          )
 
-      _ ->
-        {:error, :ingest_read_failed}
+        _ ->
+          {:error, :ingest_read_failed}
+      end
+    rescue
+      error in Bandit.HTTPError ->
+        if error.plug_status == :request_timeout,
+          do: {:error, :ingest_read_timeout},
+          else: {:error, :ingest_read_failed}
     end
   end
 end

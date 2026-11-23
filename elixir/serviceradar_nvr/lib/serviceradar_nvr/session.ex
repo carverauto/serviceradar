@@ -25,7 +25,13 @@ defmodule ServiceRadarNVR.Session do
 
     with {:ok, reservation, storage, limits} <- Capacity.reserve(block_id(identity)),
          {:ok, inbox} <- Inbox.new(producer, identity.source_id, identity, deadline),
-         {:ok, writer} <- Writer.open(storage, identity, clock, limits, wait_for_keyframe?: true) do
+         {:ok, writer} <-
+           Writer.open(storage, identity, clock, limits,
+             wait_for_keyframe?: true,
+             max_keyframe_interval_ns: config.max_keyframe_interval_ms * 1_000_000,
+             max_keyframe_wait_ms: config.max_keyframe_wait_ms,
+             max_buffered_samples: min(8_192, max(2_048, div(config.max_keyframe_interval_ms * 120, 1_000)))
+           ) do
       timer = Process.send_after(self(), :deadline, max(0, deadline - System.monotonic_time(:millisecond)))
 
       {:ok,

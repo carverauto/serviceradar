@@ -65,6 +65,105 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: nvr.maxBlockFragments must be from 8 through 256
+  - it: refuses a keyframe interval limit of zero or below the service range
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeIntervalMs: 0
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeIntervalMs must be from 1000 through 60000
+  - it: refuses a keyframe interval limit of 999
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeIntervalMs: 999
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeIntervalMs must be from 1000 through 60000
+  - it: refuses a keyframe interval limit above the service range
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeIntervalMs: 60001
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeIntervalMs must be from 1000 through 60000
+  - it: refuses a keyframe wait limit of zero
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeWaitMs: 0
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeWaitMs must be from 1000 through 60000
+  - it: refuses a keyframe wait limit of 999
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeWaitMs: 999
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeWaitMs must be from 1000 through 60000
+  - it: refuses a keyframe wait limit above the service range
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeWaitMs: 60001
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    asserts:
+      - failedTemplate:
+          errorMessage: nvr.maxKeyframeWaitMs must be from 1000 through 60000
+  - it: renders explicit keyframe interval and wait overrides into NVR env
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.maxKeyframeIntervalMs: 30000
+      nvr.maxKeyframeWaitMs: 45000
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS, value: "30000"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS, value: "45000"}
   - it: retains per-replica volumes through scale-down and workload deletion
     template: templates/nvr.yaml
     set:
@@ -111,6 +210,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS, value: "150"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS, value: "15000"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS, value: "35000"}
       - contains:
           path: spec.template.spec.containers[0].env
           content:

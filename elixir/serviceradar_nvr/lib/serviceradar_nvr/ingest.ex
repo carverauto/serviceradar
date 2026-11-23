@@ -70,7 +70,7 @@ defmodule ServiceRadarNVR.Ingest do
   defp route(%{method: "POST", path_info: ["v1", "recordings", "ingest"]} = conn, config) do
     with ["application/vnd.serviceradar.nvr-ingest.v1"] <- get_req_header(conn, "content-type"),
          :ok <- RecoveryGate.check(config.recovery_gate),
-         {:ok, identity, clock, stream} <- IngestStream.header(IngestStream.new(conn), config),
+         {:ok, identity, clock, stream} <- IngestStream.header(IngestStream.new(conn, read_timeout_ms(config)), config),
          {:ok, worker, inbox} <- ServiceRadarNVR.start_recording(identity, clock) do
       try do
         case consume(stream, worker, inbox, []) do
@@ -82,6 +82,10 @@ defmodule ServiceRadarNVR.Ingest do
               _ ->
                 respond(conn, 503, %{error: "ingest_unavailable"})
             end
+
+          {:error, :ingest_read_timeout} = outcome ->
+            Logger.warning("NVR ingest incomplete: #{inspect(refusal(worker, outcome), limit: 5, printable_limit: 120)}")
+            respond(conn, 408, %{error: "ingest_read_timeout"})
 
           outcome ->
             Logger.warning("NVR ingest incomplete: #{inspect(refusal(worker, outcome), limit: 5, printable_limit: 120)}")
@@ -219,6 +223,8 @@ defmodule ServiceRadarNVR.Ingest do
   defp deadline_ms(%{path_info: ["v1", "blocks"]}, _config), do: @read_deadline_ms
   defp deadline_ms(%{path_info: ["v1", "status"]}, _config), do: @read_deadline_ms
   defp deadline_ms(_conn, config), do: config.max_duration_ms
+
+  defp read_timeout_ms(config), do: max(25_000, config.max_keyframe_wait_ms + 5_000)
 
   defp consume(stream, worker, inbox, blocks) do
     case IngestStream.next(stream) do

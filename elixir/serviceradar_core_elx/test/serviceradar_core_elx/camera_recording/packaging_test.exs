@@ -1,7 +1,11 @@
 defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadarCoreElx.CameraRecording.ContinuousRecorder
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
+  alias ServiceRadarNVRClient.Config, as: ClientConfig
+  alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecording.Packaging
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
@@ -348,6 +352,148 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert {:error, :stream_configuration_changed} = Packaging.push(pipeline, changed)
   end
 
+  test "15s keyframe interval limit admits >5s GOP jitter, rejects >15s, and supports raised sample buffers", ctx do
+    # 75 frames from long_gop (single IDR at index 0) spaced at 6_200 ticks (~5.098s span)
+    jitter_units =
+      ctx.long_gop.units
+      |> Enum.with_index()
+      |> Enum.map(fn {unit, idx} ->
+        ts = 90_000 + idx * 6_200
+        %{unit | pts: ts, dts: ts}
+      end)
+
+    # Old 5s default rejects >5.0s span
+    {:ok, default_pipe} = Packaging.start(clock: @clock)
+    on_exit(fn -> Packaging.stop(default_pipe) end)
+
+    default_results = Enum.map(jitter_units, &Packaging.push(default_pipe, &1))
+    assert {:error, :keyframe_interval_exceeded} in default_results
+
+    # Configured 15s limit + 4_096 buffered samples admits >5.0s jitter cleanly
+    {:ok, relaxed_pipe} =
+      Packaging.start(
+        clock: @clock,
+        max_keyframe_interval_ns: 15_000_000_000,
+        max_keyframe_wait_ms: 20_000,
+        max_buffered_samples: 4_096
+      )
+
+    on_exit(fn -> Packaging.stop(relaxed_pipe) end)
+
+    events = push_all(relaxed_pipe, jitter_units)
+    assert {:ok, tail} = Packaging.finish(relaxed_pipe)
+    fragments = for {:fragment, fragment} <- events ++ tail, do: fragment
+    assert Enum.sum(Enum.map(fragments, & &1.sample_count)) == 75
+
+    # >15s media gap still fails under the 15s limit
+    over_limit_units =
+      ctx.long_gop.units
+      |> Enum.with_index()
+      |> Enum.map(fn {unit, idx} ->
+        ts = 90_000 + idx * 18_500
+        %{unit | pts: ts, dts: ts}
+      end)
+
+    {:ok, over_pipe} =
+      Packaging.start(
+        clock: @clock,
+        max_keyframe_interval_ns: 15_000_000_000,
+        max_buffered_samples: 8_192
+      )
+
+    on_exit(fn -> Packaging.stop(over_pipe) end)
+    over_results = Enum.map(over_limit_units, &Packaging.push(over_pipe, &1))
+    assert {:error, :keyframe_interval_exceeded} in over_results
+
+    assert {:error, :invalid_packaging_options} = Packaging.start(clock: @clock, max_buffered_samples: 8_193)
+    assert {:error, :invalid_packaging_options} = Packaging.start(clock: @clock, max_keyframe_interval_ns: 60_000_000_001)
+    assert {:error, :invalid_packaging_options} = Packaging.start(clock: @clock, max_keyframe_wait_ms: 60_001)
+  end
+
+  describe "ContinuousRecorder integration with real Packaging" do
+    test "recovers from 1-frame stream idle timeout and max_frames: 1 without stopping the run", ctx do
+      [idr0, p1, p2 | _] = ctx.baseline.units
+
+      for {label, extra_opts, expected_detail} <- [
+            {"stream_idle", [bounds: %{soft_frames: 10, max_frames: 20}, stream_idle_timeout_ms: 40],
+             "stream_idle_insufficient_frames"},
+            {"max_frames_one", [bounds: %{soft_frames: 1, max_frames: 1}], "max_frames_one_insufficient_frames"}
+          ] do
+        harness =
+          start_continuous_packaging_harness(
+            [
+              max_keyframe_interval_ns: 15_000_000_000,
+              max_keyframe_wait_ms: 35_000
+            ] ++ extra_opts
+          )
+
+        ExUnit.CaptureLog.capture_log(fn ->
+          {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+          assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+          base_us = 1_763_800_000_000_000
+          send_packaging_unit(pid, harness.inbox_id, 0, idr0.pts, base_us, idr0.payload)
+
+          assert_receive {:gap_recorded, gap}, 1_000
+          assert {gap.reason, gap.detail_class} == {:incomplete_tail, expected_detail}
+
+          assert_receive {:continuous_recorder, ^pid,
+                          {:uncertain_resolved, %{resolution: :incomplete, recovered?: true}}},
+                         1_000
+
+          refute_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 50
+          assert Process.alive?(pid)
+
+          if label == "stream_idle" do
+            # Next multi-frame block seals cleanly through real Packaging after recovery
+            send_packaging_unit(pid, harness.inbox_id, 1, p1.pts + 90_000, base_us + 1_000_000, idr0.payload)
+            send_packaging_unit(pid, harness.inbox_id, 2, p2.pts + 90_000, base_us + 1_033_333, p1.payload)
+            ContinuousRecorder.stop(pid, :policy_disabled)
+            assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_000
+          else
+            ContinuousRecorder.stop(pid, :policy_disabled)
+          end
+
+          assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+        end)
+      end
+    end
+
+    test "stream_idle_timeout_ms seals mid-GOP stall cleanly before Packaging max_keyframe_wait_ms", ctx do
+      # Scaled 15s : 15s : 35s ratio (1:50 -> 300ms GOP, 300ms idle, 700ms keyframe wait)
+      harness =
+        start_continuous_packaging_harness(
+          bounds: %{soft_frames: 100, max_frames: 200},
+          stream_idle_timeout_ms: 300,
+          max_keyframe_interval_ns: 300_000_000,
+          max_keyframe_wait_ms: 700
+        )
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+        assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+        base_us = 1_763_800_000_000_000
+        [idr0 | p_frames] = Enum.take(ctx.baseline.units, 5)
+        send_packaging_unit(pid, harness.inbox_id, 0, idr0.pts, base_us, idr0.payload)
+
+        # Feed P-frames up to 240ms after the IDR (80% of 300ms max_keyframe_interval_ns), then stall
+        for {unit, idx} <- Enum.with_index(p_frames, 1) do
+          Process.sleep(60)
+          send_packaging_unit(pid, harness.inbox_id, idx, unit.pts, base_us + idx * 60_000, unit.payload)
+        end
+
+        # Idle timeout (300ms -> ~540ms from IDR) seals cleanly BEFORE 700ms max_keyframe_wait_ms
+        assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_500
+        refute_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 300
+        assert Process.alive?(pid)
+
+        ContinuousRecorder.stop(pid, :policy_disabled)
+        assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+      end)
+    end
+  end
+
   defp push_all(pipeline, units) do
     Enum.flat_map(units, fn unit ->
       assert {:ok, events} = Packaging.push(pipeline, unit)
@@ -528,4 +674,200 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   end
 
   defp digest(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+
+  defp send_packaging_unit(worker, inbox_id, sequence, pts, admitted_at_us, payload) do
+    send(
+      worker,
+      {:recording_media, inbox_id,
+       %{sequence: sequence, pts: pts, dts: pts, payload: payload, admitted_at_us: admitted_at_us}}
+    )
+  end
+
+  defp start_continuous_packaging_harness(opts) do
+    parent = self()
+    seq_agent = start_supervised!(Supervisor.child_spec({Agent, fn -> 0 end}, id: make_ref()))
+    block_states = start_supervised!(Supervisor.child_spec({Agent, fn -> %{} end}, id: make_ref()))
+    inbox_ref = make_ref()
+
+    camera_id = "00000000-0000-4000-8000-000000000301"
+    profile_id = "00000000-0000-4000-8000-000000000302"
+    policy_id = "00000000-0000-4000-8000-000000000303"
+    relay_id = "00000000-0000-4000-8000-000000000304"
+    ingest_owner_id = "00000000-0000-4000-8000-000000000305"
+    claim_id = "00000000-0000-4000-8000-000000000306"
+    storage_id = "00000000-0000-4000-8000-000000000307"
+    recovery_generation = "00000000-0000-4000-8000-000000000308"
+    media_ingest_id = "synthetic-packaging-continuous-1"
+    member = "serviceradar-nvr-0"
+
+    max_kf_interval_ns = Keyword.get(opts, :max_keyframe_interval_ns, 15_000_000_000)
+    max_kf_wait_ms = Keyword.get(opts, :max_keyframe_wait_ms, 35_000)
+
+    pipeline_pid =
+      spawn_link(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    now = DateTime.utc_now()
+
+    owner = %{
+      id: ingest_owner_id,
+      camera_source_id: camera_id,
+      stream_profile_id: profile_id,
+      relay_session_id: relay_id,
+      epoch: 1
+    }
+
+    claim = %{
+      id: claim_id,
+      recorder_epoch: 1,
+      lease_expires_at: DateTime.shift(now, second: 30),
+      database_now: now
+    }
+
+    client_config = %ClientConfig{
+      host: "nvr-0.example.test",
+      port: 8443,
+      ca: "/nonexistent/ca.pem",
+      cert: "/nonexistent/client.pem",
+      key: "/nonexistent/client.key",
+      token: "synthetic-continuous-recorder-token-0123456789"
+    }
+
+    send_fn = fn _cfg, header, stream, _timeout ->
+      block_key =
+        header["identity"]
+        |> Map.put("clock", %{
+          "clock_epoch" => header["clock_epoch"],
+          "timebase" => 90_000,
+          "dts_source" => "pts_no_reordering",
+          "utc_mapping" => "unknown"
+        })
+        |> Descriptor.block_key()
+
+      {:ok, pkg} =
+        Packaging.start(
+          clock: %{
+            clock_epoch: header["clock_epoch"],
+            timebase: 90_000,
+            dts_source: :pts_no_reordering,
+            utc_mapping: :unknown
+          },
+          max_keyframe_interval_ns: max_kf_interval_ns,
+          max_keyframe_wait_ms: max_kf_wait_ms
+        )
+
+      try do
+        push_status =
+          Enum.reduce_while(stream, :ok, fn unit, :ok ->
+            Agent.update(block_states, &Map.put_new(&1, block_key, :incomplete))
+
+            case Packaging.push(pkg, unit) do
+              {:ok, _events} -> {:cont, :ok}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
+
+        case push_status do
+          :ok ->
+            case Packaging.finish(pkg) do
+              {:ok, _tail} ->
+                Agent.update(block_states, &Map.put(&1, block_key, :sealed))
+                {:ok, %{status: :sealed_local, storage_id: storage_id, block_ids: [block_key]}}
+
+              {:error, _reason} ->
+                {:error, {:ingest_status, 422}}
+            end
+
+          {:error, _reason} ->
+            {:error, {:ingest_status, 422}}
+        end
+      after
+        Packaging.stop(pkg)
+      end
+    end
+
+    lookup_fn = fn _cfg, [block_key], _timeout ->
+      state = Agent.get(block_states, &Map.get(&1, block_key, :absent))
+      {:ok, %{storage_id: storage_id, blocks: [%{block_id: block_key, state: state}]}}
+    end
+
+    reserve_fn = fn _owner, _claim, clock, _opts ->
+      seq = Agent.get_and_update(seq_agent, fn s -> {s, s + 1} end)
+
+      block = %RecordingBlock{
+        id: Ecto.UUID.generate(),
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        ingest_owner_id: ingest_owner_id,
+        ingest_epoch: 1,
+        recorder_claim_id: claim_id,
+        recorder_epoch: 1,
+        block_sequence: seq,
+        relay_session_id: relay_id,
+        media_ingest_id: media_ingest_id,
+        storage_id: storage_id,
+        clock: clock
+      }
+
+      block_key = block |> RecordingBlock.identity() |> Descriptor.block_key()
+      {:ok, %{block | block_key: block_key}}
+    end
+
+    base_opts = [
+      name: nil,
+      policy: %{
+        id: policy_id,
+        camera_source_id: camera_id,
+        stream_profile_id: profile_id,
+        mode: :continuous,
+        nvr_member: member,
+        storage: :local_and_archive,
+        policy_revision: 1
+      },
+      notify: parent,
+      enabled_fn: fn -> true end,
+      target_resolver: fn ^member ->
+        {:ok, %{member: member, storage_id: storage_id, client_config: client_config}}
+      end,
+      recovery_gate_fn: fn -> {:ok, %{generation: recovery_generation}} end,
+      relay_open_fn: fn ^camera_id, ^profile_id, _actor ->
+        {:ok, {:new, %{id: relay_id, status: :active, media_ingest_id: media_ingest_id}}}
+      end,
+      relay_close_fn: fn ^relay_id, _reason, _actor -> :ok end,
+      relay_host_fn: fn ^relay_id -> nil end,
+      pipeline_resolver: fn ^relay_id, ^media_ingest_id -> {:ok, pipeline_pid} end,
+      ingest_owner_fn: fn ^relay_id, _actor -> {:ok, owner} end,
+      acquire_claim_fn: fn _owner, _token, _ingest_id, _storage_id, _ttl, _opts -> {:ok, claim} end,
+      renew_claim_fn: fn _owner, _claim, _ttl, _opts -> {:ok, claim} end,
+      release_claim_fn: fn _owner, _claim, _opts -> {:ok, :released} end,
+      reserve_block_fn: reserve_fn,
+      inbox_new_fn: fn producer, rid, ingest_id, deadline_ms, inbox_opts ->
+        {:ok, inbox} = Inbox.new(producer, rid, ingest_id, deadline_ms, inbox_opts)
+        {:ok, %{inbox | id: inbox_ref}}
+      end,
+      attach_pipeline_fn: fn _pipeline, _inbox, _timeout -> :ok end,
+      send_recording_fn: send_fn,
+      lookup_blocks_fn: lookup_fn,
+      block_descriptor_fn: fn _cfg, block_key, _timeout ->
+        {:ok, %{"block_key" => block_key, "fragments" => [%{"start_ns" => 0, "duration_ns" => 2_000_000_000}]}}
+      end,
+      freeze_and_catalog_fn: fn _owner, _claim, block, _descriptor, _catalog_attrs, _opts ->
+        {:ok, %{id: Ecto.UUID.generate(), archive_state: :pending, block_key: block.block_key}}
+      end,
+      enqueue_archive_fn: fn _entry -> {:ok, :enqueued} end,
+      record_gap_fn: fn attrs, _opts ->
+        send(parent, {:gap_recorded, attrs})
+        {:ok, attrs}
+      end,
+      close_gap_fn: fn gap, end_us, _opts -> {:ok, Map.put(gap, :end_us, end_us)} end,
+      close_stale_open_gaps_fn: fn _cam, _prof, _run_id, _now_us, _opts -> {:ok, 0} end,
+      nvr_refusal_cooldown_ms: 0
+    ]
+
+    recorder_opts = Keyword.drop(opts, [:max_keyframe_interval_ns, :max_keyframe_wait_ms])
+    %{opts: Keyword.merge(base_opts, recorder_opts), inbox_id: inbox_ref}
+  end
 end

@@ -8,6 +8,8 @@ defmodule ServiceRadarNVR.Config do
   @block_fragments_ceiling 256
   # A flat volume root is listed whole; beyond this a sharded layout is needed.
   @max_blocks_ceiling 262_144
+  @keyframe_limit_min_ms 1_000
+  @keyframe_limit_max_ms 60_000
 
   defstruct [
     :root,
@@ -15,6 +17,8 @@ defmodule ServiceRadarNVR.Config do
     :max_sessions,
     :max_duration_ms,
     :max_block_fragments,
+    :max_keyframe_interval_ms,
+    :max_keyframe_wait_ms,
     :max_blocks,
     :health_port,
     :max_spool_bytes,
@@ -32,6 +36,22 @@ defmodule ServiceRadarNVR.Config do
          {:ok, sessions} <- integer(env, "SERVICERADAR_NVR_MAX_SESSIONS", 1, 16),
          {:ok, duration} <- integer(env, "SERVICERADAR_NVR_MAX_DURATION_MS", 30_000, 300_000),
          {:ok, fragments} <- integer(env, "SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS", 150, 8, @block_fragments_ceiling),
+         {:ok, max_keyframe_interval_ms} <-
+           integer(
+             env,
+             "SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS",
+             15_000,
+             @keyframe_limit_min_ms,
+             @keyframe_limit_max_ms
+           ),
+         {:ok, max_keyframe_wait_ms} <-
+           integer(
+             env,
+             "SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS",
+             35_000,
+             @keyframe_limit_min_ms,
+             @keyframe_limit_max_ms
+           ),
          {:ok, max_blocks} <- integer(env, "SERVICERADAR_NVR_MAX_BLOCKS", 131_072, @max_blocks_ceiling),
          {:ok, spool} <- integer(env, "SERVICERADAR_NVR_MAX_SPOOL_BYTES", 1_073_741_824, 1_099_511_627_776),
          {:ok, reserve} <- integer(env, "SERVICERADAR_NVR_RESERVE_BYTES", 67_108_864, 1_125_899_906_842_624),
@@ -49,6 +69,8 @@ defmodule ServiceRadarNVR.Config do
         max_sessions: sessions,
         max_duration_ms: duration,
         max_block_fragments: fragments,
+        max_keyframe_interval_ms: max_keyframe_interval_ms,
+        max_keyframe_wait_ms: max_keyframe_wait_ms,
         max_blocks: max_blocks,
         health_port: port,
         max_spool_bytes: spool,

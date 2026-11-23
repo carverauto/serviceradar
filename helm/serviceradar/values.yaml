@@ -3505,6 +3505,10 @@ nvr:
   # 150 holds one 270-second Core capture in one block. Blocks also rotate at
   # 16 MiB. Lowering it affects new blocks only.
   maxBlockFragments: 150
+  # Maximum media DTS gap between keyframes (1000..60000 ms) and wall-clock wait
+  # for the next keyframe (1000..60000 ms) during packaging.
+  maxKeyframeIntervalMs: 15000
+  maxKeyframeWaitMs: 35000
   # Per-replica logical spool budget and physical free-space floor. Size these
   # below the qualified PVC capacity, leaving filesystem/recovery headroom.
   maxSpoolBytes: 1073741824

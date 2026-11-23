@@ -21,6 +21,16 @@
 {{- include "serviceradar.validateMediaWorkerNvrReadPort" . -}}
 {{- $maxBlockFragments := int $nvr.maxBlockFragments -}}
 {{- if or (lt $maxBlockFragments 8) (gt $maxBlockFragments 256) -}}{{- fail "nvr.maxBlockFragments must be from 8 through 256" -}}{{- end -}}
+{{- $maxKeyframeIntervalMs := 15000 -}}
+{{- if not (kindIs "invalid" $nvr.maxKeyframeIntervalMs) -}}
+{{- $maxKeyframeIntervalMs = int $nvr.maxKeyframeIntervalMs -}}
+{{- end -}}
+{{- if or (lt $maxKeyframeIntervalMs 1000) (gt $maxKeyframeIntervalMs 60000) -}}{{- fail "nvr.maxKeyframeIntervalMs must be from 1000 through 60000" -}}{{- end -}}
+{{- $maxKeyframeWaitMs := 35000 -}}
+{{- if not (kindIs "invalid" $nvr.maxKeyframeWaitMs) -}}
+{{- $maxKeyframeWaitMs = int $nvr.maxKeyframeWaitMs -}}
+{{- end -}}
+{{- if or (lt $maxKeyframeWaitMs 1000) (gt $maxKeyframeWaitMs 60000) -}}{{- fail "nvr.maxKeyframeWaitMs must be from 1000 through 60000" -}}{{- end -}}
 {{- $ingest := default (dict) $nvr.ingest -}}
 {{- $ingestEnabled := default false $ingest.enabled -}}
 {{- $ingestPort := int (default 8443 $ingest.port) -}}
@@ -218,6 +228,10 @@ spec:
               value: {{ $nvr.maxDurationMs | quote }}
             - name: SERVICERADAR_NVR_MAX_BLOCK_FRAGMENTS
               value: {{ printf "%d" $maxBlockFragments | quote }}
+            - name: SERVICERADAR_NVR_MAX_KEYFRAME_INTERVAL_MS
+              value: {{ printf "%d" $maxKeyframeIntervalMs | quote }}
+            - name: SERVICERADAR_NVR_MAX_KEYFRAME_WAIT_MS
+              value: {{ printf "%d" $maxKeyframeWaitMs | quote }}
             - name: SERVICERADAR_NVR_MAX_SPOOL_BYTES
               value: {{ printf "%d" (int64 $nvr.maxSpoolBytes) | quote }}
             - name: SERVICERADAR_NVR_RESERVE_BYTES
