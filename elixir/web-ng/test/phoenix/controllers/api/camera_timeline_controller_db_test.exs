@@ -13,11 +13,13 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.RecordingEventClips
   alias ServiceRadar.Camera.RecordingGap
   alias ServiceRadar.Camera.RelaySessionLifecycle
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Camera.VisualFrame
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NativeDescriptors
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -388,6 +390,227 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineControllerDBTest do
       |> get(~p"/api/cameras/#{ctx.source.id}/timeline/blocks/#{ctx.archived_entry.id}/fragments/0")
 
     assert json_response(subsequent_conn, 403) == %{"error" => "forbidden"}
+  end
+
+  test "thumbnail endpoint enforces RBAC, cross-camera IDOR refusal, quarantine exclusion, 200 image/jpeg serving, and 404 when missing",
+       %{
+         conn: conn,
+         anon_conn: anon_conn,
+         live_only_conn: live_only_conn,
+         actor: actor
+       } do
+    ctx = create_timeline_fixture(actor)
+    opts = [actor: actor]
+
+    block_jpeg =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x01, 0xFF, 0xD9>>
+
+    frame_jpeg =
+      <<0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, "JFIF", 0x00, 0x01, 0x01, 0x00, 0x02, 0xFF, 0xD9>>
+
+    {:ok, _updated_entry} =
+      ctx.local_entry
+      |> Ash.Changeset.for_update(:set_thumbnail, %{thumbnail_jpeg: block_jpeg}, opts)
+      |> Ash.update(opts)
+
+    {:ok, frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: ctx.local_entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.local_entry.stream_profile_id,
+          fragment_sequence: 0,
+          media_pts_ns: 0,
+          timeline_ts_us: ctx.local_entry.timeline_start_us + 500_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "rtdetr-r18",
+          detector_model_version: "2026.1",
+          detections: [
+            %{"object_class" => "person", "confidence" => 0.94, "dominant_colors" => ["blue"]}
+          ],
+          thumbnail_jpeg: frame_jpeg
+        },
+        opts
+      )
+      |> Ash.create(opts)
+
+    # Verify default Ash queries do NOT select thumbnail_jpeg bytes while has_thumbnail works
+    loaded_entry =
+      RecordingCatalogEntry
+      |> Ash.Query.for_read(:read, %{}, opts)
+      |> Ash.Query.filter(id == ^ctx.local_entry.id)
+      |> Ash.Query.load([:has_thumbnail])
+      |> Ash.read_one!(opts)
+
+    assert loaded_entry.has_thumbnail == true
+    assert match?(%Ash.NotLoaded{}, loaded_entry.thumbnail_jpeg)
+
+    loaded_frame =
+      VisualFrame
+      |> Ash.Query.for_read(:read, %{}, opts)
+      |> Ash.Query.filter(id == ^frame.id)
+      |> Ash.Query.load([:has_thumbnail])
+      |> Ash.read_one!(opts)
+
+    assert loaded_frame.has_thumbnail == true
+    assert match?(%Ash.NotLoaded{}, loaded_frame.thumbnail_jpeg)
+
+    # Verify RecordingEventClips projects authenticated thumbnail URLs from CNPG
+    {:ok, %{clips: clips}} =
+      RecordingEventClips.list_clips(
+        ctx.source.id,
+        %{from_us: @base_us - 1_000_000, to_us: @base_us + 20_000_000},
+        opts
+      )
+
+    person_clip = Enum.find(clips, &(&1.category == :person))
+
+    assert person_clip.thumbnail_url ==
+             "/api/cameras/#{ctx.source.id}/timeline/thumbnails/frame/#{frame.id}.jpg"
+
+    archived_rec_clip =
+      Enum.find(clips, &(&1.category == :recording and &1.catalog_entry_id == ctx.archived_entry.id))
+
+    assert archived_rec_clip.thumbnail_url == nil
+
+    # 1. Anonymous -> 401; live-only user -> 403 forbidden
+    frame_path = "/api/cameras/#{ctx.source.id}/timeline/thumbnails/frame/#{frame.id}.jpg"
+    block_path = "/api/cameras/#{ctx.source.id}/timeline/thumbnails/block/#{ctx.local_entry.id}.jpg"
+
+    assert get(anon_conn, frame_path).status == 401
+
+    denied = get(live_only_conn, frame_path)
+    assert json_response(denied, 403) == %{"error" => "forbidden"}
+    assert get_resp_header(denied, "cache-control") == ["private, no-store"]
+    assert get_resp_header(denied, "x-content-type-options") == ["nosniff"]
+
+    # 2. Authorized viewer receives 200 image/jpeg with private cache headers
+    frame_resp = get(conn, frame_path)
+    assert frame_resp.status == 200
+    assert get_resp_header(frame_resp, "content-type") == ["image/jpeg"]
+    assert get_resp_header(frame_resp, "cache-control") == ["private, max-age=300"]
+    assert get_resp_header(frame_resp, "x-content-type-options") == ["nosniff"]
+    assert frame_resp.resp_body == frame_jpeg
+
+    block_resp = get(conn, block_path)
+    assert block_resp.status == 200
+    assert get_resp_header(block_resp, "content-type") == ["image/jpeg"]
+    assert get_resp_header(block_resp, "cache-control") == ["private, max-age=300"]
+    assert get_resp_header(block_resp, "x-content-type-options") == ["nosniff"]
+    assert block_resp.resp_body == block_jpeg
+
+    # 3. Missing thumbnail (entry without thumbnail_jpeg) -> 404
+    missing_resp =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/block/#{ctx.archived_entry.id}.jpg")
+
+    assert json_response(missing_resp, 404) == %{"error" => "thumbnail_not_found"}
+    assert get_resp_header(missing_resp, "cache-control") == ["private, no-store"]
+
+    # 4. Quarantined entry -> 404 (non-vacuous: attach a real JPEG frame on the quarantined entry
+    #    AND verify the BEFORE UPDATE trigger purges thumbnail_jpeg when a playable entry is quarantined)
+    {:ok, quarantined_frame} =
+      VisualFrame
+      |> Ash.Changeset.for_create(
+        :upsert_frame,
+        %{
+          catalog_entry_id: ctx.quarantined_entry.id,
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.local_entry.stream_profile_id,
+          fragment_sequence: 0,
+          media_pts_ns: 0,
+          timeline_ts_us: ctx.local_entry.timeline_start_us + 900_000,
+          time_basis: :received,
+          scene_suppressed: false,
+          detector_model_id: "rtdetr-r18",
+          detector_model_version: "2026.1",
+          detections: [],
+          thumbnail_jpeg: frame_jpeg
+        },
+        opts
+      )
+      |> Ash.create(opts)
+
+    quarantined_frame_resp =
+      get(
+        conn,
+        "/api/cameras/#{ctx.source.id}/timeline/thumbnails/frame/#{quarantined_frame.id}.jpg"
+      )
+
+    assert json_response(quarantined_frame_resp, 404) == %{"error" => "thumbnail_not_found"}
+
+    {:ok, _prov_with_thumb} =
+      ctx.provisional_entry
+      |> Ash.Changeset.for_update(:set_thumbnail, %{thumbnail_jpeg: block_jpeg}, opts)
+      |> Ash.update(opts)
+
+    prov_block_path =
+      "/api/cameras/#{ctx.source.id}/timeline/thumbnails/block/#{ctx.provisional_entry.id}.jpg"
+
+    assert get(conn, prov_block_path).status == 200
+
+    {:ok, _quarantined_prov} =
+      RecordingCatalogEntry.quarantine_in_place(
+        ctx.provisional_entry,
+        %{
+          quarantine_reason: :binding_compromised,
+          quarantine_receipt: %{"reason" => "synthetic-test"},
+          quarantined_bytes: ctx.provisional_entry.media_bytes
+        },
+        opts
+      )
+
+    purged_entry =
+      RecordingCatalogEntry
+      |> Ash.Query.for_read(:read, %{}, opts)
+      |> Ash.Query.filter(id == ^ctx.provisional_entry.id)
+      |> Ash.Query.select([:id, :thumbnail_jpeg])
+      |> Ash.read_one!(opts)
+
+    assert purged_entry.thumbnail_jpeg == nil
+    assert json_response(get(conn, prov_block_path), 404) == %{"error" => "thumbnail_not_found"}
+
+    # 5. Cross-camera IDOR refusal -> 404 when requesting camera A's frame/block under camera B
+    other_key = Ecto.UUID.generate()
+
+    {:ok, other_source} =
+      Source.create_source(
+        %{
+          device_uid: "sr:synthetic-other-cam-#{other_key}",
+          vendor: "synthetic",
+          vendor_camera_id: other_key,
+          display_name: "Synthetic Other Camera",
+          assigned_agent_id: "agent-example",
+          assigned_gateway_id: "gateway-example"
+        },
+        opts
+      )
+
+    idor_frame =
+      get(conn, "/api/cameras/#{other_source.id}/timeline/thumbnails/frame/#{frame.id}.jpg")
+
+    assert json_response(idor_frame, 404) == %{"error" => "thumbnail_not_found"}
+
+    idor_block =
+      get(
+        conn,
+        "/api/cameras/#{other_source.id}/timeline/thumbnails/block/#{ctx.local_entry.id}.jpg"
+      )
+
+    assert json_response(idor_block, 404) == %{"error" => "thumbnail_not_found"}
+
+    # 6. Invalid kind or invalid UUID -> 400
+    bad_kind =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/invalid/#{frame.id}.jpg")
+
+    assert json_response(bad_kind, 400) == %{"error" => "invalid_request"}
+
+    bad_id =
+      get(conn, "/api/cameras/#{ctx.source.id}/timeline/thumbnails/frame/not-a-uuid.jpg")
+
+    assert json_response(bad_id, 400) == %{"error" => "invalid_request"}
   end
 
   defp authed_conn(user), do: log_in_user(build_conn(), user)

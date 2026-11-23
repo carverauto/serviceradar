@@ -401,6 +401,85 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert smart_page.counts.smart == 1
       assert Enum.map(smart_page.clips, & &1.category) == [:person]
     end
+
+    test "wires authenticated thumbnail URLs from has_thumbnail flags without loading bytea blobs" do
+      entries = [
+        @entry_1_id
+        |> playable_entry(
+          @block_1_id,
+          @base_us,
+          @base_us + 120_000_000,
+          :present,
+          :verified
+        )
+        |> Map.put(:has_thumbnail, true),
+        @entry_2_id
+        |> playable_entry(
+          @block_2_id,
+          @base_us + 180_000_000,
+          @base_us + 300_000_000,
+          :present,
+          :not_required
+        )
+        |> Map.put(:has_thumbnail, true)
+      ]
+
+      frames = [
+        # Frame with its own thumbnail -> uses frame URL
+        %{
+          id: @frame_1_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 1,
+          timeline_ts_us: @base_us + 10_000_000,
+          scene_suppressed: false,
+          has_thumbnail: true,
+          detections: [
+            %{"object_class" => "person", "confidence" => 0.92, "dominant_colors" => []}
+          ]
+        },
+        # Motion frame without its own thumbnail -> falls back to parent block URL
+        %{
+          id: @frame_3_id,
+          catalog_entry_id: @entry_1_id,
+          camera_source_id: @camera_id,
+          stream_profile_id: @profile_id,
+          fragment_sequence: 5,
+          timeline_ts_us: @base_us + 60_000_000,
+          scene_suppressed: false,
+          has_thumbnail: false,
+          detections: []
+        }
+      ]
+
+      loaders = %{
+        catalog_loader: fn _cam, _prof, _from, _to -> {:ok, entries} end,
+        visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, frames} end
+      }
+
+      assert {:ok, %{clips: clips}} =
+               RecordingEventClips.list_clips(
+                 @camera_id,
+                 %{from_us: @base_us, to_us: @base_us + 400_000_000},
+                 loaders: loaders
+               )
+
+      person_clip = Enum.find(clips, &(&1.category == :person))
+
+      assert person_clip.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_1_id}.jpg"
+
+      motion_clip = Enum.find(clips, &(&1.category == :motion))
+
+      assert motion_clip.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_1_id}.jpg"
+
+      rec_clip = Enum.find(clips, &(&1.category == :recording))
+
+      assert rec_clip.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_2_id}.jpg"
+    end
   end
 
   describe "authorization and validation" do

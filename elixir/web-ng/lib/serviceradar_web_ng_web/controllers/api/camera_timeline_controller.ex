@@ -1,14 +1,15 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   @moduledoc """
-  Authenticated timeline coverage, multi-block HLS v7 VOD playlists, and bounded
-  copy-resolved init/fragment reads for recorded cameras (`D.3`, `D.4`,
-  `design.md` `D1`–`D7`, `spec.md:614-677`).
+  Authenticated timeline coverage, multi-block HLS v7 VOD playlists, bounded
+  copy-resolved init/fragment reads, and bounded JPEG clip thumbnails for
+  recorded cameras (`D.3`, `D.4`, `design.md` `D1`–`D7`, `spec.md:614-677`).
   """
 
   use ServiceRadarWebNGWeb, :controller
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Camera.RecordingTimeline
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadarWebNG.CameraTimelineAdmission
   alias ServiceRadarWebNG.CameraTimelinePlaylist
   alias ServiceRadarWebNG.CameraTimelineReader
@@ -84,6 +85,26 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
     read_object(conn, params, selector)
   end
 
+  def thumbnail(conn, %{"camera_source_id" => source_id, "kind" => kind, "id" => raw_id}) do
+    with {:ok, _scope, source} <-
+           CameraArchiveAccess.source(conn.assigns[:current_scope], source_id),
+         {:ok, normalized_kind} <- parse_thumbnail_kind(kind),
+         {:ok, record_id} <- parse_thumbnail_id(raw_id),
+         {:ok, jpeg_bytes} <-
+           Thumbnail.fetch_for_camera(source.id, normalized_kind, record_id) do
+      conn
+      |> put_resp_header("cache-control", "private, max-age=300")
+      |> put_resp_header("x-content-type-options", "nosniff")
+      |> put_resp_content_type("image/jpeg", nil)
+      |> send_resp(200, jpeg_bytes)
+    else
+      {:error, reason} ->
+        conn
+        |> private_media()
+        |> timeline_error(reason)
+    end
+  end
+
   defp read_object(conn, %{"camera_source_id" => source_id, "entry_id" => entry_id} = params, selector) do
     conn = private_media(conn)
     request_deadline_ms = System.monotonic_time(:millisecond) + @request_deadline_ms
@@ -149,6 +170,26 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
   defp parse_source_mode("local"), do: {:ok, :local}
   defp parse_source_mode("archive"), do: {:ok, :archive}
   defp parse_source_mode(_), do: {:error, :invalid_source_mode}
+
+  defp parse_thumbnail_kind("frame"), do: {:ok, :frame}
+  defp parse_thumbnail_kind("block"), do: {:ok, :block}
+  defp parse_thumbnail_kind(_), do: {:error, :invalid_id}
+
+  defp parse_thumbnail_id(raw_id) when is_binary(raw_id) do
+    trimmed =
+      if String.ends_with?(raw_id, ".jpg") do
+        String.replace_suffix(raw_id, ".jpg", "")
+      else
+        raw_id
+      end
+
+    case Ecto.UUID.cast(trimmed) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_id}
+    end
+  end
+
+  defp parse_thumbnail_id(_), do: {:error, :invalid_id}
 
   defp decimal(value, minimum, maximum) when is_binary(value) and byte_size(value) in 1..4 do
     case Integer.parse(value) do
@@ -313,6 +354,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraTimelineController do
               :invalid_timeline_window,
               :invalid_playlist_window
             ], do: error(conn, :bad_request, "invalid_request")
+
+  defp timeline_error(conn, :thumbnail_not_found), do: error(conn, :not_found, "thumbnail_not_found")
 
   defp timeline_error(conn, reason)
        when reason in [:recording_block_not_found, :catalog_entry_not_found, :fragment_not_found],

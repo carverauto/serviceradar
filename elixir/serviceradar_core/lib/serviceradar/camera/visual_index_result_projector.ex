@@ -15,7 +15,7 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   | Any | Active | Gone | Cancel active jobs for the recording and acknowledge |
   | Any | Active | Temporarily unavailable | Retry without writes |
   | Invalid, including a stale catalog digest | Active | Playable | Fail the job, report health, and dead-letter |
-  | Valid | Active | Playable | Store frames and embeddings, complete the job, and acknowledge |
+  | Valid | Active | Playable | Store optional block/frame thumbnails, frames and embeddings, complete the job, and acknowledge |
 
   Pending and dispatched jobs are active. Completed, cancelled and terminally failed jobs are final.
   """
@@ -148,7 +148,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
            else: validation
 
       case disposition(validation, job && job.state, recording) do
-        {:store, frames} ->
+        {:store, frames, block_thumbnail_jpeg} ->
+          store_block_thumbnail(entry, block_thumbnail_jpeg)
           store_frames(entry, parsed, frames)
           with {:ok, _} <- complete_job(job, now), do: projection_summary(job, frames)
 
@@ -185,7 +186,10 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
   defp disposition(_, _, :recording_gone), do: :cancel
   defp disposition(_, _, :recording_unavailable), do: {:report, :recording_unavailable}
   defp disposition({:error, reason}, _, :playable), do: {:fail, reason}
-  defp disposition({:ok, %{frames: frames}}, _, :playable), do: {:store, frames}
+
+  defp disposition({:ok, %{frames: frames} = body}, _, :playable) do
+    {:store, frames, Map.get(body, :block_thumbnail_jpeg)}
+  end
 
   defp projection_summary(job, frames) do
     {:ok,
@@ -196,6 +200,19 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
        frame_count: length(frames),
        embedding_count: Enum.sum_by(frames, &length(&1.embeddings))
      }}
+  end
+
+  defp store_block_thumbnail(_entry, nil), do: :ok
+
+  defp store_block_thumbnail(entry, thumbnail_jpeg) when is_binary(thumbnail_jpeg) do
+    {:ok, _} =
+      entry
+      |> Ash.Changeset.for_update(:set_thumbnail, %{thumbnail_jpeg: thumbnail_jpeg},
+        actor: @system_actor
+      )
+      |> Ash.update(actor: @system_actor)
+
+    :ok
   end
 
   defp store_frames(entry, parsed, frames) do
@@ -217,7 +234,8 @@ defmodule ServiceRadar.Camera.VisualIndexResultProjector do
             scene_suppressed: f_spec.scene_suppressed,
             detector_model_id: parsed.detector_model_id,
             detector_model_version: parsed.detector_model_version,
-            detections: f_spec.detections
+            detections: f_spec.detections,
+            thumbnail_jpeg: Map.get(f_spec, :thumbnail_jpeg)
           },
           actor: @system_actor
         )

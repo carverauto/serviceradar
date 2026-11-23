@@ -170,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   pipeline :archive_media_api do
-    plug(:accepts, ["mp4", "json"])
+    plug(:accepts, ["mp4", "jpg", "jpeg", "json"])
     plug(SecurityHeaders)
     plug(:fetch_session)
     plug(:skip_csrf_protection_for_bearer_auth)
@@ -578,6 +578,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/cameras/:camera_source_id/recordings/:id/fragments/:index", CameraRecordingController, :fragment)
     get("/cameras/:camera_source_id/timeline/blocks/:entry_id/init", CameraTimelineController, :init_object)
     get("/cameras/:camera_source_id/timeline/blocks/:entry_id/fragments/:index", CameraTimelineController, :fragment)
+    get("/cameras/:camera_source_id/timeline/thumbnails/:kind/:id", CameraTimelineController, :thumbnail)
   end
 
   scope "/api", ServiceRadarWebNGWeb.Api do

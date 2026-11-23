@@ -601,10 +601,12 @@ volume never crowds out older smart detections):
 
 ### Timeline HTTP API, copy resolution, and read bounds
 
-All timeline endpoints enforce `Cache-Control: private, no-store` and
-`X-Content-Type-Options: nosniff`, reject client-supplied provider URLs or
-object keys, and forbid HTTP `Range` headers on application endpoints (`400
-invalid_request`):
+All timeline endpoints enforce `X-Content-Type-Options: nosniff` and reject
+client-supplied provider URLs or object keys. Coverage, playlist, init,
+fragment, and error responses enforce `Cache-Control: private, no-store`, while
+successful `200` thumbnail responses return `Cache-Control: private,
+max-age=300`. Playlist, init, and fragment endpoints forbid HTTP `Range` headers
+(`400 invalid_request`):
 
 | Endpoint | Purpose & limits |
 | --- | --- |
@@ -612,6 +614,7 @@ invalid_request`):
 | `GET /api/cameras/:camera_source_id/timeline/playlist.m3u8?from=&to=&profile=&source=` | Emits an HLS v7 VOD playlist for windows up to `60` minutes and `2,048` segments (`EXT-X-MAP` deduplicated per `init_sha256`, `EXT-X-DISCONTINUITY` across init/epoch/gap boundaries, `EXT-X-PROGRAM-DATE-TIME`), and writes one `RecordingAccessAudit` row. |
 | `GET /api/cameras/:camera_source_id/timeline/blocks/:entry_id/init?source=` | Serves verified CMAF initialization bytes (`<= 1 MiB`) with `Content-Type: video/mp4` and `X-Recording-Copy`. |
 | `GET /api/cameras/:camera_source_id/timeline/blocks/:entry_id/fragments/:index?source=` | Serves verified fragment `0..4095` (`<= 4 MiB`) with `Content-Type: video/mp4` and `X-Recording-Copy`. |
+| `GET /api/cameras/:camera_source_id/timeline/thumbnails/:kind/:id.jpg` | Serves a bounded JPEG clip thumbnail (`<= 64 KiB`, `Content-Type: image/jpeg`, `Cache-Control: private, max-age=300`) for a playable non-quarantined `frame` (`VisualFrame`) or `block` (`RecordingCatalogEntry`) scoped to `:camera_source_id` (`:id` accepts `<uuid>` or `<uuid>.jpg`). Returns `400 invalid_request` on invalid kind/UUID and `404 thumbnail_not_found` when absent, cross-camera, quarantined, or purged on terminal retention deletion. |
 
 #### Source modes, SHA-256 verification, and `X-Recording-Copy`
 
@@ -697,7 +700,7 @@ through custom role profiles (see [Roles & Permissions](./rbac-and-roles.md)):
 | Permission | Default roles | What it authorizes |
 | --- | --- | --- |
 | `devices.view` | `viewer`, `helpdesk`, `operator`, `admin` | Required alongside camera permissions to resolve camera inventory, list camera sources and stream profiles in Settings, and open `/cameras/:camera_source_id/recordings`. |
-| `devices.cameras.recordings.view` | `admin` | Open `/cameras/:camera_source_id/recordings` (Timeline and Published modes), query timeline coverage, issue HLS VOD playlists, and stream verified init/fragment bytes (`auto`, `local`, or `archive`). |
+| `devices.cameras.recordings.view` | `admin` | Open `/cameras/:camera_source_id/recordings` (Timeline and Published modes), query timeline coverage, issue HLS VOD playlists, fetch clip thumbnails, and stream verified init/fragment bytes (`auto`, `local`, or `archive`). |
 | `devices.cameras.recordings.hold` | `admin` | Place and release `investigation` or `export` holds on the camera Timeline, and authorize **Accept Archive Loss** on `/settings/recording?tab=health` when an entry is covered by an active hold. |
 | `settings.recording.view` | `admin` | Open `/settings/recording` and inspect recorder status, desired/applied storage budgets, archive bindings, redacted credential names, block locations, policies, retention projections, and health summaries. |
 | `settings.recording.manage` | `admin` | Register immutable `operator:<name>` archive destinations, choose the active destination, toggle `archive_enabled`, save per-camera `CameraRecordingPolicy` rows, save deployment `retention` settings, and save per-member `NVRStorageSettings` budgets and reserves. |
