@@ -196,11 +196,6 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 	}
 
 	for _, listed := range initial.GetSlots() {
-		executionID, err := uuid.FromBytes(listed.GetExecutionId())
-		if err != nil {
-			continue
-		}
-
 		current := e.store.Get(groupID)
 		if current == nil {
 			return
@@ -208,8 +203,17 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 
 		now := clock()
 		nowNano := now.UnixNano()
-		slot := sweepLeaseSlot(current, executionID.String())
+
+		slot := listed
+		if current != initial {
+			slot = sweepLeaseSlotByBytes(current, listed.GetExecutionId())
+		}
 		if slot == nil || slot.GetCollectionExpiresUnixNano() <= nowNano || slot.GetSlotStartUnixNano() > nowNano {
+			continue
+		}
+
+		executionID, err := uuid.FromBytes(slot.GetExecutionId())
+		if err != nil {
 			continue
 		}
 		if e.store.Executed(groupID, executionID.String()) {
@@ -270,12 +274,21 @@ func sweepLeaseSlot(lease *edgev1.SweepLeaseV1, executionID string) *edgev1.Swee
 		return nil
 	}
 
+	id, err := uuid.Parse(executionID)
+	if err != nil {
+		return nil
+	}
+
+	return sweepLeaseSlotByBytes(lease, id[:])
+}
+
+func sweepLeaseSlotByBytes(lease *edgev1.SweepLeaseV1, executionID []byte) *edgev1.SweepLeaseSlotV1 {
+	if lease == nil || len(executionID) == 0 {
+		return nil
+	}
+
 	for _, slot := range lease.GetSlots() {
-		id, err := uuid.FromBytes(slot.GetExecutionId())
-		if err != nil {
-			continue
-		}
-		if id.String() == executionID {
+		if bytes.Equal(slot.GetExecutionId(), executionID) {
 			return slot
 		}
 	}
@@ -340,9 +353,18 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 	defer cancel()
 	runCtx = sweeper.WithExecutionCheck(runCtx, func() error {
 		current := e.store.Get(groupID)
-		installed := sweepLeaseSlot(current, executionID)
+		if current == nil {
+			return errSweepLeaseSlotNotRunnable
+		}
+		installed := slot
+		if current != lease {
+			installed = sweepLeaseSlotByBytes(current, slot.GetExecutionId())
+			if !proto.Equal(installed, slot) {
+				return errSweepLeaseSlotNotRunnable
+			}
+		}
 		now := clock().UnixNano()
-		if current == nil || !proto.Equal(installed, slot) || e.store.Executed(groupID, executionID) || now < slot.GetSlotStartUnixNano() || now >= slot.GetCollectionExpiresUnixNano() {
+		if e.store.Executed(groupID, executionID) || now < slot.GetSlotStartUnixNano() || now >= slot.GetCollectionExpiresUnixNano() {
 			return errSweepLeaseSlotNotRunnable
 		}
 		return validateSweepLeaseSlot(current, installed, now)

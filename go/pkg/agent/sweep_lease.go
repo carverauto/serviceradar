@@ -428,7 +428,9 @@ func (s *sweepLeaseStore) InstalledLeaseDigests() map[string]string {
 	return out
 }
 
-// Get returns a copy of the installed lease for groupID, or nil.
+// Get returns the installed lease snapshot for groupID, or nil. Stored leases
+// are immutable after install (Install replaces the map entry with a newly
+// merged message); callers must treat the returned message as read-only.
 func (s *sweepLeaseStore) Get(groupID string) *edgev1.SweepLeaseV1 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -438,7 +440,7 @@ func (s *sweepLeaseStore) Get(groupID string) *edgev1.SweepLeaseV1 {
 		return nil
 	}
 
-	return goproto.Clone(lease).(*edgev1.SweepLeaseV1)
+	return lease
 }
 
 // Groups lists the sweep groups with an installed lease, in stable order.
@@ -539,9 +541,10 @@ func (s *sweepLeaseStore) executedPath(groupID string) string {
 }
 
 // Install checks push, applies it as a window replacement over the installed
-// lease, persists the result, and returns the lease the agent now holds for
-// the group (nil after a revocation). wantGroup is the sweep group the chunk
-// stream named for this push; the lease inside must name the same group.
+// lease, persists the result, and returns the stored immutable lease snapshot
+// the agent now holds for the group (nil after a revocation); callers must
+// treat the returned message as read-only. wantGroup is the sweep group the
+// chunk stream named for this push; the lease inside must name the same group.
 func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (*edgev1.SweepLeaseV1, error) {
 	if err := validateSweepLease(push, wantGroup); err != nil {
 		return nil, err
@@ -594,7 +597,7 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 
 	s.leases[wantGroup] = installed
 
-	return goproto.Clone(installed).(*edgev1.SweepLeaseV1), nil
+	return installed, nil
 }
 
 func (s *sweepLeaseStore) path(groupID string) string {
