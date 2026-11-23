@@ -40,7 +40,10 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-var errTestPublicationBeforeObserver = errors.New("publication started before the observer returned")
+var (
+	errTestPublicationBeforeObserver = errors.New("publication started before the observer returned")
+	errNonAscendingSnapshotSlots     = errors.New("non-ascending snapshot slots")
+)
 
 // Synthetic lease fixture for executor tests: fixed identities, the
 // documentation range 192.0.2.0/24, and a throwaway issuer key generated
@@ -920,7 +923,9 @@ func (r *queuedLeaseRunner) RunSweepGroupLease(ctx context.Context, group string
 }
 
 func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
-	for _, state := range []string{"valid", "expired", "revoked"} {
+	const stateReplacedExtended = "replaced_extended"
+
+	for _, state := range []string{"valid", "expired", "revoked", "replaced_dropped", "replaced_modified", stateReplacedExtended} {
 		t.Run(state, func(t *testing.T) {
 			fixture := newLeaseExecutorFixture(t)
 			cfg, lease, slot, sp := edgeSweepFixture(t)
@@ -969,6 +974,32 @@ func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
 				fixture.install(t, revocation)
 			case "expired":
 				nanos.Store(slot.CollectionExpiresUnixNano)
+			case "replaced_dropped":
+				clearWindow := &edgev1.SweepLeaseV1{
+					LeaseVersion:         sweepLeaseSlotlessVersion,
+					SweepGroupId:         lease.SweepGroupId,
+					LeaseId:              lease.LeaseId,
+					ProducerAssignmentId: lease.ProducerAssignmentId,
+					AuthorityEpoch:       lease.AuthorityEpoch,
+					WindowStartUnixNano:  slot.SlotStartUnixNano,
+					WindowEndUnixNano:    slot.SlotStartUnixNano + int64(time.Minute),
+				}
+				fixture.install(t, clearWindow)
+			case "replaced_modified":
+				modified := goproto.Clone(lease).(*edgev1.SweepLeaseV1)
+				modified.Slots[0].CollectionExpiresUnixNano += int64(time.Second)
+				fixture.install(t, modified)
+			case stateReplacedExtended:
+				tailStart := slot.SlotStartUnixNano + int64(time.Hour)
+				tailSlot := goproto.Clone(slot).(*edgev1.SweepLeaseSlotV1)
+				tailSlot.ExecutionId = newUUIDBytes()
+				tailSlot.SlotStartUnixNano = tailStart
+				tailSlot.CollectionExpiresUnixNano = tailStart + int64(testSlotWindow)
+				tailPush := goproto.Clone(lease).(*edgev1.SweepLeaseV1)
+				tailPush.WindowStartUnixNano = tailStart
+				tailPush.WindowEndUnixNano = tailStart + int64(time.Hour)
+				tailPush.Slots = []*edgev1.SweepLeaseSlotV1{tailSlot}
+				fixture.install(t, tailPush)
 			}
 			release()
 			select {
@@ -977,13 +1008,13 @@ func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
 				t.Fatal("queued slot did not return")
 			}
 			runErr := <-runner.returned
-			if state == "valid" {
+			if state == "valid" || state == stateReplacedExtended {
 				require.NoError(t, runErr)
 				select {
 				case id := <-sw.runStarted:
 					require.Equal(t, uuid.UUID(slot.ExecutionId).String(), id)
 				default:
-					t.Fatal("valid slot did not reach the scanner")
+					t.Fatalf("%s slot did not reach the scanner", state)
 				}
 			} else {
 				select {
@@ -995,7 +1026,7 @@ func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
 			}
 			records, err := sp.Unresolved()
 			require.NoError(t, err)
-			if state == "valid" {
+			if state == "valid" || state == stateReplacedExtended {
 				require.Len(t, records, 4)
 			} else {
 				require.Empty(t, records)
@@ -1056,4 +1087,66 @@ func TestSweepLeaseExecutorRunGroupIdleAllocations(t *testing.T) {
 		exec.runGroup(context.Background(), runner, group, clock)
 	})
 	require.Zero(t, allocs, "idle runGroup pass must not clone leases or allocate per slot")
+}
+
+func TestSweepLeaseStoreConcurrentGetInstallAndRunGroupNoRace(t *testing.T) {
+	t.Parallel()
+
+	store, err := newSweepLeaseStore(t.TempDir())
+	require.NoError(t, err)
+
+	group := testLeaseGroup.String()
+	baseSec := testSlotStart.Unix()
+	initial := testLeasePush(baseSec, baseSec+600, testLeaseSlot(baseSec), testLeaseSlot(baseSec+300))
+	_, err = store.Install(initial, group)
+	require.NoError(t, err)
+
+	runner := &recordingLeaseRunner{}
+	exec := newSweepLeaseExecutor(store, func() sweepLeaseRunner { return runner }, nil, logger.NewTestLogger())
+	clock := func() time.Time { return time.Unix(baseSec-60, 0) }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				snap := store.Get(group)
+				if snap != nil {
+					if _, marshalErr := goproto.Marshal(snap); marshalErr != nil {
+						errs <- marshalErr
+						return
+					}
+					starts := heldStarts(snap)
+					for i := 1; i < len(starts); i++ {
+						if starts[i] <= starts[i-1] {
+							errs <- fmt.Errorf("%w: %v", errNonAscendingSnapshotSlots, starts)
+							return
+						}
+					}
+				}
+				exec.runGroup(ctx, runner, group, clock)
+			}
+		}()
+	}
+
+	for i := int64(1); i <= 25; i++ {
+		tailStart := baseSec + 300 + i*60
+		tail := testLeasePush(tailStart, tailStart+120, testLeaseSlot(tailStart))
+		tail.LeaseId = initial.LeaseId
+		_, installErr := store.Install(tail, group)
+		require.NoError(t, installErr)
+	}
+
+	cancel()
+	wg.Wait()
+	close(errs)
+	for readErr := range errs {
+		require.NoError(t, readErr)
+	}
 }

@@ -541,9 +541,10 @@ func (s *sweepLeaseStore) executedPath(groupID string) string {
 }
 
 // Install checks push, applies it as a window replacement over the installed
-// lease, persists the result, and returns the lease the agent now holds for
-// the group (nil after a revocation). wantGroup is the sweep group the chunk
-// stream named for this push; the lease inside must name the same group.
+// lease, persists the result, and returns the stored immutable lease snapshot
+// the agent now holds for the group (nil after a revocation); callers must
+// treat the returned message as read-only. wantGroup is the sweep group the
+// chunk stream named for this push; the lease inside must name the same group.
 func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (*edgev1.SweepLeaseV1, error) {
 	if err := validateSweepLease(push, wantGroup); err != nil {
 		return nil, err
