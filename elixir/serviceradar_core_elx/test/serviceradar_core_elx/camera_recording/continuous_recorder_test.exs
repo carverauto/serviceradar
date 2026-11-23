@@ -251,9 +251,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       assert_receive {:gap_recorded, gap}, 1_000
       assert gap.reason == :nvr_refused
       assert gap.detail_class == "http_503"
-      assert gap.media_gap_ns == div(6_000 * 1_000_000_000, 90_000)
+      assert gap.start_us == @base_utc_us
+      assert gap.end_us == nil
 
-      # Next IDR succeeds on Block 1
+      # Next IDR succeeds on Block 1 and closes the open nvr_refused gap at Block 1's start
       send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
       send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
 
@@ -262,9 +263,135 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
 
       assert_receive {:cataloged, ^key1, attrs1}, 1_000
       assert attrs1.contiguous_with_previous == false
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.reason == :nvr_refused
+      assert closed_gap.detail_class == "http_503"
+      assert closed_gap.end_us == @base_utc_us + 66_666
 
       ContinuousRecorder.stop(pid, :policy_disabled)
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "coalesces repeated consecutive nvr_refused (http_503) responses into 1 gap without emitting keyframe_wait rows" do
+      parent = self()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:sent_block, seq, block_key, units})
+
+        if seq < 3 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      harness = start_harness(bounds: %{soft_frames: 2, max_frames: 2}, send_recording_fn: send_fn)
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Attempt 0 (refused 503) -> opens 1 gap
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :nvr_refused
+      assert gap.detail_class == "http_503"
+      assert gap.start_us == @base_utc_us
+      assert gap.end_us == nil
+
+      # Non-IDR frames between retries must NOT emit :keyframe_wait gaps
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
+
+      # Attempt 1 (refused 503) -> coalesced into existing outage gap
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 5_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 5, 15_000, @base_utc_us + 5_033_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+
+      # Non-IDR frame between retry 1 and retry 2
+      send_unit(pid, harness.inbox_id, 6, 18_000, @base_utc_us + 5_066_666, @p_frame_payload)
+
+      # Attempt 2 (refused 503) -> still coalesced
+      send_unit(pid, harness.inbox_id, 7, 21_000, @base_utc_us + 10_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 8, 24_000, @base_utc_us + 10_033_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+
+      # Non-IDR frame before recovery
+      send_unit(pid, harness.inbox_id, 9, 27_000, @base_utc_us + 10_066_666, @p_frame_payload)
+
+      # Attempt 3 succeeds -> closes the single coalesced outage gap spanning @base_utc_us .. recovery_us
+      recovery_us = @base_utc_us + 15_000_000
+      send_unit(pid, harness.inbox_id, 10, 30_000, recovery_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 11, 33_000, recovery_us + 33_333, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_000
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.reason == :nvr_refused
+      assert closed_gap.detail_class == "http_503"
+      assert closed_gap.start_us == @base_utc_us
+      assert closed_gap.end_us == recovery_us
+
+      # Strictly 1 gap recorded for the entire 3-retry outage (no extra nvr_refused or keyframe_wait rows)
+      refute_receive {:gap_recorded, _}, 50
+      assert ContinuousRecorder.status(pid).gaps_recorded == 1
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "enforces bounded retry cooldown after nvr_refused and closes open gap on graceful stop" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 1_000 end}, id: :refusal_cooldown_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:refusal_attempt, seq})
+        {:error, {:ingest_refused, 503}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          nvr_refusal_cooldown_ms: 10_000,
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # First attempt at t=1_000 fails with 503 -> cooldown active until t=11_000
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 0}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # IDR at t=5_000 (within cooldown) is dropped without hammering NVR or emitting a gap
+      Agent.update(clock, fn _ -> 5_000 end)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 4_000_000, @idr_payload)
+      _ = ContinuousRecorder.status(pid)
+      refute_receive {:refusal_attempt, _}, 50
+      refute_receive {:gap_recorded, _}, 50
+
+      # Advance clock past cooldown (t=11_000): next IDR retries Block 1 and still coalesces into the single gap
+      Agent.update(clock, fn _ -> 11_000 end)
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 10_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 10_033_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 1}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      refute_receive {:gap_recorded, _}, 50
+
+      # Stopping gracefully while outage is active closes the open gap cleanly
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.start_us == @base_utc_us
+      assert closed_gap.end_us >= @base_utc_us + 10_033_333
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
     end
 
     test "re-checks recovery gate on NVR refusal and stops run immediately when gate is closed" do
@@ -1754,7 +1881,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       record_gap_fn: fn attrs, _opts ->
         send(parent, {:gap_recorded, attrs})
         {:ok, attrs}
-      end
+      end,
+      close_gap_fn: fn gap, end_us, _opts ->
+        closed = Map.put(gap, :end_us, end_us)
+        send(parent, {:gap_closed, closed})
+        {:ok, closed}
+      end,
+      nvr_refusal_cooldown_ms: 0
     ]
 
     %{

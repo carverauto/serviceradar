@@ -1451,6 +1451,86 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
     }
   end
 
+  describe "recorded gaps pagination state" do
+    test "paginates recorded gaps via select_gaps_page, clamps bounds, and resets page on window/profile/camera change" do
+      gaps =
+        for idx <- 1..25 do
+          start_us = @base_now_us - (30 - idx) * 60_000_000
+
+          %{
+            id: "gap-#{idx}",
+            start_us: start_us,
+            end_us: start_us + 5_000_000,
+            reason: :nvr_refused,
+            detail_class: "http_503"
+          }
+        end
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            cov =
+              source_id
+              |> empty_coverage(params.from_us, params.to_us)
+              |> Map.put(:gaps, gaps)
+
+            {:ok, cov}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      assert socket.assigns.gaps_page == 1
+
+      {:noreply, page2} = Recordings.handle_event("select_gaps_page", %{"page" => "2"}, socket)
+      assert page2.assigns.gaps_page == 2
+
+      {:noreply, page3} = Recordings.handle_event("select_gaps_page", %{"page" => "3"}, page2)
+      assert page3.assigns.gaps_page == 3
+
+      # Out-of-range page clamps to total pages (3)
+      {:noreply, clamped} = Recordings.handle_event("select_gaps_page", %{"page" => "99"}, page3)
+      assert clamped.assigns.gaps_page == 3
+
+      # Window span change resets gaps_page to 1
+      {:noreply, after_span} = Recordings.handle_event("select_timeline_span", %{"span" => "6h"}, clamped)
+      assert after_span.assigns.gaps_page == 1
+
+      # Window navigation resets gaps_page to 1
+      {:noreply, page2_again} = Recordings.handle_event("select_gaps_page", %{"page" => "2"}, after_span)
+      assert page2_again.assigns.gaps_page == 2
+
+      {:noreply, after_nav} =
+        Recordings.handle_event("navigate_timeline_window", %{"direction" => "previous"}, page2_again)
+
+      assert after_nav.assigns.gaps_page == 1
+
+      # Profile change resets gaps_page to 1
+      {:noreply, page2_prof} = Recordings.handle_event("select_gaps_page", %{"page" => "2"}, after_nav)
+      assert page2_prof.assigns.gaps_page == 2
+
+      {:noreply, after_profile} =
+        Recordings.handle_event("select_timeline_profile", %{"stream_profile_id" => @profile_id}, page2_prof)
+
+      assert after_profile.assigns.gaps_page == 1
+
+      # Camera switch via handle_params resets gaps_page to 1
+      {:noreply, page2_cam} = Recordings.handle_event("select_gaps_page", %{"page" => "2"}, after_profile)
+      assert page2_cam.assigns.gaps_page == 2
+
+      {:noreply, after_cam} =
+        Recordings.handle_params(
+          %{"camera_source_id" => @other_camera_id, "mode" => "timeline"},
+          "/cameras/#{@other_camera_id}/recordings?mode=timeline",
+          page2_cam
+        )
+
+      on_exit(fn -> cancel_timers(after_cam) end)
+      assert after_cam.assigns.gaps_page == 1
+    end
+  end
+
   defp empty_coverage(source_id, from_us, to_us) do
     %{
       camera_source_id: source_id,

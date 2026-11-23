@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   @default_refresh_interval_ms 15_000
   @default_debounce_ms 500
   @default_switcher_per_page 20
+  @gaps_per_page 10
 
   @span_order ["15m", "1h", "6h", "24h", "7d"]
 
@@ -104,6 +105,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_total_pages: 1,
         timeline_clips_counts: default_clip_counts(),
         timeline_selected_clip_id: nil,
+        gaps_page: 1,
+        gaps_per_page: @gaps_per_page,
         timeline_user_selected_window?: false,
         timeline_manage_drawer_open?: false,
         switcher_cameras: [],
@@ -176,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_highlight_frame_id: highlight_frame_id,
         timeline_selected_clip_id: nil,
         timeline_clips_page: 1,
+        gaps_page: 1,
         timeline_user_selected_window?: false,
         timeline_search_query:
           if(Map.has_key?(params, "q"), do: search_query, else: socket.assigns.timeline_search_query),
@@ -239,6 +243,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
+        gaps_page={@gaps_page}
+        gaps_per_page={@gaps_per_page}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
         switcher_cameras={@switcher_cameras}
         switcher_search={@switcher_search}
@@ -296,6 +302,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       assign(socket,
         timeline_profile_id: profile_id,
         timeline_clips_page: 1,
+        gaps_page: 1,
         error: nil
       )
 
@@ -309,6 +316,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           timeline_span: span,
           timeline_custom_from_us: nil,
           timeline_clips_page: 1,
+          gaps_page: 1,
           error: nil
         )
 
@@ -337,6 +345,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           timeline_span: next_span,
           timeline_custom_from_us: nil,
           timeline_clips_page: 1,
+          gaps_page: 1,
           error: nil
         )
 
@@ -408,11 +417,29 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   def handle_event("select_timeline_source", %{"source" => source}, socket) do
     if source in ["auto", "local", "archive"] do
-      socket = assign(socket, timeline_source: source, error: nil)
+      socket = assign(socket, timeline_source: source, gaps_page: 1, error: nil)
       {:noreply, load_timeline(socket)}
     else
       {:noreply, authorize_only_or_unavailable(socket)}
     end
+  end
+
+  def handle_event("select_gaps_page", %{"page" => raw_page}, socket) do
+    gaps_count =
+      case socket.assigns.timeline_coverage do
+        %{gaps: gaps} when is_list(gaps) -> length(gaps)
+        %{"gaps" => gaps} when is_list(gaps) -> length(gaps)
+        _ -> 0
+      end
+
+    total_pages = max(div(gaps_count + @gaps_per_page - 1, @gaps_per_page), 1)
+
+    page =
+      raw_page
+      |> parse_positive_int(1)
+      |> min(total_pages)
+
+    {:noreply, assign(socket, gaps_page: page)}
   end
 
   def handle_event("navigate_timeline_window", %{"direction" => direction}, socket) do
@@ -433,6 +460,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_custom_from_us: nil,
         timeline_anchor_to_us: next_anchor_to_us,
         timeline_clips_page: 1,
+        gaps_page: 1,
         error: nil
       )
 
@@ -464,6 +492,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           timeline_custom_from_us: custom_from_us,
           timeline_anchor_to_us: anchor_to_us,
           timeline_jump_at: format_us_for_datetime_local(target_us, tz, :floor, true),
+          gaps_page: 1,
           error: nil
         )
         |> load_timeline_for_authorized(scope, source)
