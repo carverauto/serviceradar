@@ -96,6 +96,110 @@ defmodule ServiceRadar.Jobs.SettingsBackupS3UploaderTest do
     refute_receive {:origin_put, _req2}, 150
   end
 
+  test "percent-encodes bucket and special characters in prefix and signs matching SigV4 canonical URI",
+       ctx do
+    body = Jason.encode!(%{"schema_version" => 1, "settings" => %{}})
+    sha256 = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
+    sha_prefix = binary_part(sha256, 0, 12)
+    exported_at = ~U[2026-11-22 15:30:05Z]
+    secret_key = "synthetic-secret-access-key"
+
+    dest = %{
+      endpoint: "https://localhost:#{ctx.origin.port}",
+      bucket: "synthetic bucket%1",
+      region: "us-east-1",
+      prefix: "tenant a/b#c?d=1",
+      access_key_id: "AKIA_SYNTHETIC_ACCESS",
+      secret_access_key: secret_key
+    }
+
+    assert {:ok, result} =
+             S3Uploader.upload(dest, body,
+               exported_at: exported_at,
+               now: exported_at,
+               sha256: sha256,
+               sha256_prefix: sha_prefix,
+               proxy: %{scheme: :http, host: "127.0.0.1", port: ctx.proxy.port},
+               cacerts: ctx.cacerts
+             )
+
+    assert result.object_key ==
+             "tenant a/b#c?d=1/settings-export/20261122T153005Z-#{sha_prefix}.json"
+
+    assert result.latest_key == "tenant a/b#c?d=1/settings-export/latest.json"
+
+    encoded_prefix = "tenant%20a/b%23c%3Fd%3D1"
+
+    assert_receive {:origin_put, req1}
+
+    assert req1.path ==
+             "/synthetic%20bucket%251/#{encoded_prefix}/settings-export/20261122T153005Z-#{sha_prefix}.json"
+
+    assert verify_sigv4_signature(req1, secret_key, "us-east-1", "s3")
+
+    assert_receive {:origin_put, req2}
+
+    assert req2.path ==
+             "/synthetic%20bucket%251/#{encoded_prefix}/settings-export/latest.json"
+
+    assert verify_sigv4_signature(req2, secret_key, "us-east-1", "s3")
+  end
+
+  defp verify_sigv4_signature(req, secret_key, region, service) do
+    auth = Map.fetch!(req.headers, "authorization")
+
+    [_, cred_part, signed_part, sig_part] =
+      Regex.run(~r/Credential=([^,]+),SignedHeaders=([^,]+),Signature=([0-9a-f]+)/, auth)
+
+    [_access_key, date_stamp, ^region, ^service, "aws4_request"] = String.split(cred_part, "/")
+    signed_headers = String.split(signed_part, ";")
+
+    canonical_headers =
+      Enum.map_join(signed_headers, "\n", fn h ->
+        "#{h}:#{Map.fetch!(req.headers, h)}"
+      end)
+
+    payload_hash = Map.fetch!(req.headers, "x-amz-content-sha256")
+    amz_date = Map.fetch!(req.headers, "x-amz-date")
+
+    canonical_request =
+      Enum.join(
+        [
+          "PUT",
+          req.path,
+          "",
+          canonical_headers,
+          "",
+          signed_part,
+          payload_hash
+        ],
+        "\n"
+      )
+
+    req_hash = :sha256 |> :crypto.hash(canonical_request) |> Base.encode16(case: :lower)
+
+    string_to_sign =
+      Enum.join(
+        [
+          "AWS4-HMAC-SHA256",
+          amz_date,
+          "#{date_stamp}/#{region}/#{service}/aws4_request",
+          req_hash
+        ],
+        "\n"
+      )
+
+    k_date = :crypto.mac(:hmac, :sha256, "AWS4" <> secret_key, date_stamp)
+    k_region = :crypto.mac(:hmac, :sha256, k_date, region)
+    k_service = :crypto.mac(:hmac, :sha256, k_region, service)
+    k_signing = :crypto.mac(:hmac, :sha256, k_service, "aws4_request")
+
+    expected_sig =
+      :hmac |> :crypto.mac(:sha256, k_signing, string_to_sign) |> Base.encode16(case: :lower)
+
+    sig_part == expected_sig
+  end
+
   defp generate_certs do
     san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
     alg = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]

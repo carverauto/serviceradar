@@ -162,12 +162,39 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneSettingsBackup do
   end
 
   @doc false
-  def enqueue_export(dest, params) do
+  def build_export_job(dest, params) do
     action_arguments =
-      maybe_put(%{"manual" => true, "reason" => params.reason}, "idempotency_key", params.idempotency_key)
+      maybe_put(
+        %{"manual" => true, "reason" => params.reason},
+        "idempotency_key",
+        params.idempotency_key
+      )
 
+    trigger_opts =
+      case params.idempotency_key do
+        key when is_binary(key) and key != "" ->
+          [
+            action_arguments: action_arguments,
+            args: %{idempotency_key: key},
+            unique: [
+              fields: [:worker, :args],
+              keys: [:idempotency_key],
+              period: {24, :hours},
+              states: :successful
+            ]
+          ]
+
+        _ ->
+          [action_arguments: action_arguments]
+      end
+
+    AshOban.build_trigger(dest, :export, trigger_opts)
+  end
+
+  @doc false
+  def enqueue_export(dest, params) do
     dest
-    |> AshOban.build_trigger(:export, action_arguments: action_arguments)
+    |> build_export_job(params)
     |> ObanRouter.insert()
   end
 
@@ -218,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneSettingsBackup do
   defp validate_export_params(document) when is_map(document) do
     unknown_keys = Map.keys(document) -- @allowed_export_keys
     reason = Map.get(document, "reason", "manual")
-    idempotency_key = Map.get(document, "idempotency_key")
+    raw_idempotency_key = Map.get(document, "idempotency_key")
 
     cond do
       unknown_keys != [] ->
@@ -227,10 +254,16 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneSettingsBackup do
       not (is_binary(reason) and reason in @allowed_reasons) ->
         {:error, :invalid_request}
 
-      not valid_optional_idempotency_key?(idempotency_key) ->
+      not valid_optional_idempotency_key?(raw_idempotency_key) ->
         {:error, :invalid_request}
 
       true ->
+        idempotency_key =
+          case raw_idempotency_key do
+            key when is_binary(key) -> String.trim(key)
+            nil -> nil
+          end
+
         {:ok, %{reason: reason, idempotency_key: idempotency_key}}
     end
   end

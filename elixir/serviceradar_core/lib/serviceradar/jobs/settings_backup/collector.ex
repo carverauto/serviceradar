@@ -4,6 +4,8 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
   inventories into a deterministic, secret-free canonical JSON snapshot.
   """
 
+  alias Ash.Page.Keyset
+  alias Ash.Page.Offset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller, as: AnsibleController
   alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsibleRepository
@@ -59,7 +61,9 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
     "values_wo",
     "access_key_id",
     "secret_access_key",
-    "community"
+    "community",
+    "api_key",
+    "authorization"
   ]
 
   @type snapshot :: %{
@@ -71,152 +75,149 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
           reason: String.t()
         }
 
-  @spec collect(keyword()) :: {:ok, snapshot()}
+  @spec collect(keyword()) :: {:ok, snapshot()} | {:error, term()}
   def collect(opts \\ []) do
+    env_opts = Application.get_env(:serviceradar_core, :settings_backup_collector_opts, [])
+    opts = Keyword.merge(env_opts, opts)
     actor = Keyword.get(opts, :actor) || SystemActor.system(:settings_backup)
     exported_at = Keyword.get(opts, :exported_at) || DateTime.utc_now()
     reason = Keyword.get(opts, :reason) || "scheduled"
     readers = Keyword.get(opts, :readers, %{})
 
-    bundle = %{
-      "schema_version" => @schema_version,
-      "exported_at" => DateTime.to_iso8601(exported_at),
-      "reason" => to_string(reason),
-      "terraform_resources" => %{
-        "serviceradar_network_credential_secret" =>
-          :network_credential_secrets
-          |> collect_records(NetworkCredentialSecret, actor, readers)
-          |> Enum.map(&serialize_credential_secret/1)
-          |> sort_by_id(),
-        "serviceradar_network_credential_rule" =>
-          :network_credential_rules
-          |> collect_records(NetworkCredentialRule, actor, readers)
-          |> Enum.map(&serialize_credential_rule/1)
-          |> sort_by_id(),
-        "serviceradar_ansible_controller" =>
-          :ansible_controllers
-          |> collect_records(AnsibleController, actor, readers)
-          |> Enum.map(&serialize_ansible_controller/1)
-          |> sort_by_id(),
-        "serviceradar_ansible_repository" =>
-          :ansible_repositories
-          |> collect_records(AnsibleRepository, actor, readers)
-          |> Enum.map(&serialize_ansible_repository/1)
-          |> sort_by_id()
-      },
-      "settings" => %{
-        "snmp_profiles" =>
-          :snmp_profiles
-          |> collect_records(SNMPProfile, actor, readers)
-          |> Enum.map(&serialize_snmp_profile/1)
-          |> sort_by_id(),
-        "sweep_profiles" =>
-          :sweep_profiles
-          |> collect_records(SweepProfile, actor, readers)
-          |> Enum.map(&serialize_sweep_profile/1)
-          |> sort_by_id(),
-        "sweep_groups" =>
-          :sweep_groups
-          |> collect_records(SweepGroup, actor, readers)
-          |> Enum.map(&serialize_sweep_group/1)
-          |> sort_by_id(),
-        "polling_schedules" =>
-          :polling_schedules
-          |> collect_records(PollingSchedule, actor, readers)
-          |> Enum.map(&serialize_polling_schedule/1)
-          |> sort_by_id(),
-        "service_checks" =>
-          :service_checks
-          |> collect_records(ServiceCheck, actor, readers)
-          |> Enum.map(&serialize_service_check/1)
-          |> sort_by_id(),
-        "sysmon_profiles" =>
-          :sysmon_profiles
-          |> collect_records(SysmonProfile, actor, readers)
-          |> Enum.map(&serialize_sysmon_profile/1)
-          |> sort_by_id(),
-        "edge_pipeline_settings" =>
-          :edge_pipeline_settings
-          |> collect_records(PipelineSetting, actor, readers)
-          |> Enum.map(&serialize_pipeline_setting/1)
-          |> Enum.sort_by(&{&1["scope"], &1["scope_key"], &1["id"]}),
-        "warehouse_retention_settings" =>
-          :warehouse_retention_settings
-          |> collect_records(WarehouseRetentionSetting, actor, readers)
-          |> Enum.map(&serialize_warehouse_retention_setting/1)
-          |> Enum.sort_by(&{&1["dataset"], &1["id"]}),
-        "device_hostname_rdns_settings" =>
-          :device_hostname_rdns_settings
-          |> collect_records(DeviceHostnameRdnsSettings, actor, readers)
-          |> Enum.map(&serialize_device_hostname_rdns_settings/1)
-          |> Enum.sort_by(& &1["key"]),
-        "role_profiles" =>
-          :role_profiles
-          |> collect_records(RoleProfile, actor, readers)
-          |> Enum.map(&serialize_role_profile/1)
-          |> sort_by_id(),
-        "authorization_settings" =>
-          :authorization_settings
-          |> collect_records(AuthorizationSettings, actor, readers)
-          |> Enum.map(&serialize_authorization_settings/1)
-          |> Enum.sort_by(& &1["key"]),
-        "outbound_mail_settings" =>
-          :outbound_mail_settings
-          |> collect_records(OutboundMailSettings, actor, readers)
-          |> Enum.map(&serialize_outbound_mail_settings/1)
-          |> sort_by_id(),
-        "netflow_settings" =>
-          :netflow_settings
-          |> collect_records(NetflowSettings, actor, readers)
-          |> Enum.map(&serialize_netflow_settings/1)
-          |> sort_by_id(),
-        "mapbox_settings" =>
-          :mapbox_settings
-          |> collect_records(MapboxSettings, actor, readers)
-          |> Enum.map(&serialize_mapbox_settings/1)
-          |> sort_by_id()
+    with {:ok, terraform_resources} <- collect_sections(terraform_specs(), actor, readers),
+         {:ok, settings} <- collect_sections(settings_specs(), actor, readers) do
+      bundle = %{
+        "schema_version" => @schema_version,
+        "exported_at" => DateTime.to_iso8601(exported_at),
+        "reason" => to_string(reason),
+        "terraform_resources" => terraform_resources,
+        "settings" => settings
       }
-    }
 
-    canonical = canonicalize(bundle)
-    json = Jason.encode!(canonical)
-    sha256 = :sha256 |> :crypto.hash(json) |> Base.encode16(case: :lower)
+      canonical = canonicalize(bundle)
+      json = Jason.encode!(canonical)
+      sha256 = :sha256 |> :crypto.hash(json) |> Base.encode16(case: :lower)
 
-    {:ok,
-     %{
-       bundle: bundle,
-       json: json,
-       sha256: sha256,
-       sha256_prefix: binary_part(sha256, 0, 12),
-       exported_at: exported_at,
-       reason: to_string(reason)
-     }}
+      {:ok,
+       %{
+         bundle: bundle,
+         json: json,
+         sha256: sha256,
+         sha256_prefix: binary_part(sha256, 0, 12),
+         exported_at: exported_at,
+         reason: to_string(reason)
+       }}
+    end
+  end
+
+  defp terraform_specs do
+    [
+      {"serviceradar_network_credential_secret", :network_credential_secrets,
+       NetworkCredentialSecret, &serialize_credential_secret/1, &sort_by_id/1},
+      {"serviceradar_network_credential_rule", :network_credential_rules, NetworkCredentialRule,
+       &serialize_credential_rule/1, &sort_by_id/1},
+      {"serviceradar_ansible_controller", :ansible_controllers, AnsibleController,
+       &serialize_ansible_controller/1, &sort_by_id/1},
+      {"serviceradar_ansible_repository", :ansible_repositories, AnsibleRepository,
+       &serialize_ansible_repository/1, &sort_by_id/1}
+    ]
+  end
+
+  defp settings_specs do
+    [
+      {"snmp_profiles", :snmp_profiles, SNMPProfile, &serialize_snmp_profile/1, &sort_by_id/1},
+      {"sweep_profiles", :sweep_profiles, SweepProfile, &serialize_sweep_profile/1,
+       &sort_by_id/1},
+      {"sweep_groups", :sweep_groups, SweepGroup, &serialize_sweep_group/1, &sort_by_id/1},
+      {"polling_schedules", :polling_schedules, PollingSchedule, &serialize_polling_schedule/1,
+       &sort_by_id/1},
+      {"service_checks", :service_checks, ServiceCheck, &serialize_service_check/1,
+       &sort_by_id/1},
+      {"sysmon_profiles", :sysmon_profiles, SysmonProfile, &serialize_sysmon_profile/1,
+       &sort_by_id/1},
+      {"edge_pipeline_settings", :edge_pipeline_settings, PipelineSetting,
+       &serialize_pipeline_setting/1,
+       &Enum.sort_by(&1, fn item -> {item["scope"], item["scope_key"], item["id"]} end)},
+      {"warehouse_retention_settings", :warehouse_retention_settings, WarehouseRetentionSetting,
+       &serialize_warehouse_retention_setting/1,
+       &Enum.sort_by(&1, fn item -> {item["dataset"], item["id"]} end)},
+      {"device_hostname_rdns_settings", :device_hostname_rdns_settings,
+       DeviceHostnameRdnsSettings, &serialize_device_hostname_rdns_settings/1,
+       &Enum.sort_by(&1, fn item -> item["key"] end)},
+      {"role_profiles", :role_profiles, RoleProfile, &serialize_role_profile/1, &sort_by_id/1},
+      {"authorization_settings", :authorization_settings, AuthorizationSettings,
+       &serialize_authorization_settings/1, &Enum.sort_by(&1, fn item -> item["key"] end)},
+      {"outbound_mail_settings", :outbound_mail_settings, OutboundMailSettings,
+       &serialize_outbound_mail_settings/1, &sort_by_id/1},
+      {"netflow_settings", :netflow_settings, NetflowSettings, &serialize_netflow_settings/1,
+       &sort_by_id/1},
+      {"mapbox_settings", :mapbox_settings, MapboxSettings, &serialize_mapbox_settings/1,
+       &sort_by_id/1}
+    ]
+  end
+
+  defp collect_sections(specs, actor, readers) do
+    Enum.reduce_while(specs, {:ok, %{}}, fn {json_key, reader_key, resource, serializer, sorter},
+                                            {:ok, acc} ->
+      case collect_records(reader_key, resource, actor, readers) do
+        {:ok, records} ->
+          serialized = records |> Enum.map(serializer) |> sorter.()
+          {:cont, {:ok, Map.put(acc, json_key, serialized)}}
+
+        {:error, _} = err ->
+          {:halt, err}
+      end
+    end)
   end
 
   defp collect_records(key, resource, actor, readers) do
     case Map.get(readers, key) do
       reader when is_function(reader, 1) ->
-        actor |> reader.() |> List.wrap()
+        actor |> reader.() |> normalize_reader_result(resource)
 
       reader when is_function(reader, 0) ->
-        List.wrap(reader.())
+        normalize_reader_result(reader.(), resource)
 
       nil ->
         safe_ash_read(resource, actor)
     end
+  rescue
+    exception -> {:error, {:collection_failed, resource, exception}}
+  catch
+    :exit, reason -> {:error, {:collection_failed, resource, {:exit, reason}}}
   end
+
+  defp normalize_reader_result({:ok, %Keyset{results: results}}, _resource), do: {:ok, results}
+
+  defp normalize_reader_result({:ok, %Offset{results: results}}, _resource), do: {:ok, results}
+
+  defp normalize_reader_result({:ok, results}, _resource) when is_list(results),
+    do: {:ok, results}
+
+  defp normalize_reader_result({:error, {:collection_failed, _, _} = err}, _resource),
+    do: {:error, err}
+
+  defp normalize_reader_result({:error, reason}, resource),
+    do: {:error, {:collection_failed, resource, reason}}
+
+  defp normalize_reader_result(results, _resource) when is_list(results), do: {:ok, results}
+
+  defp normalize_reader_result(nil, _resource), do: {:ok, []}
+
+  defp normalize_reader_result(other, _resource), do: {:ok, List.wrap(other)}
 
   defp safe_ash_read(resource, actor) do
     case Ash.read(resource, actor: actor) do
-      {:ok, %Ash.Page.Keyset{results: results}} -> results
-      {:ok, %Ash.Page.Offset{results: results}} -> results
-      {:ok, results} when is_list(results) -> results
-      _ -> []
+      {:ok, %Keyset{results: results}} -> {:ok, results}
+      {:ok, %Offset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, reason} -> {:error, {:collection_failed, resource, reason}}
+      other -> {:error, {:collection_failed, resource, other}}
     end
   rescue
-    _ -> []
+    exception -> {:error, {:collection_failed, resource, exception}}
   catch
-    :exit, _ -> []
+    :exit, reason -> {:error, {:collection_failed, resource, {:exit, reason}}}
   end
 
   defp serialize_credential_secret(record) do

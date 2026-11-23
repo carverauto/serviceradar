@@ -22,8 +22,10 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
 
       ServiceRadar.Repo.query!("DELETE FROM platform.settings_backup_destinations WHERE key = 'default'", [])
 
-      if job_id = Process.get(:queued_settings_backup_job_id) do
-        ServiceRadar.Repo.query!("DELETE FROM platform.oban_jobs WHERE id = $1", [job_id])
+      job_ids = Process.get(:queued_settings_backup_job_ids, [])
+
+      if job_ids != [] do
+        ServiceRadar.Repo.query!("DELETE FROM platform.oban_jobs WHERE id = ANY($1)", [job_ids])
       end
     end)
 
@@ -96,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
     assert exported.body["data"]["status"] == "queued"
     job_id = exported.body["data"]["job_id"]
     assert is_integer(job_id)
-    Process.put(:queued_settings_backup_job_id, job_id)
+    Process.put(:queued_settings_backup_job_ids, [job_id])
 
     assert %{rows: [["maintenance", 0, args]]} =
              ServiceRadar.Repo.query!(
@@ -106,5 +108,42 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupDBTest do
 
     assert args["action_arguments"]["manual"] == true
     assert args["action_arguments"]["reason"] == "manual"
+
+    # Repeated exports with the same idempotency_key deduplicate to the same Oban job.
+    idem_first =
+      Req.post!(
+        "#{base}/v1/settings-backup/export",
+        headers: headers,
+        json: %{"reason" => "pre_resize", "idempotency_key" => "bandit-idem-1"},
+        retry: false
+      )
+
+    assert idem_first.status == 202
+    idem_job_id = idem_first.body["data"]["job_id"]
+    refute idem_job_id == job_id
+
+    idem_second =
+      Req.post!(
+        "#{base}/v1/settings-backup/export",
+        headers: headers,
+        json: %{"reason" => "manual", "idempotency_key" => "bandit-idem-1"},
+        retry: false
+      )
+
+    assert idem_second.status == 202
+    assert idem_second.body["data"]["job_id"] == idem_job_id
+
+    idem_distinct =
+      Req.post!(
+        "#{base}/v1/settings-backup/export",
+        headers: headers,
+        json: %{"reason" => "manual", "idempotency_key" => "bandit-idem-2"},
+        retry: false
+      )
+
+    assert idem_distinct.status == 202
+    distinct_job_id = idem_distinct.body["data"]["job_id"]
+    refute distinct_job_id == idem_job_id
+    Process.put(:queued_settings_backup_job_ids, [job_id, idem_job_id, distinct_job_id])
   end
 end

@@ -153,6 +153,55 @@ defmodule ServiceRadar.Jobs.SettingsBackupIntegrationTest do
            )
   end
 
+  test "records failed status and preserves latest.json metadata when S3 returns error", ctx do
+    attrs = %{
+      enabled: true,
+      provider: "linode_object_storage",
+      endpoint: "https://localhost:#{ctx.origin.port}",
+      bucket: "synthetic-tenant-backup",
+      region: "us-east-1",
+      prefix: "tenant-fail",
+      schedule_cron: "0 */6 * * *",
+      access_key_id: @synthetic_access_key,
+      secret_access_key: @synthetic_secret_key
+    }
+
+    assert {:ok, :created, dest} =
+             SettingsBackupDestination.upsert_destination(attrs, actor: ctx.actor)
+
+    assert {:ok, succeeded} =
+             dest
+             |> Ash.Changeset.for_update(:run, %{manual: true, reason: "manual"}, actor: nil)
+             |> Ash.update()
+
+    assert succeeded.last_export_status == "succeeded"
+    assert_receive {:origin_put, _req1}
+    assert_receive {:origin_put, _req2}
+
+    assert {:ok, updated} =
+             SettingsBackupDestination.upsert_destination(
+               Map.put(attrs, :bucket, "fail-bucket"),
+               actor: ctx.actor
+             )
+
+    assert {:ok, failed} =
+             updated
+             |> Ash.Changeset.for_update(:run, %{manual: true, reason: "manual"}, actor: nil)
+             |> Ash.update()
+
+    assert failed.last_export_status == "failed"
+    assert failed.last_export_error == "s3_http_status_500"
+    assert failed.last_export_object_key == succeeded.last_export_object_key
+    assert failed.last_export_etag == succeeded.last_export_etag
+    assert failed.last_export_sha256 == succeeded.last_export_sha256
+    assert DateTime.after?(failed.next_run_at, failed.last_exported_at)
+
+    assert_receive {:origin_put, req_fail}
+    assert String.starts_with?(req_fail.path, "/fail-bucket/tenant-fail/settings-export/")
+    refute String.ends_with?(req_fail.path, "/latest.json")
+    refute_receive {:origin_put, _unexpected}, 150
+  end
+
   defp generate_certs do
     san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
     alg = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
@@ -206,10 +255,14 @@ defmodule ServiceRadar.Jobs.SettingsBackupIntegrationTest do
       [_method, path | _] = String.split(request_line, " ")
       send(test_pid, {:origin_put, %{path: path, body: body}})
 
-      :ssl.send(
-        socket,
-        "HTTP/1.1 200 OK\r\netag: \"etag-integration-1\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-      )
+      response =
+        if String.starts_with?(path, "/fail-bucket/") do
+          "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 5\r\nconnection: close\r\n\r\nerror"
+        else
+          "HTTP/1.1 200 OK\r\netag: \"etag-integration-1\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+        end
+
+      :ssl.send(socket, response)
     end
 
     :ssl.close(socket)

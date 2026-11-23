@@ -94,8 +94,18 @@ defmodule ServiceRadar.Jobs.SettingsBackup.S3Uploader do
   defp put_object(destination, creds, object_key, body, sha256, now, config, timeout_ms) do
     endpoint = String.trim_trailing(destination.endpoint, "/")
     bucket = destination.bucket |> String.trim() |> String.trim("/")
-    url = "#{endpoint}/#{bucket}/#{object_key}"
-    uri = URI.parse(url)
+    base_uri = URI.parse(endpoint)
+    base_segments = String.split(base_uri.path || "", "/", trim: true)
+    key_segments = object_key |> String.trim_leading("/") |> String.split("/", trim: true)
+
+    encoded_path =
+      "/" <>
+        Enum.map_join(base_segments ++ [bucket | key_segments], "/", fn segment ->
+          URI.encode(segment, &URI.char_unreserved?/1)
+        end)
+
+    uri = %{base_uri | path: encoded_path, query: nil, fragment: nil}
+    url = URI.to_string(uri)
 
     headers = [
       {"host", uri.authority},

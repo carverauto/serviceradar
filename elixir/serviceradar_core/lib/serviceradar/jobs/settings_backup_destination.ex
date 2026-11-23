@@ -485,24 +485,36 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
   defp validate_cron(changeset) do
     cron = Ash.Changeset.get_attribute(changeset, :schedule_cron)
 
-    cond do
-      not is_binary(cron) or String.trim(cron) == "" ->
-        Ash.Changeset.add_error(
-          changeset,
-          InvalidAttribute.exception(field: :schedule_cron, message: "cannot be empty")
-        )
+    if is_binary(cron) and String.trim(cron) != "" do
+      trimmed = String.trim(cron)
 
-      match?({:error, _}, Expression.parse(String.trim(cron))) ->
-        Ash.Changeset.add_error(
-          changeset,
-          InvalidAttribute.exception(
-            field: :schedule_cron,
-            message: "is not a valid cron expression"
+      with {:ok, %Expression{reboot?: false} = expr} <- Expression.parse(trimmed),
+           %DateTime{} <- Expression.next_at(expr, DateTime.utc_now()) do
+        Ash.Changeset.force_change_attribute(changeset, :schedule_cron, trimmed)
+      else
+        {:ok, %Expression{reboot?: true}} ->
+          Ash.Changeset.add_error(
+            changeset,
+            InvalidAttribute.exception(
+              field: :schedule_cron,
+              message: "@reboot cron expressions are not supported"
+            )
           )
-        )
 
-      true ->
-        Ash.Changeset.force_change_attribute(changeset, :schedule_cron, String.trim(cron))
+        _ ->
+          Ash.Changeset.add_error(
+            changeset,
+            InvalidAttribute.exception(
+              field: :schedule_cron,
+              message: "is not a valid cron expression"
+            )
+          )
+      end
+    else
+      Ash.Changeset.add_error(
+        changeset,
+        InvalidAttribute.exception(field: :schedule_cron, message: "cannot be empty")
+      )
     end
   end
 
@@ -727,6 +739,10 @@ defmodule ServiceRadar.Jobs.SettingsBackupDestination do
   end
 
   defp format_export_error({:http_status, status}), do: "s3_http_status_#{status}"
+
+  defp format_export_error({:collection_failed, resource, reason}),
+    do: "collection_failed:#{inspect(resource)}:#{format_export_error(reason)}"
+
   defp format_export_error(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_export_error(reason) when is_binary(reason), do: reason
   defp format_export_error(reason), do: inspect(reason)

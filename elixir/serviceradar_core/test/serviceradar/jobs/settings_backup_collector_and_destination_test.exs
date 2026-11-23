@@ -97,6 +97,82 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
       assert [mapbox] = settings["mapbox_settings"]
       assert mapbox["access_token_present"] == true
     end
+
+    test "strips ad-hoc api_key and authorization keys while preserving allowed secret ref keys" do
+      exported_at = ~U[2026-11-22 12:00:00Z]
+
+      readers =
+        :order_a
+        |> build_synthetic_readers()
+        |> Map.put(:service_checks, fn _actor ->
+          [
+            %{
+              id: "80000000-0000-4000-8000-000000000001",
+              name: "HTTPS Check",
+              description: "Check with nested auth headers",
+              enabled: true,
+              check_type: :http,
+              target: "https://api.example.com/health",
+              port: 443,
+              interval_seconds: 60,
+              timeout_seconds: 5,
+              retries: 1,
+              config: %{
+                "method" => "GET",
+                "api_key" => "inline-service-check-api-key",
+                "x_api_key" => "inline-x-api-key",
+                "headers" => %{
+                  "Authorization" => "Bearer inline-bearer-token",
+                  "Accept" => "application/json"
+                }
+              },
+              warning_threshold_ms: 500,
+              critical_threshold_ms: 1500,
+              agent_uid: "agent-1",
+              device_uid: "device-1",
+              web_property_id: nil,
+              metadata: %{
+                "authorization" => "Basic inline-basic-auth",
+                "api_key_present" => true,
+                "api_key_secret_id" => "00000000-0000-4000-8000-000000000099",
+                "region" => "us-east-1"
+              }
+            }
+          ]
+        end)
+
+      assert {:ok, snap} =
+               Collector.collect(exported_at: exported_at, reason: "manual", readers: readers)
+
+      refute String.contains?(snap.json, "inline-service-check-api-key")
+      refute String.contains?(snap.json, "inline-x-api-key")
+      refute String.contains?(snap.json, "inline-bearer-token")
+      refute String.contains?(snap.json, "inline-basic-auth")
+
+      decoded = Jason.decode!(snap.json)
+      [check] = decoded["settings"]["service_checks"]
+
+      assert check["config"] == %{
+               "headers" => %{"Accept" => "application/json"},
+               "method" => "GET"
+             }
+
+      assert check["metadata"] == %{
+               "api_key_present" => true,
+               "api_key_secret_id" => "00000000-0000-4000-8000-000000000099",
+               "region" => "us-east-1"
+             }
+    end
+
+    test "propagates read errors instead of returning partial empty collections" do
+      readers =
+        :order_a
+        |> build_synthetic_readers()
+        |> Map.put(:service_checks, fn _actor -> {:error, :db_unavailable} end)
+
+      assert {:error, {:collection_failed, ServiceRadar.Monitoring.ServiceCheck, :db_unavailable}} =
+               Collector.collect(exported_at: ~U[2026-11-22 12:00:00Z], readers: readers)
+    end
   end
 
   describe "SettingsBackupDestination validation and AshOban trigger" do
@@ -200,6 +276,152 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
 
       assert cs.valid?
       assert is_nil(Ash.Changeset.get_attribute(cs, :next_run_at))
+    end
+
+    test "rejects @reboot cron expressions on create and update" do
+      create_cs =
+        Ash.Changeset.for_create(SettingsBackupDestination, :create, %{
+          enabled: true,
+          endpoint: "https://us-east-1.linodeobjects.com",
+          bucket: "synthetic-backup-bucket",
+          region: "us-east-1",
+          schedule_cron: "@reboot",
+          access_key_id: "AKIA_SYNTHETIC_KEY",
+          secret_access_key: "synthetic-secret-key"
+        })
+
+      refute create_cs.valid?
+      assert :schedule_cron in Enum.map(create_cs.errors, & &1.field)
+
+      existing = %SettingsBackupDestination{
+        id: Ecto.UUID.generate(),
+        key: "default",
+        enabled: true,
+        provider: "linode_object_storage",
+        endpoint: "https://us-east-1.linodeobjects.com",
+        bucket: "synthetic-backup-bucket",
+        region: "us-east-1",
+        prefix: "",
+        schedule_cron: "0 */6 * * *",
+        encrypted_access_key_id: <<1, 2, 3>>,
+        encrypted_secret_access_key: <<4, 5, 6>>
+      }
+
+      update_cs =
+        Ash.Changeset.for_update(existing, :update, %{schedule_cron: "@reboot"})
+
+      refute update_cs.valid?
+      assert :schedule_cron in Enum.map(update_cs.errors, & &1.field)
+    end
+
+    test "execute_export records failed status and preserves prior telemetry when S3 upload fails" do
+      {:ok, _} = Application.ensure_all_started(:ssl)
+      certs = generate_certs()
+      test_pid = self()
+      origin = start_failing_tls_origin(certs.server_config, test_pid)
+      prev_http_opts = Application.get_env(:serviceradar_core, :settings_backup_http_opts)
+
+      prev_collector_opts =
+        Application.get_env(:serviceradar_core, :settings_backup_collector_opts)
+
+      Application.put_env(:serviceradar_core, :settings_backup_http_opts,
+        proxy: nil,
+        cacerts: Keyword.fetch!(certs.client_config, :cacerts)
+      )
+
+      Application.put_env(:serviceradar_core, :settings_backup_collector_opts,
+        readers: build_synthetic_readers(:order_a)
+      )
+
+      on_exit(fn ->
+        origin.stop.()
+        restore_core_env(:settings_backup_http_opts, prev_http_opts)
+        restore_core_env(:settings_backup_collector_opts, prev_collector_opts)
+      end)
+
+      existing = %SettingsBackupDestination{
+        id: Ecto.UUID.generate(),
+        key: "default",
+        enabled: true,
+        provider: "linode_object_storage",
+        endpoint: "https://localhost:#{origin.port}",
+        bucket: "synthetic-backup-bucket",
+        region: "us-east-1",
+        prefix: "tenant-a",
+        schedule_cron: "0 */6 * * *",
+        access_key_id: "AKIA_SYNTHETIC_KEY",
+        secret_access_key: "synthetic-secret-key",
+        last_export_status: "succeeded",
+        last_export_object_key: "tenant-a/settings-export/20261122T100000Z-abcdef123456.json",
+        last_export_etag: "\"etag-prev\"",
+        last_export_sha256: String.duplicate("a", 64)
+      }
+
+      cs =
+        Ash.Changeset.for_update(existing, :run, %{manual: true, reason: "manual"})
+
+      assert cs.valid?
+      assert Ash.Changeset.get_attribute(cs, :last_export_status) == "failed"
+      assert Ash.Changeset.get_attribute(cs, :last_export_error) == "s3_http_status_500"
+      assert %DateTime{} = last_exported = Ash.Changeset.get_attribute(cs, :last_exported_at)
+      assert %DateTime{} = next_run = Ash.Changeset.get_attribute(cs, :next_run_at)
+      assert DateTime.after?(next_run, last_exported)
+
+      assert cs.data.last_export_object_key ==
+               "tenant-a/settings-export/20261122T100000Z-abcdef123456.json"
+
+      assert cs.data.last_export_etag == "\"etag-prev\""
+      assert cs.data.last_export_sha256 == String.duplicate("a", 64)
+      refute Map.has_key?(cs.attributes, :last_export_object_key)
+      refute Map.has_key?(cs.attributes, :last_export_etag)
+      refute Map.has_key?(cs.attributes, :last_export_sha256)
+
+      assert_receive {:origin_put, req1}
+      refute String.ends_with?(req1.path, "/latest.json")
+      refute_receive {:origin_put, _req2}, 150
+    end
+
+    test "execute_export records failed status when collection fails without attempting S3 upload" do
+      prev_collector_opts =
+        Application.get_env(:serviceradar_core, :settings_backup_collector_opts)
+
+      failing_readers =
+        :order_a
+        |> build_synthetic_readers()
+        |> Map.put(:service_checks, fn _actor -> {:error, :db_unavailable} end)
+
+      Application.put_env(:serviceradar_core, :settings_backup_collector_opts,
+        readers: failing_readers
+      )
+
+      on_exit(fn ->
+        restore_core_env(:settings_backup_collector_opts, prev_collector_opts)
+      end)
+
+      existing = %SettingsBackupDestination{
+        id: Ecto.UUID.generate(),
+        key: "default",
+        enabled: true,
+        provider: "linode_object_storage",
+        endpoint: "https://localhost:9999",
+        bucket: "synthetic-backup-bucket",
+        region: "us-east-1",
+        prefix: "tenant-a",
+        schedule_cron: "0 */6 * * *",
+        access_key_id: "AKIA_SYNTHETIC_KEY",
+        secret_access_key: "synthetic-secret-key"
+      }
+
+      cs =
+        Ash.Changeset.for_update(existing, :run, %{manual: true, reason: "manual"})
+
+      assert cs.valid?
+      assert Ash.Changeset.get_attribute(cs, :last_export_status) == "failed"
+
+      assert String.contains?(
+               Ash.Changeset.get_attribute(cs, :last_export_error),
+               "collection_failed:ServiceRadar.Monitoring.ServiceCheck:db_unavailable"
+             )
     end
 
     test "exposes priority-0 AshOban export trigger on :maintenance queue" do
@@ -424,5 +646,89 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
         ]
       end
     }
+  end
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_core_env(key, val), do: Application.put_env(:serviceradar_core, key, val)
+
+  defp generate_certs do
+    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
+    alg = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
+
+    :public_key.pkix_test_data(%{
+      server_chain: %{root: alg, intermediates: [], peer: alg ++ [{:extensions, [san]}]},
+      client_chain: %{root: alg, intermediates: [], peer: alg}
+    })
+  end
+
+  defp start_failing_tls_origin(server_config, test_pid) do
+    listen_opts =
+      server_config ++
+        [
+          :binary,
+          active: false,
+          packet: :raw,
+          reuseaddr: true,
+          ip: {127, 0, 0, 1},
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+    {:ok, listener} = :ssl.listen(0, listen_opts)
+    {:ok, {_addr, port}} = :ssl.sockname(listener)
+    pid = spawn_link(fn -> origin_accept(listener, test_pid) end)
+
+    %{
+      port: port,
+      stop: fn ->
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+        :ssl.close(listener)
+      end
+    }
+  end
+
+  defp origin_accept(listener, test_pid) do
+    case :ssl.transport_accept(listener) do
+      {:ok, socket} ->
+        case :ssl.handshake(socket, 5_000) do
+          {:ok, tls_socket} ->
+            with {:ok, head} <- read_http_head(tls_socket, "") do
+              [request_line | _] = String.split(head, "\r\n")
+              [_method, path | _] = String.split(request_line, " ")
+              send(test_pid, {:origin_put, %{path: path}})
+            end
+
+            :ssl.send(
+              tls_socket,
+              "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 5\r\nconnection: close\r\n\r\nerror"
+            )
+
+            :ssl.close(tls_socket)
+
+          _ ->
+            :ok
+        end
+
+        origin_accept(listener, test_pid)
+
+      {:error, :closed} ->
+        :ok
+
+      {:error, _} ->
+        origin_accept(listener, test_pid)
+    end
+  end
+
+  defp read_http_head(socket, acc) do
+    case :binary.split(acc, "\r\n\r\n") do
+      [head, _rest] ->
+        {:ok, head}
+
+      [_] ->
+        case :ssl.recv(socket, 0, 5_000) do
+          {:ok, chunk} -> read_http_head(socket, acc <> to_string(chunk))
+          err -> err
+        end
+    end
   end
 end

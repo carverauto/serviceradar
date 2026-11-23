@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
 
   alias ServiceRadar.Jobs.SettingsBackupDestination
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
+  alias ServiceRadarWebNGWeb.Plugs.ControlPlaneSettingsBackup
 
   @moduletag :db_free
 
@@ -215,7 +216,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     queued =
       authed_json(:post, "/v1/settings-backup/export", %{
         "reason" => "pre_resize",
-        "idempotency_key" => "resize-op-123"
+        "idempotency_key" => "  resize-op-123  "
       })
 
     assert queued.status == 202
@@ -224,6 +225,41 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneSettingsBackupTest do
     assert body["data"]["job_id"] == 4242
     assert is_binary(body["data"]["requested_at"])
     assert_received {:enqueued_export, %{reason: "pre_resize", idempotency_key: "resize-op-123"}}
+  end
+
+  test "build_export_job configures Oban uniqueness on idempotency_key when present" do
+    dest =
+      FakeDestination.build_record(%{
+        endpoint: "https://us-east-1.linodeobjects.com",
+        bucket: "synthetic-bucket",
+        region: "us-east-1",
+        enabled: true
+      })
+
+    cs_with_key =
+      ControlPlaneSettingsBackup.build_export_job(dest, %{
+        reason: "pre_resize",
+        idempotency_key: "resize-op-123"
+      })
+
+    assert cs_with_key.valid?
+    assert cs_with_key.changes.args[:idempotency_key] == "resize-op-123"
+    assert cs_with_key.changes.args[:action_arguments]["idempotency_key"] == "resize-op-123"
+    assert cs_with_key.changes.unique.fields == [:worker, :args]
+    assert cs_with_key.changes.unique.keys == [:idempotency_key]
+    assert cs_with_key.changes.unique.period == 86_400
+    assert cs_with_key.changes.unique.states == Oban.Job.unique_states(:successful)
+
+    cs_without_key =
+      ControlPlaneSettingsBackup.build_export_job(dest, %{
+        reason: "manual",
+        idempotency_key: nil
+      })
+
+    assert cs_without_key.valid?
+    refute Map.has_key?(cs_without_key.changes.args, :idempotency_key)
+    refute Map.has_key?(cs_without_key.changes.args, "idempotency_key")
+    assert cs_without_key.changes.unique.states == Oban.Job.unique_states(:incomplete)
   end
 
   defp authed_conn(method, path) do
