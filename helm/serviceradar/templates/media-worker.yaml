@@ -14,18 +14,10 @@
      the worker to core's values instead of exposing them, and refuses the removed keys
      when the worker is enabled.
      media_worker_model_identity_test.py fails when the two drift apart. */ -}}
-{{- $identity := dict "detectorModelId" "rtdetr-r18" "detectorModelVersion" "2026.1" "embedderModelId" "siglip-b16-384" "embedderModelVersion" "2026.1" "embeddingDim" "768" -}}
+{{- $identity := dict "detectorModelId" "yolox-s" "detectorModelVersion" "2026.1" "embedderModelId" "siglip-b16-384" "embedderModelVersion" "2026.1" "embeddingDim" "768" -}}
 {{- range $key, $_ := $identity -}}
 {{- if hasKey $models $key -}}
 {{- fail (printf "mediaWorker.models.%s is not configurable: core dispatches jobs and semantic-search requests with its built-in model identity (embedder %s %s, detector %s %s, %s dimensions) and has no setting to change it, so a worker configured differently would reject every job. Remove the key." $key $identity.embedderModelId $identity.embedderModelVersion $identity.detectorModelId $identity.detectorModelVersion $identity.embeddingDim) -}}
-{{- end -}}
-{{- end -}}
-{{- /* The candle backend's only detector today is YOLOv8, whose detections the pinned
-     identity would label rtdetr-r18. Indexing is whole-scene until a permissively
-     licensed detector with a matching identity is added. */ -}}
-{{- range $key := list "detectorPath" "detectorSha256" -}}
-{{- if hasKey $models $key -}}
-{{- fail (printf "mediaWorker.models.%s is not supported: the worker indexes whole scenes only until a detector whose identity matches core's is added. Remove the key." $key) -}}
 {{- end -}}
 {{- end -}}
 {{- /* The worker's own policy is its only egress grant from this chart (every broad
@@ -93,6 +85,73 @@
 {{- fail (printf "mediaWorker.executionProvider %s needs the NVIDIA container runtime: set mediaWorker.runtimeClassName (for example nvidia), or use executionProvider cpu_explicit" $executionProvider) -}}
 {{- end -}}
 {{- $modelsMountPath := default "/var/lib/serviceradar-media-worker/models" $models.mountPath -}}
+{{- $modelsMountDir := trimSuffix "/" $modelsMountPath -}}
+{{- $detectorPath := "" -}}
+{{- if not (kindIs "invalid" $models.detectorPath) -}}
+{{- if not (kindIs "string" $models.detectorPath) -}}
+{{- fail "mediaWorker.models.detectorPath must be a string" -}}
+{{- end -}}
+{{- $detectorPath = trim $models.detectorPath -}}
+{{- end -}}
+{{- $detectorConfigPath := "" -}}
+{{- if not (kindIs "invalid" $models.detectorConfigPath) -}}
+{{- if not (kindIs "string" $models.detectorConfigPath) -}}
+{{- fail "mediaWorker.models.detectorConfigPath must be a string" -}}
+{{- end -}}
+{{- $detectorConfigPath = trim $models.detectorConfigPath -}}
+{{- end -}}
+{{- $detectorSha256 := "" -}}
+{{- if not (kindIs "invalid" $models.detectorSha256) -}}
+{{- if not (kindIs "string" $models.detectorSha256) -}}
+{{- fail "mediaWorker.models.detectorSha256 must be a string" -}}
+{{- end -}}
+{{- $detectorSha256 = trim $models.detectorSha256 -}}
+{{- end -}}
+{{- if or (ne $detectorPath "") (ne $detectorConfigPath "") (ne $detectorSha256 "") -}}
+{{- if not $models.existingClaim -}}
+{{- fail "mediaWorker.models.existingClaim is required when configuring detectorPath, detectorConfigPath, or detectorSha256" -}}
+{{- end -}}
+{{- end -}}
+{{- if regexMatch `(?i)(yolov8|rtdetr)` $detectorPath -}}
+{{- fail (printf "mediaWorker.models.detectorPath %q must not reference yolov8 or rtdetr; the worker detector identity is %s %s" $detectorPath $identity.detectorModelId $identity.detectorModelVersion) -}}
+{{- end -}}
+{{- if regexMatch `(?i)(yolov8|rtdetr)` $detectorConfigPath -}}
+{{- fail (printf "mediaWorker.models.detectorConfigPath %q must not reference yolov8 or rtdetr; the worker detector identity is %s %s" $detectorConfigPath $identity.detectorModelId $identity.detectorModelVersion) -}}
+{{- end -}}
+{{- if ne $detectorSha256 "" -}}
+{{- if eq $detectorPath "" -}}
+{{- fail "mediaWorker.models.detectorSha256 requires mediaWorker.models.detectorPath" -}}
+{{- end -}}
+{{- if not (regexMatch `^[0-9a-fA-F]{64}$` $detectorSha256) -}}
+{{- fail "mediaWorker.models.detectorSha256 must be a 64-character hexadecimal SHA-256 digest" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (ne $detectorConfigPath "") (eq $detectorPath "") -}}
+{{- fail "mediaWorker.models.detectorConfigPath requires mediaWorker.models.detectorPath" -}}
+{{- end -}}
+{{- $detectorSubPath := "" -}}
+{{- $detectorConfigSubPath := "" -}}
+{{- if ne $detectorPath "" -}}
+{{- if eq $detectorConfigPath "" -}}
+{{- $detectorConfigPath = printf "%s/detector_config.json" $modelsMountDir -}}
+{{- end -}}
+{{- $modelsMountPrefix := printf "%s/" $modelsMountDir -}}
+{{- if or (contains ".." $detectorPath) (contains "//" $detectorPath) (hasSuffix "/" $detectorPath) (not (hasPrefix $modelsMountPrefix $detectorPath)) -}}
+{{- fail (printf "mediaWorker.models.detectorPath %q must stay inside mediaWorker.models.mountPath (%s) without '..' or '//'" $detectorPath $modelsMountDir) -}}
+{{- end -}}
+{{- if or (contains ".." $detectorConfigPath) (contains "//" $detectorConfigPath) (hasSuffix "/" $detectorConfigPath) (not (hasPrefix $modelsMountPrefix $detectorConfigPath)) -}}
+{{- fail (printf "mediaWorker.models.detectorConfigPath %q must stay inside mediaWorker.models.mountPath (%s) without '..' or '//'" $detectorConfigPath $modelsMountDir) -}}
+{{- end -}}
+{{- $detectorSubPath = trimPrefix $modelsMountPrefix $detectorPath -}}
+{{- $detectorConfigSubPath = trimPrefix $modelsMountPrefix $detectorConfigPath -}}
+{{- if or (eq $detectorSubPath "") (eq $detectorConfigSubPath "") (hasPrefix "/" $detectorSubPath) (hasPrefix "/" $detectorConfigSubPath) (eq $detectorSubPath $detectorConfigSubPath) -}}
+{{- fail "mediaWorker.models.detectorPath and mediaWorker.models.detectorConfigPath must resolve to distinct non-empty relative subPaths inside mediaWorker.models.mountPath" -}}
+{{- end -}}
+{{- $siglipFiles := list "config.json" "model.safetensors" "tokenizer.json" -}}
+{{- if or (has $detectorSubPath $siglipFiles) (has $detectorConfigSubPath $siglipFiles) -}}
+{{- fail "mediaWorker.models.detectorPath and detectorConfigPath must not collide with SigLIP files (config.json, model.safetensors, tokenizer.json)" -}}
+{{- end -}}
+{{- end -}}
 {{- $dtype := default "auto" $mw.dtype -}}
 {{- if not (has $dtype (list "auto" "f32" "f16")) -}}
 {{- fail (printf "mediaWorker.dtype must be auto, f32, or f16, got %q" (toString $dtype)) -}}
@@ -406,6 +465,12 @@ spec:
               value: {{ $identity.embedderModelVersion | quote }}
             - name: SERVICERADAR_MEDIA_WORKER_EMBEDDING_DIM
               value: {{ $identity.embeddingDim | quote }}
+            {{- if and (ne $detectorPath "") (ne $detectorSha256 "") }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_PATH
+              value: {{ $detectorPath | quote }}
+            - name: SERVICERADAR_MEDIA_WORKER_DETECTOR_SHA256
+              value: {{ lower $detectorSha256 | quote }}
+            {{- end }}
             {{- if $models.embedderPath }}
             - name: SERVICERADAR_MEDIA_WORKER_EMBEDDER_PATH
               value: {{ $models.embedderPath | quote }}
@@ -457,14 +522,23 @@ spec:
               mountPath: {{ $cudaCachePath | quote }}
             {{- end }}
             {{- if $models.existingClaim }}
-            {{- /* Only the three SigLIP files are mounted. Candle also loads any
-                 detector.safetensors or yolov8.safetensors it finds in the model
-                 directory, whose detections the pinned identity would label
-                 rtdetr-r18, so nothing else on the PVC is made visible. */}}
+            {{- /* Mount the three SigLIP files explicitly, plus the configured
+                 yolox-s detector weights and config when detectorPath is set, so
+                 unconfigured files on the PVC stay invisible. */}}
             {{- range $file := list "config.json" "model.safetensors" "tokenizer.json" }}
             - name: models
               mountPath: {{ printf "%s/%s" (trimSuffix "/" $modelsMountPath) $file | quote }}
               subPath: {{ $file | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if ne $detectorPath "" }}
+            - name: models
+              mountPath: {{ $detectorPath | quote }}
+              subPath: {{ $detectorSubPath | quote }}
+              readOnly: true
+            - name: models
+              mountPath: {{ $detectorConfigPath | quote }}
+              subPath: {{ $detectorConfigSubPath | quote }}
               readOnly: true
             {{- end }}
             {{- end }}

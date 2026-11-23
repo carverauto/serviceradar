@@ -218,7 +218,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].args[0]
-          pattern: "max_file_store: 30000000000\n"
+          pattern: "max_file_store: 36000000000\n"
 
   # --- the budget itself (D5) -------------------------------------------------
   # The v1.4.73 reservations (KV 4 GiB, objects 10 GiB, flows 10 GiB, all R3)

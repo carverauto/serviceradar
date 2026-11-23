@@ -6,3 +6,48 @@ helm:
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
     forcestring: true
+  - name: image.digests.core
+    value: sha256:9504d4f98872bc3f5e9b0b14d5352e7b11d5d5aa20e95472901b896b665342da
+    forcestring: true
+  - name: image.digests.webNg
+    value: sha256:db9edd374ab1dd6e582c4e2c029f76b87ccacbaaa1d9ac72c009c9825f6ae384
+    forcestring: true
+  - name: image.digests.nvr
+    value: sha256:4ec9700af60799aeeb856c7a2770073aeaa57fc1cddfd4540dbda41423a7e5c3
+    forcestring: true
+  - name: image.digests.agentGateway
+    value: sha256:e042b3f9186a0d252cbdf11b53886a4fc3226f12cf5c5e8f715bdee0a243a2f7
+    forcestring: true
+  - name: image.digests.agent
+    value: sha256:1eb30b6e65b806e850497080df7faa3793da370a8925cea5fef44ceb817ebc51
+    forcestring: true
+  - name: image.digests.trivySidecar
+    value: sha256:120d747ba59dab9da9c33953587734cda792dc235bd10719d87ba02ef9d6df95
+    forcestring: true
+  - name: image.digests.k8sInventory
+    value: sha256:4b177c0b8b1856d8b1b439e2ae895b51c976fee0e07b274248ef0c0c194e1f3b
+    forcestring: true
+  - name: image.digests.datasvc
+    value: sha256:23723221a3004e62f7f7117f59eaba35190fa5498068a3e34272e6b9e3457641
+    forcestring: true
+  - name: image.digests.logCollector
+    value: sha256:07d1de7a8036802897f2d813da481cc28d8940c849fb8f61695bff525f52e133
+    forcestring: true
+  - name: image.digests.trapd
+    value: sha256:7471db94e97fe4e834661fd552417a14b795d012890a9ecf83442d378ff3509b
+    forcestring: true
+  - name: image.digests.dgraphMigrate
+    value: sha256:5ebdf29663e676ba60c2990eee914759e42a2a4d006b149ad7867987de4b740e
+    forcestring: true
+  - name: image.digests.flowCollector
+    value: sha256:9d42c9ceb710794f0e2311c775a3857a2bc0696868d97db437bbc7a5a303f8e3
+    forcestring: true
+  - name: image.digests.bmpCollector
+    value: sha256:6a1034692eedcd3d97fca5ad833889b70d25e3df22cead350814bebbb4df6240
+    forcestring: true
+  - name: image.digests.faker
+    value: sha256:5b70d1f077246dbce569d1db2851bb951d6bddeb5a0ad7b69ff38b55495c7927
+    forcestring: true
+  - name: image.digests.tools
+    value: sha256:0639c504b3ae0050a2f053cfbd7531245737480df3f7a1e7f58341f8d47f0108
+    forcestring: true
