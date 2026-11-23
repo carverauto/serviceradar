@@ -296,7 +296,8 @@ defmodule ServiceRadarNVRClient.Wire do
   defp block_state(_block), do: :error
 
   # A descriptor digest exactly when sealed, a reason exactly when unresolved,
-  # a byte count when sealed or incomplete, optional when unresolved, nil when absent.
+  # a byte count when sealed or incomplete, optional when unresolved, nil when
+  # absent or reclaimed.
   defp state_fields?("sealed", digest, nil, bytes), do: matches?(digest, @hex64) and nonnegative?(bytes)
   defp state_fields?("unresolved", nil, reason, bytes), do: bounded_text?(reason, 64) and counted?(bytes)
   defp state_fields?("incomplete", nil, nil, bytes), do: nonnegative?(bytes)

@@ -9,8 +9,9 @@ defmodule ServiceRadarNVR.Capacity do
   a larger one answers `:nvr_inventory_rebuilding` until the scan finishes, while
   reads keep working. Every change that passes through this process updates it:
   the block an admitted writer holds is re-measured on each measurement, when it
-  rotates and when its writer exits, and a block is re-measured after a
-  publication record, archive receipt or recovery touches it. A block that cannot
+  rotates and when its writer exits, a block is re-measured after a
+  publication record, archive receipt or recovery touches it, and a block is
+  removed immediately when reclaimed via `reclaim_block/2`. A block that cannot
   be measured drops the ledger, so the next call rebuilds it and reports why.
 
   A bounded audit re-measures 64 settled blocks per second, rotating through the
@@ -19,8 +20,8 @@ defmodule ServiceRadarNVR.Capacity do
   restarts. The audit never repairs or deletes.
 
   The block cap is the install bound `SERVICERADAR_NVR_MAX_BLOCKS`. At the cap
-  admission refuses with `:nvr_inventory_limit`; reads, archive and receipts keep
-  working, and nothing is deleted to make room.
+  admission refuses with `:nvr_inventory_limit`; reads, archive, reclaim and
+  receipts keep working, and admission never deletes blocks to make room.
   """
   use GenServer
 

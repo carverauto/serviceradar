@@ -171,20 +171,25 @@ defmodule ServiceRadarNVR.DispositionJournal do
   end
 
   defp create_and_sync(root, path, data) do
-    with :ok <-
-           with_file(path, [:write, :exclusive], fn device ->
-             with :ok <- File.chmod(path, 0o600), do: write_or_rollback(device, 0, data)
-           end),
+    with :ok <- create_private_file(path, data),
          do: fsync_dir(root)
   end
 
+  defp create_private_file(path, data) do
+    with_file(path, [:write, :exclusive], fn device ->
+      with :ok <- File.chmod(path, 0o600), do: write_or_rollback(device, 0, data)
+    end)
+  end
+
   defp append_private(root, path, mode, data) do
-    if Bitwise.band(mode, 0o077) == 0 do
-      with {:ok, offset} <- write_at_eof(path, data) do
-        if offset == 0, do: fsync_dir(root), else: :ok
-      end
-    else
-      {:error, :invalid_disposition_journal}
+    if Bitwise.band(mode, 0o077) == 0,
+      do: append_and_sync(root, path, data),
+      else: {:error, :invalid_disposition_journal}
+  end
+
+  defp append_and_sync(root, path, data) do
+    with {:ok, offset} <- write_at_eof(path, data) do
+      if offset == 0, do: fsync_dir(root), else: :ok
     end
   end
 

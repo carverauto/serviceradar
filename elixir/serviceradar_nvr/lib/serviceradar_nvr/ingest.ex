@@ -21,9 +21,12 @@ defmodule ServiceRadarNVR.Ingest do
   It also answers three observations for Core's coordinators: `GET /v1/status`
   (`ServiceRadarNVR.MemberStatus`), `POST /v1/blocks/lookup` for up to 50 block
   IDs and `GET /v1/blocks?after=&limit=` pages of the block ledger
-  (`ServiceRadarNVR.block_states/1` and `block_page/2`). Lookups and pages run
-  in the shared read pool and report journal state, not verified media. See
-  `docs/nvr-ingest.md`, "Member status and block state".
+  (`ServiceRadarNVR.block_states/1` and `block_page/2`), and accepts
+  `POST /v1/blocks/<block_id>/reclaim` (`ServiceRadarNVR.Reclaim`, 30-second
+  deadline) to tombstone and unlink one verified sealed block. Lookups and
+  pages run in the shared read pool and report journal state, not verified
+  media. See `docs/nvr-ingest.md`, "Member status and block state" and "Local
+  block reclaim".
   """
   @behaviour Plug
 
@@ -207,7 +210,7 @@ defmodule ServiceRadarNVR.Ingest do
   defp descriptor_refusal(conn, :block_not_sealed), do: respond(conn, 409, %{error: "block_not_sealed"})
   defp descriptor_refusal(conn, _class), do: respond(conn, 503, %{error: "descriptor_unavailable"})
 
-  # The archive route and the read routes have their own deadlines; ingest
+  # The archive, reclaim and read routes have their own deadlines; ingest
   # keeps the recording one.
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "archive"]}, _config), do: Archive.request_timeout_ms()
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "reclaim"]}, _config), do: Reclaim.request_timeout_ms()
@@ -295,8 +298,8 @@ defmodule ServiceRadarNVR.Ingest do
     :exit, _ -> :ok
   end
 
-  # A binary result is already canonical JSON, such as an archive receipt or a
-  # block descriptor.
+  # A binary result is already canonical JSON, such as an archive receipt,
+  # reclaim receipt or a block descriptor.
   defp respond(conn, status, result) do
     body = if is_binary(result), do: result, else: Jason.encode!(result)
 

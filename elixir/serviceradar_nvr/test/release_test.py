@@ -2638,6 +2638,85 @@ class NVRReleaseTest(unittest.TestCase):
             ],
         )
 
+    def test_reclaim_unblocks_cap_refuses_reingest_and_fails_closed_on_unsafe_journal(self):
+        self.env["SERVICERADAR_NVR_MAX_BLOCKS"] = "1"
+        proc, block_id = self.sealed_network_block()
+        units = b"".join(self.ingest_units()) + struct.pack("!I", 0)
+        base_identity = {"source_id": "synthetic-network-camera", "profile": "recording", "recorder_epoch": 1}
+
+        # At the 1-block cap, a second block is refused.
+        self.assertEqual(
+            self.ingest_request(self.ingest_header(identity=base_identity | {"block_sequence": 1}) + units),
+            (503, {"error": "ingest_unavailable"}),
+        )
+
+        # Reclaiming block 0 immediately releases the cap without restart.
+        status, descriptor = self.descriptor_request(block_id)
+        self.assertEqual(status, 200, descriptor)
+        digest = hashlib.sha256(descriptor).hexdigest()
+        status, body, _ = self.reclaim_request(block_id, self.reclaim_document(digest))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.descriptor_request(block_id), (404, b'{"error":"block_not_found"}'))
+
+        # Re-ingesting the tombstoned block identity is refused and does not recreate the directory.
+        self.assertEqual(
+            self.ingest_request(self.ingest_header(identity=base_identity | {"block_sequence": 0}) + units),
+            (503, {"error": "ingest_unavailable"}),
+        )
+        self.assertFalse((self.spool / block_id).exists())
+
+        # Ingesting block 1 succeeds immediately in the same process, and the 1s audit stays ready.
+        status, next_receipt = self.ingest_request(
+            self.ingest_header(identity=base_identity | {"block_sequence": 1}) + units
+        )
+        self.assertEqual(status, 200, next_receipt)
+        second_id = next_receipt["block_ids"][0]
+        time.sleep(1.5)
+        steady = self.member_status()
+        self.assertEqual(steady["inventory"], "ready")
+        self.assertEqual(steady["capacity"]["blocks"], 1)
+
+        # An unsafe (world-readable) disposition journal fails closed without mutating files.
+        status, second_descriptor = self.descriptor_request(second_id)
+        self.assertEqual(status, 200, second_descriptor)
+        second_digest = hashlib.sha256(second_descriptor).hexdigest()
+        self.stop_ingest_release(proc)
+        journal_path = self.spool / ".disposition-journal"
+        saved_journal = journal_path.read_bytes()
+        journal_path.chmod(0o644)
+
+        proc = self.start_ingest_release()
+        unsafe_status = self.member_status()
+        self.assertEqual((unsafe_status["inventory"], unsafe_status["capacity"]), ("unavailable", None))
+        status, body, headers = self.reclaim_request(
+            second_id, self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000092")
+        )
+        self.assertEqual((status, body, headers.get("retry-after")), (503, b'{"error":"reclaim_unavailable"}', "1"))
+        self.assertTrue((self.spool / second_id).is_dir())
+        self.assertEqual(journal_path.read_bytes(), saved_journal)
+
+        # A journal containing only an unterminated partial fragment (0 committed lines) truncates to empty on boot.
+        self.stop_ingest_release(proc)
+        journal_path.write_bytes(b'{"partial":"first-line-interrupted')
+        journal_path.chmod(0o600)
+        proc = self.start_ingest_release()
+        recovered = self.member_status()
+        self.assertEqual(recovered["inventory"], "ready")
+        self.assertEqual(recovered["capacity"]["blocks"], 1)
+        self.assertEqual(journal_path.read_bytes(), b"")
+
+        # Subsequent reclaim appends cleanly at offset 0 and survives restart.
+        second_doc = self.reclaim_document(second_digest, operation_id="00000000-0000-4000-8000-000000000093")
+        status, body, _ = self.reclaim_request(second_id, second_doc)
+        self.assertEqual(status, 200, body)
+        self.assertFalse((self.spool / second_id).exists())
+        self.stop_ingest_release(proc)
+        self.start_ingest_release()
+        self.assertEqual(
+            json.loads(self.lookup([second_id])[1])["blocks"],
+            [{"block_id": second_id, "state": "reclaimed", "writing": False, "bytes": None}],
+        )
+
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()

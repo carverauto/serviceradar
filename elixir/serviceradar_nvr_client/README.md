@@ -87,12 +87,14 @@ one request, never a camera credential or an installed workload credential.
 `ServiceRadarNVRClient.reclaim_block/4` asks the NVR ingest listener
 (`POST /v1/blocks/<block_id>/reclaim`) to tombstone and unlink one verified
 sealed block. Pass a string-keyed request with `version` (1), `storage_id`,
-`recovery_generation`, `operation_id` and `expected_descriptor_sha256`. A 200
-answer returns `{:ok, %{storage_id: ..., block_id: ..., operation_id: ...,
+`recovery_generation`, `operation_id` and `expected_descriptor_sha256`. The
+default total timeout is 30000 milliseconds (1 through 300000). A 200 answer
+returns `{:ok, %{storage_id: ..., block_id: ..., operation_id: ...,
 status: :reclaimed, reclaimed_at_ms: ...}}`; a non-200 answer returns
 `{:error, {:reclaim_status, status, error}}`; a lost or malformed answer
 returns `{:error, :outcome_unknown}`; invalid arguments return
-`{:error, :invalid_reclaim_request}` before connecting.
+`{:error, :invalid_reclaim_request}` before connecting. See
+[local block reclaim](../../docs/nvr-ingest.md#local-block-reclaim).
 
 ## Reading a sealed block's descriptor
 
@@ -155,7 +157,9 @@ deadline cleanup. A real NVR refusing a stream mid-body checks that the client
 reports `:ingest_refused` and stops sending.
 The test-only release artifact is a harness for this library, not a deployed
 recorder or a new service. Its probe's `archive` mode calls `archive_block/4`
-with the request file's `block_id` and `archive_request`; its `descriptor` mode
+with the request file's `block_id` and `archive_request`; its `reclaim` mode
+calls `reclaim_block/4` with `block_id`, `reclaim_request` and `timeout_ms`;
+its `descriptor` mode
 calls `block_descriptor/3` with `block_id` and `timeout_ms`; its `status`,
 `lookup` and `page` modes call `status/2`, `lookup_blocks/3` and `block_page/4`; its `read` mode calls
 `read_block/6` and reports the length and SHA-256 of what it returned; its `paced` mode

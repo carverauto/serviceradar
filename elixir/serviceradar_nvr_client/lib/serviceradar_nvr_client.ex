@@ -1,10 +1,10 @@
 defmodule ServiceRadarNVRClient do
   @moduledoc """
   Sends one finite, already-authorized H264 capture to one installed NVR endpoint,
-  asks that endpoint to archive one sealed local block, reads one sealed
-  block's canonical descriptor, queries member status, block states and ledger
-  pages, or reads one sealed block's initialization bytes or a fragment for
-  playback.
+  asks that endpoint to archive or reclaim one sealed local block, reads one
+  sealed block's canonical descriptor, queries member status, block states and
+  ledger pages, or reads one sealed block's initialization bytes or a fragment
+  for playback.
 
   The lazy enumerable yields maps containing `payload`, `sequence`, `pts` and
   `dts`. It runs in a separate, bounded process: do not pass a caller-owned socket

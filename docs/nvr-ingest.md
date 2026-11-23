@@ -369,24 +369,31 @@ The client functions are `ServiceRadarNVRClient.status/2`, `lookup_blocks/3`,
 ## Local block reclaim
 
 `POST /v1/blocks/<block_id>/reclaim` on the same authenticated ingest listener
-reclaims one verified sealed local block. Send exactly one
-`Content-Type: application/vnd.serviceradar.nvr-reclaim.v1+json` header and a
-canonical JSON body of at most 8192 bytes with `version: 1`, `storage_id`,
-`recovery_generation`, `operation_id` (canonical UUID) and
+reclaims one verified sealed local block within a 30-second request deadline.
+Send exactly one `Content-Type: application/vnd.serviceradar.nvr-reclaim.v1+json`
+header and a canonical JSON body of at most 8192 bytes with `version: 1`,
+`storage_id`, `recovery_generation`, `operation_id` (canonical UUID) and
 `expected_descriptor_sha256` (lowercase 64-character hex).
 
 The NVR refuses active or publishing blocks (409 `block_active`), unsealed
 blocks (409 `block_not_sealed`), descriptor digest mismatches (409
-`descriptor_mismatch`), unknown blocks (404 `block_not_found`), malformed
-requests (400 `invalid_reclaim_request`) and closed recovery or unavailable
-storage (503 `reclaim_unavailable` with `retry-after: 1`). Before unlinking the
-block directory, the NVR appends and fsyncs a canonical JSON tombstone to
-`.disposition-journal` at the spool root, then unlinks the block directory and
-removes it from the capacity ledger immediately. Exact retries with the same
-`operation_id` and `expected_descriptor_sha256` return 200 with the same
-receipt; a different `operation_id` returns 409 `reclaim_conflict`. On restart,
-the NVR loads `.disposition-journal`, completes any tombstoned unlinks left
-behind by a crash, and reports tombstoned blocks as `reclaimed` in lookup.
+`descriptor_mismatch`), unknown or malformed block IDs (404 `block_not_found`),
+malformed requests (400 `invalid_reclaim_request`), unauthorized callers (401)
+and closed recovery or unavailable storage (503 `reclaim_unavailable` with
+`retry-after: 1`). Before unlinking the block directory, the NVR appends and
+fsyncs a canonical JSON tombstone to mode `0600` `.disposition-journal` at the
+spool root, then unlinks the block directory and removes it from the capacity
+ledger immediately. A 200 answer returns canonical JSON with `version: 1`,
+`status: "reclaimed"`, `storage_id`, `block_id`, `operation_id` and
+`reclaimed_at_ms`. Exact retries with the same `operation_id` and
+`expected_descriptor_sha256` return 200 with the same receipt; a different
+`operation_id` returns 409 `reclaim_conflict` and a different
+`expected_descriptor_sha256` returns 409 `descriptor_mismatch`. Re-ingesting or
+recovering a tombstoned block ID is refused. On restart, the NVR loads
+`.disposition-journal` (truncating and fsyncing any unterminated trailing
+partial line, and failing closed on unsafe or corrupt journal files), completes
+any tombstoned unlinks left behind by a crash, and reports tombstoned blocks as
+`reclaimed` in lookup.
 
 ## Playback read listener
 
@@ -528,6 +535,11 @@ checks the block ledger: the cap refuses admission while reads and lookups keep
 working, a restart rebuilds the same charge, a directory the ledger did not
 record closes admission without changing any file, and a volume larger than one
 rebuild page reports `rebuilding` before it is ready.
+The same target verifies `POST /v1/blocks/<block_id>/reclaim` through the
+packaged client and direct TLS requests: tombstone durability, partial-tail
+truncation and crash-unlink completion on restart, idempotent retries and
+conflict/mismatch refusals, immediate capacity and block-cap release, refusal
+to re-ingest tombstoned IDs, and fail-closed behavior on an unsafe journal.
 `//elixir/serviceradar_nvr:archive_release_test` runs the archive cases of the
 same harness on the Longshore-qualified executor pool: the packaged client
 archives a network-ingested block to a synthetic loopback object store, every
