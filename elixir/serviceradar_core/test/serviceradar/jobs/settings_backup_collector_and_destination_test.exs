@@ -202,6 +202,233 @@ defmodule ServiceRadar.Jobs.SettingsBackupCollectorAndDestinationTest do
              }
     end
 
+    test "strips URL userinfo and sensitive query or fragment parameters across URL fields and nested values" do
+      exported_at = ~U[2026-11-22 12:00:00Z]
+
+      readers =
+        :order_a
+        |> build_synthetic_readers()
+        |> Map.put(:ansible_controllers, fn _actor ->
+          [
+            %{
+              id: "20000000-0000-4000-8000-000000000001",
+              name: "Primary AWX",
+              description: "Synthetic controller",
+              base_url:
+                "https://awx-bot:inline-awx-pass@awx.example.com:8443/api?token=inline-awx-query-token&org=ops",
+              agent_id: "agent-1",
+              sync_credential_secret_id: "00000000-0000-4000-8000-000000000001",
+              execution_credential_secret_id: nil,
+              callback_credential_secret_id: nil,
+              inventory_sync_interval_seconds: 300,
+              catalog_sync_interval_seconds: 600,
+              enabled: true,
+              status: :unknown,
+              awx_version: nil,
+              metadata: %{}
+            }
+          ]
+        end)
+        |> Map.put(:ansible_repositories, fn _actor ->
+          [
+            %{
+              id: "30000000-0000-4000-8000-000000000001",
+              name: "Playbooks",
+              description: nil,
+              git_url: "https://bot:inline-git-token@git.example.com/org/playbooks.git",
+              git_ref: "main",
+              sync_interval_seconds: 600,
+              credential_secret_id: nil,
+              last_sync_status: :pending,
+              last_sync_at: nil,
+              metadata: %{}
+            },
+            %{
+              id: "30000000-0000-4000-8000-000000000002",
+              name: "Extra Playbooks",
+              description: nil,
+              git_url: "https://bot:p@ss-inline-at-secret@git.example.com:8443/org/extra.git",
+              git_ref: "main",
+              sync_interval_seconds: 600,
+              credential_secret_id: nil,
+              last_sync_status: :pending,
+              last_sync_at: nil,
+              metadata: %{}
+            }
+          ]
+        end)
+        |> Map.put(:service_checks, fn _actor ->
+          [
+            %{
+              id: "80000000-0000-4000-8000-000000000010",
+              name: "URL Redaction Check",
+              description:
+                "Contact mailto:ops@example.com or https://u:inline-desc-pass@status.example.com/ok",
+              enabled: true,
+              check_type: :http,
+              target:
+                "https://probe:inline-check-pass@api.example.com/health?mode=deep&api_key=inline-check-api-key&X-API-Key=inline-check-x-api-key#access_token=inline-frag-token&view=summary",
+              port: 443,
+              interval_seconds: 60,
+              timeout_seconds: 5,
+              retries: 1,
+              config: %{
+                "url" =>
+                  "https://inline-single-token@hooks.example.com/notify?token=inline-config-token&format=json",
+                "encoded_query" =>
+                  "https://api.example.com/v1?api%5Fkey=inline-encoded-key&region=us",
+                "nested_urls" => [
+                  "https://u:inline-list-pass@svc.example.com/a?passwd=inline-list-pw"
+                ],
+                "redirect" =>
+                  "https://api.example.com/go?next=https%3A%2F%2Fu%3Ainline-nested-pass%40dest.example.com%2Fcb%3Ftoken%3Dinline-nested-tok&ok=1"
+              },
+              warning_threshold_ms: 500,
+              critical_threshold_ms: 1500,
+              agent_uid: "agent-1",
+              device_uid: "device-1",
+              web_property_id: nil,
+              metadata: %{
+                "runbook" => "https://docs.example.com/checks#overview"
+              }
+            }
+          ]
+        end)
+        |> Map.put(:netflow_settings, fn _actor ->
+          [
+            %{
+              id: "60000000-0000-4000-8000-000000000001",
+              geoip_enabled: true,
+              ipinfo_enabled: true,
+              ipinfo_base_url:
+                "https://user:inline-ipinfo-pass@api.ipinfo.io?token=inline-ipinfo-token",
+              encrypted_ipinfo_api_key: @synthetic_ciphertext,
+              threat_intel_enabled: true,
+              otx_enabled: true,
+              otx_execution_mode: "edge_plugin",
+              otx_credential_secret_id: nil,
+              otx_base_url: "https://otx.alienvault.com/api/v1?api_key=inline-otx-key&limit=50",
+              otx_sync_interval_seconds: 3600,
+              otx_page_size: 100,
+              otx_timeout_ms: 120_000
+            }
+          ]
+        end)
+        |> Map.put(:mapbox_settings, fn _actor ->
+          [
+            %{
+              id: "70000000-0000-4000-8000-000000000001",
+              enabled: true,
+              style_light:
+                "https://api.mapbox.com/styles/v1/mapbox/light-v11?access_token=inline-mapbox-token&fresh=true",
+              style_dark: "mapbox://styles/mapbox/dark-v11",
+              encrypted_access_token: @synthetic_ciphertext
+            }
+          ]
+        end)
+        |> Map.put(:outbound_mail_settings, fn _actor ->
+          [
+            %{
+              id: "50000000-0000-4000-8000-000000000001",
+              enabled: true,
+              adapter: "smtp",
+              from_name: "ServiceRadar",
+              from_email: "noreply@example.com",
+              relay: "smtp.example.com",
+              port: 587,
+              hostname: "example.com",
+              username: "mailer",
+              encrypted_password: @synthetic_ciphertext,
+              encrypted_api_key: nil,
+              password_secret_id: "00000000-0000-4000-8000-000000000001",
+              api_key_secret_id: nil,
+              auth: "always",
+              tls: "always",
+              ssl: false,
+              retries: 1,
+              provider_options: %{
+                "webhook_url" =>
+                  "https://mail:inline-mail-pass@hooks.example.com/events?secret=inline-mail-secret"
+              }
+            }
+          ]
+        end)
+
+      assert {:ok, snap} =
+               Collector.collect(exported_at: exported_at, reason: "manual", readers: readers)
+
+      for leaked <- [
+            "inline-awx-pass",
+            "inline-awx-query-token",
+            "inline-git-token",
+            "inline-at-secret",
+            "inline-desc-pass",
+            "inline-check-pass",
+            "inline-check-api-key",
+            "inline-check-x-api-key",
+            "inline-frag-token",
+            "inline-single-token",
+            "inline-config-token",
+            "inline-encoded-key",
+            "inline-list-pass",
+            "inline-list-pw",
+            "inline-nested-pass",
+            "inline-nested-tok",
+            "inline-ipinfo-pass",
+            "inline-ipinfo-token",
+            "inline-otx-key",
+            "inline-mapbox-token",
+            "inline-mail-pass",
+            "inline-mail-secret"
+          ] do
+        refute String.contains?(snap.json, leaked), "expected #{leaked} to be stripped from json"
+
+        refute String.contains?(Jason.encode!(snap.bundle), leaked),
+               "expected #{leaked} to be stripped from bundle"
+      end
+
+      decoded = Jason.decode!(snap.json)
+
+      assert [controller] = decoded["terraform_resources"]["serviceradar_ansible_controller"]
+      assert controller["base_url"] == "https://awx.example.com:8443/api?org=ops"
+
+      assert [repo1, repo2] = decoded["terraform_resources"]["serviceradar_ansible_repository"]
+      assert repo1["git_url"] == "https://git.example.com/org/playbooks.git"
+      assert repo2["git_url"] == "https://git.example.com:8443/org/extra.git"
+
+      assert [check] = decoded["settings"]["service_checks"]
+
+      assert check["description"] ==
+               "Contact mailto:ops@example.com or https://status.example.com/ok"
+
+      assert check["target"] == "https://api.example.com/health?mode=deep#view=summary"
+
+      assert check["config"] == %{
+               "url" => "https://hooks.example.com/notify?format=json",
+               "encoded_query" => "https://api.example.com/v1?region=us",
+               "nested_urls" => ["https://svc.example.com/a"],
+               "redirect" =>
+                 "https://api.example.com/go?next=https%3A%2F%2Fdest.example.com%2Fcb&ok=1"
+             }
+
+      assert check["metadata"] == %{"runbook" => "https://docs.example.com/checks#overview"}
+
+      assert [netflow] = decoded["settings"]["netflow_settings"]
+      assert netflow["ipinfo_base_url"] == "https://api.ipinfo.io"
+      assert netflow["otx_base_url"] == "https://otx.alienvault.com/api/v1?limit=50"
+
+      assert [mapbox] = decoded["settings"]["mapbox_settings"]
+
+      assert mapbox["style_light"] ==
+               "https://api.mapbox.com/styles/v1/mapbox/light-v11?fresh=true"
+
+      assert mapbox["style_dark"] == "mapbox://styles/mapbox/dark-v11"
+
+      assert [mail] = decoded["settings"]["outbound_mail_settings"]
+      assert mail["from_email"] == "noreply@example.com"
+      assert mail["provider_options"] == %{"webhook_url" => "https://hooks.example.com/events"}
+    end
+
     test "reproduces the shared Terraform round-trip bundle fixture" do
       expected = @roundtrip_bundle_fixture |> File.read!() |> Jason.decode!()
 

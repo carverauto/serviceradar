@@ -72,6 +72,9 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
     "credential"
   ]
 
+  @url_pattern ~r/[a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^\s"'<>]*/
+  @url_parts_pattern ~r/\A([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/)([^\/?#]*)(.*)\z/s
+
   @type snapshot :: %{
           bundle: map(),
           json: binary(),
@@ -167,7 +170,11 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
                                             {:ok, acc} ->
       case collect_records(reader_key, resource, actor, readers) do
         {:ok, records} ->
-          serialized = records |> Enum.map(serializer) |> sorter.()
+          serialized =
+            records
+            |> Enum.map(fn record -> record |> serializer.() |> sanitize_url_values() end)
+            |> sorter.()
+
           {:cont, {:ok, Map.put(acc, json_key, serialized)}}
 
         {:error, _} = err ->
@@ -363,7 +370,12 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
       "schedule_type" => atom_or_string(get_field(record, :schedule_type)),
       "cron_expression" => get_field(record, :cron_expression),
       "target_query" => get_field(record, :target_query),
-      "static_targets" => record |> get_field(:static_targets) |> List.wrap() |> Enum.sort(),
+      "static_targets" =>
+        record
+        |> get_field(:static_targets)
+        |> List.wrap()
+        |> Enum.map(&sanitize_url_string/1)
+        |> Enum.sort(),
       "ports" => record |> get_field(:ports) |> List.wrap() |> Enum.sort(),
       "sweep_modes" => record |> get_field(:sweep_modes) |> List.wrap() |> Enum.sort(),
       "overrides" => sanitize_map(get_field(record, :overrides)),
@@ -628,13 +640,144 @@ defmodule ServiceRadar.Jobs.SettingsBackup.Collector do
   end
 
   defp sensitive_key?(key) do
-    normalized = key |> String.downcase() |> String.replace(["-", " "], "_")
+    normalized = normalize_key(key)
 
     if MapSet.member?(@allowed_secret_ref_keys, normalized) do
       false
     else
       Enum.any?(@sensitive_substrings, &String.contains?(normalized, &1))
     end
+  end
+
+  defp sensitive_query_key?(key) do
+    normalized = normalize_key(key)
+    Enum.any?(@sensitive_substrings, &String.contains?(normalized, &1))
+  end
+
+  defp normalize_key(key) do
+    key |> String.downcase() |> String.replace(["-", " "], "_")
+  end
+
+  defp sanitize_url_values(map) when is_map(map) and not is_struct(map) do
+    Map.new(map, fn {k, v} -> {sanitize_url_string(k), sanitize_url_values(v)} end)
+  end
+
+  defp sanitize_url_values(list) when is_list(list), do: Enum.map(list, &sanitize_url_values/1)
+  defp sanitize_url_values(str) when is_binary(str), do: sanitize_url_string(str)
+  defp sanitize_url_values(other), do: other
+
+  defp sanitize_url_string(str) when is_binary(str) do
+    if String.contains?(str, "://") do
+      String.replace(str, @url_pattern, &sanitize_url/1)
+    else
+      str
+    end
+  end
+
+  defp sanitize_url_string(other), do: other
+
+  defp sanitize_url(url) do
+    case Regex.run(@url_parts_pattern, url) do
+      [_full, scheme_prefix, authority, tail] ->
+        scheme_prefix <> strip_authority_userinfo(authority) <> sanitize_url_tail(tail)
+
+      nil ->
+        url
+    end
+  end
+
+  defp strip_authority_userinfo(authority) do
+    if String.contains?(authority, "@") do
+      authority |> String.split("@") |> List.last()
+    else
+      authority
+    end
+  end
+
+  defp sanitize_url_tail(""), do: ""
+
+  defp sanitize_url_tail(tail) do
+    {before_fragment, fragment} = split_once(tail, "#")
+    {path, query} = split_once(before_fragment, "?")
+
+    sanitize_url_string(path) <>
+      format_suffix("?", sanitize_query_string(query)) <>
+      format_suffix("#", sanitize_fragment(fragment))
+  end
+
+  defp sanitize_fragment(nil), do: nil
+
+  defp sanitize_fragment(fragment) do
+    {frag_path, frag_query} = split_once(fragment, "?")
+
+    clean_path =
+      if String.contains?(frag_path, "="),
+        do: sanitize_query_string(frag_path),
+        else: frag_path
+
+    clean_path <> format_suffix("?", sanitize_query_string(frag_query))
+  end
+
+  defp sanitize_query_string(nil), do: nil
+  defp sanitize_query_string(""), do: ""
+
+  defp sanitize_query_string(query) do
+    query
+    |> String.split("&")
+    |> Enum.flat_map(&sanitize_query_segment/1)
+    |> Enum.join("&")
+  end
+
+  defp sanitize_query_segment(""), do: []
+
+  defp sanitize_query_segment(segment) do
+    {raw_key, raw_val} = split_once(segment, "=")
+    decoded_key = safe_decode_www_form(raw_key)
+
+    if sensitive_query_key?(decoded_key) do
+      []
+    else
+      [sanitize_query_value(segment, raw_key, raw_val)]
+    end
+  end
+
+  defp sanitize_query_value(segment, _raw_key, nil), do: segment
+
+  defp sanitize_query_value(segment, raw_key, raw_val) do
+    decoded_val = safe_decode_www_form(raw_val)
+
+    cond do
+      String.contains?(raw_val, "://") ->
+        sanitized = sanitize_url_string(raw_val)
+        if sanitized == raw_val, do: segment, else: raw_key <> "=" <> sanitized
+
+      decoded_val != raw_val and String.contains?(decoded_val, "://") ->
+        sanitized = sanitize_url_string(decoded_val)
+
+        if sanitized == decoded_val,
+          do: segment,
+          else: raw_key <> "=" <> URI.encode_www_form(sanitized)
+
+      true ->
+        segment
+    end
+  end
+
+  defp split_once(str, separator) do
+    case String.split(str, separator, parts: 2) do
+      [left, right] -> {left, right}
+      [left] -> {left, nil}
+    end
+  end
+
+  defp format_suffix(_prefix, nil), do: ""
+  defp format_suffix(_prefix, ""), do: ""
+  defp format_suffix(prefix, value), do: prefix <> value
+
+  defp safe_decode_www_form(value) do
+    URI.decode_www_form(value)
+  rescue
+    ArgumentError -> value
   end
 
   defp canonicalize(map) when is_map(map) and not is_struct(map) do
