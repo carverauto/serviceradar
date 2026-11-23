@@ -85,9 +85,12 @@ jobs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       sums_sha256: ${{ steps.bundle.outputs.sums_sha256 }}
     steps:
-      # The job runs as a non-root user whose HOME does not exist yet.
+      # The job runs as a non-root user whose HOME defaults to / (not writable).
       - name: Create HOME
-        run: mkdir -p "${HOME}"
+        run: |
+          home_dir="${RUNNER_TEMP}/home"
+          mkdir -p "${home_dir}"
+          echo "HOME=${home_dir}" >> "${GITHUB_ENV}"
 
       # No git in the image: checkout falls back to the REST API, so there is no .git.
       - name: Checkout
@@ -120,7 +123,7 @@ jobs:
       - name: Record the bundle digest
         id: bundle
         env:
-          RECORDED_BUILDER: ${{ fromJSON(steps.compile.outputs.manifest).builder_image }}
+          RECORDED_BUILDER: ${{ fromJSON(steps.compile.outputs.manifest || '{}').builder_image }}
         run: |
           set -euo pipefail
           [[ "${RECORDED_BUILDER}" == "${CUDA_BUILDER_IMAGE}" ]] || { echo "incorrect manifest builder_image" >&2; exit 1; }
