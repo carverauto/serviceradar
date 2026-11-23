@@ -1455,12 +1455,18 @@ if config_env() == :prod do
       ]
 
   add_cron_entries = fn config, entries ->
+    extra_workers = MapSet.new(entries, &elem(&1, 1))
+
     plugins =
       config
       |> Keyword.get(:plugins, [])
       |> Enum.map(fn
         {Cron, opts} ->
-          crontab = Keyword.get(opts, :crontab, [])
+          crontab =
+            opts
+            |> Keyword.get(:crontab, [])
+            |> Enum.reject(&MapSet.member?(extra_workers, elem(&1, 1)))
+
           {Cron, Keyword.put(opts, :crontab, crontab ++ entries)}
 
         other ->

@@ -1638,5 +1638,37 @@
     "fingerprint": "f6a61edbcee07856c8f2c634e83c8082686c40ad24e49c4749fff313ccdd6f56",
     "classification": "canonical_machine",
     "reason": "UTC wall-clock literal bounding StarRocks DATETIME columns in warehouse trace-rollup probe SQL; never displayed"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_settings_backup.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "1d99b7952268be6119b0e507a9a71cff430b4ff7e7ffad53b63e33da2665097b",
+    "classification": "canonical_machine",
+    "reason": "Private control-plane settings-backup machine API ISO-8601 timestamp; not localized display."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_settings_backup.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": "Private control-plane settings-backup machine API ISO-8601 timestamp; not localized display."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_settings_backup.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 3,
+    "fingerprint": "f05cec19e993ac4f925b0e208f193fab5f8be7f9d963644537dcb4202dac321e",
+    "classification": "canonical_machine",
+    "reason": "Private control-plane settings-backup machine API ISO-8601 timestamp; not localized display."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_settings_backup.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "66bb375f7b1b01224450978909e365ec3f84eb9bf471771a06d0ac31c3dbe390",
+    "classification": "canonical_machine",
+    "reason": "Private control-plane settings-backup machine API ISO-8601 timestamp; not localized display."
   }
 ]

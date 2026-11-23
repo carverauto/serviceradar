@@ -300,11 +300,96 @@ func TestClientRejectsUnsafeEndpointAndRedactsErrors(t *testing.T) {
 			t.Fatalf("accepted unsafe endpoint %s", endpoint)
 		}
 	}
-	for _, status := range []int{400, 401, 403, 409, 412, 428, 500} {
+	for _, status := range []int{400, 401, 403, 409, 410, 412, 428, 500, 503} {
 		err := (&apiError{status: status}).Error()
 		if strings.Contains(err, fixtureMaterial) {
 			t.Fatal("error included material")
 		}
+	}
+	if !strings.Contains((&apiError{status: http.StatusGone}).Error(), "deleted resource") {
+		t.Fatal("410 diagnostic did not explain deleted-resource idempotency key")
+	}
+	if !strings.Contains((&apiError{status: http.StatusServiceUnavailable}).Error(), "temporarily unavailable") {
+		t.Fatal("503 diagnostic did not explain temporary unavailability")
+	}
+}
+
+func TestDeletedIdempotencyKeyAndRotateReplayProtocol(t *testing.T) {
+	h := newHarness(t, "network_credential_secret")
+	fields := map[string]any{
+		"name":                "Replay secret",
+		"credential_provider": "awx",
+		"auth_method":         "bearer_token",
+		"idempotency_key":     fixtureKey,
+		"values_version":      1,
+		"values_wo":           map[string]string{"api_token": fixtureMaterial},
+	}
+	config := dynamic(t, h.schema.ValueType(), fields)
+	empty := dynamic(t, h.schema.ValueType(), nil)
+	state := h.apply(empty, config)
+
+	// Rotate once, then verify replaying the exact /rotate call with a stale
+	// If-Match and the same Idempotency-Key succeeds without re-rotating.
+	fields["values_version"] = 2
+	fields["values_wo"] = map[string]string{"api_token": "second-invented-material"}
+	rotConfig := dynamic(t, h.schema.ValueType(), fields)
+	state = h.apply(state, rotConfig)
+	if h.fixture.rotations != 1 {
+		t.Fatal("expected exactly one rotation")
+	}
+
+	h.fixture.mu.Lock()
+	rotateKey := h.fixture.rotateKey
+	h.fixture.object["name"] = "Concurrent name change"
+	h.fixture.version++
+	h.fixture.mu.Unlock()
+
+	var baseURL string
+	api := httptest.NewTLSServer(http.HandlerFunc(h.fixture.serve))
+	defer api.Close()
+	baseURL = api.URL
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: api.Certificate().Raw})
+
+	client, err := newAPIClient(baseURL, "synthetic-api-token", "", ca)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayObj, err := client.request(
+		context.Background(),
+		http.MethodPost,
+		"network-credential-secrets/"+fixtureID+"/rotate",
+		"\"1\"",
+		rotateKey,
+		map[string]any{"values": map[string]any{"api_token": "second-invented-material"}},
+	)
+	if err != nil {
+		t.Fatalf("rotate replay with stale If-Match failed: %v", err)
+	}
+	if replayObj.etag == "" || h.fixture.rotations != 1 {
+		t.Fatalf("expected replayed rotation without increment, got rotations=%d", h.fixture.rotations)
+	}
+
+	// Delete the secret and verify reusing the deleted resource's idempotency_key returns 410 Gone.
+	state = h.read(state)
+	deleted, err := h.server.ApplyResourceChange(context.Background(), &tfprotov6.ApplyResourceChangeRequest{
+		TypeName:     h.typeName,
+		PriorState:   state,
+		PlannedState: empty,
+		Config:       empty,
+	})
+	checkRPC(t, err, deleted.Diagnostics)
+
+	recreate, err := h.server.ApplyResourceChange(context.Background(), &tfprotov6.ApplyResourceChangeRequest{
+		TypeName:     h.typeName,
+		PriorState:   empty,
+		Config:       config,
+		PlannedState: h.plan(empty, config),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recreate.Diagnostics) == 0 || !strings.Contains(recreate.Diagnostics[0].Detail, "deleted resource") {
+		t.Fatalf("expected 410 deleted-resource diagnostic, got: %#v", recreate.Diagnostics)
 	}
 }
 

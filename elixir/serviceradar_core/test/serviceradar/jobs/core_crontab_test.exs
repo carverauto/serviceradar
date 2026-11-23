@@ -49,6 +49,19 @@ defmodule ServiceRadar.Jobs.CoreCrontabTest do
            end)
   end
 
+  test "schedules SettingsBackupDestination.ExportScheduler every minute at priority 0 on maintenance" do
+    entry =
+      Enum.find(entries(), fn {_expr, worker, _opts} ->
+        worker == ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler
+      end)
+
+    assert {"* * * * *", worker, opts} = entry
+    assert Keyword.get(opts, :queue) == :maintenance
+    job = worker.new(%{}, opts)
+    assert Ecto.Changeset.get_field(job, :priority) == 0
+    assert Ecto.Changeset.get_field(job, :queue) == "maintenance"
+  end
+
   test "relays visual index jobs each minute only where recording and visual indexing are enabled" do
     relay = {"* * * * *", ServiceRadar.Camera.VisualIndexDispatchWorker, [queue: :maintenance]}
 

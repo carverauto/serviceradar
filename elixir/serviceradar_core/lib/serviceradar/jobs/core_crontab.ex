@@ -36,6 +36,10 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Jobs.RootSpanRatioWorker
   alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
+
+  alias ServiceRadar.Jobs.SettingsBackupDestination.ExportScheduler,
+    as: SettingsBackupExportScheduler
+
   alias ServiceRadar.Notifications.DispatchSchedule
   alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadar.Observability.ApiEventsRetentionWorker
@@ -100,7 +104,11 @@ defmodule ServiceRadar.Jobs.CoreCrontab do
       {"* * * * *", TickWorker, queue: :monitoring},
       {"* * * * *", DeclarativeCheckTickWorker, queue: :monitoring},
       {"*/5 * * * *", LeasePassWorker, queue: :maintenance},
-      {"*/5 * * * *", WebPropertyDiscoveryWorker, queue: :maintenance}
+      {"*/5 * * * *", WebPropertyDiscoveryWorker, queue: :maintenance},
+      {"* * * * *", SettingsBackupExportScheduler,
+       queue: :maintenance,
+       priority: 0,
+       unique: [period: :infinity, states: [:available, :scheduled]]}
     ] ++
       object_store_retention_entries(fetch) ++
       capacity_forecasting_entries(fetch) ++

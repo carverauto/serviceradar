@@ -10,6 +10,7 @@ defmodule ServiceRadar.Jobs do
   ## Resources
 
   - `ServiceRadar.Jobs.JobSchedule` - Background job schedule configuration
+  - `ServiceRadar.Jobs.SettingsBackupDestination` - Singleton object-storage destination and AshOban trigger for declarative settings backups
 
   ## Integration with Oban
 
@@ -30,6 +31,7 @@ defmodule ServiceRadar.Jobs do
 
   resources do
     resource ServiceRadar.Jobs.JobSchedule
+    resource ServiceRadar.Jobs.SettingsBackupDestination
   end
 
   authorization do

@@ -51,12 +51,15 @@ go_test(
         "test_fixture_test.go",
     ],
     data = [
+        "//elixir/serviceradar_core:test/fixtures/settings_backup/terraform_roundtrip_bundle_v1.json",
         "//go/cmd/terraform-provider-serviceradar",
         "//third_party/terraform",
     ],
     embed = [":terraformprovider"],
+    shard_count = 3,
     x_defs = {
         "github.com/carverauto/serviceradar/go/pkg/terraformprovider.providerBinaryRlocation": "$(rlocationpath //go/cmd/terraform-provider-serviceradar)",
+        "github.com/carverauto/serviceradar/go/pkg/terraformprovider.settingsBundleFixtureRlocation": "$(rlocationpath //elixir/serviceradar_core:test/fixtures/settings_backup/terraform_roundtrip_bundle_v1.json)",
         "github.com/carverauto/serviceradar/go/pkg/terraformprovider.terraformBinaryRlocation": "$(rlocationpath //third_party/terraform:terraform)",
     },
     deps = ["@io_bazel_rules_go//go/runfiles"],

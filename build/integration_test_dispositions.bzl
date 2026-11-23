@@ -384,6 +384,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/jobs/cron_backlog_repair_db_test.exs": 1,
     "test/serviceradar/jobs/refresh_trace_summaries_worker_db_test.exs": 1,
     "test/serviceradar/jobs/schedule_health_worker_test.exs": 1,
+    "test/integration/settings_backup_integration_test.exs": 1,
     "test/serviceradar/monitoring/alert_send_notification_db_test.exs": 1,
     "test/serviceradar/monitoring/poll_job_integration_test.exs": 1,
     "test/serviceradar/network_discovery/endpoint_attachment_binding_e2e_test.exs": 1,
