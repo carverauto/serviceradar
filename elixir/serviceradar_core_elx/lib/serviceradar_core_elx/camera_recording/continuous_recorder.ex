@@ -58,6 +58,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
+  require Ash.Query
   require Logger
 
   @timebase 90_000
@@ -479,6 +480,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
           pipeline_monitor: Process.monitor(pipeline)
       }
 
+      _ = close_stale_open_gaps(base_state)
       attach_run_inbox(base_state, lease_deadline)
     else
       {:error, reason} ->
@@ -1595,7 +1597,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp note_gap_start(state, _reason, _detail_class, _unit), do: state
 
   defp note_gap_start_at(
-         %{active_outage_gap: %{last_end_us: last_end_us} = outage} = state,
+         %{phase: :idle, active_outage_gap: %{last_end_us: last_end_us} = outage} = state,
          _reason,
          _detail_class,
          _start_pts,
@@ -1724,6 +1726,38 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   defp latest_outage_end_us(%{active_outage_gap: outage} = state) do
     admitted = state.last_admitted_at_us || outage.last_end_us
     max(outage.start_us, max(outage.last_end_us, admitted))
+  end
+
+  defp close_stale_open_gaps(state) do
+    now_us = System.os_time(:microsecond)
+
+    case state.hooks.close_stale_open_gaps_fn.(
+           state.policy.camera_source_id,
+           state.policy.stream_profile_id,
+           state.run_id,
+           now_us,
+           actor: state.actor
+         ) do
+      {:ok, _count} ->
+        :ok
+
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "ContinuousRecorder stale open gap cleanup failed for run #{state.run_id}: #{inspect(reason, limit: 8)}"
+        )
+
+        :ok
+    end
+  catch
+    kind, reason ->
+      Logger.warning(
+        "ContinuousRecorder stale open gap cleanup crashed for run #{state.run_id}: #{inspect({kind, reason}, limit: 8)}"
+      )
+
+      :ok
   end
 
   defp gap_origin(state, unit) do
@@ -2160,6 +2194,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
       enqueue_archive_fn: Keyword.get(opts, :enqueue_archive_fn, &ArchiveBlockJob.enqueue_for_entry/1),
       record_gap_fn: Keyword.get(opts, :record_gap_fn, &RecordingGap.record/2),
       close_gap_fn: Keyword.get(opts, :close_gap_fn, &RecordingGap.close/3),
+      close_stale_open_gaps_fn: Keyword.get(opts, :close_stale_open_gaps_fn, &default_close_stale_open_gaps/5),
       now_ms_fn: Keyword.get(opts, :now_ms_fn, &now_ms/0)
     }
   end
@@ -2193,5 +2228,47 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
     Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox}, timeout)
   catch
     :exit, _reason -> {:error, :ingest_stopped}
+  end
+
+  defp default_close_stale_open_gaps(camera_source_id, stream_profile_id, current_run_id, now_us, opts) do
+    actor = Keyword.fetch!(opts, :actor)
+
+    query =
+      RecordingGap
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(
+        camera_source_id == ^camera_source_id and
+          stream_profile_id == ^stream_profile_id and
+          is_nil(end_us) and
+          (is_nil(run_id) or run_id != ^current_run_id)
+      )
+
+    case Ash.read(query, actor: actor) do
+      {:ok, gaps} ->
+        closed_count = Enum.reduce(gaps, 0, &close_stale_gap(&1, now_us, opts, &2))
+        {:ok, closed_count}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp close_stale_gap(gap, now_us, opts, acc) do
+    closed_end_us = max(gap.start_us, now_us)
+
+    case RecordingGap.close(gap, closed_end_us, opts) do
+      {:ok, _closed} ->
+        acc + 1
+
+      {:error, :gap_already_closed} ->
+        acc
+
+      {:error, reason} ->
+        Logger.warning(
+          "ContinuousRecorder failed closing stale open gap #{gap.id} on startup: #{inspect(reason, limit: 8)}"
+        )
+
+        acc
+    end
   end
 end
