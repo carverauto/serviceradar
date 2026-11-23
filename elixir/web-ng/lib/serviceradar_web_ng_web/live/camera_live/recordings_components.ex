@@ -864,6 +864,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             <details
               :if={@gaps_total_count > 0}
               id="camera-timeline-gaps-details"
+              phx-hook="DetailsState"
               class="rounded-md border border-rose-500/30 bg-rose-500/5 px-2 py-1"
             >
               <summary class="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">

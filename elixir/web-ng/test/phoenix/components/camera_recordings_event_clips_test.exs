@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
       |> base_assigns()
       |> render_recordings_doc()
 
-    assert has_selector?(page1_doc, "#camera-timeline-gaps-details")
+    assert has_selector?(page1_doc, "#camera-timeline-gaps-details[phx-hook='DetailsState']")
     assert text_of(page1_doc, "#camera-timeline-gaps-details summary") == "Gaps (25)"
     assert text_of(page1_doc, "#camera-timeline-gaps-page-indicator") == "Page 1 / 3"
 
