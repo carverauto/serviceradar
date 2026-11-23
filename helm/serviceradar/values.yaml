@@ -566,18 +566,21 @@ mediaWorker:
   concurrency:
     indexJobs: 2
     textEmbeds: 4
-  # The model identity (embedder siglip-b16-384 2026.1, detector rtdetr-r18
+  # The model identity (embedder siglip-b16-384 2026.1, detector yolox-s
   # 2026.1, 768 dimensions) is fixed to core's and has no keys here; setting one
   # fails rendering even while the worker is disabled.
   models:
     # PVC holding the SigLIP config.json, model.safetensors and tokenizer.json
-    # at its root. Only those three files are mounted (read-only, one by one)
-    # into mountPath, which the worker gets as MEDIA_WORKER_MODEL_DIR, so a
-    # detector file on the PVC stays invisible. Nothing is downloaded. Indexing
-    # is whole-scene only; a permissively licensed subject detector will be
-    # added later as an explicit chart setting.
+    # (and optionally yolox-s detector.safetensors + detector_config.json) at
+    # its root. Only the three SigLIP files are mounted (read-only, one by one)
+    # into mountPath unless detectorPath is set, which additionally mounts
+    # detectorPath and detectorConfigPath (defaulting to
+    # <mountPath>/detector_config.json) via subPath. Nothing is downloaded.
     existingClaim: ""
     mountPath: "/var/lib/serviceradar-media-worker/models"
+    detectorPath: ""
+    detectorConfigPath: ""
+    detectorSha256: ""
     embedderPath: ""
     embedderSha256: ""
     textPath: ""
@@ -3502,6 +3505,10 @@ nvr:
   # 150 holds one 270-second Core capture in one block. Blocks also rotate at
   # 16 MiB. Lowering it affects new blocks only.
   maxBlockFragments: 150
+  # Maximum media DTS gap between keyframes (1000..60000 ms) and wall-clock wait
+  # for the next keyframe (1000..60000 ms) during packaging.
+  maxKeyframeIntervalMs: 15000
+  maxKeyframeWaitMs: 35000
   # Per-replica logical spool budget and physical free-space floor. Size these
   # below the qualified PVC capacity, leaving filesystem/recovery headroom.
   maxSpoolBytes: 1073741824
