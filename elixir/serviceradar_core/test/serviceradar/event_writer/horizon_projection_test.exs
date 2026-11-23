@@ -5,10 +5,12 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.HorizonProjection
+  alias ServiceRadar.TestSupport.StreamLoadFE
 
   defp ocsf_row(payload) do
     message = %{
@@ -319,6 +321,82 @@ defmodule ServiceRadar.EventWriter.HorizonProjectionTest do
       assert encoded["origin_asn"] == 13_335
       assert encoded["correlated_bgp_event_ids"] == ["bgp-1", "bgp-2"]
       assert {:ok, _json} = Jason.encode(encoded)
+    end
+
+    test "projects Horizon rows when events are cut over to the StarRocks warehouse path" do
+      prev = Application.get_env(:serviceradar_core, StarRocks)
+
+      on_exit(fn ->
+        if prev == nil do
+          Application.delete_env(:serviceradar_core, StarRocks)
+        else
+          Application.put_env(:serviceradar_core, StarRocks, prev)
+        end
+      end)
+
+      if Process.whereis(LoadSupervisor) == nil do
+        start_supervised!({LoadSupervisor, [max_in_flight: 2, wait_timeout_ms: 5_000]})
+      end
+
+      fe_http = StreamLoadFE.start!()
+
+      Application.put_env(:serviceradar_core, StarRocks,
+        enabled: true,
+        cutover_datasets: [:events],
+        fe_http: fe_http
+      )
+
+      parent = self()
+      handler_id = {__MODULE__, :stream_load_spy, make_ref()}
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :starrocks, :stream_load, :request, :stop],
+        fn _event, _measurements, metadata, _config ->
+          send(parent, {:stream_load_stop, metadata.dataset, metadata.table})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      bgp_row =
+        ocsf_row(%{
+          "id" => "horizon.bgp_anomalies:bgp-cutover-1",
+          "time" => "2026-11-23T16:05:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "severity_id" => 5,
+          "log_name" => "horizon.bgp_anomaly",
+          "log_provider" => "horizon.bgp_anomalies",
+          "unmapped" => %{
+            "event_id" => "bgp-cutover-1",
+            "kind" => "hijack",
+            "level" => "critical",
+            "covering_prefix" => "198.51.100.0/24",
+            "origin_asn" => 64_512
+          }
+        })
+
+      assert {:ok, 2} = Events.store_event_rows([outage_row(), bgp_row])
+
+      assert_receive {:stream_load_stop, :events, "events"}, 5_000
+      assert_receive {:stream_load_stop, :horizon_outages, "horizon_outages"}, 5_000
+      assert_receive {:stream_load_stop, :horizon_bgp_events, "horizon_bgp_events"}, 5_000
+
+      assert_receive {:wire_request, event_rows}, 5_000
+      assert_receive {:wire_request, outage_rows}, 5_000
+      assert_receive {:wire_request, bgp_rows}, 5_000
+
+      assert Enum.sort(Enum.map(event_rows, & &1["log_name"])) == [
+               "horizon.bgp_anomaly",
+               "horizon.outage"
+             ]
+
+      assert [%{"outage_id" => "out-2026-001", "origin_asn" => 13_335}] = outage_rows
+      assert [%{"event_id" => "bgp-cutover-1", "origin_asn" => 64_512}] = bgp_rows
     end
   end
 end
