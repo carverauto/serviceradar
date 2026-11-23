@@ -362,6 +362,7 @@ defmodule ServiceRadar.Camera.RecordingEventClipsTest do
       assert page1.counts.person == 1
       assert length(page1.markers) == 1
       assert hd(page1.markers).category == :person
+      assert hd(page1.markers).visual_frame_id == @frame_1_id
 
       # Page 3 returns remaining 6 clips
       assert {:ok, page3} =

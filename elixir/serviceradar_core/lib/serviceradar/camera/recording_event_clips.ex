@@ -170,7 +170,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
             confidence: clip.confidence,
             start_us: clip.start_us,
             end_us: clip.end_us,
-            peak_ts_us: clip.peak_ts_us
+            peak_ts_us: clip.peak_ts_us,
+            visual_frame_id: clip.visual_frame_id
           }
         end)
 

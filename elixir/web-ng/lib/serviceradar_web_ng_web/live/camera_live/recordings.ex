@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveUploads
-  alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.RecordingCatalogEntry
   alias ServiceRadar.Camera.RecordingEventClips
   alias ServiceRadar.Camera.RecordingHolds
@@ -108,9 +107,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_user_selected_window?: false,
         timeline_manage_drawer_open?: false,
         switcher_cameras: [],
-        switcher_recording_ids: MapSet.new(),
         switcher_search: "",
-        switcher_filter: "all",
         switcher_page: 1,
         switcher_per_page: @default_switcher_per_page,
         switcher_total_count: 0,
@@ -238,16 +235,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_clips_mode={@timeline_clips_mode}
         timeline_clips_category={@timeline_clips_category}
         timeline_clips_page={@timeline_clips_page}
-        timeline_clips_per_page={@timeline_clips_per_page}
         timeline_clips_total_count={@timeline_clips_total_count}
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
         switcher_cameras={@switcher_cameras}
-        switcher_recording_ids={@switcher_recording_ids}
         switcher_search={@switcher_search}
-        switcher_filter={@switcher_filter}
         switcher_page={@switcher_page}
         switcher_total_count={@switcher_total_count}
         switcher_total_pages={@switcher_total_pages}
@@ -393,17 +387,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     socket =
       socket
       |> assign(switcher_search: search, switcher_page: 1)
-      |> load_camera_switcher()
-
-    {:noreply, socket}
-  end
-
-  def handle_event("switcher_filter", %{"filter" => raw_filter}, socket) do
-    filter = parse_switcher_filter(raw_filter)
-
-    socket =
-      socket
-      |> assign(switcher_filter: filter, switcher_page: 1)
       |> load_camera_switcher()
 
     {:noreply, socket}
@@ -2439,12 +2422,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     end
   end
 
-  defp normalize_event_clips_page(%{clips: clips, counts: counts, total_count: total_count} = result, params)
-       when is_list(clips) and is_map(counts) and is_integer(total_count) do
+  defp normalize_event_clips_page(
+         %{clips: clips, counts: counts, total_count: total_count, markers: markers} = result,
+         params
+       )
+       when is_list(clips) and is_map(counts) and is_integer(total_count) and is_list(markers) do
     per_page = result[:per_page] || params[:per_page] || RecordingEventClips.default_per_page()
     total_pages = result[:total_pages] || max(div(total_count + per_page - 1, per_page), 1)
     page = min(result[:page] || params[:page] || 1, total_pages)
-    markers = result[:markers] || extract_event_markers(clips)
 
     %{
       clips: clips,
@@ -2455,11 +2440,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       counts: Map.merge(default_clip_counts(), counts),
       markers: markers
     }
-  end
-
-  defp normalize_event_clips_page(%{clips: clips}, params) when is_list(clips) do
-    paged = RecordingEventClips.paginate_clips(clips, params)
-    Map.put(paged, :markers, extract_event_markers(clips))
   end
 
   defp normalize_event_clips_page(_other, params) do
@@ -2476,24 +2456,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       counts: default_clip_counts(),
       markers: []
     }
-  end
-
-  defp extract_event_markers(clips) when is_list(clips) do
-    clips
-    |> Enum.reject(&(&1[:category] == :recording))
-    |> Enum.map(fn clip ->
-      %{
-        id: clip.id,
-        category: clip.category,
-        smart_type: clip[:smart_type],
-        label: clip[:label] || RecordingEventClips.category_label(clip.category),
-        confidence: clip[:confidence],
-        start_us: clip[:start_us],
-        end_us: clip[:end_us],
-        peak_ts_us: clip[:peak_ts_us] || clip[:start_us],
-        visual_frame_id: clip[:visual_frame_id]
-      }
-    end)
   end
 
   defp default_clip_counts do
@@ -2525,7 +2487,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
   defp load_camera_switcher_for_scope(socket, scope) do
     opts = %{
       search: socket.assigns.switcher_search,
-      filter: socket.assigns.switcher_filter,
       page: socket.assigns.switcher_page,
       per_page: socket.assigns.switcher_per_page
     }
@@ -2539,11 +2500,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
         assign(socket,
           switcher_cameras: result[:cameras] || [],
-          switcher_recording_ids: result[:recording_ids] || MapSet.new(),
           switcher_total_count: total_count,
           switcher_total_pages: total_pages,
           switcher_page: page
         )
+
+      {:error, reason} ->
+        Logger.warning("Failed to list cameras for switcher: #{inspect(reason)}")
+        socket
 
       _ ->
         socket
@@ -2552,69 +2516,41 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp default_list_cameras(scope, opts) do
     search = String.trim(to_string(opts[:search] || ""))
-    filter = parse_switcher_filter(opts[:filter])
     per_page = min(max(parse_positive_int(opts[:per_page], @default_switcher_per_page), 1), 50)
     requested_page = parse_positive_int(opts[:page], 1)
 
-    recording_ids = load_recording_camera_ids()
+    base_query =
+      Source
+      |> Ash.Query.for_read(:read, %{})
+      |> maybe_filter_cameras_search(search)
 
-    if filter == "recording" and MapSet.size(recording_ids) == 0 do
-      {:ok,
-       %{
-         cameras: [],
-         recording_ids: recording_ids,
-         total_count: 0,
-         page: 1,
-         per_page: per_page,
-         total_pages: 1
-       }}
-    else
-      base_query =
-        Source
-        |> Ash.Query.for_read(:read, %{})
-        |> maybe_filter_cameras_search(search)
-        |> maybe_filter_cameras_status(filter, recording_ids)
+    with {:ok, total_count} <- Ash.count(base_query, scope: scope) do
+      total_pages = max(div(total_count + per_page - 1, per_page), 1)
+      page = min(requested_page, total_pages)
+      offset = (page - 1) * per_page
 
-      with {:ok, total_count} <- Ash.count(base_query, scope: scope) do
-        total_pages = max(div(total_count + per_page - 1, per_page), 1)
-        page = min(requested_page, total_pages)
-        offset = (page - 1) * per_page
+      page_query =
+        base_query
+        |> Ash.Query.sort(display_name: :asc, id: :asc)
+        |> Ash.Query.offset(offset)
+        |> Ash.Query.limit(per_page)
 
-        page_query =
-          base_query
-          |> Ash.Query.sort(display_name: :asc, id: :asc)
-          |> Ash.Query.offset(offset)
-          |> Ash.Query.limit(per_page)
-
-        with {:ok, cameras} <- Ash.read(page_query, scope: scope) do
-          {:ok,
-           %{
-             cameras: cameras,
-             recording_ids: recording_ids,
-             total_count: total_count,
-             page: page,
-             per_page: per_page,
-             total_pages: total_pages
-           }}
-        end
+      with {:ok, cameras} <- Ash.read(page_query, scope: scope) do
+        {:ok,
+         %{
+           cameras: cameras,
+           total_count: total_count,
+           page: page,
+           per_page: per_page,
+           total_pages: total_pages
+         }}
       end
     end
   rescue
-    _ -> {:ok, %{cameras: [], recording_ids: MapSet.new(), total_count: 0, page: 1, per_page: 20, total_pages: 1}}
-  end
+    exception ->
+      Logger.warning("Failed to list cameras for switcher: #{Exception.format(:error, exception, __STACKTRACE__)}")
 
-  defp load_recording_camera_ids do
-    CameraRecordingPolicy
-    |> Ash.Query.for_read(:read, %{}, actor: SystemActor.system(:camera_recording_timeline))
-    |> Ash.Query.filter(mode == :continuous)
-    |> Ash.Query.select([:camera_source_id])
-    |> Ash.read(actor: SystemActor.system(:camera_recording_timeline))
-    |> case do
-      {:ok, rows} -> MapSet.new(rows, &to_string(&1.camera_source_id))
-      _ -> MapSet.new()
-    end
-  rescue
-    _ -> MapSet.new()
+      {:ok, %{cameras: [], total_count: 0, page: 1, per_page: @default_switcher_per_page, total_pages: 1}}
   end
 
   defp maybe_filter_cameras_search(query, ""), do: query
@@ -2632,20 +2568,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         fragment("coalesce(?->>'site', '') ILIKE ? ESCAPE '!'", metadata, ^pattern)
     )
   end
-
-  defp maybe_filter_cameras_status(query, "online", _recording_ids) do
-    Ash.Query.filter(
-      query,
-      fragment("lower(coalesce(?, '')) IN ('online', 'available', 'active')", availability_status)
-    )
-  end
-
-  defp maybe_filter_cameras_status(query, "recording", recording_ids) do
-    ids = MapSet.to_list(recording_ids)
-    Ash.Query.filter(query, id in ^ids)
-  end
-
-  defp maybe_filter_cameras_status(query, _all, _recording_ids), do: query
 
   defp escape_like(value) do
     value
@@ -2754,7 +2676,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
           {padded_start_us, min(padded_end_us, padded_start_us + @max_playlist_window_us)}
       end
 
-    seek_us = clip.peak_ts_us || clip.start_us
+    seek_us = clip[:peak_ts_us] || clip.start_us
+    visual_frame_id = clip[:visual_frame_id]
 
     playlist_path =
       build_playlist_path_if_playable(
@@ -2777,7 +2700,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         source.id,
         play_from_us,
         play_to_us,
-        clip.visual_frame_id,
+        visual_frame_id,
         socket.assigns.timeline_search_results
       )
 
@@ -2793,7 +2716,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
       timeline_playlist_origin_us: playlist_origin_us,
       timeline_seek_us: seek_us,
       timeline_seek_offset_seconds: seek_offset_seconds,
-      timeline_highlight_frame_id: clip.visual_frame_id,
+      timeline_highlight_frame_id: visual_frame_id,
       timeline_overlay_detections: overlay_detections,
       timeline_jump_at: format_us_for_datetime_local(play_from_us, tz, :floor, true),
       timeline_playlist_path: playlist_path,
@@ -2810,9 +2733,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     do: cat
 
   defp parse_clips_category(_), do: "all"
-
-  defp parse_switcher_filter(filter) when filter in ["all", "recording", "online"], do: filter
-  defp parse_switcher_filter(_), do: "all"
 
   defp parse_fraction(val) when is_float(val) and val >= 0.0 and val <= 1.0, do: {:ok, val}
   defp parse_fraction(val) when is_integer(val) and val in [0, 1], do: {:ok, val * 1.0}

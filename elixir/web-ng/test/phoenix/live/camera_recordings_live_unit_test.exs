@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Phoenix.LiveView.Socket
+  alias ServiceRadar.Camera.RecordingEventClips
   alias ServiceRadar.Camera.RecordingPubSub
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.CameraLive.Recordings
@@ -292,10 +293,10 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
                  )}
             end
           end,
-          list_event_clips: fn _source_id, _params, _scope ->
+          list_event_clips: fn _source_id, params, _scope ->
             case Agent.get(state, & &1) do
-              :empty -> {:ok, %{clips: []}}
-              :populated -> {:ok, %{clips: [new_clip]}}
+              :empty -> {:ok, list_page_result([], params)}
+              :populated -> {:ok, list_page_result([new_clip], params)}
             end
           end
         })
@@ -351,7 +352,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
             opts = [continuous_recording_active?: true]
             {:ok, populated_coverage(source_id, params.from_us, params.to_us, blocks, opts)}
           end,
-          list_event_clips: fn _source_id, _params, _scope ->
+          list_event_clips: fn _source_id, params, _scope ->
             clips =
               if Agent.get(phase, & &1) == :initial do
                 [clip_one]
@@ -359,7 +360,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
                 [clip_one, clip_two]
               end
 
-            {:ok, %{clips: clips}}
+            {:ok, list_page_result(clips, params)}
           end
         })
 
@@ -1040,7 +1041,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
             opts = [continuous_recording_active?: true]
             {:ok, populated_coverage(source_id, params.from_us, params.to_us, blocks, opts)}
           end,
-          list_event_clips: fn _source_id, _params, _scope ->
+          list_event_clips: fn _source_id, params, _scope ->
             clips =
               if Agent.get(phase, & &1) == :initial do
                 [initial_clip]
@@ -1048,7 +1049,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
                 [initial_clip, new_clip]
               end
 
-            {:ok, %{clips: clips}}
+            {:ok, list_page_result(clips, params)}
           end
         })
 
@@ -1184,7 +1185,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         stub_deps(%{
           list_event_clips: fn _source_id, params, _scope ->
             send(parent, {:clips_queried, params.page, params.per_page, params.mode, params.category})
-            {:ok, %{clips: all_clips}}
+            {:ok, list_page_result(all_clips, params)}
           end
         })
 
@@ -1213,18 +1214,89 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       assert filtered.assigns.timeline_clips_page == 1
     end
 
-    test "camera switcher supports debounced search, status filter, and bounded pagination, and manage drawer toggles cleanly" do
+    test "select_event_clip focuses playback on an off-page list_page marker without crashing" do
+      from_us = @base_now_us - @hour_us
+      to_us = @base_now_us
+      block = playable_block(from_us, to_us, :verified)
+      off_page_frame_id = "00000000-0000-4000-8000-000000000888"
+
+      entries =
+        for idx <- 1..15 do
+          start_us = from_us + idx * 120_000_000
+
+          %{
+            id: Ecto.UUID.generate(),
+            recording_block_id: Ecto.UUID.generate(),
+            camera_source_id: @camera_id,
+            stream_profile_id: @profile_id,
+            timeline_start_us: start_us,
+            timeline_end_us: start_us + 60_000_000,
+            local_state: :present,
+            archive_state: :verified,
+            quarantine_reason: nil,
+            fragment_count: 10
+          }
+        end
+
+      oldest_entry = hd(entries)
+
+      person_frame = %{
+        id: off_page_frame_id,
+        catalog_entry_id: oldest_entry.id,
+        camera_source_id: @camera_id,
+        stream_profile_id: @profile_id,
+        fragment_sequence: 1,
+        timeline_ts_us: oldest_entry.timeline_start_us + 10_000_000,
+        scene_suppressed: false,
+        detections: [
+          %{"object_class" => "person", "confidence" => 0.94, "dominant_colors" => ["blue"]}
+        ]
+      }
+
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
+          end,
+          list_event_clips: fn source_id, params, _scope ->
+            RecordingEventClips.list_page(
+              source_id,
+              Map.delete(params, :catalog_blocks),
+              loaders: %{
+                catalog_loader: fn _cam, _prof, _from, _to -> {:ok, entries} end,
+                visual_frames_loader: fn _cam, _prof, _from, _to -> {:ok, [person_frame]} end
+              }
+            )
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      off_page_clip_id = "evt-#{off_page_frame_id}-person"
+      refute Enum.any?(socket.assigns.timeline_event_clips, &(&1.id == off_page_clip_id))
+      assert Enum.any?(socket.assigns.timeline_event_markers, &(&1.id == off_page_clip_id))
+
+      {:noreply, focused} =
+        Recordings.handle_event("select_event_clip", %{"clip_id" => off_page_clip_id}, socket)
+
+      assert focused.assigns.timeline_selected_clip_id == off_page_clip_id
+      assert focused.assigns.timeline_highlight_frame_id == off_page_frame_id
+      assert focused.assigns.timeline_play_from_us == oldest_entry.timeline_start_us + 5_000_000
+      assert focused.assigns.timeline_play_to_us == oldest_entry.timeline_start_us + 24_000_000
+    end
+
+    test "camera switcher supports debounced search and bounded pagination, logs query failures, and manage drawer toggles cleanly" do
       parent = self()
 
       deps =
         stub_deps(%{
           list_cameras: fn _scope, opts ->
-            send(parent, {:cameras_queried, opts.search, opts.filter, opts.page, opts.per_page})
+            send(parent, {:cameras_queried, opts.search, opts.page, opts.per_page})
 
             {:ok,
              %{
                cameras: [synthetic_source(@other_camera_id)],
-               recording_ids: MapSet.new([@other_camera_id]),
                total_count: 45,
                page: opts.page,
                per_page: opts.per_page,
@@ -1236,20 +1308,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       socket = mount_connected(@camera_id, deps, refresh_interval_ms: 0, debounce_ms: 0)
       on_exit(fn -> cancel_timers(socket) end)
 
-      assert_receive {:cameras_queried, "", "all", 1, 20}
+      assert_receive {:cameras_queried, "", 1, 20}
       assert socket.assigns.switcher_total_count == 45
       assert socket.assigns.switcher_total_pages == 3
 
       {:noreply, searched} = Recordings.handle_event("switcher_search", %{"search" => "gate"}, socket)
-      assert_receive {:cameras_queried, "gate", "all", 1, 20}
+      assert_receive {:cameras_queried, "gate", 1, 20}
       assert searched.assigns.switcher_search == "gate"
 
-      {:noreply, filtered} = Recordings.handle_event("switcher_filter", %{"filter" => "recording"}, searched)
-      assert_receive {:cameras_queried, "gate", "recording", 1, 20}
-      assert filtered.assigns.switcher_filter == "recording"
-
-      {:noreply, page2} = Recordings.handle_event("switcher_paginate", %{"page" => "2"}, filtered)
-      assert_receive {:cameras_queried, "gate", "recording", 2, 20}
+      {:noreply, page2} = Recordings.handle_event("switcher_paginate", %{"page" => "2"}, searched)
+      assert_receive {:cameras_queried, "gate", 2, 20}
       assert page2.assigns.switcher_page == 2
 
       {:noreply, opened} = Recordings.handle_event("toggle_manage_drawer", %{}, page2)
@@ -1257,6 +1325,17 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       {:noreply, closed} = Recordings.handle_event("close_manage_drawer", %{}, opened)
       assert closed.assigns.timeline_manage_drawer_open? == false
+
+      failing_deps = Map.delete(stub_deps(%{}), :list_cameras)
+
+      log =
+        capture_log(fn ->
+          failed_socket = mount_connected(@camera_id, failing_deps, refresh_interval_ms: 0, debounce_ms: 0)
+          on_exit(fn -> cancel_timers(failed_socket) end)
+          assert failed_socket.assigns.switcher_cameras == []
+        end)
+
+      assert log =~ "Failed to list cameras for switcher"
     end
 
     test "select_event_clip uses exact [start_us, end_us] for :recording segments and pads smart/motion detections" do
@@ -1286,8 +1365,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
           coverage: fn source_id, params, _scope ->
             {:ok, populated_coverage(source_id, params.from_us, params.to_us, [block])}
           end,
-          list_event_clips: fn _source_id, _params, _scope ->
-            {:ok, %{clips: [recording_clip, person_clip]}}
+          list_event_clips: fn _source_id, params, _scope ->
+            {:ok, list_page_result([recording_clip, person_clip], params)}
           end
         })
 
@@ -1345,12 +1424,11 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
         end,
         list_relay_profiles: fn _scope, _source_id -> [] end,
         list_holds: fn _source_id, _scope -> {:ok, []} end,
-        list_event_clips: fn _source_id, _params, _scope -> {:ok, %{clips: []}} end,
+        list_event_clips: fn _source_id, params, _scope -> {:ok, list_page_result([], params)} end,
         list_cameras: fn _scope, _opts ->
           {:ok,
            %{
              cameras: [],
-             recording_ids: MapSet.new(),
              total_count: 0,
              page: 1,
              per_page: 20,
@@ -1445,6 +1523,29 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       visual_frame_id: nil,
       attributes: %{dominant_colors: ["navy"]}
     }
+  end
+
+  defp list_page_result(clips, params) do
+    paged = RecordingEventClips.paginate_clips(clips, params)
+
+    markers =
+      clips
+      |> Enum.reject(&(&1.category == :recording))
+      |> Enum.map(fn clip ->
+        %{
+          id: clip.id,
+          category: clip.category,
+          smart_type: clip.smart_type,
+          label: clip.label,
+          confidence: clip.confidence,
+          start_us: clip.start_us,
+          end_us: clip.end_us,
+          peak_ts_us: clip.peak_ts_us,
+          visual_frame_id: clip.visual_frame_id
+        }
+      end)
+
+    Map.put(paged, :markers, markers)
   end
 
   defp cancel_timers(socket) do

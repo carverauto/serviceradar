@@ -2,8 +2,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  alias ServiceRadar.Camera.RecordingEventClips
-
   attr :source, :any, required: true
   attr :items, :list, required: true
   attr :next_cursor, :string, default: nil
@@ -37,20 +35,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
   attr :timeline_event_clips, :list, default: []
-  attr :timeline_event_markers, :list, default: nil
+  attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
   attr :timeline_clips_page, :integer, default: 1
-  attr :timeline_clips_per_page, :integer, default: 12
-  attr :timeline_clips_total_count, :integer, default: nil
-  attr :timeline_clips_total_pages, :integer, default: nil
-  attr :timeline_clips_counts, :map, default: nil
+  attr :timeline_clips_total_count, :integer, default: 0
+  attr :timeline_clips_total_pages, :integer, default: 1
+  attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
   attr :timeline_manage_drawer_open?, :boolean, default: false
   attr :switcher_cameras, :list, default: []
-  attr :switcher_recording_ids, :any, default: nil
   attr :switcher_search, :string, default: ""
-  attr :switcher_filter, :string, default: "all"
   attr :switcher_page, :integer, default: 1
   attr :switcher_total_count, :integer, default: 0
   attr :switcher_total_pages, :integer, default: 1
@@ -190,16 +185,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_clips_mode={@timeline_clips_mode}
         timeline_clips_category={@timeline_clips_category}
         timeline_clips_page={@timeline_clips_page}
-        timeline_clips_per_page={@timeline_clips_per_page}
         timeline_clips_total_count={@timeline_clips_total_count}
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
         switcher_cameras={@switcher_cameras}
-        switcher_recording_ids={@switcher_recording_ids}
         switcher_search={@switcher_search}
-        switcher_filter={@switcher_filter}
         switcher_page={@switcher_page}
         switcher_total_count={@switcher_total_count}
         switcher_total_pages={@switcher_total_pages}
@@ -386,20 +378,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_has_adjacent_window, :boolean, default: false
   attr :timeline_holds, :list, default: []
   attr :timeline_event_clips, :list, default: []
-  attr :timeline_event_markers, :list, default: nil
+  attr :timeline_event_markers, :list, default: []
   attr :timeline_clips_mode, :string, default: "all"
   attr :timeline_clips_category, :string, default: "all"
   attr :timeline_clips_page, :integer, default: 1
-  attr :timeline_clips_per_page, :integer, default: 12
-  attr :timeline_clips_total_count, :integer, default: nil
-  attr :timeline_clips_total_pages, :integer, default: nil
-  attr :timeline_clips_counts, :map, default: nil
+  attr :timeline_clips_total_count, :integer, default: 0
+  attr :timeline_clips_total_pages, :integer, default: 1
+  attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
   attr :timeline_manage_drawer_open?, :boolean, default: false
   attr :switcher_cameras, :list, default: []
-  attr :switcher_recording_ids, :any, default: nil
   attr :switcher_search, :string, default: ""
-  attr :switcher_filter, :string, default: "all"
   attr :switcher_page, :integer, default: 1
   attr :switcher_total_count, :integer, default: 0
   attr :switcher_total_pages, :integer, default: 1
@@ -418,13 +407,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     cov_from_us = coverage_field(coverage, :from_us)
     cov_to_us = coverage_field(coverage, :to_us)
 
-    # Support both server-paginated assigns from LiveView and standalone component calls in unit tests
-    {clip_counts, filtered_event_clips, filtered_event_clip_total, clips_page, clips_total_pages} =
-      resolve_clips_pagination(assigns)
+    clip_counts = assigns.timeline_clips_counts || %{}
+    filtered_event_clips = assigns.timeline_event_clips
+    filtered_event_clip_total = assigns.timeline_clips_total_count || 0
+    clips_total_pages = max(assigns.timeline_clips_total_pages || 1, 1)
+    clips_page = min(max(assigns.timeline_clips_page || 1, 1), clips_total_pages)
 
     now_us = System.system_time(:microsecond)
-    marker_source = assigns.timeline_event_markers || assigns.timeline_event_clips
-    event_markers = build_event_markers(marker_source, cov_from_us, cov_to_us, now_us)
+    event_markers = build_event_markers(assigns.timeline_event_markers || [], cov_from_us, cov_to_us, now_us)
     hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
 
     play_window_band =
@@ -432,7 +422,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
     time_ticks = build_vertical_time_ticks(cov_from_us, cov_to_us)
 
-    recording_ids = assigns.switcher_recording_ids || MapSet.new()
     active_source_id = assigns.source && to_string(assigns.source.id)
 
     assigns =
@@ -454,7 +443,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:clips_total_pages, clips_total_pages)
       |> assign(:has_any_window_clips?, Map.get(clip_counts, :all, 0) > 0)
       |> assign(:now_us, now_us)
-      |> assign(:recording_ids, recording_ids)
       |> assign(:active_source_id, active_source_id)
       |> assign(:time_basis_label, format_time_basis(time_basis, time_uncertainty))
       |> assign(:time_basis_short, to_string(time_basis))
@@ -512,31 +500,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             />
           </form>
 
-          <div
-            id="camera-switcher-filters"
-            role="group"
-            aria-label="Filter cameras by status"
-            class="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-sr-line bg-sr-canvas p-0.5"
-          >
-            <button
-              :for={{f_val, f_label} <- [{"all", "All"}, {"recording", "Rec"}, {"online", "Online"}]}
-              id={"camera-switcher-filter-#{f_val}"}
-              type="button"
-              phx-click="switcher_filter"
-              phx-value-filter={f_val}
-              aria-pressed={to_string(@switcher_filter == f_val)}
-              class={[
-                "rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors",
-                if(@switcher_filter == f_val,
-                  do: "bg-sr-ink text-sr-surface",
-                  else: "text-sr-muted hover:text-sr-ink"
-                )
-              ]}
-            >
-              {f_label}
-            </button>
-          </div>
-
           <%!-- Pinned Active Camera --%>
           <div
             :if={@source}
@@ -584,9 +547,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   <span
                     class={[
                       "size-2 shrink-0 rounded-full",
-                      camera_status_dot_class(cam, @recording_ids)
+                      camera_status_dot_class(cam)
                     ]}
-                    title={camera_status_title(cam, @recording_ids)}
+                    title={camera_status_title(cam)}
                   ></span>
                 </.link>
               </li>
@@ -806,23 +769,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   Not scheduled
                 </div>
               <% else %>
-                <button
+                <div
                   :for={{bucket, idx} <- @vertical_buckets}
                   id={"camera-timeline-bucket-#{idx}"}
-                  type="button"
-                  phx-click="select_timeline_bucket"
-                  phx-value-start_us={bucket_start_us(bucket)}
-                  phx-value-end_us={bucket_end_us(bucket)}
                   data-bucket-state={bucket_state_name(bucket)}
                   data-provisional={to_string(bucket_provisional?(bucket))}
                   title={bucket_title(bucket)}
                   class={[
-                    "w-full flex-1 border-b border-sr-surface/20 transition-opacity last:border-b-0 hover:opacity-85",
+                    "w-full flex-1 border-b border-sr-surface/20 last:border-b-0",
                     bucket_color_class(bucket_state_name(bucket))
                   ]}
                 >
-                  <span class="sr-only">{bucket_title(bucket)}</span>
-                </button>
+                </div>
               <% end %>
 
               <%!-- Active Playback Window Indicator --%>
@@ -1966,26 +1924,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     """
   end
 
-  defp resolve_clips_pagination(assigns) do
-    if is_map(assigns.timeline_clips_counts) and is_integer(assigns.timeline_clips_total_count) do
-      per_page = assigns.timeline_clips_per_page || RecordingEventClips.default_per_page()
-      total = assigns.timeline_clips_total_count
-      total_pages = assigns.timeline_clips_total_pages || max(div(total + per_page - 1, per_page), 1)
-      page = min(max(assigns.timeline_clips_page || 1, 1), total_pages)
-      {assigns.timeline_clips_counts, assigns.timeline_event_clips, total, page, total_pages}
-    else
-      paged =
-        RecordingEventClips.paginate_clips(assigns.timeline_event_clips, %{
-          mode: assigns.timeline_clips_mode,
-          category: assigns.timeline_clips_category,
-          page: assigns.timeline_clips_page || 1,
-          per_page: assigns.timeline_clips_per_page || RecordingEventClips.default_per_page()
-        })
-
-      {paged.counts, paged.clips, paged.total_count, paged.page, paged.total_pages}
-    end
-  end
-
   defp camera_subtitle(cam) when is_map(cam) do
     site =
       case Map.get(cam, :metadata) do
@@ -2007,25 +1945,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp camera_subtitle(_), do: "Camera"
 
-  defp camera_status_dot_class(cam, recording_ids) do
-    id_str = to_string(cam.id)
+  defp camera_status_dot_class(cam) do
     status = cam |> Map.get(:availability_status) |> to_string() |> String.downcase()
 
-    cond do
-      MapSet.member?(recording_ids, id_str) -> "bg-rose-500"
-      status in ["online", "available", "active"] -> "bg-emerald-500"
-      true -> "bg-zinc-400"
+    if status in ["online", "available", "active"] do
+      "bg-emerald-500"
+    else
+      "bg-zinc-400"
     end
   end
 
-  defp camera_status_title(cam, recording_ids) do
-    id_str = to_string(cam.id)
+  defp camera_status_title(cam) do
     status = cam |> Map.get(:availability_status) |> to_string() |> String.downcase()
 
-    cond do
-      MapSet.member?(recording_ids, id_str) -> "Continuous recording"
-      status in ["online", "available", "active"] -> "Online"
-      true -> "Offline"
+    if status in ["online", "available", "active"] do
+      "Online"
+    else
+      "Offline"
     end
   end
 
@@ -2153,14 +2089,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp block_reanchored?(block) do
     coverage_field(block, :reanchored?) == true or coverage_field(block, :reanchored) == true
-  end
-
-  defp bucket_start_us(bucket) do
-    coverage_field(bucket, :start_us) || coverage_field(bucket, :from_us)
-  end
-
-  defp bucket_end_us(bucket) do
-    coverage_field(bucket, :end_us) || coverage_field(bucket, :to_us)
   end
 
   defp bucket_title(bucket) do

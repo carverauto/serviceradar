@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Camera.RecordingEventClips
   alias ServiceRadarWebNGWeb.CameraLive.RecordingsComponents
 
   @moduletag :db_free
@@ -26,10 +27,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     clips = sample_clips()
 
     doc =
-      %{
-        timeline_event_clips: clips,
-        timeline_selected_clip_id: "evt-person-1"
-      }
+      clips
+      |> page_assigns(%{timeline_selected_clip_id: "evt-person-1"})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -58,17 +57,23 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert attr_of(doc, "#camera-clip-card-rec-seg-1", "data-clip-smart-type") == ["basic"]
     refute has_selector?(doc, "#camera-clip-card-rec-seg-1 img")
 
+    # Coverage buckets are non-interactive elements so rail click-to-seek is the single click target
+    refute has_selector?(doc, "#camera-timeline-coverage-bar button[data-bucket-state]")
+    assert attr_of(doc, "#camera-timeline-bucket-0", "phx-click") == []
+    assert attr_of(doc, "#camera-timeline-bucket-0", "data-bucket-state") == ["local_and_archived"]
+
     # Coverage timeline renders event tick markers for smart/motion events only (not :recording segments)
     markers = LazyHTML.query(doc, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
     assert Enum.count(markers) == 2
     assert LazyHTML.attribute(markers, "phx-click") == ["select_event_clip", "select_event_clip"]
   end
 
-  test "filters clips by Smart/Basic mode and category, showing reset button when filter yields zero matches" do
+  test "renders server-filtered Smart/Basic mode and category states, showing reset button when filter yields zero matches" do
     clips = sample_clips()
 
     smart_doc =
-      %{timeline_event_clips: clips, timeline_clips_mode: "smart"}
+      clips
+      |> page_assigns(%{timeline_clips_mode: "smart"})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -78,7 +83,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     refute has_selector?(smart_doc, "#camera-clip-card-rec-seg-1")
 
     basic_doc =
-      %{timeline_event_clips: clips, timeline_clips_mode: "basic"}
+      clips
+      |> page_assigns(%{timeline_clips_mode: "basic"})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -87,7 +93,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(basic_doc, "#camera-clip-card-rec-seg-1")
 
     empty_filtered_doc =
-      %{timeline_event_clips: clips, timeline_clips_category: "package"}
+      clips
+      |> page_assigns(%{timeline_clips_category: "package"})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -97,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     refute has_selector?(empty_filtered_doc, "#camera-clips-grid")
   end
 
-  test "computes full chip counts and filters before capping rendered cards at the display limit" do
+  test "renders server-paginated slice with full window chip counts and off-page rail markers" do
     older_person = %{
       id: "evt-old-person",
       camera_source_id: @source_id,
@@ -150,7 +157,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     clips = newer_recordings ++ [older_person]
 
     all_doc =
-      %{timeline_event_clips: clips}
+      clips
+      |> page_assigns(%{})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -159,9 +167,11 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(all_doc, "#camera-clips-category-count-person") == "1"
     assert text_of(all_doc, "#camera-clips-page-indicator") == "Page 1 / 9"
     assert Enum.count(LazyHTML.query(all_doc, "#camera-clips-grid [data-role='event-clip-card']")) == 12
+    assert has_selector?(all_doc, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
 
     person_doc =
-      %{timeline_event_clips: clips, timeline_clips_category: "person"}
+      clips
+      |> page_assigns(%{timeline_clips_category: "person"})
       |> base_assigns()
       |> render_recordings_doc()
 
@@ -186,16 +196,16 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
         switcher_total_count: 42,
         switcher_page: 1,
         switcher_total_pages: 3,
-        switcher_recording_ids: MapSet.new([cam_2.id]),
         timeline_manage_drawer_open?: true,
         timeline_playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2"
       }
       |> base_assigns()
       |> render_recordings_doc()
 
-    # Left rail: scalable camera switcher
+    # Left rail: scalable camera switcher (search + pagination, no status filter)
     assert has_selector?(doc, "#camera-switcher-rail")
     assert has_selector?(doc, "#camera-switcher-search[phx-debounce='250']")
+    refute has_selector?(doc, "#camera-switcher-filters")
     assert has_selector?(doc, "#camera-switcher-active")
     assert has_selector?(doc, "#camera-switcher-item-#{cam_2.id}")
     assert text_of(doc, "#camera-switcher-total") == "42"
@@ -222,18 +232,54 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     clips = sample_clips()
 
     moved_doc =
-      %{
-        timeline_event_clips: clips,
+      clips
+      |> page_assigns(%{
         timeline_selected_clip_id: nil,
         timeline_play_from_us: @base_us + 1_800_000_000,
         timeline_play_to_us: @base_us + 3_600_000_000
-      }
+      })
       |> base_assigns()
       |> render_recordings_doc()
 
     assert attr_of(moved_doc, "#camera-clip-card-evt-person-1", "aria-pressed") == ["false"]
     assert attr_of(moved_doc, "#camera-clip-card-evt-vehicle-1", "aria-pressed") == ["false"]
     assert attr_of(moved_doc, "#camera-clip-card-rec-seg-1", "aria-pressed") == ["false"]
+  end
+
+  defp page_assigns(all_clips, overrides) do
+    mode = Map.get(overrides, :timeline_clips_mode, "all")
+    category = Map.get(overrides, :timeline_clips_category, "all")
+    page = Map.get(overrides, :timeline_clips_page, 1)
+    paged = RecordingEventClips.paginate_clips(all_clips, %{mode: mode, category: category, page: page, per_page: 12})
+
+    markers =
+      all_clips
+      |> Enum.reject(&(&1.category == :recording))
+      |> Enum.map(fn clip ->
+        %{
+          id: clip.id,
+          category: clip.category,
+          smart_type: clip.smart_type,
+          label: clip.label,
+          confidence: clip.confidence,
+          start_us: clip.start_us,
+          end_us: clip.end_us,
+          peak_ts_us: clip.peak_ts_us,
+          visual_frame_id: clip.visual_frame_id
+        }
+      end)
+
+    Map.merge(
+      %{
+        timeline_event_clips: paged.clips,
+        timeline_event_markers: markers,
+        timeline_clips_counts: paged.counts,
+        timeline_clips_total_count: paged.total_count,
+        timeline_clips_page: paged.page,
+        timeline_clips_total_pages: paged.total_pages
+      },
+      overrides
+    )
   end
 
   defp render_recordings_doc(assigns) do
