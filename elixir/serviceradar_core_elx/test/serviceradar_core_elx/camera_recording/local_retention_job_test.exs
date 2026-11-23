@@ -15,7 +15,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
   @gib 1_073_741_824
 
   describe "Oban worker configuration and no-op behavior" do
-    test "uses maintenance queue, 500-block pass cap, and unique window without executing orphan stall" do
+    test "uses maintenance queue, 500-block pass cap, and unique window including executing" do
       opts = LocalRetentionJob.__opts__()
 
       assert opts[:queue] == :maintenance
@@ -24,8 +24,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
 
       unique = Keyword.fetch!(opts, :unique)
       assert unique[:keys] == [:member]
-      assert unique[:states] == [:available, :scheduled, :retryable]
-      refute :executing in unique[:states]
+      assert unique[:states] == [:available, :scheduled, :retryable, :executing]
+      assert :executing in unique[:states]
     end
 
     test "enqueue_all returns empty list when NVR client is not configured" do
@@ -68,7 +68,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
         unique = Ecto.Changeset.get_change(changeset, :unique)
         assert unique[:keys] == [:member]
         assert unique[:period] == 55
-        assert unique[:states] == [:available, :scheduled, :retryable]
+        assert unique[:states] == [:available, :scheduled, :retryable, :executing]
       end
     end
 
@@ -515,57 +515,52 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       assert length(harness_state(harness).finalized) == 500
     end
 
-    test "bounds present catalog query with oldest-first sort, headroom limit, and policy/age filters" do
-      cutoff_a = DateTime.shift(@fixed_now, day: -1)
-      cutoff_b = DateTime.shift(@fixed_now, day: -2)
+    test "keyset-paginates past more than one page of held local-only rows to evict newer unheld blocks" do
+      # 550 oldest local-only rows are covered by a PD5 hold (exceeding one 500-row page),
+      # followed by 5 unheld evictable rows of 100 bytes each.
+      # Budget: 1000 bytes, high water 900, low water 800, used 950 -> evict 2 unheld blocks (551, 552).
+      held_entries =
+        for idx <- 1..550 do
+          entry(idx, archive_state: :not_required, media_bytes: 100, timeline_start_us: idx * 1_000)
+        end
 
-      space_stop_query =
-        LocalRetentionJob.present_entries_query(@storage_id, %{
-          space_needed?: true,
-          full_policy: :stop_when_full,
-          kind_a_age_cutoff: nil,
-          kind_b_age_cutoff: nil,
-          limit: 1_000
-        })
+      unheld_entries =
+        for idx <- 551..555 do
+          entry(idx, archive_state: :not_required, media_bytes: 100, timeline_start_us: idx * 1_000)
+        end
 
-      assert space_stop_query.limit == 1_000
-      assert space_stop_query.sort == [timeline_start_us: :asc, sealed_at: :asc, block_key: :asc]
-      refute inspect(space_stop_query.filter) =~ "not_required"
-
-      age_only_query =
-        LocalRetentionJob.present_entries_query(@storage_id, %{
-          space_needed?: false,
-          full_policy: :stop_when_full,
-          kind_a_age_cutoff: cutoff_a,
-          kind_b_age_cutoff: cutoff_b,
-          limit: 1_000
-        })
-
-      assert age_only_query.limit == 1_000
-      assert age_only_query.sort == [timeline_start_us: :asc, sealed_at: :asc, block_key: :asc]
-      assert inspect(age_only_query.filter) =~ "sealed_at"
-
-      entries = [entry(1, archive_state: :verified, media_bytes: 50, sealed_at: hours_ago(30))]
+      hold = %{
+        id: "00000000-0000-4000-8000-000000000902",
+        state: :accepted,
+        camera_source_id: @camera_id,
+        stream_profile_id: @profile_id,
+        start_us: 0,
+        end_us: 550_500,
+        kind: :investigation,
+        unavailable_blocks: []
+      }
 
       {harness, opts} =
         build_harness(
-          entries: entries,
-          capacity: capacity(used_bytes: 200, max_spool_bytes: 1_000, blocks: 1, max_blocks: 100),
+          entries: held_entries ++ unheld_entries,
+          holds: [hold],
+          capacity: capacity(used_bytes: 950, max_spool_bytes: 1_000, blocks: 555, max_blocks: 1_000),
           settings:
             settings(
-              max_local_age_mode: :limited,
-              max_local_age_seconds: 86_400,
-              local_only_max_age_mode: :unlimited,
-              local_only_max_age_seconds: nil
+              max_local_age_mode: :unlimited,
+              max_local_age_seconds: nil,
+              local_only_full_policy: :overwrite_oldest
             )
         )
 
-      assert {:ok, _summary} = LocalRetentionJob.run_target(target(), opts)
-      assert [query_spec] = harness_state(harness).present_loads
-      assert query_spec.limit == 1_000
-      assert query_spec.space_needed? == false
-      assert query_spec.kind_a_age_cutoff == cutoff_a
-      assert query_spec.kind_b_age_cutoff == nil
+      assert {:ok, summary} = LocalRetentionJob.run_target(target(), opts)
+      assert summary.held_skipped == 550
+      assert summary.reclaimed == 2
+      assert summary.processed == 2
+
+      state = harness_state(harness)
+      assert length(state.present_loads) == 2
+      assert Enum.map(state.finalized, & &1.block_key) == [block_key(551), block_key(552)]
     end
 
     test "skips member when recovery gate is closed, storage_id mismatches, or inventory is not ready" do
@@ -714,7 +709,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       reclaiming_loader: fn @storage_id -> {:ok, reclaiming_entries} end,
       present_loader: fn @storage_id, query_spec ->
         Agent.update(agent, fn st -> %{st | present_loads: st.present_loads ++ [query_spec]} end)
-        {:ok, entries}
+        {:ok, slice_present_page(entries, query_spec)}
       end,
       disposition_loader: fn entry_id -> {:ok, Map.get(dispositions, entry_id)} end,
       begin_intent_fn: fn entry_id, :local, attrs, _intent_opts ->
@@ -821,6 +816,27 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJobTest do
       reason: nil
     }
   end
+
+  defp slice_present_page(entries, query_spec) do
+    entries
+    |> Enum.sort_by(&cursor_sort_key/1)
+    |> filter_after_cursor(query_spec.cursor)
+    |> Enum.take(query_spec.limit)
+  end
+
+  defp filter_after_cursor(entries, nil), do: entries
+
+  defp filter_after_cursor(entries, {last_ts, last_sealed_at, last_block_key}) do
+    cursor_key = {last_ts || 0, sealed_at_us(last_sealed_at), last_block_key || ""}
+    Enum.filter(entries, &(cursor_sort_key(&1) > cursor_key))
+  end
+
+  defp cursor_sort_key(e) do
+    {e.timeline_start_us || 0, sealed_at_us(e.sealed_at), e.block_key || ""}
+  end
+
+  defp sealed_at_us(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+  defp sealed_at_us(_), do: 0
 
   defp harness_state(agent), do: Agent.get(agent, & &1)
 

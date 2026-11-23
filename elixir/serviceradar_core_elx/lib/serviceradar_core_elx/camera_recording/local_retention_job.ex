@@ -14,8 +14,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   2. Resumes any catalog entries already in `local_state == :reclaiming` left by
      a prior worker crash before selecting new candidates.
   3. Skips loading `:present` catalog rows when neither space eviction nor age
-     eviction can apply; otherwise loads oldest-first eligible rows with a
-     bounded query limit and applies the `C1` eviction table over reconciled,
+     eviction can apply; otherwise keyset-paginates oldest-first eligible rows
+     in bounded pages until the pass budget is spent, targets are met, or rows
+     are exhausted, applying the `C1` eviction table over reconciled,
      non-quarantined entries (`local_state == :present`,
      `recording_block_id != nil`, `quarantine_reason == nil`):
      - Age eviction: kind (a) (`archive_state` in `[:verified, :deleted]`) older
@@ -45,7 +46,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     unique: [
       period: 55,
       keys: [:member],
-      states: [:available, :scheduled, :retryable]
+      states: [:available, :scheduled, :retryable, :executing]
     ]
 
   import Ash.Expr
@@ -64,7 +65,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   @system_actor SystemActor.system(:camera_nvr_local_retention)
   @actor_id "system:camera_nvr_local_retention"
   @max_blocks_per_pass 500
-  @present_query_headroom_multiplier 2
   @lookup_batch_size 50
   @kind_a_states [:verified, :deleted]
   @default_high_water_percent 90
@@ -322,38 +322,33 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
   end
 
   defp evict_present_candidates(pass_ctx, capacity, state) do
-    query_spec = build_present_query_spec(capacity, pass_ctx, state)
+    paginate_present_candidates(pass_ctx, capacity, state, nil)
+  end
 
-    if present_query_needed?(query_spec) do
-      load_and_evict_present_candidates(query_spec, pass_ctx, state)
+  defp paginate_present_candidates(pass_ctx, capacity, state, cursor) do
+    query_spec = build_present_query_spec(capacity, pass_ctx, state, cursor)
+
+    if state.summary.processed < pass_ctx.limit and present_query_needed?(query_spec) do
+      load_and_process_present_page(query_spec, pass_ctx, capacity, state)
     else
       state.summary
     end
   end
 
-  defp load_and_evict_present_candidates(query_spec, pass_ctx, state) do
+  defp load_and_process_present_page(query_spec, pass_ctx, capacity, state) do
     case load_present_entries(pass_ctx.target.storage_id, query_spec, pass_ctx.opts) do
-      {:ok, entries} ->
-        candidates =
-          entries
-          |> Enum.filter(&present_eviction_eligible?/1)
-          |> sort_oldest_first()
-
-        state =
-          if age_eviction_enabled?(query_spec) do
-            run_age_eviction(candidates, pass_ctx, state)
-          else
-            state
-          end
-
-        state =
-          if query_spec.space_needed? do
-            run_space_eviction(candidates, query_spec, pass_ctx, state)
-          else
-            state
-          end
-
+      {:ok, []} ->
         state.summary
+
+      {:ok, entries} ->
+        next_state = process_present_page(entries, query_spec, pass_ctx, state)
+        next_cursor = entry_cursor(List.last(entries))
+
+        if length(entries) < query_spec.limit or next_cursor == query_spec.cursor do
+          next_state.summary
+        else
+          paginate_present_candidates(pass_ctx, capacity, next_state, next_cursor)
+        end
 
       {:error, reason} ->
         Logger.warning(
@@ -364,7 +359,27 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     end
   end
 
-  defp build_present_query_spec(capacity, pass_ctx, state) do
+  defp process_present_page(entries, query_spec, pass_ctx, state) do
+    candidates =
+      entries
+      |> Enum.filter(&present_eviction_eligible?/1)
+      |> sort_oldest_first()
+
+    state =
+      if age_eviction_enabled?(query_spec) do
+        run_age_eviction(candidates, pass_ctx, state)
+      else
+        state
+      end
+
+    if query_spec.space_needed? do
+      run_space_eviction(candidates, query_spec, pass_ctx, state)
+    else
+      state
+    end
+  end
+
+  defp build_present_query_spec(capacity, pass_ctx, state, cursor) do
     thresholds = compute_watermarks(capacity, pass_ctx.settings)
     evict_for_bytes? = thresholds.effective_budget_bytes > 0 and capacity.used_bytes >= thresholds.high_water_bytes
     evict_for_blocks? = capacity.max_blocks > 0 and capacity.blocks >= thresholds.high_water_blocks
@@ -386,7 +401,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
           pass_ctx.settings.local_only_max_age_seconds,
           pass_ctx.now
         ),
-      limit: remaining_budget(pass_ctx.limit, state.summary.processed) * @present_query_headroom_multiplier
+      cursor: cursor,
+      limit: pass_ctx.limit
+    }
+  end
+
+  defp entry_cursor(entry) do
+    {
+      Map.get(entry, :timeline_start_us),
+      Map.get(entry, :sealed_at),
+      Map.get(entry, :block_key)
     }
   end
 
@@ -784,7 +808,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
       storage_id == ^storage_id and
         local_state == :reclaiming and
         not is_nil(recording_block_id) and
-        is_nil(quarantine_reason)
+        is_nil(quarantine_reason) and
+        not is_nil(descriptor_sha256)
     )
     |> Ash.Query.sort(timeline_start_us: :asc, sealed_at: :asc, block_key: :asc)
     |> Ash.Query.limit(@max_blocks_per_pass)
@@ -802,31 +827,48 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
     |> Ash.read(actor: @system_actor)
   end
 
-  @doc false
-  @spec present_entries_query(String.t(), map()) :: Ash.Query.t()
-  def present_entries_query(storage_id, query_spec) when is_binary(storage_id) and is_map(query_spec) do
+  defp present_entries_query(storage_id, query_spec) do
     RecordingCatalogEntry
     |> Ash.Query.for_read(:read, %{}, actor: @system_actor)
     |> Ash.Query.filter(
       storage_id == ^storage_id and
         local_state == :present and
         not is_nil(recording_block_id) and
-        is_nil(quarantine_reason)
+        is_nil(quarantine_reason) and
+        not is_nil(descriptor_sha256)
     )
     |> apply_present_eligibility_filter(query_spec)
+    |> apply_cursor_filter(query_spec)
     |> Ash.Query.sort(timeline_start_us: :asc, sealed_at: :asc, block_key: :asc)
     |> Ash.Query.limit(query_spec.limit)
   end
+
+  defp apply_cursor_filter(query, %{cursor: {last_ts, %DateTime{} = last_sealed_at, last_block_key}})
+       when is_integer(last_ts) and is_binary(last_block_key) do
+    Ash.Query.filter(
+      query,
+      timeline_start_us > ^last_ts or
+        (timeline_start_us == ^last_ts and sealed_at > ^last_sealed_at) or
+        (timeline_start_us == ^last_ts and sealed_at == ^last_sealed_at and block_key > ^last_block_key)
+    )
+  end
+
+  defp apply_cursor_filter(query, _query_spec), do: query
 
   defp apply_present_eligibility_filter(query, %{space_needed?: true, full_policy: :overwrite_oldest}) do
     Ash.Query.filter(query, archive_state in [:verified, :deleted, :not_required])
   end
 
   defp apply_present_eligibility_filter(query, %{space_needed?: true, kind_b_age_cutoff: %DateTime{} = kind_b_cutoff}) do
+    kind_b_cutoff_us = DateTime.to_unix(kind_b_cutoff, :microsecond)
+
     Ash.Query.filter(
       query,
       archive_state in [:verified, :deleted] or
-        (archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
+        (archive_state == :not_required and
+           (sealed_at <= ^kind_b_cutoff or
+              (is_nil(sealed_at) and
+                 fragment("COALESCE(?, ?)", timeline_end_us, timeline_start_us) <= ^kind_b_cutoff_us)))
     )
   end
 
@@ -839,19 +881,44 @@ defmodule ServiceRadarCoreElx.CameraRecording.LocalRetentionJob do
          kind_a_age_cutoff: %DateTime{} = kind_a_cutoff,
          kind_b_age_cutoff: %DateTime{} = kind_b_cutoff
        }) do
+    kind_a_cutoff_us = DateTime.to_unix(kind_a_cutoff, :microsecond)
+    kind_b_cutoff_us = DateTime.to_unix(kind_b_cutoff, :microsecond)
+
     Ash.Query.filter(
       query,
-      (archive_state in [:verified, :deleted] and sealed_at <= ^kind_a_cutoff) or
-        (archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
+      (archive_state in [:verified, :deleted] and
+         (sealed_at <= ^kind_a_cutoff or
+            (is_nil(sealed_at) and
+               fragment("COALESCE(?, ?)", timeline_end_us, timeline_start_us) <= ^kind_a_cutoff_us))) or
+        (archive_state == :not_required and
+           (sealed_at <= ^kind_b_cutoff or
+              (is_nil(sealed_at) and
+                 fragment("COALESCE(?, ?)", timeline_end_us, timeline_start_us) <= ^kind_b_cutoff_us)))
     )
   end
 
   defp apply_present_eligibility_filter(query, %{space_needed?: false, kind_a_age_cutoff: %DateTime{} = kind_a_cutoff}) do
-    Ash.Query.filter(query, archive_state in [:verified, :deleted] and sealed_at <= ^kind_a_cutoff)
+    kind_a_cutoff_us = DateTime.to_unix(kind_a_cutoff, :microsecond)
+
+    Ash.Query.filter(
+      query,
+      archive_state in [:verified, :deleted] and
+        (sealed_at <= ^kind_a_cutoff or
+           (is_nil(sealed_at) and
+              fragment("COALESCE(?, ?)", timeline_end_us, timeline_start_us) <= ^kind_a_cutoff_us))
+    )
   end
 
   defp apply_present_eligibility_filter(query, %{space_needed?: false, kind_b_age_cutoff: %DateTime{} = kind_b_cutoff}) do
-    Ash.Query.filter(query, archive_state == :not_required and sealed_at <= ^kind_b_cutoff)
+    kind_b_cutoff_us = DateTime.to_unix(kind_b_cutoff, :microsecond)
+
+    Ash.Query.filter(
+      query,
+      archive_state == :not_required and
+        (sealed_at <= ^kind_b_cutoff or
+           (is_nil(sealed_at) and
+              fragment("COALESCE(?, ?)", timeline_end_us, timeline_start_us) <= ^kind_b_cutoff_us))
+    )
   end
 
   defp load_latest_local_disposition(entry_id, opts) do
