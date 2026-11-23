@@ -251,9 +251,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       assert_receive {:gap_recorded, gap}, 1_000
       assert gap.reason == :nvr_refused
       assert gap.detail_class == "http_503"
-      assert gap.media_gap_ns == div(6_000 * 1_000_000_000, 90_000)
+      assert gap.start_us == @base_utc_us
+      assert gap.end_us == nil
 
-      # Next IDR succeeds on Block 1
+      # Next IDR succeeds on Block 1 and closes the open nvr_refused gap at Block 1's start
       send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
       send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
 
@@ -262,9 +263,192 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
 
       assert_receive {:cataloged, ^key1, attrs1}, 1_000
       assert attrs1.contiguous_with_previous == false
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.reason == :nvr_refused
+      assert closed_gap.detail_class == "http_503"
+      assert closed_gap.end_us == @base_utc_us + 66_666
 
       ContinuousRecorder.stop(pid, :policy_disabled)
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "coalesces repeated consecutive nvr_refused (http_503) responses into 1 gap without emitting keyframe_wait rows" do
+      parent = self()
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:sent_block, seq, block_key, units})
+
+        if seq < 3 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      harness = start_harness(bounds: %{soft_frames: 2, max_frames: 2}, send_recording_fn: send_fn)
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Attempt 0 (refused 503) -> opens 1 gap
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+      assert_receive {:gap_recorded, gap}, 1_000
+      assert gap.reason == :nvr_refused
+      assert gap.detail_class == "http_503"
+      assert gap.start_us == @base_utc_us
+      assert gap.end_us == nil
+
+      # Non-IDR frames between retries must NOT emit :keyframe_wait gaps
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 100_000, @p_frame_payload)
+
+      # Attempt 1 (refused 503) -> coalesced into existing outage gap
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 5_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 5, 15_000, @base_utc_us + 5_033_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+
+      # Non-IDR frame between retry 1 and retry 2
+      send_unit(pid, harness.inbox_id, 6, 18_000, @base_utc_us + 5_066_666, @p_frame_payload)
+
+      # Attempt 2 (refused 503) -> still coalesced
+      send_unit(pid, harness.inbox_id, 7, 21_000, @base_utc_us + 10_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 8, 24_000, @base_utc_us + 10_033_333, @p_frame_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503, detail_class: "http_503"}}}, 1_000
+
+      # Non-IDR frame before recovery
+      send_unit(pid, harness.inbox_id, 9, 27_000, @base_utc_us + 10_066_666, @p_frame_payload)
+
+      # Attempt 3 succeeds -> closes the single coalesced outage gap spanning @base_utc_us .. recovery_us
+      recovery_us = @base_utc_us + 15_000_000
+      send_unit(pid, harness.inbox_id, 10, 30_000, recovery_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 11, 33_000, recovery_us + 33_333, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{catalog: {:registered, _}}}}, 1_000
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.reason == :nvr_refused
+      assert closed_gap.detail_class == "http_503"
+      assert closed_gap.start_us == @base_utc_us
+      assert closed_gap.end_us == recovery_us
+
+      # Strictly 1 gap recorded for the entire 3-retry outage (no extra nvr_refused or keyframe_wait rows)
+      refute_receive {:gap_recorded, _}, 50
+      assert ContinuousRecorder.status(pid).gaps_recorded == 1
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, _}}, 1_000
+    end
+
+    test "enforces bounded retry cooldown after nvr_refused and closes open gap on graceful stop" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 1_000 end}, id: :refusal_cooldown_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:refusal_attempt, seq})
+        {:error, {:ingest_refused, 503}}
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          nvr_refusal_cooldown_ms: 10_000,
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # First attempt at t=1_000 fails with 503 -> cooldown active until t=11_000
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 0}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # IDR at t=5_000 (within cooldown) is dropped without hammering NVR or emitting a gap
+      Agent.update(clock, fn _ -> 5_000 end)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 4_000_000, @idr_payload)
+      _ = ContinuousRecorder.status(pid)
+      refute_receive {:refusal_attempt, _}, 50
+      refute_receive {:gap_recorded, _}, 50
+
+      # Advance clock past cooldown (t=11_000): next IDR retries Block 1 and still coalesces into the single gap
+      Agent.update(clock, fn _ -> 11_000 end)
+      send_unit(pid, harness.inbox_id, 3, 9_000, @base_utc_us + 10_000_000, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, @base_utc_us + 10_033_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 1}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      refute_receive {:gap_recorded, _}, 50
+
+      # Stopping gracefully while outage is active closes the open gap cleanly
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:gap_closed, closed_gap}, 1_000
+      assert closed_gap.start_us == @base_utc_us
+      assert closed_gap.end_us >= @base_utc_us + 10_033_333
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
+    test "defaults to 10s refusal cooldown and splits outage gaps when detail_class changes" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 5_000 end}, id: :default_cooldown_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:refusal_attempt, seq})
+
+        if seq == 0 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:error, {:ingest_refused, 422}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      # Exercise production default (@default_nvr_refusal_cooldown_ms = 10_000)
+      opts = Keyword.delete(harness.opts, :nvr_refusal_cooldown_ms)
+      {:ok, pid} = ContinuousRecorder.start_link(opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Attempt 0 at t=5_000 refused with 503 -> default cooldown until t=15_000
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 0}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # 1ms before 10s boundary (t=14_999): IDR is still suppressed by default cooldown
+      Agent.update(clock, fn _ -> 14_999 end)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 9_999_000, @idr_payload)
+      _ = ContinuousRecorder.status(pid)
+      refute_receive {:refusal_attempt, _}, 50
+
+      # At exact 10s boundary (t=15_000): retry fires and gets distinct 422 refusal ->
+      # closes http_503 gap at Block 1 start and opens a distinct http_422 gap
+      Agent.update(clock, fn _ -> 15_000 end)
+      block1_start_us = @base_utc_us + 10_000_000
+      send_unit(pid, harness.inbox_id, 3, 9_000, block1_start_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, block1_start_us + 33_333, @p_frame_payload)
+
+      assert_receive {:refusal_attempt, 1}, 1_000
+      assert_receive {:gap_closed, %{reason: :nvr_refused, detail_class: "http_503", end_us: ^block1_start_us}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_422", end_us: nil}}, 1_000
+      assert ContinuousRecorder.status(pid).gaps_recorded == 2
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:gap_closed, %{reason: :nvr_refused, detail_class: "http_422"}}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
     end
 
     test "re-checks recovery gate on NVR refusal and stops run immediately when gate is closed" do
@@ -306,6 +490,214 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :nvr_recovery_closed}}}, 1_000
       assert_receive :claim_released, 1_000
       assert_receive :relay_closed, 1_000
+    end
+
+    test "records mid-block sequence skip on retry block after nvr_refused outage without swallowing it" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 1_000 end}, id: :retry_seq_skip_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:sent_block, seq, block_key, units})
+
+        if seq == 0 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 5},
+          nvr_refusal_cooldown_ms: 10_000,
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Block 0 refuses with 503 and opens the outage gap
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # Advance past cooldown and start retry Block 1 in :streaming
+      Agent.update(clock, fn _ -> 11_000 end)
+      retry_us = @base_utc_us + 10_000_000
+      send_unit(pid, harness.inbox_id, 3, 9_000, retry_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, retry_us + 33_333, @p_frame_payload)
+
+      # Mid-block sequence skip (5..9 missing): seq 10 (P-frame) cuts Block 1 and opens pending_gap
+      send_unit(pid, harness.inbox_id, 10, 30_000, retry_us + 233_333, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1, catalog: {:registered, _}}}},
+                     1_000
+
+      assert_receive {:sent_block, 1, ^key1, block1_units}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [3, 4]
+
+      assert_receive {:gap_closed, %{reason: :nvr_refused, start_us: @base_utc_us, end_us: ^retry_us}}, 1_000
+
+      # Post-skip IDR starts Block 2 and flushes the mid-block source_unavailable gap
+      send_unit(pid, harness.inbox_id, 11, 33_000, retry_us + 266_666, @idr_payload)
+
+      assert_receive {:gap_recorded, skip_gap}, 1_000
+
+      assert {skip_gap.reason, skip_gap.detail_class, skip_gap.media_gap_ns} ==
+               {:source_unavailable, "media_sequence_discontinuity", div((33_000 - 15_000) * 1_000_000_000, 90_000)}
+
+      assert skip_gap.end_us > skip_gap.start_us
+      assert ContinuousRecorder.status(pid).gaps_recorded == 2
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key2}}}, 1_000
+      assert_receive {:sent_block, 2, ^key2, block2_units}, 1_000
+      assert Enum.map(block2_units, & &1.sequence) == [11]
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
+    test "records mid-block timestamp discontinuity on retry block after nvr_refused outage" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 1_000 end}, id: :retry_ts_disc_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        units = Enum.to_list(stream)
+        block_key = header_block_key(header)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:sent_block, seq, block_key, units})
+
+        if seq == 0 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:ok, %{status: :sealed_local, storage_id: @storage_id, block_ids: [block_key]}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 5},
+          nvr_refusal_cooldown_ms: 10_000,
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Block 0 refuses with 503 and opens the outage gap
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 66_666, @idr_payload)
+      assert_receive {:continuous_recorder, ^pid, {:nvr_refused, %{status: 503}}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # Advance past cooldown and start retry Block 1 in :streaming
+      Agent.update(clock, fn _ -> 11_000 end)
+      retry_us = @base_utc_us + 10_000_000
+      send_unit(pid, harness.inbox_id, 3, 9_000, retry_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, retry_us + 33_333, @p_frame_payload)
+
+      # Mid-block backward PTS discontinuity cuts Block 1 and opens pending_gap
+      send_unit(pid, harness.inbox_id, 5, 1_000, retry_us + 100_000, @p_frame_payload)
+
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key1, catalog: {:registered, _}}}},
+                     1_000
+
+      assert_receive {:sent_block, 1, ^key1, block1_units}, 1_000
+      assert Enum.map(block1_units, & &1.sequence) == [3, 4]
+      assert_receive {:gap_closed, %{reason: :nvr_refused, start_us: @base_utc_us, end_us: ^retry_us}}, 1_000
+
+      # Post-discontinuity IDR flushes the timestamp_discontinuity gap and re-anchors Block 2
+      post_us = retry_us + 150_000
+      send_unit(pid, harness.inbox_id, 6, 4_000, post_us, @idr_payload)
+
+      assert_receive {:gap_recorded, disc_gap}, 1_000
+
+      assert {disc_gap.reason, disc_gap.detail_class, disc_gap.start_us, disc_gap.end_us} ==
+               {:source_unavailable, "timestamp_discontinuity", retry_us + 100_000, post_us}
+
+      assert ContinuousRecorder.status(pid).gaps_recorded == 2
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:block_sealed, %{block_key: key2}}}, 1_000
+      assert_receive {:cataloged, ^key2, attrs2}, 1_000
+      assert {attrs2.reanchored, attrs2.timeline_start_us} == {true, post_us}
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
+    test "closes stale open gaps from prior runs on startup after acquiring claim and skips cleanup without claim" do
+      parent = self()
+
+      cleanup_fn = fn camera_id, profile_id, run_id, now_us, opts ->
+        send(parent, {:stale_gap_cleanup, camera_id, profile_id, run_id, now_us, Keyword.fetch!(opts, :actor)})
+        {:ok, 1}
+      end
+
+      harness = start_harness(close_stale_open_gaps_fn: cleanup_fn)
+      {:ok, pid} = ContinuousRecorder.start_link(harness.opts)
+
+      expected_run_id = "#{@relay_id}:1"
+      assert_receive {:stale_gap_cleanup, @camera_id, @profile_id, ^expected_run_id, now_us, _actor}, 1_000
+      assert is_integer(now_us) and now_us > 0
+      assert_receive {:continuous_recorder, ^pid, {:run_started, %{run_id: ^expected_run_id}}}, 1_000
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+
+      # When claim acquisition fails (peer owns the claim), stale gap cleanup MUST NOT run
+      harness_owned =
+        start_harness(
+          acquire_claim_fn: fn _owner, _token, _ingest_id, _storage_id, _ttl, _opts ->
+            {:error, :recorder_already_owned}
+          end,
+          close_stale_open_gaps_fn: cleanup_fn
+        )
+
+      {:ok, pid2} = ContinuousRecorder.start_link(harness_owned.opts)
+      assert_receive {:continuous_recorder, ^pid2, {:run_stopped, %{reason: :recorder_already_owned}}}, 1_000
+      refute_receive {:stale_gap_cleanup, _, _, _, _, _}, 50
+    end
+
+    test "treats startup stale open gap cleanup errors and exceptions as best-effort" do
+      harness_error =
+        start_harness(
+          close_stale_open_gaps_fn: fn _cam, _prof, _run_id, _now_us, _opts ->
+            {:error, :db_unavailable}
+          end
+        )
+
+      log1 =
+        capture_log(fn ->
+          {:ok, pid} = ContinuousRecorder.start_link(harness_error.opts)
+          assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+          ContinuousRecorder.stop(pid, :policy_disabled)
+          assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+        end)
+
+      assert log1 =~ "stale open gap cleanup failed"
+
+      harness_crash =
+        start_harness(
+          close_stale_open_gaps_fn: fn _cam, _prof, _run_id, _now_us, _opts ->
+            raise "transient repo crash"
+          end
+        )
+
+      log2 =
+        capture_log(fn ->
+          {:ok, pid} = ContinuousRecorder.start_link(harness_crash.opts)
+          assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+          ContinuousRecorder.stop(pid, :policy_disabled)
+          assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+        end)
+
+      assert log2 =~ "stale open gap cleanup crashed"
     end
   end
 
@@ -1754,7 +2146,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       record_gap_fn: fn attrs, _opts ->
         send(parent, {:gap_recorded, attrs})
         {:ok, attrs}
-      end
+      end,
+      close_gap_fn: fn gap, end_us, _opts ->
+        closed = Map.put(gap, :end_us, end_us)
+        send(parent, {:gap_closed, closed})
+        {:ok, closed}
+      end,
+      close_stale_open_gaps_fn: fn _camera_id, _profile_id, _run_id, _now_us, _opts -> {:ok, 0} end,
+      nvr_refusal_cooldown_ms: 0
     ]
 
     %{

@@ -245,6 +245,27 @@ hold_form =
     as: :hold
   )
 
+gaps =
+  for idx <- 1..25 do
+    g_start = from_us + idx * 120_000_000
+
+    {reason, detail_class, g_end} =
+      cond do
+        idx == 1 -> {:handover_overflow, "buffer_full", g_start + 15_000_000}
+        idx <= 6 -> {:run_stopped, "block_incomplete", g_start + 10_000_000}
+        idx == 25 -> {:nvr_refused, "http_503", nil}
+        true -> {:nvr_refused, "http_503", g_start + 20_000_000}
+      end
+
+    %{
+      id: "gap-#{String.pad_leading(Integer.to_string(idx), 2, "0")}",
+      reason: reason,
+      detail_class: detail_class,
+      start_us: g_start,
+      end_us: g_end
+    }
+  end
+
 assigns = %{
   __changed__: nil,
   source: %{
@@ -277,15 +298,7 @@ assigns = %{
     continuous_recording_active?: true,
     buckets: buckets,
     blocks: blocks,
-    gaps: [
-      %{
-        id: "gap-1",
-        reason: :handover_overflow,
-        detail_class: "buffer_full",
-        start_us: from_us + 900_000_000,
-        end_us: from_us + 915_000_000
-      }
-    ],
+    gaps: gaps,
     reanchors: [%{at_us: from_us + 1_500_000_000, entry_id: "33333333-3333-4333-8333-333333333302"}]
   },
   archive_playback_available: false,
@@ -334,6 +347,8 @@ assigns = %{
     recording: 20
   },
   timeline_selected_clip_id: "evt-person-1",
+  gaps_page: 1,
+  gaps_per_page: 10,
   timeline_manage_drawer_open?: false,
   switcher_cameras: switcher_cameras,
   switcher_search: "",

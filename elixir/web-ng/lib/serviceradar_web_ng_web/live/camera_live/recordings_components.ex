@@ -43,6 +43,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_clips_total_pages, :integer, default: 1
   attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :gaps_page, :integer, default: 1
+  attr :gaps_per_page, :integer, default: 10
   attr :timeline_manage_drawer_open?, :boolean, default: false
   attr :switcher_cameras, :list, default: []
   attr :switcher_search, :string, default: ""
@@ -189,6 +191,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_clips_total_pages={@timeline_clips_total_pages}
         timeline_clips_counts={@timeline_clips_counts}
         timeline_selected_clip_id={@timeline_selected_clip_id}
+        gaps_page={@gaps_page}
+        gaps_per_page={@gaps_per_page}
         timeline_manage_drawer_open?={@timeline_manage_drawer_open?}
         switcher_cameras={@switcher_cameras}
         switcher_search={@switcher_search}
@@ -386,6 +390,8 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_clips_total_pages, :integer, default: 1
   attr :timeline_clips_counts, :map, default: %{}
   attr :timeline_selected_clip_id, :string, default: nil
+  attr :gaps_page, :integer, default: 1
+  attr :gaps_per_page, :integer, default: 10
   attr :timeline_manage_drawer_open?, :boolean, default: false
   attr :switcher_cameras, :list, default: []
   attr :switcher_search, :string, default: ""
@@ -401,6 +407,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     vertical_buckets = buckets |> Enum.with_index() |> Enum.reverse()
     blocks = coverage_list(coverage, :blocks)
     gaps = coverage_list(coverage, :gaps)
+    sorted_gaps = sort_gaps_newest_first(gaps)
+    gap_reason_summary = summarize_gaps_by_reason(sorted_gaps)
+    gaps_per_page = max(assigns.gaps_per_page || 10, 1)
+    gaps_total_count = length(sorted_gaps)
+    gaps_total_pages = max(div(gaps_total_count + gaps_per_page - 1, gaps_per_page), 1)
+    gaps_page = min(max(assigns.gaps_page || 1, 1), gaps_total_pages)
+    paged_gaps = Enum.slice(sorted_gaps, (gaps_page - 1) * gaps_per_page, gaps_per_page)
     reanchors = extract_reanchors(coverage, blocks)
     time_basis = coverage_field(coverage, :time_basis) || "received"
     time_uncertainty = coverage_field(coverage, :time_uncertainty) || "unmeasured"
@@ -430,7 +443,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:buckets, buckets)
       |> assign(:vertical_buckets, vertical_buckets)
       |> assign(:blocks, blocks)
-      |> assign(:gaps, gaps)
+      |> assign(:gaps, sorted_gaps)
+      |> assign(:paged_gaps, paged_gaps)
+      |> assign(:gap_reason_summary, gap_reason_summary)
+      |> assign(:gaps_total_count, gaps_total_count)
+      |> assign(:gaps_page, gaps_page)
+      |> assign(:gaps_total_pages, gaps_total_pages)
       |> assign(:reanchors, reanchors)
       |> assign(:hit_markers, hit_markers)
       |> assign(:event_markers, event_markers)
@@ -844,17 +862,35 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           <%!-- Compact Gaps Popover + Legend Footer --%>
           <div class="mt-2 space-y-1.5 border-t border-sr-line pt-2 text-[10px]">
             <details
-              :if={@gaps != []}
+              :if={@gaps_total_count > 0}
               id="camera-timeline-gaps-details"
+              phx-hook="DetailsState"
               class="rounded-md border border-rose-500/30 bg-rose-500/5 px-2 py-1"
             >
               <summary class="cursor-pointer font-semibold text-rose-700 dark:text-rose-300">
-                Gaps ({length(@gaps)})
+                Gaps ({@gaps_total_count})
               </summary>
-              <div id="camera-timeline-gaps" class="mt-1.5 max-h-32 space-y-1 overflow-y-auto">
+              <div
+                :if={@gap_reason_summary != []}
+                id="camera-timeline-gaps-summary"
+                class="mt-1.5 flex flex-wrap gap-1 border-b border-rose-500/20 pb-1.5"
+              >
+                <span
+                  :for={{entry, summary_idx} <- Enum.with_index(@gap_reason_summary)}
+                  id={"camera-timeline-gap-summary-#{summary_idx}"}
+                  data-role="timeline-gap-summary-item"
+                  data-gap-summary-reason={entry.reason}
+                  class="inline-flex max-w-full items-center gap-0.5 rounded bg-rose-500/10 px-1 py-0.5 font-mono text-[9px] text-rose-700 dark:text-rose-300"
+                >
+                  <span class="truncate">{entry.label}:</span>
+                  <span class="font-semibold">{entry.count}</span>
+                </span>
+              </div>
+              <div id="camera-timeline-gaps" class="mt-1.5 max-h-40 space-y-1 overflow-y-auto">
                 <div
-                  :for={{gap, idx} <- Enum.with_index(@gaps)}
+                  :for={{gap, idx} <- Enum.with_index(@paged_gaps)}
                   id={"camera-timeline-gap-#{coverage_field(gap, :id) || idx}"}
+                  data-role="timeline-gap-item"
                   data-gap-reason={to_string(coverage_field(gap, :reason))}
                   class="space-y-0.5 border-t border-rose-500/20 pt-1 text-[10px] text-sr-muted first:border-t-0 first:pt-0"
                 >
@@ -868,7 +904,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   </div>
                   <div class="truncate">
                     <.user_time
-                      id={"camera-timeline-gap-start-#{idx}"}
+                      id={"camera-timeline-gap-start-#{coverage_field(gap, :id) || idx}"}
                       value={us_to_datetime(coverage_field(gap, :start_us))}
                       timezone={@timezone}
                       style={:compact}
@@ -876,7 +912,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     <%= if coverage_field(gap, :end_us) do %>
                       &rarr;
                       <.user_time
-                        id={"camera-timeline-gap-end-#{idx}"}
+                        id={"camera-timeline-gap-end-#{coverage_field(gap, :id) || idx}"}
                         value={us_to_datetime(coverage_field(gap, :end_us))}
                         timezone={@timezone}
                         style={:compact}
@@ -886,6 +922,38 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     <% end %>
                   </div>
                 </div>
+              </div>
+              <div
+                :if={@gaps_total_pages > 1}
+                id="camera-timeline-gaps-pagination"
+                class="mt-1.5 flex items-center justify-between gap-1 border-t border-rose-500/20 pt-1.5 text-[10px]"
+              >
+                <button
+                  id="camera-timeline-gaps-prev-page"
+                  type="button"
+                  phx-click="select_gaps_page"
+                  phx-value-page={max(@gaps_page - 1, 1)}
+                  disabled={@gaps_page <= 1}
+                  class="rounded border border-rose-500/30 px-1.5 py-0.5 font-medium text-sr-ink disabled:opacity-40 hover:bg-rose-500/10"
+                >
+                  Prev
+                </button>
+                <span
+                  id="camera-timeline-gaps-page-indicator"
+                  class="font-mono text-[9px] text-sr-muted"
+                >
+                  Page {@gaps_page} / {@gaps_total_pages}
+                </span>
+                <button
+                  id="camera-timeline-gaps-next-page"
+                  type="button"
+                  phx-click="select_gaps_page"
+                  phx-value-page={min(@gaps_page + 1, @gaps_total_pages)}
+                  disabled={@gaps_page >= @gaps_total_pages}
+                  class="rounded border border-rose-500/30 px-1.5 py-0.5 font-medium text-sr-ink disabled:opacity-40 hover:bg-rose-500/10"
+                >
+                  Next
+                </button>
               </div>
             </details>
 
@@ -2330,4 +2398,38 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp clip_storage_badge(%{archive_state: :verified}), do: "archive"
   defp clip_storage_badge(%{local_state: :present}), do: "local"
   defp clip_storage_badge(_), do: "recorded"
+
+  defp sort_gaps_newest_first(gaps) when is_list(gaps) do
+    Enum.sort_by(
+      gaps,
+      fn gap ->
+        start_us = coverage_field(gap, :start_us) || 0
+        end_us = coverage_field(gap, :end_us) || start_us
+        id = to_string(coverage_field(gap, :id) || "")
+        {start_us, end_us, id}
+      end,
+      :desc
+    )
+  end
+
+  defp summarize_gaps_by_reason(gaps) when is_list(gaps) do
+    gaps
+    |> Enum.reduce(%{}, fn gap, acc ->
+      reason = to_string(coverage_field(gap, :reason) || "unknown")
+      detail = coverage_field(gap, :detail_class)
+      key = {reason, detail}
+      Map.update(acc, key, 1, &(&1 + 1))
+    end)
+    |> Enum.map(fn {{reason, detail}, count} ->
+      label =
+        if is_binary(detail) and detail != "" do
+          "#{reason} (#{detail})"
+        else
+          reason
+        end
+
+      %{reason: reason, detail_class: detail, label: label, count: count}
+    end)
+    |> Enum.sort_by(fn entry -> {-entry.count, entry.label} end)
+  end
 end

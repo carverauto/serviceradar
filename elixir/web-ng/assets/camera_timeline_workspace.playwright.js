@@ -226,3 +226,75 @@ test("vertical timeline rail click-to-seek fires single seek_timeline_fraction e
   expect(markerClicks).toHaveLength(1)
   expect(markerClicks[0].values.clip_id).toBe("evt-person-1")
 })
+
+test("recorded gaps popover renders reason summary, 10 newest-first items per page, pagination controls, and preserves open state via DetailsState across patches", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({width: 1440, height: 900})
+  await page.goto(origin)
+
+  const details = page.locator("#camera-timeline-gaps-details")
+  await expect(details).toBeVisible()
+  await expect(details).toHaveAttribute("phx-hook", "DetailsState")
+  expect(await details.evaluate(el => el.open)).toBe(false)
+  await expect(details.locator("summary")).toHaveText("Gaps (25)")
+
+  // DetailsState must register browser-owned `open` as ignored on mount
+  const ignoredAttrs = await page.evaluate(() => window.__detailsIgnoredAttributes)
+  expect(ignoredAttrs).toContainEqual({id: "camera-timeline-gaps-details", attrs: ["open"]})
+
+  // Open the Gaps popover
+  await details.locator("summary").click()
+  expect(await details.evaluate(el => el.open)).toBe(true)
+
+  // Verify reason summary strip sorted by count descending
+  const summaryItems = page.locator("#camera-timeline-gaps-summary [data-role='timeline-gap-summary-item']")
+  await expect(summaryItems).toHaveCount(3)
+  await expect(page.locator("#camera-timeline-gap-summary-0")).toContainText("nvr_refused (http_503):")
+  await expect(page.locator("#camera-timeline-gap-summary-0")).toContainText("19")
+  await expect(page.locator("#camera-timeline-gap-summary-1")).toContainText("run_stopped (block_incomplete):")
+  await expect(page.locator("#camera-timeline-gap-summary-1")).toContainText("5")
+  await expect(page.locator("#camera-timeline-gap-summary-2")).toContainText("handover_overflow (buffer_full):")
+  await expect(page.locator("#camera-timeline-gap-summary-2")).toContainText("1")
+
+  // Verify Page 1 displays 10 newest-first gap rows with open newest outage at top
+  const rows = page.locator("#camera-timeline-gaps [data-role='timeline-gap-item']")
+  await expect(rows).toHaveCount(10)
+  const rowIds = await rows.evaluateAll(nodes => nodes.map(n => n.id))
+  expect(rowIds).toEqual(Array.from({length: 10}, (_, i) => `camera-timeline-gap-gap-${25 - i}`))
+  await expect(page.locator("#camera-timeline-gap-gap-25")).toContainText("(open)")
+
+  // Verify pagination controls on Page 1 / 3
+  await expect(page.locator("#camera-timeline-gaps-page-indicator")).toHaveText("Page 1 / 3")
+  await expect(page.locator("#camera-timeline-gaps-prev-page")).toBeDisabled()
+  await expect(page.locator("#camera-timeline-gaps-next-page")).toBeEnabled()
+
+  // Zero horizontal overflow with popover expanded + capture desktop visual evidence
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({path: testInfo.outputPath("timeline-workspace-gaps-open.png"), fullPage: true})
+  await details.screenshot({path: testInfo.outputPath("timeline-gaps-popover-open.png")})
+
+  // Adversarial check: clicking Next triggers select_gaps_page(page=2) and a LiveView patch
+  // stripping `open` is restored by DetailsState so the popover stays open.
+  await page.locator("#camera-timeline-gaps-next-page").click()
+  const pageClicks = await page.evaluate(() =>
+    window.__timelinePhxClicks.filter(c => c.action === "select_gaps_page")
+  )
+  expect(pageClicks).toHaveLength(1)
+  expect(pageClicks[0]).toEqual({action: "select_gaps_page", id: "camera-timeline-gaps-next-page", values: {page: "2"}})
+
+  const openAfterSimulatedPatch = await page.evaluate(() => {
+    const el = document.getElementById("camera-timeline-gaps-details")
+    const hook = window.__detailsStateHooks["camera-timeline-gaps-details"]
+    hook.beforeUpdate()
+    el.removeAttribute("open")
+    hook.updated()
+    return el.open
+  })
+  expect(openAfterSimulatedPatch).toBe(true)
+
+  // Verify mobile layout with Gaps popover open has zero horizontal overflow
+  await page.setViewportSize({width: 390, height: 900})
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({path: testInfo.outputPath("timeline-workspace-gaps-mobile.png"), fullPage: true})
+})
