@@ -48,6 +48,13 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         return Err(ServiceError::InvalidRequest(
             "flows require the StarRocks telemetry warehouse".into(),
         ));
+    } else if matches!(
+        plan.entity,
+        Entity::HorizonOutages | Entity::HorizonBgp | Entity::HorizonZombies | Entity::HorizonPaths
+    ) {
+        return Err(ServiceError::InvalidRequest(
+            "horizon entities require the StarRocks telemetry warehouse".into(),
+        ));
     } else if matches!(plan.entity, Entity::OtelServices) {
         // Ahead of the downsample branch: this entity's access check lives in its
         // own builder, so no other builder may ever compile it.
@@ -91,6 +98,12 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ScanActivity
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::HorizonOutages
+            | Entity::HorizonBgp
+            | Entity::HorizonZombies
+            | Entity::HorizonPaths => {
+                unreachable!("horizon entities require the StarRocks telemetry warehouse")
+            }
             Entity::MtrHops => mtr_hops::to_sql_and_params(&plan)?,
             Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
             Entity::RumBeacons => rum_beacons::to_sql_and_params(&plan)?,

@@ -52,6 +52,18 @@ impl QueryEngine {
             ));
         }
 
+        if matches!(
+            plan.entity,
+            Entity::HorizonOutages
+                | Entity::HorizonBgp
+                | Entity::HorizonZombies
+                | Entity::HorizonPaths
+        ) {
+            return Err(ServiceError::InvalidRequest(
+                "horizon entities require the StarRocks telemetry warehouse".into(),
+            ));
+        }
+
         let mut conn = self.pool.get().await.map_err(|err| {
             error!(error = ?err, "failed to acquire database connection");
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
@@ -135,6 +147,12 @@ impl QueryEngine {
                 | Entity::ScanActivity
                 | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::HorizonOutages
+                | Entity::HorizonBgp
+                | Entity::HorizonZombies
+                | Entity::HorizonPaths => {
+                    unreachable!("horizon entities require the StarRocks telemetry warehouse")
+                }
                 Entity::MtrHops => mtr_hops::execute(&mut conn, &plan).await?,
                 Entity::MtrTraces => mtr_traces::execute(&mut conn, &plan).await?,
                 Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,

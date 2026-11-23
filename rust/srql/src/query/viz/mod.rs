@@ -1,5 +1,6 @@
 mod events;
 mod fieldsurvey;
+mod horizon;
 mod inventory;
 mod metrics;
 mod network;
@@ -146,6 +147,10 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::ScanActivity => events::scan_activity(),
         Entity::DnsActivity => events::dns_activity(),
         Entity::BmpEvents => network::bmp_events(),
+        Entity::HorizonOutages => horizon::outages(),
+        Entity::HorizonBgp => horizon::bgp_events(),
+        Entity::HorizonZombies => horizon::bgp_zombies(),
+        Entity::HorizonPaths => horizon::path_hops(),
         Entity::MtrHops => observability::mtr_hops(),
         Entity::MtrTraces => observability::mtr_traces(),
         Entity::FieldSurveySessions => fieldsurvey::sessions(),

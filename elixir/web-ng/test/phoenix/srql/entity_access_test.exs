@@ -552,4 +552,64 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", nil)
     end
   end
+
+  describe "Horizon StarRocks-only canonical entities" do
+    test "horizon_outages, horizon_bgp, and horizon_zombies require observability.events.view" do
+      events_scope = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
+      traces_scope = %Scope{user: nil, permissions: MapSet.new(["observability.traces.view"])}
+
+      for entity <- ~w(horizon_outages horizon_bgp horizon_zombies) do
+        assert {:ok, "observability.events.view"} = EntityAccess.permission_for_entity(entity)
+        assert {:ok, _ast} = Native.parse_ast("in:#{entity} limit:1")
+        assert :ok = EntityAccess.authorize("in:#{entity} limit:1", events_scope)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", traces_scope)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", nil)
+      end
+    end
+
+    test "horizon_paths requires observability.traces.view" do
+      events_scope = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
+      traces_scope = %Scope{user: nil, permissions: MapSet.new(["observability.traces.view"])}
+
+      assert {:ok, "observability.traces.view"} = EntityAccess.permission_for_entity("horizon_paths")
+      assert {:ok, _ast} = Native.parse_ast("in:horizon_paths limit:1")
+      assert :ok = EntityAccess.authorize("in:horizon_paths limit:1", traces_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:horizon_paths limit:1", events_scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:horizon_paths limit:1", nil)
+    end
+
+    test "removed Horizon aliases are forbidden by RBAC and rejected by the Rust parser" do
+      admin_like = %Scope{
+        user: nil,
+        permissions: MapSet.new(["observability.events.view", "observability.traces.view"])
+      }
+
+      for alias_name <- ~w(
+            horizon_outage
+            horizon_bgp_events
+            horizon_bgp_event
+            horizon_bgp_zombies
+            horizon_bgp_zombie
+            horizon_path_hops
+            horizon_path_hop
+          ) do
+        assert :unknown = EntityAccess.permission_for_entity(alias_name)
+        assert {:error, :forbidden} = EntityAccess.authorize("in:#{alias_name} limit:1", admin_like)
+        assert {:error, _reason} = Native.parse_ast("in:#{alias_name} limit:1")
+      end
+    end
+
+    test "case-insensitive and trailing Horizon in: tokens cannot bypass RBAC" do
+      events_only = %Scope{user: nil, permissions: MapSet.new(["observability.events.view"])}
+      traces_only = %Scope{user: nil, permissions: MapSet.new(["observability.traces.view"])}
+
+      assert {:error, :forbidden} = EntityAccess.authorize("IN:horizon_paths limit:1", events_only)
+
+      assert {:error, :forbidden} =
+               EntityAccess.authorize("in:horizon_outages limit:1 IN:horizon_paths", events_only)
+
+      assert {:error, :forbidden} =
+               EntityAccess.authorize("in:horizon_paths limit:1 in:horizon_bgp", traces_only)
+    end
+  end
 end

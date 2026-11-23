@@ -23,6 +23,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :exposure_retired_ordinals
           | :device_availability_transitions
           | :rum_beacons
+          | :horizon_outages
+          | :horizon_bgp_events
+          | :horizon_bgp_zombies
+          | :horizon_path_hops
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -207,6 +211,87 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "prefix_tag" => stringify(value(row, :prefix_tag)),
       "attributes" => json_document(value(row, :attributes)) || %{},
       "created_at" => created_at(row)
+    }
+  end
+
+  # priv/starrocks/0044: Horizon telemetry tables (StarRocks-only).
+  defp encode_row(:horizon_outages, row) do
+    %{
+      "time" => datetime(value(row, :time)),
+      "outage_id" => stringify(value(row, :outage_id)),
+      "status" => stringify(value(row, :status)),
+      "severity" => stringify(value(row, :severity)),
+      "entity_type" => stringify(value(row, :entity_type)),
+      "entity_key" => stringify(value(row, :entity_key)),
+      "region" => stringify(value(row, :region)),
+      "covering_prefix" => stringify(value(row, :covering_prefix)),
+      "origin_asn" => value(row, :origin_asn),
+      "corroborating_pop_count" => value(row, :corroborating_pop_count) || 0,
+      "avg_forwarding_loss_pct" => value(row, :avg_forwarding_loss_pct),
+      "avg_synthetic_failure_pct" => value(row, :avg_synthetic_failure_pct),
+      "window_start_ms" => value(row, :window_start_ms),
+      "window_end_ms" => value(row, :window_end_ms),
+      "correlated_bgp_event_ids" => json_document(value(row, :correlated_bgp_event_ids)) || [],
+      "raw_data" => json_document(value(row, :raw_data)) || %{}
+    }
+  end
+
+  defp encode_row(:horizon_bgp_events, row) do
+    %{
+      "time" => datetime(value(row, :time)),
+      "event_id" => stringify(value(row, :event_id)),
+      "kind" => stringify(value(row, :kind)),
+      "level" => stringify(value(row, :level)),
+      "prefix" => stringify(value(row, :prefix)),
+      "origin_asn" => value(row, :origin_asn),
+      "as_path" => json_document(value(row, :as_path)) || [],
+      "rpki_status" => stringify(value(row, :rpki_status)),
+      "caida_leak_inference" => stringify(value(row, :caida_leak_inference)),
+      "watchlist_id" => stringify(value(row, :watchlist_id)),
+      "client_label" => stringify(value(row, :client_label)),
+      "raw_data" => json_document(value(row, :raw_data)) || %{}
+    }
+  end
+
+  defp encode_row(:horizon_bgp_zombies, row) do
+    %{
+      "time" => datetime(value(row, :time)),
+      "episode_id" => stringify(value(row, :episode_id)),
+      "status" => stringify(value(row, :status)),
+      "prefix" => stringify(value(row, :prefix)),
+      "origin_asn" => value(row, :origin_asn),
+      "divergence_pct" => value(row, :divergence_pct),
+      "is_beacon" => value(row, :is_beacon) == true,
+      "withdrawn_peers" => value(row, :withdrawn_peers),
+      "total_peers" => value(row, :total_peers),
+      "stuck_peer_asns" => json_document(value(row, :stuck_peer_asns)) || [],
+      "first_seen_at" => datetime(value(row, :first_seen_at)),
+      "resolved_at" => datetime(value(row, :resolved_at)),
+      "raw_data" => json_document(value(row, :raw_data)) || %{}
+    }
+  end
+
+  defp encode_row(:horizon_path_hops, row) do
+    %{
+      "time" => datetime(value(row, :time)),
+      "round_id" => stringify(value(row, :round_id)),
+      "target_id" => stringify(value(row, :target_id)),
+      "pop_id" => stringify(value(row, :pop_id)),
+      "hop_ttl" => value(row, :hop_ttl),
+      "hop_ip" => stringify(value(row, :hop_ip)),
+      "router_alias_id" => stringify(value(row, :router_alias_id)),
+      "alias_confidence" => value(row, :alias_confidence),
+      "asn" => value(row, :asn),
+      "as_org" => stringify(value(row, :as_org)),
+      "is_cloud" => value(row, :is_cloud) == true,
+      "cloud_provider" => stringify(value(row, :cloud_provider)),
+      "cloud_region" => stringify(value(row, :cloud_region)),
+      "forwarding_loss_pct" => value(row, :forwarding_loss_pct),
+      "avg_rtt_ms" => value(row, :avg_rtt_ms),
+      "effective_path_mtu" => value(row, :effective_path_mtu),
+      "mtu_blackhole_detected" => value(row, :mtu_blackhole_detected) == true,
+      "blackhole_hop_ttl" => value(row, :blackhole_hop_ttl),
+      "raw_data" => json_document(value(row, :raw_data)) || %{}
     }
   end
 

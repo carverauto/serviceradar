@@ -28,6 +28,10 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::DnsActivity)
         }
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
+        "horizon_outages" => Ok(Entity::HorizonOutages),
+        "horizon_bgp" => Ok(Entity::HorizonBgp),
+        "horizon_zombies" => Ok(Entity::HorizonZombies),
+        "horizon_paths" => Ok(Entity::HorizonPaths),
         "mtr_hops" | "mtr_hop_stats" => Ok(Entity::MtrHops),
         "mtr_traces" => Ok(Entity::MtrTraces),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {

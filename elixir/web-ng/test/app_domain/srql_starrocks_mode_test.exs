@@ -593,6 +593,165 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
     assert socket.assigns.map_empty_detail == "Select a time window to retry the query."
   end
 
+  describe "Horizon StarRocks-only SRQL entities" do
+    @horizon_events_scope %{permissions: MapSet.new(["observability.events.view"])}
+    @horizon_traces_scope %{permissions: MapSet.new(["observability.traces.view"])}
+
+    test "refuse with :starrocks_required when StarRocks is disabled and :forbidden when unauthorized",
+         %{prev: prev} do
+      mysql = fn sql -> flunk("disabled StarRocks must not execute SQL: #{sql}") end
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev
+        |> Keyword.put(:enabled, false)
+        |> Keyword.put(:mysql, mysql)
+      )
+
+      for {query, authorized_scope, unauthorized_scope} <- [
+            {"in:horizon_outages time:last_1h limit:5", @horizon_events_scope, @horizon_traces_scope},
+            {"in:horizon_bgp time:last_1h limit:5", @horizon_events_scope, @horizon_traces_scope},
+            {"in:horizon_zombies time:last_1h limit:5", @horizon_events_scope, @horizon_traces_scope},
+            {"in:horizon_paths time:last_1h limit:5", @horizon_traces_scope, @horizon_events_scope}
+          ] do
+        assert {:error, :forbidden} = SRQL.query(query, %{scope: unauthorized_scope})
+        assert {:error, :starrocks_required} = SRQL.query(query, %{scope: authorized_scope})
+
+        # Caller-supplied mode must not bypass server-side backend refusal.
+        assert {:error, :starrocks_required} =
+                 SRQL.query(query, %{scope: authorized_scope, mode: "starrocks"})
+      end
+    end
+
+    test "compile via the Rust NIF and execute StarRocks SQL with viz metadata when StarRocks is enabled",
+         %{prev: prev} do
+      parent = self()
+
+      mysql = fn sql ->
+        send(parent, {:starrocks_query, sql})
+
+        cond do
+          sql =~ "serviceradar.horizon_outages" ->
+            {:ok, postgrex_result(["outage_id", "status", "origin_asn"], [["out-900", "active", 64_500]])}
+
+          sql =~ "serviceradar.horizon_bgp_events" ->
+            {:ok, postgrex_result(["event_id", "kind", "prefix"], [["bgp-900", "watchlist", "198.51.100.0/24"]])}
+
+          sql =~ "serviceradar.horizon_bgp_zombies" ->
+            {:ok, postgrex_result(["episode_id", "is_beacon", "divergence_pct"], [["ep-900", 1, 35.5]])}
+
+          sql =~ "serviceradar.horizon_path_hops" ->
+            {:ok, postgrex_result(["target_id", "hop_ttl", "is_cloud"], [["tgt-900", 4, 1]])}
+        end
+      end
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev
+        |> Keyword.put(:enabled, true)
+        |> Keyword.put(:cutover_datasets, [])
+        |> Keyword.put(:mysql, mysql)
+      )
+
+      assert {:ok, %{"results" => [outage], "viz" => outage_viz, "error" => nil}} =
+               SRQL.query(
+                 "in:horizon_outages status:active covering_prefix:198.51.100.0/24 origin_asn:64500 time:last_24h limit:10",
+                 %{scope: @horizon_events_scope, mode: "cnpg"}
+               )
+
+      assert outage["outage_id"] == "out-900"
+      assert is_map(outage_viz) and outage_viz["columns"] != []
+      assert_received {:starrocks_query, outage_sql}
+      assert outage_sql =~ "FROM serviceradar.horizon_outages"
+      assert outage_sql =~ "`status` = 'active'"
+      assert outage_sql =~ "`covering_prefix` = '198.51.100.0/24'"
+      assert outage_sql =~ "`origin_asn` = 64500"
+
+      assert {:ok, %{"results" => [bgp], "viz" => bgp_viz, "error" => nil}} =
+               SRQL.query(
+                 "in:horizon_bgp kind:(hijack,watchlist) prefix:198.51.100.0/24 time:last_24h limit:10",
+                 %{scope: @horizon_events_scope}
+               )
+
+      assert bgp["event_id"] == "bgp-900"
+      assert is_map(bgp_viz) and bgp_viz["columns"] != []
+      assert_received {:starrocks_query, bgp_sql}
+      assert bgp_sql =~ "FROM serviceradar.horizon_bgp_events"
+      assert bgp_sql =~ "`kind` IN ('hijack', 'watchlist')"
+
+      assert {:ok, %{"results" => [zombie], "viz" => zombie_viz, "error" => nil}} =
+               SRQL.query(
+                 "in:horizon_zombies status:active is_beacon:true divergence_pct:>=25.5 time:last_24h limit:10",
+                 %{scope: @horizon_events_scope}
+               )
+
+      assert zombie["episode_id"] == "ep-900"
+      assert is_map(zombie_viz) and zombie_viz["columns"] != []
+      assert_received {:starrocks_query, zombie_sql}
+      assert zombie_sql =~ "FROM serviceradar.horizon_bgp_zombies"
+      assert zombie_sql =~ "`is_beacon` = TRUE"
+      assert zombie_sql =~ "`divergence_pct` >= 25.5"
+
+      assert {:ok, %{"results" => [hop], "viz" => hop_viz, "error" => nil}} =
+               SRQL.query(
+                 "in:horizon_paths target_id:tgt-900 is_cloud:true mtu_blackhole_detected:false sort:hop_ttl:asc limit:10",
+                 %{scope: @horizon_traces_scope}
+               )
+
+      assert hop["target_id"] == "tgt-900"
+      assert is_map(hop_viz) and hop_viz["columns"] != []
+      assert_received {:starrocks_query, hop_sql}
+      assert hop_sql =~ "FROM serviceradar.horizon_path_hops"
+      assert hop_sql =~ "`is_cloud` = TRUE"
+      assert hop_sql =~ "`mtu_blackhole_detected` = FALSE"
+      assert hop_sql =~ "`hop_ttl` ASC"
+    end
+
+    test "rejects unsupported Horizon filters, clauses, and direct non-StarRocks NIF translation",
+         %{prev: prev} do
+      mysql = fn sql -> flunk("invalid Horizon query must not execute SQL: #{sql}") end
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev
+        |> Keyword.put(:enabled, true)
+        |> Keyword.put(:mysql, mysql)
+      )
+
+      assert {:error, msg} =
+               SRQL.query("in:horizon_outages prefix:198.51.100.0/24 limit:5", %{
+                 scope: @horizon_events_scope
+               })
+
+      assert to_string(msg) =~ "prefix"
+
+      assert {:error, _} =
+               SRQL.query("in:horizon_bgp unknown_field:abc limit:5", %{
+                 scope: @horizon_events_scope
+               })
+
+      assert {:error, _} =
+               SRQL.query("in:horizon_zombies stats:count() as n", %{
+                 scope: @horizon_events_scope
+               })
+
+      assert {:error, _} =
+               SRQL.query("in:horizon_paths bucket:5m", %{
+                 scope: @horizon_traces_scope
+               })
+
+      for entity <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths) do
+        assert {:error, reason} =
+                 ServiceRadarSRQL.Native.translate("in:#{entity} limit:5", nil, nil, nil, nil)
+
+        assert to_string(reason) =~ "StarRocks"
+      end
+    end
+  end
+
   defp postgrex_result(columns, rows) do
     %Postgrex.Result{
       command: :select,
