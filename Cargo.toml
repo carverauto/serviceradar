@@ -73,7 +73,7 @@ arancini-lib = "=0.7.6"
 arrow-array = "60.1"
 arrow-ipc = "60.1"
 arrow-schema = "60.1"
-async-nats = "0.52.0"
+async-nats = "0.53.0"
 async-trait = "0.1"
 # Defaults (query, form, tokio, http1, matched-path, ...) are needed by every consumer;
 # they opt in only to extras like "ws" / "macros".
@@ -121,7 +121,7 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 glob = "0.3"
 # static-engine links the engine as a crate. The default feature set builds it with
 # a nested cargo run that downloads from crates.io, which a hermetic build cannot do.
-hegeltest = { version = "0.52", features = ["static-engine"] }
+hegeltest = { version = "0.54", features = ["static-engine"] }
 hex = "0.4"
 hmac = "0.12"
 http = "1"

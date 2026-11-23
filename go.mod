@@ -8,8 +8,8 @@ godebug multipathtcp=0
 require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/bazelbuild/rules_go v0.65.0
-	github.com/bluenviron/gortsplib/v5 v5.6.7
-	github.com/bluenviron/mediacommon/v2 v2.9.7
+	github.com/bluenviron/gortsplib/v5 v5.7.0
+	github.com/bluenviron/mediacommon/v2 v2.10.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -25,7 +25,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.20.4
 	github.com/nats-io/jwt/v2 v2.8.3
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/pion/rtcp v1.2.20
 	github.com/pion/rtp v1.10.6
 	github.com/pkg/sftp v1.13.12

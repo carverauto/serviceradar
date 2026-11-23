@@ -671,6 +671,7 @@ js_run_binary(
         "camera_timeline_workspace_harness.js",
         "js/hooks/CameraTimelinePlayer.js",
         "js/hooks/CameraVerticalTimeline.js",
+        "js/hooks/DetailsState.js",
         ":node_modules/hls.js",
     ],
     outs = ["camera_timeline_workspace.bundle.js"],

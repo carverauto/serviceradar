@@ -246,6 +246,74 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert attr_of(moved_doc, "#camera-clip-card-rec-seg-1", "aria-pressed") == ["false"]
   end
 
+  test "paginates recorded gaps newest-first with reason summary strip" do
+    gaps =
+      for idx <- 1..25 do
+        start_us = @base_us + idx * 60_000_000
+
+        {reason, detail_class} =
+          if idx <= 19 do
+            {:nvr_refused, "http_503"}
+          else
+            {:run_stopped, "block_incomplete"}
+          end
+
+        %{
+          id: "gap-#{String.pad_leading(Integer.to_string(idx), 2, "0")}",
+          start_us: start_us,
+          end_us: start_us + 5_000_000,
+          reason: reason,
+          detail_class: detail_class
+        }
+      end
+
+    coverage = %{
+      from_us: @base_us,
+      to_us: @base_us + 3_600_000_000,
+      time_basis: "received",
+      time_uncertainty: "unmeasured",
+      buckets: [],
+      blocks: [],
+      gaps: gaps,
+      reanchors: []
+    }
+
+    page1_doc =
+      %{timeline_coverage: coverage, gaps_page: 1, gaps_per_page: 10}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert has_selector?(page1_doc, "#camera-timeline-gaps-details[phx-hook='DetailsState']")
+    assert text_of(page1_doc, "#camera-timeline-gaps-details summary") == "Gaps (25)"
+    assert text_of(page1_doc, "#camera-timeline-gaps-page-indicator") == "Page 1 / 3"
+
+    # Reason summary strip shows breakdown sorted by count descending
+    summary_items = LazyHTML.query(page1_doc, "#camera-timeline-gaps-summary [data-role='timeline-gap-summary-item']")
+    assert Enum.count(summary_items) == 2
+    assert text_of(page1_doc, "#camera-timeline-gap-summary-0") =~ "nvr_refused (http_503):"
+    assert text_of(page1_doc, "#camera-timeline-gap-summary-0") =~ "19"
+    assert text_of(page1_doc, "#camera-timeline-gap-summary-1") =~ "run_stopped (block_incomplete):"
+    assert text_of(page1_doc, "#camera-timeline-gap-summary-1") =~ "6"
+
+    # Page 1 shows 10 newest gaps (gap-25 down to gap-16)
+    page1_rows = LazyHTML.query(page1_doc, "#camera-timeline-gaps [data-role='timeline-gap-item']")
+    assert Enum.count(page1_rows) == 10
+    assert LazyHTML.attribute(page1_rows, "id") == for(i <- 25..16//-1, do: "camera-timeline-gap-gap-#{i}")
+
+    # Page 3 shows remaining 5 oldest gaps (gap-05 down to gap-01)
+    page3_doc =
+      %{timeline_coverage: coverage, gaps_page: 3, gaps_per_page: 10}
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    assert text_of(page3_doc, "#camera-timeline-gaps-page-indicator") == "Page 3 / 3"
+    page3_rows = LazyHTML.query(page3_doc, "#camera-timeline-gaps [data-role='timeline-gap-item']")
+    assert Enum.count(page3_rows) == 5
+
+    assert LazyHTML.attribute(page3_rows, "id") ==
+             for(i <- 5..1//-1, do: "camera-timeline-gap-gap-#{String.pad_leading(Integer.to_string(i), 2, "0")}")
+  end
+
   defp page_assigns(all_clips, overrides) do
     mode = Map.get(overrides, :timeline_clips_mode, "all")
     category = Map.get(overrides, :timeline_clips_category, "all")

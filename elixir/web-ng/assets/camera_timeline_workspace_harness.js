@@ -1,13 +1,30 @@
 import CameraTimelinePlayer from "./js/hooks/CameraTimelinePlayer"
 import CameraVerticalTimeline from "./js/hooks/CameraVerticalTimeline"
+import DetailsState from "./js/hooks/DetailsState"
 
 // Mount shipped timeline hooks onto the rendered production HEEx component and
 // record pushed LiveView events + delegated phx-click dispatches for verification.
 const pushedEvents = []
 const phxClicks = []
+const detailsIgnoredAttributes = []
+const detailsStateHooks = {}
 
 window.__timelinePushedEvents = pushedEvents
 window.__timelinePhxClicks = phxClicks
+window.__detailsIgnoredAttributes = detailsIgnoredAttributes
+window.__detailsStateHooks = detailsStateHooks
+
+for (const detailsEl of document.querySelectorAll("[phx-hook='DetailsState']")) {
+  const detailsHook = Object.create(DetailsState)
+  detailsHook.el = detailsEl
+  detailsHook.js = () => ({
+    ignoreAttributes: (el, attrs) => detailsIgnoredAttributes.push({id: el.id || null, attrs}),
+  })
+  detailsHook.mounted()
+  if (detailsEl.id) {
+    detailsStateHooks[detailsEl.id] = detailsHook
+  }
+}
 
 const verticalEl = document.querySelector("[phx-hook='CameraVerticalTimeline']")
 if (verticalEl) {

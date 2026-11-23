@@ -497,7 +497,9 @@ workspace above the **Detections & Clips** strip:
   individually clickable. Controls above and below the rail provide a **LIVE**
   link, **Latest** jump, `+`/`-` zoom controls, coverage spans (`15m`, `1h`,
   `6h`, `24h`, `7d`), **Newer** / **Older** window steps, a timezone-aware
-  date/time jump form, and collapsible **Gaps** and **Legend** panels.
+  date/time jump form, a collapsible **Gaps** panel (showing per-reason summary
+  counts and newest-first gaps paginated at `10` per page), and a collapsible
+  **Legend** panel.
 - **Main video stage (right pane):** Full-stage 16:9 HLS player
   (`CameraTimelinePlayer`) with stream profile filter, playback source selector
   (`Auto`, `Local`, or `Archive`), **Refresh**, compact transport controls
