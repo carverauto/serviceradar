@@ -106,6 +106,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       otel_trace_summaries trace_summaries traces_summaries
       mtr_traces
       mtr_hops mtr_hop_stats
+      horizon_paths horizon_path_hops horizon_path_hop
     ),
     "observability.events.view" => ~w(
       events activity
@@ -113,6 +114,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       scan_activity scan_activities security_scans scanner_activity
       dns_activity dns_activities dns_security_activity powerdns pdns
       bmp_events bmp_event bmp_routing_events
+      horizon_outages horizon_outage
+      horizon_bgp horizon_bgp_events horizon_bgp_event
+      horizon_zombies horizon_bgp_zombies horizon_bgp_zombie
     ),
     "observability.netflow.view" => ~w(
       flows flow network_activity

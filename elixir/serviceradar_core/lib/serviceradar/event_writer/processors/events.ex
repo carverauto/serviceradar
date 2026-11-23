@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.PluginDeviceAttribution
+  alias ServiceRadar.EventWriter.Processors.HorizonProjection
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
@@ -161,6 +162,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   # Events are written to the one store they are read from.
   defp store_event_rows(rows) do
     with {:ok, count} <- Destination.store(:events, rows, fn -> insert_cnpg(rows) end) do
+      HorizonProjection.project_rows(rows)
       broadcast_stored(rows, count)
       {:ok, count}
     end
