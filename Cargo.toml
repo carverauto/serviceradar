@@ -187,7 +187,7 @@ rand = "0.10"
 rcgen = "0.12"
 redis = { version = "1.4", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std"] }
-roaring = "0.11"
+roaring = "0.12"
 rquickjs = "=0.14.0"
 runfiles = "0.3"
 rustler = { version = "0.38", default-features = false }
