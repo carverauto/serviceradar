@@ -10,6 +10,7 @@ defmodule ServiceRadarNVRClient.Wire do
   @region ~r/\A[a-z0-9-]{1,40}\z/
   @object_prefix ~r/\A[a-z0-9_-](?:[a-z0-9\/_-]{0,126}[a-z0-9_-])?\z/
   @max_archive_request 8_192
+  @max_reclaim_request 8_192
   @max_archive_object 16_777_216
   @archive_objects ["descriptor.json", "init.mp4", "media.m4s"]
 
@@ -87,6 +88,53 @@ defmodule ServiceRadarNVRClient.Wire do
 
   def archive_request(_, _), do: {:error, :invalid_archive_request}
 
+  def reclaim_request(
+        block_id,
+        %{
+          "version" => 1,
+          "storage_id" => storage,
+          "recovery_generation" => generation,
+          "operation_id" => operation_id,
+          "expected_descriptor_sha256" => digest
+        } = request
+      ) do
+    with true <-
+           map_size(request) == 5 and matches?(block_id, @hex64) and uuid?(storage) and uuid?(generation) and
+             uuid?(operation_id) and matches?(digest, @hex64),
+         {:ok, json} <- CanonicalJSON.encode(request),
+         true <- byte_size(json) <= @max_reclaim_request do
+      {:ok, json}
+    else
+      _ -> {:error, :invalid_reclaim_request}
+    end
+  end
+
+  def reclaim_request(_, _), do: {:error, :invalid_reclaim_request}
+
+  def reclaim_receipt(bytes, block_id, %{"storage_id" => storage, "operation_id" => operation_id}) do
+    with {:ok,
+          %{
+            "version" => 1,
+            "status" => "reclaimed",
+            "storage_id" => ^storage,
+            "block_id" => ^block_id,
+            "operation_id" => ^operation_id,
+            "reclaimed_at_ms" => reclaimed_at
+          } = receipt} <- Jason.decode(bytes),
+         true <- map_size(receipt) == 6 and is_integer(reclaimed_at) and reclaimed_at > 0 do
+      {:ok,
+       %{
+         storage_id: storage,
+         block_id: block_id,
+         operation_id: operation_id,
+         status: :reclaimed,
+         reclaimed_at_ms: reclaimed_at
+       }}
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
   def archive_receipt(bytes, block_id, %{"storage_id" => storage, "destination" => destination}) do
     prefix = Enum.join([destination["object_prefix"], storage, block_id], "/") <> "/"
 
@@ -157,7 +205,13 @@ defmodule ServiceRadarNVRClient.Wire do
   def read_refusal(503, _body), do: {:error, :unavailable}
   def read_refusal(status, body), do: {:error, {:read_status, status, error_body(body)}}
 
-  @block_states %{"sealed" => :sealed, "incomplete" => :incomplete, "unresolved" => :unresolved, "absent" => :absent}
+  @block_states %{
+    "sealed" => :sealed,
+    "incomplete" => :incomplete,
+    "unresolved" => :unresolved,
+    "absent" => :absent,
+    "reclaimed" => :reclaimed
+  }
   @gate_states %{"ready" => :ready, "closed" => :closed}
   @inventory_states %{
     "ready" => :ready,
@@ -247,6 +301,7 @@ defmodule ServiceRadarNVRClient.Wire do
   defp state_fields?("unresolved", nil, reason, bytes), do: bounded_text?(reason, 64) and counted?(bytes)
   defp state_fields?("incomplete", nil, nil, bytes), do: nonnegative?(bytes)
   defp state_fields?("absent", nil, nil, nil), do: true
+  defp state_fields?("reclaimed", nil, nil, nil), do: true
   defp state_fields?(_state, _digest, _reason, _bytes), do: false
 
   defp counted?(bytes), do: is_nil(bytes) or nonnegative?(bytes)

@@ -34,12 +34,14 @@ defmodule ServiceRadarNVR.Ingest do
   alias ServiceRadarNVR.IngestStream
   alias ServiceRadarNVR.ListenerConfig
   alias ServiceRadarNVR.MemberStatus
+  alias ServiceRadarNVR.Reclaim
   alias ServiceRadarRecording.Inbox
   alias ServiceRadarRecordingControl.RecoveryGate
 
   require Logger
 
   @archive_request_bytes 8192
+  @reclaim_request_bytes 8192
   # The read pool retires an admitted read after 10 s and its caller after 11 s.
   @read_deadline_ms 15_000
   @lookup_request_bytes 8192
@@ -102,6 +104,20 @@ defmodule ServiceRadarNVR.Ingest do
     else
       {:more, _partial, conn} -> respond(conn, 400, %{error: "invalid_archive_request"})
       _ -> respond(conn, 400, %{error: "invalid_archive_request"})
+    end
+  end
+
+  defp route(%{method: "POST", path_info: ["v1", "blocks", block_id, "reclaim"]} = conn, config) do
+    with ["application/vnd.serviceradar.nvr-reclaim.v1+json"] <- get_req_header(conn, "content-type"),
+         {:ok, body, conn} <-
+           read_body(conn, length: @reclaim_request_bytes, read_length: @reclaim_request_bytes, read_timeout: 5_000) do
+      case Reclaim.run(config, block_id, body) do
+        {503, %{error: error}} -> unavailable(conn, error)
+        {status, result} -> respond(conn, status, result)
+      end
+    else
+      {:more, _partial, conn} -> respond(conn, 400, %{error: "invalid_reclaim_request"})
+      _ -> respond(conn, 400, %{error: "invalid_reclaim_request"})
     end
   end
 
@@ -194,6 +210,7 @@ defmodule ServiceRadarNVR.Ingest do
   # The archive route and the read routes have their own deadlines; ingest
   # keeps the recording one.
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "archive"]}, _config), do: Archive.request_timeout_ms()
+  defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "reclaim"]}, _config), do: Reclaim.request_timeout_ms()
   defp deadline_ms(%{path_info: ["v1", "blocks", _block_id, "descriptor"]}, _config), do: @read_deadline_ms
   defp deadline_ms(%{path_info: ["v1", "blocks", "lookup"]}, _config), do: @read_deadline_ms
   defp deadline_ms(%{path_info: ["v1", "blocks"]}, _config), do: @read_deadline_ms

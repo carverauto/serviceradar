@@ -71,6 +71,31 @@ defmodule ServiceRadarNVRClient do
 
   def archive_block(_, _, _, _), do: {:error, :invalid_archive_request}
 
+  @doc """
+  Asks the NVR to tombstone and unlink sealed block `block_id`
+  (`POST /v1/blocks/<block_id>/reclaim` on the ingest listener).
+
+  The request binds `version` (1), `storage_id`, `recovery_generation`,
+  `operation_id` and `expected_descriptor_sha256`. Returns
+  `{:ok, %{storage_id: uuid, block_id: id, operation_id: uuid, status: :reclaimed, reclaimed_at_ms: ms}}`
+  on 200, `{:error, {:reclaim_status, status, error}}` for a non-200 answer,
+  `{:error, :outcome_unknown}` when the response was lost or malformed, and
+  `{:error, :invalid_reclaim_request}` before connecting for invalid arguments.
+  """
+  def reclaim_block(config, block_id, request, timeout_ms \\ 30_000)
+
+  def reclaim_block(%Config{} = config, block_id, request, timeout_ms) when timeout_ms in 1..300_000 do
+    with :ok <- Config.validate(config),
+         {:ok, body} <- Wire.reclaim_request(block_id, request) do
+      finish = &json_result(&1, &2, :reclaim_status, fn bytes -> Wire.reclaim_receipt(bytes, block_id, request) end)
+      content_type = "application/vnd.serviceradar.nvr-reclaim.v1+json"
+      path = "/v1/blocks/" <> block_id <> "/reclaim"
+      bounded(timeout_ms, &HTTP.post_json(config, path, content_type, body, finish, &1, &2))
+    end
+  end
+
+  def reclaim_block(_, _, _, _), do: {:error, :invalid_reclaim_request}
+
   def descriptor_timeout_ms, do: 15_000
 
   @doc """

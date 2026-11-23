@@ -120,7 +120,11 @@ defmodule ServiceRadarNVR do
   defp inspect_states(block_ids) do
     with {:ok, storage, limits} <- ServiceRadarNVR.Capacity.recovery_storage(),
          writing = ServiceRadarNVR.Capacity.active_blocks(),
-         states = Enum.map(block_ids, &Blocks.state(storage, &1, limits, MapSet.member?(writing, &1))),
+         tombstones = ServiceRadarNVR.Capacity.tombstoned_blocks(block_ids),
+         states =
+           Enum.map(block_ids, fn id ->
+             Blocks.state(storage, id, limits, MapSet.member?(writing, id), MapSet.member?(tombstones, id))
+           end),
          :ok <- Storage.verify(storage) do
       {:ok, states}
     end

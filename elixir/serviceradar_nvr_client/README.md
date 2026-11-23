@@ -82,6 +82,18 @@ The credential is held only for the request. No returned error, and nothing this
 library logs, contains it. It is a bucket credential resolved by Core for this
 one request, never a camera credential or an installed workload credential.
 
+## Reclaiming a sealed local block
+
+`ServiceRadarNVRClient.reclaim_block/4` asks the NVR ingest listener
+(`POST /v1/blocks/<block_id>/reclaim`) to tombstone and unlink one verified
+sealed block. Pass a string-keyed request with `version` (1), `storage_id`,
+`recovery_generation`, `operation_id` and `expected_descriptor_sha256`. A 200
+answer returns `{:ok, %{storage_id: ..., block_id: ..., operation_id: ...,
+status: :reclaimed, reclaimed_at_ms: ...}}`; a non-200 answer returns
+`{:error, {:reclaim_status, status, error}}`; a lost or malformed answer
+returns `{:error, :outcome_unknown}`; invalid arguments return
+`{:error, :invalid_reclaim_request}` before connecting.
+
 ## Reading a sealed block's descriptor
 
 `ServiceRadarNVRClient.block_descriptor/3` reads the canonical descriptor of one

@@ -27,6 +27,7 @@ defmodule ServiceRadarNVR.Capacity do
   alias ServiceRadarNVR.Blocks
   alias ServiceRadarNVR.Config
   alias ServiceRadarNVR.Disk
+  alias ServiceRadarNVR.DispositionJournal
   alias ServiceRadarNVR.Publication
   alias ServiceRadarRecording.Spool
   alias ServiceRadarRecording.Storage
@@ -60,6 +61,12 @@ defmodule ServiceRadarNVR.Capacity do
   @doc "Block IDs that an admitted writer currently holds."
   def active_blocks, do: GenServer.call(__MODULE__, :active_blocks)
 
+  @doc "Subset of `block_ids` that have a committed tombstone in the disposition journal."
+  def tombstoned_blocks(block_ids), do: GenServer.call(__MODULE__, {:tombstoned_blocks, block_ids})
+
+  @doc "Tombstone, unlink and remove from the ledger one verified sealed block."
+  def reclaim_block(block_id, request), do: GenServer.call(__MODULE__, {:reclaim_block, block_id, request}, 25_000)
+
   def prepare_publication(block_id, reference),
     do: GenServer.call(__MODULE__, {:publication, block_id, :intent, reference}, @publication_timeout + 5_000)
 
@@ -89,6 +96,7 @@ defmodule ServiceRadarNVR.Capacity do
        limits: limits,
        read_limits: Map.put(@block_bytes, :max_fragments, Config.block_fragments_ceiling()),
        storage: nil,
+       tombstones: nil,
        reservations: %{},
        active: %{},
        ledger: nil,
@@ -105,7 +113,8 @@ defmodule ServiceRadarNVR.Capacity do
   @impl true
   def handle_call({:reserve, block_id}, {owner, _}, state) do
     with :ok <- valid_block_id(block_id),
-         {:ok, storage} <- storage(state),
+         {:ok, storage, state} <- storage_state(state),
+         :ok <- not_tombstoned(state, block_id),
          {:ok, usage, state} <- measure(storage, state),
          :ok <- consistent(state),
          :ok <- admission(usage) do
@@ -139,7 +148,8 @@ defmodule ServiceRadarNVR.Capacity do
     # missing publication records stay charged at their measured size.
     with true <- Map.get(state.reservations, token) == owner || {:error, :nvr_reservation_lost},
          :ok <- valid_block_id(next_block_id),
-         {:ok, storage} <- storage(state),
+         {:ok, storage, state} <- storage_state(state),
+         :ok <- not_tombstoned(state, next_block_id),
          {:ok, usage, state} <- measure(storage, state),
          :ok <- consistent(state),
          :ok <-
@@ -171,7 +181,7 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   def handle_call(:status, _from, state) do
-    with {:ok, storage} <- storage(state),
+    with {:ok, storage, state} <- storage_state(state),
          {:ok, usage, state} <- measure(storage, state) do
       {:reply, {:ok, usage}, state}
     else
@@ -181,8 +191,8 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   def handle_call({:ledger_page, after_id, limit}, _from, state) do
-    with {:ok, storage} <- storage(state),
-         {:ok, state} <- ensure_ledger(%{state | storage: storage}),
+    with {:ok, storage, state} <- storage_state(state),
+         {:ok, state} <- ensure_ledger(state),
          {:ok, state} <- remeasure_active(state),
          :ok <- Storage.verify(storage),
          :ok <- RecoveryGate.check(state.config.recovery_gate) do
@@ -195,9 +205,31 @@ defmodule ServiceRadarNVR.Capacity do
 
   def handle_call(:active_blocks, _from, state), do: {:reply, MapSet.new(Map.values(state.active)), state}
 
+  def handle_call({:tombstoned_blocks, block_ids}, _from, state) do
+    tombstones = state.tombstones || %{}
+
+    found =
+      Enum.reduce(block_ids, MapSet.new(), fn id, acc ->
+        if Map.has_key?(tombstones, id), do: MapSet.put(acc, id), else: acc
+      end)
+
+    {:reply, found, state}
+  end
+
+  def handle_call({:reclaim_block, block_id, request}, _from, state) do
+    with :ok <- valid_block_id(block_id),
+         {:ok, storage, state} <- storage_state(state),
+         {:ok, state} <- ensure_ledger(state) do
+      do_reclaim(storage, block_id, request, state)
+    else
+      {:error, _} = error -> {:reply, error, state}
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
+  end
+
   def handle_call(:recovery_storage, _from, state) do
-    case storage(state) do
-      {:ok, storage} -> {:reply, {:ok, storage, state.read_limits}, %{state | storage: storage}}
+    case storage_state(state) do
+      {:ok, storage, state} -> {:reply, {:ok, storage, state.read_limits}, state}
       {:error, _} = error -> {:reply, error, state}
     end
   end
@@ -215,9 +247,10 @@ defmodule ServiceRadarNVR.Capacity do
   def handle_call({:recover_block, block_id, identity}, _from, state) do
     # Keep admission serialized through the repair and seal. There are no local
     # writers, so verification cannot stall an admitted recording's write guard.
-    with {:ok, storage} <- storage(state),
+    with {:ok, storage, state} <- storage_state(state),
          :ok <- valid_block_id(block_id),
-         {:ok, state} <- ensure_ledger(%{state | storage: storage}),
+         :ok <- not_tombstoned(state, block_id),
+         {:ok, state} <- ensure_ledger(state),
          {:ok, free} <- Disk.available_bytes(storage.root),
          :ok <- writable(free, state.config.reserve_bytes) do
       result = Spool.recover_sealed(storage, block_id, identity, state.read_limits)
@@ -234,10 +267,10 @@ defmodule ServiceRadarNVR.Capacity do
   end
 
   def handle_call({:publication, block_id, kind, payload}, from, state) do
-    with {:ok, storage} <- storage(state),
+    with {:ok, storage, state} <- storage_state(state),
          :ok <- valid_block_id(block_id),
          {:ok, publication} <- start_publication(storage, block_id, kind, payload, state.read_limits, from) do
-      {:noreply, %{state | storage: storage, publication: publication}}
+      {:noreply, %{state | publication: publication}}
     else
       {:error, _} = error -> {:reply, error, state}
     end
@@ -362,6 +395,107 @@ defmodule ServiceRadarNVR.Capacity do
     after
       :timer.cancel(timer)
     end
+  end
+
+  defp storage_state(state) do
+    with {:ok, storage} <- storage(state),
+         {:ok, state} <- ensure_tombstones(%{state | storage: storage}) do
+      {:ok, storage, state}
+    end
+  end
+
+  defp ensure_tombstones(%{tombstones: %{}} = state), do: {:ok, state}
+
+  defp ensure_tombstones(state) do
+    with {:ok, tombstones} <- DispositionJournal.load(state.storage),
+         :ok <- DispositionJournal.complete_pending(state.storage, tombstones) do
+      {:ok, %{state | tombstones: tombstones}}
+    end
+  end
+
+  defp not_tombstoned(%{tombstones: tombstones}, block_id) when is_map(tombstones) do
+    if Map.has_key?(tombstones, block_id), do: {:error, :block_reclaimed}, else: :ok
+  end
+
+  defp not_tombstoned(_state, _block_id), do: :ok
+
+  defp do_reclaim(storage, block_id, request, state) do
+    case Map.fetch(state.tombstones, block_id) do
+      {:ok, tombstone} ->
+        reclaim_existing(storage, block_id, tombstone, request, state)
+
+      :error ->
+        reclaim_fresh(storage, block_id, request, state)
+    end
+  end
+
+  defp reclaim_existing(storage, block_id, tombstone, request, state) do
+    case DispositionJournal.unlink_block(storage, block_id) do
+      :ok ->
+        state = %{state | ledger: ledger_delete(state.ledger, block_id), probe: nil}
+
+        cond do
+          tombstone["expected_descriptor_sha256"] != request.expected_descriptor_sha256 ->
+            {:reply, {:error, :descriptor_mismatch}, state}
+
+          tombstone["operation_id"] != request.operation_id ->
+            {:reply, {:error, :reclaim_conflict}, state}
+
+          true ->
+            {:reply, {:ok, reclaim_receipt(tombstone)}, state}
+        end
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  defp reclaim_fresh(storage, block_id, request, state) do
+    with true <- not MapSet.member?(busy_blocks(state), block_id) || {:error, :block_active},
+         :ok <- verify_reclaim_target(storage, block_id, request.expected_descriptor_sha256, state.read_limits),
+         :ok <- RecoveryGate.check(state.config.recovery_gate),
+         :ok <- Storage.verify(storage),
+         {:ok, tombstone} <-
+           DispositionJournal.append(storage, block_id, request.operation_id, request.expected_descriptor_sha256) do
+      state = %{state | tombstones: Map.put(state.tombstones, block_id, tombstone)}
+
+      case DispositionJournal.unlink_block(storage, block_id) do
+        :ok ->
+          state = %{state | ledger: ledger_delete(state.ledger, block_id), probe: nil}
+          {:reply, {:ok, reclaim_receipt(tombstone)}, state}
+
+        {:error, _} = error ->
+          {:reply, error, state}
+      end
+    else
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  defp verify_reclaim_target(storage, block_id, expected_digest, read_limits) do
+    case Blocks.descriptor(storage, block_id, read_limits) do
+      {:ok, descriptor} ->
+        actual = Base.encode16(:crypto.hash(:sha256, descriptor), case: :lower)
+        if actual == expected_digest, do: :ok, else: {:error, :descriptor_mismatch}
+
+      {:error, reason} ->
+        case Blocks.read_error(reason, :descriptor) do
+          :block_not_found -> {:error, :block_not_found}
+          :block_not_sealed -> {:error, :block_not_sealed}
+          _ -> {:error, :reclaim_unavailable}
+        end
+    end
+  end
+
+  defp reclaim_receipt(tombstone) do
+    %{
+      "version" => 1,
+      "status" => "reclaimed",
+      "storage_id" => tombstone["storage_id"],
+      "block_id" => tombstone["block_id"],
+      "operation_id" => tombstone["operation_id"],
+      "reclaimed_at_ms" => tombstone["reclaimed_at_ms"]
+    }
   end
 
   defp storage(%{config: %{root: nil}}), do: {:error, :nvr_storage_not_configured}
