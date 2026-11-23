@@ -1,3 +1,29 @@
+# ServiceRadar v1.7.0
+
+This release introduces end-to-end **continuous camera NVR recording, Longshore S3 archiving, automatic local ring eviction, and the 3-pane Camera Timeline Workspace**, the pure-Rust **`serviceradar-media-core`** vision pipeline and GPU **`serviceradar-media-worker`**, **zero-touch Hub NATS certificate authorization and edge leaf onboarding**, and **Settings Backup Export with Terraform round-trip support**.
+
+## Upgrade Notes
+
+- **Database migrations:** Includes CNPG migrations for camera recording clip thumbnails (`20261122222500`, with a `BEFORE UPDATE` trigger purging thumbnails on quarantine or terminal retention deletion) and infrastructure certificate inventory subjects. `core.migrations.expectedVersion` in `helm/serviceradar/values.yaml` is updated to `20261122222500`.
+- **NVR local ring eviction (`LocalRetentionJob`):** `serviceradar-core-elx` now schedules a 60-second per-member Oban maintenance job that evicts oldest archived/eligible local NVR blocks via `POST /v1/blocks/<id>/reclaim` when local spool usage crosses high water. Upgrade `serviceradar-nvr` alongside `serviceradar-core-elx` (`StatefulSet/serviceradar-nvr` uses `OnDelete` and requires cycling replicas to pick up the new image and `nvr.maxSpoolBytes` budget).
+- **Camera timeline playback:** Serving local and S3-archived playback in `web-ng` requires enabling `nvr.read` and `archiveReader` with their operator-provisioned mTLS Secrets (see `docs/nvr-ingest.md`).
+
+## Highlights
+
+- **Continuous Camera NVR, S3 Archiving, Ring Eviction, and 3-Pane Timeline Workspace**:
+  - Policy-driven `ContinuousRecorder` and `ContinuousManager` (#6955), `ArchiveBlockJob` for Longshore S3 archiving (#6943), NVR member status/lookup/ledger APIs (#6946), local NVR playback read listener (#6931), per-request `archive-reader` S3 playback (#6945), and Core block cataloging (#6920).
+  - Durable `.disposition-journal` block reclaim (`POST /v1/blocks/<id>/reclaim`, #6965) and 60-second per-member `LocalRetentionJob` automatic high-to-low watermark and age ring eviction honoring PD5 recording holds (#6980).
+  - Bounded JPEG clip thumbnail storage (`<= 64 KiB` with quarantine/retention purge trigger) and RBAC-protected serving endpoint (#6964).
+  - UniFi-style 3-pane scalable Camera Timeline Workspace (searchable/paginated camera switcher, interactive click-to-seek vertical timeline rail, full-stage player with Manage/Holds slide-over drawer), compact 2-row server-side paginated Detections & Clips strip, live PubSub refresh, and coalesced/paginated Recorded Gaps (#6957, #6959, #6961, #6963, #6966).
+- **Pure-Rust Vision Core (`serviceradar-media-core`) and GPU `serviceradar-media-worker`**:
+  - Pure-Rust two-tier pixel motion gate, YOLOX decode/NMS, HSV color attributes, `trackforge` multi-object tracker, bounded JFIF JPEG thumbnail encoder, H.264 keyframe decoding, CUDA arm64 runtime + Helm GPU isolation, and Core visual indexing dispatch/projection (#6917, #6928, #6933, #6935, #6953, #6962).
+- **Zero-Touch Hub NATS Certificate Authorization and Edge Leaf Onboarding**:
+  - Infrastructure certificate inventory, NATS authorization callout signing keys, single-setting Helm enablement, `serviceradar-cli` edge hub status and leaf preflight checks, and late-admission grant ledger audit (#6796, #6913, #6915, #6916, #6922, #6924, #6929, #6930, #6936, #6939, #6947, #6949, #6951).
+- **Settings Backup Export and Terraform Round-Trip Support**:
+  - Settings backup export pipeline with Terraform round-trip support (#6967).
+- **Reliability, Agent Handoff, and Security Fixes**:
+  - Agent supersession handoff for sweep leases, MTR policies, SNMP profiles, integration sources, service checks, credential rules, plugin assignments, and camera sources (#6932, #6938, #6942, #6954, #6956, #6982); narrowed log-collector NATS JetStream grants (#6906); Alpine OpenSSL `3.5.9-r1` pin (#6907); Dgraph index-build wait (#6905); and synthetic-only shipped fixtures (#6912).
+
 # ServiceRadar v1.6.0
 
 This release introduces L7 **Web Properties (`in:websites`) and Akamai Boomerang Real User Monitoring (RUM)**, **embedded agent `netperf`** (retiring standalone `rperf`), the **Dashboard SDK Blueprint** runtime with first-party **Web RUM** and **Network Performance** dashboards, **Wasm Synthetic Journeys**, the **Proxmox Monitoring Solution Pack**, and collector-side Zen syslog normalization backed by NATS KV rule buckets.

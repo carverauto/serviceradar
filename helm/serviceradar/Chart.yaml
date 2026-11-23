@@ -2,8 +2,8 @@ apiVersion: v2
 name: serviceradar
 description: Helm chart for deploying the ServiceRadar 
 type: application
-version: 1.6.0
-appVersion: "1.6.0"
+version: 1.7.0
+appVersion: "1.7.0"
 
 # Dgraph chart 24.1.4, vendored unpacked in charts/dgraph with the pod dnsConfig
 # patch. No repository, so `helm dependency build` uses that directory and never
