@@ -394,6 +394,63 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorderTest do
       assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
     end
 
+    test "defaults to 10s refusal cooldown and splits outage gaps when detail_class changes" do
+      parent = self()
+      clock = start_supervised!(Supervisor.child_spec({Agent, fn -> 5_000 end}, id: :default_cooldown_clock))
+
+      send_fn = fn _cfg, header, stream, _timeout ->
+        _units = Enum.to_list(stream)
+        seq = header["identity"]["block_sequence"]
+        send(parent, {:refusal_attempt, seq})
+
+        if seq == 0 do
+          {:error, {:ingest_refused, 503}}
+        else
+          {:error, {:ingest_refused, 422}}
+        end
+      end
+
+      harness =
+        start_harness(
+          bounds: %{soft_frames: 2, max_frames: 2},
+          now_ms_fn: fn -> Agent.get(clock, & &1) end,
+          send_recording_fn: send_fn
+        )
+
+      # Exercise production default (@default_nvr_refusal_cooldown_ms = 10_000)
+      opts = Keyword.delete(harness.opts, :nvr_refusal_cooldown_ms)
+      {:ok, pid} = ContinuousRecorder.start_link(opts)
+      assert_receive {:continuous_recorder, ^pid, {:run_started, _}}, 1_000
+
+      # Attempt 0 at t=5_000 refused with 503 -> default cooldown until t=15_000
+      send_unit(pid, harness.inbox_id, 0, 0, @base_utc_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 1, 3_000, @base_utc_us + 33_333, @p_frame_payload)
+      assert_receive {:refusal_attempt, 0}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_503", end_us: nil}}, 1_000
+
+      # 1ms before 10s boundary (t=14_999): IDR is still suppressed by default cooldown
+      Agent.update(clock, fn _ -> 14_999 end)
+      send_unit(pid, harness.inbox_id, 2, 6_000, @base_utc_us + 9_999_000, @idr_payload)
+      _ = ContinuousRecorder.status(pid)
+      refute_receive {:refusal_attempt, _}, 50
+
+      # At exact 10s boundary (t=15_000): retry fires and gets distinct 422 refusal ->
+      # closes http_503 gap at Block 1 start and opens a distinct http_422 gap
+      Agent.update(clock, fn _ -> 15_000 end)
+      block1_start_us = @base_utc_us + 10_000_000
+      send_unit(pid, harness.inbox_id, 3, 9_000, block1_start_us, @idr_payload)
+      send_unit(pid, harness.inbox_id, 4, 12_000, block1_start_us + 33_333, @p_frame_payload)
+
+      assert_receive {:refusal_attempt, 1}, 1_000
+      assert_receive {:gap_closed, %{reason: :nvr_refused, detail_class: "http_503", end_us: ^block1_start_us}}, 1_000
+      assert_receive {:gap_recorded, %{reason: :nvr_refused, detail_class: "http_422", end_us: nil}}, 1_000
+      assert ContinuousRecorder.status(pid).gaps_recorded == 2
+
+      ContinuousRecorder.stop(pid, :policy_disabled)
+      assert_receive {:gap_closed, %{reason: :nvr_refused, detail_class: "http_422"}}, 1_000
+      assert_receive {:continuous_recorder, ^pid, {:run_stopped, %{reason: :policy_disabled}}}, 1_000
+    end
+
     test "re-checks recovery gate on NVR refusal and stops run immediately when gate is closed" do
       gate_open = start_supervised!(Supervisor.child_spec({Agent, fn -> true end}, id: :refusal_gate_agent))
 

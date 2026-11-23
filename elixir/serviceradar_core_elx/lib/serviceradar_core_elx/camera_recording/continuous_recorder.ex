@@ -6,9 +6,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
   Runs under `ServiceRadarCoreElx.CameraRecording.Supervisor` on the node hosting
   the camera relay pipeline:
 
-  1. Opens or reuses the shared relay (`RelaySessionManager.request_open/3`) and
+  1. Opens or reuses the shared relay (`RelaySessionManager.request_open/3`),
      acquires one `RecorderOwnership` claim (with its `:recorder` consumer lease
-     so the relay stays open with no viewers) renewed for the entire run.
+     so the relay stays open with no viewers) renewed for the entire run, and
+     best-effort closes any stale open `RecordingGap` rows for the same
+     `(camera_source_id, stream_profile_id)` from prior runs.
   2. Attaches one bounded `ServiceRadarRecording.Inbox` for the run and buffers
      incoming access units across block handovers in a bounded handover queue.
   3. Loops one NVR ingest request per reserved block:
@@ -21,6 +23,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ContinuousRecorder do
      - Handover buffer overflow drops excess units without wedging the inbox and
        records an exact `:handover_overflow` `RecordingGap` by relay sequence
        and 90 kHz PTS.
+     - Retryable `:nvr_refused` outcomes (recovery gate still open) coalesce
+       consecutive refusals of the same `detail_class` into one open
+       `RecordingGap` (`end_us: nil`) with a default `10_000 ms` retry cooldown
+       (`:nvr_refusal_cooldown_ms`), extending the active outage across idle
+       cooldown and non-IDR frames instead of emitting `:keyframe_wait` spam,
+       and closing the gap when a recovery block catalogs, the refusal class
+       changes, or the run stops.
   4. Resolves uncertain ingest outcomes via `ServiceRadarNVRClient.lookup_blocks/3`
      under the live claim (design `A3` table):
      - `:sealed` -> fetch descriptor, freeze/catalog, enqueue archive, continue.

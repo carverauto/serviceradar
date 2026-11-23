@@ -1489,9 +1489,14 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
       {:noreply, page3} = Recordings.handle_event("select_gaps_page", %{"page" => "3"}, page2)
       assert page3.assigns.gaps_page == 3
 
-      # Out-of-range page clamps to total pages (3)
+      # Out-of-range and invalid pages clamp to valid bounds [1, total_pages]
       {:noreply, clamped} = Recordings.handle_event("select_gaps_page", %{"page" => "99"}, page3)
       assert clamped.assigns.gaps_page == 3
+
+      for invalid <- ["0", "-5", "abc"] do
+        {:noreply, clamped_low} = Recordings.handle_event("select_gaps_page", %{"page" => invalid}, clamped)
+        assert clamped_low.assigns.gaps_page == 1
+      end
 
       # Window span change resets gaps_page to 1
       {:noreply, after_span} = Recordings.handle_event("select_timeline_span", %{"span" => "6h"}, clamped)

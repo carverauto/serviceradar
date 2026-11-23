@@ -1925,8 +1925,10 @@ footage that cannot be evicted.
 - **Admission stop.** When the budget or the reserve floor is reached, the
   NVR's own admission refuses (`:nvr_spool_budget_exhausted` or
   `:nvr_storage_pressure`, `capacity.ex:348-353`; `:nvr_inventory_limit` at the
-  block cap). The coordinator records a `nvr_refused` gap, retries admission
-  every 30 s, and a critical alert says "recording stopped: local storage
+  block cap). The coordinator coalesces consecutive refusals of the same class
+  into one open `nvr_refused` gap (suppressing idle `keyframe_wait` churn),
+  retries admission after a `10 s` cooldown (`nvr_refusal_cooldown_ms`), and a
+  critical alert says "recording stopped: local storage
   full" and names each pinned cause with its blocks and bytes, largest first:
   the admission-stop cause of each catalog entry from the archive state
   machine (A6: upload backlog, archive deleting, archive missing, local-only
