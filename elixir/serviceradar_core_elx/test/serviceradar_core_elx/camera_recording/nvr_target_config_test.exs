@@ -133,6 +133,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.NVRTargetConfigTest do
                config_file: files.config,
                token_file: files.token
              )
+
+    assert {:ok, all_targets} =
+             NVRTargetConfig.list_all(
+               config_file: files.config,
+               token_file: files.token
+             )
+
+    assert Enum.map(all_targets, & &1.member) == ["serviceradar-nvr-0", "serviceradar-nvr-1"]
   end
 
   test "coordinator and supervisor reject disabled or malformed capture requests before database work", ctx do

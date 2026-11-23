@@ -1448,7 +1448,11 @@ if config_env() == :prod do
   object_store_retention_dry_run =
     System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "false") in ~w(true 1 yes)
 
-  extra_cron_entries = ServiceRadar.Jobs.CoreCrontab.cron_entries()
+  extra_cron_entries =
+    ServiceRadar.Jobs.CoreCrontab.cron_entries() ++
+      [
+        {"* * * * *", ServiceRadarCoreElx.CameraRecording.LocalRetentionJob, queue: :maintenance}
+      ]
 
   add_cron_entries = fn config, entries ->
     plugins =

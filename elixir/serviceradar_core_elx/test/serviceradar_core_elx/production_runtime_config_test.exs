@@ -1108,6 +1108,12 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert queues_override[:nvr_archive] == 4
   end
 
+  test "prod Oban crontab schedules NVR local retention every 60 seconds on maintenance" do
+    crontab = oban_crontab(read_prod_config())
+    entry = {"* * * * *", ServiceRadarCoreElx.CameraRecording.LocalRetentionJob, [queue: :maintenance]}
+    assert entry in crontab
+  end
+
   test "both core and core_elx runtime configs parse hub certificate-authorization and leaf listener flags" do
     for {auth_env, leaf_env, expected_auth, expected_leaf} <- [
           {nil, nil, false, false},
