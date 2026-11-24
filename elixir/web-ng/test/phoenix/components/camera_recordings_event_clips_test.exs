@@ -482,21 +482,77 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert length(decoded_events) == 2
     assert hd(decoded_events)["category"] == "person"
 
-    # Top zoom slider + date label + pinned LIVE playhead + live data attributes
+    # Top zoom slider + date label + pinned LIVE playhead + live data attributes + phx-update=ignore tick rail
     assert has_selector?(live_doc, "#camera-timeline-zoom-slider[value='3']")
     assert has_selector?(live_doc, "#camera-timeline-date-label")
     assert has_selector?(live_doc, "#camera-timeline-live-playhead[data-role='vertical-live-playhead']")
+    assert has_selector?(live_doc, "#camera-timeline-tick-labels[phx-update='ignore']")
     assert attr_of(live_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["true"]
 
-    # Two adjacent events collapse to 1 inline thumbnail while distant event gets its own (using frame URL fallback)
+    # Two adjacent verified-thumbnail events collapse to 1 inline thumbnail placed tightly beside the bar (left-7),
+    # while evt-animal-far with thumbnail_url: nil does NOT guess a broken /frame/:id.jpg URL
     thumbs = LazyHTML.query(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker']")
-    assert Enum.count(thumbs) == 2
-    assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip", "select_event_clip"]
+    assert Enum.count(thumbs) == 1
+    assert LazyHTML.attribute(thumbs, "phx-click") == ["select_event_clip"]
     assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[loading='lazy']")
+    assert has_selector?(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker'].left-7")
 
-    assert has_selector?(
+    refute has_selector?(
              live_doc,
              "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-a1.jpg']"
+           )
+
+    # Smart mode excludes motion pills from the vertical rail, and dense motion pills in All mode are coalesced
+    dense_motion =
+      for idx <- 1..50 do
+        ts = @base_us + idx * 60_000_000
+
+        %{
+          id: "evt-motion-#{idx}",
+          camera_source_id: @source_id,
+          started_at: DateTime.from_unix!(ts, :microsecond),
+          ended_at: DateTime.from_unix!(ts + 5_000_000, :microsecond),
+          start_us: ts,
+          end_us: ts + 5_000_000,
+          peak_ts_us: ts,
+          duration_seconds: 5,
+          category: :motion,
+          smart_type: :basic,
+          label: "Motion",
+          confidence: nil,
+          visual_frame_id: "frame-m-#{idx}",
+          thumbnail_url: nil
+        }
+      end
+
+    smart_doc =
+      (clips ++ dense_motion)
+      |> page_assigns(%{timeline_span: "1h", timeline_clips_mode: "smart"})
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    refute has_selector?(
+             smart_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='motion']"
+           )
+
+    assert has_selector?(
+             smart_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='person']"
+           )
+
+    all_doc =
+      (clips ++ dense_motion)
+      |> page_assigns(%{timeline_span: "1h", timeline_clips_mode: "all"})
+      |> base_assigns()
+      |> render_recordings_doc()
+
+    all_markers = LazyHTML.query(all_doc, "#camera-timeline-coverage-bar [data-role='event-clip-marker']")
+    assert Enum.count(all_markers) <= 24
+
+    assert has_selector?(
+             all_doc,
+             "#camera-timeline-coverage-bar [data-role='event-clip-marker'][data-clip-category='person']"
            )
 
     # Historical (not anchored to latest) hides pinned LIVE playhead and sets data-anchored-latest=false

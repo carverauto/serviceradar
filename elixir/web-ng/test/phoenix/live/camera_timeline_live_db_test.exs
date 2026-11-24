@@ -548,7 +548,8 @@ defmodule ServiceRadarWebNGWeb.CameraTimelineLiveDBTest do
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}")
     assert has_element?(view, "#camera-clips-grid [data-clip-category='recording']")
 
-    # Clicking the person clip card opens the clip playback modal with [started_at - 5s, ended_at + 10s] and selects the card
+    # Clicking the person clip card opens the clip playback modal with [started_at - 5s, ended_at + 10s]
+    # and selects the card
     view |> element("#camera-clip-card-#{person_clip_id}") |> render_click()
     assert has_element?(view, "#camera-clip-card-#{person_clip_id}[aria-pressed='true']")
     assert has_element?(view, "#camera-clip-playback-modal")

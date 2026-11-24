@@ -922,17 +922,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         )
 
       modal =
-        build_clip_modal_from_hit(
-          socket,
-          scope,
-          source,
-          cov,
-          clip_start_us,
-          clip_end_us,
-          seek_us,
-          highlight_frame_id,
-          hit
-        )
+        build_clip_modal_from_hit(socket, scope, source, cov, %{
+          clip_start_us: clip_start_us,
+          clip_end_us: clip_end_us,
+          seek_us: seek_us,
+          highlight_frame_id: highlight_frame_id,
+          hit: hit
+        })
 
       {:noreply,
        assign(socket,
@@ -3459,7 +3455,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     }
   end
 
-  defp build_clip_modal_from_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us, highlight_frame_id, hit) do
+  defp build_clip_modal_from_hit(socket, scope, source, cov, %{
+         clip_start_us: clip_start_us,
+         clip_end_us: clip_end_us,
+         seek_us: seek_us,
+         highlight_frame_id: highlight_frame_id,
+         hit: hit
+       }) do
     padded_start_us = max(min(clip_start_us, seek_us) - 5_000_000, 0)
     padded_end_us = max(clip_end_us, seek_us) + 10_000_000
 

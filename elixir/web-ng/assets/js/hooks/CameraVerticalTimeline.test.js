@@ -145,16 +145,45 @@ describe("CameraVerticalTimeline hook", () => {
     vi.advanceTimersByTime(9000)
 
     expect(topTick.textContent).not.toBe("initial-top")
+    expect(topTick.textContent).not.toContain("2026-")
     expect(midTick.textContent).not.toBe("initial-mid")
+    expect(midTick.textContent).not.toContain("2026-")
     expect(eventMarker.style.top).toBe("21%")
     expect(eventThumb.style.top).toBe("21%")
 
-    // Switching to historical (anchoredLatest = false) stops the ticker
+    // Switching to historical (anchoredLatest = false) stops the ticker and still renders short wall-clock ticks
     el.dataset.anchoredLatest = "false"
     hook.updated()
+    expect(topTick.textContent).not.toContain("2026-")
     const frozenTop = eventMarker.style.top
     vi.advanceTimersByTime(5000)
     expect(eventMarker.style.top).toBe(frozenTop)
+
+    hook.destroyed()
+  })
+
+  it("removes broken thumbnail markers on image error so broken icons never render", () => {
+    const listeners = new Map()
+    const el = {
+      dataset: {
+        fromUs: "1760000000000000",
+        toUs: "1760003600000000",
+        anchoredLatest: "false",
+        timezone: "America/Chicago",
+      },
+      addEventListener: vi.fn((event, handler) => listeners.set(event, handler)),
+      querySelector: () => null,
+    }
+
+    const hook = Object.create(CameraVerticalTimeline)
+    hook.el = el
+    hook.mounted()
+
+    const thumbBtn = {remove: vi.fn()}
+    listeners.get("error")({
+      target: {closest: selector => (selector === "[data-role='event-thumb-marker']" ? thumbBtn : null)},
+    })
+    expect(thumbBtn.remove).toHaveBeenCalledTimes(1)
 
     hook.destroyed()
   })

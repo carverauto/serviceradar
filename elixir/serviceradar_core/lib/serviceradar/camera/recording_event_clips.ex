@@ -176,7 +176,8 @@ defmodule ServiceRadar.Camera.RecordingEventClips do
             start_us: clip.start_us,
             end_us: clip.end_us,
             peak_ts_us: clip.peak_ts_us,
-            visual_frame_id: clip.visual_frame_id
+            visual_frame_id: clip.visual_frame_id,
+            thumbnail_url: clip.thumbnail_url
           }
         end)
 

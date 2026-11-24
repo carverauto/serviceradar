@@ -490,16 +490,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
     now_us = System.system_time(:microsecond)
     active_source_id = assigns.source && to_string(assigns.source.id)
-    event_markers = build_event_markers(assigns.timeline_event_markers || [], cov_from_us, cov_to_us, now_us)
+
+    event_markers =
+      build_event_markers(
+        assigns.timeline_event_markers || [],
+        cov_from_us,
+        cov_to_us,
+        now_us,
+        assigns.timeline_clips_mode
+      )
 
     vertical_event_thumbs =
       build_vertical_thumbnail_markers(
         assigns.timeline_event_markers || [],
         assigns.timeline_event_clips || [],
-        active_source_id,
         cov_from_us,
         cov_to_us,
-        now_us
+        now_us,
+        assigns.timeline_clips_mode
       )
 
     window_scrubber_events =
@@ -892,8 +900,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
           <%!-- Vertical Interactive Coverage Bar (Newest Top -> Oldest Bottom) --%>
           <div class="mt-2 flex min-h-[15rem] flex-1 gap-1.5 overflow-hidden">
-            <%!-- Left Time Ticks Column (smoothly updated every 1s when anchored to latest/live) --%>
-            <div class="flex w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight text-sr-muted">
+            <%!-- Left Time Ticks Column (phx-update="ignore" so LiveView patches never flicker or flash raw ISO strings) --%>
+            <div
+              id="camera-timeline-tick-labels"
+              phx-update="ignore"
+              class="flex w-14 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight whitespace-nowrap text-sr-muted"
+            >
               <span
                 :if={coverage_field(@coverage, :to_us)}
                 id="camera-timeline-span-end"
@@ -904,7 +916,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   id="camera-timeline-span-end-time"
                   value={us_to_datetime(coverage_field(@coverage, :to_us))}
                   timezone={@timezone}
-                  style={:compact}
+                  style={:axis}
                 />
               </span>
               <span
@@ -916,7 +928,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   id={"camera-timeline-tick-#{idx}"}
                   value={us_to_datetime(tick_us)}
                   timezone={@timezone}
-                  style={:compact}
+                  style={:axis}
                 />
               </span>
               <span
@@ -929,7 +941,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   id="camera-timeline-span-start-time"
                   value={us_to_datetime(coverage_field(@coverage, :from_us))}
                   timezone={@timezone}
-                  style={:compact}
+                  style={:axis}
                 />
               </span>
             </div>
@@ -942,7 +954,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-to-us={coverage_field(@coverage, :to_us)}
               data-anchored-latest={to_string(@timeline_anchored_latest?)}
               data-timezone={@timezone}
-              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas px-1 py-0.5"
+              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas px-1.5 py-0.5"
               title="Click anywhere on the timeline to seek"
             >
               <%!-- Pinned LIVE Playhead Line near Top when Anchored to Latest/Live Edge --%>
@@ -960,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               </div>
 
               <%!-- Continuous Sleek Vertical Recording Track --%>
-              <div class="relative ml-2 flex h-full w-3 flex-col overflow-hidden rounded-full bg-zinc-900/15 dark:bg-zinc-900/60">
+              <div class="relative ml-0.5 flex h-full w-3 flex-col overflow-hidden rounded-full bg-zinc-900/15 dark:bg-zinc-900/60">
                 <%= if @vertical_buckets == [] do %>
                   <div
                     data-bucket-state="not_scheduled"
@@ -1027,7 +1039,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 <span class="sr-only">{marker.title}</span>
               </button>
 
-              <%!-- Inline Mini Square Event Thumbnails (de-overlapped beside event pills) --%>
+              <%!-- Inline Mini Square Event Thumbnails (tight 8px gap beside vertical recording bar) --%>
               <button
                 :for={thumb <- @vertical_event_thumbs}
                 id={"camera-timeline-event-thumb-#{thumb.idx}"}
@@ -1040,7 +1052,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 title={thumb.title}
                 style={"top: #{thumb.top_pct}%"}
                 class={[
-                  "group absolute right-1 z-[8] size-9 -translate-y-1/2 overflow-hidden rounded-md border bg-zinc-950 shadow-sm transition-transform hover:z-[12] hover:scale-110 focus-visible:outline-2 focus-visible:outline-sky-400",
+                  "group absolute left-7 z-[8] size-9 -translate-y-1/2 overflow-hidden rounded-md border bg-zinc-950 shadow-sm transition-transform hover:z-[12] hover:scale-110 focus-visible:outline-2 focus-visible:outline-sky-400",
                   event_thumb_border_class(thumb.category)
                 ]}
               >
@@ -3295,18 +3307,33 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp span_zoom_index("15m"), do: 4
   defp span_zoom_index(_), do: 3
 
-  defp build_event_markers(clips, from_us, to_us, now_us)
+  @smart_marker_categories [:person, :animal, :vehicle, :package]
+
+  defp marker_matches_rail_mode?(clip, "smart") do
+    Map.get(clip, :category) in @smart_marker_categories or Map.get(clip, :smart_type) == :smart
+  end
+
+  defp marker_matches_rail_mode?(clip, "basic") do
+    Map.get(clip, :category) == :motion
+  end
+
+  defp marker_matches_rail_mode?(clip, _mode) do
+    Map.get(clip, :category) != :recording
+  end
+
+  defp build_event_markers(clips, from_us, to_us, now_us, clips_mode)
        when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
     span_us = to_us - from_us
+    max_markers = 24
 
     clips
-    |> Enum.reject(&(&1.category == :recording))
     |> Enum.filter(fn clip ->
       ts = clip[:peak_ts_us] || clip[:start_us]
-      is_integer(ts) and ts >= from_us and ts <= to_us
+
+      clip.category != :recording and marker_matches_rail_mode?(clip, clips_mode) and
+        is_integer(ts) and ts >= from_us and ts <= to_us
     end)
-    |> Enum.with_index()
-    |> Enum.map(fn {clip, idx} ->
+    |> Enum.map(fn clip ->
       ts = clip[:peak_ts_us] || clip[:start_us]
       # Vertical timeline: top (0%) = to_us (newest), bottom (100%) = from_us (oldest)
       top_pct = Float.round(min(max((to_us - ts) / span_us * 100.0, 0.5), 99.5), 2)
@@ -3315,21 +3342,45 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         if is_number(clip[:confidence]), do: " (#{format_hit_score(clip[:confidence])})", else: ""
 
       age_label = format_relative_age(ts, now_us)
+      smart? = clip.category in @smart_marker_categories
 
       %{
-        idx: idx,
         clip_id: clip.id,
         category: clip.category,
+        smart?: smart?,
         ts_us: ts,
         top_pct: top_pct,
         title: "#{clip.label}#{conf_suffix} — #{age_label}"
       }
     end)
+    # Prioritize smart detections over motion so colored smart pills are never crowded out
+    |> Enum.sort_by(fn m -> {if(m.smart?, do: 0, else: 1), m.top_pct} end)
+    |> Enum.reduce([], fn candidate, kept ->
+      min_gap = if candidate.smart?, do: 2.2, else: 4.5
+
+      cond do
+        length(kept) >= max_markers ->
+          kept
+
+        Enum.any?(kept, fn existing -> abs(existing.top_pct - candidate.top_pct) < min_gap end) ->
+          kept
+
+        true ->
+          [candidate | kept]
+      end
+    end)
+    |> Enum.sort_by(& &1.top_pct)
+    |> Enum.with_index()
+    |> Enum.map(fn {marker, idx} ->
+      marker
+      |> Map.delete(:smart?)
+      |> Map.put(:idx, idx)
+    end)
   end
 
-  defp build_event_markers(_clips, _from_us, _to_us, _now_us), do: []
+  defp build_event_markers(_clips, _from_us, _to_us, _now_us, _clips_mode), do: []
 
-  defp build_vertical_thumbnail_markers(markers, page_clips, source_id, from_us, to_us, now_us)
+  defp build_vertical_thumbnail_markers(markers, page_clips, from_us, to_us, now_us, clips_mode)
        when is_list(markers) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
     span_us = to_us - from_us
     min_gap_pct = 11.5
@@ -3351,9 +3402,10 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
     markers
     |> Enum.reject(&(&1.category == :recording))
+    |> Enum.filter(&marker_matches_rail_mode?(&1, clips_mode))
     |> Enum.reduce([], fn clip, acc ->
       ts = Map.get(clip, :peak_ts_us) || Map.get(clip, :start_us)
-      thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id, source_id)
+      thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
 
       if is_integer(ts) and ts >= from_us and ts <= to_us and is_binary(thumb_url) and thumb_url != "" do
         top_pct = Float.round(min(max((to_us - ts) / span_us * 100.0, 6.0), 94.0), 2)
@@ -3400,10 +3452,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp build_vertical_thumbnail_markers(_, _, _, _, _, _), do: []
 
-  defp resolve_marker_thumbnail_url(clip, clip_thumbs_by_id, source_id) do
+  defp resolve_marker_thumbnail_url(clip, clip_thumbs_by_id) do
     direct = Map.get(clip, :thumbnail_url)
     from_page = Map.get(clip_thumbs_by_id, to_string(Map.get(clip, :id)))
-    frame_id = Map.get(clip, :visual_frame_id)
 
     cond do
       is_binary(direct) and direct != "" ->
@@ -3411,9 +3462,6 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
       is_binary(from_page) and from_page != "" ->
         from_page
-
-      is_binary(frame_id) and frame_id != "" and is_binary(source_id) and source_id != "" ->
-        "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
 
       true ->
         nil
