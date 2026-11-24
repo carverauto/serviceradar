@@ -99,8 +99,8 @@ defmodule ServiceRadarWebNGWeb.OAuthAuthorizeController do
       response_type != "code" ->
         {:error, :unsupported_response_type, "Only response_type=code is supported"}
 
-      not RedirectURI.loopback?(redirect_uri) ->
-        {:error, :invalid_request, "redirect_uri must be an RFC 8252 loopback URI"}
+      not RedirectURI.allowed?(redirect_uri) ->
+        {:error, :invalid_request, "redirect_uri must be an RFC 8252 loopback URI or an allowlisted HTTPS callback URI"}
 
       method != "S256" or not is_binary(challenge) or challenge == "" ->
         redirect_error(redirect_uri, "invalid_request", "PKCE S256 code_challenge is required")

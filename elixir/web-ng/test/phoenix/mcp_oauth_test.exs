@@ -100,18 +100,67 @@ defmodule ServiceRadarWebNGWeb.McpOAuthTest do
     assert location =~ "error=invalid_request"
   end
 
-  test "authorize rejects a non-loopback redirect" do
+  test "authorize rejects a non-loopback non-allowlisted redirect" do
     {challenge, _verifier} = pkce()
+
+    for bad_uri <- [
+          "https://evil.example/oauth-callback",
+          "https://antigravity.google.evil.com/oauth-callback",
+          "https://antigravity.google/other"
+        ] do
+      RateLimiter.clear(:oauth_authorize, @ip)
+
+      conn =
+        build_conn()
+        |> Map.put(:remote_ip, {127, 0, 0, 1})
+        |> get(
+          "/oauth/authorize",
+          challenge |> authorize_params() |> Map.put("redirect_uri", bad_uri)
+        )
+
+      assert json_response(conn, 400)["error"] == "invalid_request",
+             "expected #{bad_uri} to be rejected with invalid_request"
+    end
+  end
+
+  test "authorize and token exchange accept the exact Antigravity HTTPS callback with PKCE S256", %{
+    user: user
+  } do
+    antigravity_uri = "https://antigravity.google/oauth-callback"
+    {challenge, verifier} = pkce()
 
     conn =
       build_conn()
       |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> log_in_user(user)
       |> get(
         "/oauth/authorize",
-        challenge |> authorize_params() |> Map.put("redirect_uri", "https://evil.example/cb")
+        challenge |> authorize_params() |> Map.put("redirect_uri", antigravity_uri)
       )
 
-    assert json_response(conn, 400)["error"] == "invalid_request"
+    assert redirected_to(conn) == "/oauth/consent"
+    request = get_session(conn, "mcp_oauth_request")
+    assert request["redirect_uri"] == antigravity_uri
+
+    {:ok, view, _html} = live(conn, ~p"/oauth/consent")
+    result = render_click(view, "approve", %{})
+    url = redirect_url(result)
+    assert String.starts_with?(url, antigravity_uri <> "?")
+    code = URI.decode_query(URI.parse(url).query)["code"]
+    assert is_binary(code)
+
+    token_resp =
+      token_conn(%{
+        "grant_type" => "authorization_code",
+        "code" => code,
+        "redirect_uri" => antigravity_uri,
+        "client_id" => @client_id,
+        "code_verifier" => verifier
+      })
+
+    tokens = json_response(token_resp, 200)
+    assert tokens["token_type"] == "Bearer"
+    assert is_binary(tokens["access_token"])
   end
 
   test "logged-in user is sent to consent on first grant", %{user: user} do

@@ -101,6 +101,18 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
     end)
   end
 
+  @spec horizon_intel_lookup(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
+  def horizon_intel_lookup(input, context) do
+    args = input.arguments
+
+    run_tool(context, :horizon_intel_lookup, args, [], fn ->
+      case Access.horizon_intel_lookup(scope!(context), args) do
+        {:ok, payload} -> {:ok, payload, 1}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
   @spec trace_device_identity(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def trace_device_identity(input, context) do
     args = input.arguments

@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNG.McpUnitTest do
              :execute_srql,
              :get_device,
              :get_srql_catalog,
+             :horizon_intel_lookup,
              :list_devices,
              :lookup_srql_docs
            ]
@@ -62,7 +63,31 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     assert text =~ "in:devices hostname:%edge%"
     assert text =~ "in:flows"
     assert text =~ "port:22"
+    assert text =~ "in:horizon_outages"
+    assert text =~ "in:horizon_bgp"
+    assert text =~ "in:horizon_zombies"
+    assert text =~ "in:horizon_paths"
+    assert text =~ "in:horizon_isp_accountability"
+    assert text =~ "horizon_intel_lookup"
     refute text =~ "sidebar_position"
+  end
+
+  test "live SRQL catalog exposes all Horizon entities and fields for MCP discovery" do
+    catalog = ServiceRadarWebNGWeb.SRQL.Catalog.structured()
+    entities = catalog["entities"]
+
+    for id <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability) do
+      assert {:ok, sliced} = Access.slice_srql_catalog(catalog, id)
+      assert Map.keys(sliced["entities"]) == [id]
+    end
+
+    assert "covering_prefix" in entities["horizon_outages"]["fields"]["filter"]
+    assert "corroborating_pop_count" in entities["horizon_outages"]["fields"]["numeric"]
+    assert "rpki_status" in entities["horizon_bgp"]["fields"]["filter"]
+    assert "is_beacon" in entities["horizon_zombies"]["fields"]["boolean"]
+    assert "mtu_blackhole_detected" in entities["horizon_paths"]["fields"]["boolean"]
+    assert "hop_ip" in entities["horizon_paths"]["fields"]["address"]
+    assert "first_blame_tier" in entities["horizon_isp_accountability"]["fields"]["filter"]
   end
 
   test "entity index is generated from the live catalog" do

@@ -19,7 +19,14 @@ defmodule ServiceRadarWebNG.Mcp do
 
   alias ServiceRadarWebNG.Mcp.Tools
 
-  @v1_tools [:execute_srql, :lookup_srql_docs, :get_srql_catalog, :list_devices, :get_device]
+  @v1_tools [
+    :execute_srql,
+    :lookup_srql_docs,
+    :get_srql_catalog,
+    :list_devices,
+    :get_device,
+    :horizon_intel_lookup
+  ]
   @v1_resources [:srql_grammar, :srql_entities, :srql_cookbook]
 
   @spec v1_tools() :: [atom()]
@@ -44,7 +51,7 @@ defmodule ServiceRadarWebNG.Mcp do
     Full manuals (optional): serviceradar://srql/grammar, serviceradar://srql/entities,
     serviceradar://srql/cookbook. get_srql_catalog with entity=<id> returns one field map.
 
-    list_devices and get_device bind identifiers; they are not SRQL. Do not invent SQL, JSON filters, or /api/mcp.
+    list_devices, get_device, and horizon_intel_lookup bind identifiers; they are not SRQL. Do not invent SQL, JSON filters, or /api/mcp.
     """)
   end
 
@@ -71,6 +78,7 @@ defmodule ServiceRadarWebNG.Mcp do
     tool(:get_srql_catalog, Tools, :get_srql_catalog)
     tool(:list_devices, Tools, :list_devices)
     tool(:get_device, Tools, :get_device)
+    tool(:horizon_intel_lookup, Tools, :horizon_intel_lookup)
   end
 
   mcp_resources do

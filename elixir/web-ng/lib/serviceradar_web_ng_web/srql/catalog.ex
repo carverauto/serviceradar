@@ -1004,6 +1004,181 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "horizon_outages",
+      label: "Horizon Outages",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "outage_id",
+        "status",
+        "severity",
+        "entity_type",
+        "entity_key",
+        "region",
+        "covering_prefix",
+        "origin_asn",
+        "corroborating_pop_count",
+        "avg_forwarding_loss_pct",
+        "avg_synthetic_failure_pct"
+      ],
+      numeric_fields: [
+        "origin_asn",
+        "corroborating_pop_count",
+        "avg_forwarding_loss_pct",
+        "avg_synthetic_failure_pct"
+      ],
+      exact_fields: ["outage_id", "status", "severity", "entity_type", "covering_prefix"],
+      known_values: %{
+        "status" => ["active", "resolved", "cleared"],
+        "severity" => ["critical", "major", "minor", "warning"],
+        "entity_type" => ["asn", "prefix", "region", "provider"]
+      },
+      downsample: false
+    },
+    %{
+      id: "horizon_bgp",
+      label: "Horizon BGP Anomalies",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "kind",
+      filter_fields: [
+        "event_id",
+        "kind",
+        "level",
+        "prefix",
+        "origin_asn",
+        "rpki_status",
+        "caida_leak_inference",
+        "watchlist_id",
+        "client_label"
+      ],
+      numeric_fields: ["origin_asn"],
+      exact_fields: ["event_id", "kind", "level", "prefix", "rpki_status"],
+      known_values: %{
+        "kind" => ["hijack", "leak", "flap", "watchlist"],
+        "level" => ["critical", "warning", "info"],
+        "rpki_status" => ["valid", "invalid", "not_found"]
+      },
+      downsample: false
+    },
+    %{
+      id: "horizon_zombies",
+      label: "Horizon BGP Zombies",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "episode_id",
+        "status",
+        "prefix",
+        "origin_asn",
+        "divergence_pct",
+        "is_beacon"
+      ],
+      numeric_fields: ["origin_asn", "divergence_pct"],
+      boolean_fields: ["is_beacon"],
+      exact_fields: ["episode_id", "status", "prefix"],
+      known_values: %{
+        "status" => ["active", "resolved", "cleared"],
+        "is_beacon" => ["true", "false"]
+      },
+      downsample: false
+    },
+    %{
+      id: "horizon_paths",
+      label: "Horizon Multipath Hops",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "target_id",
+      filter_fields: [
+        "round_id",
+        "target_id",
+        "pop_id",
+        "hop_ttl",
+        "hop_ip",
+        "router_alias_id",
+        "asn",
+        "as_org",
+        "is_cloud",
+        "cloud_provider",
+        "cloud_region",
+        "forwarding_loss_pct",
+        "avg_rtt_ms",
+        "mtu_blackhole_detected"
+      ],
+      numeric_fields: ["hop_ttl", "asn", "forwarding_loss_pct", "avg_rtt_ms"],
+      boolean_fields: ["is_cloud", "mtu_blackhole_detected"],
+      address_fields: ["hop_ip"],
+      exact_fields: [
+        "round_id",
+        "target_id",
+        "pop_id",
+        "router_alias_id",
+        "cloud_provider",
+        "cloud_region"
+      ],
+      known_values: %{
+        "is_cloud" => ["true", "false"],
+        "mtu_blackhole_detected" => ["true", "false"]
+      },
+      downsample: false
+    },
+    %{
+      id: "horizon_isp_accountability",
+      label: "Horizon ISP Accountability",
+      default_time: "last_24h",
+      default_sort_field: "bucket_hour",
+      default_sort_dir: "desc",
+      default_filter_field: "target_id",
+      filter_fields: [
+        "asn",
+        "as_org",
+        "target_id",
+        "forwarding_loss_pct",
+        "avg_rtt_ms",
+        "max_rtt_ms",
+        "mtu_blackhole_count",
+        "min_effective_mtu",
+        "active_outage_count",
+        "bgp_anomaly_count",
+        "bgp_zombie_count",
+        "first_blame_tier",
+        "sample_count"
+      ],
+      numeric_fields: [
+        "asn",
+        "forwarding_loss_pct",
+        "avg_rtt_ms",
+        "max_rtt_ms",
+        "mtu_blackhole_count",
+        "min_effective_mtu",
+        "active_outage_count",
+        "bgp_anomaly_count",
+        "bgp_zombie_count",
+        "sample_count"
+      ],
+      exact_fields: ["target_id", "first_blame_tier"],
+      known_values: %{
+        "first_blame_tier" => [
+          "bgp_hijack",
+          "bgp_route_leak",
+          "bgp_anomaly",
+          "bgp_zombie",
+          "active_outage",
+          "pmtud_blackhole",
+          "customer_lan",
+          "isp_transit",
+          "healthy"
+        ]
+      },
+      downsample: false
+    },
+    %{
       id: "field_survey_sessions",
       label: "FieldSurvey Sessions",
       route: "/spatial/field-surveys",
