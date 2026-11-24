@@ -40,6 +40,7 @@ DOCKERFILE_IMAGES = [
 # that way (SERVICERADAR_NATIVE_IMAGE in //scripts:sign-oci-publish.sh), never by a release.
 NATIVE_BUILD_IMAGES = [
     {"repository": "serviceradar-media-worker-cuda"},
+    {"repository": "serviceradar-camera-vlm-cuda"},
 ]
 
 def publishable_image_labels():
