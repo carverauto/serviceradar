@@ -670,6 +670,15 @@ spec:
         - protocol: TCP
           port: {{ $nvrReadPort }}
     {{- end }}
+    {{- if eq (include "serviceradar.cameraVlmEnabled" .) "true" }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-camera-vlm
+      ports:
+        - protocol: TCP
+          port: {{ include "serviceradar.cameraVlmPort" . }}
+    {{- end }}
     {{- if gt (len $s3Cidrs) 0 }}
     - to:
         {{- range $cidr := $s3Cidrs }}
