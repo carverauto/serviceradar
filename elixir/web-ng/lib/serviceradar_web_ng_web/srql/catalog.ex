@@ -1033,7 +1033,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       known_values: %{
         "status" => ["active", "resolved", "cleared"],
         "severity" => ["critical", "major", "minor", "warning"],
-        "entity_type" => ["asn", "prefix", "region", "provider"]
+        "entity_type" => ["asn", "prefix", "region", "provider", "unknown"]
       },
       downsample: false
     },

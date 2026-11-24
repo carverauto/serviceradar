@@ -324,9 +324,10 @@ in:horizon_outages avg_synthetic_failure_pct:>=50 time:last_24h sort:corroborati
 
 - Filter fields: `outage_id`, `status` (`active`, `resolved`, `cleared`),
   `severity` (`critical`, `major`, `minor`, `warning`), `entity_type` (`asn`,
-  `prefix`, `region`, `provider`), `entity_key`, `region`, `covering_prefix`,
-  `origin_asn`, `corroborating_pop_count`, `avg_forwarding_loss_pct`,
-  `avg_synthetic_failure_pct`. Use `covering_prefix:` (not `prefix:`).
+  `prefix`, `region`, `provider`, `unknown`), `entity_key`, `region`,
+  `covering_prefix`, `origin_asn`, `corroborating_pop_count`,
+  `avg_forwarding_loss_pct`, `avg_synthetic_failure_pct`. Use
+  `covering_prefix:` (not `prefix:`).
 - Sort fields: `time`, `severity`, `status`, `corroborating_pop_count`,
   `avg_forwarding_loss_pct`.
 - Returned rows also include `window_start_ms`, `window_end_ms`,
