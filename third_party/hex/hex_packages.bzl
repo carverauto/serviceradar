@@ -8,7 +8,7 @@ what hex_archive downloads.
 
 HEX_PACKAGES = [
     ("acceptor_pool", "acceptor_pool", "1.0.1", "f172f3d74513e8edd445c257d596fc84dbdd56d2c6fa287434269648ae5a421e"),
-    ("ash", "ash", "3.37.7", "e60d2b288ccad7840b0e54270b1b7c9259768405ae200a649865c617d24e2977"),
+    ("ash", "ash", "3.38.1", "ad594df16b9bde134530e5552a9f9293e96e78b9b9d7a04f73c369eb3fb9ee61"),
     ("ash_admin", "ash_admin", "1.3.2", "a20070df9008ebdbc9987eb5f3a517a361b39dddd598801373d4712a415d41af"),
     ("ash_ai", "ash_ai", "1.1.1", "a6faf5187e6828f02a2f3a65cbfd645fbf3e56f6f16e8bc66e943c119939d25f"),
     ("ash_cloak", "ash_cloak", "0.4.0", "d55bde03e90f8e31436ebec069681cbdab0875de52efe0939e5e2c3f32b91efd"),
@@ -47,7 +47,7 @@ HEX_PACKAGES = [
     ("crux", "crux", "0.1.5", "56f4941d362a262a83e5f2ba4fae2173ac2f556a03b5b3965f58b6eb0aedbba3"),
     ("ctx", "ctx", "0.6.0", "a14ed2d1b67723dbebbe423b28d7615eb0bdcba6ff28f2d1f1b0a7e1d4aa5fc2"),
     ("curve25519", "curve25519", "1.0.6", "dd714c2da20cdddca81f0b659236c8fb2119e58697326da50785b5c1bc64af9d"),
-    ("db_connection", "db_connection", "2.10.2", "510b14482330f1af6490a2fa0efd8d4f1435d1529b165647df22ac0f2df0fa93"),
+    ("db_connection", "db_connection", "2.10.3", "ff441940bfd9ef5cced632e0e36d4ac823abeb9cae2767203fb9b4ccd1bd83cb"),
     ("decimal", "decimal", "3.2.0", "190bca80580ce61aa69bb0eacadd7677710205c770225c2c2c07e32a5c31b234"),
     ("delta_crdt", "delta_crdt", "0.6.5", "c6ae23a525d30f96494186dd11bf19ed9ae21d9fe2c1f1b217d492a7cc7294ae"),
     ("dialyxir", "dialyxir", "1.4.8", "cbd5a851571e5dfeb32aaf2e840bfa98b7864cb3071bf2ef5d95d1276b12e072"),
