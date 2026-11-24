@@ -22,7 +22,7 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
   @min_timeout_ms 1_000
   @max_timeout_ms 120_000
   @max_frames 6
-  @max_tokens 160
+  @max_tokens 240
   @max_caption_bytes 4_096
   @max_action_tags 12
   @max_tag_length 48
@@ -36,7 +36,7 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
 
   @user_prompt """
   These keyframes are sampled chronologically from a single security camera event clip.
-  Describe the activity and return JSON with "caption" and "action_tags".
+  Describe the activity directly and return ONLY JSON with "caption" and "action_tags". /no_think
   """
 
   @doc """
@@ -183,19 +183,22 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
   def parse_completion_response(_), do: {:error, :invalid_vlm_response}
 
   defp parse_structured_content(raw_content) when is_binary(raw_content) do
-    cleaned =
-      raw_content
-      |> strip_think_blocks()
-      |> strip_code_fences()
+    without_closed_think = strip_think_blocks(raw_content)
 
-    case decode_json_object(cleaned) do
-      {:ok, %{} = obj} ->
-        raw_caption = Map.get(obj, "caption") || Map.get(obj, "caption_text")
-        raw_tags = Map.get(obj, "action_tags") || Map.get(obj, "tags") || []
-        normalize_caption_payload(raw_caption, raw_tags)
+    if unclosed_think_block?(without_closed_think) do
+      {:error, :truncated_thinking_response}
+    else
+      cleaned = strip_code_fences(without_closed_think)
 
-      _ ->
-        normalize_caption_payload(cleaned, [])
+      case decode_json_object(cleaned) do
+        {:ok, %{} = obj} ->
+          raw_caption = Map.get(obj, "caption") || Map.get(obj, "caption_text")
+          raw_tags = Map.get(obj, "action_tags") || Map.get(obj, "tags") || []
+          normalize_caption_payload(raw_caption, raw_tags)
+
+        _ ->
+          normalize_caption_payload(cleaned, [])
+      end
     end
   end
 
@@ -261,6 +264,10 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
     |> String.trim()
   end
 
+  defp unclosed_think_block?(text) do
+    Regex.match?(~r/<think>/iu, text)
+  end
+
   defp strip_code_fences(text) do
     trimmed = String.trim(text)
 
@@ -316,6 +323,8 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
       "model" => model_id,
       "temperature" => 0.1,
       "max_tokens" => @max_tokens,
+      "enable_thinking" => false,
+      "chat_template_kwargs" => %{"enable_thinking" => false},
       "response_format" => %{"type" => "json_object"},
       "messages" => [
         %{"role" => "system", "content" => String.trim(@system_prompt)},

@@ -71,6 +71,9 @@ defmodule ServiceRadar.Camera.VisualCaptionUnitTest do
                        _headers, 25_000}
 
       assert payload["model"] == "qwen2.5-vl-7b-instruct"
+      assert payload["max_tokens"] == 240
+      assert payload["enable_thinking"] == false
+      assert payload["chat_template_kwargs"] == %{"enable_thinking" => false}
       [_sys, %{"role" => "user", "content" => content_parts}] = payload["messages"]
       image_parts = Enum.filter(content_parts, &(&1["type"] == "image_url"))
       assert length(image_parts) == 2
@@ -146,6 +149,57 @@ defmodule ServiceRadar.Camera.VisualCaptionUnitTest do
       assert {:ok, embedded} = VisualCaptionClient.parse_completion_response(think_prose_json)
       assert embedded.caption_text == "A cyclist rides past the driveway."
       assert embedded.action_tags == ["cycling"]
+
+      think_direct_json = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" =>
+                ~s(<think>Short thought.</think> {"caption": "A van pulls into the driveway.", "action_tags": ["driving", "parking"]})
+            }
+          }
+        ]
+      }
+
+      assert {:ok, direct} = VisualCaptionClient.parse_completion_response(think_direct_json)
+      assert direct.caption_text == "A van pulls into the driveway."
+      assert direct.action_tags == ["driving", "parking"]
+    end
+
+    test "parse_completion_response/1 rejects unclosed <think> blocks as truncated_thinking_response" do
+      truncated_think = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" =>
+                "<think>\nThe user wants me to describe the video clip. Frame 1 shows a driveway and..."
+            }
+          }
+        ]
+      }
+
+      assert {:error, :truncated_thinking_response} =
+               VisualCaptionClient.parse_completion_response(truncated_think)
+
+      uppercase_truncated = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" => "  <THINK>Reasoning cut off at max_tokens"
+            }
+          }
+        ]
+      }
+
+      assert {:error, :truncated_thinking_response} =
+               VisualCaptionClient.parse_completion_response(uppercase_truncated)
+
+      truncated_client = fn _url, _payload, _headers, _timeout ->
+        {:ok, %{status: 200, body: truncated_think}}
+      end
+
+      assert {:error, :truncated_thinking_response} =
+               VisualCaptionClient.caption_frames([<<1, 2, 3>>], http_client: truncated_client)
     end
 
     test "parse_completion_response/1 falls back to trimmed plain-text prose when content is not JSON" do
