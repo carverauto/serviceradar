@@ -1,7 +1,7 @@
 # Design: Horizon StarRocks Tables, EventWriter Projection, and SRQL Entities
 
 ## Context
-Horizon telemetry enters ServiceRadar through `serviceradar-agent` -> `agent-gateway` -> NATS -> `EventWriter`. Agents never connect to CNPG or StarRocks directly. The OCSF `Events` processor persists incoming `log_activity` payloads to the primary event store, and Horizon events carry structured domain attributes inside `unmapped` with `log_name` values `"horizon.outage"`, `"horizon.bgp_anomaly"`, `"horizon.bgp_zombie"`, and `"horizon.bgp_watchlist"`.
+Horizon telemetry enters ServiceRadar through `serviceradar-agent` -> `agent-gateway` -> NATS -> `EventWriter`. Agents never connect to CNPG or StarRocks directly. The OCSF `Events` processor persists incoming `log_activity` payloads to the primary event store, and Horizon events carry structured domain attributes inside `unmapped` with `log_name` values `"horizon.outage"`, `"horizon.bgp_anomaly"`, `"horizon.bgp_zombie"`, `"horizon.bgp_watchlist"`, and `"horizon.path_hop"`.
 
 New telemetry features in ServiceRadar are StarRocks-only and do not maintain CNPG dual-write parity.
 
@@ -13,7 +13,6 @@ New telemetry features in ServiceRadar are StarRocks-only and do not maintain CN
 - Non-Goals:
   - Do not create CNPG tables, Ecto migrations, CNPG `DataRetentionWorker` entries, or Diesel CNPG query builders for Horizon telemetry.
   - Do not bundle private `plugins/horizon-feed` artifacts or private Horizon dashboards in `carverauto/serviceradar`.
-  - Do not implement the `horizon_path_hops` writer yet (it lands with the `horizon-probe` Native Add-On).
 
 ## Decisions
 - **StarRocks-Only Storage & Retention**: `priv/starrocks/0044_horizon_tables.sql` defines daily partitioning (`PARTITION BY date_trunc('day', time)`) and `partition_live_number` (`30` for outages/BGP/zombies, `14` for path hops). Composite Primary Keys starting with `time` deduplicate JetStream redeliveries cleanly.

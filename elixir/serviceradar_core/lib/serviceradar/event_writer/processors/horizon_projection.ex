@@ -1,8 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   @moduledoc """
   Fail-open StarRocks projection from Horizon OCSF `log_activity` event rows
-  into `serviceradar.horizon_outages`, `serviceradar.horizon_bgp_events`, and
-  `serviceradar.horizon_bgp_zombies`.
+  into `serviceradar.horizon_outages`, `serviceradar.horizon_bgp_events`,
+  `serviceradar.horizon_bgp_zombies`, and `serviceradar.horizon_path_hops`.
 
   Called by `ServiceRadar.EventWriter.Processors.Events` after OCSF rows are
   persisted. Batches containing no `horizon.*` `log_name` values—or running on
@@ -46,10 +46,11 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
   @spec build_projections([map()]) :: %{
           outages: [map()],
           bgp_events: [map()],
-          bgp_zombies: [map()]
+          bgp_zombies: [map()],
+          path_hops: [map()]
         }
   def build_projections(rows) when is_list(rows) do
-    initial = %{outages: [], bgp_events: [], bgp_zombies: []}
+    initial = %{outages: [], bgp_events: [], bgp_zombies: [], path_hops: []}
 
     grouped =
       Enum.reduce(rows, initial, fn row, acc ->
@@ -57,6 +58,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
           {:outage, projected} -> %{acc | outages: [projected | acc.outages]}
           {:bgp_event, projected} -> %{acc | bgp_events: [projected | acc.bgp_events]}
           {:bgp_zombie, projected} -> %{acc | bgp_zombies: [projected | acc.bgp_zombies]}
+          {:path_hop, projected} -> %{acc | path_hops: [projected | acc.path_hops]}
           :ignore -> acc
         end
       end)
@@ -65,7 +67,11 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
       outages: grouped.outages |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.outage_id}),
       bgp_events: grouped.bgp_events |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.event_id}),
       bgp_zombies:
-        grouped.bgp_zombies |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.episode_id})
+        grouped.bgp_zombies |> Enum.reverse() |> dedupe_by_key(&{&1.time, &1.episode_id}),
+      path_hops:
+        grouped.path_hops
+        |> Enum.reverse()
+        |> dedupe_by_key(&{&1.time, &1.round_id, &1.target_id, &1.pop_id, &1.hop_ttl})
     }
   end
 
@@ -80,6 +86,7 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
     load_table(load_fn, :horizon_outages, projections.outages)
     load_table(load_fn, :horizon_bgp_events, projections.bgp_events)
     load_table(load_fn, :horizon_bgp_zombies, projections.bgp_zombies)
+    load_table(load_fn, :horizon_path_hops, projections.path_hops)
 
     :ok
   end
@@ -226,6 +233,42 @@ defmodule ServiceRadar.EventWriter.Processors.HorizonProjection do
          stuck_peer_asns: list_or_empty(unmapped["stuck_peer_asns"]),
          first_seen_at: parse_optional_timestamp(unmapped["first_seen"]),
          resolved_at: resolved_at,
+         raw_data: unmapped
+       }}
+    end
+  end
+
+  defp project_row(%{log_name: "horizon.path_hop", time: time} = row) do
+    unmapped = unmapped_map(row)
+    round_id = non_empty_string(unmapped["round_id"])
+    target_id = non_empty_string(unmapped["target_id"])
+    pop_id = non_empty_string(unmapped["pop_id"])
+    hop_ttl = parse_int(unmapped["hop_ttl"])
+
+    if is_nil(round_id) or is_nil(target_id) or is_nil(pop_id) or not is_integer(hop_ttl) or
+         hop_ttl < 0 do
+      :ignore
+    else
+      {:path_hop,
+       %{
+         time: normalize_time(time),
+         round_id: round_id,
+         target_id: target_id,
+         pop_id: pop_id,
+         hop_ttl: hop_ttl,
+         hop_ip: non_empty_string(unmapped["hop_ip"]),
+         router_alias_id: non_empty_string(unmapped["router_alias_id"]),
+         alias_confidence: parse_float(unmapped["alias_confidence"]),
+         asn: parse_asn(unmapped["asn"]),
+         as_org: non_empty_string(unmapped["as_org"]),
+         is_cloud: parse_bool(unmapped["is_cloud"]),
+         cloud_provider: non_empty_string(unmapped["cloud_provider"]),
+         cloud_region: non_empty_string(unmapped["cloud_region"]),
+         forwarding_loss_pct: parse_float(unmapped["forwarding_loss_pct"]),
+         avg_rtt_ms: parse_float(unmapped["avg_rtt_ms"]),
+         effective_path_mtu: parse_int(unmapped["effective_path_mtu"]),
+         mtu_blackhole_detected: parse_bool(unmapped["mtu_blackhole_detected"]),
+         blackhole_hop_ttl: parse_int(unmapped["blackhole_hop_ttl"]),
          raw_data: unmapped
        }}
     end
