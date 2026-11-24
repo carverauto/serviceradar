@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_profile_id, :string, default: ""
   attr :timeline_span, :string, default: "1h"
   attr :timeline_source, :string, default: "auto"
+  attr :timeline_anchored_latest?, :boolean, default: true
   attr :timeline_coverage, :map, default: nil
   attr :archive_playback_available, :boolean, default: false
   attr :timeline_playlist_path, :string, default: nil
@@ -205,6 +206,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         timeline_profile_id={@timeline_profile_id}
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
+        timeline_anchored_latest?={@timeline_anchored_latest?}
         timeline_coverage={@timeline_coverage}
         archive_playback_available={@archive_playback_available}
         timeline_playlist_path={@timeline_playlist_path}
@@ -418,6 +420,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :timeline_profile_id, :string, required: true
   attr :timeline_span, :string, required: true
   attr :timeline_source, :string, required: true
+  attr :timeline_anchored_latest?, :boolean, default: true
   attr :timeline_coverage, :map, default: nil
   attr :archive_playback_available, :boolean, default: false
   attr :timeline_playlist_path, :string, default: nil
@@ -483,15 +486,33 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     clips_page = min(max(assigns.timeline_clips_page || 1, 1), clips_total_pages)
 
     now_us = System.system_time(:microsecond)
+    active_source_id = assigns.source && to_string(assigns.source.id)
     event_markers = build_event_markers(assigns.timeline_event_markers || [], cov_from_us, cov_to_us, now_us)
+
+    vertical_event_thumbs =
+      build_vertical_thumbnail_markers(
+        assigns.timeline_event_markers || [],
+        assigns.timeline_event_clips || [],
+        active_source_id,
+        cov_from_us,
+        cov_to_us,
+        now_us
+      )
+
+    window_scrubber_events =
+      build_window_scrubber_events(
+        assigns.timeline_event_markers || [],
+        assigns.timeline_playlist_origin_us || assigns.timeline_play_from_us,
+        assigns.timeline_play_to_us
+      )
+
     hit_markers = build_hit_markers(assigns.timeline_search_results, cov_from_us, cov_to_us)
 
     play_window_band =
       build_play_window_band(assigns.timeline_play_from_us, assigns.timeline_play_to_us, cov_from_us, cov_to_us)
 
     time_ticks = build_vertical_time_ticks(cov_from_us, cov_to_us)
-
-    active_source_id = assigns.source && to_string(assigns.source.id)
+    timeline_date_label = format_rail_date_label(cov_to_us || now_us, assigns.timezone)
 
     other_switcher_cameras =
       Enum.reject(assigns.switcher_cameras || [], &(to_string(&1.id) == active_source_id))
@@ -521,8 +542,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:reanchors, reanchors)
       |> assign(:hit_markers, hit_markers)
       |> assign(:event_markers, event_markers)
+      |> assign(:vertical_event_thumbs, vertical_event_thumbs)
+      |> assign(:window_scrubber_events, window_scrubber_events)
       |> assign(:play_window_band, play_window_band)
       |> assign(:time_ticks, time_ticks)
+      |> assign(:timeline_date_label, timeline_date_label)
       |> assign(:clip_counts, clip_counts)
       |> assign(:filtered_event_clip_total, filtered_event_clip_total)
       |> assign(:filtered_event_clips, filtered_event_clips)
@@ -555,7 +579,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       <%!-- 3-Pane Scalable Workspace: Left Camera Switcher | Middle Vertical Timeline | Main Video Stage --%>
       <div
         id="camera-timeline-workspace"
-        class="grid gap-3 lg:grid-cols-[15rem_9.5rem_minmax(0,1fr)]"
+        class="grid gap-3 lg:grid-cols-[14.5rem_11.5rem_minmax(0,1fr)]"
       >
         <%!-- PANE 1 (Left Rail): Scalable Server-Side Paginated Camera Switcher --%>
         <aside
@@ -731,20 +755,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             </button>
           </div>
 
-          <%!-- Zoom - / + and Span Selector --%>
-          <div class="mt-2 flex items-center justify-between gap-1">
-            <button
-              id="camera-timeline-zoom-in"
-              type="button"
-              phx-click="zoom_timeline_span"
-              phx-value-direction="in"
-              disabled={@timeline_span == "15m"}
-              title="Zoom in"
-              class="flex size-6 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+          <%!-- Top Date Label + UniFi Protect-Style Zoom Slider (- ━━●━━ +) --%>
+          <div class="mt-2 flex items-center justify-between gap-1 text-[10px]">
+            <span
+              id="camera-timeline-date-label"
+              class="truncate font-medium text-sr-muted"
             >
-              +
-            </button>
-            <span class="font-mono text-[11px] font-semibold text-sr-ink">{@timeline_span}</span>
+              {@timeline_date_label}
+            </span>
+            <span class="shrink-0 rounded bg-sr-canvas px-1 py-0.5 font-mono text-[10px] font-semibold text-sr-ink">
+              {@timeline_span}
+            </span>
+          </div>
+
+          <form
+            id="camera-timeline-zoom-form"
+            phx-change="set_timeline_zoom"
+            class="mt-1 flex items-center gap-1"
+          >
             <button
               id="camera-timeline-zoom-out"
               type="button"
@@ -752,11 +780,34 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               phx-value-direction="out"
               disabled={@timeline_span == "7d"}
               title="Zoom out"
-              class="flex size-6 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+              class="flex size-5 shrink-0 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
             >
               -
             </button>
-          </div>
+            <label for="camera-timeline-zoom-slider" class="sr-only">Timeline zoom level</label>
+            <input
+              id="camera-timeline-zoom-slider"
+              type="range"
+              name="zoom"
+              min="0"
+              max="4"
+              step="1"
+              value={span_zoom_index(@timeline_span)}
+              aria-label="Timeline zoom level"
+              class="h-1 min-w-0 flex-1 cursor-pointer accent-sky-500"
+            />
+            <button
+              id="camera-timeline-zoom-in"
+              type="button"
+              phx-click="zoom_timeline_span"
+              phx-value-direction="in"
+              disabled={@timeline_span == "15m"}
+              title="Zoom in"
+              class="flex size-5 shrink-0 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+            >
+              +
+            </button>
+          </form>
 
           <div
             id="camera-timeline-span-selector"
@@ -833,9 +884,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
           <%!-- Vertical Interactive Coverage Bar (Newest Top -> Oldest Bottom) --%>
           <div class="mt-2 flex min-h-[15rem] flex-1 gap-1.5 overflow-hidden">
-            <%!-- Left Time Ticks Column --%>
-            <div class="flex w-11 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight text-sr-muted">
-              <span :if={coverage_field(@coverage, :to_us)} id="camera-timeline-span-end">
+            <%!-- Left Time Ticks Column (smoothly updated every 1s when anchored to latest/live) --%>
+            <div class="flex w-12 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight text-sr-muted">
+              <span
+                :if={coverage_field(@coverage, :to_us)}
+                id="camera-timeline-span-end"
+                data-role="vertical-tick-label"
+                data-tick-fraction="0"
+              >
                 <.user_time
                   id="camera-timeline-span-end-time"
                   value={us_to_datetime(coverage_field(@coverage, :to_us))}
@@ -843,7 +899,11 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   style={:compact}
                 />
               </span>
-              <span :for={{tick_us, idx} <- Enum.with_index(@time_ticks)}>
+              <span
+                :for={{tick_us, idx} <- Enum.with_index(@time_ticks)}
+                data-role="vertical-tick-label"
+                data-tick-fraction={Float.to_string((idx + 1) * 0.25)}
+              >
                 <.user_time
                   id={"camera-timeline-tick-#{idx}"}
                   value={us_to_datetime(tick_us)}
@@ -851,7 +911,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   style={:compact}
                 />
               </span>
-              <span :if={coverage_field(@coverage, :from_us)} id="camera-timeline-span-start">
+              <span
+                :if={coverage_field(@coverage, :from_us)}
+                id="camera-timeline-span-start"
+                data-role="vertical-tick-label"
+                data-tick-fraction="1"
+              >
                 <.user_time
                   id="camera-timeline-span-start-time"
                   value={us_to_datetime(coverage_field(@coverage, :from_us))}
@@ -861,34 +926,54 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               </span>
             </div>
 
-            <%!-- Click-to-Seek Vertical Rail --%>
+            <%!-- Click-to-Seek Vertical Rail with Continuous Track, Event Pills & Inline Mini Thumbnails --%>
             <div
               id="camera-timeline-coverage-bar"
               phx-hook="CameraVerticalTimeline"
-              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas p-0.5"
+              data-from-us={coverage_field(@coverage, :from_us)}
+              data-to-us={coverage_field(@coverage, :to_us)}
+              data-anchored-latest={to_string(@timeline_anchored_latest?)}
+              data-timezone={@timezone}
+              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas px-1 py-0.5"
               title="Click anywhere on the timeline to seek"
             >
-              <%= if @vertical_buckets == [] do %>
-                <div
-                  data-bucket-state="not_scheduled"
-                  class="flex h-full w-full items-center justify-center text-center text-[10px] text-sr-muted"
-                >
-                  Not scheduled
-                </div>
-              <% else %>
-                <div
-                  :for={{bucket, idx} <- @vertical_buckets}
-                  id={"camera-timeline-bucket-#{idx}"}
-                  data-bucket-state={bucket_state_name(bucket)}
-                  data-provisional={to_string(bucket_provisional?(bucket))}
-                  title={bucket_title(bucket)}
-                  class={[
-                    "w-full flex-1 border-b border-sr-surface/20 last:border-b-0",
-                    bucket_color_class(bucket_state_name(bucket))
-                  ]}
-                >
-                </div>
-              <% end %>
+              <%!-- Pinned LIVE Playhead Line near Top when Anchored to Latest/Live Edge --%>
+              <div
+                :if={@timeline_anchored_latest?}
+                id="camera-timeline-live-playhead"
+                data-role="vertical-live-playhead"
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-x-0 top-1 z-[14] flex items-center"
+              >
+                <span class="rounded-xs bg-sky-500 px-1 py-[1px] font-mono text-[8px] font-bold leading-none tracking-wider text-white shadow-xs">
+                  LIVE
+                </span>
+                <span class="h-[1.5px] flex-1 bg-sky-400/90 shadow-[0_0_6px_rgba(56,189,248,0.85)]"></span>
+              </div>
+
+              <%!-- Continuous Sleek Vertical Recording Track --%>
+              <div class="relative ml-2 flex h-full w-3 flex-col overflow-hidden rounded-full bg-zinc-900/15 dark:bg-zinc-900/60">
+                <%= if @vertical_buckets == [] do %>
+                  <div
+                    data-bucket-state="not_scheduled"
+                    class="flex h-full w-full items-center justify-center text-center text-[9px] text-sr-muted"
+                  >
+                  </div>
+                <% else %>
+                  <div
+                    :for={{bucket, idx} <- @vertical_buckets}
+                    id={"camera-timeline-bucket-#{idx}"}
+                    data-bucket-state={bucket_state_name(bucket)}
+                    data-provisional={to_string(bucket_provisional?(bucket))}
+                    title={bucket_title(bucket)}
+                    class={[
+                      "w-full flex-1 border-b border-sr-surface/15 last:border-b-0",
+                      bucket_color_class(bucket_state_name(bucket))
+                    ]}
+                  >
+                  </div>
+                <% end %>
+              </div>
 
               <%!-- Active Playback Window Indicator --%>
               <div
@@ -896,36 +981,67 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 id="camera-timeline-active-window-band"
                 aria-hidden="true"
                 style={"top: #{@play_window_band.top_pct}%; height: #{@play_window_band.height_pct}%"}
-                class="pointer-events-none absolute inset-x-0 z-[3] border-y-2 border-white bg-white/15"
+                class="pointer-events-none absolute inset-x-0 z-[3] border-y border-sky-400/80 bg-sky-400/10"
               >
               </div>
 
-              <%!-- Hover Crosshair --%>
+              <%!-- Hover Crosshair with Live Timestamp Pill --%>
               <div
                 data-role="vertical-timeline-hover"
                 hidden
                 aria-hidden="true"
-                class="pointer-events-none absolute inset-x-0 z-[15] h-0.5 bg-white/90"
+                class="pointer-events-none absolute inset-x-0 z-[15] flex items-center"
               >
+                <span class="h-0.5 flex-1 bg-white/90 shadow-xs"></span>
+                <span
+                  data-role="vertical-timeline-hover-time"
+                  class="rounded-xs bg-zinc-950/90 px-1 py-[1px] font-mono text-[8px] leading-none text-white"
+                ></span>
               </div>
 
-              <%!-- Detection Event Markers along Vertical Rail --%>
+              <%!-- Brighter Rounded Detection Event Pills along Vertical Track --%>
               <button
                 :for={marker <- @event_markers}
                 id={"camera-timeline-event-marker-#{marker.idx}"}
                 type="button"
                 data-role="event-clip-marker"
                 data-clip-category={to_string(marker.category)}
+                data-event-ts-us={marker.ts_us}
                 phx-click="select_event_clip"
                 phx-value-clip_id={marker.clip_id}
                 title={marker.title}
                 style={"top: #{marker.top_pct}%"}
                 class={[
-                  "absolute right-0 z-[6] h-1.5 w-3.5 -translate-y-1/2 rounded-l-full ring-1 ring-black/60 transition-transform hover:w-full",
+                  "absolute left-1.5 z-[7] h-2 w-4 -translate-y-1/2 rounded-full shadow-xs ring-1 ring-black/60 transition-all hover:scale-125 hover:ring-white",
                   event_marker_color_class(marker.category)
                 ]}
               >
                 <span class="sr-only">{marker.title}</span>
+              </button>
+
+              <%!-- Inline Mini Square Event Thumbnails (de-overlapped beside event pills) --%>
+              <button
+                :for={thumb <- @vertical_event_thumbs}
+                id={"camera-timeline-event-thumb-#{thumb.idx}"}
+                type="button"
+                data-role="event-thumb-marker"
+                data-clip-category={to_string(thumb.category)}
+                data-event-ts-us={thumb.ts_us}
+                phx-click="select_event_clip"
+                phx-value-clip_id={thumb.clip_id}
+                title={thumb.title}
+                style={"top: #{thumb.top_pct}%"}
+                class={[
+                  "group absolute right-1 z-[8] size-9 -translate-y-1/2 overflow-hidden rounded-md border bg-zinc-950 shadow-sm transition-transform hover:z-[12] hover:scale-110 focus-visible:outline-2 focus-visible:outline-sky-400",
+                  event_thumb_border_class(thumb.category)
+                ]}
+              >
+                <img
+                  src={thumb.thumbnail_url}
+                  alt={thumb.title}
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                />
               </button>
 
               <%!-- Semantic Hit Markers along Vertical Rail --%>
@@ -1309,6 +1425,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-seek-offset-seconds={format_seek_offset_attr(@timeline_seek_offset_seconds)}
               data-highlight-frame-id={@timeline_highlight_frame_id || ""}
               data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
+              data-window-events={Jason.encode!(@window_scrubber_events)}
               class={[(@live_mode? or @timeline_playlist_path in [nil, ""]) && "hidden"]}
             >
               <div
@@ -1327,6 +1444,80 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   aria-hidden="true"
                   class="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
                 ></svg>
+              </div>
+
+              <%!-- Event-Highlighted Interactive Horizontal Playback Scrubber --%>
+              <div
+                id="camera-timeline-scrubber"
+                data-role="playback-scrubber"
+                role="slider"
+                aria-label="Playback timeline scrubber"
+                aria-valuemin="0"
+                aria-valuenow="0"
+                aria-valuemax="0"
+                tabindex="0"
+                class="mt-2 select-none rounded-lg border border-sr-line bg-zinc-950/90 px-2.5 pt-2 pb-1.5"
+              >
+                <div
+                  data-role="scrubber-track"
+                  class="relative h-6 w-full cursor-pointer rounded-md bg-zinc-800/80"
+                >
+                  <%!-- Buffered Range --%>
+                  <div
+                    data-role="scrubber-buffered"
+                    style="width: 0%"
+                    class="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-zinc-700/60"
+                  >
+                  </div>
+
+                  <%!-- Elapsed Playback Progress Fill --%>
+                  <div
+                    data-role="scrubber-progress"
+                    style="width: 0%"
+                    class="pointer-events-none absolute inset-y-0 left-0 rounded-l-md bg-sky-500/25"
+                  >
+                  </div>
+
+                  <%!-- Colored Event Highlight Pills (populated by CameraTimelinePlayer) --%>
+                  <div
+                    data-role="scrubber-events"
+                    class="absolute inset-0 z-[4]"
+                  >
+                  </div>
+
+                  <%!-- Hover Hairline & Timestamp Pill --%>
+                  <div
+                    data-role="scrubber-hover-line"
+                    hidden
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/75"
+                  >
+                  </div>
+                  <div
+                    data-role="scrubber-hover-tooltip"
+                    hidden
+                    aria-hidden="true"
+                    class="pointer-events-none absolute -top-6 z-[12] -translate-x-1/2 whitespace-nowrap rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white shadow-md ring-1 ring-white/15"
+                  >
+                  </div>
+
+                  <%!-- Smooth Real-Time Playhead Line --%>
+                  <div
+                    data-role="scrubber-playhead"
+                    style="left: 0%"
+                    aria-hidden="true"
+                    class="pointer-events-none absolute -top-0.5 -bottom-0.5 z-[10] w-0.5 -translate-x-1/2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.95)]"
+                  >
+                    <span class="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-sky-400 ring-1 ring-white"></span>
+                  </div>
+                </div>
+
+                <%!-- Subtle Scrubber Time Ticks --%>
+                <div
+                  data-role="scrubber-ticks"
+                  class="mt-1 flex items-center justify-between font-mono text-[9px] text-zinc-400"
+                >
+                </div>
               </div>
 
               <%!-- Compact Player Transport Bar (managed by CameraTimelinePlayer hook) --%>
@@ -2736,10 +2927,37 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp clip_badge_bg_class(_), do: "bg-black/75"
 
   defp event_marker_color_class(:person), do: "bg-sky-400"
-  defp event_marker_color_class(:vehicle), do: "bg-emerald-400"
+  defp event_marker_color_class(:vehicle), do: "bg-cyan-400"
   defp event_marker_color_class(:animal), do: "bg-amber-400"
   defp event_marker_color_class(:package), do: "bg-violet-400"
-  defp event_marker_color_class(_), do: "bg-zinc-300"
+  defp event_marker_color_class(_), do: "bg-slate-200"
+
+  defp event_thumb_border_class(:person), do: "border-sky-400/80"
+  defp event_thumb_border_class(:vehicle), do: "border-cyan-400/80"
+  defp event_thumb_border_class(:animal), do: "border-amber-400/80"
+  defp event_thumb_border_class(:package), do: "border-violet-400/80"
+  defp event_thumb_border_class(_), do: "border-sr-line"
+
+  defp span_zoom_index("7d"), do: 0
+  defp span_zoom_index("24h"), do: 1
+  defp span_zoom_index("6h"), do: 2
+  defp span_zoom_index("1h"), do: 3
+  defp span_zoom_index("15m"), do: 4
+  defp span_zoom_index(_), do: 3
+
+  defp format_rail_date_label(ts_us, timezone) when is_integer(ts_us) do
+    dt = DateTime.from_unix!(ts_us, :microsecond)
+
+    localized =
+      case DateTime.shift_zone(dt, timezone || "Etc/UTC") do
+        {:ok, shifted} -> shifted
+        _ -> dt
+      end
+
+    Calendar.strftime(localized, "%b %d")
+  end
+
+  defp format_rail_date_label(_, _), do: "Today"
 
   defp build_event_markers(clips, from_us, to_us, now_us)
        when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
@@ -2766,6 +2984,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         idx: idx,
         clip_id: clip.id,
         category: clip.category,
+        ts_us: ts,
         top_pct: top_pct,
         title: "#{clip.label}#{conf_suffix} — #{age_label}"
       }
@@ -2773,6 +2992,129 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   end
 
   defp build_event_markers(_clips, _from_us, _to_us, _now_us), do: []
+
+  defp build_vertical_thumbnail_markers(markers, page_clips, source_id, from_us, to_us, now_us)
+       when is_list(markers) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
+    span_us = to_us - from_us
+    min_gap_pct = 11.5
+    max_thumbs = 8
+
+    clip_thumbs_by_id =
+      page_clips
+      |> List.wrap()
+      |> Enum.reduce(%{}, fn clip, acc ->
+        url = Map.get(clip, :thumbnail_url)
+        id = Map.get(clip, :id)
+
+        if is_binary(url) and url != "" and not is_nil(id) do
+          Map.put(acc, to_string(id), url)
+        else
+          acc
+        end
+      end)
+
+    markers
+    |> Enum.reject(&(&1.category == :recording))
+    |> Enum.reduce([], fn clip, acc ->
+      ts = Map.get(clip, :peak_ts_us) || Map.get(clip, :start_us)
+      thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id, source_id)
+
+      if is_integer(ts) and ts >= from_us and ts <= to_us and is_binary(thumb_url) and thumb_url != "" do
+        top_pct = Float.round(min(max((to_us - ts) / span_us * 100.0, 6.0), 94.0), 2)
+
+        conf_suffix =
+          if is_number(Map.get(clip, :confidence)),
+            do: " (#{format_hit_score(Map.get(clip, :confidence))})",
+            else: ""
+
+        age_label = format_relative_age(ts, now_us)
+
+        [
+          %{
+            clip_id: clip.id,
+            category: clip.category,
+            ts_us: ts,
+            top_pct: top_pct,
+            thumbnail_url: thumb_url,
+            title: "#{clip.label}#{conf_suffix} — #{age_label}"
+          }
+          | acc
+        ]
+      else
+        acc
+      end
+    end)
+    |> Enum.sort_by(& &1.top_pct)
+    |> Enum.reduce([], fn candidate, kept ->
+      cond do
+        length(kept) >= max_thumbs ->
+          kept
+
+        Enum.any?(kept, fn existing -> abs(existing.top_pct - candidate.top_pct) < min_gap_pct end) ->
+          kept
+
+        true ->
+          [candidate | kept]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.map(fn {thumb, idx} -> Map.put(thumb, :idx, idx) end)
+  end
+
+  defp build_vertical_thumbnail_markers(_, _, _, _, _, _), do: []
+
+  defp resolve_marker_thumbnail_url(clip, clip_thumbs_by_id, source_id) do
+    direct = Map.get(clip, :thumbnail_url)
+    from_page = Map.get(clip_thumbs_by_id, to_string(Map.get(clip, :id)))
+    frame_id = Map.get(clip, :visual_frame_id)
+
+    cond do
+      is_binary(direct) and direct != "" ->
+        direct
+
+      is_binary(from_page) and from_page != "" ->
+        from_page
+
+      is_binary(frame_id) and frame_id != "" and is_binary(source_id) and source_id != "" ->
+        "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
+
+      true ->
+        nil
+    end
+  end
+
+  defp build_window_scrubber_events(markers, play_from_us, play_to_us)
+       when is_list(markers) and is_integer(play_from_us) and is_integer(play_to_us) and play_to_us > play_from_us do
+    markers
+    |> Enum.reject(&(&1.category == :recording))
+    |> Enum.reduce([], fn clip, acc ->
+      clip_start = Map.get(clip, :start_us) || Map.get(clip, :peak_ts_us)
+      clip_end = Map.get(clip, :end_us) || clip_start
+
+      if is_integer(clip_start) and is_integer(clip_end) and
+           clip_end >= play_from_us and clip_start <= play_to_us do
+        start_offset = max((clip_start - play_from_us) / 1_000_000, 0.0)
+        end_offset = max((min(clip_end, play_to_us) - play_from_us) / 1_000_000, start_offset)
+
+        [
+          %{
+            category: to_string(clip.category),
+            label: clip.label || to_string(clip.category),
+            start_offset_seconds: Float.round(start_offset, 3),
+            end_offset_seconds: Float.round(end_offset, 3),
+            confidence: Map.get(clip, :confidence)
+          }
+          | acc
+        ]
+      else
+        acc
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp build_window_scrubber_events(_, _, _), do: []
 
   defp clip_selected?(clip, selected_clip_id, play_from_us, play_to_us) do
     cond do

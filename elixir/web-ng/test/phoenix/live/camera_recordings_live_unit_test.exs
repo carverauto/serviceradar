@@ -2153,6 +2153,23 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveUnitTest do
 
       assert ptz_blocked.assigns.roi_feedback == "Detection zones are not applicable for PTZ cameras."
     end
+
+    test "set_timeline_zoom slider maps 0..4 smoothly between 7d and 15m spans" do
+      deps =
+        stub_deps(%{
+          coverage: fn source_id, params, _scope ->
+            {:ok, empty_coverage(source_id, params.from_us, params.to_us)}
+          end
+        })
+
+      socket = mount_connected(@camera_id, deps, refresh_interval_ms: 60_000, debounce_ms: 0)
+      on_exit(fn -> cancel_timers(socket) end)
+
+      for {zoom_val, expected_span} <- [{"0", "7d"}, {"1", "24h"}, {"2", "6h"}, {"3", "1h"}, {"4", "15m"}] do
+        {:noreply, updated} = Recordings.handle_event("set_timeline_zoom", %{"zoom" => zoom_val}, socket)
+        assert updated.assigns.timeline_span == expected_span
+      end
+    end
   end
 
   defp cancel_timers(socket) do

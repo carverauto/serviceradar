@@ -2,11 +2,16 @@ import {afterEach, describe, expect, it, vi} from "vitest"
 
 import CameraTimelinePlayer, {
   buildOverlaySvgMarkup,
+  buildScrubberEventSegments,
+  computeScrubberFraction,
   computeVideoContentRect,
   createSerialFragmentLoader,
   escapeOverlayText,
   extractRecordingCopy,
+  formatScrubberTime,
+  normalizeEventCategory,
   parseOverlayDetections,
+  parseScrubberEvents,
   projectDetectionBox,
 } from "./CameraTimelinePlayer"
 
@@ -591,6 +596,142 @@ describe("CameraTimelinePlayer hook", () => {
     expect(instances).toHaveLength(1)
     expect(instances[0].destroyed).toBe(false)
     expect(overlay.innerHTML).toContain("package 84% · received")
+
+    hook.destroyed()
+  })
+
+  it("renders colored event highlight pills on the horizontal scrubber, updates playhead/buffered, and seeks on click/drag", () => {
+    vi.stubGlobal("window", {addEventListener: vi.fn()})
+
+    expect(normalizeEventCategory("Person")).toBe("person")
+    expect(normalizeEventCategory("white van")).toBe("vehicle")
+    expect(normalizeEventCategory("dog")).toBe("animal")
+    expect(normalizeEventCategory("package")).toBe("package")
+    expect(normalizeEventCategory("motion")).toBe("motion")
+    expect(formatScrubberTime(75)).toBe("01:15")
+    expect(formatScrubberTime(3665)).toBe("1:01:05")
+    expect(computeScrubberFraction(250, {left: 100, width: 300})).toBe(0.5)
+
+    const parsedWindowEvents = parseScrubberEvents(
+      JSON.stringify([
+        {category: "motion", label: "Motion", start_offset_seconds: 40, end_offset_seconds: 44},
+      ])
+    )
+    const segments = buildScrubberEventSegments(
+      [
+        {offsetSeconds: 10, objectClass: "person", score: 0.91},
+        {offsetSeconds: 11.5, objectClass: "person", score: 0.95},
+        {offsetSeconds: 30, objectClass: "animal", score: 0.82},
+      ],
+      parsedWindowEvents,
+      60
+    )
+    expect(segments).toHaveLength(3)
+    expect(segments.map(s => s.category)).toEqual(["person", "animal", "motion"])
+    expect(segments[0].tooltip).toBe("Person · 00:10 · 95%")
+    expect(segments[1].tooltip).toBe("Animal · 00:30 · 82%")
+    expect(segments[2].tooltip).toBe("Motion · 00:40")
+
+    const trackListeners = new Map()
+    const scrubberAttrs = new Map()
+    const scrubber = {
+      setAttribute: vi.fn((k, v) => scrubberAttrs.set(k, v)),
+      getAttribute: k => scrubberAttrs.get(k),
+    }
+    const scrubberTrack = {
+      getBoundingClientRect: () => ({left: 100, width: 400}),
+      addEventListener: vi.fn((ev, fn) => trackListeners.set(ev, fn)),
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+    }
+    const scrubberBuffered = {style: {width: "0%"}}
+    const scrubberProgress = {style: {width: "0%"}}
+    const scrubberPlayhead = {style: {left: "0%"}}
+    const scrubberEvents = {innerHTML: ""}
+    const scrubberTicks = {innerHTML: ""}
+    const scrubberHoverLine = {style: {left: "0%"}, hidden: true}
+    const scrubberHoverTooltip = {style: {left: "0%"}, textContent: "", hidden: true}
+
+    const {el, video} = makeElement({
+      windowStartUs: "1000000000",
+      windowEndUs: "1060000000",
+      overlayDetections: JSON.stringify([
+        {
+          visual_frame_id: "frame-p1",
+          offset_seconds: 12,
+          time_basis: "received",
+          object_class: "person",
+          score: 0.93,
+          bbox: [0.1, 0.2, 0.3, 0.8],
+        },
+      ]),
+    })
+    el.dataset.windowEvents = JSON.stringify([
+      {category: "motion", label: "Motion", start_offset_seconds: 45, end_offset_seconds: 48},
+    ])
+    video.buffered = {length: 1, end: () => 30}
+
+    const origQuerySelector = el.querySelector
+    el.querySelector = selector => {
+      if (selector === "[data-role='playback-scrubber']") return scrubber
+      if (selector === "[data-role='scrubber-track']") return scrubberTrack
+      if (selector === "[data-role='scrubber-buffered']") return scrubberBuffered
+      if (selector === "[data-role='scrubber-progress']") return scrubberProgress
+      if (selector === "[data-role='scrubber-playhead']") return scrubberPlayhead
+      if (selector === "[data-role='scrubber-events']") return scrubberEvents
+      if (selector === "[data-role='scrubber-ticks']") return scrubberTicks
+      if (selector === "[data-role='scrubber-hover-line']") return scrubberHoverLine
+      if (selector === "[data-role='scrubber-hover-tooltip']") return scrubberHoverTooltip
+      return origQuerySelector(selector)
+    }
+
+    const {FakeHls} = makeFakeHls()
+    const hook = Object.create(CameraTimelinePlayer)
+    hook.el = el
+    hook.hlsClass = FakeHls
+    hook.mounted()
+
+    // Event highlight pills and time ticks rendered
+    expect(scrubberEvents.innerHTML).toContain('data-role="scrubber-event-segment"')
+    expect(scrubberEvents.innerHTML).toContain('data-event-category="person"')
+    expect(scrubberEvents.innerHTML).toContain('data-event-category="motion"')
+    expect(scrubberTicks.innerHTML).toContain("00:00")
+    expect(scrubberTicks.innerHTML).toContain("01:00")
+
+    // Progress & buffered range sync on timeupdate
+    video.currentTime = 15
+    video.emit("timeupdate")
+    expect(scrubberPlayhead.style.left).toBe("25.000%")
+    expect(scrubberProgress.style.width).toBe("25.000%")
+    expect(scrubberBuffered.style.width).toBe("50.00%")
+
+    // Clicking directly on an event pill seeks immediately to that pill's start second
+    trackListeners.get("pointerdown")({
+      clientX: 200,
+      pointerId: 1,
+      target: {
+        closest: sel =>
+          sel === "[data-role='scrubber-event-segment']"
+            ? {dataset: {seekSeconds: "12.000"}, getAttribute: () => "Person · 00:12 · 93%"}
+            : null,
+      },
+    })
+    expect(video.currentTime).toBe(12)
+
+    // Dragging across the scrubber track seeks continuously and updates hover tooltip
+    trackListeners.get("pointermove")({
+      clientX: 300,
+      target: {closest: () => null},
+    })
+    expect(video.currentTime).toBe(30)
+    expect(scrubberHoverLine.hidden).toBe(false)
+    expect(scrubberHoverTooltip.hidden).toBe(false)
+    expect(scrubberHoverTooltip.textContent).toBe("00:30")
+
+    trackListeners.get("pointerup")({pointerId: 1})
+    trackListeners.get("pointerleave")()
+    expect(scrubberHoverLine.hidden).toBe(true)
+    expect(scrubberHoverTooltip.hidden).toBe(true)
 
     hook.destroyed()
   })

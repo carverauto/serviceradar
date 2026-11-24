@@ -322,6 +322,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         timeline_profile_id={@timeline_profile_id}
         timeline_span={@timeline_span}
         timeline_source={@timeline_source}
+        timeline_anchored_latest?={
+          is_nil(@timeline_anchor_to_us) and is_nil(@timeline_custom_from_us)
+        }
         timeline_coverage={@timeline_coverage}
         archive_playback_available={CameraTimelineReader.archive_reader_installed?()}
         timeline_playlist_path={@timeline_playlist_path}
@@ -499,6 +502,37 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         )
 
       {:noreply, load_timeline(socket)}
+    end
+  end
+
+  def handle_event("set_timeline_zoom", %{"zoom" => raw_zoom}, socket) do
+    # Zoom slider maps 0 (widest / 7d) .. 4 (tightest / 15m)
+    zoom_spans = Enum.reverse(@span_order)
+
+    next_span =
+      case Integer.parse(to_string(raw_zoom)) do
+        {idx, ""} when idx >= 0 and idx < length(zoom_spans) -> Enum.at(zoom_spans, idx)
+        _ -> nil
+      end
+
+    cond do
+      is_nil(next_span) ->
+        {:noreply, authorize_only_or_unavailable(socket)}
+
+      next_span == socket.assigns.timeline_span ->
+        {:noreply, socket}
+
+      true ->
+        socket =
+          assign(socket,
+            timeline_span: next_span,
+            timeline_custom_from_us: nil,
+            timeline_clips_page: 1,
+            gaps_page: 1,
+            error: nil
+          )
+
+        {:noreply, load_timeline(socket)}
     end
   end
 
