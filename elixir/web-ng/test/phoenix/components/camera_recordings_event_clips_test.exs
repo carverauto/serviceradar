@@ -287,6 +287,29 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert text_of(page1_doc, "#camera-timeline-gaps-details summary") == "Gaps (25)"
     assert text_of(page1_doc, "#camera-timeline-gaps-page-indicator") == "Page 1 / 3"
 
+    # Timeline rail container and footer bound expanded Gaps + Legend inside the card
+    [section_class] = attr_of(page1_doc, "#camera-timeline-coverage-section", "class")
+    section_classes = String.split(section_class)
+    assert "overflow-hidden" in section_classes
+    assert "lg:max-h-[42rem]" in section_classes
+
+    [footer_class] = attr_of(page1_doc, "#camera-timeline-rail-footer", "class")
+    footer_classes = String.split(footer_class)
+    assert "min-h-0" in footer_classes
+    assert "shrink-0" in footer_classes
+    assert "lg:max-h-56" in footer_classes
+    assert "lg:overflow-y-auto" in footer_classes
+
+    [gaps_list_class] = attr_of(page1_doc, "#camera-timeline-gaps", "class")
+    gaps_list_classes = String.split(gaps_list_class)
+    assert "max-h-36" in gaps_list_classes
+    assert "overflow-y-auto" in gaps_list_classes
+
+    [legend_list_class] = attr_of(page1_doc, "#camera-timeline-legend", "class")
+    legend_list_classes = String.split(legend_list_class)
+    assert "max-h-36" in legend_list_classes
+    assert "overflow-y-auto" in legend_list_classes
+
     # Reason summary strip shows breakdown sorted by count descending
     summary_items = LazyHTML.query(page1_doc, "#camera-timeline-gaps-summary [data-role='timeline-gap-summary-item']")
     assert Enum.count(summary_items) == 2
