@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Camera.Thumbnail
   alias ServiceRadarWebNGWeb.CameraLive.Recordings
   alias ServiceRadarWebNGWeb.CameraRelayComponents
 
@@ -508,10 +509,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         now_us
       )
 
+    play_origin_us = assigns.timeline_playlist_origin_us || assigns.timeline_play_from_us
+
     window_scrubber_events =
       build_window_scrubber_events(
         assigns.timeline_event_markers || [],
-        assigns.timeline_playlist_origin_us || assigns.timeline_play_from_us,
+        assigns.timeline_event_clips || [],
+        play_origin_us,
+        assigns.timeline_play_to_us
+      )
+
+    window_scrubber_thumbnails =
+      build_window_scrubber_thumbnails(
+        blocks,
+        assigns.timeline_event_markers || [],
+        assigns.timeline_event_clips || [],
+        active_source_id,
+        play_origin_us,
         assigns.timeline_play_to_us
       )
 
@@ -553,6 +567,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       |> assign(:event_markers, event_markers)
       |> assign(:vertical_event_thumbs, vertical_event_thumbs)
       |> assign(:window_scrubber_events, window_scrubber_events)
+      |> assign(:window_scrubber_thumbnails, window_scrubber_thumbnails)
       |> assign(:play_window_band, play_window_band)
       |> assign(:time_ticks, time_ticks)
       |> assign(:timeline_date_us, timeline_date_us)
@@ -1480,6 +1495,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-highlight-frame-id={@timeline_highlight_frame_id || ""}
               data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
               data-window-events={Jason.encode!(@window_scrubber_events)}
+              data-window-thumbnails={Jason.encode!(@window_scrubber_thumbnails)}
               class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
             >
               <div
@@ -1514,13 +1530,21 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               >
                 <div
                   data-role="scrubber-track"
-                  class="relative h-6 w-full cursor-pointer rounded-md bg-zinc-800/80"
+                  class="relative h-8 w-full cursor-pointer rounded-md bg-zinc-800/80"
                 >
+                  <%!-- Subtle Verified Thumbnail Filmstrip Backdrop --%>
+                  <div
+                    data-role="scrubber-filmstrip"
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-0 z-[1] flex items-center overflow-hidden rounded-md opacity-45"
+                  >
+                  </div>
+
                   <%!-- Buffered Range --%>
                   <div
                     data-role="scrubber-buffered"
                     style="width: 0%"
-                    class="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-zinc-700/60"
+                    class="pointer-events-none absolute inset-y-0 left-0 z-[2] rounded-md bg-zinc-700/35"
                   >
                   </div>
 
@@ -1528,30 +1552,30 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   <div
                     data-role="scrubber-progress"
                     style="width: 0%"
-                    class="pointer-events-none absolute inset-y-0 left-0 rounded-l-md bg-sky-500/25"
+                    class="pointer-events-none absolute inset-y-0 left-0 z-[3] rounded-l-md bg-sky-500/30"
                   >
                   </div>
 
-                  <%!-- Colored Event Highlight Pills (populated by CameraTimelinePlayer) --%>
+                  <%!-- Smart-Only Colored Event Highlight Bars (populated by CameraTimelinePlayer) --%>
                   <div
                     data-role="scrubber-events"
                     class="absolute inset-0 z-[4]"
                   >
                   </div>
 
-                  <%!-- Hover Hairline & Timestamp Pill --%>
+                  <%!-- Hover Hairline & Live Thumbnail Preview Card --%>
                   <div
                     data-role="scrubber-hover-line"
                     hidden
                     aria-hidden="true"
-                    class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/75"
+                    class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/80"
                   >
                   </div>
                   <div
                     data-role="scrubber-hover-tooltip"
                     hidden
                     aria-hidden="true"
-                    class="pointer-events-none absolute -top-6 z-[12] -translate-x-1/2 whitespace-nowrap rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white shadow-md ring-1 ring-white/15"
+                    class="pointer-events-none absolute bottom-full mb-2 z-[12] -translate-x-1/2 rounded-md bg-zinc-900/95 p-1 font-mono text-[10px] font-medium text-white shadow-lg ring-1 ring-white/20"
                   >
                   </div>
 
@@ -2668,6 +2692,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         modal={@clip_modal}
         timezone={@timezone}
         timeline_event_markers={@timeline_event_markers}
+        timeline_event_clips={@timeline_event_clips}
+        blocks={@blocks}
+        active_source_id={@active_source_id}
       />
     </div>
     """
@@ -2676,18 +2703,37 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   attr :modal, :map, required: true
   attr :timezone, :string, required: true
   attr :timeline_event_markers, :list, default: []
+  attr :timeline_event_clips, :list, default: []
+  attr :blocks, :list, default: []
+  attr :active_source_id, :string, default: nil
 
   defp clip_playback_modal(assigns) do
     modal = assigns.modal
+    modal_origin_us = Map.get(modal, :playlist_origin_us) || Map.get(modal, :play_from_us)
+    modal_to_us = Map.get(modal, :play_to_us)
 
     modal_scrubber_events =
       build_window_scrubber_events(
         assigns.timeline_event_markers || [],
-        Map.get(modal, :playlist_origin_us) || Map.get(modal, :play_from_us),
-        Map.get(modal, :play_to_us)
+        assigns.timeline_event_clips || [],
+        modal_origin_us,
+        modal_to_us
       )
 
-    assigns = assign(assigns, :modal_scrubber_events, modal_scrubber_events)
+    modal_scrubber_thumbnails =
+      build_window_scrubber_thumbnails(
+        assigns.blocks || [],
+        assigns.timeline_event_markers || [],
+        assigns.timeline_event_clips || [],
+        assigns.active_source_id,
+        modal_origin_us,
+        modal_to_us
+      )
+
+    assigns =
+      assigns
+      |> assign(:modal_scrubber_events, modal_scrubber_events)
+      |> assign(:modal_scrubber_thumbnails, modal_scrubber_thumbnails)
 
     ~H"""
     <dialog
@@ -2784,6 +2830,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             data-highlight-frame-id={@modal.highlight_frame_id || ""}
             data-overlay-detections={Jason.encode!(@modal.overlay_detections || [])}
             data-window-events={Jason.encode!(@modal_scrubber_events)}
+            data-window-thumbnails={Jason.encode!(@modal_scrubber_thumbnails)}
             class={[@modal.playlist_path in [nil, ""] && "hidden"]}
           >
             <div
@@ -2818,18 +2865,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             >
               <div
                 data-role="scrubber-track"
-                class="relative h-6 w-full cursor-pointer rounded-md bg-zinc-800/80"
+                class="relative h-8 w-full cursor-pointer rounded-md bg-zinc-800/80"
               >
+                <div
+                  data-role="scrubber-filmstrip"
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 z-[1] flex items-center overflow-hidden rounded-md opacity-45"
+                >
+                </div>
                 <div
                   data-role="scrubber-buffered"
                   style="width: 0%"
-                  class="pointer-events-none absolute inset-y-0 left-0 rounded-md bg-zinc-700/60"
+                  class="pointer-events-none absolute inset-y-0 left-0 z-[2] rounded-md bg-zinc-700/35"
                 >
                 </div>
                 <div
                   data-role="scrubber-progress"
                   style="width: 0%"
-                  class="pointer-events-none absolute inset-y-0 left-0 rounded-l-md bg-sky-500/25"
+                  class="pointer-events-none absolute inset-y-0 left-0 z-[3] rounded-l-md bg-sky-500/30"
                 >
                 </div>
                 <div
@@ -2841,14 +2894,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   data-role="scrubber-hover-line"
                   hidden
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/75"
+                  class="pointer-events-none absolute inset-y-0 z-[8] w-px bg-white/80"
                 >
                 </div>
                 <div
                   data-role="scrubber-hover-tooltip"
                   hidden
                   aria-hidden="true"
-                  class="pointer-events-none absolute -top-6 z-[12] -translate-x-1/2 whitespace-nowrap rounded bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white shadow-md ring-1 ring-white/15"
+                  class="pointer-events-none absolute bottom-full mb-2 z-[12] -translate-x-1/2 rounded-md bg-zinc-900/95 p-1 font-mono text-[10px] font-medium text-white shadow-lg ring-1 ring-white/20"
                 >
                 </div>
                 <div
@@ -3432,20 +3485,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     span_us = to_us - from_us
     min_gap_pct = 11.5
     max_thumbs = 8
-
-    clip_thumbs_by_id =
-      page_clips
-      |> List.wrap()
-      |> Enum.reduce(%{}, fn clip, acc ->
-        url = Map.get(clip, :thumbnail_url)
-        id = Map.get(clip, :id)
-
-        if is_binary(url) and url != "" and not is_nil(id) do
-          Map.put(acc, to_string(id), url)
-        else
-          acc
-        end
-      end)
+    clip_thumbs_by_id = index_clip_thumbnail_urls(page_clips)
 
     markers
     |> Enum.filter(&object_detection_marker?/1)
@@ -3514,10 +3554,29 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     end
   end
 
-  defp build_window_scrubber_events(markers, play_from_us, play_to_us)
+  @max_scrubber_thumbnails 24
+
+  defp index_clip_thumbnail_urls(page_clips) do
+    page_clips
+    |> List.wrap()
+    |> Enum.reduce(%{}, fn clip, acc ->
+      url = Map.get(clip, :thumbnail_url)
+      id = Map.get(clip, :id)
+
+      if is_binary(url) and url != "" and not is_nil(id) do
+        Map.put(acc, to_string(id), url)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp build_window_scrubber_events(markers, page_clips, play_from_us, play_to_us)
        when is_list(markers) and is_integer(play_from_us) and is_integer(play_to_us) and play_to_us > play_from_us do
+    clip_thumbs_by_id = index_clip_thumbnail_urls(page_clips)
+
     markers
-    |> Enum.reject(&(&1.category == :recording))
+    |> Enum.filter(&object_detection_marker?/1)
     |> Enum.reduce([], fn clip, acc ->
       clip_start = Map.get(clip, :start_us) || Map.get(clip, :peak_ts_us)
       clip_end = Map.get(clip, :end_us) || clip_start
@@ -3526,17 +3585,24 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
            clip_end >= play_from_us and clip_start <= play_to_us do
         start_offset = max((clip_start - play_from_us) / 1_000_000, 0.0)
         end_offset = max((min(clip_end, play_to_us) - play_from_us) / 1_000_000, start_offset)
+        thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
 
-        [
-          %{
-            category: to_string(clip.category),
-            label: clip.label || to_string(clip.category),
-            start_offset_seconds: Float.round(start_offset, 3),
-            end_offset_seconds: Float.round(end_offset, 3),
-            confidence: Map.get(clip, :confidence)
-          }
-          | acc
-        ]
+        entry = %{
+          category: to_string(clip.category),
+          label: clip.label || to_string(clip.category),
+          start_offset_seconds: Float.round(start_offset, 3),
+          end_offset_seconds: Float.round(end_offset, 3),
+          confidence: Map.get(clip, :confidence)
+        }
+
+        entry =
+          if is_binary(thumb_url) and thumb_url != "" do
+            Map.put(entry, :thumbnail_url, thumb_url)
+          else
+            entry
+          end
+
+        [entry | acc]
       else
         acc
       end
@@ -3544,7 +3610,125 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     |> Enum.reverse()
   end
 
-  defp build_window_scrubber_events(_, _, _), do: []
+  defp build_window_scrubber_events(_, _, _, _), do: []
+
+  defp build_window_scrubber_thumbnails(blocks, markers, page_clips, active_source_id, play_from_us, play_to_us)
+       when is_integer(play_from_us) and is_integer(play_to_us) and play_to_us > play_from_us do
+    duration_sec = (play_to_us - play_from_us) / 1_000_000
+    clip_thumbs_by_id = index_clip_thumbnail_urls(page_clips)
+
+    marker_candidates =
+      markers
+      |> List.wrap()
+      |> Enum.reduce([], fn clip, acc ->
+        ts = Map.get(clip, :peak_ts_us) || Map.get(clip, :start_us)
+        thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
+
+        if is_integer(ts) and ts >= play_from_us and ts <= play_to_us and is_binary(thumb_url) and thumb_url != "" do
+          offset = min(max((ts - play_from_us) / 1_000_000, 0.0), duration_sec)
+          smart? = object_detection_marker?(clip)
+
+          [
+            %{
+              offset_seconds: offset,
+              thumbnail_url: thumb_url,
+              label: if(smart?, do: clip.label || to_string(clip.category)),
+              priority: if(smart?, do: 2, else: 1)
+            }
+            | acc
+          ]
+        else
+          acc
+        end
+      end)
+
+    block_candidates =
+      if is_binary(active_source_id) and active_source_id != "" do
+        blocks
+        |> List.wrap()
+        |> Enum.reduce([], fn block, acc ->
+          has_thumb = coverage_field(block, :has_thumbnail) == true
+          block_id = coverage_field(block, :id)
+          b_start = coverage_field(block, :timeline_start_us)
+          b_end = coverage_field(block, :timeline_end_us) || b_start
+
+          if has_thumb and is_binary(block_id) and block_id != "" and
+               is_integer(b_start) and is_integer(b_end) and
+               b_end >= play_from_us and b_start <= play_to_us do
+            clamped_start = max(b_start, play_from_us)
+            clamped_end = min(b_end, play_to_us)
+            mid_us = div(clamped_start + clamped_end, 2)
+            offset = min(max((mid_us - play_from_us) / 1_000_000, 0.0), duration_sec)
+
+            [
+              %{
+                offset_seconds: offset,
+                thumbnail_url: Thumbnail.block_url(active_source_id, block_id),
+                label: nil,
+                priority: 0
+              }
+              | acc
+            ]
+          else
+            acc
+          end
+        end)
+      else
+        []
+      end
+
+    (marker_candidates ++ block_candidates)
+    |> sample_scrubber_thumbnails(duration_sec, @max_scrubber_thumbnails)
+    |> Enum.map(fn item ->
+      %{
+        offset_seconds: Float.round(item.offset_seconds, 3),
+        thumbnail_url: item.thumbnail_url,
+        label: item.label
+      }
+    end)
+  end
+
+  defp build_window_scrubber_thumbnails(_, _, _, _, _, _), do: []
+
+  defp sample_scrubber_thumbnails([], _duration_sec, _limit), do: []
+
+  defp sample_scrubber_thumbnails(candidates, duration_sec, limit) when length(candidates) <= limit do
+    candidates
+    |> Enum.sort_by(fn item -> {item.offset_seconds, -item.priority} end)
+    |> dedupe_adjacent_thumbnails(duration_sec)
+  end
+
+  defp sample_scrubber_thumbnails(candidates, duration_sec, limit) do
+    bucket_width = max(duration_sec / limit, 0.001)
+
+    candidates
+    |> Enum.group_by(fn item ->
+      min(max(trunc(item.offset_seconds / bucket_width), 0), limit - 1)
+    end)
+    |> Enum.map(fn {bucket_idx, items} ->
+      bucket_center = (bucket_idx + 0.5) * bucket_width
+
+      Enum.min_by(items, fn item ->
+        {-item.priority, abs(item.offset_seconds - bucket_center)}
+      end)
+    end)
+    |> Enum.sort_by(& &1.offset_seconds)
+  end
+
+  defp dedupe_adjacent_thumbnails(items, _duration_sec) do
+    items
+    |> Enum.reduce([], fn item, acc ->
+      case acc do
+        [prev | _]
+        when prev.thumbnail_url == item.thumbnail_url and abs(item.offset_seconds - prev.offset_seconds) < 1.0 ->
+          acc
+
+        _ ->
+          [item | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
 
   defp clip_selected?(clip, selected_clip_id, play_from_us, play_to_us) do
     cond do

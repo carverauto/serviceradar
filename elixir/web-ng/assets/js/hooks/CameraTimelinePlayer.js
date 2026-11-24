@@ -377,13 +377,25 @@ export function createSerialFragmentLoader(BaseLoader = Hls.DefaultConfig.loader
 
 const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 1.0
 
+const SMART_SCRUBBER_CATEGORIES = new Set(["person", "animal", "vehicle", "package", "object"])
+
 const SCRUBBER_CATEGORY_STYLES = {
   person: {label: "Person", bg: "bg-sky-400/90 hover:bg-sky-300", ring: "ring-sky-300/60"},
   animal: {label: "Animal", bg: "bg-amber-400/90 hover:bg-amber-300", ring: "ring-amber-300/60"},
   vehicle: {label: "Vehicle", bg: "bg-cyan-400/90 hover:bg-cyan-300", ring: "ring-cyan-300/60"},
   package: {label: "Package", bg: "bg-violet-400/90 hover:bg-violet-300", ring: "ring-violet-300/60"},
-  motion: {label: "Motion", bg: "bg-slate-200/80 hover:bg-white", ring: "ring-white/50"},
   object: {label: "Detection", bg: "bg-emerald-400/90 hover:bg-emerald-300", ring: "ring-emerald-300/60"},
+}
+
+export function isSmartScrubberCategory(category) {
+  return SMART_SCRUBBER_CATEGORIES.has(category)
+}
+
+export function isSafeThumbnailUrl(url) {
+  if (typeof url !== "string") return false
+  const trimmed = url.trim()
+  if (trimmed === "") return false
+  return /^(\/(?!\/)|https?:\/\/)/i.test(trimmed)
 }
 
 export function normalizeEventCategory(rawClass) {
@@ -479,21 +491,174 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
       }
     }
 
+    const category = normalizeEventCategory(item.category ?? item.object_class ?? item.class ?? item.label)
+    if (!isSmartScrubberCategory(category)) continue
+
     const rawScore = Number(item.score ?? item.confidence)
     const score = Number.isFinite(rawScore)
       ? Math.min(1, Math.max(0, rawScore > 1 ? rawScore / 100 : rawScore))
       : null
 
+    const rawThumb = item.thumbnail_url ?? item.thumbnailUrl
+    const thumbnailUrl = isSafeThumbnailUrl(rawThumb) ? rawThumb.trim() : null
+
     out.push({
       startSec: Math.max(0, startSec),
       endSec: Math.max(startSec, endSec),
-      category: normalizeEventCategory(item.category ?? item.object_class ?? item.class ?? item.label),
+      category,
       label: String(item.label ?? item.object_class ?? item.category ?? "Event"),
       score,
+      thumbnailUrl,
     })
   }
 
   return out
+}
+
+export function parseScrubberThumbnails(rawJson, {windowStartUs = null} = {}) {
+  if (!rawJson || typeof rawJson !== "string" || rawJson.trim() === "") return []
+
+  let parsed
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch (_err) {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const winStart =
+    windowStartUs !== null && windowStartUs !== undefined && String(windowStartUs).trim() !== ""
+      ? Number(windowStartUs)
+      : null
+
+  const out = []
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue
+    const rawThumb = item.thumbnail_url ?? item.thumbnailUrl
+    if (!isSafeThumbnailUrl(rawThumb)) continue
+
+    let offsetSeconds = Number(item.offset_seconds ?? item.offsetSeconds)
+    if (!Number.isFinite(offsetSeconds)) {
+      const tsUs = Number(item.ts_us ?? item.timeline_ts_us ?? item.peak_ts_us)
+      if (Number.isFinite(tsUs) && Number.isFinite(winStart)) {
+        offsetSeconds = Math.max(0, (tsUs - winStart) / 1_000_000)
+      }
+    }
+    if (!Number.isFinite(offsetSeconds)) continue
+
+    const rawLabel = item.label ?? item.object_class ?? null
+    const label = typeof rawLabel === "string" && rawLabel.trim() !== "" ? rawLabel.trim() : null
+
+    out.push({
+      offsetSeconds: Math.max(0, offsetSeconds),
+      thumbnailUrl: rawThumb.trim(),
+      label,
+    })
+  }
+
+  out.sort((a, b) => a.offsetSeconds - b.offsetSeconds)
+  return out
+}
+
+export function clampHoverTooltipPercent(fraction, trackWidthPx, cardWidthPx = 144) {
+  const clampedFraction = Math.min(1, Math.max(0, Number(fraction) || 0))
+  const width = Number(trackWidthPx)
+  if (Number.isFinite(width) && width > cardWidthPx) {
+    const halfFrac = cardWidthPx / 2 / width
+    const bounded = Math.min(1 - halfFrac, Math.max(halfFrac, clampedFraction))
+    return Number((bounded * 100).toFixed(2))
+  }
+  return Number((clampedFraction * 100).toFixed(2))
+}
+
+export function findNearestScrubberThumbnail(thumbnails = [], segments = [], hoverSec = 0, durationSeconds = 0) {
+  const targetSec = Number(hoverSec)
+  const duration = Number(durationSeconds)
+  if (!Number.isFinite(targetSec)) {
+    return {thumbnailUrl: null, label: null, category: null}
+  }
+
+  const eventTolerance = Number.isFinite(duration) && duration > 0 ? Math.max(1.5, duration * 0.02) : 1.5
+  let matchedSegment = null
+  let matchedSegDistance = Number.POSITIVE_INFINITY
+
+  if (Array.isArray(segments)) {
+    for (const seg of segments) {
+      if (!seg || !isSmartScrubberCategory(seg.category)) continue
+      const inRange = targetSec >= seg.startSec && targetSec <= seg.endSec
+      const dist = inRange
+        ? 0
+        : Math.min(Math.abs(targetSec - seg.startSec), Math.abs(targetSec - seg.endSec))
+      if (dist <= eventTolerance && dist < matchedSegDistance) {
+        matchedSegDistance = dist
+        matchedSegment = seg
+      }
+    }
+  }
+
+  if (matchedSegment?.thumbnailUrl) {
+    return {
+      thumbnailUrl: matchedSegment.thumbnailUrl,
+      label: matchedSegment.label || null,
+      category: matchedSegment.category || null,
+    }
+  }
+
+  let bestThumb = null
+  let bestThumbDist = Number.POSITIVE_INFINITY
+
+  if (Array.isArray(thumbnails)) {
+    for (const thumb of thumbnails) {
+      if (!thumb || !thumb.thumbnailUrl || !Number.isFinite(thumb.offsetSeconds)) continue
+      const dist = Math.abs(thumb.offsetSeconds - targetSec)
+      if (dist < bestThumbDist) {
+        bestThumbDist = dist
+        bestThumb = thumb
+      }
+    }
+  }
+
+  if (Array.isArray(segments)) {
+    for (const seg of segments) {
+      if (!seg || !seg.thumbnailUrl || !Number.isFinite(seg.startSec)) continue
+      const midSec = (seg.startSec + (seg.endSec ?? seg.startSec)) / 2
+      const dist = Math.abs(midSec - targetSec)
+      if (dist < bestThumbDist) {
+        bestThumbDist = dist
+        bestThumb = {thumbnailUrl: seg.thumbnailUrl, label: seg.label}
+      }
+    }
+  }
+
+  return {
+    thumbnailUrl: bestThumb?.thumbnailUrl || null,
+    label: matchedSegment?.label || null,
+    category: matchedSegment?.category || null,
+  }
+}
+
+export function buildScrubberHoverMarkup({hoverSec = 0, thumbnailUrl = null, label = null, segTitle = null} = {}) {
+  const timeText = escapeOverlayText(formatScrubberTime(hoverSec))
+  if (thumbnailUrl && isSafeThumbnailUrl(thumbnailUrl)) {
+    const safeSrc = escapeOverlayText(thumbnailUrl.trim())
+    const labelText = label ? escapeOverlayText(label) : ""
+    const labelBadge = labelText
+      ? `<span data-role="scrubber-hover-label" class="truncate rounded bg-sky-500/25 px-1 py-0.5 text-[9px] font-medium text-sky-200">${labelText}</span>`
+      : ""
+    return (
+      `<div data-role="scrubber-hover-card" class="flex flex-col items-center gap-1">` +
+      `<img data-role="scrubber-hover-thumb" src="${safeSrc}" alt="" loading="eager" decoding="async" draggable="false" ` +
+      `class="h-[72px] w-32 rounded object-cover bg-zinc-950" />` +
+      `<div class="flex max-w-32 items-center justify-center gap-1.5 px-0.5 leading-tight">` +
+      `<span data-role="scrubber-hover-time" class="font-mono text-[10px] font-semibold text-white">${timeText}</span>` +
+      `${labelBadge}` +
+      `</div>` +
+      `</div>`
+    )
+  }
+
+  const fallbackText = escapeOverlayText(segTitle || formatScrubberTime(hoverSec))
+  return `<span data-role="scrubber-hover-time" class="whitespace-nowrap px-1 py-0.5 font-mono text-[10px] font-medium text-white">${fallbackText}</span>`
 }
 
 export function buildScrubberEventSegments(
@@ -512,12 +677,14 @@ export function buildScrubberEventSegments(
       if (!det || !Number.isFinite(det.offsetSeconds)) continue
       if (det.offsetSeconds < 0 || det.offsetSeconds > duration) continue
       const category = normalizeEventCategory(det.objectClass)
+      if (!isSmartScrubberCategory(category)) continue
       rawPoints.push({
         startSec: det.offsetSeconds,
         endSec: det.offsetSeconds,
         category,
         label: SCRUBBER_CATEGORY_STYLES[category]?.label || det.objectClass || "Detection",
         score: Number.isFinite(det.score) ? det.score : null,
+        thumbnailUrl: isSafeThumbnailUrl(det.thumbnailUrl) ? det.thumbnailUrl.trim() : null,
       })
     }
   }
@@ -529,12 +696,14 @@ export function buildScrubberEventSegments(
       const clampedEnd = Math.min(duration, Math.max(clampedStart, evt.endSec ?? clampedStart))
       if (evt.endSec < 0 || evt.startSec > duration) continue
       const category = normalizeEventCategory(evt.category)
+      if (!isSmartScrubberCategory(category)) continue
       rawPoints.push({
         startSec: clampedStart,
         endSec: clampedEnd,
         category,
         label: SCRUBBER_CATEGORY_STYLES[category]?.label || evt.label || "Event",
         score: Number.isFinite(evt.score) ? evt.score : null,
+        thumbnailUrl: isSafeThumbnailUrl(evt.thumbnailUrl) ? evt.thumbnailUrl.trim() : null,
       })
     }
   }
@@ -561,12 +730,16 @@ export function buildScrubberEventSegments(
           startSec: pt.startSec,
           endSec: pt.endSec,
           maxScore: pt.score,
+          thumbnailUrl: pt.thumbnailUrl || null,
           count: 1,
         }
       } else if (pt.startSec <= current.endSec + mergeGapSeconds) {
         current.endSec = Math.max(current.endSec, pt.endSec)
         if (pt.score !== null && (current.maxScore === null || pt.score > current.maxScore)) {
           current.maxScore = pt.score
+          if (pt.thumbnailUrl) current.thumbnailUrl = pt.thumbnailUrl
+        } else if (!current.thumbnailUrl && pt.thumbnailUrl) {
+          current.thumbnailUrl = pt.thumbnailUrl
         }
         current.count += 1
       } else {
@@ -577,6 +750,7 @@ export function buildScrubberEventSegments(
           startSec: pt.startSec,
           endSec: pt.endSec,
           maxScore: pt.score,
+          thumbnailUrl: pt.thumbnailUrl || null,
           count: 1,
         }
       }
@@ -613,6 +787,7 @@ export default {
     this.overlayToggle = this.el.querySelector("[data-role='toggle-bbox-overlay']")
     this.scrubber = this.el.querySelector("[data-role='playback-scrubber']")
     this.scrubberTrack = this.el.querySelector("[data-role='scrubber-track']")
+    this.scrubberFilmstrip = this.el.querySelector("[data-role='scrubber-filmstrip']")
     this.scrubberBuffered = this.el.querySelector("[data-role='scrubber-buffered']")
     this.scrubberProgress = this.el.querySelector("[data-role='scrubber-progress']")
     this.scrubberPlayhead = this.el.querySelector("[data-role='scrubber-playhead']")
@@ -632,18 +807,27 @@ export default {
     this.metadataLoaded = false
     this.detections = []
     this.windowEvents = []
+    this.windowThumbnails = []
     this.scrubberSegments = []
     this.scrubberDragging = false
     this.scrubberRafId = null
     this.lastScrubberPctStr = null
     this.lastScrubberAriaNow = null
     this.lastScrubberAriaMax = null
+    this.lastHoverMarkup = null
     this.lastOverlayMarkup = null
     this.lastOverlayViewBox = null
     this.lastAppliedSeekAttr = ""
     this.pendingSeekOffsetSeconds = null
 
     const options = {signal: this.listeners.signal}
+    const hideBrokenThumb = event => {
+      if (event?.target?.tagName === "IMG") {
+        event.target.hidden = true
+      }
+    }
+    this.scrubberFilmstrip?.addEventListener?.("error", hideBrokenThumb, {capture: true, signal: this.listeners.signal})
+    this.scrubberHoverTooltip?.addEventListener?.("error", hideBrokenThumb, {capture: true, signal: this.listeners.signal})
     this.retry?.addEventListener("click", () => this.start(), options)
     this.overlayToggle?.addEventListener("click", () => this.toggleOverlay(), options)
     this.btnBack10?.addEventListener("click", () => this.stepSeconds(-10), options)
@@ -919,17 +1103,104 @@ export default {
     if (this.scrubberHoverTooltip && duration > 0) {
       const hoverSec = fraction * duration
       const segEl = event?.target?.closest?.("[data-role='scrubber-event-segment']")
-      const segTitle = segEl?.getAttribute?.("title")
-      this.scrubberHoverTooltip.textContent = segTitle || formatScrubberTime(hoverSec)
-      this.scrubberHoverTooltip.style.left = pct
+      const segTitle = segEl?.getAttribute?.("title") || null
+      const nearest = findNearestScrubberThumbnail(
+        this.windowThumbnails,
+        this.scrubberSegments,
+        hoverSec,
+        duration
+      )
+      const label = nearest.label || (segTitle ? segTitle.split(" · ")[0] : null)
+      const markup = buildScrubberHoverMarkup({
+        hoverSec,
+        thumbnailUrl: nearest.thumbnailUrl,
+        label,
+        segTitle,
+      })
+      if (markup !== this.lastHoverMarkup) {
+        this.lastHoverMarkup = markup
+        this.scrubberHoverTooltip.innerHTML = markup
+      }
+      const trackRect = (this.scrubberTrack || this.scrubber)?.getBoundingClientRect?.()
+      const cardWidth = nearest.thumbnailUrl ? 144 : 72
+      const clampedPct = clampHoverTooltipPercent(fraction, trackRect?.width, cardWidth)
+      this.scrubberHoverTooltip.style.left = `${clampedPct}%`
       this.scrubberHoverTooltip.hidden = false
     }
   },
 
+  renderScrubberFilmstrip(duration) {
+    if (!this.scrubberFilmstrip) return
+
+    const candidates =
+      this.windowThumbnails.length > 0
+        ? this.windowThumbnails
+        : this.scrubberSegments
+            .filter(seg => Boolean(seg.thumbnailUrl))
+            .map(seg => ({
+              offsetSeconds: seg.startSec,
+              thumbnailUrl: seg.thumbnailUrl,
+              label: seg.label,
+            }))
+
+    if (candidates.length === 0) {
+      this.scrubberFilmstrip.innerHTML = ""
+      return
+    }
+
+    if (candidates.length >= 6) {
+      const maxTiles = 16
+      let tiles = candidates
+      if (candidates.length > maxTiles) {
+        tiles = []
+        const step = (candidates.length - 1) / (maxTiles - 1)
+        for (let i = 0; i < maxTiles; i += 1) {
+          tiles.push(candidates[Math.round(i * step)])
+        }
+      }
+      this.scrubberFilmstrip.innerHTML = tiles
+        .map(item => {
+          const safeSrc = escapeOverlayText(item.thumbnailUrl)
+          return (
+            `<img data-role="scrubber-filmstrip-thumb" src="${safeSrc}" alt="" ` +
+            `loading="lazy" decoding="async" draggable="false" ` +
+            `class="h-full min-w-0 flex-1 border-r border-zinc-950/50 object-cover last:border-r-0" />`
+          )
+        })
+        .join("")
+      return
+    }
+
+    if (!Number.isFinite(duration) || duration <= 0) {
+      this.scrubberFilmstrip.innerHTML = ""
+      return
+    }
+
+    const kept = []
+    for (const item of candidates) {
+      const rawPct = Math.min(95, Math.max(5, (item.offsetSeconds / duration) * 100))
+      if (kept.some(prev => Math.abs(prev.leftPct - rawPct) < 6.5)) continue
+      kept.push({...item, leftPct: Number(rawPct.toFixed(2))})
+    }
+
+    this.scrubberFilmstrip.innerHTML = kept
+      .map(item => {
+        const safeSrc = escapeOverlayText(item.thumbnailUrl)
+        return (
+          `<img data-role="scrubber-filmstrip-thumb" src="${safeSrc}" alt="" ` +
+          `loading="lazy" decoding="async" draggable="false" ` +
+          `style="left: ${item.leftPct}%;" ` +
+          `class="absolute top-1/2 h-[22px] w-9 -translate-x-1/2 -translate-y-1/2 rounded object-cover ring-1 ring-white/25" />`
+        )
+      })
+      .join("")
+  },
+
   renderScrubberEvents() {
-    if (!this.scrubberEvents && !this.scrubberTicks) return
+    if (!this.scrubberEvents && !this.scrubberTicks && !this.scrubberFilmstrip) return
     const duration = this.effectiveDurationSeconds()
     this.scrubberSegments = buildScrubberEventSegments(this.detections, this.windowEvents, duration)
+    this.renderScrubberFilmstrip(duration)
 
     if (this.scrubberEvents) {
       this.scrubberEvents.innerHTML = this.scrubberSegments
@@ -943,7 +1214,7 @@ export default {
             `data-event-category="${cat}" data-seek-seconds="${seekSec}" ` +
             `title="${title}" aria-label="${title}" ` +
             `style="left: ${seg.leftPct}%; width: ${seg.widthPct}%;" ` +
-            `class="absolute top-1 bottom-1 z-[4] cursor-pointer rounded-full ${style.bg} ring-1 ${style.ring} transition-transform hover:scale-y-125">` +
+            `class="absolute bottom-1 h-2 z-[4] cursor-pointer rounded-full ${style.bg} ring-1 ${style.ring} transition-transform hover:scale-y-125">` +
             `</button>`
           )
         })
@@ -1193,6 +1464,9 @@ export default {
       windowStartUs,
     })
     this.windowEvents = parseScrubberEvents(this.el.dataset.windowEvents || "", {
+      windowStartUs,
+    })
+    this.windowThumbnails = parseScrubberThumbnails(this.el.dataset.windowThumbnails || "", {
       windowStartUs,
     })
   },

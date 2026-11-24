@@ -474,6 +474,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
 
     # Horizontal playback scrubber under the video stage
     assert has_selector?(live_doc, "#camera-timeline-scrubber[data-role='playback-scrubber']")
+    assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-filmstrip']")
     assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-events']")
     assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-playhead']")
 
@@ -481,6 +482,13 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     decoded_events = Jason.decode!(window_events_json)
     assert length(decoded_events) == 2
     assert hd(decoded_events)["category"] == "person"
+    assert hd(decoded_events)["thumbnail_url"] == "https://thumbnails.example.com/p1.jpg"
+
+    [window_thumbs_json] = attr_of(live_doc, "#camera-timeline-player", "data-window-thumbnails")
+    decoded_thumbs = Jason.decode!(window_thumbs_json)
+    assert length(decoded_thumbs) == 2
+    assert hd(decoded_thumbs)["thumbnail_url"] == "https://thumbnails.example.com/p1.jpg"
+    assert hd(decoded_thumbs)["label"] == "Person"
 
     # Top zoom slider + date label + pinned LIVE playhead + live data attributes + phx-update=ignore tick rail
     assert has_selector?(live_doc, "#camera-timeline-zoom-slider[value='3']")
@@ -550,9 +558,26 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
 
     all_doc =
       (clips ++ dense_motion)
-      |> page_assigns(%{timeline_span: "1h", timeline_clips_mode: "all"})
+      |> page_assigns(%{
+        timeline_span: "1h",
+        timeline_clips_mode: "all",
+        timeline_play_to_us: @base_us + 3_600_000_000,
+        timeline_playlist_path: "/api/cameras/#{@source_id}/timeline/playlist.m3u8?from=1&to=2"
+      })
       |> base_assigns()
       |> render_recordings_doc()
+
+    # Horizontal scrubber data-window-events excludes raw motion (Smart object detections only)
+    # while data-window-thumbnails caps verified thumbnails at 24 evenly spaced frames
+    [all_window_events_json] = attr_of(all_doc, "#camera-timeline-player", "data-window-events")
+    all_decoded_events = Jason.decode!(all_window_events_json)
+    refute Enum.any?(all_decoded_events, &(&1["category"] == "motion"))
+    assert Enum.all?(all_decoded_events, &(&1["category"] in ["person", "animal", "vehicle", "package"]))
+
+    [all_window_thumbs_json] = attr_of(all_doc, "#camera-timeline-player", "data-window-thumbnails")
+    all_decoded_thumbs = Jason.decode!(all_window_thumbs_json)
+    assert length(all_decoded_thumbs) == 21
+    assert length(all_decoded_thumbs) <= 24
 
     refute has_selector?(
              all_doc,
@@ -758,7 +783,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
           start_us: clip.start_us,
           end_us: clip.end_us,
           peak_ts_us: clip.peak_ts_us,
-          visual_frame_id: clip.visual_frame_id
+          visual_frame_id: clip.visual_frame_id,
+          thumbnail_url: Map.get(clip, :thumbnail_url)
         }
       end)
 
