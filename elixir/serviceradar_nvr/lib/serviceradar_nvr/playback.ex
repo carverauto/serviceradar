@@ -69,21 +69,18 @@ defmodule ServiceRadarNVR.Playback do
 
     case conn.query_params do
       %{"descriptor_sha256" => digest} = params when map_size(params) == 1 and is_binary(digest) ->
-        if Regex.match?(@hex64, digest) do
-          result =
-            if pool == :analysis,
-              do: ServiceRadarNVR.analysis_read(block_id, digest, selector),
-              else: ServiceRadarNVR.playback_read(block_id, digest, selector)
-
-          answer(conn, result)
-        else
-          respond(conn, 400, "invalid_read_request")
-        end
+        if Regex.match?(@hex64, digest),
+          do: answer(conn, dispatch_read(pool, block_id, digest, selector)),
+          else: respond(conn, 400, "invalid_read_request")
 
       _ ->
         respond(conn, 400, "invalid_read_request")
     end
   end
+
+  defp dispatch_read(:analysis, block_id, digest, selector), do: ServiceRadarNVR.analysis_read(block_id, digest, selector)
+
+  defp dispatch_read(:playback, block_id, digest, selector), do: ServiceRadarNVR.playback_read(block_id, digest, selector)
 
   defp answer(conn, {:ok, bytes}) do
     conn
