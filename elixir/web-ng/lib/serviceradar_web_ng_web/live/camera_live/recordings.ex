@@ -426,8 +426,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
         mode: :timeline,
         live_mode?: true,
         timeline_selected_clip_id: nil,
+        timeline_custom_from_us: nil,
+        timeline_anchor_to_us: nil,
+        timeline_seek_us: nil,
+        timeline_highlight_frame_id: nil,
+        timeline_user_selected_window?: false,
+        timeline_clips_page: 1,
+        gaps_page: 1,
+        clip_modal: nil,
         error: nil
       )
+      |> load_timeline()
       |> start_live_stream()
 
     {:noreply, socket}

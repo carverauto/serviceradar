@@ -81,15 +81,127 @@ defmodule ServiceRadar.Camera.VisualCaptionUnitTest do
              )
     end
 
-    test "caption_frames/2 rejects empty frames and malformed VLM JSON" do
+    test "vlm_url/1 normalizes base URLs to /v1/chat/completions and timeout_ms/1 defaults to 60_000" do
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080/") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080/v1") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080/v1/") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080/v1/chat/completions") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.vlm_url(url: "http://vlm.internal:8080/v1/chat/completions/") ==
+               "http://vlm.internal:8080/v1/chat/completions"
+
+      assert VisualCaptionClient.timeout_ms() == 60_000
+    end
+
+    test "parse_completion_response/1 strips <think> blocks and parses fenced or embedded JSON" do
+      think_fenced = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" => """
+              <think>
+              Frame 1 shows a person approaching the doorway.
+              Frame 2 shows them setting down a parcel.
+              </think>
+              ```json
+              {
+                "caption": "A person approaches the front door and sets down a parcel.",
+                "action_tags": ["Parcel Delivery", "Walking"]
+              }
+              ```
+              """
+            }
+          }
+        ]
+      }
+
+      assert {:ok, parsed} = VisualCaptionClient.parse_completion_response(think_fenced)
+      assert parsed.caption_text == "A person approaches the front door and sets down a parcel."
+      assert parsed.action_tags == ["parcel delivery", "walking"]
+
+      think_prose_json = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" => """
+              <THINK>Checking frames...</THINK>
+              Here is the structured summary:
+              {"caption": "A cyclist rides past the driveway.", "action_tags": ["cycling"]}
+              """
+            }
+          }
+        ]
+      }
+
+      assert {:ok, embedded} = VisualCaptionClient.parse_completion_response(think_prose_json)
+      assert embedded.caption_text == "A cyclist rides past the driveway."
+      assert embedded.action_tags == ["cycling"]
+    end
+
+    test "parse_completion_response/1 falls back to trimmed plain-text prose when content is not JSON" do
+      prose_response = %{
+        "choices" => [
+          %{
+            "message" => %{
+              "content" => """
+              <think>Let me describe what is visible.</think>
+              A golden retriever walks across the backyard patio toward the fence.
+              """
+            }
+          }
+        ]
+      }
+
+      assert {:ok, parsed} = VisualCaptionClient.parse_completion_response(prose_response)
+
+      assert parsed.caption_text ==
+               "A golden retriever walks across the backyard patio toward the fence."
+
+      assert parsed.action_tags == []
+
+      long_prose = String.duplicate("a", 5_000)
+
+      long_response = %{
+        "choices" => [%{"message" => %{"content" => long_prose}}]
+      }
+
+      assert {:ok, truncated} = VisualCaptionClient.parse_completion_response(long_response)
+      assert byte_size(truncated.caption_text) == 4_096
+      assert truncated.action_tags == []
+    end
+
+    test "caption_frames/2 rejects empty frames, blank captions, and malformed envelopes" do
       assert {:error, :no_frames} = VisualCaptionClient.caption_frames([])
 
-      bad_client = fn _url, _payload, _headers, _timeout ->
-        {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => "not json"}}]}}}
+      blank_client = fn _url, _payload, _headers, _timeout ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "choices" => [%{"message" => %{"content" => "<think>only thoughts</think>   "}}]
+           }
+         }}
       end
 
-      assert {:error, :invalid_vlm_json} =
-               VisualCaptionClient.caption_frames([<<1, 2, 3>>], http_client: bad_client)
+      assert {:error, :empty_caption} =
+               VisualCaptionClient.caption_frames([<<1, 2, 3>>], http_client: blank_client)
+
+      bad_envelope_client = fn _url, _payload, _headers, _timeout ->
+        {:ok, %{status: 200, body: "not a json envelope"}}
+      end
+
+      assert {:error, :invalid_vlm_response} =
+               VisualCaptionClient.caption_frames([<<1, 2, 3>>], http_client: bad_envelope_client)
     end
   end
 

@@ -18,7 +18,7 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
   @default_vlm_url "http://serviceradar-vlm-server:8080/v1/chat/completions"
   @default_vlm_model "qwen2.5-vl-7b-instruct"
   @default_prompt_version "v1"
-  @default_timeout_ms 30_000
+  @default_timeout_ms 60_000
   @min_timeout_ms 1_000
   @max_timeout_ms 120_000
   @max_frames 6
@@ -47,12 +47,15 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
     System.get_env("SERVICERADAR_CAMERA_VLM_ENABLED") == "true"
   end
 
-  @doc "Resolves the configured VLM `/v1/chat/completions` endpoint URL."
+  @doc "Resolves and normalizes the configured VLM `/v1/chat/completions` endpoint URL."
   @spec vlm_url(keyword()) :: String.t()
   def vlm_url(opts \\ []) when is_list(opts) do
-    opts[:url] ||
-      non_empty_env("SERVICERADAR_CAMERA_VLM_URL") ||
-      @default_vlm_url
+    raw =
+      opts[:url] ||
+        non_empty_env("SERVICERADAR_CAMERA_VLM_URL") ||
+        @default_vlm_url
+
+    normalize_vlm_url(raw)
   end
 
   @doc "Resolves the configured VLM model identifier."
@@ -180,7 +183,10 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
   def parse_completion_response(_), do: {:error, :invalid_vlm_response}
 
   defp parse_structured_content(raw_content) when is_binary(raw_content) do
-    cleaned = strip_code_fences(raw_content)
+    cleaned =
+      raw_content
+      |> strip_think_blocks()
+      |> strip_code_fences()
 
     case decode_json_object(cleaned) do
       {:ok, %{} = obj} ->
@@ -189,7 +195,7 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
         normalize_caption_payload(raw_caption, raw_tags)
 
       _ ->
-        {:error, :invalid_vlm_json}
+        normalize_caption_payload(cleaned, [])
     end
   end
 
@@ -199,16 +205,22 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
         {:ok, obj}
 
       _ ->
-        case Regex.run(~r/\{.*\}/s, text) do
-          [json_slice] ->
-            case Jason.decode(json_slice) do
-              {:ok, %{} = obj} -> {:ok, obj}
-              _ -> :error
-            end
+        decode_embedded_json_object(text, [~r/\{.*?\}/s, ~r/\{.*\}/s])
+    end
+  end
 
-          _ ->
-            :error
+  defp decode_embedded_json_object(_text, []), do: :error
+
+  defp decode_embedded_json_object(text, [pattern | rest]) do
+    case Regex.run(pattern, text) do
+      [json_slice] ->
+        case Jason.decode(json_slice) do
+          {:ok, %{} = obj} -> {:ok, obj}
+          _ -> decode_embedded_json_object(text, rest)
         end
+
+      _ ->
+        decode_embedded_json_object(text, rest)
     end
   end
 
@@ -243,14 +255,33 @@ defmodule ServiceRadar.Camera.VisualCaptionClient do
 
   defp normalize_caption_payload(_, _), do: {:error, :empty_caption}
 
+  defp strip_think_blocks(text) do
+    text
+    |> String.replace(~r/<think>.*?<\/think>/isu, "")
+    |> String.trim()
+  end
+
   defp strip_code_fences(text) do
     trimmed = String.trim(text)
 
     trimmed
-    |> String.replace(~r/\A```(?:json)?\s*/i, "")
+    |> String.replace(~r/\A```(?:[a-zA-Z0-9_-]+)?\s*/i, "")
     |> String.replace(~r/\s*```\z/, "")
     |> String.trim()
   end
+
+  defp normalize_vlm_url(url) when is_binary(url) do
+    trimmed = url |> String.trim() |> String.trim_trailing("/")
+
+    cond do
+      trimmed == "" -> @default_vlm_url
+      String.ends_with?(trimmed, "/chat/completions") -> trimmed
+      String.ends_with?(trimmed, "/v1") -> trimmed <> "/chat/completions"
+      true -> trimmed <> "/v1/chat/completions"
+    end
+  end
+
+  defp normalize_vlm_url(_), do: @default_vlm_url
 
   defp truncate_bytes(str, max_bytes) when byte_size(str) <= max_bytes, do: str
 

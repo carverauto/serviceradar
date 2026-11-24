@@ -251,6 +251,10 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       |> Enum.map(&to_string/1)
       |> Enum.reject(&(&1 == ""))
 
+    catalog_entry_id = normalize_optional_id(fetch_val(hit, :catalog_entry_id))
+    has_frame_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_frame_thumbnail))
+    has_block_thumbnail = normalize_optional_boolean(fetch_val(hit, :has_block_thumbnail))
+
     timeline_path =
       build_timeline_path(
         camera_source_id,
@@ -260,8 +264,17 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
         visual_frame_id
       )
 
+    thumbnail_url =
+      build_thumbnail_url(
+        camera_source_id,
+        visual_frame_id,
+        catalog_entry_id,
+        has_frame_thumbnail,
+        has_block_thumbnail
+      )
+
     %{
-      catalog_entry_id: fetch_val(hit, :catalog_entry_id),
+      catalog_entry_id: catalog_entry_id,
       visual_frame_id: if(visual_frame_id == "", do: nil, else: visual_frame_id),
       camera_source_id: camera_source_id,
       camera_display_name: camera_display_name,
@@ -278,11 +291,48 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
       dominant_colors: dominant_colors,
       bbox: bbox,
       frame_detections: frame_detections,
+      has_frame_thumbnail: has_frame_thumbnail,
+      has_block_thumbnail: has_block_thumbnail,
+      thumbnail_url: thumbnail_url,
       caption_text: caption_text,
       action_tags: action_tags,
       match_sources: match_sources,
       timeline_path: timeline_path
     }
+  end
+
+  @spec build_thumbnail_url(
+          String.t() | nil,
+          String.t() | nil,
+          String.t() | nil,
+          boolean() | nil,
+          boolean() | nil
+        ) :: String.t() | nil
+  def build_thumbnail_url(camera_source_id, visual_frame_id, catalog_entry_id, has_frame_thumbnail, has_block_thumbnail) do
+    source_id = normalize_optional_id(camera_source_id)
+    frame_id = normalize_optional_id(visual_frame_id)
+    entry_id = normalize_optional_id(catalog_entry_id)
+
+    cond do
+      is_nil(source_id) ->
+        nil
+
+      has_frame_thumbnail == true and is_binary(frame_id) ->
+        "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
+
+      has_block_thumbnail == true and is_binary(entry_id) ->
+        "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
+
+      is_nil(has_frame_thumbnail) and is_nil(has_block_thumbnail) ->
+        cond do
+          is_binary(frame_id) -> "/api/cameras/#{source_id}/timeline/thumbnails/frame/#{frame_id}.jpg"
+          is_binary(entry_id) -> "/api/cameras/#{source_id}/timeline/thumbnails/block/#{entry_id}.jpg"
+          true -> nil
+        end
+
+      true ->
+        nil
+    end
   end
 
   @spec build_timeline_path(
@@ -451,4 +501,14 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearch do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
+
+  defp normalize_optional_id(val) when is_binary(val) do
+    trimmed = String.trim(val)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp normalize_optional_id(_), do: nil
+
+  defp normalize_optional_boolean(val) when is_boolean(val), do: val
+  defp normalize_optional_boolean(_), do: nil
 end

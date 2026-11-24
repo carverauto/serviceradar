@@ -1837,9 +1837,9 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   ]}
                 >
                   <div class="relative flex h-9 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-sr-line bg-zinc-950">
-                    <%= if is_binary(hit.visual_frame_id) and hit.visual_frame_id != "" and is_binary(@active_source_id) and @active_source_id != "" do %>
+                    <%= if thumb_url = hit_thumbnail_url(hit, @active_source_id) do %>
                       <img
-                        src={"/api/cameras/#{@active_source_id}/timeline/thumbnails/frame/#{hit.visual_frame_id}.jpg"}
+                        src={thumb_url}
                         alt={"#{format_hit_object_class(hit.object_class) || "Match"} thumbnail"}
                         loading="lazy"
                         class="h-full w-full object-cover"
@@ -2170,7 +2170,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         id="camera-timeline-manage-drawer"
         aria-hidden={to_string(not @timeline_manage_drawer_open?)}
         class={[
-          "fixed inset-0 z-50 flex justify-end",
+          "fixed inset-0 z-[80] flex justify-end",
           if(@timeline_manage_drawer_open?, do: "", else: "hidden")
         ]}
       >
@@ -2469,7 +2469,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         id="camera-timeline-roi-drawer"
         aria-hidden={to_string(not @roi_drawer_open?)}
         class={[
-          "fixed inset-0 z-50 flex justify-end",
+          "fixed inset-0 z-[80] flex justify-end",
           if(@roi_drawer_open?, do: "", else: "hidden")
         ]}
       >
@@ -3297,6 +3297,26 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       _ -> :other
     end
   end
+
+  defp hit_thumbnail_url(%{thumbnail_url: url}, _active_source_id) when is_binary(url) and url != "" do
+    url
+  end
+
+  defp hit_thumbnail_url(%{thumbnail_url: nil}, _active_source_id), do: nil
+
+  defp hit_thumbnail_url(hit, active_source_id) when is_map(hit) do
+    source_id = Map.get(hit, :camera_source_id) || active_source_id
+
+    ServiceRadarWebNGWeb.CameraSemanticSearch.build_thumbnail_url(
+      source_id,
+      Map.get(hit, :visual_frame_id),
+      Map.get(hit, :catalog_entry_id),
+      Map.get(hit, :has_frame_thumbnail),
+      Map.get(hit, :has_block_thumbnail)
+    )
+  end
+
+  defp hit_thumbnail_url(_, _), do: nil
 
   defp format_seek_offset_attr(offset) when is_number(offset) and offset > 0 do
     :erlang.float_to_binary(offset * 1.0, [:compact, decimals: 3])

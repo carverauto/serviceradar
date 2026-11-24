@@ -866,6 +866,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       c.timeline_start_us,
       c.timeline_end_us,
       c.time_uncertainty_us,
+      (f.thumbnail_jpeg IS NOT NULL) AS has_frame_thumbnail,
+      (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
       1.0 - ((e.embedding::vector(#{dim})) <=> ($1::vector(#{dim}))) AS similarity
     FROM platform.camera_visual_embeddings e
     JOIN platform.camera_visual_frames f
@@ -988,6 +990,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
          catalog_start_us,
          catalog_end_us,
          time_uncertainty_us,
+         has_frame_thumbnail,
+         has_block_thumbnail,
          similarity
        ]) do
     %{
@@ -1008,6 +1012,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       catalog_start_us: catalog_start_us,
       catalog_end_us: catalog_end_us,
       time_uncertainty_us: time_uncertainty_us,
+      has_frame_thumbnail: has_frame_thumbnail == true,
+      has_block_thumbnail: has_block_thumbnail == true,
       score: clamp_score(similarity)
     }
   end
@@ -1077,6 +1083,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         c.timeline_start_us,
         c.timeline_end_us,
         c.time_uncertainty_us,
+        (f.thumbnail_jpeg IS NOT NULL) AS has_frame_thumbnail,
+        (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
         ts_rank_cd(cap.caption_tsv, q.tsq)::double precision AS fts_rank,
         CASE
           WHEN cap.caption_embedding IS NOT NULL AND cap.embedding_dim = #{dim}
@@ -1087,6 +1095,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       CROSS JOIN q
       JOIN platform.camera_recording_catalog c
         ON c.id = cap.catalog_entry_id
+      LEFT JOIN platform.camera_visual_frames f
+        ON f.id = cap.visual_frame_id
       WHERE cap.camera_source_id = ANY($3::uuid[])
         AND cap.start_us < $5
         AND cap.end_us >= $4
@@ -1114,6 +1124,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
         c.timeline_start_us,
         c.timeline_end_us,
         c.time_uncertainty_us,
+        (f.thumbnail_jpeg IS NOT NULL) AS has_frame_thumbnail,
+        (c.thumbnail_jpeg IS NOT NULL) AS has_block_thumbnail,
         CASE
           WHEN cap.caption_tsv @@ q.tsq
             THEN ts_rank_cd(cap.caption_tsv, q.tsq)::double precision
@@ -1124,6 +1136,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       CROSS JOIN q
       JOIN platform.camera_recording_catalog c
         ON c.id = cap.catalog_entry_id
+      LEFT JOIN platform.camera_visual_frames f
+        ON f.id = cap.visual_frame_id
       WHERE cap.camera_source_id = ANY($3::uuid[])
         AND cap.start_us < $5
         AND cap.end_us >= $4
@@ -1157,6 +1171,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       timeline_start_us,
       timeline_end_us,
       time_uncertainty_us,
+      has_frame_thumbnail,
+      has_block_thumbnail,
       fts_rank,
       caption_similarity
     FROM combined
@@ -1194,6 +1210,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
          catalog_start_us,
          catalog_end_us,
          time_uncertainty_us,
+         has_frame_thumbnail,
+         has_block_thumbnail,
          fts_rank,
          caption_similarity
        ]) do
@@ -1211,6 +1229,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       catalog_start_us: catalog_start_us,
       catalog_end_us: catalog_end_us,
       time_uncertainty_us: time_uncertainty_us,
+      has_frame_thumbnail: has_frame_thumbnail == true,
+      has_block_thumbnail: has_block_thumbnail == true,
       fts_rank: if(is_number(fts_rank), do: fts_rank * 1.0, else: 0.0),
       caption_similarity: if(is_number(caption_similarity), do: clamp_score(caption_similarity))
     }
@@ -1339,6 +1359,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       catalog_start_us: fetch_val(item, :catalog_start_us),
       catalog_end_us: fetch_val(item, :catalog_end_us),
       time_uncertainty_us: fetch_val(item, :time_uncertainty_us),
+      has_frame_thumbnail: fetch_val(item, :has_frame_thumbnail),
+      has_block_thumbnail: fetch_val(item, :has_block_thumbnail),
       fts_rank: if(is_number(raw_fts), do: raw_fts * 1.0, else: 0.0),
       caption_similarity: if(is_number(raw_sim), do: clamp_score(raw_sim))
     }
@@ -1378,6 +1400,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       dominant_colors: [],
       bbox: nil,
       frame_detections: [],
+      has_frame_thumbnail: cap.has_frame_thumbnail,
+      has_block_thumbnail: cap.has_block_thumbnail,
       caption_text: cap.caption_text,
       action_tags: cap.action_tags
     }
@@ -1422,6 +1446,8 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       catalog_start_us: fetch_val(item, :catalog_start_us),
       catalog_end_us: fetch_val(item, :catalog_end_us),
       time_uncertainty_us: fetch_val(item, :time_uncertainty_us),
+      has_frame_thumbnail: fetch_val(item, :has_frame_thumbnail),
+      has_block_thumbnail: fetch_val(item, :has_block_thumbnail),
       score: clamp_score(fetch_val(item, :score) || fetch_val(item, :similarity) || 0.0)
     }
   end
@@ -1482,7 +1508,9 @@ defmodule ServiceRadar.Camera.SemanticSearch do
       object_class: best.object_class,
       dominant_colors: best.dominant_colors,
       bbox: best.bbox,
-      frame_detections: frame_detections
+      frame_detections: frame_detections,
+      has_frame_thumbnail: best.has_frame_thumbnail,
+      has_block_thumbnail: best.has_block_thumbnail
     }
   end
 

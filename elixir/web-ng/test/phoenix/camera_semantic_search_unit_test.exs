@@ -121,6 +121,41 @@ defmodule ServiceRadarWebNGWeb.CameraSemanticSearchUnitTest do
 
       assert hit.timeline_path ==
                "/cameras/#{@camera_id}/recordings?mode=timeline&from=1700000010000000&to=1700000016000000&seek=1700000012000000&highlight_frame=#{@frame_id}"
+
+      assert hit.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
+    end
+
+    test "normalize_hit/1 resolves frame, block fallback, legacy fallback, and nil thumbnail_url" do
+      base = %{
+        catalog_entry_id: @entry_id,
+        visual_frame_id: @frame_id,
+        camera_source_id: @camera_id,
+        best_timeline_ts_us: 1_700_000_012_000_000
+      }
+
+      frame_hit =
+        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: true, has_block_thumbnail: true}))
+
+      assert frame_hit.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/frame/#{@frame_id}.jpg"
+
+      block_fallback_hit =
+        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: false, has_block_thumbnail: true}))
+
+      assert block_fallback_hit.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
+
+      none_hit =
+        CameraSemanticSearch.normalize_hit(Map.merge(base, %{has_frame_thumbnail: false, has_block_thumbnail: false}))
+
+      assert is_nil(none_hit.thumbnail_url)
+
+      legacy_block_only =
+        CameraSemanticSearch.normalize_hit(Map.put(base, :visual_frame_id, nil))
+
+      assert legacy_block_only.thumbnail_url ==
+               "/api/cameras/#{@camera_id}/timeline/thumbnails/block/#{@entry_id}.jpg"
     end
   end
 
