@@ -1,8 +1,7 @@
 -- Horizon telemetry tables (OpenSpec add-horizon-srql-entities).
 -- StarRocks-only: EventWriter projects Horizon OCSF events directly to
--- serviceradar.horizon_outages, serviceradar.horizon_bgp_events, and
--- serviceradar.horizon_bgp_zombies; serviceradar.horizon_path_hops will be
--- populated by the horizon-probe Native Add-On.
+-- serviceradar.horizon_outages, serviceradar.horizon_bgp_events,
+-- serviceradar.horizon_bgp_zombies, and serviceradar.horizon_path_hops.
 --
 -- All four tables use daily partitioning and StarRocks-managed retention via
 -- partition_live_number (30 days for outages/BGP/zombies, 14 days for path hops).

@@ -11,10 +11,11 @@ The system SHALL provide typed, daily-partitioned StarRocks Primary Key tables i
 ### Requirement: EventWriter Horizon StarRocks Projection
 The system SHALL project incoming OCSF `log_activity` events whose `log_name` starts with `"horizon."` into the corresponding Horizon StarRocks tables via `StarRocks.Destination.persist_warehouse/2` when StarRocks is enabled, using the exact unmapped keys emitted by `plugins/horizon-feed/src/ocsf.rs` and per-table fail-open error isolation so projection failures MUST NOT fail OCSF event ingestion.
 
-#### Scenario: Outage, BGP anomaly, watchlist, and zombie OCSF events are projected to StarRocks
-- **WHEN** `EventWriter` processes OCSF events with `log_name` equal to `"horizon.outage"`, `"horizon.bgp_anomaly"`, `"horizon.bgp_watchlist"`, or `"horizon.bgp_zombie"` with StarRocks enabled
-- **THEN** the projector MUST load typed rows into `horizon_outages`, `horizon_bgp_events`, or `horizon_bgp_zombies` respectively
-- **AND** `horizon.bgp_watchlist` events MUST be projected into `horizon_bgp_events` with `kind` set to `"watchlist"`.
+#### Scenario: Outage, BGP anomaly, watchlist, zombie, and path hop OCSF events are projected to StarRocks
+- **WHEN** `EventWriter` processes OCSF events with `log_name` equal to `"horizon.outage"`, `"horizon.bgp_anomaly"`, `"horizon.bgp_watchlist"`, `"horizon.bgp_zombie"`, or `"horizon.path_hop"` with StarRocks enabled
+- **THEN** the projector MUST load typed rows into `horizon_outages`, `horizon_bgp_events`, `horizon_bgp_zombies`, or `horizon_path_hops` respectively
+- **AND** `horizon.bgp_watchlist` events MUST be projected into `horizon_bgp_events` with `kind` set to `"watchlist"`
+- **AND** `horizon.path_hop` events missing `round_id`, `target_id`, `pop_id`, or a non-negative integer `hop_ttl` MUST be ignored without failing the batch.
 
 #### Scenario: Per-table projection failure does not block sibling tables or OCSF ingestion
 - **WHEN** loading one Horizon table returns an error or raises an exception
