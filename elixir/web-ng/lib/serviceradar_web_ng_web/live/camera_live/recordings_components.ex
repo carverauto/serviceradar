@@ -90,12 +90,13 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           >
             <.icon name="hero-video-camera" class="size-3.5" /> Cameras
           </.ui_button>
+          <.vantage_logo id="vantage-recordings-logo" class="size-7 shrink-0" />
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h1 class="truncate text-lg font-semibold text-sr-ink sm:text-xl">
                 {if(@source,
-                  do: @source.display_name || "Camera recordings",
-                  else: "Camera recordings"
+                  do: @source.display_name || "ServiceRadar Vantage",
+                  else: "ServiceRadar Vantage"
                 )}
               </h1>
               <span

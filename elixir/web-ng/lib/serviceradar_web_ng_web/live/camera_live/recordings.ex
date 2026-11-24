@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
     socket =
       socket
       |> assign(
-        page_title: "Camera Recordings",
+        page_title: "Vantage",
         current_path: path,
         srql: %{enabled: false, page_path: path},
         camera_source_id: source_id,
