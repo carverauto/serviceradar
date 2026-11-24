@@ -269,6 +269,11 @@ tests:
                       - 10.0.0.0/8
                       - 172.16.0.0/12
                       - 192.168.0.0/16
+                - ipBlock:
+                    cidr: "::/0"
+                    except:
+                      - fc00::/7
+                      - fe80::/10
               ports:
                 - protocol: TCP
                   port: 443
@@ -675,3 +680,113 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: SERVICERADAR_METRICS_PORT must be configured through webNg.metricsPort
+
+  - it: renders IPv4-only S3 egress when s3EgressCidrs overrides to IPv4 catch-all
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.image.repository: registry.example.com/site/media-worker-cpu
+      mediaWorker.image.tag: "2026.11.1"
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+      mediaWorker.networkPolicy.s3EgressCidrs:
+        - "0.0.0.0/0"
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except:
+                    - 10.0.0.0/8
+                    - 172.16.0.0/12
+                    - 192.168.0.0/16
+            ports:
+              - protocol: TCP
+                port: 443
+
+  - it: omits default private/ULA except entries on narrow dual-stack S3 CIDRs
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.image.repository: registry.example.com/site/media-worker-cpu
+      mediaWorker.image.tag: "2026.11.1"
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+      mediaWorker.networkPolicy.s3EgressCidrs:
+        - "198.51.100.0/24"
+        - "2001:db8:1::/48"
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 198.51.100.0/24
+              - ipBlock:
+                  cidr: "2001:db8:1::/48"
+            ports:
+              - protocol: TCP
+                port: 443
+
+  - it: preserves custom same-family s3ExceptCidrs on narrow S3 CIDRs
+    template: templates/media-worker.yaml
+    set:
+      mediaWorker.enabled: true
+      mediaWorker.executionProvider: cpu_explicit
+      mediaWorker.image.repository: registry.example.com/site/media-worker-cpu
+      mediaWorker.image.tag: "2026.11.1"
+      mediaWorker.models.existingClaim: example-media-models-pvc
+      mediaWorker.auth.existingSecret: example-media-worker-auth
+      mediaWorker.auth.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      mediaWorker.auth.generation: "1"
+      webNg.controlPlaneRuntime.mediaWorker.enabled: true
+      webNg.controlPlaneRuntime.mediaWorker.existingSecret: example-media-worker-auth
+      webNg.controlPlaneRuntime.mediaWorker.deploymentRef: "00000000-0000-4000-8000-000000000001"
+      webNg.controlPlaneRuntime.mediaWorker.generation: "1"
+      mediaWorker.networkPolicy.s3EgressCidrs:
+        - "198.51.100.0/24"
+        - "2001:db8:1::/48"
+      mediaWorker.networkPolicy.s3ExceptCidrs:
+        - "198.51.100.128/25"
+        - "2001:db8:1:ffff::/64"
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 198.51.100.0/24
+                  except:
+                    - 198.51.100.128/25
+              - ipBlock:
+                  cidr: "2001:db8:1::/48"
+                  except:
+                    - "2001:db8:1:ffff::/64"
+            ports:
+              - protocol: TCP
+                port: 443
