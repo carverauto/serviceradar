@@ -489,7 +489,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     assert has_selector?(live_doc, "#camera-timeline-tick-labels[phx-update='ignore']")
     assert attr_of(live_doc, "#camera-timeline-coverage-bar", "data-anchored-latest") == ["true"]
 
-    # Two adjacent verified-thumbnail events collapse to 1 inline 40px thumbnail placed tightly beside the 10px track (left-7),
+    # Two adjacent verified-thumbnail events collapse to 1 inline 40px thumbnail beside the 10px track (left-7),
     # while evt-animal-far with thumbnail_url: nil does NOT guess a broken /frame/:id.jpg URL
     thumbs = LazyHTML.query(live_doc, "#camera-timeline-coverage-bar [data-role='event-thumb-marker']")
     assert Enum.count(thumbs) == 1
@@ -503,7 +503,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
              "#camera-timeline-coverage-bar [data-role='event-thumb-marker'] img[src='/api/cameras/#{@source_id}/timeline/thumbnails/frame/frame-a1.jpg']"
            )
 
-    # Vertical rail renders object detections ONLY (person/animal/vehicle/package) — NEVER motion pills or motion thumbnails, even in All mode
+    # Vertical rail renders object detections ONLY (person/animal/vehicle/package) —
+    # NEVER motion pills or motion thumbnails, even in All mode
     dense_motion =
       for idx <- 1..50 do
         ts = @base_us + idx * 60_000_000
