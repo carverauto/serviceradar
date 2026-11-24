@@ -496,8 +496,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         assigns.timeline_event_markers || [],
         cov_from_us,
         cov_to_us,
-        now_us,
-        assigns.timeline_clips_mode
+        now_us
       )
 
     vertical_event_thumbs =
@@ -506,8 +505,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         assigns.timeline_event_clips || [],
         cov_from_us,
         cov_to_us,
-        now_us,
-        assigns.timeline_clips_mode
+        now_us
       )
 
     window_scrubber_events =
@@ -728,49 +726,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           </div>
         </aside>
 
-        <%!-- PANE 2 (Middle Rail): Interactive Vertical Timeline Scrubber --%>
+        <%!-- PANE 2 (Middle Rail): UniFi-Style Precision Vertical Meter --%>
         <section
           id="camera-timeline-coverage-section"
           aria-label="Vertical timeline scrubber"
           class="flex flex-col overflow-hidden rounded-xl border border-sr-line bg-sr-surface p-2.5 lg:max-h-[42rem]"
         >
-          <%!-- LIVE + Latest Edge Buttons --%>
-          <div class="flex items-center gap-1">
-            <button
-              :if={@source && @can_view_live}
-              id="camera-timeline-live-button"
-              type="button"
-              phx-click="enter_live_mode"
-              aria-pressed={to_string(@live_mode?)}
-              title="Switch main stage to live camera stream"
-              class={[
-                "inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-white transition-colors",
-                if(@live_mode?,
-                  do: "bg-rose-600 ring-2 ring-rose-400/70",
-                  else: "bg-rose-600/90 hover:bg-rose-500"
-                )
-              ]}
-            >
-              <span class={["size-1.5 rounded-full bg-white", @live_mode? && "animate-pulse"]}></span>
-              <span>LIVE</span>
-            </button>
-            <button
-              id="camera-timeline-latest-window"
-              type="button"
-              phx-click="navigate_timeline_window"
-              phx-value-direction="latest"
-              title="Jump to latest recorded edge"
-              class="rounded-md border border-sr-line bg-sr-canvas px-2 py-1 text-[11px] font-medium text-sr-ink hover:border-sr-brand"
-            >
-              Latest
-            </button>
-          </div>
-
-          <%!-- Top Date Label + UniFi Protect-Style Zoom Slider (- ━━●━━ +) --%>
-          <div class="mt-2 flex items-center justify-between gap-1 text-[10px]">
+          <%!-- Minimalist Top Row: Date + Compact LIVE & Latest Controls --%>
+          <div class="flex items-center justify-between gap-1 text-[10px]">
             <span
               id="camera-timeline-date-label"
-              class="truncate font-medium text-sr-muted"
+              class="min-w-0 truncate font-medium tracking-tight text-sr-ink"
             >
               <.user_time
                 id="camera-timeline-date-label-time"
@@ -779,15 +745,43 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 style={:date}
               />
             </span>
-            <span class="shrink-0 rounded bg-sr-canvas px-1 py-0.5 font-mono text-[10px] font-semibold text-sr-ink">
-              {@timeline_span}
-            </span>
+            <div class="flex shrink-0 items-center gap-1">
+              <button
+                :if={@source && @can_view_live}
+                id="camera-timeline-live-button"
+                type="button"
+                phx-click="enter_live_mode"
+                aria-pressed={to_string(@live_mode?)}
+                title="Switch main stage to live camera stream"
+                class={[
+                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-white transition-colors",
+                  if(@live_mode?,
+                    do: "bg-rose-600 ring-1 ring-rose-400/80",
+                    else: "bg-rose-600/85 hover:bg-rose-500"
+                  )
+                ]}
+              >
+                <span class={["size-1.5 rounded-full bg-white", @live_mode? && "animate-pulse"]}></span>
+                <span>LIVE</span>
+              </button>
+              <button
+                id="camera-timeline-latest-window"
+                type="button"
+                phx-click="navigate_timeline_window"
+                phx-value-direction="latest"
+                title="Jump to latest recorded edge"
+                class="rounded-full border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[9px] font-medium text-sr-muted hover:border-sr-brand hover:text-sr-ink"
+              >
+                Now
+              </button>
+            </div>
           </div>
 
+          <%!-- Sleek Dark Pill Zoom Slider (- ━━●━━ +) --%>
           <form
             id="camera-timeline-zoom-form"
             phx-change="set_timeline_zoom"
-            class="mt-1 flex items-center gap-1"
+            class="mt-1.5 flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-900/90 px-1.5 py-0.5 text-zinc-100 shadow-xs"
           >
             <button
               id="camera-timeline-zoom-out"
@@ -796,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               phx-value-direction="out"
               disabled={@timeline_span == "7d"}
               title="Zoom out"
-              class="flex size-5 shrink-0 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+              class="flex size-4 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-35"
             >
               -
             </button>
@@ -810,7 +804,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               step="1"
               value={span_zoom_index(@timeline_span)}
               aria-label="Timeline zoom level"
-              class="h-1 min-w-0 flex-1 cursor-pointer accent-sky-500"
+              class="h-1 min-w-0 flex-1 cursor-pointer accent-sky-400"
             />
             <button
               id="camera-timeline-zoom-in"
@@ -819,134 +813,166 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               phx-value-direction="in"
               disabled={@timeline_span == "15m"}
               title="Zoom in"
-              class="flex size-5 shrink-0 items-center justify-center rounded border border-sr-line bg-sr-canvas text-xs font-semibold text-sr-ink disabled:opacity-40 hover:border-sr-brand"
+              class="flex size-4 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-35"
             >
               +
             </button>
+            <span class="shrink-0 pl-0.5 font-mono text-[9px] font-medium text-zinc-400">
+              {@timeline_span}
+            </span>
           </form>
 
-          <div
-            id="camera-timeline-span-selector"
-            role="group"
-            aria-label="Coverage span"
-            class="mt-1.5 grid grid-cols-5 gap-0.5 rounded-md border border-sr-line bg-sr-canvas p-0.5"
+          <%!-- Collapsible Range & Jump Controls (keeps maximum height for the precision meter) --%>
+          <details
+            id="camera-timeline-nav-details"
+            phx-hook="DetailsState"
+            class="mt-1.5 shrink-0 text-[10px] text-sr-muted"
           >
-            <button
-              :for={span <- ["15m", "1h", "6h", "24h", "7d"]}
-              id={"camera-timeline-span-#{span}"}
-              type="button"
-              phx-click="select_timeline_span"
-              phx-value-span={span}
-              aria-pressed={to_string(@timeline_span == span)}
-              class={[
-                "rounded py-0.5 text-[10px] font-medium transition-colors",
-                if(@timeline_span == span,
-                  do: "bg-sr-ink text-sr-surface",
-                  else: "text-sr-muted hover:text-sr-ink"
-                )
-              ]}
-            >
-              {span}
-            </button>
-          </div>
-
-          <%!-- Prev / Next Window Step + Date Jump --%>
-          <div id="camera-timeline-window-nav" class="mt-1.5 grid grid-cols-2 gap-1">
-            <button
-              id="camera-timeline-next-window"
-              type="button"
-              phx-click="navigate_timeline_window"
-              phx-value-direction="next"
-              class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
-            >
-              &uarr; Newer
-            </button>
-            <button
-              id="camera-timeline-prev-window"
-              type="button"
-              phx-click="navigate_timeline_window"
-              phx-value-direction="previous"
-              class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
-            >
-              &darr; Older
-            </button>
-          </div>
-
-          <form
-            id="camera-timeline-jump-form"
-            phx-submit="jump_timeline_to"
-            class="mt-1.5 flex items-center gap-1"
-          >
-            <label for="camera-timeline-jump-at" class="sr-only">
-              Jump to date and time ({@timezone})
-            </label>
-            <input
-              id="camera-timeline-jump-at"
-              type="datetime-local"
-              step="1"
-              name="jump_at"
-              value={@timeline_jump_at}
-              aria-label={"Jump to date and time (#{@timezone})"}
-              class="h-7 min-w-0 flex-1 rounded border border-sr-line bg-sr-control px-1 text-[10px] text-sr-ink"
-            />
-            <button
-              id="camera-timeline-jump-submit"
-              type="submit"
-              class="h-7 shrink-0 rounded border border-sr-line bg-sr-canvas px-1.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
-            >
-              Go
-            </button>
-          </form>
-
-          <%!-- Vertical Interactive Coverage Bar (Newest Top -> Oldest Bottom) --%>
-          <div class="mt-2 flex min-h-[15rem] flex-1 gap-1.5 overflow-hidden">
-            <%!-- Left Time Ticks Column (phx-update="ignore" so LiveView patches never flicker or flash raw ISO strings) --%>
-            <div
-              id="camera-timeline-tick-labels"
-              phx-update="ignore"
-              class="flex w-14 shrink-0 flex-col justify-between py-0.5 text-right font-mono text-[9px] leading-tight whitespace-nowrap text-sr-muted"
-            >
-              <span
-                :if={coverage_field(@coverage, :to_us)}
-                id="camera-timeline-span-end"
-                data-role="vertical-tick-label"
-                data-tick-fraction="0"
+            <summary class="cursor-pointer select-none text-[10px] font-medium hover:text-sr-ink">
+              Range &amp; jump
+            </summary>
+            <div class="mt-1 space-y-1.5">
+              <div
+                id="camera-timeline-span-selector"
+                role="group"
+                aria-label="Coverage span"
+                class="grid grid-cols-5 gap-0.5 rounded-md border border-sr-line bg-sr-canvas p-0.5"
               >
-                <.user_time
-                  id="camera-timeline-span-end-time"
-                  value={us_to_datetime(coverage_field(@coverage, :to_us))}
-                  timezone={@timezone}
-                  style={:axis}
-                />
-              </span>
-              <span
-                :for={{tick_us, idx} <- Enum.with_index(@time_ticks)}
-                data-role="vertical-tick-label"
-                data-tick-fraction={Float.to_string((idx + 1) * 0.25)}
+                <button
+                  :for={span <- ["15m", "1h", "6h", "24h", "7d"]}
+                  id={"camera-timeline-span-#{span}"}
+                  type="button"
+                  phx-click="select_timeline_span"
+                  phx-value-span={span}
+                  aria-pressed={to_string(@timeline_span == span)}
+                  class={[
+                    "rounded py-0.5 text-[10px] font-medium transition-colors",
+                    if(@timeline_span == span,
+                      do: "bg-sr-ink text-sr-surface",
+                      else: "text-sr-muted hover:text-sr-ink"
+                    )
+                  ]}
+                >
+                  {span}
+                </button>
+              </div>
+
+              <div id="camera-timeline-window-nav" class="grid grid-cols-2 gap-1">
+                <button
+                  id="camera-timeline-next-window"
+                  type="button"
+                  phx-click="navigate_timeline_window"
+                  phx-value-direction="next"
+                  class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  &uarr; Newer
+                </button>
+                <button
+                  id="camera-timeline-prev-window"
+                  type="button"
+                  phx-click="navigate_timeline_window"
+                  phx-value-direction="previous"
+                  class="rounded border border-sr-line bg-sr-canvas px-1.5 py-0.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  &darr; Older
+                </button>
+              </div>
+
+              <form
+                id="camera-timeline-jump-form"
+                phx-submit="jump_timeline_to"
+                class="flex items-center gap-1"
               >
-                <.user_time
-                  id={"camera-timeline-tick-#{idx}"}
-                  value={us_to_datetime(tick_us)}
-                  timezone={@timezone}
-                  style={:axis}
+                <label for="camera-timeline-jump-at" class="sr-only">
+                  Jump to date and time ({@timezone})
+                </label>
+                <input
+                  id="camera-timeline-jump-at"
+                  type="datetime-local"
+                  step="1"
+                  name="jump_at"
+                  value={@timeline_jump_at}
+                  aria-label={"Jump to date and time (#{@timezone})"}
+                  class="h-7 min-w-0 flex-1 rounded border border-sr-line bg-sr-control px-1 text-[10px] text-sr-ink"
                 />
-              </span>
-              <span
-                :if={coverage_field(@coverage, :from_us)}
-                id="camera-timeline-span-start"
-                data-role="vertical-tick-label"
-                data-tick-fraction="1"
+                <button
+                  id="camera-timeline-jump-submit"
+                  type="submit"
+                  class="h-7 shrink-0 rounded border border-sr-line bg-sr-canvas px-1.5 text-[10px] font-medium text-sr-ink hover:border-sr-brand"
+                >
+                  Go
+                </button>
+              </form>
+            </div>
+          </details>
+
+          <%!-- Precision Vertical Meter (Newest Top -> Oldest Bottom) --%>
+          <div class="mt-2 flex min-h-[16rem] flex-1 gap-1 overflow-hidden">
+            <%!-- Left Precision Ruler: Tabular Wall-Clock Labels + Fine Minor Tick Marks --%>
+            <div class="flex shrink-0 items-stretch gap-1 py-0.5">
+              <div
+                id="camera-timeline-tick-labels"
+                phx-update="ignore"
+                class="flex w-12 shrink-0 flex-col justify-between text-right font-mono text-[9px] leading-none tracking-tight whitespace-nowrap tabular-nums text-sr-muted/90"
               >
-                <.user_time
-                  id="camera-timeline-span-start-time"
-                  value={us_to_datetime(coverage_field(@coverage, :from_us))}
-                  timezone={@timezone}
-                  style={:axis}
-                />
-              </span>
+                <span
+                  :if={coverage_field(@coverage, :to_us)}
+                  id="camera-timeline-span-end"
+                  data-role="vertical-tick-label"
+                  data-tick-fraction="0"
+                >
+                  <.user_time
+                    id="camera-timeline-span-end-time"
+                    value={us_to_datetime(coverage_field(@coverage, :to_us))}
+                    timezone={@timezone}
+                    style={:axis}
+                  />
+                </span>
+                <span
+                  :for={{tick_us, idx} <- Enum.with_index(@time_ticks)}
+                  data-role="vertical-tick-label"
+                  data-tick-fraction={Float.to_string((idx + 1) * 0.25)}
+                >
+                  <.user_time
+                    id={"camera-timeline-tick-#{idx}"}
+                    value={us_to_datetime(tick_us)}
+                    timezone={@timezone}
+                    style={:axis}
+                  />
+                </span>
+                <span
+                  :if={coverage_field(@coverage, :from_us)}
+                  id="camera-timeline-span-start"
+                  data-role="vertical-tick-label"
+                  data-tick-fraction="1"
+                >
+                  <.user_time
+                    id="camera-timeline-span-start-time"
+                    value={us_to_datetime(coverage_field(@coverage, :from_us))}
+                    timezone={@timezone}
+                    style={:axis}
+                  />
+                </span>
+              </div>
+              <div
+                data-role="vertical-ruler-ticks"
+                aria-hidden="true"
+                class="pointer-events-none flex w-2.5 flex-col items-end justify-between py-0.5"
+              >
+                <span
+                  :for={tick_idx <- 0..20}
+                  class={[
+                    "block h-[1px] rounded-full",
+                    if(rem(tick_idx, 5) == 0,
+                      do: "w-2.5 bg-sr-muted/65",
+                      else: "w-1.5 bg-sr-muted/25"
+                    )
+                  ]}
+                ></span>
+              </div>
             </div>
 
-            <%!-- Click-to-Seek Vertical Rail with Continuous Track, Event Pills & Inline Mini Thumbnails --%>
+            <%!-- Click-to-Seek Vertical Meter Rail: Continuous 10px Track, Object Pills & 40px Thumbnails --%>
             <div
               id="camera-timeline-coverage-bar"
               phx-hook="CameraVerticalTimeline"
@@ -954,25 +980,31 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-to-us={coverage_field(@coverage, :to_us)}
               data-anchored-latest={to_string(@timeline_anchored_latest?)}
               data-timezone={@timezone}
-              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line bg-sr-canvas px-1.5 py-0.5"
+              class="relative flex flex-1 cursor-crosshair flex-col overflow-hidden rounded-lg border border-sr-line/60 bg-sr-canvas/70 px-1.5 py-0.5"
               title="Click anywhere on the timeline to seek"
             >
-              <%!-- Pinned LIVE Playhead Line near Top when Anchored to Latest/Live Edge --%>
+              <%!-- Floating LIVE Badge + Crisp Horizontal Hairline across the Rail --%>
               <div
                 :if={@timeline_anchored_latest?}
                 id="camera-timeline-live-playhead"
                 data-role="vertical-live-playhead"
                 aria-hidden="true"
-                class="pointer-events-none absolute inset-x-0 top-1 z-[14] flex items-center"
+                class="pointer-events-none absolute inset-x-0 top-2.5 z-[14] flex items-center"
               >
-                <span class="rounded-xs bg-sky-500 px-1 py-[1px] font-mono text-[8px] font-bold leading-none tracking-wider text-white shadow-xs">
+                <span class="rounded-full bg-sky-500 px-1.5 py-[1px] font-mono text-[8px] font-bold leading-none tracking-wider text-white shadow-xs">
                   LIVE
                 </span>
-                <span class="h-[1.5px] flex-1 bg-sky-400/90 shadow-[0_0_6px_rgba(56,189,248,0.85)]"></span>
+                <span class="h-[1px] flex-1 bg-sky-400/90 shadow-[0_0_6px_rgba(56,189,248,0.85)]"></span>
               </div>
 
-              <%!-- Continuous Sleek Vertical Recording Track --%>
-              <div class="relative ml-0.5 flex h-full w-3 flex-col overflow-hidden rounded-full bg-zinc-900/15 dark:bg-zinc-900/60">
+              <%!-- Sleek Continuous 10px Vertical Meter Track with Top/Bottom Fade Mask --%>
+              <div class="relative ml-0.5 flex h-full w-[10px] flex-col overflow-hidden rounded-full bg-slate-800/35 [mask-image:linear-gradient(to_bottom,transparent,black_6%,black_94%,transparent)] dark:bg-slate-800/70">
+                <div
+                  :if={@timeline_anchored_latest?}
+                  aria-hidden="true"
+                  class="h-2.5 w-full shrink-0 bg-slate-400/35 dark:bg-slate-700/60"
+                >
+                </div>
                 <%= if @vertical_buckets == [] do %>
                   <div
                     data-bucket-state="not_scheduled"
@@ -987,7 +1019,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     data-provisional={to_string(bucket_provisional?(bucket))}
                     title={bucket_title(bucket)}
                     class={[
-                      "w-full flex-1 border-b border-sr-surface/15 last:border-b-0",
+                      "w-full flex-1",
                       bucket_color_class(bucket_state_name(bucket))
                     ]}
                   >
@@ -1012,14 +1044,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 aria-hidden="true"
                 class="pointer-events-none absolute inset-x-0 z-[15] flex items-center"
               >
-                <span class="h-0.5 flex-1 bg-white/90 shadow-xs"></span>
+                <span class="h-[1px] flex-1 bg-white/90 shadow-xs"></span>
                 <span
                   data-role="vertical-timeline-hover-time"
-                  class="rounded-xs bg-zinc-950/90 px-1 py-[1px] font-mono text-[8px] leading-none text-white"
+                  class="rounded-xs bg-zinc-950/90 px-1 py-[1px] font-mono text-[8px] leading-none tabular-nums text-white"
                 ></span>
               </div>
 
-              <%!-- Brighter Rounded Detection Event Pills along Vertical Track --%>
+              <%!-- Brighter Rounded Object Detection Pills Overlaid on the 10px Track --%>
               <button
                 :for={marker <- @event_markers}
                 id={"camera-timeline-event-marker-#{marker.idx}"}
@@ -1032,14 +1064,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 title={marker.title}
                 style={"top: #{marker.top_pct}%"}
                 class={[
-                  "absolute left-1.5 z-[7] h-2 w-4 -translate-y-1/2 rounded-full shadow-xs ring-1 ring-black/60 transition-all hover:scale-125 hover:ring-white",
+                  "absolute left-[7px] z-[7] h-2 w-[12px] -translate-y-1/2 rounded-full shadow-xs ring-1 ring-black/60 transition-all hover:scale-125 hover:ring-white",
                   event_marker_color_class(marker.category)
                 ]}
               >
                 <span class="sr-only">{marker.title}</span>
               </button>
 
-              <%!-- Inline Mini Square Event Thumbnails (tight 8px gap beside vertical recording bar) --%>
+              <%!-- 40px x 40px Rounded Square Object Detection Thumbnails (10px right of the 10px track) --%>
               <button
                 :for={thumb <- @vertical_event_thumbs}
                 id={"camera-timeline-event-thumb-#{thumb.idx}"}
@@ -1052,7 +1084,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 title={thumb.title}
                 style={"top: #{thumb.top_pct}%"}
                 class={[
-                  "group absolute left-7 z-[8] size-9 -translate-y-1/2 overflow-hidden rounded-md border bg-zinc-950 shadow-sm transition-transform hover:z-[12] hover:scale-110 focus-visible:outline-2 focus-visible:outline-sky-400",
+                  "group absolute left-7 z-[8] size-10 -translate-y-1/2 overflow-hidden rounded-md border bg-zinc-950 shadow-sm transition-transform hover:z-[12] hover:scale-110 focus-visible:outline-2 focus-visible:outline-sky-400",
                   event_thumb_border_class(thumb.category)
                 ]}
               >
@@ -3068,14 +3100,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     ]
   end
 
-  defp bucket_color_class("local_and_archived"), do: "bg-emerald-500"
-  defp bucket_color_class("archive_only"), do: "bg-sky-500"
-  defp bucket_color_class("pending_archive"), do: "bg-cyan-400"
-  defp bucket_color_class("local_only"), do: "bg-indigo-500"
-  defp bucket_color_class("local_only_after_archive"), do: "bg-amber-500"
-  defp bucket_color_class("gap"), do: "bg-rose-500"
-  defp bucket_color_class("deleted_by_retention"), do: "bg-zinc-400 dark:bg-zinc-600"
-  defp bucket_color_class(_), do: "bg-zinc-200 dark:bg-zinc-800"
+  defp bucket_color_class("local_and_archived"), do: "bg-emerald-600/90 dark:bg-emerald-500/85"
+  defp bucket_color_class("archive_only"), do: "bg-sky-600/90 dark:bg-sky-500/85"
+  defp bucket_color_class("pending_archive"), do: "bg-cyan-500/80 dark:bg-cyan-400/80"
+  defp bucket_color_class("local_only"), do: "bg-blue-600/90 dark:bg-blue-500/85"
+  defp bucket_color_class("local_only_after_archive"), do: "bg-amber-500/85"
+  defp bucket_color_class("gap"), do: "bg-rose-500/85"
+  defp bucket_color_class("deleted_by_retention"), do: "bg-slate-400/60 dark:bg-slate-700/70"
+  defp bucket_color_class(_), do: "bg-slate-300/60 dark:bg-slate-800/70"
 
   defp copy_state_label("local_and_archived"), do: "Local + archived"
   defp copy_state_label("archive_only"), do: "Archive only"
@@ -3319,29 +3351,23 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   @smart_marker_categories [:person, :animal, :vehicle, :package]
 
-  defp marker_matches_rail_mode?(clip, "smart") do
-    Map.get(clip, :category) in @smart_marker_categories or Map.get(clip, :smart_type) == :smart
+  defp object_detection_marker?(clip) when is_map(clip) do
+    Map.get(clip, :category) in @smart_marker_categories
   end
 
-  defp marker_matches_rail_mode?(clip, "basic") do
-    Map.get(clip, :category) == :motion
-  end
+  defp object_detection_marker?(_), do: false
 
-  defp marker_matches_rail_mode?(clip, _mode) do
-    Map.get(clip, :category) != :recording
-  end
-
-  defp build_event_markers(clips, from_us, to_us, now_us, clips_mode)
+  defp build_event_markers(clips, from_us, to_us, now_us)
        when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
     span_us = to_us - from_us
     max_markers = 24
+    min_gap = 2.2
 
     clips
     |> Enum.filter(fn clip ->
       ts = clip[:peak_ts_us] || clip[:start_us]
 
-      clip.category != :recording and marker_matches_rail_mode?(clip, clips_mode) and
-        is_integer(ts) and ts >= from_us and ts <= to_us
+      object_detection_marker?(clip) and is_integer(ts) and ts >= from_us and ts <= to_us
     end)
     |> Enum.map(fn clip ->
       ts = clip[:peak_ts_us] || clip[:start_us]
@@ -3352,22 +3378,17 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
         if is_number(clip[:confidence]), do: " (#{format_hit_score(clip[:confidence])})", else: ""
 
       age_label = format_relative_age(ts, now_us)
-      smart? = clip.category in @smart_marker_categories
 
       %{
         clip_id: clip.id,
         category: clip.category,
-        smart?: smart?,
         ts_us: ts,
         top_pct: top_pct,
         title: "#{clip.label}#{conf_suffix} — #{age_label}"
       }
     end)
-    # Prioritize smart detections over motion so colored smart pills are never crowded out
-    |> Enum.sort_by(fn m -> {if(m.smart?, do: 0, else: 1), m.top_pct} end)
+    |> Enum.sort_by(& &1.top_pct)
     |> Enum.reduce([], fn candidate, kept ->
-      min_gap = if candidate.smart?, do: 2.2, else: 4.5
-
       cond do
         length(kept) >= max_markers ->
           kept
@@ -3379,18 +3400,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
           [candidate | kept]
       end
     end)
-    |> Enum.sort_by(& &1.top_pct)
+    |> Enum.reverse()
     |> Enum.with_index()
-    |> Enum.map(fn {marker, idx} ->
-      marker
-      |> Map.delete(:smart?)
-      |> Map.put(:idx, idx)
-    end)
+    |> Enum.map(fn {marker, idx} -> Map.put(marker, :idx, idx) end)
   end
 
-  defp build_event_markers(_clips, _from_us, _to_us, _now_us, _clips_mode), do: []
+  defp build_event_markers(_clips, _from_us, _to_us, _now_us), do: []
 
-  defp build_vertical_thumbnail_markers(markers, page_clips, from_us, to_us, now_us, clips_mode)
+  defp build_vertical_thumbnail_markers(markers, page_clips, from_us, to_us, now_us)
        when is_list(markers) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
     span_us = to_us - from_us
     min_gap_pct = 11.5
@@ -3411,8 +3428,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
       end)
 
     markers
-    |> Enum.reject(&(&1.category == :recording))
-    |> Enum.filter(&marker_matches_rail_mode?(&1, clips_mode))
+    |> Enum.filter(&object_detection_marker?/1)
     |> Enum.reduce([], fn clip, acc ->
       ts = Map.get(clip, :peak_ts_us) || Map.get(clip, :start_us)
       thumb_url = resolve_marker_thumbnail_url(clip, clip_thumbs_by_id)
@@ -3460,7 +3476,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     |> Enum.map(fn {thumb, idx} -> Map.put(thumb, :idx, idx) end)
   end
 
-  defp build_vertical_thumbnail_markers(_, _, _, _, _, _), do: []
+  defp build_vertical_thumbnail_markers(_, _, _, _, _), do: []
 
   defp resolve_marker_thumbnail_url(clip, clip_thumbs_by_id) do
     direct = Map.get(clip, :thumbnail_url)

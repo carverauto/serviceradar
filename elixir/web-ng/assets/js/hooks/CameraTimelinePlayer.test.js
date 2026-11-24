@@ -193,6 +193,7 @@ describe("CameraTimelinePlayer hook", () => {
     hook.mounted()
 
     expect(instances).toHaveLength(1)
+    expect(instances[0].config.enableWorker).toBe(true)
     expect(instances[0].config.maxBufferLength).toBe(30)
     expect(instances[0].config.maxMaxBufferLength).toBe(30)
     expect(instances[0].config.backBufferLength).toBe(30)
@@ -732,6 +733,128 @@ describe("CameraTimelinePlayer hook", () => {
     trackListeners.get("pointerleave")()
     expect(scrubberHoverLine.hidden).toBe(true)
     expect(scrubberHoverTooltip.hidden).toBe(true)
+
+    hook.destroyed()
+  })
+
+  it("avoids 60fps DOM thrash: skips buffered queries during syncScrubberPosition, throttles aria attributes to 1Hz, and caches overlay SVG markup", () => {
+    vi.stubGlobal("window", {addEventListener: vi.fn()})
+
+    const bufferedEnd = vi.fn(() => 30)
+    const scrubberSetAttr = vi.fn()
+    const scrubber = {setAttribute: scrubberSetAttr, addEventListener: vi.fn()}
+    let widthWrites = 0
+    let leftWrites = 0
+    let currentWidth = ""
+    let currentLeft = ""
+    const scrubberProgress = {
+      style: {
+        get width() {
+          return currentWidth
+        },
+        set width(val) {
+          widthWrites += 1
+          currentWidth = val
+        },
+      },
+    }
+    const scrubberPlayhead = {
+      style: {
+        get left() {
+          return currentLeft
+        },
+        set left(val) {
+          leftWrites += 1
+          currentLeft = val
+        },
+      },
+    }
+    const scrubberBuffered = {style: {width: "0%"}}
+
+    const {el, video, overlay} = makeElement({
+      windowStartUs: "1000000000",
+      windowEndUs: "1060000000",
+      overlayDetections: JSON.stringify([
+        {
+          visual_frame_id: "frame-p1",
+          offset_seconds: 10,
+          time_basis: "received",
+          object_class: "person",
+          score: 0.9,
+          bbox: [0.1, 0.2, 0.3, 0.8],
+        },
+      ]),
+    })
+    video.buffered = {length: 1, end: bufferedEnd}
+
+    let overlayInnerHtmlWrites = 0
+    let currentOverlayHtml = ""
+    Object.defineProperty(overlay, "innerHTML", {
+      get: () => currentOverlayHtml,
+      set: val => {
+        overlayInnerHtmlWrites += 1
+        currentOverlayHtml = val
+      },
+    })
+
+    const origQuerySelector = el.querySelector
+    el.querySelector = selector => {
+      if (selector === "[data-role='playback-scrubber']") return scrubber
+      if (selector === "[data-role='scrubber-buffered']") return scrubberBuffered
+      if (selector === "[data-role='scrubber-progress']") return scrubberProgress
+      if (selector === "[data-role='scrubber-playhead']") return scrubberPlayhead
+      return origQuerySelector(selector)
+    }
+
+    const {FakeHls} = makeFakeHls()
+    const hook = Object.create(CameraTimelinePlayer)
+    hook.el = el
+    hook.hlsClass = FakeHls
+    hook.mounted()
+
+    video.currentTime = 10.1
+    video.emit("loadedmetadata")
+    expect(scrubberBuffered.style.width).toBe("50.00%")
+
+    // Reset counters after initial mount/metadata
+    bufferedEnd.mockClear()
+    scrubberSetAttr.mockClear()
+    overlayInnerHtmlWrites = 0
+    widthWrites = 0
+    leftWrites = 0
+
+    // Repeated syncScrubberPosition at same time does zero DOM writes and never queries video.buffered
+    hook.syncScrubberPosition()
+    hook.syncScrubberPosition()
+    expect(bufferedEnd).not.toHaveBeenCalled()
+    expect(widthWrites).toBe(0)
+    expect(leftWrites).toBe(0)
+    expect(scrubberSetAttr).not.toHaveBeenCalled()
+
+    // Sub-second advance within the same rounded integer second updates progress/playhead once without touching aria
+    video.currentTime = 10.25
+    hook.syncScrubberPosition()
+    expect(bufferedEnd).not.toHaveBeenCalled()
+    expect(widthWrites).toBe(1)
+    expect(leftWrites).toBe(1)
+    expect(scrubberSetAttr).not.toHaveBeenCalled()
+
+    // Crossing into next rounded integer second updates aria-valuenow once
+    video.currentTime = 10.6
+    hook.syncScrubberPosition()
+    expect(scrubberSetAttr).toHaveBeenCalledTimes(1)
+    expect(scrubberSetAttr).toHaveBeenCalledWith("aria-valuenow", "11")
+
+    // progress event updates buffered bar
+    bufferedEnd.mockReturnValue(45)
+    video.emit("progress")
+    expect(bufferedEnd).toHaveBeenCalledTimes(1)
+    expect(scrubberBuffered.style.width).toBe("75.00%")
+
+    // Repeated renderOverlay with unchanged active detection skips innerHTML assignment
+    hook.renderOverlay()
+    hook.renderOverlay()
+    expect(overlayInnerHtmlWrites).toBe(0)
 
     hook.destroyed()
   })

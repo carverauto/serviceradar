@@ -635,6 +635,11 @@ export default {
     this.scrubberSegments = []
     this.scrubberDragging = false
     this.scrubberRafId = null
+    this.lastScrubberPctStr = null
+    this.lastScrubberAriaNow = null
+    this.lastScrubberAriaMax = null
+    this.lastOverlayMarkup = null
+    this.lastOverlayViewBox = null
     this.lastAppliedSeekAttr = ""
     this.pendingSeekOffsetSeconds = null
 
@@ -655,6 +660,7 @@ export default {
         this.metadataLoaded = true
         this.applyPendingSeek()
         this.renderScrubberEvents()
+        this.syncScrubberBuffered()
         this.syncScrubberPosition()
         this.renderOverlay()
       },
@@ -755,6 +761,7 @@ export default {
     this.syncOverlayDataset()
     this.syncOverlayToggleButton()
     this.renderScrubberEvents()
+    this.syncScrubberBuffered()
     this.syncScrubberPosition()
     this.syncTransportControls()
     this.start()
@@ -762,11 +769,17 @@ export default {
 
   updated() {
     this.copyBadge = this.el.querySelector("[data-role='served-copy-badge']")
-    this.overlay = this.el.querySelector("[data-role='semantic-bbox-overlay']")
+    const nextOverlay = this.el.querySelector("[data-role='semantic-bbox-overlay']")
+    if (nextOverlay !== this.overlay) {
+      this.overlay = nextOverlay
+      this.lastOverlayMarkup = null
+      this.lastOverlayViewBox = null
+    }
     this.overlayToggle = this.el.querySelector("[data-role='toggle-bbox-overlay']")
     this.syncOverlayDataset()
     this.syncOverlayToggleButton()
     this.renderScrubberEvents()
+    this.syncScrubberBuffered()
     this.syncScrubberPosition()
 
     const nextPlaylistPath = this.el.dataset.playlistPath || ""
@@ -957,17 +970,28 @@ export default {
     const pct = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0
     const pctStr = `${pct.toFixed(3)}%`
 
-    if (this.scrubberProgress) {
-      this.scrubberProgress.style.width = pctStr
+    if (pctStr !== this.lastScrubberPctStr) {
+      this.lastScrubberPctStr = pctStr
+      if (this.scrubberProgress) {
+        this.scrubberProgress.style.width = pctStr
+      }
+      if (this.scrubberPlayhead) {
+        this.scrubberPlayhead.style.left = pctStr
+      }
     }
-    if (this.scrubberPlayhead) {
-      this.scrubberPlayhead.style.left = pctStr
-    }
+
     if (this.scrubber) {
-      this.scrubber.setAttribute?.("aria-valuenow", String(Math.round(current)))
-      this.scrubber.setAttribute?.("aria-valuemax", String(Math.round(duration)))
+      const ariaNow = String(Math.round(current))
+      const ariaMax = String(Math.round(duration))
+      if (ariaNow !== this.lastScrubberAriaNow) {
+        this.lastScrubberAriaNow = ariaNow
+        this.scrubber.setAttribute?.("aria-valuenow", ariaNow)
+      }
+      if (ariaMax !== this.lastScrubberAriaMax) {
+        this.lastScrubberAriaMax = ariaMax
+        this.scrubber.setAttribute?.("aria-valuemax", ariaMax)
+      }
     }
-    this.syncScrubberBuffered()
   },
 
   syncScrubberBuffered() {
@@ -1034,7 +1058,7 @@ export default {
     this.loaderClass = LoaderClass
 
     const player = new HlsClass({
-      enableWorker: false,
+      enableWorker: true,
       lowLatencyMode: false,
       progressive: false,
       maxBufferLength: 30,
@@ -1181,7 +1205,10 @@ export default {
 
   clearOverlay() {
     if (!this.overlay) return
-    this.overlay.innerHTML = ""
+    if (this.lastOverlayMarkup !== "") {
+      this.lastOverlayMarkup = ""
+      this.overlay.innerHTML = ""
+    }
   },
 
   renderOverlay() {
@@ -1189,7 +1216,10 @@ export default {
 
     if (!this.overlayEnabled || this.detections.length === 0) {
       this.overlay.hidden = !this.overlayEnabled
-      this.overlay.innerHTML = ""
+      if (this.lastOverlayMarkup !== "") {
+        this.lastOverlayMarkup = ""
+        this.overlay.innerHTML = ""
+      }
       return
     }
 
@@ -1197,11 +1227,18 @@ export default {
     const cw = Number(this.video.clientWidth) || 0
     const ch = Number(this.video.clientHeight) || 0
     if (cw <= 0 || ch <= 0) {
-      this.overlay.innerHTML = ""
+      if (this.lastOverlayMarkup !== "") {
+        this.lastOverlayMarkup = ""
+        this.overlay.innerHTML = ""
+      }
       return
     }
 
-    this.overlay.setAttribute?.("viewBox", `0 0 ${cw} ${ch}`)
+    const viewBox = `0 0 ${cw} ${ch}`
+    if (viewBox !== this.lastOverlayViewBox) {
+      this.lastOverlayViewBox = viewBox
+      this.overlay.setAttribute?.("viewBox", viewBox)
+    }
     const contentRect = computeVideoContentRect({
       clientWidth: cw,
       clientHeight: ch,
@@ -1214,7 +1251,11 @@ export default {
       metadataLoaded: this.metadataLoaded,
     })
 
-    this.overlay.innerHTML = buildOverlaySvgMarkup(active, contentRect)
+    const markup = buildOverlaySvgMarkup(active, contentRect)
+    if (markup !== this.lastOverlayMarkup) {
+      this.lastOverlayMarkup = markup
+      this.overlay.innerHTML = markup
+    }
   },
 
   maybeAdvanceWindow() {
