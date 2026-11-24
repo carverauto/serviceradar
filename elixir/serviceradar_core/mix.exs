@@ -93,7 +93,8 @@ defmodule ServiceRadarCore.MixProject do
       # CVE-2026-94201: filtering on an atom created atoms; fixed in 3.34.3.
       # EEF-CVE-2026-101028: Ash.count/exists/aggregate skipping related
       # resources' read policies in filters and sorts; fixed in 3.34.6.
-      {:ash, "~> 3.37.2"},
+      # CVE-2026-124283: fixed in 3.38.0.
+      {:ash, "~> 3.38.0"},
       # The floors below are the first releases carrying the fixes for the Hex
       # advisories open against the previously locked versions
       # (`mix hex.audit`); do not lower them. The ash_postgres floor covers
@@ -110,6 +111,8 @@ defmodule ServiceRadarCore.MixProject do
       {:cloak, "~> 1.1"},
 
       # Database
+      # CVE-2026-133555: fixed in 2.10.3.
+      {:db_connection, "~> 2.10.3"},
       {:ecto_sql, "~> 3.10"},
       {:postgrex, ">= 0.0.0"},
       # StarRocks Frontend query port (MySQL protocol). Stream Load stays HTTP.
