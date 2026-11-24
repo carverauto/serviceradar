@@ -378,17 +378,23 @@ export function createSerialFragmentLoader(BaseLoader = Hls.DefaultConfig.loader
 const ADJACENT_PREFETCH_THRESHOLD_SECONDS = 1.0
 
 const SMART_SCRUBBER_CATEGORIES = new Set(["person", "animal", "vehicle", "package", "object"])
+const SCRUBBER_EVENT_CATEGORIES = new Set(["person", "animal", "vehicle", "package", "object", "motion"])
 
 const SCRUBBER_CATEGORY_STYLES = {
-  person: {label: "Person", bg: "bg-sky-400/90 hover:bg-sky-300", ring: "ring-sky-300/60"},
-  animal: {label: "Animal", bg: "bg-amber-400/90 hover:bg-amber-300", ring: "ring-amber-300/60"},
-  vehicle: {label: "Vehicle", bg: "bg-cyan-400/90 hover:bg-cyan-300", ring: "ring-cyan-300/60"},
-  package: {label: "Package", bg: "bg-violet-400/90 hover:bg-violet-300", ring: "ring-violet-300/60"},
-  object: {label: "Detection", bg: "bg-emerald-400/90 hover:bg-emerald-300", ring: "ring-emerald-300/60"},
+  person: {label: "Person", tier: "smart", bg: "bg-sky-400/90 hover:bg-sky-300", ring: "ring-sky-300/60"},
+  animal: {label: "Animal", tier: "smart", bg: "bg-amber-400/90 hover:bg-amber-300", ring: "ring-amber-300/60"},
+  vehicle: {label: "Vehicle", tier: "smart", bg: "bg-cyan-400/90 hover:bg-cyan-300", ring: "ring-cyan-300/60"},
+  package: {label: "Package", tier: "smart", bg: "bg-violet-400/90 hover:bg-violet-300", ring: "ring-violet-300/60"},
+  object: {label: "Detection", tier: "smart", bg: "bg-emerald-400/90 hover:bg-emerald-300", ring: "ring-emerald-300/60"},
+  motion: {label: "Motion", tier: "motion", bg: "bg-slate-200/55 hover:bg-white/90", ring: ""},
 }
 
 export function isSmartScrubberCategory(category) {
   return SMART_SCRUBBER_CATEGORIES.has(category)
+}
+
+export function isScrubberEventCategory(category) {
+  return SCRUBBER_EVENT_CATEGORIES.has(category)
 }
 
 export function isSafeThumbnailUrl(url) {
@@ -491,8 +497,12 @@ export function parseScrubberEvents(rawJson, {windowStartUs = null} = {}) {
       }
     }
 
-    const category = normalizeEventCategory(item.category ?? item.object_class ?? item.class ?? item.label)
-    if (!isSmartScrubberCategory(category)) continue
+    const rawCategory = String(item.category ?? item.object_class ?? item.class ?? item.label ?? "")
+      .trim()
+      .toLowerCase()
+    if (!rawCategory || rawCategory === "recording") continue
+    const category = normalizeEventCategory(rawCategory)
+    if (!isScrubberEventCategory(category)) continue
 
     const rawScore = Number(item.score ?? item.confidence)
     const score = Number.isFinite(rawScore)
@@ -579,22 +589,33 @@ export function findNearestScrubberThumbnail(thumbnails = [], segments = [], hov
   }
 
   const eventTolerance = Number.isFinite(duration) && duration > 0 ? Math.max(1.5, duration * 0.02) : 1.5
-  let matchedSegment = null
-  let matchedSegDistance = Number.POSITIVE_INFINITY
+  let matchedSmartSegment = null
+  let matchedSmartDistance = Number.POSITIVE_INFINITY
+  let matchedMotionSegment = null
+  let matchedMotionDistance = Number.POSITIVE_INFINITY
 
   if (Array.isArray(segments)) {
     for (const seg of segments) {
-      if (!seg || !isSmartScrubberCategory(seg.category)) continue
+      if (!seg || !isScrubberEventCategory(seg.category)) continue
       const inRange = targetSec >= seg.startSec && targetSec <= seg.endSec
       const dist = inRange
         ? 0
         : Math.min(Math.abs(targetSec - seg.startSec), Math.abs(targetSec - seg.endSec))
-      if (dist <= eventTolerance && dist < matchedSegDistance) {
-        matchedSegDistance = dist
-        matchedSegment = seg
+      if (dist > eventTolerance) continue
+
+      if (isSmartScrubberCategory(seg.category)) {
+        if (dist < matchedSmartDistance) {
+          matchedSmartDistance = dist
+          matchedSmartSegment = seg
+        }
+      } else if (dist < matchedMotionDistance) {
+        matchedMotionDistance = dist
+        matchedMotionSegment = seg
       }
     }
   }
+
+  const matchedSegment = matchedSmartSegment || matchedMotionSegment
 
   if (matchedSegment?.thumbnailUrl) {
     return {
@@ -677,7 +698,7 @@ export function buildScrubberEventSegments(
       if (!det || !Number.isFinite(det.offsetSeconds)) continue
       if (det.offsetSeconds < 0 || det.offsetSeconds > duration) continue
       const category = normalizeEventCategory(det.objectClass)
-      if (!isSmartScrubberCategory(category)) continue
+      if (!isScrubberEventCategory(category)) continue
       rawPoints.push({
         startSec: det.offsetSeconds,
         endSec: det.offsetSeconds,
@@ -696,7 +717,7 @@ export function buildScrubberEventSegments(
       const clampedEnd = Math.min(duration, Math.max(clampedStart, evt.endSec ?? clampedStart))
       if (evt.endSec < 0 || evt.startSec > duration) continue
       const category = normalizeEventCategory(evt.category)
-      if (!isSmartScrubberCategory(category)) continue
+      if (!isScrubberEventCategory(category)) continue
       rawPoints.push({
         startSec: clampedStart,
         endSec: clampedEnd,
@@ -758,9 +779,15 @@ export function buildScrubberEventSegments(
     if (current) segments.push(current)
   }
 
-  segments.sort((a, b) => a.startSec - b.startSec)
+  const tierRank = seg => (SCRUBBER_CATEGORY_STYLES[seg.category]?.tier === "motion" ? 0 : 1)
+  segments.sort((a, b) => {
+    const tierDiff = tierRank(a) - tierRank(b)
+    if (tierDiff !== 0) return tierDiff
+    return a.startSec - b.startSec
+  })
 
   return segments.map(seg => {
+    const style = SCRUBBER_CATEGORY_STYLES[seg.category] || SCRUBBER_CATEGORY_STYLES.object
     const rawLeft = (seg.startSec / duration) * 100
     const rawWidth = ((seg.endSec - seg.startSec) / duration) * 100
     const widthPct = Math.min(100, Math.max(minWidthPct, rawWidth))
@@ -769,6 +796,7 @@ export function buildScrubberEventSegments(
     const timePart = formatScrubberTime(seg.startSec)
     return {
       ...seg,
+      tier: style.tier || "smart",
       leftPct: Number(leftPct.toFixed(3)),
       widthPct: Number(widthPct.toFixed(3)),
       tooltip: `${seg.label} · ${timePart}${scorePart}`,
@@ -1206,15 +1234,20 @@ export default {
       this.scrubberEvents.innerHTML = this.scrubberSegments
         .map(seg => {
           const style = SCRUBBER_CATEGORY_STYLES[seg.category] || SCRUBBER_CATEGORY_STYLES.object
+          const tier = style.tier || "smart"
           const title = escapeOverlayText(seg.tooltip)
           const cat = escapeOverlayText(seg.category)
           const seekSec = seg.startSec.toFixed(3)
+          const barClass =
+            tier === "motion"
+              ? `absolute bottom-0 h-[2px] z-[3] cursor-pointer rounded-full ${style.bg} transition-colors`
+              : `absolute bottom-0.5 h-1.5 z-[4] cursor-pointer rounded-full ${style.bg} shadow-sm ring-1 ${style.ring} transition-transform hover:scale-y-125`
           return (
             `<button type="button" data-role="scrubber-event-segment" ` +
-            `data-event-category="${cat}" data-seek-seconds="${seekSec}" ` +
+            `data-event-tier="${tier}" data-event-category="${cat}" data-seek-seconds="${seekSec}" ` +
             `title="${title}" aria-label="${title}" ` +
             `style="left: ${seg.leftPct}%; width: ${seg.widthPct}%;" ` +
-            `class="absolute bottom-1 h-2 z-[4] cursor-pointer rounded-full ${style.bg} ring-1 ${style.ring} transition-transform hover:scale-y-125">` +
+            `class="${barClass}">` +
             `</button>`
           )
         })

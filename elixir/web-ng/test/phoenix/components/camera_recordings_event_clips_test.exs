@@ -475,6 +475,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
     # Horizontal playback scrubber under the video stage
     assert has_selector?(live_doc, "#camera-timeline-scrubber[data-role='playback-scrubber']")
     assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-filmstrip']")
+    assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-contrast-scrim']")
     assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-events']")
     assert has_selector?(live_doc, "#camera-timeline-scrubber [data-role='scrubber-playhead']")
 
@@ -567,12 +568,18 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsEventClipsTest do
       |> base_assigns()
       |> render_recordings_doc()
 
-    # Horizontal scrubber data-window-events excludes raw motion (Smart object detections only)
-    # while data-window-thumbnails caps verified thumbnails at 24 evenly spaced frames
+    # Horizontal scrubber data-window-events includes both Smart detections and subtle Motion hairlines
+    # (rejecting :recording segments), while data-window-thumbnails caps verified thumbnails at 24 evenly spaced frames
     [all_window_events_json] = attr_of(all_doc, "#camera-timeline-player", "data-window-events")
     all_decoded_events = Jason.decode!(all_window_events_json)
-    refute Enum.any?(all_decoded_events, &(&1["category"] == "motion"))
-    assert Enum.all?(all_decoded_events, &(&1["category"] in ["person", "animal", "vehicle", "package"]))
+    assert Enum.any?(all_decoded_events, &(&1["category"] == "motion"))
+    assert Enum.any?(all_decoded_events, &(&1["category"] == "person"))
+    refute Enum.any?(all_decoded_events, &(&1["category"] == "recording"))
+
+    assert Enum.all?(
+             all_decoded_events,
+             &(&1["category"] in ["person", "animal", "vehicle", "package", "object", "motion"])
+           )
 
     [all_window_thumbs_json] = attr_of(all_doc, "#camera-timeline-player", "data-window-thumbnails")
     all_decoded_thumbs = Jason.decode!(all_window_thumbs_json)

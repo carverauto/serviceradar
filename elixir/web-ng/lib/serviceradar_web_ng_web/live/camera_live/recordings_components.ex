@@ -1540,6 +1540,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   >
                   </div>
 
+                  <%!-- Bottom Contrast Scrim for Smart Bars & Motion Hairlines --%>
+                  <div
+                    data-role="scrubber-contrast-scrim"
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-0 z-[2] rounded-md bg-gradient-to-t from-black/65 via-black/15 to-transparent"
+                  >
+                  </div>
+
                   <%!-- Buffered Range --%>
                   <div
                     data-role="scrubber-buffered"
@@ -1556,7 +1564,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   >
                   </div>
 
-                  <%!-- Smart-Only Colored Event Highlight Bars (populated by CameraTimelinePlayer) --%>
+                  <%!-- Event Indicator Rail: Smart bars + subtle Motion hairlines (populated by CameraTimelinePlayer) --%>
                   <div
                     data-role="scrubber-events"
                     class="absolute inset-0 z-[4]"
@@ -2874,6 +2882,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                 >
                 </div>
                 <div
+                  data-role="scrubber-contrast-scrim"
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 z-[2] rounded-md bg-gradient-to-t from-black/65 via-black/15 to-transparent"
+                >
+                </div>
+                <div
                   data-role="scrubber-buffered"
                   style="width: 0%"
                   class="pointer-events-none absolute inset-y-0 left-0 z-[2] rounded-md bg-zinc-700/35"
@@ -3423,12 +3437,19 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
   defp span_zoom_index(_), do: 3
 
   @smart_marker_categories [:person, :animal, :vehicle, :package]
+  @scrubber_event_categories [:person, :animal, :vehicle, :package, :object, :motion]
 
   defp object_detection_marker?(clip) when is_map(clip) do
     Map.get(clip, :category) in @smart_marker_categories
   end
 
   defp object_detection_marker?(_), do: false
+
+  defp scrubber_event_marker?(clip) when is_map(clip) do
+    Map.get(clip, :category) in @scrubber_event_categories
+  end
+
+  defp scrubber_event_marker?(_), do: false
 
   defp build_event_markers(clips, from_us, to_us, now_us)
        when is_list(clips) and is_integer(from_us) and is_integer(to_us) and to_us > from_us do
@@ -3576,7 +3597,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
     clip_thumbs_by_id = index_clip_thumbnail_urls(page_clips)
 
     markers
-    |> Enum.filter(&object_detection_marker?/1)
+    |> Enum.filter(&scrubber_event_marker?/1)
     |> Enum.reduce([], fn clip, acc ->
       clip_start = Map.get(clip, :start_us) || Map.get(clip, :peak_ts_us)
       clip_end = Map.get(clip, :end_us) || clip_start
