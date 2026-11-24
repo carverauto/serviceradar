@@ -705,6 +705,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/spatial/room-artifacts", SpatialController, :room_artifacts)
     get("/spatial/room-artifacts/:id/download", SpatialController, :download_room_artifact)
     get("/spatial/field-surveys/:session_id/export", SpatialController, :field_survey_export)
+
+    get("/horizon/:version/*path", HorizonProxyController, :proxy)
+    post("/horizon/:version/*path", HorizonProxyController, :proxy)
+    delete("/horizon/:version/*path", HorizonProxyController, :proxy)
   end
 
   # Admin API (session/JWT auth)

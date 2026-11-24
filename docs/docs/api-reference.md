@@ -35,12 +35,13 @@ Protocol, add the `mcp` scope and see [MCP Integration](./mcp-integration.md).
 
 The authenticated `/api` scope uses the shared `api_default` request budget,
 keyed by client IP rather than user or token. This includes queries, the SRQL
-catalog, devices, camera and Proxmox console sessions, spatial endpoints, and
-`/api/remote-access/*` session, WebRTC signaling, file-transfer, host-key,
-recording, and desktop-target requests. Requests from the same client IP share
-the budget with other routes using `api_default`; changing endpoints or tokens
-does not create a separate allowance. Separately declared scopes such as
-`/api/admin` are not covered by this scope's limiter.
+catalog, devices, camera and Proxmox console sessions, spatial endpoints,
+`/api/horizon/*` proxy requests, and `/api/remote-access/*` session, WebRTC
+signaling, file-transfer, host-key, recording, and desktop-target requests.
+Requests from the same client IP share the budget with other routes using
+`api_default`; changing endpoints or tokens does not create a separate
+allowance. Separately declared scopes such as `/api/admin` are not covered by
+this scope's limiter.
 
 Authentication runs first: requests rejected as unauthenticated return `401`
 without consuming this budget. Responses passing through the limiter include
@@ -224,6 +225,54 @@ For the generated route inventory, accepted fields, and response schemas,
 fetch `/api/v2/open_api` from your authenticated deployment. For the committed
 schema's generation, path conventions, and drift checks,
 see the [OpenAPI dump task](https://github.com/carverauto/serviceradar/blob/staging/elixir/web-ng/lib/mix/tasks/serviceradar/openapi/dump.ex).
+
+## Horizon control-plane proxy
+
+`GET`, `POST`, and `DELETE /api/horizon/{version}/*` forward allowlisted
+Horizon control-plane requests to a configured Horizon upstream with
+server-side Bearer key injection, so Horizon API keys are never exposed to the
+browser. All routes sit inside the authenticated `/api` scope (browser session
+or Bearer JWT/API token) and share the `api_default` rate-limit budget.
+
+Allowlisted routes and required permissions:
+
+| Method | Path | Upstream path | Permission |
+| --- | --- | --- | --- |
+| `GET` | `/api/horizon/v1/feeds/status` | `/api/v1/feeds/status` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/weathermap/timeline` | `/api/v1/weathermap/timeline` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/paths/dag` | `/api/v1/paths/dag` | `observability.traces.view` |
+| `GET` | `/api/horizon/v1/bgp/sankey` | `/api/v1/bgp/sankey` | `observability.events.view` |
+| `GET` | `/api/horizon/v1/bgp/zombies`, `/api/horizon/v2/bgp/zombies` | matching upstream version | `observability.events.view` |
+| `GET` | `/api/horizon/{v1,v2}/bgp/watchlist`, `/api/horizon/{v1,v2}/bgp/watchlist/events` | `/api/v2/bgp/watchlist`, `/api/v2/bgp/watchlist/events` | `observability.events.view` |
+| `POST` | `/api/horizon/{v1,v2}/bgp/watchlist` | `/api/v2/bgp/watchlist` | `settings.integrations.manage` |
+| `DELETE` | `/api/horizon/{v1,v2}/bgp/watchlist/{id}` | `/api/v2/bgp/watchlist/{id}` | `settings.integrations.manage` |
+| `GET` | `/api/horizon/v1/snapshots`, `/api/horizon/v1/snapshots/{id}` | matching upstream path | `observability.events.view` |
+| `POST` | `/api/horizon/v1/snapshots` | `/api/v1/snapshots` | `settings.integrations.manage` |
+| `DELETE` | `/api/horizon/v1/snapshots/{id}`, `/api/horizon/v1/snapshots/{id}/share` | matching upstream path | `settings.integrations.manage` |
+| `GET` | `/api/horizon/v2/reports/isp-accountability`, `/api/horizon/v2/reports/isp-accountability/live`, `/api/horizon/v2/reports/isp-accountability/{id}` | matching upstream path | `observability.events.view` |
+| `POST` | `/api/horizon/v2/reports/isp-accountability` | `/api/v2/reports/isp-accountability` | `settings.integrations.manage` |
+| `DELETE` | `/api/horizon/v2/reports/isp-accountability/{id}` | `/api/v2/reports/isp-accountability/{id}` | `settings.integrations.manage` |
+| `POST` | `/api/horizon/v2/agents/enrollment-tokens` | `/api/v2/agents/enrollment-tokens` | `settings.integrations.manage` |
+
+Unlisted paths, unsupported methods, invalid IDs, and path-traversal or
+percent-encoded slash/dot sequences return `404`. Query strings must use valid
+RFC 3986 syntax without control characters and must not include a `token` query
+parameter (`400` with `{"error": "invalid_query"}`); invalid `POST` JSON bodies
+return `400` with `{"error": "invalid_body"}`.
+
+Upstream configuration is resolved server-side from an enabled
+`cloud.serviceradar.horizon-feed` plugin assignment first (`api_base_url` plus
+`watchlist_api_key` or `api_key`, resolving `watchlist_api_key_secret_ref` and
+`api_key_secret_ref` via `SecretRefs`), falling back to `:serviceradar_web_ng,
+:horizon_proxy` application config or `SERVICERADAR_HORIZON_API_URL` and
+`SERVICERADAR_HORIZON_API_KEY`. The upstream base URL must use `https://` with
+no userinfo, query, fragment, or control characters, and must not target
+loopback, unspecified, link-local, cloud metadata, multicast, or reserved
+addresses (directly or via DNS resolution). Upstream redirects and retries are
+disabled, non-`204` responses include `Cache-Control: no-store` and a JSON
+`Content-Type`, and error states map to `503` (`horizon_not_configured`), `502`
+(`horizon_upstream_invalid` or `horizon_upstream_unavailable`), and `504`
+(`horizon_upstream_timeout`).
 
 ## Other endpoints
 
