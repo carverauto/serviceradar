@@ -4,7 +4,9 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
   import Phoenix.ConnTest
   import Plug.Conn
 
+  alias Phoenix.Router.NoRouteError
   alias ServiceRadar.Identity.RBAC.Catalog
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.HorizonProxy
   alias ServiceRadarWebNGWeb.Api.HorizonProxyController
@@ -33,6 +35,10 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       start_supervised!(ConfigCache)
     end
 
+    if is_nil(Process.whereis(RateLimiter)) do
+      start_supervised!(RateLimiter)
+    end
+
     if is_nil(Process.whereis(ServiceRadarWebNGWeb.Endpoint)) do
       start_supervised!(ServiceRadarWebNGWeb.Endpoint)
     end
@@ -48,11 +54,13 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
     prev_client = Application.get_env(:serviceradar_web_ng, :horizon_proxy_http_client)
     prev_resolver = Application.get_env(:serviceradar_web_ng, :horizon_proxy_upstream_resolver)
     prev_config = Application.get_env(:serviceradar_web_ng, :horizon_proxy)
+    clear_rate_limiter()
 
     on_exit(fn ->
       restore_env(:horizon_proxy_http_client, prev_client)
       restore_env(:horizon_proxy_upstream_resolver, prev_resolver)
       restore_env(:horizon_proxy, prev_config)
+      clear_rate_limiter()
     end)
 
     :ok
@@ -184,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
     test "does not route or allowlist PUT and PATCH requests" do
       for method <- ["PUT", "PATCH"] do
         error =
-          assert_raise Phoenix.Router.NoRouteError, fn ->
+          assert_raise NoRouteError, fn ->
             method
             |> Plug.Test.conn("/api/horizon/v1/bgp/watchlist")
             |> Router.call(Router.init([]))
@@ -462,37 +470,6 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
       assert conn.resp_body == ""
     end
 
-    test "proxies GET /api/horizon/v1/intel/lookup with asn, prefix, and ip query params for viewer" do
-      stub_http_client(fn req_opts ->
-        send(self(), {:upstream_request, req_opts})
-
-        {:ok,
-         %Req.Response{
-           status: 200,
-           headers: %{"content-type" => ["application/json"]},
-           body: Jason.encode!(%{"asn" => 13_335, "org" => "Cloudflare, Inc."})
-         }}
-      end)
-
-      conn =
-        call_proxy(
-          :get,
-          "/api/horizon/v1/intel/lookup?asn=13335&prefix=1.1.1.0%2F24&ip=1.1.1.1",
-          scope_for_role(:viewer)
-        )
-
-      assert json_response(conn, 200) == %{"asn" => 13_335, "org" => "Cloudflare, Inc."}
-      refute conn.resp_body =~ @secret_api_key
-
-      assert_receive {:upstream_request, req_opts}
-      assert req_opts[:method] == :get
-      assert req_opts[:url] == "#{@upstream_base}/api/v1/intel/lookup?asn=13335&prefix=1.1.1.0%2F24&ip=1.1.1.1"
-      assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
-
-      post_conn = call_proxy(:post, "/api/horizon/v1/intel/lookup", scope_for_role(:admin), %{})
-      assert post_conn.status == 404
-    end
-
     test "handles upstream timeout cleanly without leaking secrets", %{admin_scope: admin_scope} do
       stub_http_client(fn _req_opts ->
         {:error, %Req.TransportError{reason: :timeout}}
@@ -502,6 +479,166 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
 
       assert json_response(conn, 504) == %{"error" => "horizon_upstream_timeout"}
       refute conn.resp_body =~ @secret_api_key
+    end
+  end
+
+  describe "GET /api/horizon/v1/intel/lookup" do
+    setup do
+      stub_upstream({:ok, %{base_url: @upstream_base, api_key: @secret_api_key}})
+
+      stub_http_client(fn req_opts ->
+        send(self(), {:upstream_request, req_opts})
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"asn" => 64_496, "org" => "Example Network"})
+         }}
+      end)
+
+      :ok
+    end
+
+    test "rejects unauthenticated requests through the router with 401" do
+      conn =
+        build_conn()
+        |> put_req_header("accept", "application/json")
+        |> get("/api/horizon/v1/intel/lookup?asn=64496")
+
+      assert json_response(conn, 401) == %{"error" => "authentication_required"}
+      refute_received {:upstream_request, _}
+    end
+
+    test "proxies GET through the router for observability.events.view with query params and no-store headers" do
+      events_only_scope = scope_with_permissions(:viewer, MapSet.new(["observability.events.view"]))
+
+      conn =
+        dispatch_router(
+          :get,
+          "/api/horizon/v1/intel/lookup?asn=64496&prefix=198.51.100.0%2F24&ip=198.51.100.1",
+          events_only_scope
+        )
+
+      assert json_response(conn, 200) == %{"asn" => 64_496, "org" => "Example Network"}
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "x-ratelimit-limit") != []
+      refute conn.resp_body =~ @secret_api_key
+
+      assert_receive {:upstream_request, req_opts}
+      assert req_opts[:method] == :get
+
+      assert req_opts[:url] ==
+               "#{@upstream_base}/api/v1/intel/lookup?asn=64496&prefix=198.51.100.0%2F24&ip=198.51.100.1"
+
+      assert {"authorization", "Bearer #{@secret_api_key}"} in req_opts[:headers]
+      assert {"accept", "application/json"} in req_opts[:headers]
+      assert req_opts[:redirect] == false
+      assert req_opts[:retry] == false
+      assert req_opts[:decode_body] == false
+
+      ipv6_conn =
+        dispatch_router(
+          :get,
+          "/api/horizon/v1/intel/lookup?ip=2001:db8::1&prefix=2001:db8::%2F32",
+          scope_for_role(:viewer)
+        )
+
+      assert json_response(ipv6_conn, 200) == %{"asn" => 64_496, "org" => "Example Network"}
+      assert_receive {:upstream_request, ipv6_req}
+      assert ipv6_req[:url] == "#{@upstream_base}/api/v1/intel/lookup?ip=2001:db8::1&prefix=2001:db8::%2F32"
+
+      bare_conn = dispatch_router(:get, "/api/horizon/v1/intel/lookup", events_only_scope)
+      assert json_response(bare_conn, 200) == %{"asn" => 64_496, "org" => "Example Network"}
+      assert_receive {:upstream_request, bare_req}
+      assert bare_req[:url] == "#{@upstream_base}/api/v1/intel/lookup"
+    end
+
+    test "forbids callers lacking observability.events.view even with sibling read permissions" do
+      other_reads_scope =
+        scope_with_permissions(:viewer, MapSet.new(["observability.traces.view", "devices.view"]))
+
+      conn = dispatch_router(:get, "/api/horizon/v1/intel/lookup?asn=64496", other_reads_scope)
+
+      assert conn.status == 403
+      refute_received {:upstream_request, _}
+    end
+
+    test "rejects disallowed methods, versions, extra segments, and traversal on intel/lookup with 404" do
+      admin_scope = scope_for_role(:admin)
+
+      for {method, path, body} <- [
+            {:post, "/api/horizon/v1/intel/lookup", %{}},
+            {:delete, "/api/horizon/v1/intel/lookup", nil},
+            {:get, "/api/horizon/v2/intel/lookup?asn=64496", nil},
+            {:get, "/api/horizon/v1/intel/lookup/extra", nil},
+            {:get, "/api/horizon/v1/intel/lookup/..%2f..%2finternal", nil}
+          ] do
+        conn = dispatch_router(method, path, admin_scope, body)
+        assert conn.status == 404, "expected 404 for #{method} #{path}"
+        refute_received {:upstream_request, _}
+      end
+
+      for method <- ["PUT", "PATCH"] do
+        error =
+          assert_raise NoRouteError, fn ->
+            method
+            |> Plug.Test.conn("/api/horizon/v1/intel/lookup")
+            |> Router.call(Router.init([]))
+          end
+
+        assert Plug.Exception.status(error) == 404
+
+        assert {:error, :not_found} =
+                 HorizonProxy.resolve_route(method, "v1", ["intel", "lookup"], "/api/horizon/v1/intel/lookup")
+      end
+    end
+
+    test "rejects token smuggling and malformed query strings on intel/lookup with 400" do
+      events_only_scope = scope_with_permissions(:viewer, MapSet.new(["observability.events.view"]))
+
+      for bad_query <- ["token=leaked", "%74oken=leaked", "ip=%ZZ"] do
+        conn = dispatch_router(:get, "/api/horizon/v1/intel/lookup?#{bad_query}", events_only_scope)
+        assert json_response(conn, 400) == %{"error" => "invalid_query"}
+        refute_received {:upstream_request, _}
+      end
+    end
+
+    test "preserves upstream non-200 JSON responses with no-store headers without leaking secrets" do
+      stub_http_client(fn _req_opts ->
+        {:ok,
+         %Req.Response{
+           status: 404,
+           headers: %{"content-type" => ["application/json"]},
+           body: Jason.encode!(%{"error" => "intel_not_found"})
+         }}
+      end)
+
+      conn = dispatch_router(:get, "/api/horizon/v1/intel/lookup?ip=198.51.100.99", scope_for_role(:viewer))
+
+      assert json_response(conn, 404) == %{"error" => "intel_not_found"}
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      refute conn.resp_body =~ @secret_api_key
+    end
+  end
+
+  defp dispatch_router(method, full_path, scope, body_params \\ nil) do
+    conn =
+      build_conn()
+      |> put_req_header("accept", "application/json")
+      |> assign(:current_scope, scope)
+
+    conn =
+      if method in [:post, :delete] do
+        put_req_header(conn, "authorization", "Bearer test-router-dispatch")
+      else
+        conn
+      end
+
+    case method do
+      :get -> get(conn, full_path)
+      :post -> post(conn, full_path, body_params || %{})
+      :delete -> delete(conn, full_path)
     end
   end
 
@@ -528,10 +665,27 @@ defmodule ServiceRadarWebNGWeb.Api.HorizonProxyControllerTest do
   end
 
   defp scope_for_role(role) do
+    scope_with_permissions(role, Catalog.permissions_for_role(role))
+  end
+
+  defp scope_with_permissions(role, permissions) do
     Scope.for_user(
-      %{id: "00000000-0000-4000-8000-000000000001", email: "#{role}@example.com", role: role},
-      permissions: Catalog.permissions_for_role(role)
+      %{
+        id: "00000000-0000-4000-8000-000000000001",
+        email: "#{role}@example.com",
+        role: role,
+        role_profile_id: nil
+      },
+      permissions: permissions
     )
+  end
+
+  defp clear_rate_limiter do
+    table = RateLimiter.__table__()
+
+    if :ets.whereis(table) != :undefined do
+      :ets.delete_all_objects(table)
+    end
   end
 
   defp stub_upstream(result) do
