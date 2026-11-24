@@ -297,6 +297,20 @@ pub trait InferenceBackend: Send + Sync {
         let frames: Vec<&RgbFrame> = regions.iter().map(|(frame, _, _)| *frame).collect();
         self.encode_images(&frames)
     }
+
+    /// Optional zero-shot class disambiguation for a borderline Stage 1 detection using its
+    /// already-computed Stage 2 crop embedding (zero extra GPU forward passes).
+    ///
+    /// Returns `Some(reclassified)` when the backend has cached class prompt embeddings and
+    /// an alternative class clearly outscores the Stage 1 label.
+    fn disambiguate_borderline_crop(
+        &self,
+        _class: ObjectClass,
+        _confidence: f32,
+        _crop_embedding: &[f32],
+    ) -> Option<ObjectClass> {
+        None
+    }
 }
 
 /// Deterministic CPU reference backend used for CI/smoke tests and `MEDIA_WORKER_BACKEND=stub`.

@@ -242,13 +242,14 @@ pub struct PixelMotionGateConfig {
     /// Downsampled spatial grid height (default `18`).
     pub grid_rows: u32,
     /// Normalized `[0.0, 1.0]` per-block MAD threshold to classify a block as changed.
-    /// Default: `0.06` (~15/255 luma delta).
+    /// Default: `0.10` (~26/255 luma delta) to reject night-IR sensor grain and mild foliage shimmer.
     pub block_delta_threshold: f32,
     /// Maximum single-block normalized delta that triggers admission even if global mean
-    /// change is tiny (prevents small distant objects from aliasing out). Default: `0.10`.
+    /// change is tiny (prevents small distant objects from aliasing out while ignoring isolated
+    /// swaying leaves or IR noise spikes). Default: `0.18` (~46/255 luma delta).
     pub max_block_admit_threshold: f32,
     /// Fraction of active ROI blocks that must exceed `block_delta_threshold` to trigger
-    /// admission via area coverage. Default: `0.03` (3% of blocks).
+    /// admission via area coverage. Default: `0.05` (5% of blocks).
     pub changed_block_ratio_threshold: f32,
     /// Maximum elapsed milliseconds before forcing a heartbeat refresh. Default: `60_000`.
     pub max_skip_interval_ms: u64,
@@ -261,9 +262,9 @@ impl Default for PixelMotionGateConfig {
         Self {
             grid_cols: 32,
             grid_rows: 18,
-            block_delta_threshold: 0.06,
-            max_block_admit_threshold: 0.10,
-            changed_block_ratio_threshold: 0.03,
+            block_delta_threshold: 0.10,
+            max_block_admit_threshold: 0.18,
+            changed_block_ratio_threshold: 0.05,
             max_skip_interval_ms: 60_000,
             roi: RoiMask::default(),
         }
@@ -901,5 +902,54 @@ mod tests {
         };
         let err = gate.evaluate_luma(4_000, bad_view).unwrap_err();
         assert!(matches!(err.kind(), MediaCoreErrorKind::InvalidFrame(_)));
+    }
+
+    #[test]
+    fn tier1_defaults_suppress_ir_grain_and_foliage_while_admitting_real_movers() {
+        let mut gate = PixelMotionGate::new(PixelMotionGateConfig::default())
+            .expect("valid default tier1 config");
+
+        let base = LumaPlane::solid(320, 180, 60);
+        assert!(
+            gate.evaluate_luma(0, base.as_slice())
+                .unwrap()
+                .decision
+                .is_admitted()
+        );
+
+        // Faint night-IR sensor grain (+12 luma across the whole frame, ~0.047 delta) -> Skip
+        let ir_grain = LumaPlane::solid(320, 180, 72);
+        let m_grain = gate.evaluate_luma(1_000, ir_grain.as_slice()).unwrap();
+        assert!(
+            !m_grain.decision.is_admitted(),
+            "faint IR grain should be suppressed by default thresholds (max_delta={}, ratio={})",
+            m_grain.max_block_delta,
+            m_grain.changed_block_ratio
+        );
+
+        // Localized swaying foliage (small 2x2 grid patch shifting by +30 luma, ~0.118 delta,
+        // ~0.7% of blocks) -> Skip
+        let mut foliage = base.clone();
+        foliage.fill_rect(10, 10, 30, 30, 90);
+        let m_foliage = gate.evaluate_luma(2_000, foliage.as_slice()).unwrap();
+        assert!(
+            !m_foliage.decision.is_admitted(),
+            "small swaying foliage patch should be suppressed (max_delta={}, ratio={})",
+            m_foliage.max_block_delta,
+            m_foliage.changed_block_ratio
+        );
+
+        // Real person/animal/vehicle entering frame (high-contrast +90 luma region) -> Admit
+        let mut mover = base.clone();
+        mover.fill_rect(120, 60, 180, 140, 150);
+        let m_mover = gate.evaluate_luma(3_000, mover.as_slice()).unwrap();
+        assert!(matches!(
+            m_mover.decision,
+            GateDecision::Admit {
+                reason: GateAdmitReason::PixelMotion,
+                ..
+            }
+        ));
+        assert!(m_mover.motion_bbox.is_some());
     }
 }

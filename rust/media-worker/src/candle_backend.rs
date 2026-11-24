@@ -15,16 +15,34 @@ use crate::backend::{
 };
 use crate::errors::MediaWorkerError;
 use crate::tokenizer::PureRustTokenizer;
-use crate::vision::RgbFrame;
+use crate::vision::{ObjectClass, RgbFrame};
 use crate::yolox::{YoloxDetector, YoloxDetectorConfig};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::siglip;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const MAX_QUERY_CHARS: usize = 256;
+
+const PERSON_CLASS_PROMPT: &str = "a photo of a person";
+const ANIMAL_CLASS_PROMPT: &str = "a photo of a dog or animal";
+const VEHICLE_CLASS_PROMPT: &str = "a photo of a car or vehicle";
+
+/// Maximum Stage 1 detector confidence eligible for SigLIP zero-shot crop disambiguation.
+pub(crate) const BORDERLINE_DISAMBIGUATION_MAX_CONFIDENCE: f32 = 0.65;
+/// Minimum cosine similarity margin required for SigLIP to reclassify a borderline detection.
+pub(crate) const DISAMBIGUATION_COSINE_MARGIN: f32 = 0.015;
+
+/// Pre-computed normalized SigLIP text embeddings for canonical surveillance classes.
+#[derive(Debug, Clone)]
+struct ClassPromptEmbeddings {
+    person: Vec<f32>,
+    animal: Vec<f32>,
+    #[allow(dead_code)]
+    vehicle: Vec<f32>,
+}
 
 /// Load-time options for [`CandleBackend::load`].
 #[derive(Debug, Clone)]
@@ -91,6 +109,7 @@ pub struct CandleBackend {
     siglip_cfg: siglip::Config,
     tokenizer: PureRustTokenizer,
     detector: Option<YoloxDetector>,
+    class_prompts: ClassPromptEmbeddings,
     device: Device,
     device_name: String,
     precision: InferencePrecision,
@@ -187,11 +206,36 @@ impl CandleBackend {
                 .to_string()
         });
 
+        let class_prompts = ClassPromptEmbeddings {
+            person: encode_text_with_model(
+                &siglip,
+                &siglip_cfg,
+                &tokenizer,
+                &device,
+                PERSON_CLASS_PROMPT,
+            )?,
+            animal: encode_text_with_model(
+                &siglip,
+                &siglip_cfg,
+                &tokenizer,
+                &device,
+                ANIMAL_CLASS_PROMPT,
+            )?,
+            vehicle: encode_text_with_model(
+                &siglip,
+                &siglip_cfg,
+                &tokenizer,
+                &device,
+                VEHICLE_CLASS_PROMPT,
+            )?,
+        };
+
         Ok(Self {
             siglip,
             siglip_cfg,
             tokenizer,
             detector,
+            class_prompts,
             device,
             device_name,
             precision,
@@ -275,38 +319,38 @@ impl InferenceBackend for CandleBackend {
             )));
         }
 
-        let text_cfg = &self.siglip_cfg.text_config;
-        let token_ids = self.tokenizer.encode_padded(
-            trimmed,
-            text_cfg.max_position_embeddings,
-            text_cfg.pad_token_id,
-            text_cfg.eos_token_id,
-            text_cfg.vocab_size,
+        let prompt = format_siglip_text_prompt(trimmed);
+        encode_text_with_model(
+            &self.siglip,
+            &self.siglip_cfg,
+            &self.tokenizer,
+            &self.device,
+            &prompt,
+        )
+    }
+
+    fn disambiguate_borderline_crop(
+        &self,
+        class: ObjectClass,
+        confidence: f32,
+        crop_embedding: &[f32],
+    ) -> Option<ObjectClass> {
+        let (reclassified, person_sim, animal_sim) = disambiguate_person_animal(
+            class,
+            confidence,
+            crop_embedding,
+            &self.class_prompts.person,
+            &self.class_prompts.animal,
         )?;
-        let seq_len = token_ids.len();
-        let input_ids = Tensor::from_vec(token_ids, (1, seq_len), &self.device).map_err(|err| {
-            MediaWorkerError::inference_failed(format!("failed creating text token tensor: {err}"))
-        })?;
-
-        let features = self
-            .siglip
-            .get_text_features(&input_ids)
-            .and_then(|t| t.to_dtype(DType::F32))
-            .and_then(|t| t.to_device(&Device::Cpu))
-            .map_err(|err| {
-                MediaWorkerError::inference_failed(format!("SigLIP text forward failed: {err}"))
-            })?;
-
-        let mut rows = features.to_vec2::<f32>().map_err(|err| {
-            MediaWorkerError::inference_failed(format!(
-                "failed extracting SigLIP text embedding: {err}"
-            ))
-        })?;
-        let vec = rows.pop().ok_or_else(|| {
-            MediaWorkerError::inference_failed("SigLIP text forward returned empty batch")
-        })?;
-
-        l2_normalize_checked(vec)
+        debug!(
+            from = class.as_str(),
+            to = reclassified.as_str(),
+            confidence,
+            person_sim,
+            animal_sim,
+            "reclassified borderline detection via SigLIP zero-shot prompt comparison"
+        );
+        Some(reclassified)
     }
 
     fn info(&self) -> InferenceBackendInfo {
@@ -600,4 +644,214 @@ fn l2_normalize_checked(mut vec: Vec<f32>) -> Result<Vec<f32>, MediaWorkerError>
         *v *= inv;
     }
     Ok(vec)
+}
+
+fn encode_text_with_model(
+    siglip: &siglip::Model,
+    siglip_cfg: &siglip::Config,
+    tokenizer: &PureRustTokenizer,
+    device: &Device,
+    text: &str,
+) -> Result<Vec<f32>, MediaWorkerError> {
+    let text_cfg = &siglip_cfg.text_config;
+    let token_ids = tokenizer.encode_padded(
+        text,
+        text_cfg.max_position_embeddings,
+        text_cfg.pad_token_id,
+        text_cfg.eos_token_id,
+        text_cfg.vocab_size,
+    )?;
+    let seq_len = token_ids.len();
+    let input_ids = Tensor::from_vec(token_ids, (1, seq_len), device).map_err(|err| {
+        MediaWorkerError::inference_failed(format!("failed creating text token tensor: {err}"))
+    })?;
+
+    let features = siglip
+        .get_text_features(&input_ids)
+        .and_then(|t| t.to_dtype(DType::F32))
+        .and_then(|t| t.to_device(&Device::Cpu))
+        .map_err(|err| {
+            MediaWorkerError::inference_failed(format!("SigLIP text forward failed: {err}"))
+        })?;
+
+    let mut rows = features.to_vec2::<f32>().map_err(|err| {
+        MediaWorkerError::inference_failed(format!(
+            "failed extracting SigLIP text embedding: {err}"
+        ))
+    })?;
+    let vec = rows.pop().ok_or_else(|| {
+        MediaWorkerError::inference_failed("SigLIP text forward returned empty batch")
+    })?;
+
+    l2_normalize_checked(vec)
+}
+
+/// Frames a bare natural-language search query with SigLIP's canonical `"a photo of ..."`
+/// prompt template while preserving queries that already carry a visual framing prefix.
+pub(crate) fn format_siglip_text_prompt(query: &str) -> String {
+    let normalized = query
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    if normalized.starts_with("a photo of")
+        || normalized.starts_with("an image of")
+        || normalized.starts_with("a picture of")
+    {
+        normalized
+    } else {
+        let body = normalized.trim_end_matches('.');
+        if body.is_empty() {
+            normalized
+        } else {
+            format!("a photo of {body}.")
+        }
+    }
+}
+
+/// Compares a borderline `Person` or `Animal` crop's normalized SigLIP embedding against
+/// pre-computed normalized `person` and `animal` text prompt embeddings.
+///
+/// Returns `Some((reclassified_class, person_sim, animal_sim))` when:
+/// - `confidence < BORDERLINE_DISAMBIGUATION_MAX_CONFIDENCE` (`0.65`),
+/// - `detected_class` is `Person` or `Animal`, and
+/// - the opposite class's cosine similarity exceeds the detected class's similarity by at
+///   least `DISAMBIGUATION_COSINE_MARGIN` (`0.015`).
+pub(crate) fn disambiguate_person_animal(
+    detected_class: ObjectClass,
+    confidence: f32,
+    crop_embedding: &[f32],
+    person_prompt: &[f32],
+    animal_prompt: &[f32],
+) -> Option<(ObjectClass, f32, f32)> {
+    if confidence >= BORDERLINE_DISAMBIGUATION_MAX_CONFIDENCE {
+        return None;
+    }
+    if !matches!(detected_class, ObjectClass::Person | ObjectClass::Animal) {
+        return None;
+    }
+    if crop_embedding.is_empty()
+        || crop_embedding.len() != person_prompt.len()
+        || crop_embedding.len() != animal_prompt.len()
+    {
+        return None;
+    }
+
+    let person_sim = dot_product(crop_embedding, person_prompt);
+    let animal_sim = dot_product(crop_embedding, animal_prompt);
+    if !person_sim.is_finite() || !animal_sim.is_finite() {
+        return None;
+    }
+
+    match detected_class {
+        ObjectClass::Person if animal_sim >= person_sim + DISAMBIGUATION_COSINE_MARGIN => {
+            Some((ObjectClass::Animal, person_sim, animal_sim))
+        }
+        ObjectClass::Animal if person_sim >= animal_sim + DISAMBIGUATION_COSINE_MARGIN => {
+            Some((ObjectClass::Person, person_sim, animal_sim))
+        }
+        _ => None,
+    }
+}
+
+fn dot_product(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn format_siglip_text_prompt_frames_bare_queries_and_preserves_prefixed_ones() {
+        assert_eq!(
+            format_siglip_text_prompt("black dog"),
+            "a photo of black dog."
+        );
+        assert_eq!(
+            format_siglip_text_prompt("  WHITE   Dog.  "),
+            "a photo of white dog."
+        );
+        assert_eq!(
+            format_siglip_text_prompt("Person in red jacket"),
+            "a photo of person in red jacket."
+        );
+        assert_eq!(
+            format_siglip_text_prompt("A Photo Of a delivery van"),
+            "a photo of a delivery van"
+        );
+        assert_eq!(
+            format_siglip_text_prompt("  An image of a dog "),
+            "an image of a dog"
+        );
+        assert_eq!(
+            format_siglip_text_prompt("A picture of a person"),
+            "a picture of a person"
+        );
+    }
+
+    #[test]
+    fn disambiguate_person_animal_flips_borderline_when_margin_met() {
+        let person_prompt = vec![1.0, 0.0, 0.0, 0.0];
+        let animal_prompt = vec![0.0, 1.0, 0.0, 0.0];
+
+        // Borderline Person (0.50) whose crop aligns with animal_prompt -> Animal
+        let dog_crop = vec![0.05, 0.11, 0.0, 0.0];
+        let res = disambiguate_person_animal(
+            ObjectClass::Person,
+            0.50,
+            &dog_crop,
+            &person_prompt,
+            &animal_prompt,
+        );
+        assert!(matches!(res, Some((ObjectClass::Animal, _, _))));
+
+        // Borderline Animal (0.55) whose crop aligns with person_prompt -> Person
+        let person_crop = vec![0.12, 0.04, 0.0, 0.0];
+        let res = disambiguate_person_animal(
+            ObjectClass::Animal,
+            0.55,
+            &person_crop,
+            &person_prompt,
+            &animal_prompt,
+        );
+        assert!(matches!(res, Some((ObjectClass::Person, _, _))));
+
+        // High-confidence detection (>= 0.65) is never flipped
+        assert!(
+            disambiguate_person_animal(
+                ObjectClass::Person,
+                0.65,
+                &dog_crop,
+                &person_prompt,
+                &animal_prompt,
+            )
+            .is_none()
+        );
+
+        // Margin below 0.015 does not flip
+        let ambiguous_crop = vec![0.08, 0.09, 0.0, 0.0];
+        assert!(
+            disambiguate_person_animal(
+                ObjectClass::Person,
+                0.50,
+                &ambiguous_crop,
+                &person_prompt,
+                &animal_prompt,
+            )
+            .is_none()
+        );
+
+        // Non-person/animal classes (e.g. Vehicle) are never flipped
+        assert!(
+            disambiguate_person_animal(
+                ObjectClass::Vehicle,
+                0.45,
+                &dog_crop,
+                &person_prompt,
+                &animal_prompt,
+            )
+            .is_none()
+        );
+    }
 }

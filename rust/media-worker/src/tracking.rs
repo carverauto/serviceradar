@@ -41,6 +41,10 @@ impl TrackSummary {
         self.object_class
     }
 
+    pub(crate) fn set_object_class(&mut self, object_class: ObjectClass) {
+        self.object_class = object_class;
+    }
+
     pub fn first_seen_offset_ms(&self) -> u64 {
         self.first_seen_offset_ms
     }
