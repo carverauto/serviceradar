@@ -451,9 +451,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
           </h2>
           <p class="mt-1 text-xs text-sr-muted">
             CNPG-derived present and pinned bytes, effective local window projection with binding
-            bound, pinned-growth <code class="font-mono">time_to_full</code>, and assigned continuous
-            cameras per NVR storage UUID. Live NVR disk usage and inventory ledger audit state are
-            reported as <strong>unknown until NVR /v1/status reports</strong>.
+            bound, pinned-growth <code class="font-mono">time_to_full</code>, assigned continuous
+            cameras, and live NVR <code class="font-mono">/v1/status</code> disk capacity and
+            inventory ledger audit state per NVR storage UUID.
           </p>
         </div>
         <.ui_badge
@@ -519,8 +519,84 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
             </div>
           </div>
 
+          <div
+            :if={live_capacity_present?(member)}
+            id={"health-storage-member-live-#{member.storage_id}"}
+            class="rounded-md border border-sr-line/80 bg-sr-surface/70 p-2.5 space-y-2 text-[11px] text-sr-muted"
+          >
+            <div
+              :if={live_spool_bar_present?(member)}
+              id={"health-storage-member-spool-#{member.storage_id}"}
+              class="space-y-1"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Spool used:
+                  <span class="font-mono text-sr-ink">
+                    {format_bytes(live_field(member, :used_bytes))} / {format_bytes(
+                      live_field(member, :max_spool_bytes)
+                    )}
+                  </span>
+                </span>
+                <span class="font-mono font-semibold text-sr-ink">
+                  {format_num(live_used_percent(member))}%
+                </span>
+              </div>
+              <div
+                class="h-1.5 w-full overflow-hidden rounded-full bg-sr-line/60"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={trunc(live_used_percent(member))}
+              >
+                <div
+                  class={[
+                    "h-full rounded-full transition-all",
+                    spool_bar_color(live_used_percent(member))
+                  ]}
+                  style={"width: #{live_used_percent(member)}%"}
+                />
+              </div>
+            </div>
+
+            <div
+              id={"health-storage-member-disk-metrics-#{member.storage_id}"}
+              class="flex flex-wrap items-center gap-x-3 gap-y-1"
+            >
+              <span :if={is_integer(live_field(member, :available_bytes))}>
+                Free:
+                <span class="font-mono text-sr-ink">
+                  {format_bytes(live_field(member, :available_bytes))}
+                </span>
+                <span :if={is_integer(live_field(member, :reserve_bytes))}>
+                  (reserve {format_bytes(live_field(member, :reserve_bytes))})
+                </span>
+              </span>
+              <span :if={is_integer(live_field(member, :blocks))}>
+                Ledger blocks:
+                <span class="font-mono text-sr-ink">
+                  {live_field(member, :blocks)}<span :if={is_integer(live_field(member, :max_blocks))}> / {live_field(
+                    member,
+                    :max_blocks
+                  )}</span>
+                </span>
+              </span>
+              <span :if={
+                is_integer(live_field(member, :reservations)) and
+                  live_field(member, :reservations) > 0
+              }>
+                Active writers:
+                <span class="font-mono text-sr-ink">{live_field(member, :reservations)}</span>
+              </span>
+            </div>
+          </div>
+
           <div class="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-sr-muted">
-            <.ui_badge size="xs" variant="warning">
+            <.ui_badge
+              id={"health-storage-member-ledger-#{member.storage_id}"}
+              size="xs"
+              variant={live_ledger_badge_variant(member)}
+            >
               Disk &amp; ledger: {format_live_ledger_status(member)}
             </.ui_badge>
             <span :if={is_map(Map.get(member, :reservations))}>
@@ -1382,10 +1458,91 @@ defmodule ServiceRadarWebNGWeb.Settings.RecordingLive.HealthComponents do
     end
   end
 
+  defp live_capacity_present?(member) do
+    Map.get(member, :live_status_state) == :reported and
+      is_map(Map.get(member, :live_status)) and
+      (is_integer(live_field(member, :used_bytes)) or
+         is_integer(live_field(member, :available_bytes)) or
+         is_integer(live_field(member, :blocks)))
+  end
+
+  defp live_spool_bar_present?(member) do
+    used = live_field(member, :used_bytes)
+    max_spool = live_field(member, :max_spool_bytes)
+    is_integer(used) and is_integer(max_spool) and max_spool > 0
+  end
+
+  defp live_used_percent(member) do
+    case live_field(member, :used_percent) do
+      pct when is_number(pct) ->
+        pct |> max(0.0) |> min(100.0)
+
+      _ ->
+        used = live_field(member, :used_bytes) || 0
+        max_spool = live_field(member, :max_spool_bytes) || 0
+
+        if max_spool > 0 do
+          used |> Kernel.*(100.0) |> Kernel./(max_spool) |> max(0.0) |> min(100.0) |> Float.round(1)
+        else
+          0.0
+        end
+    end
+  end
+
+  defp spool_bar_color(pct) when pct >= 90.0, do: "bg-rose-500"
+  defp spool_bar_color(pct) when pct >= 80.0, do: "bg-amber-500"
+  defp spool_bar_color(_pct), do: "bg-emerald-500"
+
+  defp live_field(member, key) do
+    case Map.get(member, :live_status) do
+      %{} = live -> fetch_val(live, key)
+      _ -> nil
+    end
+  end
+
+  defp live_ledger_badge_variant(member) do
+    drift = live_field(member, :drift_count)
+
+    if Map.get(member, :live_status_state) == :reported do
+      case Map.get(member, :ledger_state) do
+        state when state in [:ready, "ready", :ok, "ok"] ->
+          if is_integer(drift) and drift > 0, do: "warning", else: "success"
+
+        state when state in [:mismatch, "mismatch", :degraded, "degraded", :unavailable, "unavailable"] ->
+          "error"
+
+        _ ->
+          "warning"
+      end
+    else
+      "warning"
+    end
+  end
+
   defp format_live_ledger_status(member) do
-    if member.live_status_state == :reported and
-         member.ledger_state not in [nil, :unknown_until_nvr_status] do
-      to_string(member.ledger_state)
+    drift = live_field(member, :drift_count)
+
+    if Map.get(member, :live_status_state) == :reported and
+         Map.get(member, :ledger_state) not in [nil, :unknown_until_nvr_status] do
+      case Map.get(member, :ledger_state) do
+        state when state in [:ready, "ready", :ok, "ok"] ->
+          if is_integer(drift) and drift > 0,
+            do: "degraded (drift: #{drift})",
+            else: "ok"
+
+        state when state in [:mismatch, "mismatch"] ->
+          if is_integer(drift) and drift > 0,
+            do: "degraded (mismatch, drift: #{drift})",
+            else: "degraded (mismatch)"
+
+        state when state in [:degraded, "degraded"] ->
+          if is_integer(drift) and drift > 0,
+            do: "degraded (drift: #{drift})",
+            else: "degraded"
+
+        other ->
+          to_string(other)
+      end
     else
       "unknown until NVR /v1/status reports"
     end

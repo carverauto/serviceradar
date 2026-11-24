@@ -11,9 +11,12 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
   alias ServiceRadarRecordingControl.RecoveryGate
 
   @rpc_timeout_ms 5_000
+  @member_status_timeout_ms 2_500
+  @member_status_rpc_timeout_ms 3_500
   @max_client_config_bytes 32_768
   @member_name_pattern ~r/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/
   @default_remote_supervisor Module.concat([ServiceRadarCoreElx, CameraRecording, Supervisor])
+  @default_remote_member_status Module.concat([ServiceRadarCoreElx, CameraRecording, MemberStatus])
 
   @type gate_state :: :not_configured | :closed | :open
   @type gate_status :: %{
@@ -107,6 +110,51 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
           nvr_installation: :unknown,
           members: []
         }
+    end
+  end
+
+  @doc """
+  Fetches live `GET /v1/status` reports for configured NVR members via bounded
+  RPC to `core-elx` (which holds the ingest listener credentials).
+
+  Never raises and never blocks longer than the bounded status RPC timeout;
+  returns `%{}` when `core-elx` is unreachable, NVR is not installed, or no
+  member answers.
+  """
+  @spec member_statuses(status() | map() | nil) :: %{optional(String.t()) => map()}
+  def member_statuses(runtime \\ nil)
+
+  def member_statuses(%{core_elx: %{reachability: :reachable, nvr_installation: :installed, node: node}})
+      when is_atom(node) and not is_nil(node) do
+    fetch_remote_member_statuses(node)
+  end
+
+  def member_statuses(nil) do
+    case find_supervisor_node(remote_supervisor(), rpc_timeout_ms()) do
+      {:ok, node} -> fetch_remote_member_statuses(node)
+      {:error, :unreachable} -> %{}
+    end
+  end
+
+  def member_statuses(_runtime), do: %{}
+
+  defp fetch_remote_member_statuses(node) do
+    if node == Node.self() or node in Node.list() do
+      status_timeout = member_status_timeout_ms()
+      rpc_timeout = member_status_rpc_timeout_ms()
+
+      case :rpc.call(
+             node,
+             remote_member_status_module(),
+             :fetch_all,
+             [[timeout_ms: status_timeout]],
+             rpc_timeout
+           ) do
+        %{} = statuses -> statuses
+        _ -> %{}
+      end
+    else
+      %{}
     end
   end
 
@@ -218,6 +266,30 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntime do
       :serviceradar_web_ng,
       :camera_recording_rpc_nodes,
       [Node.self() | Node.list()]
+    )
+  end
+
+  defp remote_member_status_module do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :camera_recording_remote_member_status,
+      @default_remote_member_status
+    )
+  end
+
+  defp member_status_timeout_ms do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :camera_recording_member_status_timeout_ms,
+      @member_status_timeout_ms
+    )
+  end
+
+  defp member_status_rpc_timeout_ms do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :camera_recording_member_status_rpc_timeout_ms,
+      @member_status_rpc_timeout_ms
     )
   end
 

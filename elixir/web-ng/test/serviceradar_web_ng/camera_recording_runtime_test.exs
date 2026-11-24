@@ -17,9 +17,23 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
     def enabled?, do: false
   end
 
+  defmodule MemberStatusStub do
+    @moduledoc false
+    def fetch_all(_opts) do
+      %{
+        "00000000-0000-4000-8000-0000000005a1" => %{
+          storage_id: "00000000-0000-4000-8000-0000000005a1",
+          inventory: :ready,
+          capacity: %{used_bytes: 1_048_576, max_spool_bytes: 10_485_760}
+        }
+      }
+    end
+  end
+
   setup do
     orig_gate = Application.get_env(:serviceradar_core, :nvr_recovery_gate)
     orig_sup = Application.get_env(:serviceradar_web_ng, :camera_recording_remote_supervisor)
+    orig_member_status = Application.get_env(:serviceradar_web_ng, :camera_recording_remote_member_status)
     orig_nodes = Application.get_env(:serviceradar_web_ng, :camera_recording_rpc_nodes)
     orig_timeout = Application.get_env(:serviceradar_web_ng, :camera_recording_rpc_timeout_ms)
     orig_cfg = Application.get_env(:serviceradar_core_elx, :camera_nvr_client_config_file)
@@ -28,6 +42,7 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
     on_exit(fn ->
       restore_env(:serviceradar_core, :nvr_recovery_gate, orig_gate)
       restore_env(:serviceradar_web_ng, :camera_recording_remote_supervisor, orig_sup)
+      restore_env(:serviceradar_web_ng, :camera_recording_remote_member_status, orig_member_status)
       restore_env(:serviceradar_web_ng, :camera_recording_rpc_nodes, orig_nodes)
       restore_env(:serviceradar_web_ng, :camera_recording_rpc_timeout_ms, orig_timeout)
       restore_env(:serviceradar_core_elx, :camera_nvr_client_config_file, orig_cfg)
@@ -218,6 +233,49 @@ defmodule ServiceRadarWebNG.CameraRecordingRuntimeTest do
       Application.put_env(:serviceradar_core_elx, :camera_nvr_client_config_file, oversized_path)
 
       assert CameraRecordingRuntime.core_elx_status().members == []
+    end
+  end
+
+  describe "member_statuses/1" do
+    test "fetches live member statuses via bounded RPC when core-elx is reachable and installed" do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :camera_recording_remote_member_status,
+        MemberStatusStub
+      )
+
+      runtime = %{
+        core_elx: %{
+          reachability: :reachable,
+          nvr_installation: :installed,
+          node: Node.self()
+        }
+      }
+
+      assert %{
+               "00000000-0000-4000-8000-0000000005a1" => %{
+                 inventory: :ready,
+                 capacity: %{used_bytes: 1_048_576}
+               }
+             } = CameraRecordingRuntime.member_statuses(runtime)
+    end
+
+    test "returns empty map safely when core-elx is unreachable, not installed, or node is not connected" do
+      assert CameraRecordingRuntime.member_statuses(%{
+               core_elx: %{reachability: :unreachable, nvr_installation: :unknown, node: nil}
+             }) == %{}
+
+      assert CameraRecordingRuntime.member_statuses(%{
+               core_elx: %{reachability: :reachable, nvr_installation: :not_installed, node: Node.self()}
+             }) == %{}
+
+      assert CameraRecordingRuntime.member_statuses(%{
+               core_elx: %{
+                 reachability: :reachable,
+                 nvr_installation: :installed,
+                 node: :"disconnected-core-elx@example.internal"
+               }
+             }) == %{}
     end
   end
 
