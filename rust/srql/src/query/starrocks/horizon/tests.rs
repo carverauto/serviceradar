@@ -37,6 +37,8 @@ fn translates_horizon_outages_with_filters_and_time_bounds() {
     assert!(resp.sql.contains("`covering_prefix` = '1.1.1.0/24'"));
     assert!(resp.sql.contains("`origin_asn` = 13335"));
     assert!(resp.sql.contains("`time` >="));
+    assert!(!resp.sql.contains("`day` >="));
+    assert!(!resp.sql.contains("`day` <="));
     assert!(resp.sql.contains("LIMIT 25 OFFSET 0"));
     assert!(resp.viz.is_some());
 }
@@ -101,7 +103,11 @@ fn translates_horizon_isp_accountability_with_bucket_hour_filters_and_sorts() {
         "`first_blame_tier`",
         "`sample_count`",
     ] {
-        assert!(resp.sql.contains(col), "missing column {col} in {}", resp.sql);
+        assert!(
+            resp.sql.contains(col),
+            "missing column {col} in {}",
+            resp.sql
+        );
     }
     assert!(resp.sql.contains("`asn` = 13335"));
     assert!(resp.sql.contains("`as_org` = 'Cloudflare'"));
@@ -109,6 +115,8 @@ fn translates_horizon_isp_accountability_with_bucket_hour_filters_and_sorts() {
     assert!(resp.sql.contains("`mtu_blackhole_count` > 0"));
     assert!(resp.sql.contains("`bucket_hour` >="));
     assert!(resp.sql.contains("`bucket_hour` <="));
+    assert!(resp.sql.contains("`day` >= date_trunc('day', '"));
+    assert!(resp.sql.contains("`day` <= '"));
     assert!(!resp.sql.contains("`time` >="));
     assert!(!resp.sql.contains("`time` <="));
     assert!(resp.sql.contains("ORDER BY `forwarding_loss_pct` DESC"));
@@ -137,9 +145,11 @@ fn horizon_isp_accountability_default_sort_time_alias_and_raw_mode_use_bucket_ho
             .expect("sort:bucket_hour:asc should translate");
     assert!(bucket_asc.sql.contains("ORDER BY `bucket_hour` ASC"));
 
-    let raw_mode =
-        translate_with_mode("in:horizon_isp_accountability sort:time:asc limit:10", Some("starrocks_raw"))
-            .expect("starrocks_raw should safely compile MV query");
+    let raw_mode = translate_with_mode(
+        "in:horizon_isp_accountability sort:time:asc limit:10",
+        Some("starrocks_raw"),
+    )
+    .expect("starrocks_raw should safely compile MV query");
     assert_eq!(raw_mode.sql, time_asc.sql);
 }
 
@@ -166,7 +176,10 @@ fn horizon_isp_accountability_additional_filters_and_errors() {
         "in:horizon_isp_accountability other:true",
     ] {
         assert!(
-            matches!(translate_starrocks(bad), Err(ServiceError::InvalidRequest(_))),
+            matches!(
+                translate_starrocks(bad),
+                Err(ServiceError::InvalidRequest(_))
+            ),
             "expected InvalidRequest for '{bad}'"
         );
     }
@@ -243,7 +256,10 @@ fn rejects_non_finite_floats() {
         "in:horizon_paths avg_rtt_ms:<-inf",
     ] {
         assert!(
-            matches!(translate_starrocks(query), Err(ServiceError::InvalidRequest(_))),
+            matches!(
+                translate_starrocks(query),
+                Err(ServiceError::InvalidRequest(_))
+            ),
             "expected InvalidRequest for non-finite float query '{query}'"
         );
     }
@@ -290,8 +306,9 @@ fn supports_integer_in_lists_and_validates_numeric_and_bool_operators() {
         Err(ServiceError::InvalidRequest(_))
     ));
 
-    let float_list_err = translate_starrocks("in:horizon_isp_accountability forwarding_loss_pct:(1.0,2.0)")
-        .expect_err("float list filter should fail operator check");
+    let float_list_err =
+        translate_starrocks("in:horizon_isp_accountability forwarding_loss_pct:(1.0,2.0)")
+            .expect_err("float list filter should fail operator check");
     assert!(matches!(
         float_list_err,
         ServiceError::InvalidRequest(ref msg) if msg.contains("equality and ordered comparisons")
@@ -303,4 +320,36 @@ fn supports_integer_in_lists_and_validates_numeric_and_bool_operators() {
         bool_list_err,
         ServiceError::InvalidRequest(ref msg) if msg.contains("only supports equality comparisons")
     ));
+}
+
+#[test]
+fn horizon_isp_accountability_emits_day_partition_bounds_matching_time_window() {
+    let intra_day = translate_starrocks(
+        "in:horizon_isp_accountability time:[2026-11-23T14:30:00Z,2026-11-23T15:30:00Z] limit:10",
+    )
+    .expect("intra-day window should translate");
+    assert!(
+        intra_day
+            .sql
+            .contains("`bucket_hour` >= '2026-11-23 14:30:00.000000' AND `bucket_hour` <= '2026-11-23 15:30:00.000000' AND `day` >= date_trunc('day', '2026-11-23 14:30:00.000000') AND `day` <= '2026-11-23 15:30:00.000000'"),
+        "unexpected SQL: {}",
+        intra_day.sql
+    );
+
+    let cross_day = translate_with_mode(
+        "in:horizon_isp_accountability time:[2026-11-22T23:30:00Z,2026-11-23T00:30:00Z] limit:10",
+        Some("starrocks_raw"),
+    )
+    .expect("cross-day raw-mode window should translate");
+    assert!(
+        cross_day
+            .sql
+            .contains("`day` >= date_trunc('day', '2026-11-22 23:30:00.000000') AND `day` <= '2026-11-23 00:30:00.000000'"),
+        "unexpected SQL: {}",
+        cross_day.sql
+    );
+
+    let unbounded = translate_starrocks("in:horizon_isp_accountability limit:10")
+        .expect("unbounded query should translate");
+    assert!(!unbounded.sql.contains(" WHERE "));
 }

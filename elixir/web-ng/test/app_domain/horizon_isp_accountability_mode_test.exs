@@ -99,6 +99,8 @@ defmodule ServiceRadarWebNG.HorizonIspAccountabilityModeTest do
     assert sql =~ "`mtu_blackhole_count` > 0"
     assert sql =~ "`bucket_hour` >="
     assert sql =~ "`bucket_hour` <="
+    assert sql =~ "`day` >= date_trunc('day', '"
+    assert sql =~ "`day` <= '"
     refute sql =~ "`time` >="
     assert sql =~ "ORDER BY `forwarding_loss_pct` DESC"
   end

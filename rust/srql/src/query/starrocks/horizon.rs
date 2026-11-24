@@ -112,12 +112,20 @@ fn time_bounds(spec: &HorizonSpec, plan: &QueryPlan) -> (Vec<String>, Vec<BindPa
     let literal = |value: chrono::DateTime<chrono::Utc>| {
         format!("'{}'", value.format("%Y-%m-%d %H:%M:%S%.6f"))
     };
+    let start = literal(range.start);
+    let end = literal(range.end);
     let time_col = quoted(spec.time_column);
+    let mut predicates = vec![
+        format!("{time_col} >= {start}"),
+        format!("{time_col} <= {end}"),
+    ];
+    if let Some(partition_col) = spec.partition_column {
+        let partition_col = quoted(partition_col);
+        predicates.push(format!("{partition_col} >= date_trunc('day', {start})"));
+        predicates.push(format!("{partition_col} <= {end}"));
+    }
     (
-        vec![
-            format!("{time_col} >= {}", literal(range.start)),
-            format!("{time_col} <= {}", literal(range.end)),
-        ],
+        predicates,
         vec![
             BindParam::timestamptz(range.start),
             BindParam::timestamptz(range.end),
@@ -230,7 +238,11 @@ fn order_clause(spec: &HorizonSpec, order: &[OrderClause]) -> Result<String> {
                 spec.entity_name, clause.field
             )));
         }
-        terms.push(format!("{} {}", quoted(field), pg_order_sql(clause.direction)));
+        terms.push(format!(
+            "{} {}",
+            quoted(field),
+            pg_order_sql(clause.direction)
+        ));
     }
 
     Ok(terms.join(", "))

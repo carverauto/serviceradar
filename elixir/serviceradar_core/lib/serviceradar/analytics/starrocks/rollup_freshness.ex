@@ -75,13 +75,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     # The destination view is built over a join, but its buckets are the trace
     # hours (a row exists for every hour with any trace), so its source mark is
     # mtr_traces' newest row, not the join's.
-    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60, 300},
-    horizon_isp_accountability:
-      {"horizon_isp_accountability_mv", "horizon_path_hops", "time", 60, 60}
+    mtr_destination: {"mtr_destination_hourly", "mtr_traces", "time", 60, 300}
   }
-
-  @mv_bucket_columns %{horizon_isp_accountability: "bucket_hour"}
-  @mv_only_datasets [:horizon_isp_accountability]
 
   # How long a scheduled refresh may run past its cadence before the view is
   # treated as having missed it.
@@ -116,7 +111,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
         {:ok, translation, "starrocks"}
 
       dataset ->
-        if dataset in @mv_only_datasets or fresh?(dataset) do
+        if fresh?(dataset) do
           {:ok, translation, "starrocks"}
         else
           with {:ok, raw} <- retranslate.("starrocks_raw") do
@@ -210,10 +205,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
         true
 
       {:ok, raw_max} ->
-        mv_bucket = Map.get(@mv_bucket_columns, dataset, "bucket")
-
         mv_sql =
-          "SELECT MAX(`#{mv_bucket}`) FROM #{Env.table(mv)} WHERE `day` >= '#{iso(view_day)}'"
+          "SELECT MAX(`bucket`) FROM #{Env.table(mv)} WHERE `day` >= '#{iso(view_day)}'"
 
         case high_water(run, {dataset, :mv, lookback}, mv_sql) do
           {:ok, %NaiveDateTime{} = mv_max} ->

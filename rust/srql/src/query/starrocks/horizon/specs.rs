@@ -2,6 +2,7 @@ pub(super) struct HorizonSpec {
     pub(super) entity_name: &'static str,
     pub(super) table: &'static str,
     pub(super) time_column: &'static str,
+    pub(super) partition_column: Option<&'static str>,
     pub(super) columns: &'static [&'static str],
     pub(super) text_fields: &'static [&'static str],
     pub(super) i32_fields: &'static [&'static str],
@@ -15,6 +16,7 @@ pub(super) const OUTAGES_SPEC: HorizonSpec = HorizonSpec {
     entity_name: "horizon_outages",
     table: "horizon_outages",
     time_column: "time",
+    partition_column: None,
     columns: &[
         "time",
         "outage_id",
@@ -59,6 +61,7 @@ pub(super) const BGP_SPEC: HorizonSpec = HorizonSpec {
     entity_name: "horizon_bgp",
     table: "horizon_bgp_events",
     time_column: "time",
+    partition_column: None,
     columns: &[
         "time",
         "event_id",
@@ -94,6 +97,7 @@ pub(super) const ZOMBIES_SPEC: HorizonSpec = HorizonSpec {
     entity_name: "horizon_zombies",
     table: "horizon_bgp_zombies",
     time_column: "time",
+    partition_column: None,
     columns: &[
         "time",
         "episode_id",
@@ -121,6 +125,7 @@ pub(super) const PATHS_SPEC: HorizonSpec = HorizonSpec {
     entity_name: "horizon_paths",
     table: "horizon_path_hops",
     time_column: "time",
+    partition_column: None,
     columns: &[
         "time",
         "round_id",
@@ -163,6 +168,7 @@ pub(super) const ISP_ACCOUNTABILITY_SPEC: HorizonSpec = HorizonSpec {
     entity_name: "horizon_isp_accountability",
     table: "horizon_isp_accountability_mv",
     time_column: "bucket_hour",
+    partition_column: Some("day"),
     columns: &[
         "day",
         "bucket_hour",
