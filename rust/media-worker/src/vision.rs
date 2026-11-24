@@ -195,6 +195,10 @@ impl DetectedSubject {
         self.object_class
     }
 
+    pub(crate) fn set_object_class(&mut self, object_class: ObjectClass) {
+        self.object_class = object_class;
+    }
+
     pub fn confidence(&self) -> f32 {
         self.confidence
     }
@@ -511,6 +515,8 @@ impl VisionPipeline {
                     self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
                 stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
 
+                self.disambiguate_frame_crops(&mut detections, &mut embeddings);
+
                 let crop_vecs: Vec<Vec<f32>> = embeddings
                     .iter()
                     .filter(|e| e.region_kind() == "crop")
@@ -653,8 +659,10 @@ impl VisionPipeline {
         };
 
         let mut frames = Vec::with_capacity(staged.len());
-        for (frame_idx, (frame, scene_suppressed, detections)) in staged.into_iter().enumerate() {
-            let selected_dets: Vec<DetectedSubject> = match &best_by_track {
+        let mut track_reclassifications: HashMap<u64, ObjectClass> = HashMap::new();
+        for (frame_idx, (frame, scene_suppressed, mut detections)) in staged.into_iter().enumerate()
+        {
+            let selected_indices: Vec<usize> = match &best_by_track {
                 Some(best_map) => detections
                     .iter()
                     .enumerate()
@@ -662,15 +670,41 @@ impl VisionPipeline {
                         Some(tid) => best_map.get(&tid) == Some(&(frame_idx, *det_idx)),
                         None => true,
                     })
-                    .map(|(_, det)| det.clone())
+                    .map(|(det_idx, _)| det_idx)
                     .collect(),
-                None => detections.clone(),
+                None => (0..detections.len()).collect(),
             };
+            let selected_dets: Vec<DetectedSubject> = selected_indices
+                .iter()
+                .map(|&idx| detections[idx].clone())
+                .collect();
 
             let t_s2 = Instant::now();
-            let embeddings =
+            let mut embeddings =
                 self.encode_stage2_batch_checked(frame, &selected_dets, scene_suppressed)?;
             stage2_latencies_secs.push(t_s2.elapsed().as_secs_f64());
+
+            let mut crop_pos = 0usize;
+            for emb in &mut embeddings {
+                if emb.region_kind() != "crop" {
+                    continue;
+                }
+                if let Some(&det_idx) = selected_indices.get(crop_pos) {
+                    let det = &mut detections[det_idx];
+                    if let Some(reclassified) = self.backend.disambiguate_borderline_crop(
+                        det.object_class(),
+                        det.confidence(),
+                        emb.embedding(),
+                    ) {
+                        det.set_object_class(reclassified);
+                        emb.object_class = Some(reclassified.as_str().to_string());
+                        if let Some(tid) = det.track_id() {
+                            track_reclassifications.insert(tid, reclassified);
+                        }
+                    }
+                }
+                crop_pos += 1;
+            }
 
             frames.push(KeyframeAnalysis {
                 scene_suppressed,
@@ -680,7 +714,23 @@ impl VisionPipeline {
             });
         }
 
-        let tracks = tracker.summaries();
+        let mut tracks = tracker.summaries();
+        if !track_reclassifications.is_empty() {
+            for frame in &mut frames {
+                for det in &mut frame.detections {
+                    if let Some(tid) = det.track_id()
+                        && let Some(&new_class) = track_reclassifications.get(&tid)
+                    {
+                        det.set_object_class(new_class);
+                    }
+                }
+            }
+            for track in &mut tracks {
+                if let Some(&new_class) = track_reclassifications.get(&track.track_id()) {
+                    track.set_object_class(new_class);
+                }
+            }
+        }
         let (block_thumbnail_jpeg_b64, thumbnail_frame_order) = attach_budgeted_thumbnails(
             &mut frames,
             &frame_refs,
@@ -720,11 +770,13 @@ impl VisionPipeline {
             true
         };
 
-        let detections = self.detect_subjects_checked(frame)?;
+        let mut detections = self.detect_subjects_checked(frame)?;
         let scene_suppressed =
             self.skip_unchanged_empty_scenes && detections.is_empty() && !motion_admitted;
 
-        let embeddings = self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+        let mut embeddings =
+            self.encode_stage2_batch_checked(frame, &detections, scene_suppressed)?;
+        self.disambiguate_frame_crops(&mut detections, &mut embeddings);
         let thumbnail_jpeg_b64 = if !scene_suppressed {
             Some(encode_frame_thumbnail_b64(mc_frame)?)
         } else {
@@ -880,6 +932,30 @@ impl VisionPipeline {
     ) -> Vec<GeneratedEmbedding> {
         self.encode_stage2_batch_checked(frame, detections, scene_suppressed)
             .unwrap_or_default()
+    }
+
+    fn disambiguate_frame_crops(
+        &self,
+        detections: &mut [DetectedSubject],
+        embeddings: &mut [GeneratedEmbedding],
+    ) {
+        let mut det_idx = 0usize;
+        for emb in embeddings {
+            if emb.region_kind() != "crop" {
+                continue;
+            }
+            if let Some(det) = detections.get_mut(det_idx)
+                && let Some(reclassified) = self.backend.disambiguate_borderline_crop(
+                    det.object_class(),
+                    det.confidence(),
+                    emb.embedding(),
+                )
+            {
+                det.set_object_class(reclassified);
+                emb.object_class = Some(reclassified.as_str().to_string());
+            }
+            det_idx += 1;
+        }
     }
 }
 

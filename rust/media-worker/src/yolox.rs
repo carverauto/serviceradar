@@ -80,7 +80,7 @@ fn default_width_multiple() -> f64 {
 }
 
 fn default_confidence_threshold() -> f32 {
-    0.25
+    0.35
 }
 
 fn default_nms_iou_threshold() -> f32 {
@@ -1137,6 +1137,7 @@ mod tests {
         let cfg: YoloxDetectorConfig =
             serde_json::from_str("{}").expect("empty JSON fills defaults");
         assert_eq!(cfg, YoloxDetectorConfig::yolox_s());
+        assert!((cfg.confidence_threshold - 0.35).abs() < 1e-6);
         assert!(cfg.apply_sigmoid);
         assert!(cfg.validate().is_ok());
 

@@ -876,6 +876,46 @@ defmodule ServiceRadar.Camera.CameraSemanticSearchUnitTest do
       assert audit.details["result_count"] == 2
       assert audit.details["authorized_camera_count"] == 1
     end
+
+    test "defaults min_score to 0.04 for SigLIP cosine similarity and allows caller overrides" do
+      test_pid = self()
+
+      caller = %{
+        user: %{id: "investigator-siglip"},
+        permissions: MapSet.new(["devices.view", "devices.cameras.recordings.view"])
+      }
+
+      opts = [
+        scope: caller,
+        now: ~U[2026-11-17 00:01:00Z],
+        bypass_cache: true,
+        text_embedder: fn _q, _ctx -> {:ok, unit_vec(768)} end,
+        loaders: %{
+          sources: [%{id: @cam_a, display_name: "Yard Cam", device_uid: "dev-yard"}],
+          embeddings_loader: fn _vec, spec ->
+            send(test_pid, {:min_score, spec.parsed.min_score})
+            {:ok, []}
+          end,
+          audit_writer: fn audit -> {:ok, audit} end
+        }
+      ]
+
+      assert {:ok, _} =
+               SemanticSearch.search(
+                 %{query: "black dog", from_us: 0, to_us: 60_000_000},
+                 opts
+               )
+
+      assert_received {:min_score, 0.04}
+
+      assert {:ok, _} =
+               SemanticSearch.search(
+                 %{query: "black dog", min_score: 0.12, from_us: 0, to_us: 60_000_000},
+                 opts
+               )
+
+      assert_received {:min_score, 0.12}
+    end
   end
 
   test "every worker payload field rejects an invalid value before disposition" do

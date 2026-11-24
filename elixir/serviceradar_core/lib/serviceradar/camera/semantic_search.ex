@@ -43,7 +43,9 @@ defmodule ServiceRadar.Camera.SemanticSearch do
   @max_window_us 31 * 86_400 * 1_000_000
   @default_limit 20
   @max_limit 50
-  @default_min_score 0.20
+  # SigLIP cosine similarity on true-positive surveillance matches sits around 0.04-0.15
+  # (lower than OpenAI CLIP's 0.20+ scale); callers may still override `min_score` in 0.0..1.0.
+  @default_min_score 0.04
   @default_coalesce_gap_us 6_000_000
   @default_clip_pad_us 2_000_000
 
