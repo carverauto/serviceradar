@@ -1,10 +1,14 @@
 defmodule ServiceRadarWebNG.McpUnitTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.Processors.HorizonProjection
+  alias ServiceRadarSRQL.Native
   alias ServiceRadarWebNG.Api.Access
   alias ServiceRadarWebNG.Api.OauthScopes
   alias ServiceRadarWebNG.Mcp
   alias ServiceRadarWebNG.Mcp.Docs
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @moduletag :db_free
 
@@ -72,22 +76,18 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     refute text =~ "sidebar_position"
   end
 
-  test "live SRQL catalog exposes all Horizon entities and fields for MCP discovery" do
-    catalog = ServiceRadarWebNGWeb.SRQL.Catalog.structured()
-    entities = catalog["entities"]
+  test "Horizon SRQL catalog entries translate against the Rust StarRocks dialect and cover projector defaults" do
+    catalog = Catalog.structured()
+    horizon_ids = ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability)
 
-    for id <- ~w(horizon_outages horizon_bgp horizon_zombies horizon_paths horizon_isp_accountability) do
+    for id <- horizon_ids do
       assert {:ok, sliced} = Access.slice_srql_catalog(catalog, id)
       assert Map.keys(sliced["entities"]) == [id]
+
+      assert_horizon_catalog_translates!(id, sliced["entities"][id])
     end
 
-    assert "covering_prefix" in entities["horizon_outages"]["fields"]["filter"]
-    assert "corroborating_pop_count" in entities["horizon_outages"]["fields"]["numeric"]
-    assert "rpki_status" in entities["horizon_bgp"]["fields"]["filter"]
-    assert "is_beacon" in entities["horizon_zombies"]["fields"]["boolean"]
-    assert "mtu_blackhole_detected" in entities["horizon_paths"]["fields"]["boolean"]
-    assert "hop_ip" in entities["horizon_paths"]["fields"]["address"]
-    assert "first_blame_tier" in entities["horizon_isp_accountability"]["fields"]["filter"]
+    assert_horizon_enums_cover_projector_defaults!(catalog["entities"])
   end
 
   test "entity index is generated from the live catalog" do
@@ -203,6 +203,120 @@ defmodule ServiceRadarWebNG.McpUnitTest do
     assert Access.clamp_limit(10_000) == 500
     assert Access.clamp_offset(-1) == 0
     assert Access.clamp_offset(1_000_000) == 100_000
+  end
+
+  defp assert_horizon_catalog_translates!(id, meta) do
+    fields = meta["fields"]
+    filter_fields = fields["filter"]
+    numeric_fields = fields["numeric"]
+    boolean_fields = fields["boolean"]
+    address_fields = fields["address"]
+
+    assert filter_fields != []
+    assert meta["default_filter_field"] in filter_fields
+    assert MapSet.subset?(MapSet.new(numeric_fields ++ boolean_fields ++ address_fields), MapSet.new(filter_fields))
+
+    default_query = id |> Builder.default_state(10) |> Builder.build()
+    default_sql = translate_horizon_sql!(default_query)
+    sort_field = meta["default_sort"]["field"]
+    sort_dir = String.upcase(meta["default_sort"]["direction"])
+    assert default_sql =~ "ORDER BY `#{sort_field}` #{sort_dir}"
+
+    for field <- filter_fields do
+      {query, expected_sql} =
+        horizon_filter_probe(id, field, numeric_fields, boolean_fields, address_fields)
+
+      assert translate_horizon_sql!(query) =~ expected_sql
+    end
+
+    assert_horizon_enums_translate!(id, filter_fields, meta["enums"])
+  end
+
+  defp assert_horizon_enums_translate!(id, filter_fields, enums) do
+    for {field, values} <- enums do
+      assert field in filter_fields
+      assert values != []
+
+      Enum.each(values, fn value ->
+        assert translate_horizon_sql!("in:#{id} #{field}:#{value} limit:5") =~ "`#{field}` ="
+      end)
+    end
+  end
+
+  defp horizon_filter_probe(id, field, numeric_fields, boolean_fields, address_fields) do
+    cond do
+      field in numeric_fields ->
+        {"in:#{id} #{field}:>=1 limit:5", "`#{field}` >= 1"}
+
+      field in boolean_fields ->
+        {"in:#{id} #{field}:true limit:5", "`#{field}` = TRUE"}
+
+      field in address_fields ->
+        {"in:#{id} #{field}:198.51.100.1 limit:5", "`#{field}` = '198.51.100.1'"}
+
+      true ->
+        {"in:#{id} #{field}:sample limit:5", "`#{field}` = 'sample'"}
+    end
+  end
+
+  defp translate_horizon_sql!(query) do
+    assert {:ok, json} = Native.translate(query, nil, nil, nil, "starrocks"),
+           "expected StarRocks SRQL translation to accept #{inspect(query)}"
+
+    %{"sql" => sql} = Jason.decode!(json)
+    sql
+  end
+
+  defp assert_horizon_enums_cover_projector_defaults!(entities) do
+    now = ~U[2026-11-23 16:00:00Z]
+
+    projections =
+      HorizonProjection.build_projections([
+        %{log_name: "horizon.outage", time: now, unmapped: %{"outage_id" => "out-1"}},
+        %{
+          log_name: "horizon.bgp_anomaly",
+          time: now,
+          unmapped: %{"event_id" => "bgp-1", "covering_prefix" => "198.51.100.0/24"}
+        },
+        %{
+          log_name: "horizon.bgp_watchlist",
+          time: now,
+          unmapped: %{"event_id" => "wl-1", "observed_prefix" => "198.51.100.0/24"}
+        },
+        %{
+          log_name: "horizon.bgp_zombie",
+          time: now,
+          unmapped: %{"episode_id" => "ep-1", "covering_prefix" => "198.51.100.0/24"}
+        },
+        %{
+          log_name: "horizon.path_hop",
+          time: now,
+          unmapped: %{"round_id" => "r-1", "target_id" => "t-1", "pop_id" => "pop-1", "hop_ttl" => 1}
+        }
+      ])
+
+    projected_by_entity = [
+      {"horizon_outages", projections.outages},
+      {"horizon_bgp", projections.bgp_events},
+      {"horizon_zombies", projections.bgp_zombies},
+      {"horizon_paths", projections.path_hops}
+    ]
+
+    for {entity_id, rows} <- projected_by_entity do
+      assert rows != []
+      assert_projected_defaults_in_enums!(entity_id, rows, entities[entity_id]["enums"])
+    end
+  end
+
+  defp assert_projected_defaults_in_enums!(entity_id, rows, enums) do
+    for row <- rows,
+        string_row = Map.new(row, fn {k, v} -> {Atom.to_string(k), v} end),
+        {field, allowed_values} <- enums do
+      projected_value = string_row |> Map.fetch!(field) |> to_string()
+
+      assert projected_value in allowed_values,
+             "expected #{entity_id}.#{field} enum #{inspect(allowed_values)} to include projected default #{inspect(projected_value)}"
+    end
   end
 
   defp with_stub_catalog(fun) do

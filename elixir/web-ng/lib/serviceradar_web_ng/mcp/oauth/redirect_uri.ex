@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
   @spec allowlisted_https?(term()) :: boolean()
   def allowlisted_https?(uri) when is_binary(uri) do
-    valid_exact_https_uri?(uri) and MapSet.member?(@allowed_https_uris, uri)
+    MapSet.member?(@allowed_https_uris, uri)
   end
 
   def allowlisted_https?(_), do: false
@@ -46,23 +46,6 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.RedirectURI do
 
     URI.to_string(%{parsed | query: query})
   end
-
-  defp valid_exact_https_uri?(uri) when is_binary(uri) do
-    if uri == "" or String.contains?(uri, ["\\", "..", "\r", "\n", "\0"]) do
-      false
-    else
-      case URI.new(uri) do
-        {:ok, %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil, path: path} = parsed}
-        when is_binary(host) and host != "" ->
-          valid_port?(parsed.port) and is_binary(path) and String.starts_with?(path, "/")
-
-        _ ->
-          false
-      end
-    end
-  end
-
-  defp valid_exact_https_uri?(_), do: false
 
   defp reject_blank(map) do
     Map.reject(map, fn {_k, v} -> is_nil(v) or v == "" end)
