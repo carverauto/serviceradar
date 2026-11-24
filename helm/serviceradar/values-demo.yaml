@@ -783,7 +783,7 @@ archiveReader:
 
 # Camera semantic search worker on the arm64 GPU nodes. Operator-owned objects
 # that must exist in the namespace first (never created by Helm): the PVC
-# serviceradar-media-worker-models holding the SigLIP + yolox-s weights and the
+# serviceradar-media-worker-models holding the SigLIP + yolox-x weights and the
 # Secret serviceradar-media-worker-auth (key media-worker-token), which web-ng
 # reads too. Its fixed JetStream streams (512Mi + 2Gi, R1) fit within the 36G
 # NATS JetStream file-store budget configured below.
@@ -796,8 +796,8 @@ mediaWorker:
     # commit that includes the worker's dedicated NATS inbox support (older
     # builds are denied their NATS replies). Left empty, the chart refuses to
     # render the worker.
-    tag: "sha-951fb4d7b9f651471c72e8fadbdaf0d25c7bc4ee"
-    digest: "sha256:59b72ba1133c2430e7137861bc8771198608bac08bf63753307e553a723e81e2"
+    tag: "sha-2d3d0bba84cd5809685a0d700877cae156ba58de"
+    digest: "sha256:fcf3816dee27d64164d8573e73086d59e9fa4ecd9dcd20dfb3037a93091d2631"
   executionProvider: cuda
   runtimeClassName: nvidia
   gpuResourceName: nvidia.com/gpu
@@ -811,9 +811,9 @@ mediaWorker:
       effect: NoSchedule
   models:
     existingClaim: serviceradar-media-worker-models
-    detectorPath: /var/lib/serviceradar-media-worker/models/detector.safetensors
-    detectorConfigPath: /var/lib/serviceradar-media-worker/models/detector_config.json
-    detectorSha256: "a5e547116f136953f89ae8323a52c6cc9dd5db3957e413bc36ed5fb1e0646c36"
+    detectorPath: "/var/lib/serviceradar-media-worker/models/detector_yolox_x.safetensors"
+    detectorConfigPath: "/var/lib/serviceradar-media-worker/models/detector_yolox_x_config.json"
+    detectorSha256: "46f9962db0da82ca6284ad7cb2e522f9489f73b0f96cc32686d944ce54c1a6be"
   auth:
     existingSecret: serviceradar-media-worker-auth
     tokenKey: media-worker-token
