@@ -2872,6 +2872,7 @@ fn spawn_loopback_nvr_server(
     let frag0 = block.fragment_slice_bytes(0).unwrap().to_vec();
     let frag1 = block.fragment_slice_bytes(1).unwrap().to_vec();
     let bkey = block_key.to_string();
+    let expected_query = format!("descriptor_sha256={}", block.descriptor_sha256());
 
     std::thread::spawn(move || {
         for _ in 0..3 {
@@ -2881,7 +2882,12 @@ fn spawn_loopback_nvr_server(
             let mut reader = BufReader::new(sock.try_clone().expect("clone"));
             let mut req_line = String::new();
             reader.read_line(&mut req_line).expect("req line");
-            let path = req_line.split_whitespace().nth(1).unwrap_or("").to_string();
+            let raw_target = req_line.split_whitespace().nth(1).unwrap_or("").to_string();
+            let (path, query) = raw_target.split_once('?').unwrap_or((&raw_target, ""));
+            assert_eq!(
+                query, expected_query,
+                "NVR analysis_read request must pass ?descriptor_sha256=<hex>"
+            );
 
             let mut pool_val = String::new();
             loop {

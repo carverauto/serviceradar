@@ -33,15 +33,18 @@ defmodule ServiceRadarNVR.Playback do
   @fragment_index ~r/\A(0|[1-9][0-9]{0,2})\z/
 
   @impl true
-  def init(config), do: config
+  def init({:analysis, config}), do: {:analysis, config}
+  def init({:playback, config}), do: {:playback, config}
+  def init(config), do: {:playback, config}
 
   @impl true
-  def call(conn, config) do
+  def call(conn, {pool, config}) do
     {:ok, timer} = :timer.exit_after(@deadline_ms, :kill)
+    installation = if pool == :analysis, do: config.analysis_read, else: config.read
 
     try do
-      if ListenerConfig.authorized?(conn, config.read),
-        do: route(conn),
+      if ListenerConfig.authorized?(conn, installation),
+        do: route(conn, pool),
         else: respond(conn, 401, "unauthorized")
     catch
       :exit, _ -> unavailable(conn)
@@ -50,24 +53,32 @@ defmodule ServiceRadarNVR.Playback do
     end
   end
 
-  defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "init"]} = conn), do: read(conn, block_id, :init)
+  defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "init"]} = conn, pool),
+    do: read(conn, block_id, :init, pool)
 
-  defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "fragments", index]} = conn) do
+  defp route(%{method: "GET", path_info: ["v1", "blocks", block_id, "fragments", index]} = conn, pool) do
     if Regex.match?(@fragment_index, index),
-      do: read(conn, block_id, {:fragment, String.to_integer(index)}),
+      do: read(conn, block_id, {:fragment, String.to_integer(index)}, pool),
       else: respond(conn, 404, "fragment_not_found")
   end
 
-  defp route(conn), do: respond(conn, 404, "not_found")
+  defp route(conn, _pool), do: respond(conn, 404, "not_found")
 
-  defp read(conn, block_id, selector) do
+  defp read(conn, block_id, selector, pool) do
     conn = fetch_query_params(conn)
 
     case conn.query_params do
       %{"descriptor_sha256" => digest} = params when map_size(params) == 1 and is_binary(digest) ->
-        if Regex.match?(@hex64, digest),
-          do: answer(conn, ServiceRadarNVR.playback_read(block_id, digest, selector)),
-          else: respond(conn, 400, "invalid_read_request")
+        if Regex.match?(@hex64, digest) do
+          result =
+            if pool == :analysis,
+              do: ServiceRadarNVR.analysis_read(block_id, digest, selector),
+              else: ServiceRadarNVR.playback_read(block_id, digest, selector)
+
+          answer(conn, result)
+        else
+          respond(conn, 400, "invalid_read_request")
+        end
 
       _ ->
         respond(conn, 400, "invalid_read_request")

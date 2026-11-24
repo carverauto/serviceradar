@@ -648,6 +648,100 @@ tests:
               ports:
                 - {protocol: TCP, port: 8555}
 
+  - it: renders NVR analysisRead listener on port 8445 and wires media-worker mTLS client env and mounts
+    templates:
+      - templates/nvr.yaml
+      - templates/media-worker.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+      nvr.analysisRead.enabled: true
+      nvr.analysisRead.port: 8445
+      nvr.analysisRead.analysisReadSlots: 4
+      nvr.analysisRead.configSecretName: example-nvr-analysis-read-config
+      nvr.analysisRead.tokenSecretName: example-nvr-analysis-read-token
+      nvr.analysisRead.tlsSecretName: example-nvr-analysis-read-server-tls
+      nvr.analysisRead.client.tokenSecretName: example-nvr-analysis-read-token
+      nvr.analysisRead.client.tlsSecretName: example-nvr-analysis-read-client-tls
+      mediaWorker.networkPolicy.allowNvrRead: true
+      mediaWorker.networkPolicy.nvrReadPort: 8445
+    asserts:
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_NVR_ANALYSIS_READ_CONFIG_FILE, value: /etc/serviceradar/nvr-analysis-read/config/config.json}
+      - template: templates/nvr.yaml
+        documentSelector:
+          path: kind
+          value: StatefulSet
+        contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: analysis-read-https, containerPort: 8445}
+      - template: templates/media-worker.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NVR_SCHEME, value: "https"}
+      - template: templates/media-worker.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NVR_READ_PORT, value: "8445"}
+      - template: templates/media-worker.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+        contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_MEDIA_WORKER_NVR_AUTH_TOKEN_FILE, value: /etc/serviceradar/nvr-analysis-read/auth/analysis-read-token}
+
+  - it: refuses nvr.analysisRead sharing port with nvr.read.port
+    template: templates/nvr.yaml
+    set:
+      nvr.enabled: true
+      nvr.storage.storageClassName: example-replicated
+      nvr.recovery.existingConfigMap: synthetic-nvr-recovery
+      nvr.storage.storageIds:
+        serviceradar-nvr-0: 00000000-0000-4000-8000-000000000011
+        serviceradar-nvr-1: 00000000-0000-4000-8000-000000000012
+      nvr.read.enabled: true
+      nvr.read.port: 8444
+      nvr.read.configSecretName: example-nvr-read-config
+      nvr.read.tokenSecretName: example-nvr-read-token
+      nvr.read.tlsSecretName: example-nvr-read-server-tls
+      nvr.read.client.configSecretName: example-nvr-read-client-config
+      nvr.read.client.tokenSecretName: example-nvr-read-token
+      nvr.read.client.tlsSecretName: example-nvr-read-client-tls
+      nvr.analysisRead.enabled: true
+      nvr.analysisRead.port: 8444
+      nvr.analysisRead.configSecretName: example-nvr-analysis-read-config
+      nvr.analysisRead.tokenSecretName: example-nvr-analysis-read-token
+      nvr.analysisRead.tlsSecretName: example-nvr-analysis-read-server-tls
+      nvr.analysisRead.client.tokenSecretName: example-nvr-analysis-read-token
+      nvr.analysisRead.client.tlsSecretName: example-nvr-analysis-read-client-tls
+    asserts:
+      - failedTemplate:
+          errorPattern: "nvr.analysisRead.port must be in 1..65535 and distinct from the health \\(8095\\), ingest, and playback read ports"
+
   # The worker creates CAMERA_MEDIA_JOBS (512Mi) and CAMERA_MEDIA_RESULTS (2Gi)
 
   # itself; the 2 GB tenant profile cannot hold them.

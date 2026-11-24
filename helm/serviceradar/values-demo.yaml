@@ -706,6 +706,19 @@ nvr:
       configSecretName: serviceradar-nvr-read-client-config
       tokenSecretName: serviceradar-nvr-read-token
       tlsSecretName: serviceradar-nvr-read-client-tls
+  analysisRead:
+    # Dedicated mTLS analysis-read listener for serviceradar-media-worker so
+    # newly sealed blocks get thumbnails/detections before S3 archive finishes.
+    # Operator-owned Secrets: serviceradar-nvr-analysis-read-{config,token,server-tls,client-tls}.
+    enabled: true
+    port: 8445
+    analysisReadSlots: 4
+    configSecretName: serviceradar-nvr-analysis-read-config
+    tokenSecretName: serviceradar-nvr-analysis-read-token
+    tlsSecretName: serviceradar-nvr-analysis-read-server-tls
+    client:
+      tokenSecretName: serviceradar-nvr-analysis-read-token
+      tlsSecretName: serviceradar-nvr-analysis-read-client-tls
   archive:
     enabled: true
     seccompProfile:
@@ -807,7 +820,8 @@ mediaWorker:
     deploymentRef: "00000000-0000-4000-8000-000000000001"
     generation: "1"
   networkPolicy:
-    allowNvrRead: false
+    allowNvrRead: true
+    nvrReadPort: 8445
 
 faker:
   enabled: true

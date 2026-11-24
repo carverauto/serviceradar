@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::future::Future;
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Maximum byte length of a single coalesced ranged GET (`4 MiB`).
@@ -1251,13 +1252,20 @@ fn longshore_get_range(
     }
 }
 
-/// Local NVR `analysis_read` HTTP reader (`GET /v1/blocks/<block_key>/init` and `/fragments/<seq>`).
+/// Local NVR `analysis_read` HTTP/HTTPS reader
+/// (`GET /v1/blocks/<block_key>/init?descriptor_sha256=<hex>` and
+/// `GET /v1/blocks/<block_key>/fragments/<seq>?descriptor_sha256=<hex>`).
 #[derive(Debug, Clone)]
 pub struct NvrAnalysisReader {
     scheme: String,
     port: u16,
     timeout: Duration,
     explicit_base_url: Option<String>,
+    host_suffix: Option<String>,
+    tls_ca_file: Option<PathBuf>,
+    tls_cert_file: Option<PathBuf>,
+    tls_key_file: Option<PathBuf>,
+    auth_token_file: Option<PathBuf>,
 }
 
 impl Default for NvrAnalysisReader {
@@ -1267,6 +1275,11 @@ impl Default for NvrAnalysisReader {
             port: 8444,
             timeout: Duration::from_secs(10),
             explicit_base_url: None,
+            host_suffix: None,
+            tls_ca_file: None,
+            tls_cert_file: None,
+            tls_key_file: None,
+            auth_token_file: None,
         }
     }
 }
@@ -1278,11 +1291,45 @@ impl NvrAnalysisReader {
             port,
             timeout,
             explicit_base_url: None,
+            host_suffix: None,
+            tls_ca_file: None,
+            tls_cert_file: None,
+            tls_key_file: None,
+            auth_token_file: None,
         }
     }
 
     pub fn with_explicit_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.explicit_base_url = Some(base_url.into());
+        self
+    }
+
+    pub fn with_host_suffix(mut self, suffix: impl Into<String>) -> Self {
+        let trimmed = suffix.into().trim().to_string();
+        if !trimmed.is_empty() {
+            self.host_suffix = Some(if trimmed.starts_with('.') {
+                trimmed
+            } else {
+                format!(".{trimmed}")
+            });
+        }
+        self
+    }
+
+    pub fn with_mtls(
+        mut self,
+        ca_file: impl AsRef<Path>,
+        cert_file: impl AsRef<Path>,
+        key_file: impl AsRef<Path>,
+    ) -> Self {
+        self.tls_ca_file = Some(ca_file.as_ref().to_path_buf());
+        self.tls_cert_file = Some(cert_file.as_ref().to_path_buf());
+        self.tls_key_file = Some(key_file.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn with_auth_token_file(mut self, token_file: impl AsRef<Path>) -> Self {
+        self.auth_token_file = Some(token_file.as_ref().to_path_buf());
         self
     }
 
@@ -1293,9 +1340,21 @@ impl NvrAnalysisReader {
         let base_url = self.resolve_base_url(plan)?;
         let plan_clone = plan.clone();
         let timeout = self.timeout;
+        let tls_ca_file = self.tls_ca_file.clone();
+        let tls_cert_file = self.tls_cert_file.clone();
+        let tls_key_file = self.tls_key_file.clone();
+        let auth_token_file = self.auth_token_file.clone();
 
         tokio::task::spawn_blocking(move || {
-            execute_nvr_local_reads(&base_url, &plan_clone, timeout)
+            execute_nvr_local_reads(
+                &base_url,
+                &plan_clone,
+                timeout,
+                tls_ca_file.as_deref(),
+                tls_cert_file.as_deref(),
+                tls_key_file.as_deref(),
+                auth_token_file.as_deref(),
+            )
         })
         .await
         .map_err(|err| {
@@ -1303,7 +1362,10 @@ impl NvrAnalysisReader {
         })?
     }
 
-    fn resolve_base_url(&self, plan: &ReadGrantPlan) -> Result<String, MediaWorkerError> {
+    pub(crate) fn resolve_base_url(
+        &self,
+        plan: &ReadGrantPlan,
+    ) -> Result<String, MediaWorkerError> {
         if let Some(url) = plan.local().and_then(LocalGrantTarget::endpoint) {
             return Ok(url.trim_end_matches('/').to_string());
         }
@@ -1315,7 +1377,123 @@ impl NvrAnalysisReader {
                 "local read grant missing nvr_member target hostname",
             )
         })?;
-        Ok(format!("{}://{}:{}", self.scheme, member, self.port))
+        let host = match &self.host_suffix {
+            Some(suffix) if !member.contains('.') => format!("{member}{suffix}"),
+            _ => member.to_string(),
+        };
+        Ok(format!("{}://{}:{}", self.scheme, host, self.port))
+    }
+}
+
+fn build_nvr_agent(
+    timeout: Duration,
+    tls_ca_file: Option<&Path>,
+    tls_cert_file: Option<&Path>,
+    tls_key_file: Option<&Path>,
+) -> Result<ureq::Agent, MediaWorkerError> {
+    let mut builder = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .timeout_global(Some(timeout));
+
+    if let (Some(ca_path), Some(cert_path), Some(key_path)) =
+        (tls_ca_file, tls_cert_file, tls_key_file)
+    {
+        let ca_pem = std::fs::read(ca_path).map_err(|err| {
+            MediaWorkerError::storage_transport(format!(
+                "failed reading NVR analysis_read CA file '{}': {err}",
+                ca_path.display()
+            ))
+        })?;
+        let cert_pem = std::fs::read(cert_path).map_err(|err| {
+            MediaWorkerError::storage_transport(format!(
+                "failed reading NVR analysis_read client cert '{}': {err}",
+                cert_path.display()
+            ))
+        })?;
+        let key_pem = std::fs::read(key_path).map_err(|err| {
+            MediaWorkerError::storage_transport(format!(
+                "failed reading NVR analysis_read client key '{}': {err}",
+                key_path.display()
+            ))
+        })?;
+
+        let ca_certs: Vec<ureq::tls::Certificate<'static>> = ureq::tls::parse_pem(&ca_pem)
+            .filter_map(|item| match item.ok()? {
+                ureq::tls::PemItem::Certificate(c) => Some(c.to_owned()),
+                _ => None,
+            })
+            .collect();
+        if ca_certs.is_empty() {
+            return Err(MediaWorkerError::storage_transport(
+                "NVR analysis_read CA file contained no PEM certificates",
+            ));
+        }
+
+        let client_certs: Vec<ureq::tls::Certificate<'static>> = ureq::tls::parse_pem(&cert_pem)
+            .filter_map(|item| match item.ok()? {
+                ureq::tls::PemItem::Certificate(c) => Some(c.to_owned()),
+                _ => None,
+            })
+            .collect();
+        if client_certs.is_empty() {
+            return Err(MediaWorkerError::storage_transport(
+                "NVR analysis_read client cert file contained no PEM certificates",
+            ));
+        }
+
+        let client_key = ureq::tls::parse_pem(&key_pem)
+            .find_map(|item| match item.ok()? {
+                ureq::tls::PemItem::PrivateKey(k) => Some(k.to_owned()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                MediaWorkerError::storage_transport(
+                    "NVR analysis_read client key file contained no PEM private key",
+                )
+            })?;
+
+        let tls_cfg = ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::new_with_certs(&ca_certs))
+            .client_cert(Some(ureq::tls::ClientCert::new_with_certs(
+                &client_certs,
+                client_key,
+            )))
+            .build();
+        builder = builder.tls_config(tls_cfg);
+    }
+
+    Ok(builder.build().new_agent())
+}
+
+fn read_optional_bearer_token(
+    auth_token_file: Option<&Path>,
+) -> Result<Option<String>, MediaWorkerError> {
+    let Some(path) = auth_token_file else {
+        return Ok(None);
+    };
+    let raw = std::fs::read_to_string(path).map_err(|err| {
+        MediaWorkerError::storage_transport(format!(
+            "failed reading NVR analysis_read auth token '{}': {err}",
+            path.display()
+        ))
+    })?;
+    let token = raw.trim().to_string();
+    if token.is_empty() {
+        return Err(MediaWorkerError::storage_transport(
+            "NVR analysis_read auth token file is empty",
+        ));
+    }
+    Ok(Some(token))
+}
+
+fn append_descriptor_query(url: String, descriptor_sha256: &str) -> String {
+    if url.contains("descriptor_sha256=") {
+        url
+    } else if url.contains('?') {
+        format!("{url}&descriptor_sha256={descriptor_sha256}")
+    } else {
+        format!("{url}?descriptor_sha256={descriptor_sha256}")
     }
 }
 
@@ -1323,12 +1501,14 @@ fn execute_nvr_local_reads(
     base_url: &str,
     plan: &ReadGrantPlan,
     timeout: Duration,
+    tls_ca_file: Option<&Path>,
+    tls_cert_file: Option<&Path>,
+    tls_key_file: Option<&Path>,
+    auth_token_file: Option<&Path>,
 ) -> Result<VerifiedKeyframeBlock, MediaWorkerError> {
-    let agent = ureq::config::Config::builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(timeout))
-        .build()
-        .new_agent();
+    let agent = build_nvr_agent(timeout, tls_ca_file, tls_cert_file, tls_key_file)?;
+    let bearer_token = read_optional_bearer_token(auth_token_file)?;
+    let descriptor_sha256 = plan.descriptor_sha256();
 
     let default_init_path = format!("/v1/blocks/{}/init", plan.block_key());
     let init_path = plan
@@ -1337,8 +1517,16 @@ fn execute_nvr_local_reads(
         .or_else(|| plan.local().and_then(LocalGrantTarget::init_path))
         .unwrap_or(&default_init_path);
 
-    let init_url = format!("{base_url}/{}", init_path.trim_start_matches('/'));
-    let init_bytes = fetch_nvr_bytes(&agent, &init_url, MAX_INIT_SEGMENT_BYTES as usize)?;
+    let init_url = append_descriptor_query(
+        format!("{base_url}/{}", init_path.trim_start_matches('/')),
+        descriptor_sha256,
+    );
+    let init_bytes = fetch_nvr_bytes(
+        &agent,
+        &init_url,
+        bearer_token.as_deref(),
+        MAX_INIT_SEGMENT_BYTES as usize,
+    )?;
 
     // Mandatory SHA-256 check on `init.mp4` BEFORE reading fragments.
     verify_sha256_hex(&init_bytes, plan.init_sha256(), "init.mp4")?;
@@ -1351,8 +1539,16 @@ fn execute_nvr_local_reads(
             frag.sequence()
         );
         let frag_path = frag.path().unwrap_or(&default_frag_path);
-        let frag_url = format!("{base_url}/{}", frag_path.trim_start_matches('/'));
-        let bytes = fetch_nvr_bytes(&agent, &frag_url, MAX_COALESCED_RANGE_BYTES as usize)?;
+        let frag_url = append_descriptor_query(
+            format!("{base_url}/{}", frag_path.trim_start_matches('/')),
+            descriptor_sha256,
+        );
+        let bytes = fetch_nvr_bytes(
+            &agent,
+            &frag_url,
+            bearer_token.as_deref(),
+            MAX_COALESCED_RANGE_BYTES as usize,
+        )?;
         raw_fragments.push((frag.clone(), bytes));
     }
 
@@ -1363,18 +1559,19 @@ fn execute_nvr_local_reads(
 fn fetch_nvr_bytes(
     agent: &ureq::Agent,
     url: &str,
+    bearer_token: Option<&str>,
     max_bytes: usize,
 ) -> Result<Vec<u8>, MediaWorkerError> {
-    let mut resp = agent
+    let mut req = agent
         .get(url)
         .header("X-ServiceRadar-Read-Pool", "analysis_read")
-        .header("X-ServiceRadar-Read-Purpose", "analysis_read")
-        .call()
-        .map_err(|err| {
-            MediaWorkerError::storage_transport(format!(
-                "NVR analysis_read GET '{url}' failed: {err}"
-            ))
-        })?;
+        .header("X-ServiceRadar-Read-Purpose", "analysis_read");
+    if let Some(token) = bearer_token {
+        req = req.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut resp = req.call().map_err(|err| {
+        MediaWorkerError::storage_transport(format!("NVR analysis_read GET '{url}' failed: {err}"))
+    })?;
 
     let status = resp.status().as_u16();
     if status != 200 && status != 206 {

@@ -44,6 +44,7 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.CameraRecordingPolicy
   alias ServiceRadar.Camera.RecordingCatalogEntry
+  alias ServiceRadar.Camera.VisualIndexDispatchWorker
   alias ServiceRadar.Camera.VisualIndexJob
   alias ServiceRadar.NATS.JetStreamPublish
   alias ServiceRadar.Observability.TripwireHealth
@@ -581,10 +582,50 @@ defmodule ServiceRadar.Camera.VisualIndexDispatcher do
         descriptor_sha256: fetch_val(entry, :descriptor_sha256)
       }
 
-      VisualIndexJob
-      |> Ash.Changeset.for_create(:enqueue, attrs, actor: @system_actor)
-      |> Ash.create(actor: @system_actor)
+      case VisualIndexJob
+           |> Ash.Changeset.for_create(:enqueue, attrs, actor: @system_actor)
+           |> Ash.create(actor: @system_actor) do
+        {:ok, %VisualIndexJob{} = job} ->
+          if job_kind == :live do
+            nudge_dispatch(opts)
+          end
+
+          {:ok, job}
+
+        {:error, _} = err ->
+          err
+      end
     end
+  end
+
+  @doc """
+  Best-effort immediate nudge of `VisualIndexDispatchWorker` so newly admitted
+  live jobs (or jobs whose archive just became verified) publish to NATS without
+  waiting for the 1-minute cron tick.
+  """
+  @spec nudge_dispatch(keyword()) :: :ok
+  def nudge_dispatch(opts \\ []) when is_list(opts) do
+    enqueuer = Keyword.get(opts, :dispatch_enqueuer)
+
+    result =
+      if is_function(enqueuer, 0) do
+        enqueuer.()
+      else
+        VisualIndexDispatchWorker.enqueue(Keyword.take(opts, [:enabled_fn, :insert_fn]))
+      end
+
+    case result do
+      {:error, reason} ->
+        Logger.warning(
+          "Visual index immediate dispatch nudge failed; cron safety net will relay",
+          reason: inspect(reason)
+        )
+
+      _ ->
+        :ok
+    end
+
+    :ok
   end
 
   defp resolve_policy_for_entry(entry, opts) do
