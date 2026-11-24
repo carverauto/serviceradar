@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNG.HorizonProxy do
 
   @receive_timeout_ms 15_000
   @connect_timeout_ms 5_000
+  @get_max_retries 1
+  @get_retry_delay_ms 50
 
   @read_permission "observability.events.view"
   @traces_read_permission "observability.traces.view"
@@ -101,21 +103,18 @@ defmodule ServiceRadarWebNG.HorizonProxy do
         body
       )
 
-    req_opts =
-      maybe_put_body(
-        [
-          method: route.method,
-          url: url,
-          headers: headers,
-          receive_timeout: @receive_timeout_ms,
-          connect_options: [timeout: @connect_timeout_ms],
-          redirect: false,
-          retry: false,
-          decode_body: false
-        ],
-        route.method,
-        body
-      )
+    base_opts =
+      [
+        method: route.method,
+        url: url,
+        headers: headers,
+        receive_timeout: @receive_timeout_ms,
+        connect_options: [timeout: @connect_timeout_ms],
+        redirect: false,
+        decode_body: false
+      ] ++ retry_opts(route.method)
+
+    req_opts = maybe_put_body(base_opts, route.method, body)
 
     http_client =
       Application.get_env(:serviceradar_web_ng, :horizon_proxy_http_client, &Req.request/1)
@@ -142,6 +141,10 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   # --- Allowlist Matching ---
 
   defp match_allowlisted_route(:get, "v1", ["feeds", "status"]), do: {:ok, "/api/v1/feeds/status", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["vendor-status"]), do: {:ok, "/api/v1/vendor-status", @read_permission}
+
+  defp match_allowlisted_route(:get, "v1", ["statuspages"]), do: {:ok, "/api/v1/statuspages", @read_permission}
 
   defp match_allowlisted_route(:get, "v1", ["intel", "lookup"]), do: {:ok, "/api/v1/intel/lookup", @read_permission}
 
@@ -288,6 +291,27 @@ defmodule ServiceRadarWebNG.HorizonProxy do
   end
 
   defp maybe_put_body(opts, _method, _body), do: opts
+
+  defp retry_opts(:get) do
+    [
+      retry: &retry_stale_get?/2,
+      max_retries: @get_max_retries,
+      retry_delay: &get_retry_delay/1,
+      retry_log_level: :debug
+    ]
+  end
+
+  defp retry_opts(_method), do: [retry: false]
+
+  defp retry_stale_get?(%Req.Request{method: :get}, %Req.TransportError{reason: reason})
+       when reason in [:closed, :econnreset], do: true
+
+  defp retry_stale_get?(%Req.Request{method: :get}, %Req.HTTPError{protocol: :http2, reason: reason})
+       when reason in [:unprocessed, :pool_not_available], do: true
+
+  defp retry_stale_get?(_request, _response_or_error), do: false
+
+  defp get_retry_delay(_retry_count), do: @get_retry_delay_ms
 
   defp extract_json_content_type(headers) when is_map(headers) do
     ct =
