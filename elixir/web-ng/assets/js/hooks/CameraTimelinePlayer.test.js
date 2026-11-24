@@ -13,6 +13,7 @@ import CameraTimelinePlayer, {
   findNearestScrubberThumbnail,
   formatScrubberTime,
   isSafeThumbnailUrl,
+  isScrubberEventCategory,
   isSmartScrubberCategory,
   normalizeEventCategory,
   parseOverlayDetections,
@@ -607,7 +608,7 @@ describe("CameraTimelinePlayer hook", () => {
     hook.destroyed()
   })
 
-  it("renders Smart-only highlight bars (dropping raw motion), filmstrip thumbnails, and live hover thumbnail preview card", () => {
+  it("renders Smart highlight bars + subtle Motion hairlines, filmstrip thumbnails, and live hover thumbnail preview card", () => {
     vi.stubGlobal("window", {addEventListener: vi.fn()})
 
     expect(normalizeEventCategory("Person")).toBe("person")
@@ -620,6 +621,9 @@ describe("CameraTimelinePlayer hook", () => {
     expect(isSmartScrubberCategory("vehicle")).toBe(true)
     expect(isSmartScrubberCategory("package")).toBe(true)
     expect(isSmartScrubberCategory("motion")).toBe(false)
+    expect(isScrubberEventCategory("person")).toBe(true)
+    expect(isScrubberEventCategory("motion")).toBe(true)
+    expect(isScrubberEventCategory("recording")).toBe(false)
     expect(isSafeThumbnailUrl("/api/cameras/cam-1/timeline/thumbnails/frame/f1.jpg")).toBe(true)
     expect(isSafeThumbnailUrl("https://thumbnails.example.com/frame-1.jpg")).toBe(true)
     expect(isSafeThumbnailUrl("javascript:alert(1)")).toBe(false)
@@ -633,6 +637,7 @@ describe("CameraTimelinePlayer hook", () => {
 
     const parsedWindowEvents = parseScrubberEvents(
       JSON.stringify([
+        {category: "recording", label: "Recording", start_offset_seconds: 5, end_offset_seconds: 15},
         {category: "motion", label: "Motion", start_offset_seconds: 40, end_offset_seconds: 44},
         {
           category: "vehicle",
@@ -644,26 +649,39 @@ describe("CameraTimelinePlayer hook", () => {
         },
       ])
     )
-    // Raw motion is dropped; only Smart object detections remain
-    expect(parsedWindowEvents).toHaveLength(1)
-    expect(parsedWindowEvents[0].category).toBe("vehicle")
-    expect(parsedWindowEvents[0].thumbnailUrl).toBe("/api/cameras/cam-1/timeline/thumbnails/frame/v1.jpg")
+    // Both Smart detections and Motion are preserved; :recording is excluded
+    expect(parsedWindowEvents).toHaveLength(2)
+    expect(parsedWindowEvents[0].category).toBe("motion")
+    expect(parsedWindowEvents[1].category).toBe("vehicle")
+    expect(parsedWindowEvents[1].thumbnailUrl).toBe("/api/cameras/cam-1/timeline/thumbnails/frame/v1.jpg")
 
     const segments = buildScrubberEventSegments(
       [
         {offsetSeconds: 10, objectClass: "person", score: 0.91},
         {offsetSeconds: 11.5, objectClass: "person", score: 0.95},
         {offsetSeconds: 30, objectClass: "animal", score: 0.82},
-        {offsetSeconds: 20, objectClass: "motion", score: 0.99},
       ],
-      parsedWindowEvents,
+      [
+        ...parsedWindowEvents,
+        // Overlapping motion at 10-12s must NOT overwrite or merge into person
+        {startSec: 10, endSec: 12, category: "motion", label: "Motion", score: null, thumbnailUrl: null},
+      ],
       60
     )
-    expect(segments).toHaveLength(3)
-    expect(segments.map(s => s.category)).toEqual(["person", "animal", "vehicle"])
-    expect(segments[0].tooltip).toBe("Person · 00:10 · 95%")
-    expect(segments[1].tooltip).toBe("Animal · 00:30 · 82%")
-    expect(segments[2].tooltip).toBe("Vehicle · 00:45 · 88%")
+    // Motion segments sort first (underneath), Smart segments sort on top
+    expect(segments).toHaveLength(5)
+    expect(segments.map(s => `${s.tier}:${s.category}`)).toEqual([
+      "motion:motion",
+      "motion:motion",
+      "smart:person",
+      "smart:animal",
+      "smart:vehicle",
+    ])
+    expect(segments[0].tooltip).toBe("Motion · 00:10")
+    expect(segments[1].tooltip).toBe("Motion · 00:40")
+    expect(segments[2].tooltip).toBe("Person · 00:10 · 95%")
+    expect(segments[3].tooltip).toBe("Animal · 00:30 · 82%")
+    expect(segments[4].tooltip).toBe("Vehicle · 00:45 · 88%")
 
     const parsedThumbs = parseScrubberThumbnails(
       JSON.stringify([
@@ -673,6 +691,18 @@ describe("CameraTimelinePlayer hook", () => {
       ])
     )
     expect(parsedThumbs).toHaveLength(2)
+    // Smart label wins over overlapping motion at 10.5s
+    expect(findNearestScrubberThumbnail(parsedThumbs, segments, 10.5, 60)).toEqual({
+      thumbnailUrl: "/api/cameras/cam-1/timeline/thumbnails/block/b1.jpg",
+      label: "Person",
+      category: "person",
+    })
+    // Motion-only segment at 42s still reports "Motion" label
+    expect(findNearestScrubberThumbnail(parsedThumbs, segments, 42, 60)).toEqual({
+      thumbnailUrl: "/api/cameras/cam-1/timeline/thumbnails/frame/v1.jpg",
+      label: "Motion",
+      category: "motion",
+    })
     expect(findNearestScrubberThumbnail(parsedThumbs, segments, 30.2, 60)).toEqual({
       thumbnailUrl: "/api/cameras/cam-1/timeline/thumbnails/frame/a1.jpg",
       label: "Animal",
@@ -769,10 +799,16 @@ describe("CameraTimelinePlayer hook", () => {
     hook.hlsClass = FakeHls
     hook.mounted()
 
-    // Smart-only highlight bars rendered (NO motion blobs!) + filmstrip thumbnails + time ticks
+    // Both subtle 2px Motion hairlines (tier=motion) and crisp Smart bars (tier=smart) render, with Motion underneath Smart
     expect(scrubberEvents.innerHTML).toContain('data-role="scrubber-event-segment"')
-    expect(scrubberEvents.innerHTML).toContain('data-event-category="person"')
-    expect(scrubberEvents.innerHTML).not.toContain('data-event-category="motion"')
+    expect(scrubberEvents.innerHTML).toContain('data-event-tier="motion" data-event-category="motion"')
+    expect(scrubberEvents.innerHTML).toContain("bottom-0 h-[2px] z-[3]")
+    expect(scrubberEvents.innerHTML).toContain('title="Motion · 00:45"')
+    expect(scrubberEvents.innerHTML).toContain('data-event-tier="smart" data-event-category="person"')
+    expect(scrubberEvents.innerHTML).toContain("bottom-0.5 h-1.5 z-[4]")
+    expect(scrubberEvents.innerHTML.indexOf('data-event-tier="motion"')).toBeLessThan(
+      scrubberEvents.innerHTML.indexOf('data-event-tier="smart"')
+    )
     expect(scrubberFilmstrip.innerHTML).toContain('data-role="scrubber-filmstrip-thumb"')
     expect(scrubberFilmstrip.innerHTML).toContain("/api/cameras/cam-1/timeline/thumbnails/frame/p1.jpg")
     expect(scrubberTicks.innerHTML).toContain("00:00")
