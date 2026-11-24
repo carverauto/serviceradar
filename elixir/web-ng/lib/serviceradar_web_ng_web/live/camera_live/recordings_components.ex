@@ -1420,6 +1420,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
             </div>
 
             <div
+              :if={not @live_mode?}
               id="camera-timeline-player"
               phx-hook="CameraTimelinePlayer"
               phx-update="ignore"
@@ -1431,7 +1432,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
               data-highlight-frame-id={@timeline_highlight_frame_id || ""}
               data-overlay-detections={Jason.encode!(@timeline_overlay_detections)}
               data-window-events={Jason.encode!(@window_scrubber_events)}
-              class={[(@live_mode? or @timeline_playlist_path in [nil, ""]) && "hidden"]}
+              class={[@timeline_playlist_path in [nil, ""] && "hidden"]}
             >
               <div
                 data-role="timeline-video-container"
@@ -1778,7 +1779,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   phx-value-end_us={hit.clip_end_us}
                   phx-value-frame_id={hit.visual_frame_id || ""}
                   class={[
-                    "w-full rounded-lg border p-2 text-left text-xs transition-colors hover:bg-sr-canvas",
+                    "flex w-full items-center gap-2 rounded-lg border p-2 text-left text-xs transition-colors hover:bg-sr-canvas",
                     if(
                       not is_nil(@timeline_highlight_frame_id) and
                         @timeline_highlight_frame_id == hit.visual_frame_id,
@@ -1787,22 +1788,46 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                     )
                   ]}
                 >
-                  <div class="flex flex-wrap items-center justify-between gap-1">
-                    <div class="flex flex-wrap items-center gap-1">
-                      <.ui_badge variant="primary" size="xs">{format_hit_score(hit.score)}</.ui_badge>
-                      <.ui_badge :if={hit.object_class} variant="outline" size="xs">
-                        {hit.object_class}
-                      </.ui_badge>
-                    </div>
-                    <span class="font-mono text-[10px] text-sr-muted">{hit.time_basis}</span>
+                  <div class="relative flex h-9 w-12 shrink-0 items-center justify-center overflow-hidden rounded border border-sr-line bg-zinc-950">
+                    <%= if is_binary(hit.visual_frame_id) and hit.visual_frame_id != "" and is_binary(@active_source_id) and @active_source_id != "" do %>
+                      <img
+                        src={"/api/cameras/#{@active_source_id}/timeline/thumbnails/frame/#{hit.visual_frame_id}.jpg"}
+                        alt={"#{format_hit_object_class(hit.object_class) || "Match"} thumbnail"}
+                        loading="lazy"
+                        class="h-full w-full object-cover"
+                      />
+                    <% else %>
+                      <.icon
+                        name={clip_category_icon(hit_category_atom(hit.object_class))}
+                        class="size-4 text-zinc-400"
+                      />
+                    <% end %>
                   </div>
-                  <div class="mt-1 text-[11px] text-sr-ink">
-                    <.user_time
-                      id={"timeline-hit-time-#{idx}"}
-                      value={us_to_datetime(hit.best_timeline_ts_us)}
-                      timezone={@timezone}
-                      style={:compact}
-                    />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center justify-between gap-1">
+                      <div class="flex flex-wrap items-center gap-1">
+                        <.ui_badge variant="primary" size="xs">
+                          {format_hit_score(hit.score)}
+                        </.ui_badge>
+                        <.ui_badge
+                          :if={format_hit_object_class(hit.object_class)}
+                          data-role="semantic-hit-object-class"
+                          variant="outline"
+                          size="xs"
+                        >
+                          {format_hit_object_class(hit.object_class)}
+                        </.ui_badge>
+                      </div>
+                      <span class="font-mono text-[10px] text-sr-muted">{hit.time_basis}</span>
+                    </div>
+                    <div class="mt-1 truncate text-[11px] text-sr-ink">
+                      <.user_time
+                        id={"timeline-hit-time-#{idx}"}
+                        value={us_to_datetime(hit.best_timeline_ts_us)}
+                        timezone={@timezone}
+                        style={:compact}
+                      />
+                    </div>
                   </div>
                 </button>
               </li>
@@ -2898,6 +2923,28 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
 
   defp format_hit_score(score) when is_number(score), do: "#{round(score * 100)}%"
   defp format_hit_score(_), do: "0%"
+
+  defp format_hit_object_class(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: String.capitalize(trimmed)
+  end
+
+  defp format_hit_object_class(value) when is_atom(value) and not is_nil(value) do
+    value |> Atom.to_string() |> format_hit_object_class()
+  end
+
+  defp format_hit_object_class(_), do: nil
+
+  defp hit_category_atom(value) do
+    case value |> to_string() |> String.trim() |> String.downcase() do
+      "person" -> :person
+      "vehicle" -> :vehicle
+      "animal" -> :animal
+      "package" -> :package
+      "motion" -> :motion
+      _ -> :other
+    end
+  end
 
   defp format_seek_offset_attr(offset) when is_number(offset) and offset > 0 do
     :erlang.float_to_binary(offset * 1.0, [:compact, decimals: 3])

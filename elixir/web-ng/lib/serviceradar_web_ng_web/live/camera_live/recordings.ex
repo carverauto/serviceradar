@@ -2588,20 +2588,18 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Recordings do
 
   defp focus_playback_on_hit(socket, scope, source, cov, clip_start_us, clip_end_us, seek_us) do
     tz = user_timezone(scope)
+    padded_start_us = max(min(clip_start_us, seek_us) - 5_000_000, 0)
+    padded_end_us = max(clip_end_us, seek_us) + 10_000_000
 
     {play_from_us, play_to_us} =
-      if cov.to_us - cov.from_us <= @max_playlist_window_us do
-        {cov.from_us, cov.to_us}
-      else
-        start_us =
-          clip_start_us
-          |> min(seek_us)
-          |> Kernel.-(30_000_000)
-          |> min(cov.to_us - @max_playlist_window_us)
-          |> max(cov.from_us)
+      case cov do
+        %{from_us: cov_from, to_us: cov_to} when is_integer(cov_from) and is_integer(cov_to) ->
+          clamped_from = max(padded_start_us, cov_from)
+          clamped_to = min(padded_end_us, min(clamped_from + @max_playlist_window_us, cov_to))
+          {clamped_from, max(clamped_to, clamped_from + 1_000_000)}
 
-        end_us = min(max(start_us + @max_playlist_window_us, clip_end_us), cov.to_us)
-        {start_us, end_us}
+        _ ->
+          {padded_start_us, min(padded_end_us, padded_start_us + @max_playlist_window_us)}
       end
 
     playlist_path =
