@@ -66,7 +66,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         current_path: current_path,
         page_title: page_title,
         brand_name: brand_name,
-        show_page_title?: page_title != brand_name
+        show_page_title?: page_title != brand_name,
+        vantage_route?: vantage_route?(current_path)
       )
 
     cond do
@@ -349,7 +350,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
       %{href: "/catalog", label: "Solution Packs", icon: "hero-cube-transparent"},
       %{href: "/security", label: "Security", icon: "hero-shield-check"},
-      %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
+      %{href: "/cameras", label: "Vantage", icon: "hero-video-camera"},
       %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},
       %{href: "/settings/cluster", label: "Settings", icon: "hero-cog-6-tooth"}
     ]
@@ -404,8 +405,16 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               <span class="sr-ops-brand-name">{@brand_name}</span>
               <span :if={@show_page_title?} class="sr-ops-topbar-divider" aria-hidden="true"></span>
             </div>
-            <h1 :if={@show_page_title?} class="sr-ops-page-title">
-              {@page_title}
+            <h1
+              :if={@show_page_title?}
+              class={["sr-ops-page-title", @vantage_route? && "inline-flex items-center gap-2"]}
+            >
+              <.vantage_logo
+                :if={@vantage_route?}
+                id="vantage-topbar-logo"
+                class="size-5 shrink-0"
+              />
+              <span>{@page_title}</span>
             </h1>
           </div>
 
@@ -573,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/dashboards"), do: "Dashboards"
   defp operations_page_title("/devices/wifi"), do: "WiFi Inventory"
   defp operations_page_title("/devices/deduplication"), do: "De-duplication tasks"
-  defp operations_page_title("/cameras"), do: "Camera Multiview"
+  defp operations_page_title("/cameras"), do: "Vantage"
   defp operations_page_title("/topology"), do: "Topology"
   defp operations_page_title("/events"), do: "Events"
   defp operations_page_title("/alerts"), do: "Alerts"
@@ -593,8 +602,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp operations_page_title(path) when is_binary(path) do
     cond do
-      String.starts_with?(path, "/cameras/") and String.ends_with?(path, "/recordings") -> "Camera Recordings"
-      String.starts_with?(path, "/cameras/") -> "Camera Feed"
+      String.starts_with?(path, "/cameras/") and String.ends_with?(path, "/recordings") -> "Vantage"
+      String.starts_with?(path, "/cameras/") -> "Vantage"
       String.starts_with?(path, "/dashboards") -> "Dashboards"
       String.starts_with?(path, "/devices") -> "Devices"
       String.starts_with?(path, "/services") -> "Services"
@@ -612,6 +621,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp operations_brand_name("/observability/flows/attributed"), do: "Attributed Flows"
   defp operations_brand_name(_), do: "ServiceRadar"
+
+  defp vantage_route?("/cameras"), do: true
+  defp vantage_route?(path) when is_binary(path), do: String.starts_with?(path, "/cameras/")
+  defp vantage_route?(_), do: false
 
   attr(:href, :string, required: true)
   attr(:label, :string, required: true)

@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
     socket =
       socket
       |> assign(:camera_source_id, camera_source_id)
-      |> assign(:page_title, "Camera Feed")
+      |> assign(:page_title, "Vantage")
       |> assign(:current_path, "/cameras/#{camera_source_id}")
       |> assign(:srql, %{enabled: false, page_path: "/cameras/#{camera_source_id}"})
       |> assign(:camera_tile, nil)
@@ -41,9 +41,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
     <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <div class="sr-camera-page sr-camera-detail-page">
         <header class="sr-camera-toolbar">
-          <div>
-            <h2>{(@camera_tile && @camera_tile.label) || "Camera Feed"}</h2>
-            <p>{(@camera_tile && @camera_tile.detail) || "Opening live camera relay."}</p>
+          <div class="flex items-center gap-3">
+            <.vantage_logo id="vantage-show-logo" class="size-7 shrink-0" />
+            <div>
+              <h2>{(@camera_tile && @camera_tile.label) || "ServiceRadar Vantage"}</h2>
+              <p>{(@camera_tile && @camera_tile.detail) || "Opening live camera relay."}</p>
+            </div>
           </div>
           <.link
             :if={

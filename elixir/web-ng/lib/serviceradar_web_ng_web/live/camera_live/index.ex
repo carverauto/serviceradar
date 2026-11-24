@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
 
     socket =
       socket
-      |> assign(:page_title, "Camera Multiview")
+      |> assign(:page_title, "Vantage")
       |> assign(:current_path, "/cameras")
       |> assign(:srql, %{enabled: false, page_path: "/cameras"})
       |> assign(:layout_options, @layout_options)
@@ -99,9 +99,12 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} current_path={@current_path}>
       <div class="sr-camera-page space-y-4">
         <header class="sr-camera-toolbar">
-          <div>
-            <h2>Camera Multiview</h2>
-            <p>Live relay-backed views from discovered camera inventory.</p>
+          <div class="flex items-center gap-3">
+            <.vantage_logo id="vantage-multiview-logo" class="size-8 shrink-0" />
+            <div>
+              <h2>ServiceRadar Vantage</h2>
+              <p>IP Camera VMS &amp; Visual Intelligence</p>
+            </div>
           </div>
           <div class="flex flex-wrap items-center gap-3">
             <div class="flex items-center gap-1.5">
